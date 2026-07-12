@@ -10,7 +10,7 @@ const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
 const UPLOAD_LARGE = path.resolve(TOOL_ROOT, "upload-large.mjs");
 const SIGN_WINDOWS = path.resolve(TOOL_ROOT, "sign-windows.mjs");
 const SIGN_UPDATER = path.resolve(TOOL_ROOT, "sign-updater.mjs");
-const VERSION = "0.2.9";
+const VERSION = "0.2.10";
 const TIERS = new Set(["patch", "update"]);
 const RIGHTKIT_EXPECTED = new Map([
   ["@rightkit/license", "^0.1.5"],

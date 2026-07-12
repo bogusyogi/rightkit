@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/release",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "Portable Right Suite release CLI/SDK: signed installers, updater artifacts, patch/update routing, hardening, R2 publish, and RightApps registration.",
   "type": "module",
   "bin": {
@@ -9,7 +9,8 @@
   "files": [
     "cli",
     "*.mjs",
-    "*.sh"
+    "*.sh",
+    "*.py"
   ],
   "sideEffects": false,
   "scripts": {
@@ -25,5 +26,5 @@
     "url": "git+https://github.com/adrdsouza/claude.git",
     "directory": "tools/rightkit/packages/release"
   },
-  "packageManager": "pnpm@11.9.0"
+  "packageManager": "pnpm@11.12.0"
 }

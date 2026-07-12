@@ -39,6 +39,8 @@ if (first === "--version" || first === "-v") {
   run("release.mjs", rest.includes("--upload") || rest.includes("--publish") ? rest : [...rest, "--upload"]);
 } else if (first === "lsclean") {
   runBinary("bash", [path.join(packageRoot, "lsclean.sh"), ...args.slice(1)]);
+} else if (first === "generate-dmg-background") {
+  runBinary("python3", [path.join(packageRoot, "generate-dmg-background.py"), ...args.slice(1)]);
 } else if (commands.has(first)) {
   run(commands.get(first), args.slice(1));
 } else if (first.startsWith("-")) {
@@ -102,6 +104,7 @@ Commands:
   deps --check|--audit|--update                      Shared dependency lane
   hardening <artifact...>                            Run the Right Suite hardening scan
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates
+  generate-dmg-background <options>                 Generate the branded multi-resolution DMG background
 
 Direct flags are treated as: right-release release <flags>.
 Publishing requires an explicit tier. Unsigned/local smoke builds stay app-local unless declared in right-release.config.mjs.`);

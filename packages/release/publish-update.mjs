@@ -4,6 +4,7 @@ import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
+import { pruneReleaseObjects } from "./prune-r2.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD = path.join(TOOL_ROOT, "upload-large.mjs");
@@ -45,6 +46,7 @@ if (tier === "patch") {
   const platforms = {};
   const registrations = new Map();
   const uploadedKeys = new Set();
+  const uploadedSignatures = new Set();
   for (const artifact of artifacts) {
     assertCurrentKey(artifact.key, "updater");
     const installerKey = patchInstallerKey(artifact);
@@ -59,6 +61,11 @@ if (tier === "patch") {
       console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD public/${installerKey}`);
       if (!dryRun) await run(process.execPath, [UPLOAD, file, installerKey, "public"], root);
       uploadedKeys.add(installerKey);
+    }
+    if (!uploadedSignatures.has(`${installerKey}.sig`)) {
+      console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD public/${installerKey}.sig`);
+      if (!dryRun) await run(process.execPath, [UPLOAD, signatureFile, `${installerKey}.sig`, "public"], root);
+      uploadedSignatures.add(`${installerKey}.sig`);
     }
     const signature = dryRun ? `<signature:${artifact.signature}>` : (await readFile(signatureFile, "utf8")).trim();
     const artifactKey = artifact.artifactKey || installerKey.replaceAll("/", "__");
@@ -79,6 +86,15 @@ if (tier === "patch") {
   }
   if (!artifacts.length) {
     console.log(`${dryRun ? "[dry-run] " : ""}NO patch updater artifacts; skipping patch manifest registration`);
+    await pruneReleaseObjects({
+      app: config.app,
+      platform: platform === "mac" ? "mac" : "windows",
+      dryRun,
+      keep: {
+        public: installers.map((artifact) => artifact.key),
+        private: target.updater.artifacts.flatMap((artifact) => [artifact.key, `${artifact.key}.sig`]),
+      },
+    });
     process.exit(0);
   }
   const version = config.version || target.updater.version;
@@ -87,7 +103,7 @@ if (tier === "patch") {
     appKey: config.app,
     version,
     channel: config.channel || "stable",
-    platform: null,
+    platform: platform === "mac" ? "darwin" : "windows",
     manifest: {
       version,
       tier,
@@ -100,6 +116,15 @@ if (tier === "patch") {
   console.log(`${dryRun ? "[dry-run] " : ""}POST ${API_BASE}/v1/admin/apps/patches`);
   console.log(JSON.stringify(body));
   if (!dryRun) await register("/v1/admin/apps/patches", body);
+  await pruneReleaseObjects({
+    app: config.app,
+    platform: platform === "mac" ? "mac" : "windows",
+    dryRun,
+    keep: {
+      public: [...installers.map((artifact) => artifact.key), ...registrations.keys(), ...[...registrations.keys()].map((key) => `${key}.sig`)],
+      private: [],
+    },
+  });
   process.exit(0);
 }
 
@@ -108,6 +133,7 @@ if (!artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no u
 const platforms = {};
 const registrations = new Map();
 const uploadedKeys = new Set();
+const uploadedSignatures = new Set();
 for (const artifact of artifacts) {
   assertCurrentKey(artifact.key, "updater");
   const file = path.resolve(root, artifact.file);
@@ -120,6 +146,11 @@ for (const artifact of artifacts) {
     console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD private/${artifact.key}`);
     if (!dryRun) await run(process.execPath, [UPLOAD, file, artifact.key, "private"], root);
     uploadedKeys.add(artifact.key);
+  }
+  if (!uploadedSignatures.has(`${artifact.key}.sig`)) {
+    console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD private/${artifact.key}.sig`);
+    if (!dryRun) await run(process.execPath, [UPLOAD, signatureFile, `${artifact.key}.sig`, "private"], root);
+    uploadedSignatures.add(`${artifact.key}.sig`);
   }
 
   const signature = dryRun ? `<signature:${artifact.signature}>` : (await readFile(signatureFile, "utf8")).trim();
@@ -138,7 +169,7 @@ const body = {
   appKey: config.app,
   version,
   channel: config.channel || "stable",
-  platform: null,
+  platform: platform === "mac" ? "darwin" : "windows",
   manifest: {
     version,
     tier,
@@ -153,6 +184,15 @@ console.log(`${dryRun ? "[dry-run] " : ""}POST ${API_BASE}${route}`);
 console.log(JSON.stringify(body));
 
 if (!dryRun) await register(route, body);
+await pruneReleaseObjects({
+  app: config.app,
+  platform: platform === "mac" ? "mac" : "windows",
+  dryRun,
+  keep: {
+    public: installers.map((artifact) => artifact.key),
+    private: [...registrations.keys(), ...[...registrations.keys()].map((key) => `${key}.sig`)],
+  },
+});
 
 async function fileMetadata(file) {
   const bytes = await readFile(file);

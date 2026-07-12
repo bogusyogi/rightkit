@@ -91,6 +91,10 @@ test("patch registers a free updater manifest backed by public installer-path ob
   assert.match(result.stdout, /pub-6c73208d46c245a9b4881d5e02f6b618\.r2\.dev\/fixture\/installers\/windows\/current\/Fixture\.exe/);
   assert.match(result.stdout, /POST .*\/v1\/admin\/apps\/patches/);
   assert.match(result.stdout, /"tier":"patch"/);
+  assert.match(result.stdout, /"platform":"windows"/);
+  assert.equal((result.stdout.match(/UPLOAD public\/fixture\/installers\/windows\/current\/Fixture\.exe\.sig/g) ?? []).length, 1);
+  assert.match(result.stdout, /PRUNE rightapps-downloads\/fixture\/windows/);
+  assert.match(result.stdout, /PRUNE rightapps-updates\/fixture\/windows keep=<none>/);
 });
 
 test("routes feature updates to the Pro-gated release endpoint", () => {
@@ -98,8 +102,12 @@ test("routes feature updates to the Pro-gated release endpoint", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /POST .*\/v1\/admin\/apps\/releases/);
   assert.match(result.stdout, /"tier":"update"/);
+  assert.match(result.stdout, /"platform":"windows"/);
   assert.match(result.stdout, /UPLOAD private\/fixture\/updates\/windows\/current\/Fixture\.exe/);
-  assert.doesNotMatch(result.stdout, /Fixture-Setup\.exe/);
+  assert.equal((result.stdout.match(/UPLOAD private\/fixture\/updates\/windows\/current\/Fixture\.exe\.sig/g) ?? []).length, 1);
+  assert.match(result.stdout, /PRUNE rightapps-downloads\/fixture\/windows/);
+  assert.match(result.stdout, /PRUNE rightapps-updates\/fixture\/windows/);
+  assert.doesNotMatch(result.stdout, /UPLOAD .*Fixture-Setup\.exe/);
 });
 
 test("allows an installer-only patch without registering an updater manifest", () => {
@@ -113,6 +121,7 @@ test("allows an installer-only patch without registering an updater manifest", (
   assert.match(result.stdout, /NO patch updater artifacts/);
   assert.doesNotMatch(result.stdout, /\/v1\/admin\/apps\/patches/);
   assert.doesNotMatch(result.stdout, /UPLOAD private\//);
+  assert.match(result.stdout, /PRUNE rightapps-downloads\/fixture\/windows/);
 });
 
 test("refuses to publish without a valid tier", () => {
