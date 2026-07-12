@@ -1,0 +1,12 @@
+[package]
+name = "rightkit-license"
+version = "0.1.1"
+edition = "2021"
+description = "Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license."
+license = "UNLICENSED"
+
+[dependencies]
+ed25519-dalek = "2"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

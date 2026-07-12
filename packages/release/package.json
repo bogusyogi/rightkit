@@ -1,0 +1,29 @@
+{
+  "name": "@rightkit/release",
+  "version": "0.2.9",
+  "description": "Portable Right Suite release CLI/SDK: signed installers, updater artifacts, patch/update routing, hardening, R2 publish, and RightApps registration.",
+  "type": "module",
+  "bin": {
+    "right-release": "cli/right-release.mjs"
+  },
+  "files": [
+    "cli",
+    "*.mjs",
+    "*.sh"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "doctor:all": "node --test right-suite-contract.test.mjs"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adrdsouza/claude.git",
+    "directory": "tools/rightkit/packages/release"
+  },
+  "packageManager": "pnpm@11.9.0"
+}

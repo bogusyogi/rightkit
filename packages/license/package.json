@@ -1,0 +1,40 @@
+{
+  "name": "@rightkit/license",
+  "version": "0.1.5",
+  "packageManager": "pnpm@11.9.0",
+  "description": "The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace).",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist", "rust"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@tauri-apps/plugin-http": "^2",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "peerDependencies": {
+    "@tauri-apps/plugin-http": "^2"
+  },
+  "peerDependenciesMeta": {
+    "@tauri-apps/plugin-http": { "optional": true }
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adrdsouza/claude.git",
+    "directory": "tools/rightkit/packages/license"
+  }
+}

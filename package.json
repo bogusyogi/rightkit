@@ -1,0 +1,13 @@
+{
+  "name": "rightkit-shared",
+  "private": true,
+  "description": "Canonical source workspace for shared RightKit npm packages and Rust crates.",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "test:release": "pnpm --dir packages/release test",
+    "doctor:release": "pnpm --dir packages/release doctor:all",
+    "build:license": "pnpm --dir packages/license build",
+    "build:logs": "pnpm --dir packages/logs build",
+    "build:updates": "pnpm --dir packages/updates build"
+  }
+}
