@@ -8,7 +8,7 @@ const workspace = path.resolve(new URL("../../../..", import.meta.url).pathname.
 const pubkey = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5Mzk1RjlGRjQ2NjI2MUQKUldRZEptYjBuMTg1S1VSUXlBdFM4WmtzaHArYko0U2hRMDVlSDJmSExVZG82Q0hoQ2srUlhqanAK";
 const licensePackage = "^0.1.5";
 const logsPackage = "^0.1.3";
-const releasePackage = "^0.2.10";
+const releasePackage = "^0.2.11";
 const apps = [
   { key: "viewright", root: "viewright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/build-mac-notarized.sh"] },
   { key: "scraperight", root: "scraperight", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["package.sh"] },
@@ -67,6 +67,9 @@ for (const app of apps) {
       }
     }
     assert.match(config.targets.mac.package.args.join(" "), /mac:dmg:notarized|--notarize/, `${app.key} publish packaging must use the notarized macOS lane`);
+    for (const installer of config.targets.mac.installer.artifacts) {
+      assert.equal(path.dirname(installer.file), ".", `${app.key} macOS installer must be copied to the app package root before upload`);
+    }
     assert.ok(config.targets.win.sign.files.length);
     const winUpdaterFiles = new Set(config.targets.win.updater.artifacts.map((artifact) => artifact.file));
     for (const signed of config.targets.win.sign.files) assert.ok(winUpdaterFiles.has(signed), `${signed} must be both Azure-signed and updater-signed`);
@@ -80,6 +83,7 @@ for (const app of apps) {
     for (const releaseFile of app.releaseFiles) {
       const source = readFileSync(path.join(root, releaseFile), "utf8");
       assert.doesNotMatch(source, /(?:\.\.\/)+tools\/right-release|tools\/right-release\//, `${app.key} ${releaseFile} must consume the installed package`);
+      assert.match(source, /right-release["']?,?\s*["']mirror-root-artifact|right-release mirror-root-artifact/, `${app.key} ${releaseFile} must mirror the final DMG to the canonical package root`);
     }
     for (const forbidden of ["scripts/build-mac-unsigned.sh", "package-unsigned.sh"]) {
       assert.equal(existsSync(path.join(root, forbidden)), false, `${app.key} must not ship ${forbidden}`);

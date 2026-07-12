@@ -16,6 +16,7 @@ const commands = new Map([
   ["sign-windows", "sign-windows.mjs"],
   ["sign-updater", "sign-updater.mjs"],
   ["create-mac-updater", "create-mac-updater.mjs"],
+  ["mirror-root-artifact", "mirror-root-artifact.mjs"],
 ]);
 
 const args = process.argv.slice(2);
@@ -105,6 +106,8 @@ Commands:
   hardening <artifact...>                            Run the Right Suite hardening scan
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates
   generate-dmg-background <options>                 Generate the branded multi-resolution DMG background
+  mirror-root-artifact --file <path> --package-root <dir>
+                                                      Persist a worktree artifact in the primary repo root
 
 Direct flags are treated as: right-release release <flags>.
 Publishing requires an explicit tier. Unsigned/local smoke builds stay app-local unless declared in right-release.config.mjs.`);
