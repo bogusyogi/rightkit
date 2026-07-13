@@ -4,7 +4,7 @@
   "npm": {
     "@rightkit/license": "0.1.5",
     "@rightkit/logs": "0.1.3",
-    "@rightkit/release": "0.2.16",
+    "@rightkit/release": "0.2.17",
     "@rightkit/updates": "0.2.2"
   },
   "cargo": {

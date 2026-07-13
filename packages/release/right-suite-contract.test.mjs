@@ -19,7 +19,7 @@ const apps = [
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.16");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.17");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
   assert.equal(versions.npm["@rightkit/updates"], "0.2.2");
