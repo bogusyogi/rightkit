@@ -2,8 +2,14 @@
 name = "rightkit-license"
 version = "0.1.1"
 edition = "2021"
+rust-version = "1.81"
 description = "Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license."
-license = "UNLICENSED"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+keywords = ["license", "ed25519", "offline", "entitlement"]
+categories = ["authentication", "cryptography"]
+include = ["src/**", "tests/**", "test-vectors/**", "README.md"]
 
 [dependencies]
 ed25519-dalek = "2"

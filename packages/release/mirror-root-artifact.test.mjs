@@ -4,8 +4,9 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-const helper = new URL("./mirror-root-artifact.mjs", import.meta.url);
+const helper = fileURLToPath(new URL("./mirror-root-artifact.mjs", import.meta.url));
 
 test("mirrors a nested package artifact from a linked worktree into both package roots", () => {
   const temp = mkdtempSync(path.join(os.tmpdir(), "right-release-mirror-"));
@@ -26,7 +27,7 @@ test("mirrors a nested package artifact from a linked worktree into both package
     mkdirSync(path.dirname(source), { recursive: true });
     writeFileSync(source, "signed-dmg-fixture");
 
-    execFileSync(process.execPath, [helper.pathname, "--file", source, "--package-root", packageRoot], { encoding: "utf8" });
+    execFileSync(process.execPath, [helper, "--file", source, "--package-root", packageRoot], { encoding: "utf8" });
 
     assert.equal(readFileSync(path.join(packageRoot, "App_1.0.0.dmg"), "utf8"), "signed-dmg-fixture");
     assert.equal(readFileSync(path.join(main, "apps", "desktop", "App_1.0.0.dmg"), "utf8"), "signed-dmg-fixture");
@@ -44,7 +45,7 @@ test("copies a main-worktree artifact into its package root", () => {
     mkdirSync(path.dirname(source), { recursive: true });
     writeFileSync(source, "main-worktree-dmg");
 
-    execFileSync(process.execPath, [helper.pathname, "--file", source, "--package-root", root], { encoding: "utf8" });
+    execFileSync(process.execPath, [helper, "--file", source, "--package-root", root], { encoding: "utf8" });
 
     assert.equal(readFileSync(path.join(root, "App_2.0.0.dmg"), "utf8"), "main-worktree-dmg");
   } finally {

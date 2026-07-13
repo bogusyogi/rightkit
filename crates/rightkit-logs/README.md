@@ -15,17 +15,18 @@ The crate deliberately has no Tauri, async-runtime, network, or tracing dependen
 
 Nothing is uploaded. The host decides when a user copies or saves the returned bundle.
 
-## Vendored integration
+## Registry integration
 
-The published `@rightkit/logs` npm tarball carries this crate under `rust/`.
-Copy that directory into the app repository and commit it:
+After the Phase 2 publication gate, product repositories consume the exact
+crates.io version:
 
 ```toml
-rightkit-logs = { path = "vendor/rightkit-logs" }
+rightkit-logs = "=0.1.0"
 ```
 
-Cargo must use the committed relative path in development and release builds. Do
-not use a Git dependency, sibling checkout, registry crate, or filesystem link.
+Do not use a Git dependency, sibling checkout, vendored copy, or filesystem
+link. Until the publication/migration gate is complete, existing app-local
+copies are temporary compatibility state, not the target architecture.
 
 ## Host adapter
 
@@ -62,3 +63,5 @@ cargo test -p rightkit-logs
 cargo fmt --check
 cargo clippy -p rightkit-logs --all-targets -- -D warnings
 ```
+
+Licensed under either MIT or Apache-2.0, at your option.

@@ -296,7 +296,7 @@ fn apply_global_event_policy(sources: &mut [SourceDiagnostics], max_events: usiz
         for source in sources {
             let before = source.events.len();
             source.events.retain(|event| {
-                event_timestamp(event).is_none_or(|timestamp| timestamp >= anchor_timestamp)
+                event_timestamp(event).map_or(true, |timestamp| timestamp >= anchor_timestamp)
             });
             source.stats.dropped = source
                 .stats

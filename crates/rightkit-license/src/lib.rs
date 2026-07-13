@@ -120,13 +120,11 @@ impl Entitlement {
                 return false;
             }
         }
-        if !requirement.all_features.is_empty()
-            && !self.has_all_features(&requirement.all_features)
+        if !requirement.all_features.is_empty() && !self.has_all_features(&requirement.all_features)
         {
             return false;
         }
-        if !requirement.any_features.is_empty()
-            && !self.has_any_feature(&requirement.any_features)
+        if !requirement.any_features.is_empty() && !self.has_any_feature(&requirement.any_features)
         {
             return false;
         }
@@ -172,7 +170,9 @@ impl std::fmt::Display for VerifyError {
             VerifyError::AppMismatch { expected, got } => {
                 write!(f, "license token is for app '{got}', not '{expected}'")
             }
-            VerifyError::DeviceMismatch => write!(f, "license token is bound to a different device"),
+            VerifyError::DeviceMismatch => {
+                write!(f, "license token is bound to a different device")
+            }
             VerifyError::Expired { exp, now } => write!(f, "license token expired ({now} > {exp})"),
             VerifyError::Parse(e) => write!(f, "license payload parse error: {e}"),
         }
@@ -201,12 +201,17 @@ pub fn verify_token(
     }
 
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    let payload_bytes = engine.decode(payload_b64).map_err(|_| VerifyError::BadEncoding)?;
-    let sig_bytes = engine.decode(sig_b64).map_err(|_| VerifyError::BadEncoding)?;
+    let payload_bytes = engine
+        .decode(payload_b64)
+        .map_err(|_| VerifyError::BadEncoding)?;
+    let sig_bytes = engine
+        .decode(sig_b64)
+        .map_err(|_| VerifyError::BadEncoding)?;
 
     let vk = VerifyingKey::from_bytes(pubkey).map_err(|_| VerifyError::BadKey)?;
     let sig = Signature::from_slice(&sig_bytes).map_err(|_| VerifyError::BadEncoding)?;
-    vk.verify(&payload_bytes, &sig).map_err(|_| VerifyError::BadSignature)?;
+    vk.verify(&payload_bytes, &sig)
+        .map_err(|_| VerifyError::BadSignature)?;
 
     let ent: Entitlement =
         serde_json::from_slice(&payload_bytes).map_err(|e| VerifyError::Parse(e.to_string()))?;
@@ -221,7 +226,10 @@ pub fn verify_token(
         return Err(VerifyError::DeviceMismatch);
     }
     if now_unix > ent.exp {
-        return Err(VerifyError::Expired { exp: ent.exp, now: now_unix });
+        return Err(VerifyError::Expired {
+            exp: ent.exp,
+            now: now_unix,
+        });
     }
     Ok(ent)
 }
@@ -252,8 +260,14 @@ mod tests {
         assert!(e.tier_at_least("plus"));
         assert!(e.satisfies(&LicenseRequirement::pro()));
         assert!(e.satisfies(&LicenseRequirement::feature("wake_word")));
-        assert!(e.satisfies(&LicenseRequirement::any_feature(["missing", "voice_commands"])));
-        assert!(e.satisfies(&LicenseRequirement::all_features(["wake_word", "voice_commands"])));
+        assert!(e.satisfies(&LicenseRequirement::any_feature([
+            "missing",
+            "voice_commands"
+        ])));
+        assert!(e.satisfies(&LicenseRequirement::all_features([
+            "wake_word",
+            "voice_commands"
+        ])));
         assert!(!e.satisfies(&LicenseRequirement::feature("byok_ai")));
     }
 
@@ -299,7 +313,13 @@ mod tests {
 
     #[test]
     fn rejects_malformed() {
-        assert_eq!(verify_token("no-dot", &PUBKEY, "heardright", "dev-1", 0), Err(VerifyError::Malformed));
-        assert_eq!(verify_token("", &PUBKEY, "heardright", "dev-1", 0), Err(VerifyError::Malformed));
+        assert_eq!(
+            verify_token("no-dot", &PUBKEY, "heardright", "dev-1", 0),
+            Err(VerifyError::Malformed)
+        );
+        assert_eq!(
+            verify_token("", &PUBKEY, "heardright", "dev-1", 0),
+            Err(VerifyError::Malformed)
+        );
     }
 }

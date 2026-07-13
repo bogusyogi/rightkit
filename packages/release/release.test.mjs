@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
+const versions = JSON.parse(readFileSync(new URL("./rightkit-versions.json", import.meta.url), "utf8"));
 
 function fixture({ signed = true, publish = false, packageJson } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
@@ -17,8 +18,12 @@ function fixture({ signed = true, publish = false, packageJson } = {}) {
       packageJson ?? {
         name: "fixture",
         scripts: { "release:patch:win": "right-release --platform win --tier patch" },
-        dependencies: { "@rightkit/license": "^0.1.5", "@rightkit/logs": "^0.1.3" },
-        devDependencies: { "@rightkit/release": "^0.2.11" },
+        packageManager: versions.packageManager,
+        dependencies: {
+          "@rightkit/license": versions.npm["@rightkit/license"],
+          "@rightkit/logs": versions.npm["@rightkit/logs"],
+        },
+        devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
       },
       null,
       2,
@@ -56,8 +61,12 @@ function lockFixture() {
       {
         name: "fixture-lock",
         scripts: { "release:patch:mac": "right-release --platform mac --tier patch" },
-        dependencies: { "@rightkit/license": "^0.1.5", "@rightkit/logs": "^0.1.3" },
-        devDependencies: { "@rightkit/release": "^0.2.11" },
+        packageManager: versions.packageManager,
+        dependencies: {
+          "@rightkit/license": versions.npm["@rightkit/license"],
+          "@rightkit/logs": versions.npm["@rightkit/logs"],
+        },
+        devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
       },
       null,
       2,
@@ -134,6 +143,7 @@ test("rejects Git, path, or link RightKit app dependencies before release work s
     fixture({
       packageJson: {
         name: "fixture",
+        packageManager: versions.packageManager,
         scripts: { "release:patch:win": "node ../tools/right-release/release.mjs --tier patch" },
         dependencies: {
           "@rightkit/license": "git+https://github.com/adrdsouza/rightkit.git#main",
@@ -148,6 +158,17 @@ test("rejects Git, path, or link RightKit app dependencies before release work s
   );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /right-release bin|published npm package/i);
+});
+
+test("rejects hosted workflow files before release work starts", () => {
+  const config = fixture();
+  const workflowDir = path.join(path.dirname(config), ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(workflowDir, "ci.yml"), "name: forbidden\n");
+
+  const result = run(config, "--tier=patch");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /hosted workflow.*forbidden/i);
 });
 
 test("publish runs the signed package step before the updater publication step", () => {

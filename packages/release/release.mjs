@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,13 +10,10 @@ const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
 const UPLOAD_LARGE = path.resolve(TOOL_ROOT, "upload-large.mjs");
 const SIGN_WINDOWS = path.resolve(TOOL_ROOT, "sign-windows.mjs");
 const SIGN_UPDATER = path.resolve(TOOL_ROOT, "sign-updater.mjs");
-const VERSION = "0.2.11";
+const RIGHTKIT_VERSIONS = JSON.parse(readFileSync(path.resolve(TOOL_ROOT, "rightkit-versions.json"), "utf8"));
+const VERSION = RIGHTKIT_VERSIONS.npm["@rightkit/release"];
 const TIERS = new Set(["patch", "update"]);
-const RIGHTKIT_EXPECTED = new Map([
-  ["@rightkit/license", "^0.1.5"],
-  ["@rightkit/logs", "^0.1.3"],
-  ["@rightkit/release", `^${VERSION}`],
-]);
+const RIGHTKIT_EXPECTED = new Map(Object.entries(RIGHTKIT_VERSIONS.npm));
 const FORBIDDEN_RIGHTKIT_SPEC = /^(?:git|file|link|workspace):|github|github\.com/i;
 
 const args = process.argv.slice(2);
@@ -181,6 +178,16 @@ async function validateRightKitPackageContract(root, appName) {
   const packageJsonPath = path.join(root, "package.json");
   const pkg = JSON.parse(await readFile(packageJsonPath, "utf8"));
   const scripts = pkg.scripts ?? {};
+  const workflowDir = path.join(root, ".github", "workflows");
+  if (existsSync(workflowDir)) {
+    const workflows = await readdir(workflowDir);
+    if (workflows.length) {
+      fail(`${appName ?? pkg.name ?? "app"} hosted workflow files are forbidden: ${workflows.join(", ")}`);
+    }
+  }
+  if (pkg.packageManager !== RIGHTKIT_VERSIONS.packageManager) {
+    fail(`${appName ?? pkg.name ?? "app"} packageManager must be ${RIGHTKIT_VERSIONS.packageManager}, got ${pkg.packageManager ?? "<missing>"}`);
+  }
   if (JSON.stringify(scripts).includes("../tools/right-release") || JSON.stringify(scripts).includes("../tools/rightkit/packages/release")) {
     fail(`${appName ?? pkg.name ?? "app"} package.json must call the right-release bin, not parent-workspace release source`);
   }
