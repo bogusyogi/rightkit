@@ -23,6 +23,30 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
   assert.equal(versions.npm["@rightkit/updates"], "0.1.1");
+  assert.equal(versions.cargo["rightkit-license"], "0.1.1");
+  assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
+  for (const [crate, version] of Object.entries(versions.cargo)) {
+    const manifest = readFileSync(path.join(workspace, `tools/rightkit/crates/${crate}/Cargo.toml`), "utf8");
+    assert.match(manifest, new RegExp(`^version\\s*=\\s*"${version.replaceAll(".", "\\.")}"$`, "m"));
+  }
+});
+
+test("license v2 public vector is identical at every portable consumer boundary", () => {
+  const canonical = readFileSync(
+    path.join(workspace, "tools/rightkit/crates/rightkit-license/test-vectors/license-v2.json"),
+    "utf8",
+  );
+  for (const relativePath of [
+    "tools/rightkit/packages/license/test-vectors/license-v2.json",
+    "rightapps/packages/api/src/licensing/test-vectors/license-v2.json",
+    "scraperight/tests/fixtures/license-v2.json",
+  ]) {
+    assert.equal(
+      readFileSync(path.join(workspace, relativePath), "utf8"),
+      canonical,
+      `${relativePath} must be the canonical public license vector byte-for-byte`,
+    );
+  }
 });
 
 for (const app of apps) {

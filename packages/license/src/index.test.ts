@@ -11,6 +11,7 @@ import {
   type StoredLicense,
   type LicenseStorage,
 } from './index.js';
+import publicVector from '../test-vectors/license-v2.json';
 
 function memStorage(): LicenseStorage & { value: StoredLicense | null } {
   return { value: null, async get() { return this.value; }, async set(l) { this.value = l; } };
@@ -33,11 +34,11 @@ describe('activate', () => {
     expect(lic.entitlements?.features).toContain('routing');
     expect((await storage.get())?.status).toBe('active');
   });
-  it('captures the v2 signedToken and persists it', async () => {
-    const fetchImpl = (async () => jsonResponse(200, { ok: true, status: 'active', activationToken: 'tok', licenseId: 'lic_1', validUntil: null, entitlements: { v: 1, tier: 'pro', features: [] }, signedToken: 'PAYLOAD.SIG' })) as unknown as typeof fetch;
+  it('carries the portable v2 signed token unchanged into native storage', async () => {
+    const fetchImpl = (async () => jsonResponse(200, { ok: true, status: 'active', activationToken: 'tok', licenseId: 'lic_1', validUntil: null, entitlements: { v: 1, tier: 'pro', features: publicVector.expectedFeatures }, signedToken: publicVector.token })) as unknown as typeof fetch;
     const { c, storage } = clientWith(fetchImpl);
-    expect((await c.activate('AD-XXXX')).signedToken).toBe('PAYLOAD.SIG');
-    expect((await storage.get())?.signedToken).toBe('PAYLOAD.SIG');
+    expect((await c.activate('AD-XXXX')).signedToken).toBe(publicVector.token);
+    expect((await storage.get())?.signedToken).toBe(publicVector.token);
   });
   it('maps a non-active response to invalid', async () => {
     const fetchImpl = (async () => jsonResponse(200, { ok: false, status: 'invalid', message: 'nope' })) as unknown as typeof fetch;
