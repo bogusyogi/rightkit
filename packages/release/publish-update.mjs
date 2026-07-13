@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { pruneReleaseObjects } from "./prune-r2.mjs";
+import { loadReleaseToken } from "./release-token.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD = path.join(TOOL_ROOT, "upload-large.mjs");
@@ -37,8 +38,19 @@ const target = config?.targets?.[platform];
 const artifacts = target?.updater?.artifacts ?? [];
 const installers = target?.installer?.artifacts ?? [];
 
+if (tier === "patch" && !installers.length) fail(`${config?.app ?? "app"} ${platform} patch has no installer.artifacts`);
+if (tier === "update" && !artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no updater.artifacts`);
+
+let releaseToken = null;
+if (!dryRun && (tier === "update" || artifacts.length > 0)) {
+  try {
+    releaseToken = await loadReleaseToken();
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
 if (tier === "patch") {
-  if (!installers.length) fail(`${config?.app ?? "app"} ${platform} patch has no installer.artifacts`);
   for (const installer of installers) {
     assertCurrentKey(installer.key, "installer");
     const file = path.resolve(root, installer.file);
@@ -144,8 +156,6 @@ if (tier === "patch") {
   });
   process.exit(0);
 }
-
-if (!artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no updater.artifacts`);
 
 const platforms = {};
 const registrations = new Map();
@@ -262,12 +272,11 @@ function patchInstallerKey(artifact) {
 }
 
 async function register(route, body) {
-  const token = process.env.RIGHTAPPS_ADMIN_TOKEN;
-  if (!token) fail("RIGHTAPPS_ADMIN_TOKEN is required to register an update");
+  if (!releaseToken) fail("RIGHTAPPS_RELEASE_TOKEN is required to register an update");
   const response = await fetch(`${API_BASE}${route}`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${token}`,
+      authorization: `Bearer ${releaseToken}`,
       "content-type": "application/json",
       "x-store-slug": process.env.RIGHTAPPS_STORE_SLUG || "rightapps",
     },

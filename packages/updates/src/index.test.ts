@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAutoUpdateClient, type RuntimeUpdate } from './index.js';
+import { createAutoUpdateClient, fetchReleaseStatus, type RuntimeUpdate } from './index.js';
 
 function update(version = '1.2.3'): RuntimeUpdate {
   return {
     version,
+    rawJson: { tier: 'patch' },
     async downloadAndInstall(onEvent) {
       onEvent?.({ event: 'Started', data: { contentLength: 100 } });
       onEvent?.({ event: 'Progress', data: { chunkLength: 40 } });
@@ -14,6 +15,75 @@ function update(version = '1.2.3'): RuntimeUpdate {
 }
 
 describe('createAutoUpdateClient', () => {
+  it('surfaces a Pro-update nudge when Tauri has no eligible payload', async () => {
+    const client = createAutoUpdateClient({
+      check: async () => null,
+      getProUpdateVersion: async () => '2.0.0',
+    });
+
+    await expect(client.checkOnce()).resolves.toMatchObject({
+      kind: 'available',
+      version: '2.0.0',
+      tier: 'update',
+      eligible: false,
+      reason: 'pro_required',
+    });
+  });
+
+  it('classifies the exact Tauri manifest without a second tier probe', async () => {
+    const client = createAutoUpdateClient({
+      check: async () => update(),
+    });
+
+    await expect(client.checkOnce()).resolves.toMatchObject({
+      kind: 'available',
+      tier: 'patch',
+      eligible: true,
+    });
+  });
+
+  it('gates a feature update from the exact Tauri manifest by default', async () => {
+    const client = createAutoUpdateClient({
+      check: async () => ({ ...update(), rawJson: { tier: 'update' } }),
+    });
+
+    await expect(client.checkOnce()).resolves.toMatchObject({
+      kind: 'available',
+      tier: 'update',
+      eligible: false,
+      reason: 'pro_required',
+    });
+  });
+
+  it.each([undefined, null, 'stable', 1])('fails closed for malformed manifest tier %j', async (tier) => {
+    const install = vi.fn();
+    const client = createAutoUpdateClient({
+      check: async () => ({
+        ...update(),
+        rawJson: tier === undefined ? {} : { tier },
+        downloadAndInstall: install,
+      }),
+    });
+
+    await expect(client.checkOnce()).resolves.toMatchObject({ kind: 'error' });
+    await client.installAvailable();
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it('clears a previously available update when a later manifest is malformed', async () => {
+    const install = vi.fn();
+    let rawJson: Record<string, unknown> = { tier: 'patch' };
+    const client = createAutoUpdateClient({
+      check: async () => ({ ...update(), rawJson, downloadAndInstall: install }),
+    });
+
+    await expect(client.checkOnce()).resolves.toMatchObject({ kind: 'available' });
+    rawJson = {};
+    await expect(client.checkOnce()).resolves.toMatchObject({ kind: 'error' });
+    await expect(client.installAvailable()).resolves.toMatchObject({ kind: 'up_to_date' });
+    expect(install).not.toHaveBeenCalled();
+  });
+
   it('checks patches without auto-installing by default', async () => {
     const statuses: string[] = [];
     const client = createAutoUpdateClient({
@@ -109,5 +179,38 @@ describe('createAutoUpdateClient', () => {
     await client.checkOnce();
     expect(check).toHaveBeenCalledWith({ headers: { Authorization: 'Bearer token' } });
     expect(installOptions).toEqual({ headers: { Authorization: 'Bearer token' } });
+  });
+});
+
+describe('fetchReleaseStatus', () => {
+  it('accepts the public version-only RightApps response', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      schema: 1,
+      appKey: 'viewright',
+      platform: 'windows',
+      patchVersion: '1.4.2',
+      updateVersion: '2.0.0',
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+
+    await expect(fetchReleaseStatus('https://viewright.cc/v1/apps/viewright/releases/status.json', fetchImpl)).resolves.toEqual({
+      schema: 1,
+      appKey: 'viewright',
+      platform: 'windows',
+      patchVersion: '1.4.2',
+      updateVersion: '2.0.0',
+    });
+  });
+
+  it('rejects status responses containing private artifact coordinates', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      schema: 1,
+      appKey: 'viewright',
+      platform: 'windows',
+      patchVersion: null,
+      updateVersion: '2.0.0',
+      url: 'https://private.example/update',
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+
+    await expect(fetchReleaseStatus('https://example/status.json', fetchImpl)).rejects.toThrow('release status');
   });
 });

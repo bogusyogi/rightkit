@@ -8,7 +8,7 @@ import test from "node:test";
 
 const publisher = fileURLToPath(new URL("./publish-update.mjs", import.meta.url));
 
-function fixture() {
+function fixture({ materialize = false } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "right-publish-test-"));
   const config = path.join(dir, "right-release.config.mjs");
   writeFileSync(config, `export default ${JSON.stringify({
@@ -27,6 +27,11 @@ function fixture() {
       },
     },
   })};\n`);
+  if (materialize) {
+    writeFileSync(path.join(dir, "Fixture-Setup.exe"), "signed installer");
+    writeFileSync(path.join(dir, "Fixture.exe"), "signed updater");
+    writeFileSync(path.join(dir, "Fixture.exe.sig"), "updater signature");
+  }
   return config;
 }
 
@@ -180,4 +185,23 @@ test("refuses versioned updater object keys for gated feature updates", () => {
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /current R2 object/);
+});
+
+test("requires the durable release credential before the first patch upload", () => {
+  const config = fixture({ materialize: true });
+  const env = {
+    ...process.env,
+    APPDATA: path.join(path.dirname(config), "empty-appdata"),
+    RIGHT_RELEASE_TIER: "patch",
+    RIGHTAPPS_ADMIN_TOKEN: "expired-admin-session",
+  };
+  delete env.RIGHTAPPS_RELEASE_TOKEN;
+  delete env.RIGHTAPPS_RELEASE_TOKEN_FILE;
+  const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win"], {
+    encoding: "utf8",
+    env,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /RIGHTAPPS_RELEASE_TOKEN/);
+  assert.doesNotMatch(result.stdout, /UPLOAD /, "credential preflight must run before R2 mutation");
 });
