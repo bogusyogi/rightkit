@@ -42,7 +42,18 @@ export interface AutoUpdateClientConfig {
   check: CheckForUpdate;
   /** Metadata-only Pro release version used to nudge ineligible Free users. */
   getProUpdateVersion?: () => Promise<string | null> | string | null;
+  /** Manifest-check headers; also the legacy install fallback when no separate callback is set. */
   getHeaders?: () => Promise<UpdateHeaders | undefined> | UpdateHeaders | undefined;
+  /**
+   * Headers used to download/install an eligible artifact. When absent, the
+   * manifest-check headers are reused for backward compatibility. New apps
+   * should always provide this callback to make cross-origin policy explicit.
+   * It runs after canInstall, immediately before download, and is not cached.
+   */
+  getInstallHeaders?: (
+    tier: UpdateTier,
+    context: { checkHeaders?: UpdateHeaders },
+  ) => Promise<UpdateHeaders | undefined> | UpdateHeaders | undefined;
   getTier?: (
     version: string,
     context: { headers?: UpdateHeaders },
@@ -111,23 +122,46 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
   const shouldAutoInstall = config.shouldAutoInstall ?? (() => false);
   const isEligible = config.isEligible ?? ((tier) => tier !== 'update');
   const deferReason = config.deferReason ?? (() => 'host_not_idle');
+  let generation = 0;
   let available:
-    | { update: RuntimeUpdate; tier: UpdateTier | null; headers?: UpdateHeaders; eligible: boolean }
+    | {
+        update: RuntimeUpdate;
+        tier: UpdateTier;
+        checkHeaders?: UpdateHeaders;
+        generation: number;
+      }
     | null = null;
+  let ineligibleAvailable: Extract<AutoUpdateStatus, { kind: 'available' }> | null = null;
 
   function emit(status: AutoUpdateStatus): AutoUpdateStatus {
     config.onStatus?.(status);
     return status;
   }
 
+  function emitForGeneration(status: AutoUpdateStatus, expectedGeneration: number): AutoUpdateStatus {
+    return generation === expectedGeneration ? emit(status) : status;
+  }
+
+  function idleWhenStale(expectedGeneration: number): AutoUpdateStatus | null {
+    return generation === expectedGeneration ? null : { kind: 'idle' };
+  }
+
   async function checkOnce(): Promise<AutoUpdateStatus> {
+    const checkGeneration = ++generation;
+    available = null;
+    ineligibleAvailable = null;
     try {
-      available = null;
       emit({ kind: 'checking' });
       const headers = await config.getHeaders?.();
+      const staleAfterHeaders = idleWhenStale(checkGeneration);
+      if (staleAfterHeaders) return staleAfterHeaders;
       const update = await config.check(headers ? { headers } : undefined);
+      const staleAfterCheck = idleWhenStale(checkGeneration);
+      if (staleAfterCheck) return staleAfterCheck;
       if (!update) {
         const proUpdateVersion = await config.getProUpdateVersion?.();
+        const staleAfterStatus = idleWhenStale(checkGeneration);
+        if (staleAfterStatus) return staleAfterStatus;
         if (proUpdateVersion) {
           return emit({
             kind: 'available',
@@ -143,77 +177,101 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
       const tier = config.getTier
         ? await config.getTier(update.version, { headers })
         : updateTierFromManifest(update.rawJson);
+      const staleAfterTier = idleWhenStale(checkGeneration);
+      if (staleAfterTier) return staleAfterTier;
       if (tier !== 'patch' && tier !== 'update') {
         throw new Error('update manifest tier must be "patch" or "update"');
       }
       const eligible = await isEligible(tier, { headers });
-      available = { update, tier, headers, eligible };
-      const availableStatus = emit({
+      const staleAfterEligibility = idleWhenStale(checkGeneration);
+      if (staleAfterEligibility) return staleAfterEligibility;
+      available = eligible
+        ? { update, tier, checkHeaders: headers, generation: checkGeneration }
+        : null;
+      const nextAvailableStatus: Extract<AutoUpdateStatus, { kind: 'available' }> = {
         kind: 'available',
         version: update.version,
         tier,
         eligible,
         reason: !eligible && tier === 'update' ? 'pro_required' : 'auto_install_off',
-      });
-      if (!eligible || !(await shouldAutoInstall(tier, { headers }))) return availableStatus;
+      };
+      ineligibleAvailable = eligible ? null : nextAvailableStatus;
+      const availableStatus = emit(nextAvailableStatus);
+      if (!eligible) return availableStatus;
+      const autoInstall = await shouldAutoInstall(tier, { headers });
+      const staleAfterPolicy = idleWhenStale(checkGeneration);
+      if (staleAfterPolicy) return staleAfterPolicy;
+      if (!autoInstall) return availableStatus;
 
-      return install(update, tier, headers);
+      const claimed = claimAvailable(checkGeneration);
+      return claimed ? install(claimed) : availableStatus;
     } catch (error) {
+      if (generation !== checkGeneration) return { kind: 'idle' };
+      available = null;
+      ineligibleAvailable = null;
       config.onError?.(error);
       return emit({ kind: 'error', message: String(error) });
     }
   }
 
   async function installAvailable(): Promise<AutoUpdateStatus> {
-    if (!available) return emit({ kind: 'up_to_date' });
-    if (!available.eligible) {
-      return emit({
-        kind: 'available',
-        version: available.update.version,
-        tier: available.tier,
-        eligible: false,
-        reason: available.tier === 'update' ? 'pro_required' : undefined,
-      });
-    }
-    return install(available.update, available.tier, available.headers);
+    const claimed = claimAvailable();
+    if (claimed) return install(claimed);
+    return ineligibleAvailable ? emit(ineligibleAvailable) : emit({ kind: 'up_to_date' });
   }
 
-  async function install(
-    update: RuntimeUpdate,
-    tier: UpdateTier | null,
-    headers?: UpdateHeaders,
-  ): Promise<AutoUpdateStatus> {
+  function claimAvailable(expectedGeneration?: number) {
+    const claimed = available;
+    if (!claimed || (expectedGeneration !== undefined && claimed.generation !== expectedGeneration)) {
+      return null;
+    }
+    available = null;
+    return claimed;
+  }
+
+  async function install(claimed: NonNullable<typeof available>): Promise<AutoUpdateStatus> {
+    const { update, tier, checkHeaders, generation: installGeneration } = claimed;
     try {
       const safe = await config.canInstall?.() ?? true;
       if (!safe) {
-        return emit({
+        const deferredStatus: AutoUpdateStatus = {
           kind: 'deferred',
           version: update.version,
           tier,
           reason: deferReason(),
-        });
+        };
+        if (generation === installGeneration && available === null) available = claimed;
+        return emitForGeneration(deferredStatus, installGeneration);
       }
+      if (generation !== installGeneration) return { kind: 'idle' };
 
+      const installHeaders = config.getInstallHeaders
+        ? await config.getInstallHeaders(tier, { checkHeaders })
+        : checkHeaders;
+      if (generation !== installGeneration) return { kind: 'idle' };
       let total = 0;
       let received = 0;
       let readyStatus: AutoUpdateStatus | null = null;
       await update.downloadAndInstall((event) => {
         if (event.event === 'Started' && isStartedEvent(event)) {
           total = event.data.contentLength ?? 0;
-          emit({ kind: 'downloading', version: update.version, tier, pct: 0 });
+          emitForGeneration({ kind: 'downloading', version: update.version, tier, pct: 0 }, installGeneration);
         } else if (event.event === 'Progress' && isProgressEvent(event)) {
           received += event.data.chunkLength;
           const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((received / total) * 100))) : 0;
-          emit({ kind: 'downloading', version: update.version, tier, pct });
+          emitForGeneration({ kind: 'downloading', version: update.version, tier, pct }, installGeneration);
         } else if (event.event === 'Finished') {
-          readyStatus = emit({ kind: 'ready', version: update.version, tier });
+          readyStatus = emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
         }
-      }, headers ? { headers } : undefined);
+      }, installHeaders ? { headers: installHeaders } : undefined);
 
-      return readyStatus ?? emit({ kind: 'ready', version: update.version, tier });
+      return readyStatus
+        ?? emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
     } catch (error) {
+      const errorStatus: AutoUpdateStatus = { kind: 'error', message: String(error) };
+      if (generation !== installGeneration) return errorStatus;
       config.onError?.(error);
-      return emit({ kind: 'error', message: String(error) });
+      return emit(errorStatus);
     }
   }
 

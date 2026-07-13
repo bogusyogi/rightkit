@@ -22,7 +22,7 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/release"], "0.2.16");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
-  assert.equal(versions.npm["@rightkit/updates"], "0.2.1");
+  assert.equal(versions.npm["@rightkit/updates"], "0.2.2");
   assert.equal(versions.cargo["rightkit-license"], "0.1.1");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
   for (const [crate, version] of Object.entries(versions.cargo)) {
