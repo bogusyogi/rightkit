@@ -35,6 +35,11 @@ if (first === "--version" || first === "-v") {
   } else {
     run("release.mjs", ["--doctor", ...args.slice(1)]);
   }
+} else if (first === "suite-doctor") {
+  runTest(
+    ["--test", path.join(packageRoot, "right-suite-contract.test.mjs")],
+    "[right-release] suite-doctor passed",
+  );
 } else if (first === "publish") {
   const rest = args.slice(1);
   if (rest[0] === "cargo") {
@@ -70,7 +75,7 @@ function run(script, scriptArgs) {
   child.on("exit", (code) => process.exit(code ?? 1));
 }
 
-function runTest(testArgs) {
+function runTest(testArgs, successMessage) {
   const child = spawn(process.execPath, testArgs, {
     cwd: process.cwd(),
     env: process.env,
@@ -81,7 +86,10 @@ function runTest(testArgs) {
     console.error(`right-release: failed to start doctor --all: ${error.message}`);
     process.exit(1);
   });
-  child.on("exit", (code) => process.exit(code ?? 1));
+  child.on("exit", (code) => {
+    if (code === 0 && successMessage) console.log(successMessage);
+    process.exit(code ?? 1);
+  });
 }
 
 function runBinary(cmd, cmdArgs) {
@@ -107,6 +115,7 @@ Commands:
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
   doctor [--platform mac|win]                        Inspect one app's release config
   doctor --all                                       Verify all Right Suite app release contracts
+  suite-doctor                                       Verify all local Right Suite repositories
   deps --check|--audit|--update                      Shared dependency lane
   hardening <artifact...>                            Run the Right Suite hardening scan
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates
