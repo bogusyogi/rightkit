@@ -11,6 +11,7 @@ const UPLOAD = path.join(TOOL_ROOT, "upload-large.mjs");
 const API_BASE = process.env.RIGHTAPPS_API_URL || "https://api.spoares.com";
 const DOWNLOAD_BASE = process.env.RIGHTAPPS_UPDATE_DOWNLOAD_BASE || "https://rightapps-license-gate.adrdsouza.workers.dev";
 const PUBLIC_BASE = process.env.RIGHTAPPS_PUBLIC_DOWNLOAD_BASE || "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev";
+const PIPELINE_VERSION = JSON.parse(await readFile(path.join(TOOL_ROOT, "package.json"), "utf8")).version;
 const tier = process.env.RIGHT_RELEASE_TIER || "";
 const args = process.argv.slice(2);
 let configName = "right-release.config.mjs";
@@ -45,8 +46,9 @@ if (tier === "patch") {
   }
   const platforms = {};
   const registrations = new Map();
+  const updaterManifestArtifacts = new Map();
+  const installerManifestArtifacts = new Map();
   const uploadedKeys = new Set();
-  const uploadedSignatures = new Set();
   for (const artifact of artifacts) {
     assertCurrentKey(artifact.key, "updater");
     const installerKey = patchInstallerKey(artifact);
@@ -62,11 +64,6 @@ if (tier === "patch") {
       if (!dryRun) await run(process.execPath, [UPLOAD, file, installerKey, "public"], root);
       uploadedKeys.add(installerKey);
     }
-    if (!uploadedSignatures.has(`${installerKey}.sig`)) {
-      console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD public/${installerKey}.sig`);
-      if (!dryRun) await run(process.execPath, [UPLOAD, signatureFile, `${installerKey}.sig`, "public"], root);
-      uploadedSignatures.add(`${installerKey}.sig`);
-    }
     const signature = dryRun ? `<signature:${artifact.signature}>` : (await readFile(signatureFile, "utf8")).trim();
     const artifactKey = artifact.artifactKey || installerKey.replaceAll("/", "__");
     const metadata = dryRun ? { sha256: null, sizeBytes: null } : await fileMetadata(file);
@@ -75,6 +72,12 @@ if (tier === "patch") {
       url: `${PUBLIC_BASE}/${installerKey}`,
     };
     registrations.set(installerKey, { artifactKey, path: installerKey, ...metadata });
+    updaterManifestArtifacts.set(installerKey, {
+      kind: "updater",
+      r2Key: installerKey,
+      ...metadata,
+      updaterSignature: signature,
+    });
   }
   for (const installer of installers) {
     const file = path.resolve(root, installer.file);
@@ -83,6 +86,13 @@ if (tier === "patch") {
       if (!dryRun) await run(process.execPath, [UPLOAD, file, installer.key, "public"], root);
       uploadedKeys.add(installer.key);
     }
+    const metadata = dryRun ? { sha256: null, sizeBytes: null } : await fileMetadata(file);
+    installerManifestArtifacts.set(installer.key, {
+      kind: "installer",
+      r2Key: installer.key,
+      ...metadata,
+      updaterSignature: null,
+    });
   }
   if (!artifacts.length) {
     console.log(`${dryRun ? "[dry-run] " : ""}NO patch updater artifacts; skipping patch manifest registration`);
@@ -92,7 +102,7 @@ if (tier === "patch") {
       dryRun,
       keep: {
         public: installers.map((artifact) => artifact.key),
-        private: target.updater.artifacts.flatMap((artifact) => [artifact.key, `${artifact.key}.sig`]),
+        private: target.updater.artifacts.map((artifact) => artifact.key),
       },
     });
     process.exit(0);
@@ -112,6 +122,13 @@ if (tier === "patch") {
       platforms,
     },
     artifacts: [...registrations.values()],
+    artifactManifest: buildArtifactManifest({
+      appKey: config.app,
+      appVersion: version,
+      tier,
+      platform,
+      artifacts: [...installerManifestArtifacts.values(), ...updaterManifestArtifacts.values()],
+    }),
   };
   console.log(`${dryRun ? "[dry-run] " : ""}POST ${API_BASE}/v1/admin/apps/patches`);
   console.log(JSON.stringify(body));
@@ -121,7 +138,7 @@ if (tier === "patch") {
     platform: platform === "mac" ? "mac" : "windows",
     dryRun,
     keep: {
-      public: [...installers.map((artifact) => artifact.key), ...registrations.keys(), ...[...registrations.keys()].map((key) => `${key}.sig`)],
+      public: [...installers.map((artifact) => artifact.key), ...registrations.keys()],
       private: [],
     },
   });
@@ -132,8 +149,8 @@ if (!artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no u
 
 const platforms = {};
 const registrations = new Map();
+const updaterManifestArtifacts = new Map();
 const uploadedKeys = new Set();
-const uploadedSignatures = new Set();
 for (const artifact of artifacts) {
   assertCurrentKey(artifact.key, "updater");
   const file = path.resolve(root, artifact.file);
@@ -147,12 +164,6 @@ for (const artifact of artifacts) {
     if (!dryRun) await run(process.execPath, [UPLOAD, file, artifact.key, "private"], root);
     uploadedKeys.add(artifact.key);
   }
-  if (!uploadedSignatures.has(`${artifact.key}.sig`)) {
-    console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD private/${artifact.key}.sig`);
-    if (!dryRun) await run(process.execPath, [UPLOAD, signatureFile, `${artifact.key}.sig`, "private"], root);
-    uploadedSignatures.add(`${artifact.key}.sig`);
-  }
-
   const signature = dryRun ? `<signature:${artifact.signature}>` : (await readFile(signatureFile, "utf8")).trim();
   const artifactKey = artifact.artifactKey || artifact.key.replaceAll("/", "__");
   const metadata = dryRun ? { sha256: null, sizeBytes: null } : await fileMetadata(file);
@@ -161,6 +172,12 @@ for (const artifact of artifacts) {
     url: `${DOWNLOAD_BASE}/${artifact.key}`,
   };
   registrations.set(artifact.key, { artifactKey, path: artifact.key, ...metadata });
+  updaterManifestArtifacts.set(artifact.key, {
+    kind: "updater",
+    r2Key: artifact.key,
+    ...metadata,
+    updaterSignature: signature,
+  });
 }
 
 const version = config.version || target.updater.version;
@@ -178,6 +195,13 @@ const body = {
     platforms,
   },
   artifacts: [...registrations.values()],
+  artifactManifest: buildArtifactManifest({
+    appKey: config.app,
+    appVersion: version,
+    tier,
+    platform,
+    artifacts: [...updaterManifestArtifacts.values()],
+  }),
 };
 const route = "/v1/admin/apps/releases";
 console.log(`${dryRun ? "[dry-run] " : ""}POST ${API_BASE}${route}`);
@@ -190,7 +214,7 @@ await pruneReleaseObjects({
   dryRun,
   keep: {
     public: installers.map((artifact) => artifact.key),
-    private: [...registrations.keys(), ...[...registrations.keys()].map((key) => `${key}.sig`)],
+    private: [...registrations.keys()],
   },
 });
 
@@ -199,6 +223,18 @@ async function fileMetadata(file) {
   return {
     sha256: createHash("sha256").update(bytes).digest("hex"),
     sizeBytes: (await stat(file)).size,
+  };
+}
+
+function buildArtifactManifest({ appKey, appVersion, tier, platform, artifacts }) {
+  return {
+    schema: 1,
+    pipelineVersion: PIPELINE_VERSION,
+    appKey,
+    appVersion,
+    tier,
+    platform: platform === "mac" ? "darwin" : "windows",
+    artifacts,
   };
 }
 

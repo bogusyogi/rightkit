@@ -76,6 +76,14 @@ function run(tier) {
   });
 }
 
+function registrationBody(result) {
+  return result.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('{'))
+    .map((line) => JSON.parse(line))
+    .find((body) => body.artifactManifest);
+}
+
 test("patch registers a free updater manifest backed by public installer-path objects", () => {
   const result = run("patch");
   assert.equal(result.status, 0, result.stderr);
@@ -92,9 +100,27 @@ test("patch registers a free updater manifest backed by public installer-path ob
   assert.match(result.stdout, /POST .*\/v1\/admin\/apps\/patches/);
   assert.match(result.stdout, /"tier":"patch"/);
   assert.match(result.stdout, /"platform":"windows"/);
-  assert.equal((result.stdout.match(/UPLOAD public\/fixture\/installers\/windows\/current\/Fixture\.exe\.sig/g) ?? []).length, 1);
+  assert.doesNotMatch(result.stdout, /UPLOAD .*\.sig/);
+  assert.equal((result.stdout.match(/UPLOAD /g) ?? []).length, 2, "patch may upload only one installer and one updater object per OS");
   assert.match(result.stdout, /PRUNE rightapps-downloads\/fixture\/windows/);
   assert.match(result.stdout, /PRUNE rightapps-updates\/fixture\/windows keep=<none>/);
+  const body = registrationBody(result);
+  assert.deepEqual(
+    {
+      schema: body.artifactManifest.schema,
+      appKey: body.artifactManifest.appKey,
+      appVersion: body.artifactManifest.appVersion,
+      tier: body.artifactManifest.tier,
+      platform: body.artifactManifest.platform,
+    },
+    { schema: 1, appKey: 'fixture', appVersion: '1.2.3', tier: 'patch', platform: 'windows' },
+  );
+  assert.match(body.artifactManifest.pipelineVersion, /^\d+\.\d+\.\d+$/);
+  assert.deepEqual(body.artifactManifest.artifacts.map((artifact) => [artifact.kind, artifact.r2Key]), [
+    ['installer', 'fixture/installers/windows/current/Fixture-Setup.exe'],
+    ['updater', 'fixture/installers/windows/current/Fixture.exe'],
+  ]);
+  assert.match(body.artifactManifest.artifacts[1].updaterSignature, /^<signature:/);
 });
 
 test("routes feature updates to the Pro-gated release endpoint", () => {
@@ -104,10 +130,16 @@ test("routes feature updates to the Pro-gated release endpoint", () => {
   assert.match(result.stdout, /"tier":"update"/);
   assert.match(result.stdout, /"platform":"windows"/);
   assert.match(result.stdout, /UPLOAD private\/fixture\/updates\/windows\/current\/Fixture\.exe/);
-  assert.equal((result.stdout.match(/UPLOAD private\/fixture\/updates\/windows\/current\/Fixture\.exe\.sig/g) ?? []).length, 1);
+  assert.doesNotMatch(result.stdout, /UPLOAD .*\.sig/);
+  assert.equal((result.stdout.match(/UPLOAD /g) ?? []).length, 1, "feature update may upload only one updater object per OS");
   assert.match(result.stdout, /PRUNE rightapps-downloads\/fixture\/windows/);
   assert.match(result.stdout, /PRUNE rightapps-updates\/fixture\/windows/);
   assert.doesNotMatch(result.stdout, /UPLOAD .*Fixture-Setup\.exe/);
+  const body = registrationBody(result);
+  assert.equal(body.artifactManifest.tier, 'update');
+  assert.deepEqual(body.artifactManifest.artifacts.map((artifact) => [artifact.kind, artifact.r2Key]), [
+    ['updater', 'fixture/updates/windows/current/Fixture.exe'],
+  ]);
 });
 
 test("allows an installer-only patch without registering an updater manifest", () => {
