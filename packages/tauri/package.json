@@ -19,6 +19,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:contracts": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext type-tests/contract.ts",
     "test": "vitest run"
   },
   "devDependencies": {

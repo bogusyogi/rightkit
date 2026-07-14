@@ -39,7 +39,7 @@ export interface RightKitTauriClientConfig {
   };
 }
 
-export interface RightKitTauriClient<TLicense, TDevice, TDiagnostics, TLogEvent> {
+export interface RightKitTauriClient<TLicense, TDevice, TLogBundle, TLogEvent, TDiagnostics> {
   license: {
     get(): Promise<TLicense | null>;
     set(value: TLicense): Promise<void>;
@@ -50,7 +50,7 @@ export interface RightKitTauriClient<TLicense, TDevice, TDiagnostics, TLogEvent>
   };
   logs: {
     write(events: TLogEvent[]): Promise<void>;
-    collect(): Promise<TDiagnostics>;
+    collect(): Promise<TLogBundle>;
     clear(): Promise<void>;
   };
   diagnostics: {
@@ -63,13 +63,15 @@ export interface RightKitTauriClient<TLicense, TDevice, TDiagnostics, TLogEvent>
 export function createRightKitTauriClient<
   TLicense = unknown,
   TDevice = unknown,
-  TDiagnostics = unknown,
+  TLogBundle = unknown,
   TLogEvent = Record<string, unknown>,
+  TDiagnostics = TLogBundle,
 >(config: RightKitTauriClientConfig): RightKitTauriClient<
   TLicense,
   TDevice,
-  TDiagnostics,
-  TLogEvent
+  TLogBundle,
+  TLogEvent,
+  TDiagnostics
 > {
   const commands = config.commands ?? standardRightKitTauriCommands;
   validateCommands(commands);
@@ -106,7 +108,7 @@ export function createRightKitTauriClient<
     },
     logs: {
       write: (events) => invoke<void>(commands.logs.write, { [argumentNames.logsWrite]: events }),
-      collect: () => invoke<TDiagnostics>(commands.logs.collect),
+      collect: () => invoke<TLogBundle>(commands.logs.collect),
       clear: () => invoke<void>(commands.logs.clear),
     },
     diagnostics: {
