@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-14",
+  "scope": "HeardRight and ScrapeRight FFmpeg behavior before rightkit-media extraction",
+  "artifacts": [
+    {
+      "id": "ffmpeg-7.1.5-windows-x64",
+      "os": "windows",
+      "arch": "x86_64",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "ded75c0edf344b9eed5876cd6cc469b7366b00c4dd0f25b3965062965c33990d",
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "license": "LGPL-2.1-or-later",
+      "locations": [
+        { "role": "vendor-source", "path": "vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe" },
+        { "role": "heardright-staged", "path": "heardright/tauri-app-next/src-tauri/resources/runtime/ffmpeg.exe" },
+        { "role": "scraperight-staged", "path": "scraperight/src-tauri/resources/runtime/ffmpeg.exe" }
+      ],
+      "provenance": "vendor/ffmpeg-lgpl/BUILD-NOTES.txt"
+    },
+    {
+      "id": "ffmpeg-7.1-macos-arm64-observed",
+      "os": "macos",
+      "arch": "arm64",
+      "version": "7.1",
+      "status": "stale-unverified",
+      "sha256": "3f76a1e4a63bcb7b32181d487f867e585915d40f7a5f979b772a18f0873d3f25",
+      "location": "~/Claude/vendor/ffmpeg-lgpl/ffmpeg-macos-arm64",
+      "evidence": "scraperight/docs/plans/2026-06-25-macos-universal-tdt-p4-handoff.md",
+      "reason": "The 2026-07-05 handoff says this 7.1 build must be rebuilt and re-verified as 7.1.5."
+    },
+    {
+      "id": "ffmpeg-7.1-macos-x86_64-observed",
+      "os": "macos",
+      "arch": "x86_64",
+      "version": "7.1",
+      "status": "stale-unverified",
+      "sha256": "14db7f8ddfe1252dc7288e48dc11a2e9fbaf02eb4732d2d73022a8748f1272f1",
+      "location": "~/Claude/vendor/ffmpeg-lgpl/ffmpeg-macos-x86_64",
+      "evidence": "scraperight/docs/plans/2026-06-25-macos-universal-tdt-p4-handoff.md",
+      "reason": "The 2026-07-05 handoff says this 7.1 build must be rebuilt and re-verified as 7.1.5."
+    }
+  ],
+  "apps": {
+    "heardright": {
+      "resolution": [
+        "HR_FFMPEG_PATH-existing",
+        "executable-sibling/runtime",
+        "macos-Contents/Resources/runtime",
+        "system-PATH"
+      ],
+      "ffmpegArgs": [
+        "-y", "-hide_banner", "-loglevel", "error", "-i", "<input>",
+        "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "<output>"
+      ],
+      "pcm": {
+        "container": "wav",
+        "codec": "pcm_s16le",
+        "channels": 1,
+        "sampleRateHz": 16000,
+        "sampleScale": "i16 / i16::MAX"
+      },
+      "lifecycle": {
+        "cancel": false,
+        "timeout": false,
+        "childWait": "blocking-output",
+        "processTreeKill": false
+      },
+      "attribution": "Generated ffmpeg-LICENSE.txt summary/link only; no complete LGPL text or immutable build manifest is staged by stage-ffmpeg.mjs."
+    },
+    "scraperight": {
+      "resolution": [
+        "SCRAPERIGHT_FFMPEG-nonempty",
+        "Tauri-resource/runtime",
+        "engine-system-PATH-fallback"
+      ],
+      "ffmpegArgs": [
+        "-y", "-i", "<input>", "-ac", "1", "-ar", "16000",
+        "-c:a", "pcm_s16le", "<output>"
+      ],
+      "pcm": {
+        "container": "wav",
+        "codec": "pcm_s16le",
+        "channels": 1,
+        "sampleRateHz": 16000,
+        "sampleScale": "i16 / i16::MAX"
+      },
+      "lifecycle": {
+        "cancel": true,
+        "timeout": false,
+        "childWait": "poll-100ms-kill-and-wait",
+        "processTreeKill": false
+      },
+      "attribution": "scripts/third-party-manifest.json resolves FFmpeg as LGPL-2.1-or-later and build-third-party-licenses.mjs includes the vendored full LGPL-2.1 text."
+    }
+  },
+  "gaps": [
+    {
+      "id": "no-approved-digest-enforcement",
+      "evidence": "Both stage arbitrary override paths and inspect -version, but neither compares SHA-256 with an approved manifest.",
+      "closure": "Right Release must select an immutable catalog entry and rightkit-media must verify SHA-256 before execution/staging."
+    },
+    {
+      "id": "heardright-version-spawn-failure-passes",
+      "evidence": "stage-ffmpeg.mjs does not reject a non-zero/null spawnSync status before logging license check passed.",
+      "closure": "Reject launch errors and every non-zero -version exit before license classification."
+    },
+    {
+      "id": "absence-only-license-classification",
+      "evidence": "Both packagers infer LGPL only from the absence of --enable-gpl/--enable-nonfree; they do not require an approved build identity/configuration.",
+      "closure": "Require approved digest, expected version/configuration, and reject forbidden flags case-insensitively."
+    },
+    {
+      "id": "runtime-system-path-fallback",
+      "evidence": "HeardRight returns ffmpeg/ffmpeg.exe after bundled resolution fails; ScrapeRight engine extraction falls back to ffmpeg when its injected path is absent.",
+      "closure": "Installed builds must fail closed to a verified bundled artifact; development PATH use must be explicit and verified."
+    },
+    {
+      "id": "heardright-no-cancel-or-timeout",
+      "evidence": "decode_to_16k_mono uses blocking Command.output without cancellation, timeout, or owned-child termination.",
+      "closure": "Adopt shared cancellable timeout-bound child ownership."
+    },
+    {
+      "id": "scraperight-no-timeout-or-process-tree-kill",
+      "evidence": "ScrapeRight polls cancellation and kill/waits the direct child, but has no deadline and no process-tree/group termination.",
+      "closure": "Adopt rightkit-process deadline and tree/group termination semantics."
+    },
+    {
+      "id": "macos-approved-artifacts-missing",
+      "evidence": "Only stale 7.1 hashes are documented; the Mac handoff explicitly requires 7.1.5 rebuild and verification.",
+      "closure": "Build both 7.1.5 slices, verify configuration/decode/linkage, record hashes/provenance, then produce the universal artifact deterministically."
+    },
+    {
+      "id": "heardright-incomplete-lgpl-conveyance",
+      "evidence": "HeardRight stages a short generated notice linking to the license rather than the full vendored LGPL text required by the accepted plan.",
+      "closure": "Stage the approved catalog provenance plus complete vendored LGPL notice/text through Right Release."
+    }
+  ],
+  "publicationGate": {
+    "publishRightkitMedia": false,
+    "migrateApps": false,
+    "requiredGapClosures": [
+      "no-approved-digest-enforcement",
+      "heardright-version-spawn-failure-passes",
+      "absence-only-license-classification",
+      "runtime-system-path-fallback",
+      "heardright-no-cancel-or-timeout",
+      "scraperight-no-timeout-or-process-tree-kill",
+      "macos-approved-artifacts-missing",
+      "heardright-incomplete-lgpl-conveyance"
+    ]
+  }
+}
