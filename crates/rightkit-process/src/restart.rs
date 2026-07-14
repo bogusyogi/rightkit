@@ -168,6 +168,7 @@ impl RestartTracker {
             .unwrap_or(self.policy.max_backoff)
             .min(self.policy.max_backoff);
         self.restart_times.push_back(at);
+        self.permit_epoch = self.permit_epoch.saturating_add(1);
         let permit = RestartPermit {
             epoch: self.permit_epoch,
             delay,

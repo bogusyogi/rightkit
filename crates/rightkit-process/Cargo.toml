@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/claude"
 keywords = ["process", "supervisor", "lifecycle", "sidecar"]
 categories = ["os"]
-include = ["src/**", "tests/**", "README.md"]
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 process-wrap = { version = "=8.2.1", default-features = false, features = ["std", "creation-flags", "job-object", "process-group", "tracing"] }

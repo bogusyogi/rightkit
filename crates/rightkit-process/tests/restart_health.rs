@@ -73,6 +73,21 @@ fn shutdown_invalidates_a_pending_restart_permit() {
 }
 
 #[test]
+fn a_new_restart_permit_invalidates_the_previous_permit() {
+    let mut tracker = RestartTracker::new(automatic_policy(3));
+    let generation = tracker.started(Duration::ZERO);
+    let RestartOutcome::Restart(first) = tracker.exited(generation, Duration::ZERO) else {
+        panic!("crash should receive a restart permit");
+    };
+    let RestartOutcome::Restart(second) = tracker.request_restart(Duration::from_millis(10)) else {
+        panic!("new request should replace the pending restart permit");
+    };
+
+    assert!(!tracker.permit_valid(&first, Duration::from_secs(1)));
+    assert!(tracker.permit_valid(&second, Duration::from_secs(1)));
+}
+
+#[test]
 fn stale_generation_exit_is_ignored() {
     let mut tracker = RestartTracker::new(automatic_policy(2));
     let old = tracker.started(Duration::ZERO);

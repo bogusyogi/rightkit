@@ -45,8 +45,9 @@ match child.wait_or_kill(Duration::from_secs(2))? {
 ```
 
 `RestartTracker` is a pure rolling-window/backoff state machine. Restart
-permits are generation-bound and become invalid after a new generation or
-shutdown. `RestartMode` is `Automatic`, `OnDemand`, or `Disabled`.
+permits are single-use scheduling authorities: issuing a replacement permit,
+starting a new generation, or shutting down invalidates every older permit.
+`RestartMode` is `Automatic`, `OnDemand`, or `Disabled`.
 
 `HealthTracker` is also pure: callers provide monotonic `Duration` timestamps
 and probe outcomes, making startup timeout and consecutive-failure thresholds
