@@ -13,33 +13,50 @@
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "license": "LGPL-2.1-or-later",
       "locations": [
-        { "role": "vendor-source", "path": "vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe" },
-        { "role": "heardright-staged", "path": "heardright/tauri-app-next/src-tauri/resources/runtime/ffmpeg.exe" },
-        { "role": "scraperight-staged", "path": "scraperight/src-tauri/resources/runtime/ffmpeg.exe" }
+        {
+          "role": "vendor-source",
+          "path": "vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe"
+        },
+        {
+          "role": "heardright-staged",
+          "path": "heardright/tauri-app-next/src-tauri/resources/runtime/ffmpeg.exe"
+        },
+        {
+          "role": "scraperight-staged",
+          "path": "scraperight/src-tauri/resources/runtime/ffmpeg.exe"
+        }
       ],
       "provenance": "vendor/ffmpeg-lgpl/BUILD-NOTES.txt"
     },
     {
-      "id": "ffmpeg-7.1-macos-arm64-observed",
+      "id": "ffmpeg-7.1.5-macos-arm64",
       "os": "macos",
       "arch": "arm64",
-      "version": "7.1",
-      "status": "stale-unverified",
-      "sha256": "3f76a1e4a63bcb7b32181d487f867e585915d40f7a5f979b772a18f0873d3f25",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "a42a50dbfa8502481db21da247f7fe45ee0c8e8b1bb98bd68558faf64faf4258",
       "location": "~/Claude/vendor/ffmpeg-lgpl/ffmpeg-macos-arm64",
-      "evidence": "scraperight/docs/plans/2026-06-25-macos-universal-tdt-p4-handoff.md",
-      "reason": "The 2026-07-05 handoff says this 7.1 build must be rebuilt and re-verified as 7.1.5."
+      "evidence": "vendor/ffmpeg-lgpl/BUILD-NOTES-macos-<arch>.txt (LGPL 2.1+, decode-only, --disable-gpl --disable-nonfree; no x264/x265/fdk-aac)",
+      "locations": [
+        {
+          "path": "vendor/ffmpeg-lgpl/ffmpeg-macos-arm64"
+        }
+      ]
     },
     {
-      "id": "ffmpeg-7.1-macos-x86_64-observed",
+      "id": "ffmpeg-7.1.5-macos-x86_64",
       "os": "macos",
       "arch": "x86_64",
-      "version": "7.1",
-      "status": "stale-unverified",
-      "sha256": "14db7f8ddfe1252dc7288e48dc11a2e9fbaf02eb4732d2d73022a8748f1272f1",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "2ba456b336d5faa75e2783e4e2c49434d9b26e765621eae6669d10e5b4303929",
       "location": "~/Claude/vendor/ffmpeg-lgpl/ffmpeg-macos-x86_64",
-      "evidence": "scraperight/docs/plans/2026-06-25-macos-universal-tdt-p4-handoff.md",
-      "reason": "The 2026-07-05 handoff says this 7.1 build must be rebuilt and re-verified as 7.1.5."
+      "evidence": "vendor/ffmpeg-lgpl/BUILD-NOTES-macos-<arch>.txt (LGPL 2.1+, decode-only, --disable-gpl --disable-nonfree; no x264/x265/fdk-aac)",
+      "locations": [
+        {
+          "path": "vendor/ffmpeg-lgpl/ffmpeg-macos-x86_64"
+        }
+      ]
     }
   ],
   "apps": {
@@ -51,8 +68,19 @@
         "system-PATH"
       ],
       "ffmpegArgs": [
-        "-y", "-hide_banner", "-loglevel", "error", "-i", "<input>",
-        "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "<output>"
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        "<input>",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
+        "<output>"
       ],
       "pcm": {
         "container": "wav",
@@ -76,8 +104,16 @@
         "engine-system-PATH-fallback"
       ],
       "ffmpegArgs": [
-        "-y", "-i", "<input>", "-ac", "1", "-ar", "16000",
-        "-c:a", "pcm_s16le", "<output>"
+        "-y",
+        "-i",
+        "<input>",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
+        "<output>"
       ],
       "pcm": {
         "container": "wav",

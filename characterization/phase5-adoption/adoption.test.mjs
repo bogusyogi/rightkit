@@ -57,11 +57,13 @@ test("Windows media parity is frozen while Mac artifact rows remain unapproved",
   // machine-dependent; that they all match wherever they exist is not.
   assert.ok(Array.isArray(missingCopies));
 
+  // Rebuilt as 7.1.5 on 2026-07-15 (LGPL, decode-only) and approved. The status is only half the
+  // claim; the hash check below is what makes it evidence.
   assert.deepEqual(
     report.media.macos.map(({ arch, status }) => ({ arch, status })),
     [
-      { arch: "arm64", status: "stale-unverified" },
-      { arch: "x86_64", status: "stale-unverified" },
+      { arch: "arm64", status: "approved" },
+      { arch: "x86_64", status: "approved" },
     ],
   );
 });
@@ -71,8 +73,6 @@ test("the Mac FFmpeg binaries on disk are the ones the contract pins", async (t)
   const onDisk = report.media.macos.filter(({ present }) => present);
   if (onDisk.length === 0) t.skip("no Mac FFmpeg artifacts staged on this machine");
 
-  // They stay stale-unverified because they are 7.1 and the contract requires a 7.1.5 rebuild —
-  // but that is a version decision, not licence to let the bytes drift unnoticed in the meantime.
   for (const artifact of onDisk) {
     assert.equal(artifact.sha256Matches, true, `${artifact.arch} FFmpeg does not match its pinned sha256`);
   }

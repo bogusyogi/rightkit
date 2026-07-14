@@ -22,7 +22,9 @@ const apps = [
   { key: "viewright", root: "viewright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/build-mac-notarized.sh"] },
   { key: "scraperight", root: "scraperight", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["package.sh"] },
   { key: "heardright", root: "heardright/tauri-app-next", repoRoot: "heardright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs", "scripts/publish-release.mjs"] },
-  { key: "mailright", root: "mailright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/build-mac.sh"] },
+  // mac-dmg.mjs is the release file, as in HeardRight/CodeRight. build-mac.sh only delegates to it,
+  // so asserting the mirror call against the wrapper failed a pipeline that does mirror.
+  { key: "mailright", root: "mailright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs"] },
   { key: "coderight", root: "coderight/apps/coderight-tauri", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs"] },
 ];
 
