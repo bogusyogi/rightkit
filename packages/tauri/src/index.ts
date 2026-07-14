@@ -4,7 +4,6 @@ export type Invoke = <T>(command: string, args?: Record<string, unknown>) => Pro
 
 export interface RightKitTauriCommands {
   license: { get: string; set: string; delete: string };
-  device: { get: string; set: string };
   logs: { write: string; collect: string; clear: string };
   diagnostics: { collect: string; clear: string };
 }
@@ -15,7 +14,6 @@ export const standardRightKitTauriCommands = {
     set: 'secure_update_license_set',
     delete: 'secure_update_license_delete',
   },
-  device: { get: 'secure_device_id_get', set: 'secure_device_id_set' },
   logs: {
     write: 'rightkit_logs_write',
     collect: 'rightkit_logs_collect',
@@ -27,17 +25,27 @@ export const standardRightKitTauriCommands = {
   },
 } as const satisfies RightKitTauriCommands;
 
+/** The only supported native device-identity command contract. */
+export const standardRightKitDeviceGetOrCreate = {
+  command: 'secure_device_id_get_or_create',
+} as const;
+
 export interface RightKitTauriClientConfig {
   invoke: Invoke;
   commands?: RightKitTauriCommands;
-  deviceGetOrCreate?: { command: string; argumentName?: string };
+  deviceGetOrCreate?: typeof standardRightKitDeviceGetOrCreate;
   updates?: AutoUpdateClient;
   argumentNames?: {
     licenseSet?: string;
-    deviceSet?: string;
     logsWrite?: string;
   };
 }
+
+export type RightKitTauriAdapterConfig = Pick<RightKitTauriClientConfig, 'invoke' | 'updates'>;
+export type RightKitTauriAppConfig = Pick<
+  RightKitTauriClientConfig,
+  'commands' | 'deviceGetOrCreate' | 'argumentNames'
+>;
 
 export interface RightKitTauriClient<TLicense, TDevice, TLogBundle, TLogEvent, TDiagnostics> {
   license: {
@@ -46,7 +54,7 @@ export interface RightKitTauriClient<TLicense, TDevice, TLogBundle, TLogEvent, T
     delete(): Promise<void>;
   };
   device: {
-    getOrCreate(fallback: TDevice): Promise<TDevice>;
+    getOrCreate(): Promise<TDevice>;
   };
   logs: {
     write(events: TLogEvent[]): Promise<void>;
@@ -78,15 +86,11 @@ export function createRightKitTauriClient<
   const { invoke } = config;
   const argumentNames = {
     licenseSet: config.argumentNames?.licenseSet ?? 'value',
-    deviceSet: config.argumentNames?.deviceSet ?? 'value',
     logsWrite: config.argumentNames?.logsWrite ?? 'events',
   };
   validateArgumentNames(argumentNames);
   if (config.deviceGetOrCreate) {
     validateCommand('device.getOrCreate', config.deviceGetOrCreate.command);
-    validateArgumentNames({
-      deviceGetOrCreate: config.deviceGetOrCreate.argumentName ?? 'fallback',
-    });
   }
   return {
     license: {
@@ -95,15 +99,13 @@ export function createRightKitTauriClient<
       delete: () => invoke<void>(commands.license.delete),
     },
     device: {
-      getOrCreate: async (fallback) => {
+      getOrCreate: async () => {
         if (config.deviceGetOrCreate) {
-          const argumentName = config.deviceGetOrCreate.argumentName ?? 'fallback';
-          return invoke<TDevice>(config.deviceGetOrCreate.command, { [argumentName]: fallback });
+          return invoke<TDevice>(config.deviceGetOrCreate.command);
         }
-        const current = await invoke<TDevice | null>(commands.device.get);
-        if (current !== null && current !== undefined) return current;
-        await invoke<void>(commands.device.set, { [argumentNames.deviceSet]: fallback });
-        return fallback;
+        throw new Error(
+          'RightKit device getOrCreate is unsupported until the host exposes one atomic native command',
+        );
       },
     },
     logs: {
@@ -132,8 +134,6 @@ function validateCommands(commands: RightKitTauriCommands): void {
     ['license.get', commands.license.get],
     ['license.set', commands.license.set],
     ['license.delete', commands.license.delete],
-    ['device.get', commands.device.get],
-    ['device.set', commands.device.set],
     ['logs.write', commands.logs.write],
     ['logs.collect', commands.logs.collect],
     ['logs.clear', commands.logs.clear],
@@ -143,6 +143,93 @@ function validateCommands(commands: RightKitTauriCommands): void {
   for (const [path, command] of entries) {
     validateCommand(path, command);
   }
+}
+
+const heardRightCommands = {
+  license: {
+    get: 'secure_license_get',
+    set: 'secure_license_set',
+    delete: 'secure_license_delete',
+  },
+  logs: {
+    write: 'rightkit_logs_write',
+    collect: 'rightkit_logs_collect',
+    clear: 'rightkit_logs_clear',
+  },
+  diagnostics: { collect: 'rightkit_logs_collect', clear: 'rightkit_logs_clear' },
+} as const satisfies RightKitTauriCommands;
+
+const codeRightCommands = {
+  ...standardRightKitTauriCommands,
+  diagnostics: { collect: 'rightkit_logs_collect', clear: 'rightkit_logs_clear' },
+} as const satisfies RightKitTauriCommands;
+
+/** Canonical inventory of the native command contracts currently exposed by each core app. */
+export const rightSuiteTauriAppConfigs = {
+  viewright: {
+    commands: standardRightKitTauriCommands,
+    argumentNames: { licenseSet: 'value', logsWrite: 'events' },
+  },
+  scraperight: {
+    commands: standardRightKitTauriCommands,
+    argumentNames: { licenseSet: 'license', logsWrite: 'events' },
+  },
+  heardright: {
+    commands: heardRightCommands,
+    argumentNames: { licenseSet: 'license', logsWrite: 'events' },
+  },
+  mailright: {
+    commands: standardRightKitTauriCommands,
+    argumentNames: { licenseSet: 'license', logsWrite: 'events' },
+  },
+  coderight: {
+    commands: codeRightCommands,
+    argumentNames: { licenseSet: 'value', logsWrite: 'events' },
+  },
+} as const satisfies Record<string, RightKitTauriAppConfig>;
+
+type CoreApp = keyof typeof rightSuiteTauriAppConfigs;
+
+export function createRightSuiteAppTauriClient<
+  TLicense = unknown,
+  TDevice = unknown,
+  TLogBundle = unknown,
+  TLogEvent = Record<string, unknown>,
+  TDiagnostics = TLogBundle,
+>(
+  app: CoreApp,
+  config: RightKitTauriAdapterConfig,
+): RightKitTauriClient<TLicense, TDevice, TLogBundle, TLogEvent, TDiagnostics> {
+  return createRightKitTauriClient<TLicense, TDevice, TLogBundle, TLogEvent, TDiagnostics>({
+    ...config,
+    ...rightSuiteTauriAppConfigs[app],
+  });
+}
+
+export const createViewRightTauriClient = createAppConstructor('viewright');
+export const createScrapeRightTauriClient = createAppConstructor('scraperight');
+export const createHeardRightTauriClient = createAppConstructor('heardright');
+export const createMailRightTauriClient = createAppConstructor('mailright');
+export const createCodeRightTauriClient = createAppConstructor('coderight');
+
+function createAppConstructor(app: CoreApp) {
+  return function createAppTauriClient<
+    TLicense = unknown,
+    TDevice = unknown,
+    TLogBundle = unknown,
+    TLogEvent = Record<string, unknown>,
+    TDiagnostics = TLogBundle,
+  >(
+    config: RightKitTauriAdapterConfig,
+  ): RightKitTauriClient<TLicense, TDevice, TLogBundle, TLogEvent, TDiagnostics> {
+    return createRightSuiteAppTauriClient<
+      TLicense,
+      TDevice,
+      TLogBundle,
+      TLogEvent,
+      TDiagnostics
+    >(app, config);
+  };
 }
 
 function validateCommand(path: string, command: string): void {
