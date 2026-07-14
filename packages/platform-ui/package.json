@@ -1,0 +1,46 @@
+{
+  "name": "@rightkit/platform-ui",
+  "version": "0.1.0",
+  "description": "Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "sideEffects": false,
+  "peerDependencies": {
+    "@tauri-apps/plugin-os": ">=2 <3",
+    "react": ">=18 <20"
+  },
+  "devDependencies": {
+    "@tauri-apps/plugin-os": "^2.3.2",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adrdsouza/claude.git",
+    "directory": "tools/rightkit/packages/platform-ui"
+  },
+  "packageManager": "pnpm@11.12.0"
+}

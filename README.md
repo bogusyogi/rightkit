@@ -8,6 +8,7 @@ Shared, platform-neutral primitives for every Right Suite app.
 | [`@rightkit/logs`](packages/logs) | TypeScript + Rust payload | Durable local JSONL logging and privacy-safe diagnostics bundles |
 | [`@rightkit/release`](packages/release) | Node CLI | Signed release, hardening, patch/update routing, R2 upload, and RightApps registration |
 | [`@rightkit/updates`](packages/updates) | TypeScript | Runtime update policy helper |
+| [`@rightkit/platform-ui`](packages/platform-ui) | TypeScript + React | Platform detection, shortcut rendering, capabilities, and headless window controls |
 | [`rightkit-process`](crates/rightkit-process) | Rust | Ownership-safe child lifecycle, restart, and health primitives |
 
 This is the only source home for shared RightKit packages and crates in the
