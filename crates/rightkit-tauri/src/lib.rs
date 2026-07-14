@@ -133,6 +133,13 @@ where
     }
 
     pub fn get_or_create(&self) -> Result<String, StorageError> {
+        self.get_or_create_with(generate_device_id)
+    }
+
+    fn get_or_create_with(
+        &self,
+        generate: impl FnOnce() -> Result<String, StorageError>,
+    ) -> Result<String, StorageError> {
         let _guard = self
             .creation
             .lock()
@@ -140,7 +147,7 @@ where
         if let Some(existing) = self.get()? {
             return Ok(existing);
         }
-        let created = generate_device_id()?;
+        let created = generate()?;
         self.store
             .set(&created)
             .map_err(|error| StorageError::new(StorageOperation::Set, error))?;
@@ -398,5 +405,64 @@ where
         self.host
             .clear()
             .map_err(|error| HostOperationError::new(HostOperation::ClearDiagnostics, error))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    #[derive(Default)]
+    struct TestStore(Mutex<Option<String>>);
+
+    impl SecureStore<String> for TestStore {
+        fn get(&self) -> Result<Option<String>, String> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+
+        fn set(&self, value: &String) -> Result<(), String> {
+            *self.0.lock().unwrap() = Some(value.clone());
+            Ok(())
+        }
+
+        fn delete(&self) -> Result<(), String> {
+            *self.0.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn device_creation_fails_closed_with_typed_rng_error() {
+        let service = DeviceService::new(TestStore::default());
+
+        let error = service
+            .get_or_create_with(|| {
+                Err(StorageError::new(
+                    StorageOperation::GenerateDeviceId,
+                    "rng unavailable",
+                ))
+            })
+            .unwrap_err();
+
+        assert_eq!(error.operation, StorageOperation::GenerateDeviceId);
+        assert_eq!(error.message, "rng unavailable");
+        assert_eq!(service.get().unwrap(), None);
+    }
+
+    #[test]
+    fn device_creation_fails_closed_when_creation_lock_is_poisoned() {
+        let service = DeviceService::new(TestStore::default());
+        let poisoned = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = service.creation.lock().unwrap();
+            panic!("poison creation lock");
+        }));
+        assert!(poisoned.is_err());
+
+        let error = service.get_or_create().unwrap_err();
+
+        assert_eq!(error.operation, StorageOperation::DeviceLock);
+        assert_eq!(error.message, "device lock poisoned");
+        assert_eq!(service.get().unwrap(), None);
     }
 }

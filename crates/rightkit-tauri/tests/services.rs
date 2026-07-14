@@ -4,7 +4,10 @@ use rightkit_tauri::{
     LicenseRequirement, LogHost, LogService, MutationHook, PaidCommandError, SecureService,
     SecureStore, StorageOperation,
 };
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Barrier, Mutex,
+};
 
 const PUBKEY: [u8; 32] = [
     108, 142, 220, 5, 154, 87, 124, 180, 244, 31, 25, 204, 0, 155, 84, 165, 16, 227, 134, 87, 61,
@@ -21,16 +24,29 @@ impl LicenseRecord for StoredLicense {
     }
 }
 
-struct MemoryStore<T> {
+struct MemoryStoreState<T> {
     value: Mutex<Option<T>>,
+    fail_get: bool,
     fail_set: bool,
+    fail_delete: bool,
+    writes: AtomicUsize,
+}
+
+#[derive(Clone)]
+struct MemoryStore<T> {
+    state: Arc<MemoryStoreState<T>>,
 }
 
 impl<T> Default for MemoryStore<T> {
     fn default() -> Self {
         Self {
-            value: Mutex::new(None),
-            fail_set: false,
+            state: Arc::new(MemoryStoreState {
+                value: Mutex::new(None),
+                fail_get: false,
+                fail_set: false,
+                fail_delete: false,
+                writes: AtomicUsize::new(0),
+            }),
         }
     }
 }
@@ -38,27 +54,55 @@ impl<T> Default for MemoryStore<T> {
 impl<T> MemoryStore<T> {
     fn with(value: T) -> Self {
         Self {
-            value: Mutex::new(Some(value)),
-            fail_set: false,
+            state: Arc::new(MemoryStoreState {
+                value: Mutex::new(Some(value)),
+                fail_get: false,
+                fail_set: false,
+                fail_delete: false,
+                writes: AtomicUsize::new(0),
+            }),
         }
+    }
+
+    fn failing(operation: StorageOperation) -> Self {
+        Self {
+            state: Arc::new(MemoryStoreState {
+                value: Mutex::new(None),
+                fail_get: operation == StorageOperation::Get,
+                fail_set: operation == StorageOperation::Set,
+                fail_delete: operation == StorageOperation::Delete,
+                writes: AtomicUsize::new(0),
+            }),
+        }
+    }
+
+    fn writes(&self) -> usize {
+        self.state.writes.load(Ordering::SeqCst)
     }
 }
 
 impl<T: Clone> SecureStore<T> for MemoryStore<T> {
     fn get(&self) -> Result<Option<T>, String> {
-        Ok(self.value.lock().unwrap().clone())
+        if self.state.fail_get {
+            return Err("get failed".into());
+        }
+        Ok(self.state.value.lock().unwrap().clone())
     }
 
     fn set(&self, value: &T) -> Result<(), String> {
-        if self.fail_set {
+        if self.state.fail_set {
             return Err("set failed".into());
         }
-        *self.value.lock().unwrap() = Some(value.clone());
+        *self.state.value.lock().unwrap() = Some(value.clone());
+        self.state.writes.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
     fn delete(&self) -> Result<(), String> {
-        *self.value.lock().unwrap() = None;
+        if self.state.fail_delete {
+            return Err("delete failed".into());
+        }
+        *self.state.value.lock().unwrap() = None;
         Ok(())
     }
 }
@@ -78,10 +122,7 @@ impl<T> MutationHook<T> for RecordingHook {
 
 #[test]
 fn mutation_hook_is_infallible_and_only_runs_after_commit() {
-    let failed_store = MemoryStore::<String> {
-        fail_set: true,
-        ..Default::default()
-    };
+    let failed_store = MemoryStore::<String>::failing(StorageOperation::Set);
     let hook = RecordingHook::default();
     let service = SecureService::new(&failed_store, &hook);
     let error = service.set(&"license-1".into()).unwrap_err();
@@ -96,8 +137,41 @@ fn mutation_hook_is_infallible_and_only_runs_after_commit() {
 }
 
 #[test]
+fn secure_service_preserves_typed_storage_operation_failures() {
+    let hook = RecordingHook::default();
+
+    let get_store = MemoryStore::<String>::failing(StorageOperation::Get);
+    assert_eq!(
+        SecureService::new(&get_store, &hook)
+            .get()
+            .unwrap_err()
+            .operation,
+        StorageOperation::Get
+    );
+
+    let set_store = MemoryStore::<String>::failing(StorageOperation::Set);
+    assert_eq!(
+        SecureService::new(&set_store, &hook)
+            .set(&"license-1".into())
+            .unwrap_err()
+            .operation,
+        StorageOperation::Set
+    );
+
+    let delete_store = MemoryStore::<String>::failing(StorageOperation::Delete);
+    assert_eq!(
+        SecureService::new(&delete_store, &hook)
+            .delete()
+            .unwrap_err()
+            .operation,
+        StorageOperation::Delete
+    );
+}
+
+#[test]
 fn device_get_or_create_is_serialized_and_owns_uuid_v4_generation() {
-    let service = Arc::new(DeviceService::new(MemoryStore::<String>::default()));
+    let store = MemoryStore::<String>::default();
+    let service = Arc::new(DeviceService::new(store.clone()));
     let barrier = Arc::new(Barrier::new(9));
     let mut threads = Vec::new();
     for _ in 0..8 {
@@ -129,6 +203,7 @@ fn device_get_or_create_is_serialized_and_owns_uuid_v4_generation() {
                 || !matches!(index, 8 | 13 | 18 | 23) && character.is_ascii_hexdigit()
         ));
     assert_eq!(service.get().unwrap().as_deref(), Some(values[0].as_str()));
+    assert_eq!(store.writes(), 1);
 }
 
 #[test]
