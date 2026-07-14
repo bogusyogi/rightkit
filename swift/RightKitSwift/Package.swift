@@ -10,11 +10,15 @@ let package = Package(
     products: [
         .library(name: "RightKitLicense", targets: ["RightKitLicense"]),
         .library(name: "RightKitDiagnostics", targets: ["RightKitDiagnostics"]),
+        .library(name: "RightKitArtifacts", targets: ["RightKitArtifacts"]),
     ],
     targets: [
         .target(name: "RightKitLicense"),
         .target(name: "RightKitDiagnostics"),
         .testTarget(name: "RightKitDiagnosticsTests", dependencies: ["RightKitDiagnostics"]),
+        // zlib comes from the platform SDK; no third-party dependency enters the registry archive.
+        .target(name: "RightKitArtifacts", linkerSettings: [.linkedLibrary("z")]),
+        .testTarget(name: "RightKitArtifactsTests", dependencies: ["RightKitArtifacts"]),
         .testTarget(
             name: "RightKitLicenseTests",
             dependencies: ["RightKitLicense"],
