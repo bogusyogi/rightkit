@@ -1,0 +1,42 @@
+# XcodeGen spec for a minimal Right Suite iOS app. It carries NO product behaviour and no HeardRight
+# brand — its only job is to prove the RightKitSwift package resolves and links in an app target.
+# Generate with: xcodegen generate --spec project.yml
+name: RightAppTemplate
+options:
+  bundleIdPrefix: com.rightsuite.template
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  RightKitSwift:
+    # Local path here; a real app pins the published registry version. Resolving the package is the
+    # whole point of the spike, and the path form is what a clean clone can build without a network.
+    path: ../RightKitSwift
+targets:
+  RightAppTemplate:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: RightKitSwift
+        product: RightKitLicense
+      - package: RightKitSwift
+        product: RightKitDiagnostics
+      - package: RightKitSwift
+        product: RightKitArtifacts
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: com.rightsuite.template.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+  RightAppTemplateTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+    dependencies:
+      - target: RightAppTemplate
