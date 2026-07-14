@@ -18,7 +18,42 @@ sha256 = "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6"
 
 [provenance_conflict]
 labels = ["PP-OCRv5", "PP-OCRv6"]
-resolution_required = "authoritative upstream model label, source URL, and model license record"
+resolution_required = "one shipped model set across both apps; CodeRight's upstream must be identified"
+
+# Investigated 2026-07-14. The conflict is not a mislabel: the two apps ship DIFFERENT models,
+# and the [model.*] digests above match CodeRight only. Both labels were true, of different files.
+# `characterization/phase5-adoption/adoption.mjs` now hashes the deployed artifacts and fails
+# closed on this divergence; it previously compared shared Rust source only, never the models.
+#
+# This is a records + decision problem, not a macOS gate. It blocks publication on any platform.
+
+[divergence.scraperight]
+root = "scraperight/models/ocr"
+label = "PP-OCRv6"
+evidence = "det_config.json + rec_config.json ship alongside the models and self-identify"
+model_detector = "PP-OCRv6_medium_det"
+model_recognizer = "PP-OCRv6_small_rec"
+source_detector = "https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx"
+source_recognizer = "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx"
+license = "Apache-2.0"
+license_verified = "official PaddlePaddle HF org, apache-2.0 on both model cards (2026-07-14)"
+dictionary_entries = 18708
+detector_digest = "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1"
+recognizer_digest = "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
+dictionary_digest = "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d"
+
+[divergence.coderight]
+root = "coderight/apps/coderight-tauri/src-tauri/resources/ocr-model"
+label = "unidentified; NOT PP-OCRv6"
+evidence = "no config sidecars ship with the models; dictionary is 436 entries, not the 18,708-entry PP-OCRv6 unified dict"
+source = "unverified — must be identified before publication"
+license = "unverified"
+dictionary_entries = 436
+# digests are the [model.*] values above; CodeRight is what the record was characterized against
+
+[divergence.note]
+label_drift = "CodeRight's docs and ScrapeRight's module doc both say PP-OCRv6; ScrapeRight's Cargo.toml description and lib.rs lines 46/96/97 still say PP-OCRv5. The prose was never the evidence."
+upstream_v6_release = "PP-OCRv6 was released 2026-06-11, so both labels are period-plausible"
 
 [runtime.windows]
 file = "onnxruntime.dll"

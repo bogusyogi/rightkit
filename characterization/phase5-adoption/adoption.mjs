@@ -15,6 +15,11 @@ const SHARED_CORE = [
   "support/preprocess.rs",
 ];
 const PHASE5_CRATES = ["rightkit-ort", "rightkit-ocr", "rightkit-media"];
+const OCR_ARTIFACTS = ["det.onnx", "rec.onnx", "en_dict.txt"];
+const OCR_ARTIFACT_ROOTS = {
+  coderight: "coderight/apps/coderight-tauri/src-tauri/resources/ocr-model",
+  scraperight: "scraperight/models/ocr",
+};
 const execFileAsync = promisify(execFile);
 
 async function sha256(file) {
@@ -87,6 +92,38 @@ async function inspectAdapters() {
   return adapters;
 }
 
+// The shared-core check above hashes source only. Phase 5's gate also requires "the same
+// crate/model digest", so the deployed model artifacts must be hashed too — a status string in
+// PROVENANCE.toml is not evidence that the recorded digests are what the apps actually ship.
+async function inspectOcrArtifacts(provenance) {
+  const recorded = new Map();
+  for (const [, file, digest] of provenance.matchAll(
+    /^file\s*=\s*"([^"]+)"\s*\r?\nsha256\s*=\s*"([0-9a-f]{64})"/gm,
+  )) {
+    recorded.set(file, digest);
+  }
+
+  const drift = [];
+  for (const file of OCR_ARTIFACTS) {
+    const deployed = Object.fromEntries(
+      await Promise.all(
+        Object.entries(OCR_ARTIFACT_ROOTS).map(async ([app, root]) => [
+          app,
+          await sha256(path.join(WORKSPACE, root, file)),
+        ]),
+      ),
+    );
+    const expected = recorded.get(file) ?? null;
+    const appsAgree = new Set(Object.values(deployed)).size === 1;
+    const matchesRecord =
+      expected !== null && Object.values(deployed).every((digest) => digest === expected);
+    if (!appsAgree || !matchesRecord) {
+      drift.push({ file, recorded: expected, ...deployed });
+    }
+  }
+  return drift;
+}
+
 async function cargoManifests(root) {
   const { stdout } = await execFileAsync(
     "git",
@@ -154,8 +191,9 @@ export async function inspectPhase5Adoption() {
   const status = provenance.match(/^status\s*=\s*"([^"]+)"/m)?.[1];
   if (!status) throw new Error("OCR provenance status is missing");
 
-  const [coreDrift, adapters, crates, dependencies, media] = await Promise.all([
+  const [coreDrift, artifactDrift, adapters, crates, dependencies, media] = await Promise.all([
     inspectOcrCore(),
+    inspectOcrArtifacts(provenance),
     inspectAdapters(),
     crateStates(),
     prematureDependencies(),
@@ -163,12 +201,13 @@ export async function inspectPhase5Adoption() {
   ]);
   return {
     schema: "rightkit.phase5-adoption-readiness.v1",
-    ocr: { coreDrift, adapters, provenanceStatus: status },
+    ocr: { coreDrift, artifactDrift, adapters, provenanceStatus: status },
     crates,
     prematureDependencies: dependencies,
     media,
     readyToPublish:
       coreDrift.length === 0 &&
+      artifactDrift.length === 0 &&
       dependencies.length === 0 &&
       status === "resolved" &&
       Object.values(crates).every(({ publish }) => publish) &&
