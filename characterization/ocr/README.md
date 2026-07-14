@@ -1,7 +1,8 @@
 # ORT/OCR characterization — CodeRight and ScrapeRight
 
-Status: Phase 5 step 1 complete on Windows (2026-07-14). This is a
-pre-extraction evidence gate. It does not publish or migrate either app.
+Status: Phase 5 step 1 and internal pre-publication extraction complete on
+Windows (2026-07-14). `rightkit-ort` and `rightkit-ocr` are `publish = false`;
+this does not publish or migrate either app.
 
 ## Reproduce
 

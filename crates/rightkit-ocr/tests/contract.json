@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "fixture": {
+    "file": "fixtures/rightkit-ocr-parity.png.base64",
+    "sha256": "803e102100c91a077607cd2d4750d9d748d86ced48fabc0f77062f26dcba0a4b"
+  },
+  "models": {
+    "det.onnx": "61824840edf6e74581898930b8091b1b2318f4b2705a2e8a40ad3de7ac480133",
+    "rec.onnx": "4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7",
+    "en_dict.txt": "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6"
+  },
+  "ortRuntime": {
+    "win32": "0a49bb13573807ad309aa9967a46471c07d6495bab5b279d1fad474aefd8ef4b"
+  },
+  "expectedOutput": "RIGHTKIT OCR 2026\nShared parity fixture"
+}

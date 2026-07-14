@@ -1,0 +1,31 @@
+[package]
+name = "rightkit-ocr"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Verified product-neutral two-stage ONNX OCR runtime"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+include = [
+  "src/**",
+  "tests/**",
+  "Cargo.toml",
+  "README.md",
+  "LICENSE-MIT",
+  "LICENSE-APACHE",
+  "PROVENANCE.toml",
+]
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "api-24", "load-dynamic"] }
+rightkit-ort = { version = "=0.1.0", path = "../rightkit-ort" }
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "api-24", "load-dynamic", "directml"] }
+
+[dev-dependencies]
+base64 = "0.22"

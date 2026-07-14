@@ -1,0 +1,25 @@
+schema = 1
+status = "conflict-unresolved"
+characterization_commit = "e5c177d"
+fixture_sha256 = "803e102100c91a077607cd2d4750d9d748d86ced48fabc0f77062f26dcba0a4b"
+expected_output = "RIGHTKIT OCR 2026\nShared parity fixture"
+
+[model.detector]
+file = "det.onnx"
+sha256 = "61824840edf6e74581898930b8091b1b2318f4b2705a2e8a40ad3de7ac480133"
+
+[model.recognizer]
+file = "rec.onnx"
+sha256 = "4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7"
+
+[model.dictionary]
+file = "en_dict.txt"
+sha256 = "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6"
+
+[provenance_conflict]
+labels = ["PP-OCRv5", "PP-OCRv6"]
+resolution_required = "authoritative upstream model label, source URL, and model license record"
+
+[runtime.windows]
+file = "onnxruntime.dll"
+sha256 = "0a49bb13573807ad309aa9967a46471c07d6495bab5b279d1fad474aefd8ef4b"

@@ -1,0 +1,13 @@
+[package]
+name = "rightkit-ort"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Safe product-neutral ONNX Runtime dynamic-library resolution and diagnostics"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
