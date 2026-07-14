@@ -1188,6 +1188,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-framed-sidecar"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rightkit-license"
 version = "0.1.2"
 dependencies = [
