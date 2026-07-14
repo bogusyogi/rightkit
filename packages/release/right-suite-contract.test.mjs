@@ -10,6 +10,7 @@ import {
   assertPublishedRightKitCargoDependencies,
   validateRightKitCargoContract,
 } from "./cargo-contract.mjs";
+import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
 
 const workspace = path.resolve(new URL("../../../..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1"));
 const versionsPath = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1")), "rightkit-versions.json");
@@ -449,6 +450,12 @@ for (const app of apps) {
     }
   });
 }
+
+test("HeardRight and ScrapeRight expose one locked ASR promotion adapter contract", async () => {
+  const heard = (await import(`${pathToFileURL(path.join(workspace, "heardright/tauri-app-next/right-release.config.mjs"))}?asr=${Date.now()}`)).default;
+  const scrape = (await import(`${pathToFileURL(path.join(workspace, "scraperight/right-release.config.mjs"))}?asr=${Date.now()}`)).default;
+  assert.equal(assertAsrAdapterPair(heard.runtimeArtifacts?.asr, scrape.runtimeArtifacts?.asr), true);
+});
 
 function findFiles(root, filename) {
   const found = [];
