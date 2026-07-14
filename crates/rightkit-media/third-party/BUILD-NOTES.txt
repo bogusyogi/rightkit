@@ -1,0 +1,56 @@
+FFmpeg — LGPL static build for Windows x64 (decode-only)
+========================================================
+Used by: HeardRight + ScrapeRight (decode arbitrary audio -> 16 kHz mono for
+transcription). Windows twin of the macOS-arm64 LGPL build (same FFmpeg 7.1.5,
+same intent, same decode-only posture).
+
+Version:        FFmpeg 7.1.5 (release)
+Upstream:       https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz
+Source SHA-256: de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f
+Built:          2026-07-05
+Toolchain:      MSYS2 MINGW64 shell — gcc 16.1.0 (x86_64-w64-mingw32), nasm 2.16.03
+Binary:         ffmpeg-win-x64.exe
+Binary SHA-256: ded75c0edf344b9eed5876cd6cc469b7366b00c4dd0f25b3965062965c33990d
+Size:           16.4 MB  (vs ~108 MB for BtbN's full LGPL build)
+
+LICENSE: LGPL version 2.1 or later  (confirmed by configure output)
+  - NO --enable-gpl, NO --enable-nonfree.
+  - NO libx264 / libx265 / libfdk-aac (GPL/nonfree encoders) — not built.
+  - Decode-only: FFmpeg's built-in native decoders (H.264/HEVC/AV1/VP9/AAC/
+    Opus/MP3/FLAC) need no external libraries. We never encode.
+
+CONFIGURE FLAGS (exact, as built):
+  ./configure \
+    --disable-gpl --disable-nonfree --disable-autodetect \
+    --enable-static --disable-shared \
+    --disable-doc --disable-debug --disable-ffplay --enable-small \
+    --arch=x86_64 --target-os=mingw32 \
+    --extra-ldflags="-static -static-libgcc"
+  make -j$(nproc)
+
+VERIFICATION (all passed 2026-07-05):
+  [1] -version configuration has no --enable-gpl / --enable-nonfree
+      ("License: LGPL version 2.1 or later" at configure time)
+  [2] objdump -p ffmpeg-win-x64.exe imports ONLY Windows system DLLs:
+      bcrypt, gdi32, kernel32, msvcrt, ole32, oleaut32, shell32, shlwapi,
+      user32, avicap32, ws2_32
+      -> NO libwinpthread-1.dll, NO libgcc_s, NO msys-2.0.dll (fully static)
+  [3] decode opus   -> 16000 Hz mono pcm_s16le : OK
+      decode aac/m4a -> 16000 Hz mono pcm_s16le : OK
+
+WIRING:
+  ScrapeRight (package.ps1): set env FFMPEG_WIN_X64_SRC to this file before
+    building, or default the script's ffmpeg source to it. Replaces the prior
+    GPL imageio-ffmpeg binary and removes the Find-ImageioFfmpeg dependency.
+  HeardRight: point the Windows ffmpeg staging override at this file (the
+    Windows counterpart of HR_FFMPEG_DARWIN_SRC).
+
+REPRODUCE:
+  1. Install MSYS2 (https://www.msys2.org/), open the MINGW64 shell.
+  2. pacman -S --needed mingw-w64-x86_64-gcc make nasm yasm diffutils pkgconf
+  3. curl -fsSLO https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz && tar xf ffmpeg-7.1.tar.xz && cd ffmpeg-7.1
+  4. Run the configure + make above. Configure tail must say:
+       License: LGPL version 2.1 or later
+
+NOTE: Code signing (Azure Trusted Signing) is a separate step — this is the
+clean, unsigned LGPL binary.

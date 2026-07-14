@@ -327,6 +327,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-media"
+version = "0.1.0"
+dependencies = [
+ "rightkit-process",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "rightkit-process"
 version = "0.1.0"
 dependencies = [

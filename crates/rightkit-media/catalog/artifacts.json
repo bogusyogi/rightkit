@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "artifacts": [
+    {
+      "id": "ffmpeg-7.1.5-windows-x64",
+      "os": "windows",
+      "arch": "x86_64",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "ded75c0edf344b9eed5876cd6cc469b7366b00c4dd0f25b3965062965c33990d",
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "attribution": {
+        "licenseSpdx": "LGPL-2.1-or-later",
+        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+        "buildProvenance": "third-party/BUILD-NOTES.txt",
+        "noticeFiles": [
+          "third-party/LGPL-2.1.txt",
+          "third-party/BUILD-NOTES.txt"
+        ]
+      },
+      "requiredConfigureFlags": [
+        "--disable-gpl",
+        "--disable-nonfree",
+        "--disable-autodetect"
+      ]
+    }
+  ]
+}
