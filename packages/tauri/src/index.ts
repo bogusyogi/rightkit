@@ -7,6 +7,24 @@ export interface RightKitTauriCommands {
   diagnostics: { collect: string; clear: string };
 }
 
+export const standardRightKitTauriCommands = {
+  license: {
+    get: 'secure_update_license_get',
+    set: 'secure_update_license_set',
+    delete: 'secure_update_license_delete',
+  },
+  device: { get: 'secure_device_id_get', set: 'secure_device_id_set' },
+  logs: {
+    write: 'rightkit_logs_write',
+    collect: 'rightkit_logs_collect',
+    clear: 'rightkit_logs_clear',
+  },
+  diagnostics: {
+    collect: 'collect_diagnostics',
+    clear: 'clear_diagnostic_logs',
+  },
+} as const satisfies RightKitTauriCommands;
+
 export interface RightKitTauriClientConfig {
   invoke: Invoke;
   commands: RightKitTauriCommands;

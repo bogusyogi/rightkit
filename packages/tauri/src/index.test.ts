@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { createRightKitTauriClient } from './index.js';
+import { createRightKitTauriClient, standardRightKitTauriCommands } from './index.js';
 
 describe('createRightKitTauriClient', () => {
+  it('exposes the standard command surface shared by new Right Suite apps', () => {
+    expect(standardRightKitTauriCommands).toEqual({
+      license: {
+        get: 'secure_update_license_get',
+        set: 'secure_update_license_set',
+        delete: 'secure_update_license_delete',
+      },
+      device: { get: 'secure_device_id_get', set: 'secure_device_id_set' },
+      logs: {
+        write: 'rightkit_logs_write',
+        collect: 'rightkit_logs_collect',
+        clear: 'rightkit_logs_clear',
+      },
+      diagnostics: {
+        collect: 'collect_diagnostics',
+        clear: 'clear_diagnostic_logs',
+      },
+    });
+  });
+
   it('routes typed license, device, logs, and diagnostics operations through one command map', async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
     const invoke = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
