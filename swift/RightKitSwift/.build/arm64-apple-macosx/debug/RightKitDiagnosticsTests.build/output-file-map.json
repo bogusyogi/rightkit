@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitDiagnosticsTests.build/primary.swiftdeps"
+  },
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Tests/RightKitDiagnosticsTests/DiagnosticsTests.swift": {
+    "dependencies": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitDiagnosticsTests.build/DiagnosticsTests.d",
+    "object": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitDiagnosticsTests.build/DiagnosticsTests.swift.o",
+    "swiftmodule": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitDiagnosticsTests.build/DiagnosticsTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitDiagnosticsTests.build/DiagnosticsTests.swiftdeps",
+    "diagnostics": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitDiagnosticsTests.build/DiagnosticsTests.dia"
+  }
+}

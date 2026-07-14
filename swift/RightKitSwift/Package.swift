@@ -9,9 +9,12 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "RightKitLicense", targets: ["RightKitLicense"]),
+        .library(name: "RightKitDiagnostics", targets: ["RightKitDiagnostics"]),
     ],
     targets: [
         .target(name: "RightKitLicense"),
+        .target(name: "RightKitDiagnostics"),
+        .testTarget(name: "RightKitDiagnosticsTests", dependencies: ["RightKitDiagnostics"]),
         .testTarget(
             name: "RightKitLicenseTests",
             dependencies: ["RightKitLicense"],
