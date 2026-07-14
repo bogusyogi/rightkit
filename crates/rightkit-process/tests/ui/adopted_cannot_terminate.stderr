@@ -1,0 +1,5 @@
+error[E0599]: no method named `terminate_tree` found for struct `AdoptedProcess` in the current scope
+ --> tests/ui/adopted_cannot_terminate.rs:7:13
+  |
+7 |     process.terminate_tree().unwrap();
+  |             ^^^^^^^^^^^^^^ method not found in `AdoptedProcess`
