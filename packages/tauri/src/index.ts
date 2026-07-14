@@ -27,7 +27,7 @@ export const standardRightKitTauriCommands = {
 
 export interface RightKitTauriClientConfig {
   invoke: Invoke;
-  commands: RightKitTauriCommands;
+  commands?: RightKitTauriCommands;
   argumentNames?: {
     licenseSet?: string;
     deviceSet?: string;
@@ -67,8 +67,9 @@ export function createRightKitTauriClient<
   TDiagnostics,
   TLogEvent
 > {
-  validateCommands(config.commands);
-  const { invoke, commands } = config;
+  const commands = config.commands ?? standardRightKitTauriCommands;
+  validateCommands(commands);
+  const { invoke } = config;
   const argumentNames = {
     licenseSet: config.argumentNames?.licenseSet ?? 'value',
     deviceSet: config.argumentNames?.deviceSet ?? 'value',

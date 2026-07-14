@@ -22,6 +22,21 @@ describe('createRightKitTauriClient', () => {
     });
   });
 
+  it('uses the standard command map when an app has no legacy command names', async () => {
+    const calls: string[] = [];
+    const client = createRightKitTauriClient({
+      invoke: async <T>(command: string) => {
+        calls.push(command);
+        return undefined as T;
+      },
+    });
+
+    await client.license.get();
+    await client.logs.collect();
+
+    expect(calls).toEqual(['secure_update_license_get', 'rightkit_logs_collect']);
+  });
+
   it('routes typed license, device, logs, and diagnostics operations through one command map', async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
     const invoke = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
