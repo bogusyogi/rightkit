@@ -171,10 +171,12 @@ describe('createRightKitTauriClient', () => {
     expect(rightSuiteTauriAppConfigs).toEqual({
       viewright: {
         commands: standardRightKitTauriCommands,
+        deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
         argumentNames: { licenseSet: 'value', logsWrite: 'events' },
       },
       scraperight: {
         commands: standardRightKitTauriCommands,
+        deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
         argumentNames: { licenseSet: 'license', logsWrite: 'events' },
       },
       heardright: {
@@ -187,10 +189,12 @@ describe('createRightKitTauriClient', () => {
           },
           diagnostics: { collect: 'rightkit_logs_collect', clear: 'rightkit_logs_clear' },
         },
+        deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
         argumentNames: { licenseSet: 'license', logsWrite: 'events' },
       },
       mailright: {
         commands: standardRightKitTauriCommands,
+        deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
         argumentNames: { licenseSet: 'license', logsWrite: 'events' },
       },
       coderight: {
@@ -198,6 +202,7 @@ describe('createRightKitTauriClient', () => {
           ...standardRightKitTauriCommands,
           diagnostics: { collect: 'rightkit_logs_collect', clear: 'rightkit_logs_clear' },
         },
+        deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
         argumentNames: { licenseSet: 'value', logsWrite: 'events' },
       },
     });
@@ -208,7 +213,7 @@ describe('createRightKitTauriClient', () => {
     ['scraperight', createScrapeRightTauriClient, 'license', 'collect_diagnostics', 'clear_diagnostic_logs'],
     ['mailright', createMailRightTauriClient, 'license', 'collect_diagnostics', 'clear_diagnostic_logs'],
     ['coderight', createCodeRightTauriClient, 'value', 'rightkit_logs_collect', 'rightkit_logs_clear'],
-  ] as const)('executes the %s shared command fixture and marks legacy device identity unsupported', async (
+  ] as const)('executes the %s shared command fixture with atomic native device identity', async (
     _app,
     createClient,
     licenseArgument,
@@ -231,7 +236,7 @@ describe('createRightKitTauriClient', () => {
     await client.logs.clear();
     await client.diagnostics.collect();
     await client.diagnostics.clear();
-    await expect(client.device.getOrCreate()).rejects.toThrow(/atomic native/i);
+    await client.device.getOrCreate();
 
     expect(calls).toEqual([
       { command: 'secure_update_license_get', args: undefined },
@@ -242,10 +247,11 @@ describe('createRightKitTauriClient', () => {
       { command: 'rightkit_logs_clear', args: undefined },
       { command: diagnosticsCollect, args: undefined },
       { command: diagnosticsClear, args: undefined },
+      { command: 'secure_device_id_get_or_create', args: undefined },
     ]);
   });
 
-  it('executes the HeardRight fixture but rejects its transitional fallback-based device command', async () => {
+  it('executes the HeardRight fixture with atomic native device identity', async () => {
     const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
     const client = createHeardRightTauriClient<{ key: string }, string, unknown, string, unknown>({
       invoke: async <T>(command: string, args?: Record<string, unknown>) => {
@@ -257,7 +263,7 @@ describe('createRightKitTauriClient', () => {
     await client.license.get();
     await client.license.set({ key: 'RIGHT-123' });
     await client.license.delete();
-    await expect(client.device.getOrCreate()).rejects.toThrow(/atomic native/i);
+    await client.device.getOrCreate();
     await client.logs.write(['opened']);
     await client.logs.collect();
     await client.logs.clear();
@@ -268,6 +274,7 @@ describe('createRightKitTauriClient', () => {
       { command: 'secure_license_get', args: undefined },
       { command: 'secure_license_set', args: { license: { key: 'RIGHT-123' } } },
       { command: 'secure_license_delete', args: undefined },
+      { command: 'secure_device_id_get_or_create', args: undefined },
       { command: 'rightkit_logs_write', args: { events: ['opened'] } },
       { command: 'rightkit_logs_collect', args: undefined },
       { command: 'rightkit_logs_clear', args: undefined },

@@ -11,10 +11,10 @@ The device adapter exposes a no-argument `getOrCreate()` operation and invokes
 only an atomic native command. The native host generates, stores, and returns
 the identifier; the renderer never supplies identity material. A host exposing
 separate get/set commands or a fallback-taking transitional command is marked
-unsupported. All five canonical app configurations currently fail closed for
-`getOrCreate()` until their native hosts adopt `secure_device_id_get_or_create`.
-The exported `standardRightKitDeviceGetOrCreate` constant is the canonical
-opt-in configuration once that no-argument native command exists.
+unsupported. All five canonical app configurations use
+`secure_device_id_get_or_create`; the exported
+`standardRightKitDeviceGetOrCreate` constant is the single shared command
+contract.
 Updater behavior is composed from the existing `@rightkit/updates` client rather
 than reimplemented. Structured-log bundles and app diagnostics have distinct
 generic result types because they are not interchangeable on every host.

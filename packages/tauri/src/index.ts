@@ -168,22 +168,27 @@ const codeRightCommands = {
 export const rightSuiteTauriAppConfigs = {
   viewright: {
     commands: standardRightKitTauriCommands,
+    deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
     argumentNames: { licenseSet: 'value', logsWrite: 'events' },
   },
   scraperight: {
     commands: standardRightKitTauriCommands,
+    deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
     argumentNames: { licenseSet: 'license', logsWrite: 'events' },
   },
   heardright: {
     commands: heardRightCommands,
+    deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
     argumentNames: { licenseSet: 'license', logsWrite: 'events' },
   },
   mailright: {
     commands: standardRightKitTauriCommands,
+    deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
     argumentNames: { licenseSet: 'license', logsWrite: 'events' },
   },
   coderight: {
     commands: codeRightCommands,
+    deviceGetOrCreate: standardRightKitDeviceGetOrCreate,
     argumentNames: { licenseSet: 'value', logsWrite: 'events' },
   },
 } as const satisfies Record<string, RightKitTauriAppConfig>;
