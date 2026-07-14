@@ -7,6 +7,15 @@ its app and device binding, rejects expiry, and exposes native tier/feature
 requirements. Applications must enforce paid commands at the Rust boundary;
 renderer state is never license authority.
 
+## Requirement contract
+
+`Entitlement::satisfies` fails closed unless the entitlement tier is exactly
+`free`, `plus`, or `pro` and the requirement contains at least one effective
+constraint. A requirement may specify a recognized tier, a non-empty named
+feature, a non-empty `all_features` set, or a non-empty `any_features` set.
+Unknown or misspelled tiers, blank feature names, and default/empty requirements
+never authorize. Tier ordering remains `free < plus < pro`.
+
 ## Wire contract
 
 The token is:

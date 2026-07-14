@@ -41,6 +41,12 @@ pub struct Entitlement {
     pub exp: i64,
 }
 
+/// Native authorization policy.
+///
+/// A valid requirement has at least one effective constraint: a recognized
+/// `free`, `plus`, or `pro` tier, or one or more non-empty feature names.
+/// Unknown tiers, blank feature names, and a completely empty requirement are
+/// invalid and always fail closed in [`Entitlement::satisfies`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LicenseRequirement {
     pub tier: Option<String>,
@@ -84,6 +90,31 @@ impl LicenseRequirement {
             ..Self::default()
         }
     }
+
+    fn is_valid(&self) -> bool {
+        let has_tier = match self.tier.as_deref() {
+            Some(tier) if tier_rank(tier).is_some() => true,
+            Some(_) => return false,
+            None => false,
+        };
+        let has_feature = match self.feature.as_deref() {
+            Some(feature) if valid_feature(feature) => true,
+            Some(_) => return false,
+            None => false,
+        };
+        if self
+            .all_features
+            .iter()
+            .any(|feature| !valid_feature(feature))
+            || self
+                .any_features
+                .iter()
+                .any(|feature| !valid_feature(feature))
+        {
+            return false;
+        }
+        has_tier || has_feature || !self.all_features.is_empty() || !self.any_features.is_empty()
+    }
 }
 
 impl Entitlement {
@@ -95,7 +126,10 @@ impl Entitlement {
     }
     /// Free < Plus < Pro.
     pub fn tier_at_least(&self, tier: &str) -> bool {
-        tier_rank(&self.tier) >= tier_rank(tier)
+        matches!(
+            (tier_rank(&self.tier), tier_rank(tier)),
+            (Some(actual), Some(required)) if actual >= required
+        )
     }
     pub fn has_all_features(&self, features: &[impl AsRef<str>]) -> bool {
         features
@@ -109,7 +143,11 @@ impl Entitlement {
     }
     /// Shared native enforcement helper. Verify the signed token first with
     /// [`verify_token`], then apply the same requirement shape the JS UI uses.
+    /// Malformed entitlement tiers and invalid requirements fail closed.
     pub fn satisfies(&self, requirement: &LicenseRequirement) -> bool {
+        if tier_rank(&self.tier).is_none() || !requirement.is_valid() {
+            return false;
+        }
         if let Some(tier) = &requirement.tier {
             if !self.tier_at_least(tier) {
                 return false;
@@ -132,12 +170,17 @@ impl Entitlement {
     }
 }
 
-fn tier_rank(t: &str) -> u8 {
+fn tier_rank(t: &str) -> Option<u8> {
     match t {
-        "pro" => 2,
-        "plus" => 1,
-        _ => 0,
+        "pro" => Some(2),
+        "plus" => Some(1),
+        "free" => Some(0),
+        _ => None,
     }
+}
+
+fn valid_feature(feature: &str) -> bool {
+    !feature.trim().is_empty()
 }
 
 #[derive(Debug, PartialEq, Eq)]
