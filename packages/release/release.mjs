@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -62,6 +63,7 @@ if (config.schema !== 1) fail(`unsupported config schema: ${config.schema ?? "<m
 const root = path.dirname(configPath);
 const workdir = path.resolve(root, config.workdir ?? ".");
 await validateRightKitPackageContract(root, config.app);
+validateRightKitCargoContract(root, RIGHTKIT_VERSIONS.cargo, config.app ?? path.basename(root));
 const target = config.targets?.[opts.platform];
 if (!target) fail(`${config.app ?? "app"} has no ${opts.platform} release target`);
 if (target.signed !== true) {

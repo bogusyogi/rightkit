@@ -5,6 +5,11 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import test, { after } from "node:test";
+import {
+  assertNoRightKitCargoOverrides,
+  assertPublishedRightKitCargoDependencies,
+  validateRightKitCargoContract,
+} from "./cargo-contract.mjs";
 
 const workspace = path.resolve(new URL("../../../..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1"));
 const versionsPath = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1")), "rightkit-versions.json");
@@ -52,24 +57,6 @@ let currentCargoVersionContract;
 function getCurrentCargoVersionContract() {
   currentCargoVersionContract ??= resolveCargoVersionContract(versions, readCanonicalCrateVersions());
   return currentCargoVersionContract;
-}
-
-function assertPublishedRightKitCargoDependencies(dependencies, published, label) {
-  let checked = 0;
-  for (const dependency of dependencies.filter(({ name }) => name.startsWith("rightkit-"))) {
-    checked += 1;
-    const expected = published.get(dependency.name);
-    assert.ok(expected, `${label} ${dependency.name} is not a published RightKit crate`);
-    const cratesIoSource = new Set([
-      "registry+https://github.com/rust-lang/crates.io-index",
-      "registry+https://index.crates.io/",
-    ]).has(dependency.source);
-    assert.ok(
-      cratesIoSource && !dependency.path && !dependency.registry && dependency.req === `=${expected}`,
-      `${label} ${dependency.name} must use the exact crates.io version "=${expected}"`,
-    );
-  }
-  return checked;
 }
 
 const cargoContractCache = new Map();
@@ -124,79 +111,6 @@ function assertCargoFixture(manifest, published, label) {
   }
 }
 
-const tomlCache = new Map();
-function readToml(file, label) {
-  const cacheKey = path.resolve(file).toLowerCase();
-  if (tomlCache.has(cacheKey)) return tomlCache.get(cacheKey);
-  const script = "import json,pathlib,sys,tomllib; json.dump(tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')),sys.stdout,default=str)";
-  const command = process.platform === "win32" ? "py" : "python3";
-  const args = process.platform === "win32" ? ["-3.11", "-c", script, file] : ["-c", script, file];
-  const result = spawnSync(command, args, { encoding: "utf8", windowsHide: true });
-  assert.equal(result.status, 0, `${label} is not valid TOML: ${String(result.stderr ?? "").trim()}`);
-  const parsed = JSON.parse(result.stdout);
-  tomlCache.set(cacheKey, parsed);
-  return parsed;
-}
-
-function assertNoRightKitOverrides(parsed, label, source) {
-  for (const overrides of Object.values(parsed.patch ?? {})) {
-    if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) continue;
-    for (const [name, specifier] of Object.entries(overrides)) {
-      const packageName = typeof specifier === "object" && specifier ? specifier.package : undefined;
-      if (name.startsWith("rightkit-") || packageName?.startsWith("rightkit-")) {
-        assert.fail(`${label} has forbidden RightKit Cargo override ${name} in ${source}`);
-      }
-    }
-  }
-  for (const [name, specifier] of Object.entries(parsed.replace ?? {})) {
-    const packageName = typeof specifier === "object" && specifier ? specifier.package : undefined;
-    if (name.split(":", 1)[0].startsWith("rightkit-") || packageName?.startsWith("rightkit-")) {
-      assert.fail(`${label} has forbidden RightKit Cargo override ${name} in ${source}`);
-    }
-  }
-}
-
-function assertNoRightKitCargoOverrides(manifestPath, workspaceRoot, repoRoot, label) {
-  const manifests = new Set([
-    path.resolve(manifestPath),
-    path.resolve(workspaceRoot, "Cargo.toml"),
-  ]);
-  for (const candidate of manifests) {
-    if (!existsSync(candidate)) continue;
-    const source = path.relative(repoRoot, candidate) || label;
-    assertNoRightKitOverrides(readToml(candidate, source), label, source);
-  }
-
-  for (const configPath of findRepoCargoConfigs(path.dirname(manifestPath), repoRoot)) {
-    const source = path.relative(repoRoot, configPath);
-    const parsed = readToml(configPath, source);
-    assertNoRightKitOverrides(parsed, label, source);
-    const cratesIo = parsed.source?.["crates-io"];
-    if (!cratesIo || typeof cratesIo !== "object") continue;
-    if (["replace-with", "directory", "git", "registry", "local-registry"].some((key) => key in cratesIo)) {
-      assert.fail(`${label} has forbidden crates.io source replacement in ${path.relative(repoRoot, configPath)}`);
-    }
-  }
-  return 0;
-}
-
-function findRepoCargoConfigs(start, repoRoot) {
-  const boundary = path.resolve(repoRoot);
-  let current = path.resolve(start);
-  const relative = path.relative(boundary, current);
-  assert.ok(relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)), `${current} is outside ${boundary}`);
-  const configs = [];
-  while (true) {
-    for (const filename of ["config", "config.toml"]) {
-      const candidate = path.join(current, ".cargo", filename);
-      if (existsSync(candidate)) configs.push(candidate);
-    }
-    if (current.toLowerCase() === boundary.toLowerCase()) break;
-    current = path.dirname(current);
-  }
-  return configs;
-}
-
 function assertCargoOverrideFixture({ manifest, workspaceManifest, localConfig, ancestorConfig, outsideConfig }) {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "rightkit-cargo-override-"));
   const repoRoot = path.join(fixtureRoot, "repo");
@@ -216,12 +130,11 @@ function assertCargoOverrideFixture({ manifest, workspaceManifest, localConfig, 
     writeFileSync(path.join(cargoDir, filename), source, "utf8");
   }
   try {
-    return assertNoRightKitCargoOverrides(
-      manifestPath,
-      workspaceManifest ? repoRoot : appRoot,
-      repoRoot,
-      "fixture/Cargo.toml",
-    );
+    assertNoRightKitCargoOverrides(manifestPath, repoRoot, "fixture/Cargo.toml");
+    if (workspaceManifest) {
+      assertNoRightKitCargoOverrides(path.join(repoRoot, "Cargo.toml"), repoRoot, "fixture/workspace Cargo.toml");
+    }
+    return 0;
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -486,13 +399,8 @@ for (const app of apps) {
     ]);
     assert.equal(tauri.bundle.createUpdaterArtifacts, true);
 
-    for (const manifestPath of findCargoManifests(root)) {
-      const { consumer } = getCurrentCargoVersionContract();
-      const label = path.relative(workspace, manifestPath);
-      const cargoContract = readCargoManifestContract(manifestPath, label);
-      assertPublishedRightKitCargoDependencies(cargoContract.dependencies, consumer, label);
-      assertNoRightKitCargoOverrides(manifestPath, cargoContract.workspaceRoot, workspace, label);
-    }
+    const { consumer } = getCurrentCargoVersionContract();
+    validateRightKitCargoContract(root, consumer, app.key);
 
     for (const localCopy of [
       "src-tauri/vendor/rightkit-license",
@@ -544,8 +452,6 @@ function findFiles(root, filename) {
   visit(root);
   return found;
 }
-
-const findCargoManifests = (root) => findFiles(root, "Cargo.toml");
 
 function readCanonicalCrateVersions() {
   const crateRoot = path.join(workspace, "tools/rightkit/crates");

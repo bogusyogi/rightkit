@@ -9,8 +9,10 @@ import test from "node:test";
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
 const versions = JSON.parse(readFileSync(new URL("./rightkit-versions.json", import.meta.url), "utf8"));
 
-function fixture({ signed = true, publish = false, packageJson } = {}) {
-  const dir = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
+function fixture({ signed = true, publish = false, packageJson, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest } = {}) {
+  const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
+  const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
+  mkdirSync(dir, { recursive: true });
   const config = path.join(dir, "right-release.config.mjs");
   writeFileSync(
     path.join(dir, "package.json"),
@@ -49,6 +51,26 @@ function fixture({ signed = true, publish = false, packageJson } = {}) {
       },
     })};\n`,
   );
+  if (cargoManifest) {
+    writeFileSync(path.join(dir, "Cargo.toml"), `${cargoManifest}\n[lib]\npath = "fixture.rs"\n`, "utf8");
+    writeFileSync(path.join(dir, "fixture.rs"), "", "utf8");
+  }
+  if (cargoConfig) {
+    const cargoDir = path.join(dir, ".cargo");
+    mkdirSync(cargoDir, { recursive: true });
+    writeFileSync(path.join(cargoDir, "config.toml"), cargoConfig, "utf8");
+  }
+  if (repoCargoConfig) {
+    mkdirSync(path.join(fixtureRoot, ".git"), { recursive: true });
+    const cargoDir = path.join(fixtureRoot, ".cargo");
+    mkdirSync(cargoDir, { recursive: true });
+    writeFileSync(path.join(cargoDir, "config.toml"), repoCargoConfig, "utf8");
+  }
+  if (siblingCargoManifest) {
+    const sibling = path.join(fixtureRoot, "docs", "archived-workspace");
+    mkdirSync(sibling, { recursive: true });
+    writeFileSync(path.join(sibling, "Cargo.toml"), siblingCargoManifest, "utf8");
+  }
   return config;
 }
 
@@ -169,6 +191,46 @@ test("rejects hosted workflow files before release work starts", () => {
   const result = run(config, "--tier=patch");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /hosted workflow.*forbidden/i);
+});
+
+test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", () => {
+  const config = fixture({
+    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+    cargoConfig: `[net]\nretry = 2\n[registries.private]\nindex = "https://example.test/index"`,
+  });
+  const result = run(config, "--doctor");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /right-release/);
+});
+
+test("doctor scopes Cargo inspection to the configured app inside a monorepo", () => {
+  const config = fixture({
+    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+    repoCargoConfig: `[net]\nretry = 2`,
+    siblingCargoManifest: `[package]\nname = "archived-copy"\nversion = "0.0.0"\n[dependencies]\nrightkit-license = { path = "../../rightkit-license" }`,
+  });
+  const result = run(config, "--doctor");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("doctor rejects a repo-local RightKit Cargo override", () => {
+  const config = fixture({
+    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+    cargoConfig: `[patch.crates-io]\nrightkit-license = { path = "../rightkit-license" }`,
+  });
+  const result = run(config, "--doctor");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /forbidden RightKit Cargo override/i);
+});
+
+test("doctor rejects a RightKit override at an ancestor repository root", () => {
+  const config = fixture({
+    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+    repoCargoConfig: `[patch.crates-io]\nrightkit-license = { git = "https://example.test/rightkit-license.git" }`,
+  });
+  const result = run(config, "--doctor");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /forbidden RightKit Cargo override/i);
 });
 
 test("publish runs the signed package step before the updater publication step", () => {
