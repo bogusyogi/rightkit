@@ -1,0 +1,40 @@
+# ScrapeRight iOS spike: proves the RightKitSwift package/template end to end on device/simulator.
+# It imports a fixture, downloads a test artifact over loopback, verifies + installs it through the
+# shared installer, and records diagnostics. It depends on RightKitSwift by path (no copied source).
+name: ScrapeRightSpike
+options:
+  bundleIdPrefix: com.rightsuite.scraperight.spike
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  RightKitSwift:
+    path: ../RightKitSwift
+targets:
+  ScrapeRightSpike:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: RightKitSwift
+        product: RightKitArtifacts
+      - package: RightKitSwift
+        product: RightKitDiagnostics
+      - package: RightKitSwift
+        product: RightKitLicense
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: com.rightsuite.scraperight.spike.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+  ScrapeRightSpikeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+    dependencies:
+      - target: ScrapeRightSpike
