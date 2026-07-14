@@ -1,5 +1,6 @@
 schema = 1
-status = "conflict-unresolved"
+status = "resolved"
+resolved = "2026-07-14"
 characterization_commit = "e5c177d"
 fixture_sha256 = "803e102100c91a077607cd2d4750d9d748d86ced48fabc0f77062f26dcba0a4b"
 expected_output = "RIGHTKIT OCR 2026\nShared parity fixture"
@@ -16,44 +17,37 @@ sha256 = "4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7"
 file = "en_dict.txt"
 sha256 = "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6"
 
-[provenance_conflict]
-labels = ["PP-OCRv5", "PP-OCRv6"]
-resolution_required = "one shipped model set across both apps; CodeRight's upstream must be identified"
-
-# Investigated 2026-07-14. The conflict is not a mislabel: the two apps ship DIFFERENT models,
-# and the [model.*] digests above match CodeRight only. Both labels were true, of different files.
-# `characterization/phase5-adoption/adoption.mjs` now hashes the deployed artifacts and fails
-# closed on this divergence; it previously compared shared Rust source only, never the models.
-#
-# This is a records + decision problem, not a macOS gate. It blocks publication on any platform.
-
-[divergence.scraperight]
-root = "scraperight/models/ocr"
-label = "PP-OCRv6"
-evidence = "det_config.json + rec_config.json ship alongside the models and self-identify"
-model_detector = "PP-OCRv6_medium_det"
-model_recognizer = "PP-OCRv6_small_rec"
-source_detector = "https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx"
-source_recognizer = "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx"
-license = "Apache-2.0"
-license_verified = "official PaddlePaddle HF org, apache-2.0 on both model cards (2026-07-14)"
-dictionary_entries = 18708
-detector_digest = "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1"
-recognizer_digest = "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
-dictionary_digest = "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d"
-
-[divergence.coderight]
-root = "coderight/apps/coderight-tauri/src-tauri/resources/ocr-model"
-label = "unidentified; NOT PP-OCRv6"
-evidence = "no config sidecars ship with the models; dictionary is 436 entries, not the 18,708-entry PP-OCRv6 unified dict"
-source = "unverified — must be identified before publication"
-license = "unverified"
+# Authoritative record. CodeRight is the canonical OCR model set for the suite (Adrian, 2026-07-14);
+# ScrapeRight was aligned onto these exact digests. The [model.*] digests above are the one true set.
+[provenance]
+label = "PP-OCRv5"
+upstream_repo = "https://huggingface.co/monkt/paddleocr-onnx"
+detector_path = "detection/v5/det.onnx"
+recognizer_path = "languages/english/rec.onnx"
+dictionary_path = "languages/english/dict.txt"
 dictionary_entries = 436
-# digests are the [model.*] values above; CodeRight is what the record was characterized against
+license = "Apache-2.0"
+license_verified = "monkt/paddleocr-onnx model card, apache-2.0, commercial use permitted (2026-07-14)"
+evidence = "coderight/apps/coderight-tauri/scripts/fetch-ocr-assets.mjs pins these paths + digests; scraperight/scripts/fetch-ocr-assets.mjs mirrors them byte-for-byte"
 
-[divergence.note]
-label_drift = "CodeRight's docs and ScrapeRight's module doc both say PP-OCRv6; ScrapeRight's Cargo.toml description and lib.rs lines 46/96/97 still say PP-OCRv5. The prose was never the evidence."
-upstream_v6_release = "PP-OCRv6 was released 2026-06-11, so both labels are period-plausible"
+# How the PP-OCRv5/PP-OCRv6 conflict actually arose (2026-07-14):
+#
+# CodeRight fetched its models from a pinned script (monkt/paddleocr-onnx, detection/v5 + english).
+# ScrapeRight had NO fetch script at all -- its models were hand-placed, and at some point were
+# hand-placed with genuine PP-OCRv6 (PP-OCRv6_medium_det + _small_rec, 18,708-entry unified dict,
+# official PaddlePaddle HF org). So the two apps shipped DIFFERENT WEIGHTS. Both labels were true,
+# of different files; neither was a mislabel.
+#
+# It went unnoticed because the phase 5 gate hashed shared Rust source (boxes/decode/preprocess)
+# and read this file's `status` string, but never hashed the models this file records. The source
+# genuinely was identical, so the parity check passed green while the weights differed.
+#
+# Fixed by: aligning ScrapeRight onto CodeRight's set; giving ScrapeRight a pinned fetch script;
+# making BOTH scripts verify the digest of already-present files (presence was the trapdoor -- a
+# present-but-wrong model was previously skipped); and making the phase 5 gate hash the deployed
+# artifacts in both apps (`inspectOcrArtifacts`) so any future divergence fails closed.
+#
+# The stale "PP-OCRv6" prose in both apps' comments and docs was never evidence, and is corrected.
 
 [runtime.windows]
 file = "onnxruntime.dll"
