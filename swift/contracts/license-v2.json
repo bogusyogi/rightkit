@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "publicKeyBase64url": "bI7cBZpXfLT0HxnMAJtUpRDjhlc9QsfuqNuAkSfrUNM",
+  "token": "eyJ2IjoyLCJpZCI6ImxpY18xIiwiYXBwIjoiaGVhcmRyaWdodCIsInRpZXIiOiJwcm8iLCJmZWF0dXJlcyI6WyJ3YWtlX3dvcmQiLCJ2b2ljZV9jb21tYW5kcyJdLCJkZXZpY2VfaWQiOiJkZXYtMSIsImlhdCI6MTAwMCwiZXhwIjo5OTk5OTk5OTk5fQ.JNmWEwG16VehpwJz9SooQIia0k1Ht0c150jca86h7sAnFj9tKuPO8yZhfyR48vx3Yd_03RQyYYtbKm08TCgsBg",
+  "expectedApp": "heardright",
+  "expectedDeviceId": "dev-1",
+  "nowUnix": 2000,
+  "expectedTier": "pro",
+  "expectedFeatures": ["wake_word", "voice_commands"]
+}
