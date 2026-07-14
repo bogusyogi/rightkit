@@ -1,6 +1,7 @@
 # Parakeet runtime reconciliation — 2026-07-14
 
-Status: Phase 6 steps 1–2 complete on Windows. No extraction, app migration, or
+Status: Phase 6 steps 1–3 complete on Windows. The reconciled internal
+`crates/rightkit-asr` derivative is `publish = false`; no app migration or
 publication has started.
 
 ## Baseline and runtime result
