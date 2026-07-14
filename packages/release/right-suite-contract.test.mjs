@@ -16,6 +16,73 @@ const apps = [
   { key: "coderight", root: "coderight/apps/coderight-tauri", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs"] },
 ];
 
+function resolveCargoVersionContract(versionManifest, canonicalVersions) {
+  const consumer = new Map(Object.entries(versionManifest.cargo ?? {}));
+  const staged = new Map(Object.entries(versionManifest.stagedCargo ?? {}));
+  const canonical = new Map();
+
+  for (const [crate, version] of staged) {
+    if (!canonicalVersions.has(crate)) throw new Error(`unknown staged Cargo crate: ${crate}`);
+    const actual = canonicalVersions.get(crate);
+    if (actual !== version) {
+      throw new Error(`${crate} canonical manifest is ${actual}, expected staged version ${version}`);
+    }
+    canonical.set(crate, version);
+  }
+
+  for (const [crate, version] of consumer) {
+    if (!canonicalVersions.has(crate)) throw new Error(`unknown published Cargo crate: ${crate}`);
+    const expected = staged.get(crate) ?? version;
+    const actual = canonicalVersions.get(crate);
+    if (actual !== expected) {
+      const source = staged.has(crate) ? "staged" : "published";
+      throw new Error(`${crate} canonical manifest is ${actual}, expected ${source} version ${expected}`);
+    }
+    canonical.set(crate, expected);
+  }
+
+  return { canonical, consumer };
+}
+
+let currentCargoVersionContract;
+function getCurrentCargoVersionContract() {
+  currentCargoVersionContract ??= resolveCargoVersionContract(versions, readCanonicalCrateVersions());
+  return currentCargoVersionContract;
+}
+
+test("Cargo version contract keeps staged versions out of consumer pins", () => {
+  const resolved = resolveCargoVersionContract(
+    {
+      cargo: { "rightkit-license": "0.1.1" },
+      stagedCargo: { "rightkit-license": "0.1.2" },
+    },
+    new Map([["rightkit-license", "0.1.2"]]),
+  );
+
+  assert.equal(resolved.consumer.get("rightkit-license"), "0.1.1");
+  assert.equal(resolved.canonical.get("rightkit-license"), "0.1.2");
+});
+
+test("Cargo version contract rejects unknown staged crates", () => {
+  assert.throws(
+    () => resolveCargoVersionContract(
+      { cargo: {}, stagedCargo: { "rightkit-unknown": "0.1.0" } },
+      new Map(),
+    ),
+    /unknown staged Cargo crate: rightkit-unknown/,
+  );
+});
+
+test("Cargo version contract rejects staged versions that mismatch canonical manifests", () => {
+  assert.throws(
+    () => resolveCargoVersionContract(
+      { cargo: { "rightkit-license": "0.1.1" }, stagedCargo: { "rightkit-license": "0.1.3" } },
+      new Map([["rightkit-license", "0.1.2"]]),
+    ),
+    /rightkit-license canonical manifest is 0\.1\.2, expected staged version 0\.1\.3/,
+  );
+});
+
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
@@ -25,10 +92,9 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
   assert.equal(versions.cargo["rightkit-license"], "0.1.1");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
-  for (const [crate, version] of Object.entries(versions.cargo)) {
-    const manifest = readFileSync(path.join(workspace, `tools/rightkit/crates/${crate}/Cargo.toml`), "utf8");
-    assert.match(manifest, new RegExp(`^version\\s*=\\s*"${version.replaceAll(".", "\\.")}"$`, "m"));
-  }
+  assert.equal(versions.stagedCargo["rightkit-license"], "0.1.2");
+  assert.equal(versions.stagedCargo["rightkit-tauri"], "0.1.0");
+  getCurrentCargoVersionContract();
 });
 
 test("license v2 public vector is identical at every portable consumer boundary", () => {
@@ -121,7 +187,8 @@ for (const app of apps) {
 
     for (const manifestPath of findCargoManifests(root)) {
       const manifest = readFileSync(manifestPath, "utf8");
-      for (const [crate, version] of Object.entries(versions.cargo)) {
+      const { consumer } = getCurrentCargoVersionContract();
+      for (const [crate, version] of consumer) {
         const dependency = manifest.match(new RegExp(`^${crate}\\s*=\\s*(.+)$`, "m"));
         if (!dependency) continue;
         assert.equal(
@@ -184,6 +251,20 @@ function findFiles(root, filename) {
 }
 
 const findCargoManifests = (root) => findFiles(root, "Cargo.toml");
+
+function readCanonicalCrateVersions() {
+  const crateRoot = path.join(workspace, "tools/rightkit/crates");
+  return new Map(
+    readdirSync(crateRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(path.join(crateRoot, entry.name, "Cargo.toml")))
+      .map((entry) => {
+        const manifest = readFileSync(path.join(crateRoot, entry.name, "Cargo.toml"), "utf8");
+        const version = manifest.match(/^version\s*=\s*"([^"]+)"$/m)?.[1];
+        assert.ok(version, `${entry.name} canonical manifest must declare a package version`);
+        return [entry.name, version];
+      }),
+  );
+}
 
 test("Right Suite has no hosted workflow files", () => {
   for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "tools/rightkit"]) {

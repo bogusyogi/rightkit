@@ -53,6 +53,12 @@ Native enforcement is supplied only by the separately published
 from `packages/release/rightkit-versions.json`; Git, path, sibling-checkout, and
 vendored-copy dependencies are forbidden.
 
+In that manifest, `cargo` is the published version registry used to enforce app
+dependency pins. `stagedCargo` records canonical crate versions awaiting
+publication and never changes consumer enforcement. After a crate is published,
+promote its staged version into `cargo` and remove its `stagedCargo` entry before
+updating app pins.
+
 ---
 
 ## Tauri apps — required native wiring (CORS)

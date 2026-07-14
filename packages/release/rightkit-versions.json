@@ -10,5 +10,9 @@
   "cargo": {
     "rightkit-license": "0.1.1",
     "rightkit-logs": "0.1.0"
+  },
+  "stagedCargo": {
+    "rightkit-license": "0.1.2",
+    "rightkit-tauri": "0.1.0"
   }
 }
