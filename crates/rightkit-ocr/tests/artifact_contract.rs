@@ -30,15 +30,15 @@ fn committed_fixture_and_model_digests_are_locked() {
     let manifest = OcrArtifactManifest::characterized_windows_contract();
     assert_eq!(
         manifest.detector_sha256,
-        "61824840edf6e74581898930b8091b1b2318f4b2705a2e8a40ad3de7ac480133"
+        "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1"
     );
     assert_eq!(
         manifest.recognizer_sha256,
-        "4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7"
+        "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
     );
     assert_eq!(
         manifest.dictionary_sha256,
-        "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6"
+        "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d"
     );
     assert_eq!(
         manifest.expected_fixture_output,

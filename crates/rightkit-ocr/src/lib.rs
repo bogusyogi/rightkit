@@ -57,11 +57,11 @@ impl OcrArtifactManifest {
             provenance: OcrProvenance::Conflicting {
                 labels: vec!["PP-OCRv5".to_string(), "PP-OCRv6".to_string()],
             },
-            detector_sha256: "61824840edf6e74581898930b8091b1b2318f4b2705a2e8a40ad3de7ac480133"
+            detector_sha256: "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1"
                 .to_string(),
-            recognizer_sha256: "4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7"
+            recognizer_sha256: "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
                 .to_string(),
-            dictionary_sha256: "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6"
+            dictionary_sha256: "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d"
                 .to_string(),
             fixture_sha256: "803e102100c91a077607cd2d4750d9d748d86ced48fabc0f77062f26dcba0a4b"
                 .to_string(),

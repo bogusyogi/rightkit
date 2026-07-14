@@ -11,18 +11,20 @@ compatibility, jobs, telemetry, downloads, and UI.
 
 ## Fail-closed provenance decision
 
-The models are **PP-OCRv5** (`monkt/paddleocr-onnx`: `detection/v5` + English
-recognizer, 436-entry dict, Apache-2.0). CodeRight is the canonical set;
-ScrapeRight mirrors its exact digests. See `PROVENANCE.toml`.
+The models are **PP-OCRv6** (official PaddlePaddle: `PP-OCRv6_medium_det` +
+`PP-OCRv6_small_rec`, 18,708-entry unified multilingual dict, Apache-2.0).
+ScrapeRight is the canonical set; CodeRight mirrors its exact digests. See
+`PROVENANCE.toml`.
 
 This was recorded as a `PP-OCRv5`/`PP-OCRv6` label conflict until 2026-07-14.
 It was not a mislabel: the deployed artifacts were **not** byte-identical
-across the two apps. CodeRight fetched v5 from a pinned script; ScrapeRight
-had no fetch script and had been hand-placed with genuine PP-OCRv6. Both
-labels were true, of different files. The parity check hashed shared Rust
-source only and passed green the whole time, so nothing surfaced it.
-`characterization/phase5-adoption` now hashes the deployed models in both
-apps and fails closed on divergence.
+across the two apps. CodeRight fetched PP-OCRv5 from a pinned script;
+ScrapeRight had no fetch script, was hand-placed, and had been upgraded to
+PP-OCRv6 on 2026-07-05. Both labels were true, of different files. The parity
+check hashed shared Rust source only and passed green the whole time, so
+nothing surfaced it. CodeRight is now migrated onto v6, and
+`characterization/phase5-adoption` hashes the deployed models in both apps and
+fails closed on divergence.
 
 `OcrEngine::load` still returns `UnresolvedProvenance` before reading a model
 or constructing ORT. `load_with_manifest` becomes usable only when the signed
@@ -37,7 +39,7 @@ Runtime binary is bundled.
 ## Publication blockers
 
 - ~~Authoritative model label/source and license record.~~ Resolved 2026-07-14
-  (PP-OCRv5, `monkt/paddleocr-onnx`, Apache-2.0 — see `PROVENANCE.toml`).
+  (PP-OCRv6, official PaddlePaddle, Apache-2.0 — see `PROVENANCE.toml`).
 - Signed Right Release model and per-OS ORT artifact catalog.
 - macOS bundled-dylib parity evidence.
 - Adapter parity after both apps migrate.

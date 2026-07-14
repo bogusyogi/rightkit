@@ -7,45 +7,54 @@ expected_output = "RIGHTKIT OCR 2026\nShared parity fixture"
 
 [model.detector]
 file = "det.onnx"
-sha256 = "61824840edf6e74581898930b8091b1b2318f4b2705a2e8a40ad3de7ac480133"
+sha256 = "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1"
 
 [model.recognizer]
 file = "rec.onnx"
-sha256 = "4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7"
+sha256 = "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
 
 [model.dictionary]
 file = "en_dict.txt"
-sha256 = "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6"
+sha256 = "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d"
 
-# Authoritative record. CodeRight is the canonical OCR model set for the suite (Adrian, 2026-07-14);
-# ScrapeRight was aligned onto these exact digests. The [model.*] digests above are the one true set.
+# Authoritative record. ScrapeRight is the canonical OCR model set for the suite (Adrian, 2026-07-14);
+# CodeRight was migrated onto these exact digests. The [model.*] digests above are the one true set.
 [provenance]
-label = "PP-OCRv5"
-upstream_repo = "https://huggingface.co/monkt/paddleocr-onnx"
-detector_path = "detection/v5/det.onnx"
-recognizer_path = "languages/english/rec.onnx"
-dictionary_path = "languages/english/dict.txt"
-dictionary_entries = 436
+label = "PP-OCRv6"
+detector_repo = "https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_onnx"
+recognizer_repo = "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx"
+detector_model = "PP-OCRv6_medium_det"
+recognizer_model = "PP-OCRv6_small_rec"
+detector_path = "inference.onnx"
+recognizer_path = "inference.onnx"
+dictionary_source = "inline PostProcess.character_dict in the recognizer's inference.yml (not a downloadable file)"
+dictionary_entries = 18708
+languages = "50 (Latin, Greek, CJK) + symbols + emoji — unified multilingual recognizer"
 license = "Apache-2.0"
-license_verified = "monkt/paddleocr-onnx model card, apache-2.0, commercial use permitted (2026-07-14)"
-evidence = "coderight/apps/coderight-tauri/scripts/fetch-ocr-assets.mjs pins these paths + digests; scraperight/scripts/fetch-ocr-assets.mjs mirrors them byte-for-byte"
+license_verified = "official PaddlePaddle HF org, apache-2.0 on both model cards (2026-07-14)"
+evidence = "scraperight/scripts/fetch-ocr-assets.mjs pins these repos + digests and derives the dict from inference.yml; coderight/apps/coderight-tauri/scripts/fetch-ocr-assets.mjs mirrors it byte-for-byte"
 
 # How the PP-OCRv5/PP-OCRv6 conflict actually arose (2026-07-14):
 #
-# CodeRight fetched its models from a pinned script (monkt/paddleocr-onnx, detection/v5 + english).
-# ScrapeRight had NO fetch script at all -- its models were hand-placed, and at some point were
-# hand-placed with genuine PP-OCRv6 (PP-OCRv6_medium_det + _small_rec, 18,708-entry unified dict,
-# official PaddlePaddle HF org). So the two apps shipped DIFFERENT WEIGHTS. Both labels were true,
-# of different files; neither was a mislabel.
+# CodeRight fetched PP-OCRv5 from a pinned script (monkt/paddleocr-onnx, detection/v5 + english,
+# 436-entry dict). ScrapeRight had NO fetch script at all -- its models were hand-placed, and on
+# 2026-07-05 were deliberately upgraded to genuine PP-OCRv6 (official PaddlePaddle HF org). Only
+# ScrapeRight's own PACKAGING.md recorded that upgrade; CodeRight never followed. So the two apps
+# shipped DIFFERENT WEIGHTS for over a week. Both labels were true, of different files; neither was
+# a mislabel.
 #
 # It went unnoticed because the phase 5 gate hashed shared Rust source (boxes/decode/preprocess)
 # and read this file's `status` string, but never hashed the models this file records. The source
 # genuinely was identical, so the parity check passed green while the weights differed.
 #
-# Fixed by: aligning ScrapeRight onto CodeRight's set; giving ScrapeRight a pinned fetch script;
-# making BOTH scripts verify the digest of already-present files (presence was the trapdoor -- a
-# present-but-wrong model was previously skipped); and making the phase 5 gate hash the deployed
-# artifacts in both apps (`inspectOcrArtifacts`) so any future divergence fails closed.
+# Resolved by taking ScrapeRight's PP-OCRv6 as canonical and migrating CodeRight onto it. Both apps
+# now provision through digest-pinned fetch scripts that verify the digest of ALREADY-PRESENT files
+# (presence was the trapdoor -- a present-but-wrong model was previously skipped), and the phase 5
+# gate hashes the deployed artifacts in both apps (`inspectOcrArtifacts`) so any future divergence
+# fails closed.
+#
+# en_dict.txt is NOT downloadable -- it is derived from the recognizer's inference.yml. It is now
+# git-tracked in both apps: a dict that only exists on one laptop is how this drift started.
 #
 # The stale "PP-OCRv6" prose in both apps' comments and docs was never evidence, and is corrected.
 
