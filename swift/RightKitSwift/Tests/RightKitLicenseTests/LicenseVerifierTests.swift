@@ -39,6 +39,15 @@ private func loadVector() throws -> Vector {
     #expect(claims.hasFeature("wake_word"))
     #expect(claims.issuedAt <= vector.nowUnix)
     #expect(claims.expiresAt > vector.nowUnix)
+    #expect(claims.isPro)
+    #expect(claims.tierAtLeast("plus"))
+    #expect(claims.tierAtLeast("pro"))
+
+    // Extracted quirk, pinned rather than quietly changed: an unknown tier ranks 0, so asking for a
+    // tier that does not exist SUCCEEDS. A typo'd gate ("max") grants access instead of denying it.
+    // Preserved to keep the extraction behaviour-identical; flagged for a deliberate fix upstream.
+    #expect(claims.tierAtLeast("max"))
+    #expect(claims.tierAtLeast("typo"))
 }
 
 @Test func rejectsATamperedPayload() throws {
@@ -65,12 +74,30 @@ private func loadVector() throws -> Vector {
     let vector = try loadVector()
     let verifier = try LicenseVerifier(publicKeyBase64url: vector.publicKeyBase64url)
 
+    // exp is INCLUSIVE in HeardRight: the last valid second must still verify, and the next must not.
+    #expect(throws: Never.self) {
+        try verifier.verify(
+            token: vector.token,
+            app: vector.expectedApp,
+            deviceId: vector.expectedDeviceId,
+            now: 9_999_999_999,
+        )
+    }
     #expect(throws: LicenseError.expired(expiresAt: 9_999_999_999, now: 10_000_000_000)) {
         try verifier.verify(
             token: vector.token,
             app: vector.expectedApp,
             deviceId: vector.expectedDeviceId,
             now: 10_000_000_000,
+        )
+    }
+
+    #expect(throws: LicenseError.wrongDevice(expected: "other-device", actual: "dev-1")) {
+        try verifier.verify(
+            token: vector.token,
+            app: vector.expectedApp,
+            deviceId: "other-device",
+            now: vector.nowUnix,
         )
     }
 

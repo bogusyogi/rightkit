@@ -14,6 +14,20 @@ public struct LicenseClaims: Equatable, Sendable {
     public let expiresAt: Int
 
     public func hasFeature(_ feature: String) -> Bool { features.contains(feature) }
+
+    public var isPro: Bool { tier == "pro" }
+
+    /// Tier ordering, extracted verbatim from HeardRight so an entitlement cannot rank differently
+    /// on iOS than it does in the app it came from. An unknown tier ranks below every known one.
+    public func tierAtLeast(_ target: String) -> Bool { Self.rank(tier) >= Self.rank(target) }
+
+    private static func rank(_ tier: String) -> Int {
+        switch tier {
+        case "pro": return 2
+        case "plus": return 1
+        default: return 0
+        }
+    }
 }
 
 public enum LicenseError: Error, Equatable, Sendable {
@@ -22,7 +36,6 @@ public enum LicenseError: Error, Equatable, Sendable {
     case badSignature
     case wrongApp(expected: String, actual: String)
     case wrongDevice(expected: String, actual: String)
-    case notYetValid(issuedAt: Int, now: Int)
     case expired(expiresAt: Int, now: Int)
     case unsupportedVersion(Int)
 }
@@ -65,8 +78,10 @@ public struct LicenseVerifier: Sendable {
         guard payload.device_id == deviceId else {
             throw LicenseError.wrongDevice(expected: deviceId, actual: payload.device_id)
         }
-        guard now >= payload.iat else { throw LicenseError.notYetValid(issuedAt: payload.iat, now: now) }
-        guard now < payload.exp else { throw LicenseError.expired(expiresAt: payload.exp, now: now) }
+        // Behaviour extracted from HeardRight, deliberately: `exp` is inclusive, and `iat` is NOT
+        // enforced. Adding a not-yet-valid check here would reject, on a slightly fast clock, tokens
+        // the shipping app accepts — an extraction is not the place to change what a licence means.
+        guard now <= payload.exp else { throw LicenseError.expired(expiresAt: payload.exp, now: now) }
 
         return LicenseClaims(
             version: payload.v,
