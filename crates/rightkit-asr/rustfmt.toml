@@ -1,0 +1,2 @@
+# Vendored third-party crate — exclude from our formatting.
+disable_all_formatting = true

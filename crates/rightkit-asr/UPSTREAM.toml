@@ -1,0 +1,35 @@
+schema = 1
+package = "parakeet-rs"
+version = "0.3.5"
+registry = "https://crates.io/crates/parakeet-rs/0.3.5"
+repository = "https://github.com/altunenes/parakeet-rs"
+tag = "v0.3.5"
+commit = "7d680db3d62e6aeaf68bc93aaae0ab891a09fae7"
+license = "MIT OR Apache-2.0"
+selected_derivative_license = "MIT"
+copyright = "Copyright (c) 2025 Enes Altun"
+patch_ledger = "PATCHES.md"
+
+[[patches]]
+id = "RKASR-001"
+files = ["src/decoder.rs"]
+
+[[patches]]
+id = "RKASR-002"
+files = ["src/execution.rs"]
+
+[[patches]]
+id = "RKASR-003"
+files = ["src/model_nemotron.rs"]
+
+[[patches]]
+id = "RKASR-004"
+files = ["src/vocab.rs"]
+
+[[patches]]
+id = "RKASR-005"
+files = ["src/model_transducer.rs", "src/transducer.rs", "src/lib.rs"]
+
+[[patches]]
+id = "RKASR-006"
+files = ["Cargo.toml", "tests/runtime_contract.rs"]
