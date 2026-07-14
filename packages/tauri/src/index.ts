@@ -1,3 +1,5 @@
+import type { AutoUpdateClient } from '@rightkit/updates';
+
 export type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
 export interface RightKitTauriCommands {
@@ -28,6 +30,8 @@ export const standardRightKitTauriCommands = {
 export interface RightKitTauriClientConfig {
   invoke: Invoke;
   commands?: RightKitTauriCommands;
+  deviceGetOrCreate?: { command: string; argumentName?: string };
+  updates?: AutoUpdateClient;
   argumentNames?: {
     licenseSet?: string;
     deviceSet?: string;
@@ -42,8 +46,7 @@ export interface RightKitTauriClient<TLicense, TDevice, TDiagnostics, TLogEvent>
     delete(): Promise<void>;
   };
   device: {
-    get(): Promise<TDevice | null>;
-    set(value: TDevice): Promise<void>;
+    getOrCreate(fallback: TDevice): Promise<TDevice>;
   };
   logs: {
     write(events: TLogEvent[]): Promise<void>;
@@ -54,6 +57,7 @@ export interface RightKitTauriClient<TLicense, TDevice, TDiagnostics, TLogEvent>
     collect(): Promise<TDiagnostics>;
     clear(): Promise<void>;
   };
+  updates?: AutoUpdateClient;
 }
 
 export function createRightKitTauriClient<
@@ -76,6 +80,12 @@ export function createRightKitTauriClient<
     logsWrite: config.argumentNames?.logsWrite ?? 'events',
   };
   validateArgumentNames(argumentNames);
+  if (config.deviceGetOrCreate) {
+    validateCommand('device.getOrCreate', config.deviceGetOrCreate.command);
+    validateArgumentNames({
+      deviceGetOrCreate: config.deviceGetOrCreate.argumentName ?? 'fallback',
+    });
+  }
   return {
     license: {
       get: () => invoke<TLicense | null>(commands.license.get),
@@ -83,8 +93,16 @@ export function createRightKitTauriClient<
       delete: () => invoke<void>(commands.license.delete),
     },
     device: {
-      get: () => invoke<TDevice | null>(commands.device.get),
-      set: (value) => invoke<void>(commands.device.set, { [argumentNames.deviceSet]: value }),
+      getOrCreate: async (fallback) => {
+        if (config.deviceGetOrCreate) {
+          const argumentName = config.deviceGetOrCreate.argumentName ?? 'fallback';
+          return invoke<TDevice>(config.deviceGetOrCreate.command, { [argumentName]: fallback });
+        }
+        const current = await invoke<TDevice | null>(commands.device.get);
+        if (current !== null && current !== undefined) return current;
+        await invoke<void>(commands.device.set, { [argumentNames.deviceSet]: fallback });
+        return fallback;
+      },
     },
     logs: {
       write: (events) => invoke<void>(commands.logs.write, { [argumentNames.logsWrite]: events }),
@@ -95,6 +113,7 @@ export function createRightKitTauriClient<
       collect: () => invoke<TDiagnostics>(commands.diagnostics.collect),
       clear: () => invoke<void>(commands.diagnostics.clear),
     },
+    updates: config.updates,
   };
 }
 
@@ -120,6 +139,10 @@ function validateCommands(commands: RightKitTauriCommands): void {
     ['diagnostics.clear', commands.diagnostics.clear],
   ];
   for (const [path, command] of entries) {
-    if (command.trim().length === 0) throw new Error(`RightKit Tauri command ${path} is required`);
+    validateCommand(path, command);
   }
+}
+
+function validateCommand(path: string, command: string): void {
+  if (command.trim().length === 0) throw new Error(`RightKit Tauri command ${path} is required`);
 }

@@ -6,3 +6,6 @@ overrides:
 
 allowBuilds:
   esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@rightkit/updates@0.2.2'

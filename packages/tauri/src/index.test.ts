@@ -64,8 +64,7 @@ describe('createRightKitTauriClient', () => {
     await expect(client.license.get()).resolves.toEqual({ key: 'RIGHT-123' });
     await client.license.set({ key: 'RIGHT-456' });
     await client.license.delete();
-    await expect(client.device.get()).resolves.toEqual({ id: 'device-1' });
-    await client.device.set({ id: 'device-2' });
+    await expect(client.device.getOrCreate({ id: 'device-2' })).resolves.toEqual({ id: 'device-1' });
     await client.logs.write([{ event: 'opened' }]);
     await expect(client.logs.collect()).resolves.toEqual({ files: [] });
     await client.logs.clear();
@@ -77,7 +76,6 @@ describe('createRightKitTauriClient', () => {
       { command: 'license_write', args: { value: { key: 'RIGHT-456' } } },
       { command: 'license_delete', args: undefined },
       { command: 'device_read', args: undefined },
-      { command: 'device_write', args: { value: { id: 'device-2' } } },
       { command: 'logs_write', args: { events: [{ event: 'opened' }] } },
       { command: 'logs_collect', args: undefined },
       { command: 'logs_clear', args: undefined },
@@ -115,13 +113,41 @@ describe('createRightKitTauriClient', () => {
     });
 
     await client.license.set({ key: 'RIGHT-123' });
-    await client.device.set({ id: 'device-1' });
+    await client.device.getOrCreate({ id: 'device-1' });
     await client.logs.write(['opened']);
 
     expect(calls).toEqual([
       { command: 'set-license', args: { license: { key: 'RIGHT-123' } } },
+      { command: 'get-device', args: undefined },
       { command: 'set-device', args: { id: { id: 'device-1' } } },
       { command: 'write-logs', args: { batch: ['opened'] } },
     ]);
+  });
+
+  it('uses an atomic get-or-create command for legacy hosts that own device creation', async () => {
+    const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    const client = createRightKitTauriClient<unknown, string>({
+      invoke: async <T>(command: string, args?: Record<string, unknown>) => {
+        calls.push({ command, args });
+        return 'device-from-keyring' as T;
+      },
+      deviceGetOrCreate: { command: 'secure_device_id', argumentName: 'fallback' },
+    });
+
+    await expect(client.device.getOrCreate('device-fallback')).resolves.toBe('device-from-keyring');
+    expect(calls).toEqual([
+      { command: 'secure_device_id', args: { fallback: 'device-fallback' } },
+    ]);
+  });
+
+  it('composes the shared updater client without creating a second policy runtime', async () => {
+    const updates = {
+      checkOnce: async () => ({ kind: 'up_to_date' as const }),
+      installAvailable: async () => ({ kind: 'up_to_date' as const }),
+    };
+    const client = createRightKitTauriClient({ invoke: async () => undefined, updates });
+
+    await expect(client.updates?.checkOnce()).resolves.toEqual({ kind: 'up_to_date' });
+    expect(client.updates).toBe(updates);
   });
 });
