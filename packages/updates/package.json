@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/updates",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Shared runtime update policy helper for Right Suite Tauri apps.",
   "type": "module",
   "main": "dist/index.js",

@@ -14,7 +14,7 @@
   "files": ["dist", "README.md"],
   "sideEffects": false,
   "dependencies": {
-    "@rightkit/updates": "0.2.2"
+    "@rightkit/updates": "0.2.3"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
