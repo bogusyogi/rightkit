@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/primary.swiftdeps"
+  },
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Sources/RightKitLicense/LicenseToken.swift": {
+    "dependencies": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/LicenseToken.d",
+    "object": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/LicenseToken.swift.o",
+    "swiftmodule": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/LicenseToken~partial.swiftmodule",
+    "swift-dependencies": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/LicenseToken.swiftdeps",
+    "diagnostics": "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/LicenseToken.dia"
+  }
+}

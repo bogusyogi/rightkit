@@ -1,0 +1,123 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "PackageStructure": ["<PackageStructure>"]
+  "RightKitLicense-arm64-apple-macosx-debug.module": ["<RightKitLicense-arm64-apple-macosx-debug.module>"]
+  "RightKitLicenseTests-arm64-apple-macosx-debug.module": ["<RightKitLicenseTests-arm64-apple-macosx-debug.module>"]
+  "RightKitSwiftPackageTests-arm64-apple-macosx-debug.module": ["<RightKitSwiftPackageTests-arm64-apple-macosx-debug.module>"]
+  "RightKitSwiftPackageTests-arm64-apple-macosx-debug.test": ["<RightKitSwiftPackageTests-arm64-apple-macosx-debug.test>"]
+  "main": ["<RightKitLicense-arm64-apple-macosx-debug.module>"]
+  "test": ["<RightKitLicense-arm64-apple-macosx-debug.module>","<RightKitLicenseTests-arm64-apple-macosx-debug.module>","<RightKitSwiftPackageTests-arm64-apple-macosx-debug.test>"]
+default: "main"
+nodes:
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Sources/RightKitLicense/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Tests/RightKitLicenseTests/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+commands:
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Sources/RightKitLicense/LicenseToken.swift"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/sources"]
+    description: "Write auxiliary file /Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/sources"
+
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Tests/RightKitLicenseTests/LicenseVerifierTests.swift","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/DerivedSources/resource_bundle_accessor.swift"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/sources"]
+    description: "Write auxiliary file /Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/sources"
+
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.derived/runner.swift"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/sources"]
+    description: "Write auxiliary file /Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/sources"
+
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.derived/runner.swift":
+    tool: test-entry-point-tool
+    inputs: []
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.derived/runner.swift"]
+
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.product/Objects.LinkFileList":
+    tool: write-auxiliary-file
+    inputs: ["<link-file-list>","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/LicenseToken.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/LicenseVerifierTests.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/resource_bundle_accessor.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/runner.swift.o"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.product/Objects.LinkFileList"]
+    description: "Write auxiliary file /Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.product/Objects.LinkFileList"
+
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwift_RightKitLicenseTests.bundle/license-v2.json":
+    tool: copy-tool
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Tests/RightKitLicenseTests/Contracts/license-v2.json"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwift_RightKitLicenseTests.bundle/license-v2.json"]
+    description: "Copying /Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Tests/RightKitLicenseTests/Contracts/license-v2.json"
+
+  "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+
+  "<RightKitLicense-arm64-apple-macosx-debug.module>":
+    tool: phony
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/LicenseToken.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicense.swiftmodule"]
+    outputs: ["<RightKitLicense-arm64-apple-macosx-debug.module>"]
+
+  "<RightKitLicenseTests-arm64-apple-macosx-debug.module>":
+    tool: phony
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/LicenseVerifierTests.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/resource_bundle_accessor.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicenseTests.swiftmodule"]
+    outputs: ["<RightKitLicenseTests-arm64-apple-macosx-debug.module>"]
+
+  "<RightKitSwiftPackageTests-arm64-apple-macosx-debug.module>":
+    tool: phony
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/runner.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitSwiftPackageTests.swiftmodule"]
+    outputs: ["<RightKitSwiftPackageTests-arm64-apple-macosx-debug.module>"]
+
+  "<RightKitSwiftPackageTests-arm64-apple-macosx-debug.test>":
+    tool: phony
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.xctest/Contents/MacOS/RightKitSwiftPackageTests"]
+    outputs: ["<RightKitSwiftPackageTests-arm64-apple-macosx-debug.test>"]
+
+  "C.RightKitLicense-arm64-apple-macosx-debug.module":
+    tool: shell
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Sources/RightKitLicense/LicenseToken.swift","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/sources"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/LicenseToken.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicense.swiftmodule"]
+    description: "Compiling Swift Module 'RightKitLicense' (1 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","RightKitLicense","-emit-dependencies","-emit-module","-emit-module-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicense.swiftmodule","-output-file-map","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/output-file-map.json","-parse-as-library","-incremental","-c","@/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/sources","-I","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx14.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-j8","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-parse-as-library","-emit-objc-header","-emit-objc-header-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/include/RightKitLicense-Swift.h","-swift-version","6","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","rightkitswift"]
+
+  "C.RightKitLicenseTests-arm64-apple-macosx-debug.module":
+    tool: shell
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Tests/RightKitLicenseTests/LicenseVerifierTests.swift","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/DerivedSources/resource_bundle_accessor.swift","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","<RightKitLicenseTests-arm64-apple-macosx-debug.module-resources>","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicense.swiftmodule","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/sources"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/LicenseVerifierTests.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/resource_bundle_accessor.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicenseTests.swiftmodule"]
+    description: "Compiling Swift Module 'RightKitLicenseTests' (2 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","RightKitLicenseTests","-emit-dependencies","-emit-module","-emit-module-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicenseTests.swiftmodule","-output-file-map","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/output-file-map.json","-parse-as-library","-incremental","-c","@/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/sources","-I","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx14.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-Xfrontend","-enable-cross-import-overlays","-j8","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE","-module-cache-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-parse-as-library","-swift-version","6","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","rightkitswift"]
+
+  "C.RightKitSwiftPackageTests-arm64-apple-macosx-debug.module":
+    tool: shell
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.derived/runner.swift","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicenseTests.swiftmodule","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/sources"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/runner.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitSwiftPackageTests.swiftmodule"]
+    description: "Compiling Swift Module 'RightKitSwiftPackageTests' (1 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","RightKitSwiftPackageTests","-emit-dependencies","-emit-module","-emit-module-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitSwiftPackageTests.swiftmodule","-output-file-map","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/output-file-map.json","-parse-as-library","-incremental","-c","@/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/sources","-I","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx14.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-Xfrontend","-enable-cross-import-overlays","-j8","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-parse-as-library","-emit-objc-header","-emit-objc-header-path","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/include/RightKitSwiftPackageTests-Swift.h","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","rightkitswift"]
+
+  "C.RightKitSwiftPackageTests-arm64-apple-macosx-debug.test":
+    tool: shell
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicense.build/LicenseToken.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/LicenseVerifierTests.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitLicenseTests.build/resource_bundle_accessor.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.build/runner.swift.o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.product/Objects.LinkFileList"]
+    outputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.xctest/Contents/MacOS/RightKitSwiftPackageTests"]
+    description: "Linking ./.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.xctest/Contents/MacOS/RightKitSwiftPackageTests"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-L","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug","-o","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.xctest/Contents/MacOS/RightKitSwiftPackageTests","-module-name","RightKitSwiftPackageTests","-Xlinker","-no_warn_duplicate_libraries","-Xlinker","-bundle","-Xlinker","-rpath","-Xlinker","@loader_path/../../../","@/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwiftPackageTests.product/Objects.LinkFileList","-Xlinker","-rpath","-Xlinker","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx","-target","arm64-apple-macosx14.0","-Xlinker","-add_ast_path","-Xlinker","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicense.swiftmodule","-Xlinker","-add_ast_path","-Xlinker","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitLicenseTests.swiftmodule","-Xlinker","-add_ast_path","-Xlinker","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/Modules/RightKitSwiftPackageTests.swiftmodule","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Sources/RightKitLicense/","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Tests/RightKitLicenseTests/","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Package.swift","/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+
+  "RightKitLicenseTests-arm64-apple-macosx-debug.module-resources":
+    tool: phony
+    inputs: ["/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitSwift_RightKitLicenseTests.bundle/license-v2.json"]
+    outputs: ["<RightKitLicenseTests-arm64-apple-macosx-debug.module-resources>"]
+
