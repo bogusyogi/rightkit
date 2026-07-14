@@ -16,7 +16,8 @@
   "sideEffects": false,
   "scripts": {
     "test": "node --test *.test.mjs",
-    "doctor:all": "node --test right-suite-contract.test.mjs"
+    "doctor:all": "node --test right-suite-contract.test.mjs",
+    "verify:standalone": "node standalone-clone-verify.mjs"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
