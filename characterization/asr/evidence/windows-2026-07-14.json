@@ -1,0 +1,37 @@
+{
+  "schema": "rightkit.asr-characterization.v1",
+  "platform": "windows",
+  "executionProvider": "directml",
+  "upstream": {
+    "crate": "parakeet-rs",
+    "version": "0.3.5",
+    "gitCommit": "7d680db3d62e6aeaf68bc93aaae0ab891a09fae7"
+  },
+  "model": {
+    "config.json": "6612c72f896815a467e80cfea2f0abbcb289fd6ef77e3007db51d184f6421089",
+    "encoder-model.onnx": "83ff4e3ab5e49f28946341972bbdc7f3fbc55e0ddadd59b478f12608f82552a4",
+    "decoder_joint-model.int8.onnx": "26a9f0ffb682cf2a712ac86e2e11b6da932f9860f70dc996841cba6392010b55",
+    "mel_nemo.onnx": "f3beb3d21b4143cc7d1471815bd90687110a75a63984b89c86306e9284563881",
+    "mel_nemo.onnx.data": "9e04389b417c35a888c7a85ae525b733dd6ab8d3d1592c7fa66ef9d26d076a19",
+    "tokenizer.model": "07d4e5a63840a53ab2d4d106d2874768143fb3fbdd47938b3910d2da05bfb0a9",
+    "vocab.txt": "b4c9e9e0e1b4431e9e508e6312585080b2f7accb104bc33d4fb5514799065df9"
+  },
+  "modelCopiesByteIdentical": true,
+  "fixtures": [
+    {
+      "name": "smoke-one.wav",
+      "sha256": "a2d10b580ddf5e4031ff72577939afeaa40756fe32f7bec35275b86943afd932",
+      "heardright": "heard writes synthetic audio smoke test 1",
+      "scraperight": "heard writes synthetic audio smoke test 1",
+      "equal": true
+    },
+    {
+      "name": "dictation-no-target.wav",
+      "sha256": "c36a14c4d774b35d32a722f59a0972dac54579f5444a901beaae3389ba3ed0e1",
+      "heardright": "the quick brown fox checks the single clipboard pop-up end to end.",
+      "scraperight": "the quick brown fox checks the single clipboard pop-up end to end.",
+      "equal": true
+    }
+  ],
+  "parity": true
+}
