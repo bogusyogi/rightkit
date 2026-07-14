@@ -1,6 +1,16 @@
 import { platform as tauriPlatform } from "@tauri-apps/plugin-os";
 
-export type Platform = "macos" | "ios" | "windows" | "linux";
+export type Platform = "macos" | "ios" | "windows" | "linux" | "unknown";
+
+export interface QaPlatformBootstrapInput {
+  /** Raw query string. The override is ignored unless it also contains `qa=1`. */
+  query?: string;
+  /** Canonical values copied explicitly from an app's build environment. */
+  env?: Readonly<{
+    RIGHTKIT_QA?: string | boolean;
+    RIGHTKIT_QA_PLATFORM?: string;
+  }>;
+}
 
 declare global {
   // Browser QA must opt into a deterministic platform; production uses Tauri.
@@ -8,10 +18,38 @@ declare global {
 }
 
 export function normalizePlatform(value: string): Platform {
+  if (value === "Win32" || value === "win32") return "windows";
   if (value === "macos" || value === "ios" || value === "windows" || value === "linux") {
     return value;
   }
-  return "linux";
+  return "unknown";
+}
+
+export function resolveQaPlatform(input: QaPlatformBootstrapInput): Platform | undefined {
+  if (input.query !== undefined) {
+    const query = new URLSearchParams(input.query);
+    const explicitPlatform = query.get("qaPlatform");
+    if (query.get("qa") === "1" && explicitPlatform !== null) {
+      return normalizePlatform(explicitPlatform);
+    }
+  }
+
+  const enabled = input.env?.RIGHTKIT_QA;
+  const explicitPlatform = input.env?.RIGHTKIT_QA_PLATFORM;
+  if ((enabled === true || enabled === "1") && typeof explicitPlatform === "string") {
+    return normalizePlatform(explicitPlatform);
+  }
+  return undefined;
+}
+
+export function bootstrapQaPlatform(input: QaPlatformBootstrapInput): Platform | undefined {
+  const platform = resolveQaPlatform(input);
+  if (platform === undefined) {
+    delete globalThis.__RIGHTKIT_QA_PLATFORM__;
+    return undefined;
+  }
+  globalThis.__RIGHTKIT_QA_PLATFORM__ = platform;
+  return platform;
 }
 
 let cachedPlatform: Platform | undefined;
@@ -24,13 +62,9 @@ export function getPlatform(): Platform {
   try {
     cachedPlatform = normalizePlatform(tauriPlatform());
   } catch {
-    cachedPlatform = normalizePlatform(globalThis.__RIGHTKIT_QA_PLATFORM__ ?? "linux");
+    cachedPlatform = "unknown";
   }
   return cachedPlatform;
-}
-
-export function usePlatform(): Platform {
-  return getPlatform();
 }
 
 const MAC_KEYS: Readonly<Record<string, string>> = {
@@ -74,8 +108,29 @@ const IOS_KEYS: Readonly<Record<string, string>> = {
   cancel: "Cancel",
 };
 
+const GENERIC_KEYS: Readonly<Record<string, string>> = {
+  mod: "Mod",
+  ctrl: "Ctrl",
+  rctrl: "Right Ctrl",
+  alt: "Alt",
+  ralt: "Right Alt",
+  shift: "Shift",
+  fn: "Fn",
+  win: "System",
+  space: "Space",
+  enter: "Enter",
+  esc: "Esc",
+};
+
 export function formatChord(chord: string, platform: Platform = getPlatform()): string[] {
-  const keys = platform === "macos" ? MAC_KEYS : platform === "ios" ? IOS_KEYS : WINDOWS_KEYS;
+  const keys =
+    platform === "macos"
+      ? MAC_KEYS
+      : platform === "ios"
+        ? IOS_KEYS
+        : platform === "windows" || platform === "linux"
+          ? WINDOWS_KEYS
+          : GENERIC_KEYS;
   return chord
     .split("+")
     .map((token) => token.trim().toLowerCase())
@@ -95,7 +150,7 @@ export function platformCapabilities(platform: Platform = getPlatform()) {
   } as const;
 }
 
-export const WINDOW_CONTROL_LABELS = {
+export const DEFAULT_WINDOW_CONTROL_LABELS = {
   minimize: "Minimize window",
   maximize: "Maximize or restore window",
   close: "Close window",
@@ -103,10 +158,26 @@ export const WINDOW_CONTROL_LABELS = {
   exitFullscreen: "Exit fullscreen",
 } as const;
 
+export type WindowControlLabels = {
+  [Key in keyof typeof DEFAULT_WINDOW_CONTROL_LABELS]: string;
+};
+
+/** @deprecated Prefer the explicit default name and override helper. */
+export const WINDOW_CONTROL_LABELS = DEFAULT_WINDOW_CONTROL_LABELS;
+
+export function createWindowControlLabels(
+  overrides: Partial<WindowControlLabels> = {},
+): WindowControlLabels {
+  return { ...DEFAULT_WINDOW_CONTROL_LABELS, ...overrides };
+}
+
 export interface WindowControlAdapter {
   minimize(): Promise<void>;
   toggleMaximize(): Promise<void>;
   close(): Promise<void>;
+}
+
+export interface FullscreenControlAdapter {
   setFullscreen(value: boolean): Promise<void>;
 }
 
@@ -115,6 +186,11 @@ export function createWindowControls(adapter: WindowControlAdapter) {
     minimize: () => adapter.minimize(),
     toggleMaximize: () => adapter.toggleMaximize(),
     close: () => adapter.close(),
+  };
+}
+
+export function createFullscreenControls(adapter: FullscreenControlAdapter) {
+  return {
     enterFullscreen: () => adapter.setFullscreen(true),
     exitFullscreen: () => adapter.setFullscreen(false),
   };
