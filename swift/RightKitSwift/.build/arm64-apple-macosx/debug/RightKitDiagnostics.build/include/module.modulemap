@@ -1,3 +1,0 @@
-module RightKitDiagnostics {
-    header "/Users/adrdsouza/claude/tools/rightkit/swift/RightKitSwift/.build/arm64-apple-macosx/debug/RightKitDiagnostics.build/include/RightKitDiagnostics-Swift.h"
-}
