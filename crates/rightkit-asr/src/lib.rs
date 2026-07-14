@@ -16,7 +16,7 @@
 //! ## Quick Start
 //!
 //! ```ignore
-//! use parakeet_rs::{Parakeet, Transcriber, TimestampMode};
+//! use rightkit_asr::{Parakeet, Transcriber, TimestampMode};
 //!
 //! // Load the model
 //! let mut parakeet = Parakeet::from_pretrained(".")?;

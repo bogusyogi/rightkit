@@ -131,7 +131,7 @@ impl DiarizationConfig {
     ///
     /// # Example
     /// ```rust
-    /// use parakeet_rs::sortformer::DiarizationConfig;
+    /// use rightkit_asr::sortformer::DiarizationConfig;
     ///
     /// // More sensitive detection (lower thresholds)
     /// let sensitive = DiarizationConfig::custom(0.5, 0.4);

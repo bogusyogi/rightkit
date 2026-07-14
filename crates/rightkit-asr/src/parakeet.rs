@@ -24,7 +24,7 @@ impl Parakeet {
     ///
     /// # Examples
     /// ```no_run
-    /// use parakeet_rs::Parakeet;
+    /// use rightkit_asr::Parakeet;
     ///
     /// // Load from directory with CPU (default)
     /// let parakeet = Parakeet::from_pretrained(".", None)?;
