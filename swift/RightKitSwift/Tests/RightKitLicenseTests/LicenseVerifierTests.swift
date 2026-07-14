@@ -43,11 +43,27 @@ private func loadVector() throws -> Vector {
     #expect(claims.tierAtLeast("plus"))
     #expect(claims.tierAtLeast("pro"))
 
-    // Extracted quirk, pinned rather than quietly changed: an unknown tier ranks 0, so asking for a
-    // tier that does not exist SUCCEEDS. A typo'd gate ("max") grants access instead of denying it.
-    // Preserved to keep the extraction behaviour-identical; flagged for a deliberate fix upstream.
-    #expect(claims.tierAtLeast("max"))
-    #expect(claims.tierAtLeast("typo"))
+    // Fails closed on a tier nobody defined. HeardRight ranked an unknown tier 0 and compared
+    // `>=`, so a typo'd gate was true for everyone, free users included. A gate that cannot be
+    // named cannot be passed.
+    #expect(!claims.tierAtLeast("max"))
+    #expect(!claims.tierAtLeast("typo"))
+    #expect(claims.tierAtLeast(.pro))
+}
+
+@Test func aFreeTierIsDeniedEveryPaidGate() {
+    // The case the old ranking got wrong: free ranked 0, an unknown target ranked 0, and 0 >= 0
+    // handed a free user the feature.
+    let free = LicenseClaims(
+        version: 2, id: "lic_free", app: "heardright", tier: "free",
+        features: [], deviceId: "dev-1", issuedAt: 0, expiresAt: .max,
+    )
+
+    #expect(!free.isPro)
+    #expect(!free.tierAtLeast(.plus))
+    #expect(!free.tierAtLeast(.pro))
+    #expect(!free.tierAtLeast("max"))
+    #expect(free.tierAtLeast(.free))
 }
 
 @Test func rejectsATamperedPayload() throws {

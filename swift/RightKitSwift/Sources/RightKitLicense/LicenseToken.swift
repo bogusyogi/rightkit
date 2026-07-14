@@ -4,6 +4,20 @@ import Foundation
 /// A verified entitlement. Only ``LicenseVerifier`` can produce one, so holding a value of this
 /// type *is* the proof — there is no way to construct an unverified claim set and pass it around.
 public struct LicenseClaims: Equatable, Sendable {
+    public init(
+        version: Int, id: String, app: String, tier: String,
+        features: [String], deviceId: String, issuedAt: Int, expiresAt: Int,
+    ) {
+        self.version = version
+        self.id = id
+        self.app = app
+        self.tier = tier
+        self.features = features
+        self.deviceId = deviceId
+        self.issuedAt = issuedAt
+        self.expiresAt = expiresAt
+    }
+
     public let version: Int
     public let id: String
     public let app: String
@@ -17,15 +31,44 @@ public struct LicenseClaims: Equatable, Sendable {
 
     public var isPro: Bool { tier == "pro" }
 
-    /// Tier ordering, extracted verbatim from HeardRight so an entitlement cannot rank differently
-    /// on iOS than it does in the app it came from. An unknown tier ranks below every known one.
-    public func tierAtLeast(_ target: String) -> Bool { Self.rank(tier) >= Self.rank(target) }
+    /// The tiers an entitlement can actually carry. A gate can only ask for one of these, so a
+    /// mistyped or renamed tier is a compile error rather than a silently open door.
+    public enum Tier: Int, Comparable, Sendable {
+        case free = 0
+        case plus = 1
+        case pro = 2
 
-    private static func rank(_ tier: String) -> Int {
-        switch tier {
-        case "pro": return 2
-        case "plus": return 1
-        default: return 0
+        public static func < (lhs: Tier, rhs: Tier) -> Bool { lhs.rawValue < rhs.rawValue }
+
+        init(name: String) {
+            switch name {
+            case "pro": self = .pro
+            case "plus": self = .plus
+            default: self = .free
+            }
+        }
+    }
+
+    /// Fails CLOSED on a tier it does not know.
+    ///
+    /// HeardRight ranked an unrecognised tier 0 and compared `rank(mine) >= rank(target)`, so a gate
+    /// asking for a tier that does not exist — `tierAtLeast("max")`, a typo, a renamed plan — was
+    /// true for EVERY caller, free users included (0 >= 0). It is unused in HeardRight's product
+    /// code, so nothing is leaking today; the trap was armed for the next feature gate. The String
+    /// overload keeps the old call sites compiling and denies the unknown case.
+    public func tierAtLeast(_ target: Tier) -> Bool { Tier(name: tier) >= target }
+
+    public func tierAtLeast(_ target: String) -> Bool {
+        guard let requested = knownTier(target) else { return false }
+        return tierAtLeast(requested)
+    }
+
+    private func knownTier(_ name: String) -> Tier? {
+        switch name {
+        case "pro": return .pro
+        case "plus": return .plus
+        case "free": return .free
+        default: return nil
         }
     }
 }
