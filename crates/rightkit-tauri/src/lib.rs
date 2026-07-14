@@ -133,13 +133,16 @@ where
     }
 
     pub fn get_or_create(&self) -> Result<String, StorageError> {
-        self.get_or_create_with(generate_device_id)
+        self.get_or_create_with_rng(getrandom::getrandom)
     }
 
-    fn get_or_create_with(
+    fn get_or_create_with_rng<E>(
         &self,
-        generate: impl FnOnce() -> Result<String, StorageError>,
-    ) -> Result<String, StorageError> {
+        fill_random: impl FnOnce(&mut [u8]) -> Result<(), E>,
+    ) -> Result<String, StorageError>
+    where
+        E: std::fmt::Display,
+    {
         let _guard = self
             .creation
             .lock()
@@ -147,7 +150,7 @@ where
         if let Some(existing) = self.get()? {
             return Ok(existing);
         }
-        let created = generate()?;
+        let created = generate_device_id(fill_random)?;
         self.store
             .set(&created)
             .map_err(|error| StorageError::new(StorageOperation::Set, error))?;
@@ -155,9 +158,14 @@ where
     }
 }
 
-fn generate_device_id() -> Result<String, StorageError> {
+fn generate_device_id<E>(
+    fill_random: impl FnOnce(&mut [u8]) -> Result<(), E>,
+) -> Result<String, StorageError>
+where
+    E: std::fmt::Display,
+{
     let mut bytes = [0_u8; 16];
-    getrandom::getrandom(&mut bytes).map_err(|error| {
+    fill_random(&mut bytes).map_err(|error| {
         StorageError::new(StorageOperation::GenerateDeviceId, error.to_string())
     })?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -437,12 +445,7 @@ mod tests {
         let service = DeviceService::new(TestStore::default());
 
         let error = service
-            .get_or_create_with(|| {
-                Err(StorageError::new(
-                    StorageOperation::GenerateDeviceId,
-                    "rng unavailable",
-                ))
-            })
+            .get_or_create_with_rng(|_bytes| Err("rng unavailable"))
             .unwrap_err();
 
         assert_eq!(error.operation, StorageOperation::GenerateDeviceId);
