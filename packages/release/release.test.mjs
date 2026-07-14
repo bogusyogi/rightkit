@@ -195,7 +195,7 @@ test("rejects hosted workflow files before release work starts", () => {
 
 test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", () => {
   const config = fixture({
-    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.2"`,
     cargoConfig: `[net]\nretry = 2\n[registries.private]\nindex = "https://example.test/index"`,
   });
   const result = run(config, "--doctor");
@@ -205,7 +205,7 @@ test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", 
 
 test("doctor scopes Cargo inspection to the configured app inside a monorepo", () => {
   const config = fixture({
-    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.2"`,
     repoCargoConfig: `[net]\nretry = 2`,
     siblingCargoManifest: `[package]\nname = "archived-copy"\nversion = "0.0.0"\n[dependencies]\nrightkit-license = { path = "../../rightkit-license" }`,
   });

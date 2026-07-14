@@ -19,9 +19,7 @@ Updater behavior is composed from the existing `@rightkit/updates` client rather
 than reimplemented. Structured-log bundles and app diagnostics have distinct
 generic result types because they are not interchangeable on every host.
 
-This package remains workspace-internal during Phase 3. Publish it only after
-all five core apps pass the same command and updater contract suite. Apps must
-then consume an exact npm version—never a path, Git, `file:`, `link:`, or
-`workspace:` dependency.
+Version `0.1.0` is published on npm. Apps must consume that exact version—never
+a path, Git, `file:`, `link:`, or `workspace:` dependency.
 
 Licensed under either MIT or Apache-2.0, at your option.

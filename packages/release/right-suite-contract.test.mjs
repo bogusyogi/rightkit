@@ -212,8 +212,9 @@ test("Cargo override contract rejects local and repo-ancestor crates.io source r
 
 test("direct Cargo dependency contract accepts only published exact RightKit pins", () => {
   const published = new Map([
-    ["rightkit-license", "0.1.1"],
+    ["rightkit-license", "0.1.2"],
     ["rightkit-logs", "0.1.0"],
+    ["rightkit-tauri", "0.1.0"],
   ]);
   const manifest = `
 [ package ]
@@ -221,21 +222,30 @@ name = "rightkit-tauri"
 # rightkit-tauri = "=0.1.0"
 
 [ dependencies ]
-"rightkit-license" = "=0.1.1" # published exact pin
+"rightkit-license" = "=0.1.2" # published exact pin
+"rightkit-tauri" = "=0.1.0"
 
 [ target . 'cfg(windows)' . dependencies . "rightkit-logs" ]
 version = "=0.1.0"
 
 [ target . 'cfg(unix)' . dev-dependencies ]
-license-adapter = { package = "rightkit-license", version = "=0.1.1" }
+license-adapter = { package = "rightkit-license", version = "=0.1.2" }
 `;
 
-  assert.equal(assertCargoFixture(manifest, published, "fixture/Cargo.toml"), 3);
+  assert.equal(assertCargoFixture(manifest, published, "fixture/Cargo.toml"), 4);
 });
 
 test("direct Cargo dependency contract rejects staged-only RightKit crates", () => {
-  const { consumer } = getCurrentCargoVersionContract();
-  assert.equal(versions.stagedCargo["rightkit-tauri"], "0.1.0");
+  const { consumer } = resolveCargoVersionContract(
+    {
+      cargo: { "rightkit-license": "0.1.2" },
+      stagedCargo: { "rightkit-tauri": "0.1.0" },
+    },
+    new Map([
+      ["rightkit-license", "0.1.2"],
+      ["rightkit-tauri", "0.1.0"],
+    ]),
+  );
   assert.equal(consumer.has("rightkit-tauri"), false);
   assert.throws(
     () => assertCargoFixture(
@@ -300,14 +310,15 @@ test("Cargo version contract rejects staged versions that mismatch canonical man
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.19");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.20");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
+  assert.equal(versions.npm["@rightkit/tauri"], "0.1.0");
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
-  assert.equal(versions.cargo["rightkit-license"], "0.1.1");
+  assert.equal(versions.cargo["rightkit-license"], "0.1.2");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
-  assert.equal(versions.stagedCargo["rightkit-license"], "0.1.2");
-  assert.equal(versions.stagedCargo["rightkit-tauri"], "0.1.0");
+  assert.equal(versions.cargo["rightkit-tauri"], "0.1.0");
+  assert.deepEqual(versions.stagedCargo, {});
   getCurrentCargoVersionContract();
 });
 
