@@ -11,7 +11,7 @@ const pubkey = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5Mzk1RjlG
 const apps = [
   { key: "viewright", root: "viewright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/build-mac-notarized.sh"] },
   { key: "scraperight", root: "scraperight", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["package.sh"] },
-  { key: "heardright", root: "heardright/tauri-app-next", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs", "scripts/publish-release.mjs"] },
+  { key: "heardright", root: "heardright/tauri-app-next", repoRoot: "heardright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs", "scripts/publish-release.mjs"] },
   { key: "mailright", root: "mailright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/build-mac.sh"] },
   { key: "coderight", root: "coderight/apps/coderight-tauri", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs"] },
 ];
@@ -19,7 +19,7 @@ const apps = [
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.17");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.18");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
   assert.equal(versions.npm["@rightkit/updates"], "0.2.2");
@@ -60,6 +60,11 @@ for (const app of apps) {
     }
     assert.equal(pkg.packageManager, versions.packageManager);
     assert.equal(pkg.devDependencies?.["@rightkit/release"], versions.npm["@rightkit/release"]);
+    assert.equal(
+      pkg.dependencies?.["@rightkit/updates"],
+      versions.npm["@rightkit/updates"],
+      `${app.key} must consume the exact published shared updater runtime`,
+    );
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/right-release"));
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/rightkit/packages/release"));
     assert(!JSON.stringify(pkg).includes("git+https://github.com/adrdsouza/rightkit.git"));
@@ -113,6 +118,49 @@ for (const app of apps) {
       `https://api.spoares.com/v1/apps/${app.key}/releases/latest.json?platform={{target}}`,
     ]);
     assert.equal(tauri.bundle.createUpdaterArtifacts, true);
+
+    for (const manifestPath of findCargoManifests(root)) {
+      const manifest = readFileSync(manifestPath, "utf8");
+      for (const [crate, version] of Object.entries(versions.cargo)) {
+        const dependency = manifest.match(new RegExp(`^${crate}\\s*=\\s*(.+)$`, "m"));
+        if (!dependency) continue;
+        assert.equal(
+          dependency[1].trim(),
+          `"=${version}"`,
+          `${path.relative(workspace, manifestPath)} ${crate} must use the exact crates.io version`,
+        );
+      }
+    }
+
+    for (const localCopy of [
+      "src-tauri/vendor/rightkit-license",
+      "src-tauri/vendor/rightkit-logs",
+      "crates/rightkit-license",
+    ]) {
+      assert.equal(
+        existsSync(path.join(root, localCopy)),
+        false,
+        `${app.key} must not carry an app-local ${localCopy} copy`,
+      );
+    }
+
+    const repoRoot = path.join(workspace, app.repoRoot ?? app.root);
+    for (const packagePath of findFiles(repoRoot, "package.json")) {
+      const candidate = JSON.parse(readFileSync(packagePath, "utf8"));
+      assert.equal(candidate.scripts?.["release:win"], undefined, `${path.relative(workspace, packagePath)} has a forbidden tierless Windows release script`);
+      assert.equal(candidate.scripts?.["release:mac"], undefined, `${path.relative(workspace, packagePath)} has a forbidden tierless macOS release script`);
+      for (const command of Object.values(candidate.scripts ?? {})) {
+        assert.doesNotMatch(command, /\brelease:(?:win|mac)\b/, `${path.relative(workspace, packagePath)} delegates to a forbidden tierless release command`);
+      }
+    }
+    for (const instructionName of ["AGENTS.md", "CLAUDE.md"]) {
+      const instructionPath = path.join(repoRoot, instructionName);
+      if (!existsSync(instructionPath)) continue;
+      const instruction = readFileSync(instructionPath, "utf8");
+      assert.doesNotMatch(instruction, /pnpm(?: run)? release:(?:win|mac)\b/, `${app.key} ${instructionName} documents a forbidden tierless release`);
+      assert.doesNotMatch(instruction, /shared tooling at [`']?\.\.\/tools\/right-release/i, `${app.key} ${instructionName} documents a sibling source dependency`);
+      assert.doesNotMatch(instruction, /\$env:RIGHTAPPS_ADMIN_TOKEN|pnpm publish:r2/, `${app.key} ${instructionName} documents obsolete release credentials or publishers`);
+    }
     for (const releaseFile of app.releaseFiles) {
       const source = readFileSync(path.join(root, releaseFile), "utf8");
       assert.doesNotMatch(source, /(?:\.\.\/)+tools\/right-release|tools\/right-release\//, `${app.key} ${releaseFile} must consume the installed package`);
@@ -120,6 +168,22 @@ for (const app of apps) {
     }
   });
 }
+
+function findFiles(root, filename) {
+  const found = [];
+  const visit = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory() && [".git", ".claude", ".worktrees", "node_modules", "target", "vendor"].includes(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) visit(full);
+      else if (entry.isFile() && entry.name === filename) found.push(full);
+    }
+  };
+  visit(root);
+  return found;
+}
+
+const findCargoManifests = (root) => findFiles(root, "Cargo.toml");
 
 test("Right Suite has no hosted workflow files", () => {
   for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "tools/rightkit"]) {
