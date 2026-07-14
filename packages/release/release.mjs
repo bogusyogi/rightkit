@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { validateRightKitCargoContract } from "./cargo-contract.mjs";
+import { assertQaBackdoorContract } from "./qa-contract.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -180,6 +181,7 @@ async function validateRightKitPackageContract(root, appName) {
   const packageJsonPath = path.join(root, "package.json");
   const pkg = JSON.parse(await readFile(packageJsonPath, "utf8"));
   const scripts = pkg.scripts ?? {};
+  assertQaBackdoorContract(root, scripts);
   const workflowDir = path.join(root, ".github", "workflows");
   if (existsSync(workflowDir)) {
     const workflows = await readdir(workflowDir);
