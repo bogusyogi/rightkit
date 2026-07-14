@@ -10,6 +10,7 @@
     "build:qa": "pnpm --dir packages/qa build",
     "build:license": "pnpm --dir packages/license build",
     "build:logs": "pnpm --dir packages/logs build",
+    "build:tauri": "pnpm --dir packages/tauri build",
     "build:updates": "pnpm --dir packages/updates build"
   }
 }
