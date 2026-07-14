@@ -101,11 +101,34 @@ function assertNoRightKitOverrides(parsed, label, source) {
   }
 }
 
+// `tomllib` is Python 3.11+. Windows pins `py -3.11`, but a bare `python3` on macOS is the system
+// 3.9, which has no tomllib — so every app's release:doctor died on a stock Mac, and reported the
+// manifest as invalid TOML when the real problem was the interpreter. Probe for one that can.
+let tomlRunner;
+function resolveTomlRunner() {
+  if (tomlRunner) return tomlRunner;
+  const probe = "import sys,tomllib";
+  const candidates =
+    process.platform === "win32"
+      ? [["py", ["-3.11"]], ["py", ["-3"]], ["python", []]]
+      : [["python3.13", []], ["python3.12", []], ["python3.11", []], ["python3", []]];
+  for (const [command, prefix] of candidates) {
+    const check = spawnSync(command, [...prefix, "-c", probe], { encoding: "utf8", windowsHide: true });
+    if (check.status === 0) {
+      tomlRunner = { command, prefix };
+      return tomlRunner;
+    }
+  }
+  throw new Error(
+    "no Python with tomllib found (needs 3.11+). Install one, or put it on PATH: the release " +
+      "contract reads Cargo manifests through it.",
+  );
+}
+
 function readToml(file, label) {
   const script = "import json,pathlib,sys,tomllib; json.dump(tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')),sys.stdout,default=str)";
-  const command = process.platform === "win32" ? "py" : "python3";
-  const args = process.platform === "win32" ? ["-3.11", "-c", script, file] : ["-c", script, file];
-  const result = spawnSync(command, args, { encoding: "utf8", windowsHide: true });
+  const { command, prefix } = resolveTomlRunner();
+  const result = spawnSync(command, [...prefix, "-c", script, file], { encoding: "utf8", windowsHide: true });
   if (result.status !== 0) throw new Error(`${label} is not valid TOML: ${String(result.stderr ?? "").trim()}`);
   return JSON.parse(result.stdout);
 }
