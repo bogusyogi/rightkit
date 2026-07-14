@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAutoUpdateClient, fetchReleaseStatus, type RuntimeUpdate } from './index.js';
+import {
+  UPDATE_HOST_CONTRACT_VECTORS,
+  createAutoUpdateClient,
+  fetchReleaseStatus,
+  type RuntimeUpdate,
+} from './index.js';
 
 function update(version = '1.2.3'): RuntimeUpdate {
   return {
@@ -21,6 +26,17 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
+
+describe('shared host-adapter contract vectors', () => {
+  it('locks the public patch and Pro feature-update outcomes for every app adapter', () => {
+    expect(UPDATE_HOST_CONTRACT_VECTORS).toEqual([
+      { name: 'free patch', tier: 'patch', pro: false, eligible: true, reason: null },
+      { name: 'pro patch', tier: 'patch', pro: true, eligible: true, reason: null },
+      { name: 'free feature update', tier: 'update', pro: false, eligible: false, reason: 'pro_required' },
+      { name: 'pro feature update', tier: 'update', pro: true, eligible: true, reason: null },
+    ]);
+  });
+});
 
 describe('createAutoUpdateClient', () => {
   it('surfaces a Pro-update nudge when Tauri has no eligible payload', async () => {

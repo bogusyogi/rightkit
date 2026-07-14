@@ -1,5 +1,10 @@
 # @rightkit/updates
 
+`UPDATE_HOST_CONTRACT_VECTORS` is the framework-neutral free/Pro patch/update
+matrix that every app adapter must execute before the Phase 3 publication gate.
+It prevents app-local tests from silently redefining patch eligibility or the
+Pro upgrade nudge.
+
 Small runtime update-policy helper for Right Suite Tauri apps.
 
 It does not build, sign, publish, or upload artifacts. `@rightkit/release` owns
