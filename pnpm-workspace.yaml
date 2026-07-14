@@ -5,7 +5,11 @@ overrides:
   '@wdio/native-utils': 2.5.0
 
 allowBuilds:
+  # Transitive WDIO browser drivers. The native lane drives Tauri's own WebDriver,
+  # never Edge or Firefox, so their download postinstalls stay off.
+  edgedriver: false
   esbuild: true
+  geckodriver: false
 
 minimumReleaseAgeExclude:
   - '@rightkit/updates@0.2.2 || 0.2.3'

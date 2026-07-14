@@ -355,7 +355,6 @@ fn process_is_running(pid: NonZeroU32) -> io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
     #[test]
     fn a_failure_after_spawn_cleans_up_the_partially_wrapped_child() {
         use std::{
@@ -368,14 +367,22 @@ mod tests {
             time::{Duration, Instant},
         };
 
-        let mut command = Command::new("powershell.exe");
-        command.args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Start-Sleep -Seconds 60",
-        ]);
+        // A long-lived child that survives on its own if the partial-spawn cleanup fails.
+        let command = if cfg!(windows) {
+            let mut command = Command::new("powershell.exe");
+            command.args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Sleep -Seconds 60",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("sleep");
+            command.arg("60");
+            command
+        };
         let spawned_pid = Arc::new(AtomicU32::new(0));
 
         assert!(super::spawn_for_test(command, Arc::clone(&spawned_pid)).is_err());
