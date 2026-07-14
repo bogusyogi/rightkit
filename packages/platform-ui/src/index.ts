@@ -17,6 +17,9 @@ export function normalizePlatform(value: string): Platform {
 let cachedPlatform: Platform | undefined;
 
 export function getPlatform(): Platform {
+  if (globalThis.__RIGHTKIT_QA_PLATFORM__ !== undefined) {
+    return normalizePlatform(globalThis.__RIGHTKIT_QA_PLATFORM__);
+  }
   if (cachedPlatform) return cachedPlatform;
   try {
     cachedPlatform = normalizePlatform(tauriPlatform());
