@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
@@ -50,79 +52,60 @@ function getCurrentCargoVersionContract() {
   return currentCargoVersionContract;
 }
 
-function assertPublishedRightKitCargoDependencies(manifest, published, label) {
-  for (const { crate, specifier } of directCargoDependencies(manifest)) {
-    const expected = published.get(crate);
-    assert.ok(expected, `${label} ${crate} is not a published RightKit crate`);
-    const forbiddenSource = /\b(?:path|git|registry)\s*=/i.test(specifier);
-    const scalarVersion = specifier.match(/^["']([^"']+)["']$/)?.[1];
-    const tableVersion = specifier.match(/\bversion\s*=\s*["']([^"']+)["']/i)?.[1];
+function assertPublishedRightKitCargoDependencies(dependencies, published, label) {
+  let checked = 0;
+  for (const dependency of dependencies.filter(({ name }) => name.startsWith("rightkit-"))) {
+    checked += 1;
+    const expected = published.get(dependency.name);
+    assert.ok(expected, `${label} ${dependency.name} is not a published RightKit crate`);
+    const cratesIoSource = new Set([
+      "registry+https://github.com/rust-lang/crates.io-index",
+      "registry+https://index.crates.io/",
+    ]).has(dependency.source);
     assert.ok(
-      !forbiddenSource && (scalarVersion ?? tableVersion) === `=${expected}`,
-      `${label} ${crate} must use the exact crates.io version "=${expected}"`,
+      cratesIoSource && !dependency.path && !dependency.registry && dependency.req === `=${expected}`,
+      `${label} ${dependency.name} must use the exact crates.io version "=${expected}"`,
     );
   }
+  return checked;
 }
 
-function directCargoDependencies(manifest) {
-  const dependencies = [];
-  let assignmentSection = false;
-  let tableDependency;
-  let tableFields = [];
+function readCargoManifestDependencies(manifestPath, label) {
+  const result = spawnSync(
+    "cargo",
+    ["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", manifestPath],
+    { encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(
+    result.status,
+    0,
+    `${label} Cargo metadata rejected manifest; RightKit dependencies must use exact crates.io versions: ${String(result.stderr ?? "").trim()}`,
+  );
+  const metadata = JSON.parse(result.stdout);
+  const expectedPath = path.resolve(manifestPath).toLowerCase();
+  const pkg = metadata.packages.find(({ manifest_path: candidate }) => path.resolve(candidate).toLowerCase() === expectedPath);
+  if (!pkg && path.resolve(metadata.workspace_root, "Cargo.toml").toLowerCase() === expectedPath) return [];
+  assert.ok(pkg, `${label} was not returned by Cargo metadata`);
+  return pkg.dependencies;
+}
 
-  const flushTable = () => {
-    if (tableDependency) addCargoDependency(dependencies, tableDependency, `{ ${tableFields.join(", ")} }`);
-    tableDependency = undefined;
-    tableFields = [];
-  };
-
-  for (const rawLine of manifest.split(/\r?\n/)) {
-    const line = stripTomlComment(rawLine).trim();
-    if (!line) continue;
-    const header = line.match(/^\[(.+)\]$/)?.[1]?.trim();
-    if (header) {
-      flushTable();
-      const dependencyTable = header.match(/^(?:target\..+\.)?(?:dev-|build-)?dependencies(?:\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+)))?$/);
-      assignmentSection = Boolean(dependencyTable && !dependencyTable[1] && !dependencyTable[2] && !dependencyTable[3]);
-      tableDependency = dependencyTable ? dependencyTable[1] ?? dependencyTable[2] ?? dependencyTable[3] : undefined;
-      continue;
-    }
-    if (tableDependency) {
-      tableFields.push(line);
-      continue;
-    }
-    if (!assignmentSection) continue;
-    const assignment = line.match(/^(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\s*=\s*(.+)$/);
-    if (assignment) addCargoDependency(dependencies, assignment[1] ?? assignment[2] ?? assignment[3], assignment[4].trim());
+function assertCargoFixture(manifest, published, label) {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "rightkit-cargo-contract-"));
+  const manifestPath = path.join(fixtureRoot, "Cargo.toml");
+  const packageMetadata = /^\s*\[\s*package\s*\]/m.test(manifest)
+    ? ""
+    : '\n[package]\nname = "rightkit-contract-fixture"\nversion = "0.0.0"\nedition = "2021"\n';
+  writeFileSync(manifestPath, `${manifest}${packageMetadata}\n[lib]\npath = "fixture.rs"\n`, "utf8");
+  writeFileSync(path.join(fixtureRoot, "fixture.rs"), "", "utf8");
+  try {
+    return assertPublishedRightKitCargoDependencies(
+      readCargoManifestDependencies(manifestPath, label),
+      published,
+      label,
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
   }
-  flushTable();
-  return dependencies;
-}
-
-function addCargoDependency(dependencies, dependencyName, specifier) {
-  const renamedPackage = specifier.match(/\bpackage\s*=\s*["'](rightkit-[a-z0-9-]+)["']/i)?.[1];
-  const crate = dependencyName.startsWith("rightkit-") ? dependencyName : renamedPackage;
-  if (crate) dependencies.push({ crate, specifier });
-}
-
-function stripTomlComment(line) {
-  let quote;
-  let escaped = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    if (quote) {
-      if (quote === '"' && character === "\\" && !escaped) {
-        escaped = true;
-        continue;
-      }
-      if (character === quote && !escaped) quote = undefined;
-      escaped = false;
-      continue;
-    }
-    if (character === '"' || character === "'") quote = character;
-    else if (character === "#") return line.slice(0, index);
-  }
-  return line;
 }
 
 test("direct Cargo dependency contract accepts only published exact RightKit pins", () => {
@@ -131,21 +114,21 @@ test("direct Cargo dependency contract accepts only published exact RightKit pin
     ["rightkit-logs", "0.1.0"],
   ]);
   const manifest = `
-[package]
+[ package ]
 name = "rightkit-tauri"
 # rightkit-tauri = "=0.1.0"
 
-[dependencies]
-rightkit-license = "=0.1.1"
+[ dependencies ]
+"rightkit-license" = "=0.1.1" # published exact pin
 
-[target.'cfg(windows)'.dependencies.rightkit-logs]
+[ target . 'cfg(windows)' . dependencies . "rightkit-logs" ]
 version = "=0.1.0"
 
-[dev-dependencies]
+[ target . 'cfg(unix)' . dev-dependencies ]
 license-adapter = { package = "rightkit-license", version = "=0.1.1" }
 `;
 
-  assert.doesNotThrow(() => assertPublishedRightKitCargoDependencies(manifest, published, "fixture/Cargo.toml"));
+  assert.equal(assertCargoFixture(manifest, published, "fixture/Cargo.toml"), 3);
 });
 
 test("direct Cargo dependency contract rejects staged-only RightKit crates", () => {
@@ -153,8 +136,8 @@ test("direct Cargo dependency contract rejects staged-only RightKit crates", () 
   assert.equal(versions.stagedCargo["rightkit-tauri"], "0.1.0");
   assert.equal(consumer.has("rightkit-tauri"), false);
   assert.throws(
-    () => assertPublishedRightKitCargoDependencies(
-      `[dependencies]\nrightkit-tauri = "=0.1.0"`,
+    () => assertCargoFixture(
+      `dependencies . "rightkit-tauri" = "=0.1.0" # staged only`,
       consumer,
       "fixture/Cargo.toml",
     ),
@@ -162,18 +145,19 @@ test("direct Cargo dependency contract rejects staged-only RightKit crates", () 
   );
 });
 
-test("direct Cargo dependency contract still rejects path and Git sources", () => {
+test("direct Cargo dependency contract still rejects path, Git, and custom registry sources", () => {
   const published = new Map([
     ["rightkit-license", "0.1.1"],
     ["rightkit-logs", "0.1.0"],
   ]);
   for (const manifest of [
-    `[dependencies]\nrightkit-license = { path = "../rightkit-license" }`,
-    `[dependencies]\nrightkit-logs = { git = "https://example.test/rightkit.git" }`,
+    `dependencies . rightkit-license = { path = "../rightkit-license" }`,
+    `target . 'cfg(windows)' . dependencies . "rightkit-logs" = { git = "https://example.test/rightkit.git" }`,
+    `dependencies . rightkit-license = { version = "=0.1.1", registry = "private" }`,
   ]) {
     assert.throws(
-      () => assertPublishedRightKitCargoDependencies(manifest, published, "fixture/Cargo.toml"),
-      /must use the exact crates\.io version/,
+      () => assertCargoFixture(manifest, published, "fixture/Cargo.toml"),
+      /must use exact crates\.io versions|must use the exact crates\.io version/,
     );
   }
 });
@@ -314,9 +298,9 @@ for (const app of apps) {
     assert.equal(tauri.bundle.createUpdaterArtifacts, true);
 
     for (const manifestPath of findCargoManifests(root)) {
-      const manifest = readFileSync(manifestPath, "utf8");
       const { consumer } = getCurrentCargoVersionContract();
-      assertPublishedRightKitCargoDependencies(manifest, consumer, path.relative(workspace, manifestPath));
+      const label = path.relative(workspace, manifestPath);
+      assertPublishedRightKitCargoDependencies(readCargoManifestDependencies(manifestPath, label), consumer, label);
     }
 
     for (const localCopy of [
@@ -360,7 +344,7 @@ function findFiles(root, filename) {
   const found = [];
   const visit = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory() && [".git", ".claude", ".worktrees", "node_modules", "target", "vendor"].includes(entry.name)) continue;
+      if (entry.isDirectory() && [".cache", ".git", ".claude", ".worktrees", "node_modules", "target", "vendor"].includes(entry.name)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) visit(full);
       else if (entry.isFile() && entry.name === filename) found.push(full);
