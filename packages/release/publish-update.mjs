@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { pruneReleaseObjects } from "./prune-r2.mjs";
 import { loadReleaseToken } from "./release-token.mjs";
+import { registerRightAppsRelease } from "./rightapps-register.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD = path.join(TOOL_ROOT, "upload-large.mjs");
@@ -272,18 +273,12 @@ function patchInstallerKey(artifact) {
 }
 
 async function register(route, body) {
-  if (!releaseToken) fail("RIGHTAPPS_RELEASE_TOKEN is required to register an update");
-  const response = await fetch(`${API_BASE}${route}`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${releaseToken}`,
-      "content-type": "application/json",
-      "x-store-slug": process.env.RIGHTAPPS_STORE_SLUG || "rightapps",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) fail(`registration failed: ${response.status} ${await response.text()}`);
-  console.log(await response.text());
+  try {
+    const response = await registerRightAppsRelease(route, body, { token: releaseToken });
+    if (response !== null) console.log(typeof response === "string" ? response : JSON.stringify(response));
+  } catch (error) {
+    fail(error.message);
+  }
 }
 
 function fail(message) {
