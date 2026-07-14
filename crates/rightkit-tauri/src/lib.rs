@@ -5,8 +5,13 @@
 //! retain their platform keyring implementations, `#[tauri::command]` wrappers,
 //! managed-state registration, command names, and product-specific side effects.
 
+pub use rightkit_license::LicenseRequirement;
 use rightkit_license::{verify_token, Entitlement, VerifyError};
-use std::{marker::PhantomData, sync::Mutex};
+use std::{
+    marker::PhantomData,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 pub trait SecureStore<T> {
     fn get(&self) -> Result<Option<T>, String>;
@@ -181,12 +186,6 @@ pub trait LicenseRecord {
     fn signed_token(&self) -> Option<&str>;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LicenseRequirement {
-    Pro,
-    Feature(String),
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum AuthorizationDenial {
     MissingLicense,
@@ -199,6 +198,7 @@ pub enum AuthorizationDenial {
 #[derive(Debug, PartialEq, Eq)]
 pub enum AuthorizationError {
     Storage(StorageError),
+    Clock(String),
     Denied(AuthorizationDenial),
 }
 
@@ -212,6 +212,7 @@ impl std::fmt::Display for AuthorizationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Storage(error) => error.fmt(formatter),
+            Self::Clock(error) => write!(formatter, "authorization clock failed: {error}"),
             Self::Denied(denial) => write!(formatter, "license authorization denied: {denial:?}"),
         }
     }
@@ -251,8 +252,16 @@ where
     pub fn authorize(
         &self,
         requirement: LicenseRequirement,
-        now_unix: i64,
     ) -> Result<Entitlement, AuthorizationError> {
+        self.authorize_with_clock(requirement, current_unix_time)
+    }
+
+    fn authorize_with_clock(
+        &self,
+        requirement: LicenseRequirement,
+        clock: impl FnOnce() -> Result<i64, String>,
+    ) -> Result<Entitlement, AuthorizationError> {
+        let now_unix = clock().map_err(AuthorizationError::Clock)?;
         let license = self
             .licenses
             .get()
@@ -274,17 +283,21 @@ where
             now_unix,
         )
         .map_err(|error| AuthorizationError::Denied(AuthorizationDenial::InvalidToken(error)))?;
-        let allowed = match &requirement {
-            LicenseRequirement::Pro => entitlement.is_pro(),
-            LicenseRequirement::Feature(feature) => entitlement.has_feature(feature),
-        };
-        if !allowed {
+        if !entitlement.satisfies(&requirement) {
             return Err(AuthorizationError::Denied(
                 AuthorizationDenial::RequirementNotMet(requirement),
             ));
         }
         Ok(entitlement)
     }
+}
+
+fn current_unix_time() -> Result<i64, String> {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs();
+    i64::try_from(seconds).map_err(|error| error.to_string())
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -296,7 +309,6 @@ pub enum PaidCommandError<E> {
 pub fn guard_paid_command<R, L, D, T, E>(
     authorization: &AuthorizationService<'_, R, L, D>,
     requirement: LicenseRequirement,
-    now_unix: i64,
     command: impl FnOnce(&Entitlement) -> Result<T, E>,
 ) -> Result<T, PaidCommandError<E>>
 where
@@ -305,7 +317,7 @@ where
     D: SecureStore<String>,
 {
     let entitlement = authorization
-        .authorize(requirement, now_unix)
+        .authorize(requirement)
         .map_err(PaidCommandError::Authorization)?;
     command(&entitlement).map_err(PaidCommandError::Command)
 }
@@ -421,6 +433,37 @@ mod tests {
     use super::*;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
+    const PUBKEY: [u8; 32] = [
+        108, 142, 220, 5, 154, 87, 124, 180, 244, 31, 25, 204, 0, 155, 84, 165, 16, 227, 134, 87,
+        61, 66, 199, 238, 168, 219, 128, 145, 39, 235, 80, 211,
+    ];
+    const TOKEN: &str = "eyJ2IjoyLCJpZCI6ImxpY18xIiwiYXBwIjoiaGVhcmRyaWdodCIsInRpZXIiOiJwcm8iLCJmZWF0dXJlcyI6WyJ3YWtlX3dvcmQiLCJ2b2ljZV9jb21tYW5kcyJdLCJkZXZpY2VfaWQiOiJkZXYtMSIsImlhdCI6MTAwMCwiZXhwIjo5OTk5OTk5OTk5fQ.JNmWEwG16VehpwJz9SooQIia0k1Ht0c150jca86h7sAnFj9tKuPO8yZhfyR48vx3Yd_03RQyYYtbKm08TCgsBg";
+
+    #[derive(Clone)]
+    struct TestLicense;
+
+    impl LicenseRecord for TestLicense {
+        fn signed_token(&self) -> Option<&str> {
+            Some(TOKEN)
+        }
+    }
+
+    struct LicenseStore;
+
+    impl SecureStore<TestLicense> for LicenseStore {
+        fn get(&self) -> Result<Option<TestLicense>, String> {
+            Ok(Some(TestLicense))
+        }
+
+        fn set(&self, _value: &TestLicense) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn delete(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
     #[derive(Default)]
     struct TestStore(Mutex<Option<String>>);
 
@@ -467,5 +510,23 @@ mod tests {
         assert_eq!(error.operation, StorageOperation::DeviceLock);
         assert_eq!(error.message, "device lock poisoned");
         assert_eq!(service.get().unwrap(), None);
+    }
+
+    #[test]
+    fn private_clock_seam_supports_deterministic_expiry_tests() {
+        let licenses = LicenseStore;
+        let devices = DeviceService::new(TestStore(Mutex::new(Some("dev-1".into()))));
+        let authorization = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright");
+
+        let error = authorization
+            .authorize_with_clock(LicenseRequirement::pro(), || Ok(10_000_000_000))
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            AuthorizationError::Denied(AuthorizationDenial::InvalidToken(
+                VerifyError::Expired { .. }
+            ))
+        ));
     }
 }

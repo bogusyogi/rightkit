@@ -14,6 +14,11 @@ const PUBKEY: [u8; 32] = [
     66, 199, 238, 168, 219, 128, 145, 39, 235, 80, 211,
 ];
 const TOKEN: &str = "eyJ2IjoyLCJpZCI6ImxpY18xIiwiYXBwIjoiaGVhcmRyaWdodCIsInRpZXIiOiJwcm8iLCJmZWF0dXJlcyI6WyJ3YWtlX3dvcmQiLCJ2b2ljZV9jb21tYW5kcyJdLCJkZXZpY2VfaWQiOiJkZXYtMSIsImlhdCI6MTAwMCwiZXhwIjo5OTk5OTk5OTk5fQ.JNmWEwG16VehpwJz9SooQIia0k1Ht0c150jca86h7sAnFj9tKuPO8yZhfyR48vx3Yd_03RQyYYtbKm08TCgsBg";
+const EXPIRED_PUBKEY: [u8; 32] = [
+    142, 24, 236, 181, 218, 14, 202, 189, 202, 2, 108, 170, 217, 217, 172, 191, 22, 225, 191, 4,
+    143, 122, 95, 151, 60, 37, 3, 150, 181, 215, 204, 164,
+];
+const EXPIRED_TOKEN: &str = "eyJ2IjoyLCJpZCI6ImV4cGlyZWQiLCJhcHAiOiJoZWFyZHJpZ2h0IiwidGllciI6InBybyIsImZlYXR1cmVzIjpbIndha2Vfd29yZCJdLCJkZXZpY2VfaWQiOiJkZXYtMSIsImlhdCI6MCwiZXhwIjoxfQ.sdzQvYk5XwdqanGMs10neqaoMY5YwyIY57S4PlcObJgx7xDAFN057YjlLfXGwB90EkEdPIjBzdTdyK5LK28ECw";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct StoredLicense(Option<String>);
@@ -207,27 +212,17 @@ fn device_get_or_create_is_serialized_and_owns_uuid_v4_generation() {
 }
 
 #[test]
-fn authorization_preserves_app_and_expiry_verification_denials() {
+fn authorization_preserves_app_verification_denial() {
     let licenses = MemoryStore::with(StoredLicense(Some(TOKEN.into())));
     let devices = DeviceService::new(MemoryStore::with("dev-1".into()));
 
     let wrong_app = AuthorizationService::new(&licenses, &devices, &PUBKEY, "viewright")
-        .authorize(LicenseRequirement::Pro, 2_000)
+        .authorize(LicenseRequirement::pro())
         .unwrap_err();
     assert!(matches!(
         wrong_app,
         AuthorizationError::Denied(AuthorizationDenial::InvalidToken(
             rightkit_license::VerifyError::AppMismatch { .. }
-        ))
-    ));
-
-    let expired = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright")
-        .authorize(LicenseRequirement::Pro, 10_000_000_000)
-        .unwrap_err();
-    assert!(matches!(
-        expired,
-        AuthorizationError::Denied(AuthorizationDenial::InvalidToken(
-            rightkit_license::VerifyError::Expired { .. }
         ))
     ));
 }
@@ -239,7 +234,7 @@ fn authorization_uses_native_device_store_not_license_record() {
     let authorization = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright");
 
     assert!(matches!(
-        authorization.authorize(LicenseRequirement::Pro, 2_000),
+        authorization.authorize(LicenseRequirement::pro()),
         Err(AuthorizationError::Denied(
             AuthorizationDenial::InvalidToken(_)
         ))
@@ -252,20 +247,41 @@ fn authorization_supports_pro_and_named_feature_requirements() {
     let devices = DeviceService::new(MemoryStore::with("dev-1".into()));
     let authorization = AuthorizationService::new(&licenses, &devices, &PUBKEY, "heardright");
 
+    assert!(authorization.authorize(LicenseRequirement::pro()).is_ok());
     assert!(authorization
-        .authorize(LicenseRequirement::Pro, 2_000)
-        .is_ok());
-    assert!(authorization
-        .authorize(LicenseRequirement::Feature("wake_word".into()), 2_000)
+        .authorize(LicenseRequirement::feature("wake_word"))
         .is_ok());
     assert_eq!(
         authorization
-            .authorize(LicenseRequirement::Feature("cloud_sync".into()), 2_000)
+            .authorize(LicenseRequirement::feature("cloud_sync"))
             .unwrap_err(),
         AuthorizationError::Denied(AuthorizationDenial::RequirementNotMet(
-            LicenseRequirement::Feature("cloud_sync".into())
+            LicenseRequirement::feature("cloud_sync")
         ))
     );
+}
+
+#[test]
+fn public_paid_guard_rejects_expired_token_without_caller_supplied_time() {
+    let licenses = MemoryStore::with(StoredLicense(Some(EXPIRED_TOKEN.into())));
+    let devices = DeviceService::new(MemoryStore::with("dev-1".into()));
+    let authorization =
+        AuthorizationService::new(&licenses, &devices, &EXPIRED_PUBKEY, "heardright");
+    let ran = Mutex::new(false);
+
+    let result: Result<(), PaidCommandError<()>> =
+        guard_paid_command(&authorization, LicenseRequirement::pro(), |_| {
+            *ran.lock().unwrap() = true;
+            Ok(())
+        });
+
+    assert!(matches!(
+        result,
+        Err(PaidCommandError::Authorization(AuthorizationError::Denied(
+            AuthorizationDenial::InvalidToken(rightkit_license::VerifyError::Expired { .. })
+        )))
+    ));
+    assert!(!*ran.lock().unwrap());
 }
 
 #[test]
@@ -276,7 +292,7 @@ fn paid_command_guard_never_runs_command_when_authorization_is_denied() {
     let ran = Mutex::new(false);
 
     let result: Result<(), PaidCommandError<&str>> =
-        guard_paid_command(&authorization, LicenseRequirement::Pro, 2_000, |_| {
+        guard_paid_command(&authorization, LicenseRequirement::pro(), |_| {
             *ran.lock().unwrap() = true;
             Err("command failed")
         });

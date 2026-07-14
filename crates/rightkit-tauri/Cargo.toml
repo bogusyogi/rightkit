@@ -7,7 +7,7 @@ description = "Native host services for Right Suite Tauri license and device ada
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/claude"
-include = ["src/**", "tests/**", "README.md"]
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 getrandom = "=0.2.17"
