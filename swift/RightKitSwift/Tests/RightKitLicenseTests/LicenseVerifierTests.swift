@@ -40,30 +40,24 @@ private func loadVector() throws -> Vector {
     #expect(claims.issuedAt <= vector.nowUnix)
     #expect(claims.expiresAt > vector.nowUnix)
     #expect(claims.isPro)
-    #expect(claims.tierAtLeast("plus"))
-    #expect(claims.tierAtLeast("pro"))
-
-    // Fails closed on a tier nobody defined. HeardRight ranked an unknown tier 0 and compared
-    // `>=`, so a typo'd gate was true for everyone, free users included. A gate that cannot be
-    // named cannot be passed.
-    #expect(!claims.tierAtLeast("max"))
-    #expect(!claims.tierAtLeast("typo"))
-    #expect(claims.tierAtLeast(.pro))
 }
 
-@Test func aFreeTierIsDeniedEveryPaidGate() {
-    // The case the old ranking got wrong: free ranked 0, an unknown target ranked 0, and 0 >= 0
-    // handed a free user the feature.
-    let free = LicenseClaims(
-        version: 2, id: "lic_free", app: "heardright", tier: "free",
-        features: [], deviceId: "dev-1", issuedAt: 0, expiresAt: .max,
-    )
+@Test func onlyProIsPro() {
+    // Two states, so the entitlement question is a boolean. Anything that is not the pro tier —
+    // free, a typo, a tier someone invents later — is not pro, and cannot become pro by ranking
+    // above something.
+    func claims(tier: String) -> LicenseClaims {
+        LicenseClaims(
+            version: 2, id: "lic", app: "heardright", tier: tier,
+            features: [], deviceId: "dev-1", issuedAt: 0, expiresAt: .max,
+        )
+    }
 
-    #expect(!free.isPro)
-    #expect(!free.tierAtLeast(.plus))
-    #expect(!free.tierAtLeast(.pro))
-    #expect(!free.tierAtLeast("max"))
-    #expect(free.tierAtLeast(.free))
+    #expect(claims(tier: "pro").isPro)
+    #expect(!claims(tier: "free").isPro)
+    #expect(!claims(tier: "").isPro)
+    #expect(!claims(tier: "Pro").isPro)
+    #expect(!claims(tier: "max").isPro)
 }
 
 @Test func rejectsATamperedPayload() throws {

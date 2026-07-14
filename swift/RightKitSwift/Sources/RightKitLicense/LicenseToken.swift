@@ -29,48 +29,13 @@ public struct LicenseClaims: Equatable, Sendable {
 
     public func hasFeature(_ feature: String) -> Bool { features.contains(feature) }
 
-    public var isPro: Bool { tier == "pro" }
-
-    /// The tiers an entitlement can actually carry. A gate can only ask for one of these, so a
-    /// mistyped or renamed tier is a compile error rather than a silently open door.
-    public enum Tier: Int, Comparable, Sendable {
-        case free = 0
-        case plus = 1
-        case pro = 2
-
-        public static func < (lhs: Tier, rhs: Tier) -> Bool { lhs.rawValue < rhs.rawValue }
-
-        init(name: String) {
-            switch name {
-            case "pro": self = .pro
-            case "plus": self = .plus
-            default: self = .free
-            }
-        }
-    }
-
-    /// Fails CLOSED on a tier it does not know.
+    /// Pro or not. That is the whole entitlement ladder — HeardRight sells one paid tier.
     ///
-    /// HeardRight ranked an unrecognised tier 0 and compared `rank(mine) >= rank(target)`, so a gate
-    /// asking for a tier that does not exist — `tierAtLeast("max")`, a typo, a renamed plan — was
-    /// true for EVERY caller, free users included (0 >= 0). It is unused in HeardRight's product
-    /// code, so nothing is leaking today; the trap was armed for the next feature gate. The String
-    /// overload keeps the old call sites compiling and denies the unknown case.
-    public func tierAtLeast(_ target: Tier) -> Bool { Tier(name: tier) >= target }
-
-    public func tierAtLeast(_ target: String) -> Bool {
-        guard let requested = knownTier(target) else { return false }
-        return tierAtLeast(requested)
-    }
-
-    private func knownTier(_ name: String) -> Tier? {
-        switch name {
-        case "pro": return .pro
-        case "plus": return .plus
-        case "free": return .free
-        default: return nil
-        }
-    }
+    /// The extracted code had a `tierAtLeast` ranking (`pro` 2, `plus` 1, unknown 0, compared with
+    /// `>=`). There is no `plus` plan, so it ranked a tier that does not exist, and an unknown
+    /// target ranked 0 — meaning `tierAtLeast("max")` was true for EVERY caller, free users
+    /// included. It was dead code with a hole in it, so it is gone rather than fixed.
+    public var isPro: Bool { tier == "pro" }
 }
 
 public enum LicenseError: Error, Equatable, Sendable {
