@@ -138,6 +138,24 @@ function readToml(file, label) {
   return parsed;
 }
 
+function assertNoRightKitOverrides(parsed, label, source) {
+  for (const overrides of Object.values(parsed.patch ?? {})) {
+    if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) continue;
+    for (const [name, specifier] of Object.entries(overrides)) {
+      const packageName = typeof specifier === "object" && specifier ? specifier.package : undefined;
+      if (name.startsWith("rightkit-") || packageName?.startsWith("rightkit-")) {
+        assert.fail(`${label} has forbidden RightKit Cargo override ${name} in ${source}`);
+      }
+    }
+  }
+  for (const [name, specifier] of Object.entries(parsed.replace ?? {})) {
+    const packageName = typeof specifier === "object" && specifier ? specifier.package : undefined;
+    if (name.split(":", 1)[0].startsWith("rightkit-") || packageName?.startsWith("rightkit-")) {
+      assert.fail(`${label} has forbidden RightKit Cargo override ${name} in ${source}`);
+    }
+  }
+}
+
 function assertNoRightKitCargoOverrides(manifestPath, workspaceRoot, repoRoot, label) {
   const manifests = new Set([
     path.resolve(manifestPath),
@@ -145,26 +163,14 @@ function assertNoRightKitCargoOverrides(manifestPath, workspaceRoot, repoRoot, l
   ]);
   for (const candidate of manifests) {
     if (!existsSync(candidate)) continue;
-    const parsed = readToml(candidate, path.relative(repoRoot, candidate) || label);
-    for (const overrides of Object.values(parsed.patch ?? {})) {
-      if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) continue;
-      for (const [name, specifier] of Object.entries(overrides)) {
-        const packageName = typeof specifier === "object" && specifier ? specifier.package : undefined;
-        if (name.startsWith("rightkit-") || packageName?.startsWith("rightkit-")) {
-          assert.fail(`${label} has forbidden RightKit Cargo override ${name} in ${path.relative(repoRoot, candidate)}`);
-        }
-      }
-    }
-    for (const [name, specifier] of Object.entries(parsed.replace ?? {})) {
-      const packageName = typeof specifier === "object" && specifier ? specifier.package : undefined;
-      if (name.split(":", 1)[0].startsWith("rightkit-") || packageName?.startsWith("rightkit-")) {
-        assert.fail(`${label} has forbidden RightKit Cargo override ${name} in ${path.relative(repoRoot, candidate)}`);
-      }
-    }
+    const source = path.relative(repoRoot, candidate) || label;
+    assertNoRightKitOverrides(readToml(candidate, source), label, source);
   }
 
   for (const configPath of findRepoCargoConfigs(path.dirname(manifestPath), repoRoot)) {
-    const parsed = readToml(configPath, path.relative(repoRoot, configPath));
+    const source = path.relative(repoRoot, configPath);
+    const parsed = readToml(configPath, source);
+    assertNoRightKitOverrides(parsed, label, source);
     const cratesIo = parsed.source?.["crates-io"];
     if (!cratesIo || typeof cratesIo !== "object") continue;
     if (["replace-with", "directory", "git", "registry", "local-registry"].some((key) => key in cratesIo)) {
@@ -224,8 +230,26 @@ function assertCargoOverrideFixture({ manifest, workspaceManifest, localConfig, 
 test("Cargo override contract accepts exact registry pins without repo-local overrides", () => {
   assert.equal(assertCargoOverrideFixture({
     manifest: `[package]\nname = "fixture"\nversion = "0.0.0"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+    localConfig: `[net]\nretry = 2\n[registries.private]\nindex = "https://example.test/index"`,
     outsideConfig: `[source.crates-io]\nreplace-with = "user-global-vendor"`,
   }), 0);
+});
+
+test("Cargo override contract rejects RightKit patches and replacements in repo-local Cargo config", () => {
+  for (const config of [
+    { localConfig: `[patch.crates-io]\nrightkit-license = { path = "../rightkit-license" }` },
+    { localConfig: `patch . "https://github.com/rust-lang/crates.io-index" . "rightkit-logs" = { git = "https://example.test/rightkit-logs.git" }` },
+    { localConfig: `[ replace ]\n"rightkit-license:0.1.1" = { path = "../rightkit-license" }` },
+    { ancestorConfig: `[patch.private-source]\nadapter = { package = "rightkit-license", registry = "private" }` },
+  ]) {
+    assert.throws(
+      () => assertCargoOverrideFixture({
+        manifest: `[package]\nname = "fixture"\nversion = "0.0.0"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+        ...config,
+      }),
+      /forbidden RightKit Cargo override/,
+    );
+  }
 });
 
 test("Cargo override contract rejects path patches, Git patches, and replace entries", () => {
