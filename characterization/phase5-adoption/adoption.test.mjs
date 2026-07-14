@@ -46,12 +46,17 @@ test("Mac gates keep all Phase 5 crates internal", async () => {
 test("Windows media parity is frozen while Mac artifact rows remain unapproved", async () => {
   const report = await inspectPhase5Adoption();
 
-  assert.deepEqual(report.media.windows, {
+  const { missingCopies, ...windows } = report.media.windows;
+  assert.deepEqual(windows, {
     id: "ffmpeg-7.1.5-windows-x64",
     status: "approved",
     sha256: "ded75c0edf344b9eed5876cd6cc469b7366b00c4dd0f25b3965062965c33990d",
     allCopiesMatch: true,
   });
+  // The app runtime copies are staged only on Windows, so which ones are on disk is
+  // machine-dependent; that they all match wherever they exist is not.
+  assert.ok(Array.isArray(missingCopies));
+
   assert.deepEqual(
     report.media.macos.map(({ arch, status }) => ({ arch, status })),
     [
@@ -59,4 +64,16 @@ test("Windows media parity is frozen while Mac artifact rows remain unapproved",
       { arch: "x86_64", status: "stale-unverified" },
     ],
   );
+});
+
+test("the Mac FFmpeg binaries on disk are the ones the contract pins", async (t) => {
+  const report = await inspectPhase5Adoption();
+  const onDisk = report.media.macos.filter(({ present }) => present);
+  if (onDisk.length === 0) t.skip("no Mac FFmpeg artifacts staged on this machine");
+
+  // They stay stale-unverified because they are 7.1 and the contract requires a 7.1.5 rebuild —
+  // but that is a version decision, not licence to let the bytes drift unnoticed in the meantime.
+  for (const artifact of onDisk) {
+    assert.equal(artifact.sha256Matches, true, `${artifact.arch} FFmpeg does not match its pinned sha256`);
+  }
 });

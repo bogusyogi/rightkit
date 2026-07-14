@@ -22,8 +22,16 @@ const OCR_ARTIFACT_ROOTS = {
 };
 const execFileAsync = promisify(execFile);
 
+// null = not on this machine. The Windows runtime copies are staged only on Windows and the mac
+// binaries only on a Mac, so a gate that threw on a missing file could only ever run on one OS —
+// which is exactly the OS whose evidence it is not supposed to be trusting.
 async function sha256(file) {
-  return createHash("sha256").update(await readFile(file)).digest("hex");
+  try {
+    return createHash("sha256").update(await readFile(file)).digest("hex");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 async function requireMatch(file, pattern, label) {
@@ -167,19 +175,43 @@ async function inspectMedia() {
   );
   const windows = contract.artifacts.find((artifact) => artifact.id === "ffmpeg-7.1.5-windows-x64");
   if (!windows) throw new Error("approved Windows FFmpeg characterization is missing");
-  const hashes = await Promise.all(
-    windows.locations.map(({ path: relative }) => sha256(path.join(WORKSPACE, relative))),
+  const copies = await Promise.all(
+    windows.locations.map(async ({ path: relative }) => ({
+      path: relative,
+      sha256: await sha256(path.join(WORKSPACE, relative)),
+    })),
   );
+  const present = copies.filter(({ sha256: digest }) => digest !== null);
+
+  // The mac rows carry a sha256 but nothing was checking it, so their status was an assertion.
+  // Hash them wherever the binary is actually on disk. `location` is written with a `~/Claude`
+  // prefix in the contract; only the vendored path under the workspace is machine-independent.
+  const macos = await Promise.all(
+    contract.artifacts
+      .filter((artifact) => artifact.os === "macos")
+      .map(async ({ arch, status, sha256: expected, location }) => {
+        const relative = `vendor/ffmpeg-lgpl/${path.basename(location ?? "")}`;
+        const actual = await sha256(path.join(WORKSPACE, relative));
+        return {
+          arch,
+          status,
+          present: actual !== null,
+          sha256Matches: actual === null ? null : actual === expected,
+        };
+      }),
+  );
+
   return {
     windows: {
       id: windows.id,
       status: windows.status,
       sha256: windows.sha256,
-      allCopiesMatch: hashes.every((digest) => digest === windows.sha256),
+      // Every copy we can see matches. Copies staged only on the other OS are reported, not
+      // silently counted as verified.
+      allCopiesMatch: present.every(({ sha256: digest }) => digest === windows.sha256),
+      missingCopies: copies.filter(({ sha256: digest }) => digest === null).map(({ path: p }) => p),
     },
-    macos: contract.artifacts
-      .filter((artifact) => artifact.os === "macos")
-      .map(({ arch, status }) => ({ arch, status })),
+    macos,
   };
 }
 
