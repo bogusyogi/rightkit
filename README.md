@@ -4,7 +4,7 @@ Shared, platform-neutral primitives for every Right Suite app.
 
 | Package | Runtime | Responsibility |
 |---|---|---|
-| [`@rightkit/license`](packages/license) | TypeScript + Rust payload | License network, storage, UX client, and signed entitlement enforcement payload |
+| [`@rightkit/license`](packages/license) | TypeScript | License network, storage, and UX client |
 | [`@rightkit/logs`](packages/logs) | TypeScript + Rust payload | Durable local JSONL logging and privacy-safe diagnostics bundles |
 | [`@rightkit/release`](packages/release) | Node CLI | Signed release, hardening, patch/update routing, R2 upload, and RightApps registration |
 | [`@rightkit/updates`](packages/updates) | TypeScript | Runtime update policy helper |
@@ -48,10 +48,10 @@ pnpm add "@rightkit/license@^0.1.5"
 
 Do not install this SDK from `git+https://github.com/adrdsouza/rightkit.git` or a Git tag. App repos depend on the registry package version in `package.json`; lockfiles pin the resolved package integrity.
 
-The npm tarball also carries the matching Rust crate under `rust/`. Tauri apps
-copy and commit that directory as `src-tauri/vendor/rightkit-license`, then use
-`rightkit-license = { path = "vendor/rightkit-license" }`. Cargo must never fetch
-RightKit from Git or require a sibling checkout.
+Native enforcement is supplied only by the separately published
+`rightkit-license` crate on crates.io. Tauri apps use the exact registry version
+from `packages/release/rightkit-versions.json`; Git, path, sibling-checkout, and
+vendored-copy dependencies are forbidden.
 
 ---
 

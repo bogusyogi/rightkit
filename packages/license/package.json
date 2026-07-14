@@ -9,7 +9,7 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
   },
-  "files": ["dist", "rust"],
+  "files": ["dist"],
   "sideEffects": false,
   "scripts": {
     "build": "tsc",

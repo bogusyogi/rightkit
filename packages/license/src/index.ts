@@ -241,8 +241,8 @@ export function hasAnyFeature(lic: StoredLicense | null, features: readonly stri
 }
 
 /** Shared JS/UI-side gate. This is a product/UI hint only; native security
- *  boundaries must verify `signedToken` with the vendored Rust crate and apply
- *  the same requirement there. */
+ *  boundaries must verify `signedToken` with the canonical crates.io
+ *  `rightkit-license` crate and apply the same requirement there. */
 export function satisfiesRequirement(
   lic: StoredLicense | null,
   requirement: LicenseRequirement,
