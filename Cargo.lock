@@ -340,6 +340,7 @@ dependencies = [
 name = "rightkit-tauri"
 version = "0.1.0"
 dependencies = [
+ "getrandom",
  "rightkit-license",
 ]
 

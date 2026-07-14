@@ -10,4 +10,5 @@ repository = "https://github.com/bogusyogi/claude"
 include = ["src/**", "tests/**", "README.md"]
 
 [dependencies]
+getrandom = "=0.2.17"
 rightkit-license = { version = "=0.1.1", path = "../rightkit-license" }

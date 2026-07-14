@@ -4,10 +4,7 @@ use rightkit_tauri::{
     LicenseRequirement, LogHost, LogService, MutationHook, PaidCommandError, SecureService,
     SecureStore, StorageOperation,
 };
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc, Barrier, Mutex,
-};
+use std::sync::{Arc, Barrier, Mutex};
 
 const PUBKEY: [u8; 32] = [
     108, 142, 220, 5, 154, 87, 124, 180, 244, 31, 25, 204, 0, 155, 84, 165, 16, 227, 134, 87, 61,
@@ -99,23 +96,16 @@ fn mutation_hook_is_infallible_and_only_runs_after_commit() {
 }
 
 #[test]
-fn device_get_or_create_is_serialized_and_persists_exactly_one_candidate() {
+fn device_get_or_create_is_serialized_and_owns_uuid_v4_generation() {
     let service = Arc::new(DeviceService::new(MemoryStore::<String>::default()));
     let barrier = Arc::new(Barrier::new(9));
-    let creations = Arc::new(AtomicUsize::new(0));
     let mut threads = Vec::new();
-    for index in 0..8 {
+    for _ in 0..8 {
         let service = Arc::clone(&service);
         let barrier = Arc::clone(&barrier);
-        let creations = Arc::clone(&creations);
         threads.push(std::thread::spawn(move || {
             barrier.wait();
-            service
-                .get_or_create(|| {
-                    creations.fetch_add(1, Ordering::SeqCst);
-                    format!("device-{index}")
-                })
-                .unwrap()
+            service.get_or_create().unwrap()
         }));
     }
     barrier.wait();
@@ -124,7 +114,20 @@ fn device_get_or_create_is_serialized_and_persists_exactly_one_candidate() {
         .map(|thread| thread.join().unwrap())
         .collect();
     assert!(values.iter().all(|value| value == &values[0]));
-    assert_eq!(creations.load(Ordering::SeqCst), 1);
+    let generated = &values[0];
+    assert_eq!(generated.len(), 36);
+    assert_eq!(generated.as_bytes()[14], b'4');
+    assert!(matches!(
+        generated.as_bytes()[19],
+        b'8' | b'9' | b'a' | b'b'
+    ));
+    assert!(generated
+        .chars()
+        .enumerate()
+        .all(
+            |(index, character)| matches!(index, 8 | 13 | 18 | 23) && character == '-'
+                || !matches!(index, 8 | 13 | 18 | 23) && character.is_ascii_hexdigit()
+        ));
     assert_eq!(service.get().unwrap().as_deref(), Some(values[0].as_str()));
 }
 

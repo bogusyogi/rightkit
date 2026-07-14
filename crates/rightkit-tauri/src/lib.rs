@@ -34,6 +34,7 @@ pub enum StorageOperation {
     Set,
     Delete,
     DeviceLock,
+    GenerateDeviceId,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -131,7 +132,7 @@ where
             .map_err(|error| StorageError::new(StorageOperation::Get, error))
     }
 
-    pub fn get_or_create(&self, create: impl FnOnce() -> String) -> Result<String, StorageError> {
+    pub fn get_or_create(&self) -> Result<String, StorageError> {
         let _guard = self
             .creation
             .lock()
@@ -139,12 +140,26 @@ where
         if let Some(existing) = self.get()? {
             return Ok(existing);
         }
-        let created = create();
+        let created = generate_device_id()?;
         self.store
             .set(&created)
             .map_err(|error| StorageError::new(StorageOperation::Set, error))?;
         Ok(created)
     }
+}
+
+fn generate_device_id() -> Result<String, StorageError> {
+    let mut bytes = [0_u8; 16];
+    getrandom::getrandom(&mut bytes).map_err(|error| {
+        StorageError::new(StorageOperation::GenerateDeviceId, error.to_string())
+    })?;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Ok(format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+    ))
 }
 
 pub trait LicenseRecord {

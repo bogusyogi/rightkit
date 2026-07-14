@@ -5,7 +5,8 @@ Framework-agnostic native host services for Right Suite Tauri applications.
 This crate owns:
 
 - typed secure-storage mutation ordering;
-- one atomic, serialized device get-or-create service per app host;
+- one atomic, serialized device get-or-create service per app host, with a
+  crate-owned OS-CSPRNG UUIDv4 generator and no renderer-supplied fallback;
 - fail-closed authorization from a native license store plus a separate,
   authoritative native device store;
 - signed-token verification of app, device, and time before Pro-tier or named
