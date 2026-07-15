@@ -16,5 +16,11 @@
     "rightkit-process": "0.1.0",
     "rightkit-tauri": "0.1.0"
   },
-  "stagedCargo": {}
+  "stagedCargo": {},
+  "swift": {
+    "rightkit-swift": {
+      "url": "https://github.com/bogusyogi/rightkit-swift.git",
+      "version": "0.1.0"
+    }
+  }
 }
