@@ -44,6 +44,8 @@ if (first === "--version" || first === "-v") {
   const rest = args.slice(1);
   if (rest[0] === "cargo") {
     run("publish-cargo.mjs", rest.slice(1));
+  } else if (rest[0] === "swift") {
+    run("publish-swift.mjs", rest.slice(1));
   } else {
     run("release.mjs", rest.includes("--upload") || rest.includes("--publish") ? rest : [...rest, "--upload"]);
   }
@@ -120,6 +122,7 @@ Commands:
   release [--platform mac|win] --tier patch|update   Build/package through the signed release lane
   publish [--platform mac|win] --tier patch|update   Release plus R2 upload + RightApps registration
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
+  publish swift [--scope <s>] [--url <u>] [--dry-run] Test, archive, scan, and publish RightKitSwift to a Swift registry
   model promote --authority heardright --config <file> [--dry-run]
                                                       Sign and promote one runtime/model artifact
   doctor [--platform mac|win]                        Inspect one app's release config
