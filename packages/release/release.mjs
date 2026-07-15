@@ -142,6 +142,8 @@ if (opts.upload && !target.publish) {
   }
 }
 
+sweepStaleRustArtifacts();
+
 console.log(`right-release: done (${Date.now() - started}ms)`);
 releaseLock.release();
 
@@ -159,6 +161,32 @@ function fail(message) {
 async function mustExist(file, message) {
   if (opts.dryRun) return;
   await access(file).catch(() => fail(message));
+}
+
+// Post-release target/ hygiene: `cargo sweep --installed` deletes artifacts left
+// by toolchains rustup no longer has (each update orphans a multi-GB pile per
+// app) and never touches anything the current toolchains produced. Runs after
+// publish so it cannot race an artifact, and is best-effort: a missing
+// cargo-sweep or a sweep failure must never fail a release.
+function sweepStaleRustArtifacts() {
+  const candidates = [...new Set([root, workdir].flatMap((base) => [base, path.join(base, "src-tauri")]))];
+  const projects = candidates.filter((dir) => existsSync(path.join(dir, "target")));
+  for (const dir of projects) {
+    if (opts.dryRun) {
+      console.log(`dry-run: cargo sweep --installed ${dir}`);
+      continue;
+    }
+    try {
+      const result = spawnSync("cargo", ["sweep", "--installed", dir], { stdio: "inherit" });
+      if (result.status !== 0) {
+        console.log("right-release: stale-artifact sweep skipped (install with: cargo install cargo-sweep)");
+        return;
+      }
+    } catch {
+      console.log("right-release: stale-artifact sweep skipped (install with: cargo install cargo-sweep)");
+      return;
+    }
+  }
 }
 
 async function runInstall(pm, cwd) {

@@ -264,6 +264,21 @@ test("Windows update re-signs the updater artifact after Azure code signing", ()
   assert.ok(publishAt > updaterAt, result.stdout);
 });
 
+test("release sweeps stale rust artifacts when a target dir exists", () => {
+  const config = fixture();
+  const dir = path.dirname(config);
+  mkdirSync(path.join(dir, "src-tauri", "target"), { recursive: true });
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /dry-run: cargo sweep --installed .*src-tauri/);
+});
+
+test("release skips the sweep when no target dir exists", () => {
+  const result = run(fixture(), "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /cargo sweep/);
+});
+
 test("release lock is single-flight and is cleaned after success", () => {
   const { dir, config } = lockFixture();
   const lockPath = path.join(dir, ".cache", "right-release", "mac.lock.json");
