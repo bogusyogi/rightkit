@@ -86,7 +86,11 @@ impl From<serde_json::Error> for FrameError {
 /// - `Err(FrameError::Json(_))` when the bytes parsed as JSON but failed to
 ///   deserialize as `T`; the malformed line is consumed before the error
 ///   is returned.
-pub fn read_json_line<R, T>(reader: &mut R, buffer: &mut Vec<u8>, limit: usize) -> Result<Option<T>, FrameError>
+pub fn read_json_line<R, T>(
+    reader: &mut R,
+    buffer: &mut Vec<u8>,
+    limit: usize,
+) -> Result<Option<T>, FrameError>
 where
     R: BufRead,
     T: DeserializeOwned,

@@ -22,8 +22,11 @@ fn writes_one_compact_newline_terminated_frame() {
     )
     .unwrap();
 
-    assert_eq!(output, br#"{"id":7,"value":"ok"}
-"#);
+    assert_eq!(
+        output,
+        br#"{"id":7,"value":"ok"}
+"#
+    );
 }
 
 #[test]
@@ -92,4 +95,3 @@ fn malformed_frame_does_not_desynchronize_the_next_frame() {
         .unwrap();
     assert_eq!(valid.id, 4);
 }
-
