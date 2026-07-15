@@ -13,6 +13,10 @@ import {
 import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
 
 const workspace = path.resolve(new URL("../../../..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1"));
+// The Right Suite web layer's repo + filesystem path is `rightsites` post the 2026-07-15 naming lock;
+// a not-yet-renamed checkout may still have `rightapps`. Resolve whichever exists so the contract
+// passes on both. (The runtime service namespace stays `rightapps` — that is deliberately untouched.)
+const siteRepoDir = existsSync(path.join(workspace, "rightsites")) ? "rightsites" : "rightapps";
 const versionsPath = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1")), "rightkit-versions.json");
 const versions = JSON.parse(readFileSync(versionsPath, "utf8"));
 const isolatedCargoHome = mkdtempSync(path.join(tmpdir(), "rightkit-cargo-home-"));
@@ -332,7 +336,7 @@ test("license v2 public vector is identical at every portable consumer boundary"
   );
   for (const relativePath of [
     "tools/rightkit/packages/license/test-vectors/license-v2.json",
-    "rightapps/packages/api/src/licensing/test-vectors/license-v2.json",
+    `${siteRepoDir}/packages/api/src/licensing/test-vectors/license-v2.json`,
     "scraperight/tests/fixtures/license-v2.json",
   ]) {
     assert.equal(
@@ -497,7 +501,7 @@ test("Right Suite has no hosted workflow files", () => {
 
 test("RightApps brand hosts expose app-keyed update manifest proxies", () => {
   for (const app of apps) {
-    const siteRoot = path.join(workspace, "rightapps", app.key);
+    const siteRoot = path.join(workspace, siteRepoDir, app.key);
     for (const route of ["patches", "latest"]) {
       const routeFile = path.join(siteRoot, "src", "routes", "releases", `${route}.json`, "index.ts");
       const source = readFileSync(routeFile, "utf8");
