@@ -325,12 +325,13 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
   assert.deepEqual(versions.stagedNpm, {
     "@rightkit/license": "0.1.6",
+    "@rightkit/release": "0.2.27",
   });
-  const stagedLicensePackage = JSON.parse(readFileSync(
+  const licensePackage = JSON.parse(readFileSync(
     path.join(workspace, "tools/rightkit/packages/license/package.json"),
     "utf8",
   ));
-  assert.equal(stagedLicensePackage.version, versions.stagedNpm["@rightkit/license"]);
+  assert.equal(licensePackage.version, versions.stagedNpm["@rightkit/license"]);
   assert.equal(versions.cargo["rightkit-license"], "0.1.2");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
   assert.equal(versions.cargo["rightkit-tauri"], "0.1.0");
@@ -366,10 +367,11 @@ for (const app of apps) {
     const rightKitDeps = { ...pkg.dependencies, ...pkg.devDependencies };
     for (const [name, specifier] of Object.entries(rightKitDeps).filter(([name]) => name.startsWith("@rightkit/"))) {
       assert.doesNotMatch(specifier, /^(?:git|file|link|workspace):|github/i, `${app.key} ${name} must come from the published npm package`);
-      if (versions.npm[name]) assert.equal(specifier, versions.npm[name], `${app.key} ${name} must match rightkit-versions.json exactly`);
+      const allowed = new Set([versions.npm[name], versions.stagedNpm?.[name]].filter(Boolean));
+      if (allowed.size) assert.ok(allowed.has(specifier), `${app.key} ${name} must match a published rollout version`);
     }
     assert.equal(pkg.packageManager, versions.packageManager);
-    assert.equal(pkg.devDependencies?.["@rightkit/release"], versions.npm["@rightkit/release"]);
+    assert.ok(new Set([versions.npm["@rightkit/release"], versions.stagedNpm?.["@rightkit/release"]]).has(pkg.devDependencies?.["@rightkit/release"]));
     assert.equal(
       pkg.dependencies?.["@rightkit/updates"],
       versions.npm["@rightkit/updates"],
@@ -429,8 +431,9 @@ for (const app of apps) {
     ]);
     assert.equal(tauri.bundle.createUpdaterArtifacts, true);
 
-    const { consumer } = getCurrentCargoVersionContract();
-    validateRightKitCargoContract(root, consumer, app.key);
+    const { consumer, canonical } = getCurrentCargoVersionContract();
+    const rollout = new Map([...consumer].map(([name, version]) => [name, new Set([version, canonical.get(name)].filter(Boolean))]));
+    validateRightKitCargoContract(root, rollout, app.key);
 
     for (const localCopy of [
       "src-tauri/vendor/rightkit-license",

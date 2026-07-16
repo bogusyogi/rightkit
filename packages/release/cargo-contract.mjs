@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const SKIP_DIRECTORIES = new Set([".cache", ".git", ".claude", ".worktrees", "node_modules", "target", "vendor"]);
+const SKIP_DIRECTORIES = new Set([".audit", ".cache", ".git", ".claude", ".worktrees", "node_modules", "target", "vendor"]);
 const CRATES_IO_SOURCES = new Set([
   "registry+https://github.com/rust-lang/crates.io-index",
   "registry+https://index.crates.io/",
@@ -34,10 +34,12 @@ export function assertPublishedRightKitCargoDependencies(dependencies, published
   let checked = 0;
   for (const dependency of dependencies.filter(({ name }) => name.startsWith("rightkit-"))) {
     checked += 1;
-    const expected = published.get(dependency.name);
-    if (!expected) throw new Error(`${label} ${dependency.name} is not a published RightKit crate`);
-    if (!CRATES_IO_SOURCES.has(dependency.source) || dependency.path || dependency.registry || dependency.req !== `=${expected}`) {
-      throw new Error(`${label} ${dependency.name} must use the exact crates.io version "=${expected}"`);
+    const configured = published.get(dependency.name);
+    if (!configured) throw new Error(`${label} ${dependency.name} is not a published RightKit crate`);
+    const allowed = configured instanceof Set ? configured : new Set(Array.isArray(configured) ? configured : [configured]);
+    const exactVersions = new Set([...allowed].map((version) => `=${version}`));
+    if (!CRATES_IO_SOURCES.has(dependency.source) || dependency.path || dependency.registry || !exactVersions.has(dependency.req)) {
+      throw new Error(`${label} ${dependency.name} must use exact crates.io versions (${[...exactVersions].join(" or ")})`);
     }
   }
   return checked;

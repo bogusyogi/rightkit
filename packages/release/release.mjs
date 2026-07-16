@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { assertQaBackdoorContract } from "./qa-contract.mjs";
+import { assertLegalReleaseContract } from "./legal-contract.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -13,9 +14,10 @@ const UPLOAD_LARGE = path.resolve(TOOL_ROOT, "upload-large.mjs");
 const SIGN_WINDOWS = path.resolve(TOOL_ROOT, "sign-windows.mjs");
 const SIGN_UPDATER = path.resolve(TOOL_ROOT, "sign-updater.mjs");
 const RIGHTKIT_VERSIONS = JSON.parse(readFileSync(path.resolve(TOOL_ROOT, "rightkit-versions.json"), "utf8"));
-const VERSION = RIGHTKIT_VERSIONS.npm["@rightkit/release"];
+const VERSION = RIGHTKIT_VERSIONS.stagedNpm?.["@rightkit/release"] ?? RIGHTKIT_VERSIONS.npm["@rightkit/release"];
 const TIERS = new Set(["patch", "update"]);
-const RIGHTKIT_EXPECTED = new Map(Object.entries(RIGHTKIT_VERSIONS.npm));
+const RIGHTKIT_ALLOWED = buildAllowedVersions(RIGHTKIT_VERSIONS.npm, RIGHTKIT_VERSIONS.stagedNpm);
+const RIGHTKIT_CARGO_ALLOWED = buildAllowedVersions(RIGHTKIT_VERSIONS.cargo, RIGHTKIT_VERSIONS.stagedCargo);
 const FORBIDDEN_RIGHTKIT_SPEC = /^(?:git|file|link|workspace):|github|github\.com/i;
 
 const args = process.argv.slice(2);
@@ -64,9 +66,12 @@ if (config.schema !== 1) fail(`unsupported config schema: ${config.schema ?? "<m
 const root = path.dirname(configPath);
 const workdir = path.resolve(root, config.workdir ?? ".");
 await validateRightKitPackageContract(root, config.app);
-validateRightKitCargoContract(root, RIGHTKIT_VERSIONS.cargo, config.app ?? path.basename(root));
+validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.basename(root));
 const target = config.targets?.[opts.platform];
 if (!target) fail(`${config.app ?? "app"} has no ${opts.platform} release target`);
+const legalContract = config.legal
+  ? assertLegalReleaseContract(root, config.legal, config.app ?? path.basename(root), opts.platform)
+  : null;
 if (target.signed !== true) {
   fail(`${config.app ?? "app"} ${opts.platform} must declare signed: true; unsigned release targets are forbidden`);
 }
@@ -83,6 +88,11 @@ if (opts.doctor) {
   console.log(`packageManager: ${config.packageManager}`);
   console.log(`workdir: ${workdir}`);
   console.log(`hardeningscan: ${HARDENING_SCAN}`);
+  if (legalContract) {
+    console.log(`legal: ${legalContract.manifestPath}`);
+    console.log(`legalAcceptance: ${legalContract.acceptanceVersion}`);
+    console.log(`legalManifestSha256: ${legalContract.manifestSha256}`);
+  }
   if (target.sign?.files?.length) console.log(`sign: ${target.sign.files.join(", ")}`);
   if (target.publishBlocked) console.log(`publishBlocked: ${target.publishBlocked}`);
   process.exit(0);
@@ -228,14 +238,25 @@ async function validateRightKitPackageContract(root, appName) {
     if (FORBIDDEN_RIGHTKIT_SPEC.test(String(specifier))) {
       fail(`${appName ?? pkg.name ?? "app"} ${name} must come from the published npm package, not ${specifier}`);
     }
-    const expected = RIGHTKIT_EXPECTED.get(name);
-    if (expected && specifier !== expected) {
-      fail(`${appName ?? pkg.name ?? "app"} ${name} must be ${expected}, got ${specifier}`);
+    const allowed = RIGHTKIT_ALLOWED.get(name);
+    if (allowed && !allowed.has(specifier)) {
+      fail(`${appName ?? pkg.name ?? "app"} ${name} must be one of ${[...allowed].join(", ")}, got ${specifier}`);
     }
   }
-  if (pkg.devDependencies?.["@rightkit/release"] !== RIGHTKIT_EXPECTED.get("@rightkit/release")) {
-    fail(`${appName ?? pkg.name ?? "app"} must depend on @rightkit/release ${RIGHTKIT_EXPECTED.get("@rightkit/release")} in devDependencies`);
+  const releaseAllowed = RIGHTKIT_ALLOWED.get("@rightkit/release");
+  if (!releaseAllowed?.has(pkg.devDependencies?.["@rightkit/release"])) {
+    fail(`${appName ?? pkg.name ?? "app"} must depend on a supported @rightkit/release version in devDependencies`);
   }
+}
+
+function buildAllowedVersions(published = {}, staged = {}) {
+  const allowed = new Map();
+  for (const [name, version] of [...Object.entries(published), ...Object.entries(staged)]) {
+    const versions = allowed.get(name) ?? new Set();
+    versions.add(version);
+    allowed.set(name, versions);
+  }
+  return allowed;
 }
 
 async function commandEnv(command, root) {

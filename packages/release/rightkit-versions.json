@@ -12,7 +12,8 @@
     "@rightkit/updates": "0.2.3"
   },
   "stagedNpm": {
-    "@rightkit/license": "0.1.6"
+    "@rightkit/license": "0.1.6",
+    "@rightkit/release": "0.2.27"
   },
   "cargo": {
     "rightkit-license": "0.1.2",
