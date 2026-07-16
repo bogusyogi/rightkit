@@ -317,15 +317,27 @@ test("Cargo version contract rejects staged versions that mismatch canonical man
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.22");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.26");
+  assert.equal(versions.npm["@rightkit/legal"], "0.2.0");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
   assert.equal(versions.npm["@rightkit/tauri"], "0.1.0");
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
+  assert.deepEqual(versions.stagedNpm, {
+    "@rightkit/license": "0.1.6",
+  });
+  const stagedLicensePackage = JSON.parse(readFileSync(
+    path.join(workspace, "tools/rightkit/packages/license/package.json"),
+    "utf8",
+  ));
+  assert.equal(stagedLicensePackage.version, versions.stagedNpm["@rightkit/license"]);
   assert.equal(versions.cargo["rightkit-license"], "0.1.2");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
   assert.equal(versions.cargo["rightkit-tauri"], "0.1.0");
-  assert.deepEqual(versions.stagedCargo, {});
+  assert.deepEqual(versions.stagedCargo, {
+    "rightkit-license": "0.1.3",
+    "rightkit-tauri": "0.1.1",
+  });
   getCurrentCargoVersionContract();
 });
 
@@ -467,7 +479,7 @@ function findFiles(root, filename) {
   const found = [];
   const visit = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory() && [".cache", ".git", ".claude", ".worktrees", "node_modules", "target", "vendor"].includes(entry.name)) continue;
+      if (entry.isDirectory() && [".audit", ".cache", ".git", ".claude", ".worktrees", "node_modules", "target", "vendor"].includes(entry.name)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) visit(full);
       else if (entry.isFile() && entry.name === filename) found.push(full);

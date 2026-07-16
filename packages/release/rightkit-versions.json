@@ -2,13 +2,17 @@
   "schema": 1,
   "packageManager": "pnpm@11.12.0",
   "npm": {
+    "@rightkit/legal": "0.2.0",
     "@rightkit/license": "0.1.5",
     "@rightkit/logs": "0.1.3",
     "@rightkit/platform-ui": "0.1.0",
     "@rightkit/qa": "0.1.0",
-    "@rightkit/release": "0.2.22",
+    "@rightkit/release": "0.2.26",
     "@rightkit/tauri": "0.1.0",
     "@rightkit/updates": "0.2.3"
+  },
+  "stagedNpm": {
+    "@rightkit/license": "0.1.6"
   },
   "cargo": {
     "rightkit-license": "0.1.2",
@@ -16,7 +20,10 @@
     "rightkit-process": "0.1.0",
     "rightkit-tauri": "0.1.0"
   },
-  "stagedCargo": {},
+  "stagedCargo": {
+    "rightkit-license": "0.1.3",
+    "rightkit-tauri": "0.1.1"
+  },
   "swift": {
     "rightkit-swift": {
       "url": "https://github.com/bogusyogi/rightkit-swift.git",

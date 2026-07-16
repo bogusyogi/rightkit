@@ -10,6 +10,10 @@ fn entitlement(tier: &str) -> Entitlement {
         device_id: "dev-1".into(),
         iat: 1_000,
         exp: 9_999_999_999,
+        license_kind: None,
+        entitlement_stage: None,
+        license_issued_at: None,
+        confirmation_due_at: None,
     }
 }
 

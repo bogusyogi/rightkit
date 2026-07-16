@@ -26,6 +26,8 @@ export interface LicenseRequirement {
 }
 
 export type LicenseStatus = 'none' | 'active' | 'invalid' | 'failed';
+export type LicenseKind = 'trial' | 'lifetime' | 'term';
+export type EntitlementStage = 'time_bound' | 'provisional' | 'final';
 
 export interface StoredLicense {
   status: LicenseStatus;
@@ -44,6 +46,11 @@ export interface StoredLicense {
    *  so the app's native (Rust) layer can verify + enforce it. Absent until the
    *  backend has a signing key configured. */
   signedToken?: string;
+  /** Server-owned lifecycle hints for UX. Native authorization trusts signedToken. */
+  licenseKind?: LicenseKind;
+  entitlementStage?: EntitlementStage;
+  licenseIssuedAt?: string;
+  confirmationDueAt?: string | null;
 }
 
 /** Async persistence the host provides (OS keyring in Tauri; Map in tests). */
@@ -77,6 +84,10 @@ interface ActivateResponse {
   entitlements?: Entitlements;
   message?: string;
   signedToken?: string;
+  licenseKind?: LicenseKind;
+  entitlementStage?: EntitlementStage;
+  licenseIssuedAt?: string;
+  confirmationDueAt?: string | null;
 }
 
 const endpoint = (host: string, path: string) => `https://${host}/v1/licenses/${path}`;
@@ -154,6 +165,10 @@ export function createLicenseClient(cfg: LicenseConfig) {
       validUntil: body.validUntil ?? null,
       entitlements: body.entitlements,
       signedToken: body.signedToken,
+      licenseKind: body.licenseKind,
+      entitlementStage: body.entitlementStage,
+      licenseIssuedAt: body.licenseIssuedAt,
+      confirmationDueAt: body.confirmationDueAt,
       activatedAt: nowIso(),
       lastRefreshedAt: nowIso(),
       message: body.message,
@@ -181,9 +196,15 @@ export function createLicenseClient(cfg: LicenseConfig) {
     const lic: StoredLicense = {
       ...cur,
       status: 'active',
-      validUntil: body.validUntil ?? cur.validUntil ?? null,
+      validUntil: body.validUntil !== undefined ? body.validUntil : (cur.validUntil ?? null),
       entitlements: body.entitlements ?? cur.entitlements,
       signedToken: body.signedToken ?? cur.signedToken, // keep the cached token if the server didn't re-mint
+      licenseKind: body.licenseKind ?? cur.licenseKind,
+      entitlementStage: body.entitlementStage ?? cur.entitlementStage,
+      licenseIssuedAt: body.licenseIssuedAt ?? cur.licenseIssuedAt,
+      confirmationDueAt: body.confirmationDueAt !== undefined
+        ? body.confirmationDueAt
+        : cur.confirmationDueAt,
       lastRefreshedAt: nowIso(),
     };
     await cfg.storage.set(lic);
@@ -212,8 +233,11 @@ export function isLicensed(lic: StoredLicense | null, graceDays = 7, now = Date.
   if (!lic || lic.status !== 'active') return false;
   if (lic.validUntil == null) return true;
   const until = Date.parse(lic.validUntil);
-  if (Number.isNaN(until)) return true;
-  return now <= until + graceDays * 86_400_000;
+  const exactBoundary = lic.licenseKind === 'trial'
+    || lic.entitlementStage === 'provisional';
+  if (Number.isNaN(until)) return !exactBoundary;
+  const effectiveGraceDays = exactBoundary ? 0 : graceDays;
+  return now < until + effectiveGraceDays * 86_400_000;
 }
 
 export function tier(lic: StoredLicense | null): string | null {

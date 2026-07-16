@@ -18,6 +18,22 @@ use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::Deserialize;
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LicenseKind {
+    Trial,
+    Lifetime,
+    Term,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EntitlementStage {
+    TimeBound,
+    Provisional,
+    Final,
+}
+
 /// The verified entitlement (the signed payload). Field order matches the signer's
 /// canonical order, though serde does not require it for *parsing* — the signature
 /// is what pins the bytes.
@@ -39,6 +55,15 @@ pub struct Entitlement {
     pub iat: i64,
     /// Expiry (unix seconds).
     pub exp: i64,
+    /// Additive lifecycle claims. All are absent on legacy v2 tokens.
+    #[serde(default)]
+    pub license_kind: Option<LicenseKind>,
+    #[serde(default)]
+    pub entitlement_stage: Option<EntitlementStage>,
+    #[serde(default)]
+    pub license_issued_at: Option<i64>,
+    #[serde(default)]
+    pub confirmation_due_at: Option<i64>,
 }
 
 /// Native authorization policy.
@@ -118,6 +143,42 @@ impl LicenseRequirement {
 }
 
 impl Entitlement {
+    pub fn is_final_lifetime(&self) -> bool {
+        self.license_kind == Some(LicenseKind::Lifetime)
+            && self.entitlement_stage == Some(EntitlementStage::Final)
+    }
+
+    fn has_valid_lifecycle(&self) -> bool {
+        match (
+            self.license_kind,
+            self.entitlement_stage,
+            self.license_issued_at,
+            self.confirmation_due_at,
+        ) {
+            // Legacy v2 tokens remain valid until their existing exp boundary.
+            (None, None, None, None) => true,
+            (
+                Some(LicenseKind::Trial | LicenseKind::Term),
+                Some(EntitlementStage::TimeBound),
+                Some(issued),
+                None,
+            ) => issued <= self.iat && self.iat <= self.exp,
+            (
+                Some(LicenseKind::Lifetime),
+                Some(EntitlementStage::Provisional),
+                Some(issued),
+                Some(due),
+            ) => issued <= self.iat && self.iat < due && self.exp == due,
+            (
+                Some(LicenseKind::Lifetime),
+                Some(EntitlementStage::Final),
+                Some(issued),
+                Some(due),
+            ) => issued <= due && due <= self.iat && self.iat <= self.exp,
+            _ => false,
+        }
+    }
+
     pub fn has_feature(&self, f: &str) -> bool {
         self.features.iter().any(|x| x == f)
     }
@@ -197,8 +258,12 @@ pub enum VerifyError {
     AppMismatch { expected: String, got: String },
     /// Token is bound to a different device.
     DeviceMismatch,
-    /// `now > exp`.
+    /// `now >= exp`.
     Expired { exp: i64, now: i64 },
+    /// `iat` is implausibly later than the local clock.
+    NotYetValid { iat: i64, now: i64 },
+    /// Lifecycle fields are partial or internally inconsistent.
+    InvalidLifecycle,
     /// Payload JSON did not parse into the expected schema.
     Parse(String),
 }
@@ -216,7 +281,13 @@ impl std::fmt::Display for VerifyError {
             VerifyError::DeviceMismatch => {
                 write!(f, "license token is bound to a different device")
             }
-            VerifyError::Expired { exp, now } => write!(f, "license token expired ({now} > {exp})"),
+            VerifyError::Expired { exp, now } => {
+                write!(f, "license token expired ({now} >= {exp})")
+            }
+            VerifyError::NotYetValid { iat, now } => {
+                write!(f, "license token is not yet valid ({now} < {iat})")
+            }
+            VerifyError::InvalidLifecycle => write!(f, "license lifecycle claims are invalid"),
             VerifyError::Parse(e) => write!(f, "license payload parse error: {e}"),
         }
     }
@@ -227,7 +298,7 @@ impl std::error::Error for VerifyError {}
 ///
 /// Checks, in order: token shape, base64url decode, Ed25519 signature over the
 /// payload bytes (against `pubkey`), `app == expected_app`, `device_id == device_id`,
-/// and `now_unix <= exp`. Returns the verified [`Entitlement`] on success. The caller
+/// and `now_unix < exp`. Returns the verified [`Entitlement`] on success. The caller
 /// then gates features on it (`is_pro()` / `has_feature()` / `tier_at_least()`).
 pub fn verify_token(
     token: &str,
@@ -268,11 +339,22 @@ pub fn verify_token(
     if ent.device_id != device_id {
         return Err(VerifyError::DeviceMismatch);
     }
-    if now_unix > ent.exp {
+    // Tolerate ordinary clock drift but reject a token whose signed issue time is
+    // far in the future. This blocks the simplest pre-issuance clock rollback.
+    if now_unix.saturating_add(300) < ent.iat {
+        return Err(VerifyError::NotYetValid {
+            iat: ent.iat,
+            now: now_unix,
+        });
+    }
+    if now_unix >= ent.exp {
         return Err(VerifyError::Expired {
             exp: ent.exp,
             now: now_unix,
         });
+    }
+    if !ent.has_valid_lifecycle() {
+        return Err(VerifyError::InvalidLifecycle);
     }
     Ok(ent)
 }
@@ -280,6 +362,21 @@ pub fn verify_token(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+
+    fn sign_test_payload(payload: &str) -> (String, [u8; 32]) {
+        let key = SigningKey::from_bytes(&[7_u8; 32]);
+        let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let sig = key.sign(payload.as_bytes());
+        (
+            format!(
+                "{}.{}",
+                engine.encode(payload.as_bytes()),
+                engine.encode(sig.to_bytes())
+            ),
+            key.verifying_key().to_bytes(),
+        )
+    }
 
     // CROSS-LANGUAGE VECTOR: produced by the TS signer (Node crypto Ed25519) over
     // payload {v:2,id:lic_1,app:heardright,tier:pro,features:[wake_word,voice_commands],
@@ -339,6 +436,17 @@ mod tests {
     }
 
     #[test]
+    fn rejects_at_the_exact_expiry_boundary() {
+        assert_eq!(
+            verify_token(TOKEN, &PUBKEY, "heardright", "dev-1", 9_999_999_999),
+            Err(VerifyError::Expired {
+                exp: 9_999_999_999,
+                now: 9_999_999_999,
+            })
+        );
+    }
+
+    #[test]
     fn rejects_wrong_key() {
         let mut k = PUBKEY;
         k[0] ^= 1;
@@ -363,6 +471,40 @@ mod tests {
         assert_eq!(
             verify_token("", &PUBKEY, "heardright", "dev-1", 0),
             Err(VerifyError::Malformed)
+        );
+    }
+
+    #[test]
+    fn verifies_final_lifetime_lifecycle_claims() {
+        let payload = r#"{"v":2,"id":"lic_life","app":"heardright","tier":"pro","features":[],"device_id":"dev-1","iat":2000,"exp":253402300799,"license_kind":"lifetime","entitlement_stage":"final","license_issued_at":1000,"confirmation_due_at":2000}"#;
+        let (token, pubkey) = sign_test_payload(payload);
+        let entitlement = verify_token(&token, &pubkey, "heardright", "dev-1", 2_000)
+            .expect("final lifetime token should verify");
+        assert_eq!(entitlement.license_kind, Some(LicenseKind::Lifetime));
+        assert_eq!(entitlement.entitlement_stage, Some(EntitlementStage::Final));
+        assert!(entitlement.is_final_lifetime());
+    }
+
+    #[test]
+    fn rejects_partial_lifecycle_claims() {
+        let payload = r#"{"v":2,"id":"lic_bad","app":"heardright","tier":"pro","features":[],"device_id":"dev-1","iat":1000,"exp":2000,"license_kind":"lifetime"}"#;
+        let (token, pubkey) = sign_test_payload(payload);
+        assert_eq!(
+            verify_token(&token, &pubkey, "heardright", "dev-1", 1_500),
+            Err(VerifyError::InvalidLifecycle)
+        );
+    }
+
+    #[test]
+    fn rejects_tokens_issued_in_the_future_beyond_clock_skew() {
+        let payload = r#"{"v":2,"id":"lic_future","app":"heardright","tier":"pro","features":[],"device_id":"dev-1","iat":2000,"exp":3000}"#;
+        let (token, pubkey) = sign_test_payload(payload);
+        assert_eq!(
+            verify_token(&token, &pubkey, "heardright", "dev-1", 1_000),
+            Err(VerifyError::NotYetValid {
+                iat: 2_000,
+                now: 1_000
+            })
         );
     }
 }

@@ -40,6 +40,28 @@ describe('activate', () => {
     expect((await c.activate('AD-XXXX')).signedToken).toBe(publicVector.token);
     expect((await storage.get())?.signedToken).toBe(publicVector.token);
   });
+  it('stores the signed lifecycle hints returned with a provisional lifetime token', async () => {
+    const fetchImpl = (async () => jsonResponse(200, {
+      ok: true,
+      status: 'active',
+      activationToken: 'tok',
+      licenseId: 'lic_life',
+      validUntil: '2026-07-31T00:00:00.000Z',
+      licenseKind: 'lifetime',
+      entitlementStage: 'provisional',
+      licenseIssuedAt: '2026-07-01T00:00:00.000Z',
+      confirmationDueAt: '2026-07-31T00:00:00.000Z',
+      entitlements: { v: 1, tier: 'pro', features: [] },
+      signedToken: 'TOKEN.SIG',
+    })) as unknown as typeof fetch;
+    const { c } = clientWith(fetchImpl);
+    expect(await c.activate('AD-XXXX')).toMatchObject({
+      licenseKind: 'lifetime',
+      entitlementStage: 'provisional',
+      licenseIssuedAt: '2026-07-01T00:00:00.000Z',
+      confirmationDueAt: '2026-07-31T00:00:00.000Z',
+    });
+  });
   it('maps a non-active response to invalid', async () => {
     const fetchImpl = (async () => jsonResponse(200, { ok: false, status: 'invalid', message: 'nope' })) as unknown as typeof fetch;
     const { c } = clientWith(fetchImpl);
@@ -97,6 +119,29 @@ describe('isLicensed — per-kind grace (riskiest assumption)', () => {
   it('subscription past grace lapses', () => {
     expect(isLicensed(sub(new Date(Date.now() - 10 * day).toISOString()), 7)).toBe(false);
   });
+  it('does not apply offline grace past a signed trial or provisional refund-check boundary', () => {
+    const expired = new Date(Date.now() - 1).toISOString();
+    expect(isLicensed({
+      status: 'active', deviceId: 'd', validUntil: expired,
+      licenseKind: 'trial', entitlementStage: 'time_bound',
+    }, 7)).toBe(false);
+    expect(isLicensed({
+      status: 'active', deviceId: 'd', validUntil: expired,
+      licenseKind: 'lifetime', entitlementStage: 'provisional',
+    }, 7)).toBe(false);
+  });
+  it('expires trial and provisional UI state at the exact signed boundary', () => {
+    const boundary = Date.now();
+    const validUntil = new Date(boundary).toISOString();
+    expect(isLicensed({
+      status: 'active', deviceId: 'd', validUntil,
+      licenseKind: 'trial', entitlementStage: 'time_bound',
+    }, 7, boundary)).toBe(false);
+    expect(isLicensed({
+      status: 'active', deviceId: 'd', validUntil,
+      licenseKind: 'lifetime', entitlementStage: 'provisional',
+    }, 7, boundary)).toBe(false);
+  });
   it('non-active / null is never licensed', () => {
     expect(isLicensed({ status: 'invalid', deviceId: 'd', validUntil: null }, 7)).toBe(false);
     expect(isLicensed(null, 7)).toBe(false);
@@ -113,6 +158,25 @@ describe('entitlement readers', () => {
     expect(hasAnyFeature(lic, ['z', 'b'])).toBe(true);
     expect(hasFeature(lic, 'z')).toBe(false);
     expect(tier(null)).toBeNull();
+  });
+  it('upgrades a provisional lifetime record to final after the one mandatory check', async () => {
+    const storage = memStorage();
+    storage.value = {
+      status: 'active', deviceId: 'dev-1', activationToken: 'tok',
+      licenseKind: 'lifetime', entitlementStage: 'provisional',
+      validUntil: '2026-07-31T00:00:00.000Z', signedToken: 'PROVISIONAL.SIG',
+    };
+    const fetchImpl = (async () => jsonResponse(200, {
+      ok: true, status: 'active', validUntil: null,
+      licenseKind: 'lifetime', entitlementStage: 'final',
+      licenseIssuedAt: '2026-07-01T00:00:00.000Z',
+      confirmationDueAt: '2026-07-31T00:00:00.000Z',
+      signedToken: 'FINAL.SIG',
+    })) as unknown as typeof fetch;
+    const c = createLicenseClient({ app: 'x', host: 'x.cc', appVersion: '0', storage, deviceId: () => 'dev-1', fetchImpl });
+    expect(await c.refresh()).toMatchObject({
+      entitlementStage: 'final', validUntil: null, signedToken: 'FINAL.SIG',
+    });
   });
 
   it('satisfies shared UI-side requirements only for licensed users', () => {
