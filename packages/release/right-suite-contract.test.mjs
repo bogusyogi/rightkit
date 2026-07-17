@@ -317,15 +317,20 @@ test("Cargo version contract rejects staged versions that mismatch canonical man
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.26");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.29");
   assert.equal(versions.npm["@rightkit/legal"], "0.2.0");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
   assert.equal(versions.npm["@rightkit/tauri"], "0.1.0");
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
   assert.deepEqual(versions.stagedNpm, {
+    "@rightkit/legal": "0.3.0",
+    "@rightkit/legal-ui": "0.1.0",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.27",
+    "@rightkit/release": "0.2.30",
+  });
+  assert.deepEqual(versions.legacyNpm, {
+    "@rightkit/release": ["0.2.22"],
   });
   const licensePackage = JSON.parse(readFileSync(
     path.join(workspace, "tools/rightkit/packages/license/package.json"),
@@ -367,11 +372,23 @@ for (const app of apps) {
     const rightKitDeps = { ...pkg.dependencies, ...pkg.devDependencies };
     for (const [name, specifier] of Object.entries(rightKitDeps).filter(([name]) => name.startsWith("@rightkit/"))) {
       assert.doesNotMatch(specifier, /^(?:git|file|link|workspace):|github/i, `${app.key} ${name} must come from the published npm package`);
-      const allowed = new Set([versions.npm[name], versions.stagedNpm?.[name]].filter(Boolean));
+      const allowed = new Set(
+        [
+          versions.npm[name],
+          versions.stagedNpm?.[name],
+          ...(versions.legacyNpm?.[name] ?? []),
+        ].filter(Boolean),
+      );
       if (allowed.size) assert.ok(allowed.has(specifier), `${app.key} ${name} must match a published rollout version`);
     }
     assert.equal(pkg.packageManager, versions.packageManager);
-    assert.ok(new Set([versions.npm["@rightkit/release"], versions.stagedNpm?.["@rightkit/release"]]).has(pkg.devDependencies?.["@rightkit/release"]));
+    assert.ok(
+      new Set([
+        versions.npm["@rightkit/release"],
+        versions.stagedNpm?.["@rightkit/release"],
+        ...(versions.legacyNpm?.["@rightkit/release"] ?? []),
+      ]).has(pkg.devDependencies?.["@rightkit/release"]),
+    );
     assert.equal(
       pkg.dependencies?.["@rightkit/updates"],
       versions.npm["@rightkit/updates"],

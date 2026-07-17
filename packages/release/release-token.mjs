@@ -23,7 +23,11 @@ export async function loadReleaseToken({ env = process.env, platform = process.p
   if (direct) return direct;
 
   if (env.RIGHTAPPS_RELEASE_TOKEN_FILE) {
-    return readTokenFile(path.resolve(env.RIGHTAPPS_RELEASE_TOKEN_FILE));
+    try {
+      return await readTokenFile(path.resolve(env.RIGHTAPPS_RELEASE_TOKEN_FILE));
+    } catch (error) {
+      throw new Error(`RIGHTAPPS_RELEASE_TOKEN is unavailable (${error.message})`);
+    }
   }
 
   if (platform === "win32") {

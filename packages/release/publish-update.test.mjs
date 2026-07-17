@@ -193,10 +193,10 @@ test("requires the durable release credential before the first patch upload", ()
     ...process.env,
     APPDATA: path.join(path.dirname(config), "empty-appdata"),
     RIGHT_RELEASE_TIER: "patch",
+    RIGHTAPPS_RELEASE_TOKEN_FILE: path.join(path.dirname(config), "missing-release-token"),
     RIGHTAPPS_ADMIN_TOKEN: "expired-admin-session",
   };
   delete env.RIGHTAPPS_RELEASE_TOKEN;
-  delete env.RIGHTAPPS_RELEASE_TOKEN_FILE;
   const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win"], {
     encoding: "utf8",
     env,

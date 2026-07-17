@@ -48,7 +48,7 @@ function fixture() {
   writeFileSync(path.join(legalDir, "legal-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   writeFileSync(
     path.join(tauriDir, "tauri.conf.json"),
-    `${JSON.stringify({ bundle: { licenseFile: "../legal/EULA.md" } }, null, 2)}\n`,
+    `${JSON.stringify({ bundle: { publisher: "Damned Ventures LLC" } }, null, 2)}\n`,
   );
   return {
     root,
@@ -98,10 +98,23 @@ test("rejects an explicitly unresolved release blocker even without a checkbox",
   assert.throws(() => assertLegalReleaseContract(root, legal, "fixture", "win"), /release blocker/i);
 });
 
-test("requires Windows installer clickthrough to use the exact EULA snapshot", () => {
+test("rejects a Windows installer license page: the in-app gate is the only assent surface", () => {
   const { root, legal } = fixture();
-  writeFileSync(path.join(root, "src-tauri", "tauri.conf.json"), JSON.stringify({ bundle: { licenseFile: "../legal/LICENSE.md" } }));
-  assert.throws(() => assertLegalReleaseContract(root, legal, "fixture", "win"), /licenseFile.*EULA/i);
+  writeFileSync(path.join(root, "src-tauri", "tauri.conf.json"), JSON.stringify({ bundle: { licenseFile: "../legal/EULA.md" } }));
+  assert.throws(() => assertLegalReleaseContract(root, legal, "fixture", "win"), /licenseFile must be absent/i);
+});
+
+test("rejects a macOS DMG SLA too — one licenseFile drives both bundlers", () => {
+  const { root, legal } = fixture();
+  writeFileSync(path.join(root, "src-tauri", "tauri.conf.json"), JSON.stringify({ bundle: { licenseFile: "../legal/EULA.md" } }));
+  assert.throws(() => assertLegalReleaseContract(root, legal, "fixture", "mac"), /licenseFile must be absent/i);
+});
+
+test("accepts an app whose installer carries no license page", () => {
+  const { root, legal } = fixture();
+  for (const platform of ["win", "mac"]) {
+    assert.doesNotThrow(() => assertLegalReleaseContract(root, legal, "fixture", platform));
+  }
 });
 
 test("requires third-party build provenance", () => {

@@ -16,7 +16,11 @@ const SIGN_UPDATER = path.resolve(TOOL_ROOT, "sign-updater.mjs");
 const RIGHTKIT_VERSIONS = JSON.parse(readFileSync(path.resolve(TOOL_ROOT, "rightkit-versions.json"), "utf8"));
 const VERSION = RIGHTKIT_VERSIONS.stagedNpm?.["@rightkit/release"] ?? RIGHTKIT_VERSIONS.npm["@rightkit/release"];
 const TIERS = new Set(["patch", "update"]);
-const RIGHTKIT_ALLOWED = buildAllowedVersions(RIGHTKIT_VERSIONS.npm, RIGHTKIT_VERSIONS.stagedNpm);
+const RIGHTKIT_ALLOWED = buildAllowedVersions(
+  RIGHTKIT_VERSIONS.npm,
+  RIGHTKIT_VERSIONS.stagedNpm,
+  RIGHTKIT_VERSIONS.legacyNpm,
+);
 const RIGHTKIT_CARGO_ALLOWED = buildAllowedVersions(RIGHTKIT_VERSIONS.cargo, RIGHTKIT_VERSIONS.stagedCargo);
 const FORBIDDEN_RIGHTKIT_SPEC = /^(?:git|file|link|workspace):|github|github\.com/i;
 
@@ -249,11 +253,15 @@ async function validateRightKitPackageContract(root, appName) {
   }
 }
 
-function buildAllowedVersions(published = {}, staged = {}) {
+function buildAllowedVersions(published = {}, staged = {}, legacy = {}) {
   const allowed = new Map();
-  for (const [name, version] of [...Object.entries(published), ...Object.entries(staged)]) {
+  for (const [name, value] of [
+    ...Object.entries(published),
+    ...Object.entries(staged),
+    ...Object.entries(legacy),
+  ]) {
     const versions = allowed.get(name) ?? new Set();
-    versions.add(version);
+    for (const version of Array.isArray(value) ? value : [value]) versions.add(version);
     allowed.set(name, versions);
   }
   return allowed;

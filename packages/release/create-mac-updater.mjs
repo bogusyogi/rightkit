@@ -38,7 +38,15 @@ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= "";
 
 rmSync(outputPath, { force: true });
 rmSync(`${outputPath}.sig`, { force: true });
-run("tar", ["-czf", outputPath, "-C", path.dirname(appPath), path.basename(appPath)]);
+// Tauri 2.10 strips the first path component while extracting. Omitting the explicit
+// App.app/ directory entry prevents it from unpacking that entry onto its existing temp dir.
+run("tar", [
+  "-czf",
+  outputPath,
+  "-C",
+  path.dirname(appPath),
+  path.join(path.basename(appPath), "Contents"),
+]);
 run("pnpm", ["exec", "tauri", "signer", "sign", outputPath]);
 
 function run(command, commandArgs) {

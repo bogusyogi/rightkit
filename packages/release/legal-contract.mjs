@@ -135,20 +135,19 @@ export function assertLegalReleaseContract(root, legal, appName, platform) {
     appendices.push({ ...appendix, absolutePath: realFile });
   }
 
-  if (platform === "win") {
-    if (typeof legal.tauriConfig !== "string") fail(appName, "Windows legal gate requires legal.tauriConfig");
-    const tauriPath = path.resolve(appRoot, legal.tauriConfig);
-    if (!within(appRoot, tauriPath) || !existsSync(tauriPath)) fail(appName, `missing Tauri config: ${legal.tauriConfig}`);
-    const tauri = readJson(tauriPath, appName, "Tauri config");
-    const configured = tauri.bundle?.licenseFile;
-    if (typeof configured !== "string" || !configured.trim()) {
-      fail(appName, "Windows Tauri bundle.licenseFile must point to the snapshot EULA");
-    }
-    const configuredPath = path.resolve(path.dirname(tauriPath), configured);
-    const eula = resolvedDocuments.find((document) => document.role === "eula");
-    if (!eula || path.normalize(configuredPath).toLowerCase() !== path.normalize(eula.absolutePath).toLowerCase()) {
-      fail(appName, "Windows Tauri bundle.licenseFile must point to the exact EULA snapshot");
-    }
+  // The in-app gate is the single assent surface. An installer or DMG can only
+  // present text; it cannot record who agreed or the individual/enterprise basis.
+  if (typeof legal.tauriConfig !== "string") fail(appName, "the legal gate requires legal.tauriConfig");
+  const tauriPath = path.resolve(appRoot, legal.tauriConfig);
+  if (!within(appRoot, tauriPath) || !existsSync(tauriPath)) fail(appName, `missing Tauri config: ${legal.tauriConfig}`);
+  const tauri = readJson(tauriPath, appName, "Tauri config");
+  const configured = tauri.bundle?.licenseFile;
+  if (typeof configured === "string" && configured.trim()) {
+    fail(
+      appName,
+      "Tauri bundle.licenseFile must be absent: the in-app legal gate is the only assent surface, and an " +
+        "installer license page (NSIS) or DMG SLA duplicates it without recording acceptance",
+    );
   }
 
   return {
