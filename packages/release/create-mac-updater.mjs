@@ -23,6 +23,10 @@ const outputPath = path.resolve(cwd, output);
 if (!dryRun && !existsSync(appPath)) fail(`signed app not found: ${appPath}`);
 
 const env = { ...process.env };
+// bsdtar otherwise serializes macOS extended attributes as AppleDouble `._*`
+// entries. Tauri's Rust extractor writes those entries as real bundle files,
+// invalidating the Developer ID seal and causing syspolicyd to trash the app.
+env.COPYFILE_DISABLE = "1";
 if (!dryRun && !env.TAURI_SIGNING_PRIVATE_KEY) {
   try {
     env.TAURI_SIGNING_PRIVATE_KEY = execFileSync(
@@ -50,7 +54,8 @@ run("tar", [
 run("pnpm", ["exec", "tauri", "signer", "sign", outputPath]);
 
 function run(command, commandArgs) {
-  console.log(`${dryRun ? "[dry-run] " : ""}${command} ${commandArgs.join(" ")}`);
+  const envPrefix = command === "tar" ? "COPYFILE_DISABLE=1 " : "";
+  console.log(`${dryRun ? "[dry-run] " : ""}${envPrefix}${command} ${commandArgs.join(" ")}`);
   if (dryRun) return;
   const result = spawnSync(command, commandArgs, { cwd, env, stdio: "inherit" });
   if (result.status !== 0) process.exit(result.status ?? 1);
