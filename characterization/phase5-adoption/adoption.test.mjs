@@ -3,37 +3,11 @@ import test from "node:test";
 
 import { inspectPhase5Adoption } from "./adoption.mjs";
 
-test("OCR shared core remains identical in CodeRight and ScrapeRight", async () => {
-  const report = await inspectPhase5Adoption();
 
-  assert.deepEqual(report.ocr.coreDrift, []);
-  assert.deepEqual(report.ocr.adapters, {
-    coderight: {
-      modelEnv: "CODERIGHT_OCR_MODEL_DIR",
-      modelSuffix: ["CodeRight", "models", "ocr"],
-      ortCrate: "coderight-ort-common",
-    },
-    scraperight: {
-      modelEnv: "SCRAPERIGHT_OCR_MODEL_DIR",
-      modelSuffix: ["ScrapeRight", "models", "ocr"],
-      ortCrate: "scraperight-ort-common",
-    },
-  });
-});
-
-// Both apps must ship the exact model set PROVENANCE.toml records (CodeRight is canonical).
-// ScrapeRight previously hand-placed PP-OCRv6 while the shared-source check still passed green;
-// hashing the deployed artifacts is the only thing that catches that.
-test("deployed OCR model artifacts are identical in CodeRight and ScrapeRight", async () => {
-  const report = await inspectPhase5Adoption();
-
-  assert.deepEqual(report.ocr.artifactDrift, []);
-});
 
 test("Mac gates keep all Phase 5 crates internal", async () => {
   const report = await inspectPhase5Adoption();
 
-  assert.equal(report.ocr.provenanceStatus, "resolved");
   assert.equal(report.readyToPublish, false);
   assert.deepEqual(report.crates, {
     "rightkit-ort": { publish: false },

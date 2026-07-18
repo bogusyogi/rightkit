@@ -9,17 +9,7 @@ import { promisify } from "node:util";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE = path.resolve(HERE, "../../../..");
-const SHARED_CORE = [
-  "support/boxes.rs",
-  "support/decode.rs",
-  "support/preprocess.rs",
-];
 const PHASE5_CRATES = ["rightkit-ort", "rightkit-ocr", "rightkit-media"];
-const OCR_ARTIFACTS = ["det.onnx", "rec.onnx", "en_dict.txt"];
-const OCR_ARTIFACT_ROOTS = {
-  coderight: "coderight/apps/coderight-tauri/src-tauri/resources/ocr-model",
-  scraperight: "scraperight/models/ocr",
-};
 const execFileAsync = promisify(execFile);
 
 // null = not on this machine. The Windows runtime copies are staged only on Windows and the mac
@@ -34,103 +24,9 @@ async function sha256(file) {
   }
 }
 
-async function requireMatch(file, pattern, label) {
-  const text = await readFile(file, "utf8");
-  const match = text.match(pattern);
-  if (!match) throw new Error(`${label} not found in ${path.relative(WORKSPACE, file)}`);
-  return match;
-}
 
-async function inspectOcrCore() {
-  const roots = {
-    shared: path.join(WORKSPACE, "tools/rightkit/crates/rightkit-ocr/src"),
-    coderight: path.join(WORKSPACE, "coderight/engine/crates/ocr/src"),
-    scraperight: path.join(WORKSPACE, "scraperight/crates/ocr/src"),
-  };
-  const coreDrift = [];
-  for (const relative of SHARED_CORE) {
-    const hashes = Object.fromEntries(
-      await Promise.all(
-        Object.entries(roots).map(async ([name, root]) => [name, await sha256(path.join(root, relative))]),
-      ),
-    );
-    if (new Set(Object.values(hashes)).size !== 1) coreDrift.push({ file: relative, hashes });
-  }
-  return coreDrift;
-}
 
-async function inspectAdapters() {
-  const definitions = {
-    coderight: {
-      modelFile: path.join(WORKSPACE, "coderight/engine/crates/ocr/src/support/model_files.rs"),
-      cargoFile: path.join(WORKSPACE, "coderight/engine/crates/ocr/Cargo.toml"),
-      modelEnv: "CODERIGHT_OCR_MODEL_DIR",
-      modelSuffix: ["CodeRight", "models", "ocr"],
-    },
-    scraperight: {
-      modelFile: path.join(WORKSPACE, "scraperight/crates/ocr/src/support/model_files.rs"),
-      cargoFile: path.join(WORKSPACE, "scraperight/crates/ocr/Cargo.toml"),
-      modelEnv: "SCRAPERIGHT_OCR_MODEL_DIR",
-      modelSuffix: ["ScrapeRight", "models", "ocr"],
-    },
-  };
-  const adapters = {};
-  for (const [app, definition] of Object.entries(definitions)) {
-    const modelText = await readFile(definition.modelFile, "utf8");
-    if (!modelText.includes(`\"${definition.modelEnv}\"`)) {
-      throw new Error(`${app} OCR model environment adapter drifted`);
-    }
-    let cursor = 0;
-    for (const segment of definition.modelSuffix) {
-      cursor = modelText.indexOf(`join(\"${segment}\")`, cursor);
-      if (cursor < 0) throw new Error(`${app} OCR model suffix drifted at ${segment}`);
-      cursor += segment.length;
-    }
-    const [, ortCrate] = await requireMatch(
-      definition.cargoFile,
-      /^([a-z0-9-]+-ort-common)\s*=/m,
-      `${app} ORT adapter dependency`,
-    );
-    adapters[app] = {
-      modelEnv: definition.modelEnv,
-      modelSuffix: definition.modelSuffix,
-      ortCrate,
-    };
-  }
-  return adapters;
-}
 
-// The shared-core check above hashes source only. Phase 5's gate also requires "the same
-// crate/model digest", so the deployed model artifacts must be hashed too — a status string in
-// PROVENANCE.toml is not evidence that the recorded digests are what the apps actually ship.
-async function inspectOcrArtifacts(provenance) {
-  const recorded = new Map();
-  for (const [, file, digest] of provenance.matchAll(
-    /^file\s*=\s*"([^"]+)"\s*\r?\nsha256\s*=\s*"([0-9a-f]{64})"/gm,
-  )) {
-    recorded.set(file, digest);
-  }
-
-  const drift = [];
-  for (const file of OCR_ARTIFACTS) {
-    const deployed = Object.fromEntries(
-      await Promise.all(
-        Object.entries(OCR_ARTIFACT_ROOTS).map(async ([app, root]) => [
-          app,
-          await sha256(path.join(WORKSPACE, root, file)),
-        ]),
-      ),
-    );
-    const expected = recorded.get(file) ?? null;
-    const appsAgree = new Set(Object.values(deployed)).size === 1;
-    const matchesRecord =
-      expected !== null && Object.values(deployed).every((digest) => digest === expected);
-    if (!appsAgree || !matchesRecord) {
-      drift.push({ file, recorded: expected, ...deployed });
-    }
-  }
-  return drift;
-}
 
 async function cargoManifests(root) {
   const { stdout } = await execFileAsync(
@@ -216,32 +112,25 @@ async function inspectMedia() {
 }
 
 export async function inspectPhase5Adoption() {
-  const provenance = await readFile(
-    path.join(WORKSPACE, "tools/rightkit/crates/rightkit-ocr/PROVENANCE.toml"),
-    "utf8",
-  );
-  const status = provenance.match(/^status\s*=\s*"([^"]+)"/m)?.[1];
-  if (!status) throw new Error("OCR provenance status is missing");
-
-  const [coreDrift, artifactDrift, adapters, crates, dependencies, media] = await Promise.all([
-    inspectOcrCore(),
-    inspectOcrArtifacts(provenance),
-    inspectAdapters(),
+  // The OCR section of this gate is gone (2026-07-18). It existed to keep
+  // ScrapeRight and CodeRight on byte-identical PP-OCRv6 source + weights after
+  // a hand-placed v6 upgrade in one app silently diverged from the other. Both
+  // apps have since moved to OS-native OCR (Apple Vision / Windows.Media.Ocr)
+  // and deleted their PP-OCR pipelines, so there is no shared OCR core and no
+  // model artifact left to compare. rightkit-ocr has no consumers; retire the
+  // crate rather than reviving this check.
+  const [crates, dependencies, media] = await Promise.all([
     crateStates(),
     prematureDependencies(),
     inspectMedia(),
   ]);
   return {
     schema: "rightkit.phase5-adoption-readiness.v1",
-    ocr: { coreDrift, artifactDrift, adapters, provenanceStatus: status },
     crates,
     prematureDependencies: dependencies,
     media,
     readyToPublish:
-      coreDrift.length === 0 &&
-      artifactDrift.length === 0 &&
       dependencies.length === 0 &&
-      status === "resolved" &&
       Object.values(crates).every(({ publish }) => publish) &&
       media.macos.every(({ status: artifactStatus }) => artifactStatus === "approved"),
   };
