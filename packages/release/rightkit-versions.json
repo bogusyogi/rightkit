@@ -13,12 +13,18 @@
   },
   "stagedNpm": {
     "@rightkit/legal": "0.3.0",
+<<<<<<< Updated upstream
     "@rightkit/legal-ui": "0.1.0",
     "@rightkit/license": "0.1.6",
     "@rightkit/release": "0.2.31"
   },
   "legacyNpm": {
     "@rightkit/release": ["0.2.22", "0.2.29"]
+=======
+    "@rightkit/license": "0.1.6",
+    "@rightkit/release": "0.2.29",
+    "@rightkit/legal-ui": "0.1.0"
+>>>>>>> Stashed changes
   },
   "cargo": {
     "rightkit-license": "0.1.2",

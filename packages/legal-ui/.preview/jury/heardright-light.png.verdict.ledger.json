@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "artifact": "tools/rightkit/packages/legal-ui/.preview/heardright-light.png",
+  "rounds": [
+    {
+      "round": 1,
+      "ts": "2026-07-17T08:06:36.336897+00:00",
+      "verdict_path": "tools\\rightkit\\packages\\legal-ui\\.preview\\jury\\heardright-light.png.verdict.json",
+      "blockers": [
+        {
+          "id": "b1",
+          "tier": "P0",
+          "text": "Increase visual weight of the primary CTA (Get Started) using a brand color or high-contrast background to establish hierarchy.",
+          "from_juror": "brand_lens",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b2",
+          "tier": "P1",
+          "text": "Ensure touch targets for top navigation links meet 36x36px minimum for mobile usability.",
+          "from_juror": "brand_lens",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b3",
+          "tier": "P1",
+          "text": "Verify color contrast ratio of the primary CTA and body text meets WCAG 2.1 AA 4.5:1.",
+          "from_juror": "brand_lens",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b4",
+          "tier": "P2",
+          "text": "Add a focus ring style to interactive elements for keyboard navigation visibility.",
+          "from_juror": "brand_lens",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b5",
+          "tier": "P0",
+          "text": "Promote the primary CTA: move 'Get Started' into the hero as a high-contrast solid button (dark text on white or white on brand-blue, ≥4.5:1), 48px tall, with a specific outcome label — not a generic verb. The top-right utility slot should hold only Sign In.",
+          "from_juror": "vision_minimax",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b6",
+          "tier": "P0",
+          "text": "Fix contrast on the existing 'Get Started' pill: current pale-on-pale fails WCAG 2.1 AA. Use brand-blue fill with white text, or dark navy text on white fill. Verify with contrast checker ≥4.5:1.",
+          "from_juror": "vision_minimax",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b7",
+          "tier": "P0",
+          "text": "Add a visible focus ring (2px solid, ≥3:1 against adjacent colors) to every nav link and button — currently no keyboard-focus affordance is rendered.",
+          "from_juror": "vision_minimax",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b8",
+          "tier": "P1",
+          "text": "Reduce top-nav choice load: collapse Product/Solutions/Pricing/Resources into a single 'Platform' menu + Pricing link. Apply Hick's Law — fewer paths before the hero CTA.",
+          "from_juror": "vision_minimax",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b9",
+          "tier": "P1",
+          "text": "Design the peak moment: add a product visual, a single bold stat (e.g., 'Trusted by 2,400+ legal teams'), or a short testimonial under the hero headline. The current hero is empty whitespace + logo — no emotional payoff.",
+          "from_juror": "vision_minimax",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b10",
+          "tier": "P1",
+          "text": "Rewrite hero microcopy: replace generic tagline with outcome-specific line (e.g., 'Automated compliance evidence collection, audit-ready in 48 hours'). Add a secondary text link 'See how it works' for non-ready visitors.",
+          "from_juror": "vision_minimax",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b11",
+          "tier": "P1",
+          "text": "Increase mobile hit targets: top-nav items render ~32px tall — bump to ≥44px and ensure the hamburger collapses 4+ items on <768px viewports.",
+          "from_juror": "vision_minimax",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b12",
+          "tier": "P2",
+          "text": "Add brand-token consistency check: the soft blue circle, navy text, and gray subhead should map to named CSS tokens (--brand-primary, --text-primary, --text-muted) — currently the palette feels ad-hoc.",
+          "from_juror": "vision_minimax",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b13",
+          "tier": "P0",
+          "text": "Increase CTA contrast and add elevation (shadow/border) to make it the most prominent element. Ensure WCAG AA compliance for button text.",
+          "from_juror": "vision_qwen",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b14",
+          "tier": "P1",
+          "text": "Simplify top navigation. Move secondary links to a dropdown or footer to reduce choice overload and focus on the primary conversion goal.",
+          "from_juror": "vision_qwen",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b15",
+          "tier": "P1",
+          "text": "Add visible focus rings to all interactive elements for keyboard accessibility. Test with Tab navigation to ensure logical order.",
+          "from_juror": "vision_qwen",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b16",
+          "tier": "P2",
+          "text": "Rewrite CTA microcopy to include value proposition (e.g., 'Start Your Free Case Review') to reduce ambiguity and increase click-through.",
+          "from_juror": "vision_qwen",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        },
+        {
+          "id": "b17",
+          "tier": "P2",
+          "text": "Reduce decorative background pattern opacity or remove it to prevent visual noise from competing with the primary content and CTA.",
+          "from_juror": "vision_qwen",
+          "disposition": null,
+          "evidence": null,
+          "disposed_at": null
+        }
+      ]
+    }
+  ]
+}

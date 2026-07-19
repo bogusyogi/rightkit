@@ -1,0 +1,33 @@
+{
+  "name": "@rightkit/legal",
+  "version": "0.3.0",
+  "packageManager": "pnpm@11.12.0",
+  "description": "Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist", "README.md"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adrdsouza/claude.git",
+    "directory": "tools/rightkit/packages/legal"
+  }
+}

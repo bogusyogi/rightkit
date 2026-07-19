@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>@rightkit/legal-ui preview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      /* Wordmark face — LOCKED to Tanker suite-wide (brands.md). */
+      @font-face {
+        font-family: "Tanker";
+        src: url("./fonts/Tanker-400.woff2") format("woff2");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      /* Body fallback for the preview — each app's own body face is not
+         bundled here; Hanken Grotesk stands in (body only, never wordmarks). */
+      @font-face {
+        font-family: "Hanken Grotesk";
+        src: url("./fonts/HankenGrotesk-400.woff2") format("woff2");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Hanken Grotesk";
+        src: url("./fonts/HankenGrotesk-600.woff2") format("woff2");
+        font-weight: 600;
+        font-style: normal;
+        font-display: block;
+      }
+      html, body { margin: 0; padding: 0; }
+      #root { min-height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="./dist/entry.js"></script>
+  </body>
+</html>

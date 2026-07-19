@@ -1,0 +1,5 @@
+[
+  { "type": "waitForText", "text": "Discussion" },
+  { "type": "eval", "expression": "(() => { const button = document.querySelector('#send'); const rect = button.getBoundingClientRect(); return { ok: document.documentElement.scrollWidth <= innerWidth && rect.left >= 0 && rect.right <= innerWidth, innerWidth, scrollWidth: document.documentElement.scrollWidth, button: { left: rect.left, right: rect.right, width: rect.width } }; })()" },
+  { "type": "assertVisible", "selector": "#send" }
+]

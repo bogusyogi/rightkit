@@ -1,0 +1,16 @@
+{
+  "paths": [
+    "heardright-light.png",
+    "viewright-light.png",
+    "scraperight-light.png",
+    "mailright-light.png",
+    "coderight-light.png",
+    "heardright-dark.png",
+    "viewright-dark.png",
+    "scraperight-dark.png",
+    "mailright-dark.png",
+    "coderight-dark.png"
+  ],
+  "reason": "Round-1 previews were rejected by Adrian's own eyes (superseded). Round-2 light previews went to the dual-juror gate, which is verifiably broken: packet_validation no_packet_fence, and jurors' reasoning describes UI elements that do not exist in the PNGs (they hallucinated a landing page). A fix-the-jury task has been spawned; these previews are being reviewed directly by Adrian's eyes, which is the suite's taste authority.",
+  "expires": "2026-07-19"
+}

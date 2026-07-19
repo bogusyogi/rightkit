@@ -1,0 +1,24 @@
+{
+  "register": "product",
+  "patterns": [
+    {
+      "name": "new event entrance",
+      "purpose": "make a newly arrived room event distinguishable without delaying reading",
+      "properties": ["opacity", "transform"],
+      "duration_ms": 180,
+      "easing": "cubic-bezier(0.23, 1, 0.32, 1)",
+      "reduced_motion": "movement reduced to an effectively instant state update"
+    },
+    {
+      "name": "interject press",
+      "purpose": "immediate tactile confirmation",
+      "properties": ["transform"],
+      "duration_ms": 80,
+      "easing": "cubic-bezier(0.23, 1, 0.32, 1)",
+      "reduced_motion": "effectively instant"
+    }
+  ],
+  "forbidden_patterns_found": [],
+  "external_motion_dependencies_kb": 0
+}
+

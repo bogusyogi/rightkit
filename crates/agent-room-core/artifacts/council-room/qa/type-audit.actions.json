@@ -1,0 +1,4 @@
+[
+  { "type": "waitForText", "text": "Participants" },
+  { "type": "eval", "expression": "(() => { const items = [...document.querySelectorAll('body *')].filter(el => el.childNodes.length === 1 && el.firstChild?.nodeType === Node.TEXT_NODE && el.textContent.trim()).map(el => ({ tag: el.tagName, className: el.className, text: el.textContent.trim().slice(0, 40), size: getComputedStyle(el).fontSize })).filter(item => parseFloat(item.size) < 12); return { ok: false, items }; })()" }
+]

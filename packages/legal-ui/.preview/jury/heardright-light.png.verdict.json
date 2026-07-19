@@ -1,0 +1,219 @@
+{
+  "skill": "jury-design",
+  "panel": "jury",
+  "flags": {},
+  "rubric_file": "rubrics\\design.md",
+  "prompt_version": 4,
+  "packet_validation": {
+    "ok": false,
+    "errors": [
+      "no_packet_fence"
+    ],
+    "warnings": [],
+    "section_count": 0,
+    "has_packet": false
+  },
+  "jurors": [
+    {
+      "juror_id": "brand_lens",
+      "provider": "cerebras",
+      "model": "zai-glm-4.7",
+      "verdict": "REVISE",
+      "score": 6,
+      "top_concern": "Primary CTA lacks visual weight; hierarchy is flat.",
+      "scores": {
+        "visual_hierarchy": 5,
+        "choice_load": 8,
+        "accessibility_wcag": 6,
+        "gestalt_grouping": 7,
+        "white_space_breathing_room": 8,
+        "microcopy_quality": 7,
+        "peak_moment_strength": 5,
+        "end_moment_strength": 6,
+        "brand_consistency": 8,
+        "mobile_first_fit": 7
+      },
+      "answers": {
+        "primary_action_first_glance": "Eye lands on the 'HeardRight' logo and 'Legal' text first due to size/weight, not the primary action.",
+        "choice_overload": "Low. Only 2 main options (Get Started / Contact) and 3 feature links. Good focus.",
+        "wcag_violations": "Likely contrast failure on the 'Get Started' button if it is light gray on white; touch targets for nav links appear <36px.",
+        "microcopy_pull": "Button: 'Get Started'. Rewrite: 'Start Free Trial' or 'Create Account' for specificity.",
+        "peak_and_end": "Peak is the clean feature list; End is the footer. No strong emotional peak designed.",
+        "intention_alternative_path": "User wants legal protection. A simple 'Download Policy' link might suffice vs. a full dashboard."
+      },
+      "blockers": [
+        {
+          "tier": "P0",
+          "text": "Increase visual weight of the primary CTA (Get Started) using a brand color or high-contrast background to establish hierarchy."
+        },
+        {
+          "tier": "P1",
+          "text": "Ensure touch targets for top navigation links meet 36x36px minimum for mobile usability."
+        },
+        {
+          "tier": "P1",
+          "text": "Verify color contrast ratio of the primary CTA and body text meets WCAG 2.1 AA 4.5:1."
+        },
+        {
+          "tier": "P2",
+          "text": "Add a focus ring style to interactive elements for keyboard navigation visibility."
+        }
+      ],
+      "raw_response": "```json\n{\n  \"verdict\": \"REVISE\",\n  \"score\": 6,\n  \"top_concern\": \"Primary CTA lacks visual weight; hierarchy is flat.\",\n  \"scores\": {\n    \"visual_hierarchy\": 5,\n    \"choice_load\": 8,\n    \"accessibility_wcag\": 6,\n    \"gestalt_grouping\": 7,\n    \"white_space_breathing_room\": 8,\n    \"microcopy_quality\": 7,\n    \"peak_moment_strength\": 5,\n    \"end_moment_strength\": 6,\n    \"brand_consistency\": 8,\n    \"mobile_first_fit\": 7\n  },\n  \"answers\": {\n    \"primary_action_first_glance\": \"Eye lands on the 'HeardRight' logo and 'Legal' text first due to size/weight, not the primary action.\",\n    \"choice_overload\": \"Low. Only 2 main options (Get Started / Contact) and 3 feature links. Good focus.\",\n    \"wcag_violations\": \"Likely contrast failure on the 'Get Started' button if it is light gray on white; touch targets for nav links appear <36px.\",\n    \"microcopy_pull\": \"Button: 'Get Started'. Rewrite: 'Start Free Trial' or 'Create Account' for specificity.\",\n    \"peak_and_end\": \"Peak is the clean feature list; End is the footer. No strong emotional peak designed.\",\n    \"intention_alternative_path\": \"User wants legal protection. A simple 'Download Policy' link might suffice vs. a full dashboard.\"\n  },\n  \"blockers\": [\n    {\n      \"tier\": \"P0\",\n      \"text\": \"Increase visual weight of the primary CTA (Get Started) using a brand color or high-contrast background to establish hierarchy.\"\n    },\n    {\n      \"tier\": \"P1\",\n      \"text\": \"Ensure touch targets for top navigation links meet 36x36px minimum for mobile usability.\"\n    },\n    {\n      \"tier\": \"P1\",\n      \"text\": \"Verify color contrast ratio of the primary CTA and body text meets WCAG 2.1 AA 4.5:1.\"\n    },\n    {\n      \"tier\": \"P2\",\n      \"text\": \"Add a focus ring style to interactive elements for keyboard navigation visibility.\"\n    }\n  ]\n}\n```",
+      "parsed_ok": true,
+      "latency_ms": 1376,
+      "degraded": false,
+      "fallback_used": false,
+      "error": null,
+      "cache_hit": false,
+      "lens": "user_outcome"
+    },
+    {
+      "juror_id": "vision_minimax",
+      "provider": "nim",
+      "model": "minimaxai/minimax-m3",
+      "verdict": "REVISE",
+      "score": 5,
+      "top_concern": "Primary CTA 'Get Started' is buried in a top-right utility bar with no visual weight, while the hero offers no clear next action — Hick's Law violation at the most critical moment.",
+      "scores": {
+        "visual_hierarchy": 5,
+        "choice_load": 6,
+        "accessibility_wcag": 5,
+        "gestalt_grouping": 6,
+        "white_space_breathing_room": 7,
+        "microcopy_quality": 5,
+        "peak_moment_strength": 4,
+        "end_moment_strength": 5,
+        "brand_consistency": 6,
+        "mobile_first_fit": 5
+      },
+      "answers": {
+        "primary_action_first_glance": "Eye lands on the centered wordmark 'HeardRight' inside the soft blue circle. The actual primary CTA 'Get Started' sits in the top-right utility nav with low contrast and small size — competing with 'Sign In' rather than dominating. NNG violation: utility beats action.",
+        "choice_overload": "Top nav exposes 4 items (Product, Solutions, Pricing, Resources) plus Sign In + Get Started = 6 decisions before any value is communicated. For a landing hero this is high Hick's cost. Defer Pricing/Resources to footer or hamburger.",
+        "wcag_violations": "(1) 'Get Started' button text on light-blue background likely fails 4.5:1 — appears ~3:1. (2) No visible focus ring on any interactive element. (3) Top-nav hit targets look ~32px tall, below 44px mobile guideline. (4) Hero subhead gray-on-white may sit near 3.5:1.",
+        "microcopy_pull": "Generic: 'Get Started' — rewrite to outcome-led: 'See your first compliance report →' or 'Run a free 14-day audit'. Also 'Sign In' is fine but 'Learn More' (if present) should be replaced with specific value.",
+        "peak_and_end": "Peak moment is undesigned — the hero shows a logo + tagline but no proof, demo, or emotional payoff (no testimonial, no stat, no product visual). End moment dumps user at a form/CTA with no preceding trust build. Peak-End rule fails on both ends.",
+        "most_concrete_visible_defect": "The 'Get Started' button in the top-right has insufficient contrast against its light-blue pill background (text appears pale, ~3:1 ratio) and is visually outweighed by the large centered logo — the primary conversion action is the least prominent element on screen."
+      },
+      "blockers": [
+        {
+          "tier": "P0",
+          "text": "Promote the primary CTA: move 'Get Started' into the hero as a high-contrast solid button (dark text on white or white on brand-blue, ≥4.5:1), 48px tall, with a specific outcome label — not a generic verb. The top-right utility slot should hold only Sign In."
+        },
+        {
+          "tier": "P0",
+          "text": "Fix contrast on the existing 'Get Started' pill: current pale-on-pale fails WCAG 2.1 AA. Use brand-blue fill with white text, or dark navy text on white fill. Verify with contrast checker ≥4.5:1."
+        },
+        {
+          "tier": "P0",
+          "text": "Add a visible focus ring (2px solid, ≥3:1 against adjacent colors) to every nav link and button — currently no keyboard-focus affordance is rendered."
+        },
+        {
+          "tier": "P1",
+          "text": "Reduce top-nav choice load: collapse Product/Solutions/Pricing/Resources into a single 'Platform' menu + Pricing link. Apply Hick's Law — fewer paths before the hero CTA."
+        },
+        {
+          "tier": "P1",
+          "text": "Design the peak moment: add a product visual, a single bold stat (e.g., 'Trusted by 2,400+ legal teams'), or a short testimonial under the hero headline. The current hero is empty whitespace + logo — no emotional payoff."
+        },
+        {
+          "tier": "P1",
+          "text": "Rewrite hero microcopy: replace generic tagline with outcome-specific line (e.g., 'Automated compliance evidence collection, audit-ready in 48 hours'). Add a secondary text link 'See how it works' for non-ready visitors."
+        },
+        {
+          "tier": "P1",
+          "text": "Increase mobile hit targets: top-nav items render ~32px tall — bump to ≥44px and ensure the hamburger collapses 4+ items on <768px viewports."
+        },
+        {
+          "tier": "P2",
+          "text": "Add brand-token consistency check: the soft blue circle, navy text, and gray subhead should map to named CSS tokens (--brand-primary, --text-primary, --text-muted) — currently the palette feels ad-hoc."
+        }
+      ],
+      "raw_response": "{\"verdict\":\"REVISE\",\"score\":5,\"top_concern\":\"Primary CTA 'Get Started' is buried in a top-right utility bar with no visual weight, while the hero offers no clear next action — Hick's Law violation at the most critical moment.\",\"scores\":{\"visual_hierarchy\":5,\"choice_load\":6,\"accessibility_wcag\":5,\"gestalt_grouping\":6,\"white_space_breathing_room\":7,\"microcopy_quality\":5,\"peak_moment_strength\":4,\"end_moment_strength\":5,\"brand_consistency\":6,\"mobile_first_fit\":5},\"answers\":{\"primary_action_first_glance\":\"Eye lands on the centered wordmark 'HeardRight' inside the soft blue circle. The actual primary CTA 'Get Started' sits in the top-right utility nav with low contrast and small size — competing with 'Sign In' rather than dominating. NNG violation: utility beats action.\",\"choice_overload\":\"Top nav exposes 4 items (Product, Solutions, Pricing, Resources) plus Sign In + Get Started = 6 decisions before any value is communicated. For a landing hero this is high Hick's cost. Defer Pricing/Resources to footer or hamburger.\",\"wcag_violations\":\"(1) 'Get Started' button text on light-blue background likely fails 4.5:1 — appears ~3:1. (2) No visible focus ring on any interactive element. (3) Top-nav hit targets look ~32px tall, below 44px mobile guideline. (4) Hero subhead gray-on-white may sit near 3.5:1.\",\"microcopy_pull\":\"Generic: 'Get Started' — rewrite to outcome-led: 'See your first compliance report →' or 'Run a free 14-day audit'. Also 'Sign In' is fine but 'Learn More' (if present) should be replaced with specific value.\",\"peak_and_end\":\"Peak moment is undesigned — the hero shows a logo + tagline but no proof, demo, or emotional payoff (no testimonial, no stat, no product visual). End moment dumps user at a form/CTA with no preceding trust build. Peak-End rule fails on both ends.\",\"most_concrete_visible_defect\":\"The 'Get Started' button in the top-right has insufficient contrast against its light-blue pill background (text appears pale, ~3:1 ratio) and is visually outweighed by the large centered logo — the primary conversion action is the least prominent element on screen.\"},\"blockers\":[{\"tier\":\"P0\",\"text\":\"Promote the primary CTA: move 'Get Started' into the hero as a high-contrast solid button (dark text on white or white on brand-blue, ≥4.5:1), 48px tall, with a specific outcome label — not a generic verb. The top-right utility slot should hold only Sign In.\"},{\"tier\":\"P0\",\"text\":\"Fix contrast on the existing 'Get Started' pill: current pale-on-pale fails WCAG 2.1 AA. Use brand-blue fill with white text, or dark navy text on white fill. Verify with contrast checker ≥4.5:1.\"},{\"tier\":\"P0\",\"text\":\"Add a visible focus ring (2px solid, ≥3:1 against adjacent colors) to every nav link and button — currently no keyboard-focus affordance is rendered.\"},{\"tier\":\"P1\",\"text\":\"Reduce top-nav choice load: collapse Product/Solutions/Pricing/Resources into a single 'Platform' menu + Pricing link. Apply Hick's Law — fewer paths before the hero CTA.\"},{\"tier\":\"P1\",\"text\":\"Design the peak moment: add a product visual, a single bold stat (e.g., 'Trusted by 2,400+ legal teams'), or a short testimonial under the hero headline. The current hero is empty whitespace + logo — no emotional payoff.\"},{\"tier\":\"P1\",\"text\":\"Rewrite hero microcopy: replace generic tagline with outcome-specific line (e.g., 'Automated compliance evidence collection, audit-ready in 48 hours'). Add a secondary text link 'See how it works' for non-ready visitors.\"},{\"tier\":\"P1\",\"text\":\"Increase mobile hit targets: top-nav items render ~32px tall — bump to ≥44px and ensure the hamburger collapses 4+ items on <768px viewports.\"},{\"tier\":\"P2\",\"text\":\"Add brand-token consistency check: the soft blue circle, navy text, and gray subhead should map to named CSS tokens (--brand-primary, --text-primary, --text-muted) — currently the palette feels ad-hoc.\"}]}",
+      "parsed_ok": true,
+      "latency_ms": 11813,
+      "degraded": false,
+      "fallback_used": false,
+      "error": null,
+      "cache_hit": false,
+      "lens": "visual_accuracy"
+    },
+    {
+      "juror_id": "vision_qwen",
+      "provider": "groq",
+      "model": "qwen/qwen3.6-27b",
+      "verdict": "REVISE",
+      "score": 6,
+      "top_concern": "Primary CTA lacks visual dominance; secondary nav and decorative elements compete for attention, violating Hick's Law and reducing conversion clarity.",
+      "scores": {
+        "visual_hierarchy": 5,
+        "choice_load": 6,
+        "accessibility_wcag": 7,
+        "gestalt_grouping": 7,
+        "white_space_breathing_room": 8,
+        "microcopy_quality": 6,
+        "peak_moment_strength": 5,
+        "end_moment_strength": 6,
+        "brand_consistency": 8,
+        "mobile_first_fit": 7
+      },
+      "answers": {
+        "primary_action_first_glance": "Eye lands on the hero image or headline, not the CTA. The 'Get Started' button blends with the background due to low contrast and lack of shadow/elevation, failing to guide the user immediately.",
+        "choice_overload": "Top nav has 5+ items plus a login button. Consider collapsing secondary links into a dropdown or hamburger menu to reduce cognitive load and focus on the primary conversion path.",
+        "wcag_violations": "The primary CTA button text likely fails 4.5:1 contrast ratio against the light background. Focus rings are not visible in the static mockup, risking keyboard navigation failure.",
+        "microcopy_pull": "Current: 'Get Started'. Rewrite: 'Start Your Free Case Review' — adds value proposition and reduces ambiguity about the next step.",
+        "peak_and_end": "Peak is the hero headline, but it’s not emotionally resonant. End is a generic footer. The journey lacks a clear 'win' state or reassurance after the CTA click.",
+        "largest_visual_comprehension_cost": "Users must scan the entire hero section to find the CTA because it doesn’t visually pop. The decorative background pattern distracts from the action, increasing time-to-understand."
+      },
+      "blockers": [
+        {
+          "tier": "P0",
+          "text": "Increase CTA contrast and add elevation (shadow/border) to make it the most prominent element. Ensure WCAG AA compliance for button text."
+        },
+        {
+          "tier": "P1",
+          "text": "Simplify top navigation. Move secondary links to a dropdown or footer to reduce choice overload and focus on the primary conversion goal."
+        },
+        {
+          "tier": "P1",
+          "text": "Add visible focus rings to all interactive elements for keyboard accessibility. Test with Tab navigation to ensure logical order."
+        },
+        {
+          "tier": "P2",
+          "text": "Rewrite CTA microcopy to include value proposition (e.g., 'Start Your Free Case Review') to reduce ambiguity and increase click-through."
+        },
+        {
+          "tier": "P2",
+          "text": "Reduce decorative background pattern opacity or remove it to prevent visual noise from competing with the primary content and CTA."
+        }
+      ],
+      "raw_response": "{\n  \"verdict\": \"REVISE\",\n  \"score\": 6,\n  \"top_concern\": \"Primary CTA lacks visual dominance; secondary nav and decorative elements compete for attention, violating Hick's Law and reducing conversion clarity.\",\n  \"scores\": {\n    \"visual_hierarchy\": 5,\n    \"choice_load\": 6,\n    \"accessibility_wcag\": 7,\n    \"gestalt_grouping\": 7,\n    \"white_space_breathing_room\": 8,\n    \"microcopy_quality\": 6,\n    \"peak_moment_strength\": 5,\n    \"end_moment_strength\": 6,\n    \"brand_consistency\": 8,\n    \"mobile_first_fit\": 7\n  },\n  \"answers\": {\n    \"primary_action_first_glance\": \"Eye lands on the hero image or headline, not the CTA. The 'Get Started' button blends with the background due to low contrast and lack of shadow/elevation, failing to guide the user immediately.\",\n    \"choice_overload\": \"Top nav has 5+ items plus a login button. Consider collapsing secondary links into a dropdown or hamburger menu to reduce cognitive load and focus on the primary conversion path.\",\n    \"wcag_violations\": \"The primary CTA button text likely fails 4.5:1 contrast ratio against the light background. Focus rings are not visible in the static mockup, risking keyboard navigation failure.\",\n    \"microcopy_pull\": \"Current: 'Get Started'. Rewrite: 'Start Your Free Case Review' — adds value proposition and reduces ambiguity about the next step.\",\n    \"peak_and_end\": \"Peak is the hero headline, but it’s not emotionally resonant. End is a generic footer. The journey lacks a clear 'win' state or reassurance after the CTA click.\",\n    \"largest_visual_comprehension_cost\": \"Users must scan the entire hero section to find the CTA because it doesn’t visually pop. The decorative background pattern distracts from the action, increasing time-to-understand.\"\n  },\n  \"blockers\": [\n    {\n      \"tier\": \"P0\",\n      \"text\": \"Increase CTA contrast and add elevation (shadow/border) to make it the most prominent element. Ensure WCAG AA compliance for button text.\"\n    },\n    {\n      \"tier\": \"P1\",\n      \"text\": \"Simplify top navigation. Move secondary links to a dropdown or footer to reduce choice overload and focus on the primary conversion goal.\"\n    },\n    {\n      \"tier\": \"P1\",\n      \"text\": \"Add visible focus rings to all interactive elements for keyboard accessibility. Test with Tab navigation to ensure logical order.\"\n    },\n    {\n      \"tier\": \"P2\",\n      \"text\": \"Rewrite CTA microcopy to include value proposition (e.g., 'Start Your Free Case Review') to reduce ambiguity and increase click-through.\"\n    },\n    {\n      \"tier\": \"P2\",\n      \"text\": \"Reduce decorative background pattern opacity or remove it to prevent visual noise from competing with the primary content and CTA.\"\n    }\n  ]\n}",
+      "parsed_ok": true,
+      "latency_ms": 1636,
+      "degraded": false,
+      "fallback_used": false,
+      "error": null,
+      "cache_hit": false,
+      "lens": "visual_usability"
+    }
+  ],
+  "escalation": [],
+  "synthesis": {
+    "majority_verdict": "REVISE",
+    "majority_count": "3/3",
+    "avg_score": 5.7,
+    "split": false,
+    "any_degraded": false,
+    "any_error": false
+  },
+  "wall_seconds": 11.84,
+  "auto_jury_meta": {
+    "kind": "design",
+    "skill": "jury-design",
+    "artifact": "tools/rightkit/packages/legal-ui/.preview/heardright-light.png",
+    "input": "tools\\rightkit\\packages\\legal-ui\\.preview\\jury\\heardright-light.png.input.md",
+    "timestamp": "2026-07-17T08:06:36.202Z",
+    "vision_active": true,
+    "failHard": true
+  }
+}

@@ -327,10 +327,14 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.0",
     "@rightkit/license": "0.1.6",
+<<<<<<< Updated upstream
     "@rightkit/release": "0.2.31",
   });
   assert.deepEqual(versions.legacyNpm, {
     "@rightkit/release": ["0.2.22", "0.2.29"],
+=======
+    "@rightkit/release": "0.2.29",
+>>>>>>> Stashed changes
   });
   const licensePackage = JSON.parse(readFileSync(
     path.join(workspace, "tools/rightkit/packages/license/package.json"),
