@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::ffi::OsString;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -110,6 +110,7 @@ fn configure_connection(
     };
     conn.pragma_update(None, "synchronous", synchronous)?;
     conn.pragma_update(None, "journal_size_limit", JOURNAL_SIZE_LIMIT)?;
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
     if options.foreign_keys {
         conn.pragma_update(None, "foreign_keys", true)?;
     }
@@ -122,6 +123,13 @@ fn configure_connection(
         conn.pragma_update(None, "query_only", true)?;
     }
     Ok(())
+}
+
+/// Start a transaction that reserves SQLite's single writer slot up front.
+/// This keeps read-then-write work out of the unretryable BUSY_SNAPSHOT path.
+pub fn write_txn(conn: &mut Connection) -> Result<Transaction<'_>> {
+    conn.transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(Into::into)
 }
 
 #[cfg(feature = "sqlcipher")]

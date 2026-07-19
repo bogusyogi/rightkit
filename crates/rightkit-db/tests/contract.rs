@@ -1,6 +1,6 @@
 use rightkit_db::{
-    checkpoint_if_wal_larger_than, checkpoint_truncate, optimize_boundary, CacheProfile, DbOptions,
-    DurabilityProfile,
+    checkpoint_if_wal_larger_than, checkpoint_truncate, optimize_boundary, write_txn, CacheProfile,
+    DbOptions, DurabilityProfile,
 };
 use std::sync::mpsc;
 use std::time::Duration;
@@ -30,6 +30,7 @@ fn writer_and_reader_enforce_the_pragma_contract() {
     assert_eq!(pragma_i64(&writer, "busy_timeout"), 5_000);
     assert_eq!(pragma_i64(&writer, "synchronous"), 2);
     assert_eq!(pragma_i64(&writer, "journal_size_limit"), 67_108_864);
+    assert_eq!(pragma_i64(&writer, "temp_store"), 2);
     assert_eq!(pragma_i64(&writer, "foreign_keys"), 1);
     assert_eq!(pragma_i64(&writer, "cache_size"), -65_536);
     assert_eq!(pragma_i64(&writer, "mmap_size"), 268_435_456);
@@ -37,9 +38,30 @@ fn writer_and_reader_enforce_the_pragma_contract() {
     let reader = options.open_reader().unwrap();
     assert_eq!(pragma_i64(&reader, "query_only"), 1);
     assert_eq!(pragma_i64(&reader, "synchronous"), 2);
+    assert_eq!(pragma_i64(&reader, "temp_store"), 2);
     assert!(reader
         .execute("CREATE TABLE forbidden(id INTEGER)", [])
         .is_err());
+}
+
+#[test]
+fn write_txn_acquires_the_writer_lock_immediately() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("immediate.sqlite");
+    let options = DbOptions::new(&path);
+    let mut first = options.open_writer().unwrap();
+    let mut second = options.open_writer().unwrap();
+    second
+        .busy_timeout(Duration::from_millis(20))
+        .expect("short test timeout");
+
+    let tx = write_txn(&mut first).expect("begin immediate transaction");
+    let blocked = second.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate);
+    assert!(
+        blocked.is_err(),
+        "IMMEDIATE must reserve the single writer slot"
+    );
+    tx.rollback().unwrap();
 }
 
 #[test]

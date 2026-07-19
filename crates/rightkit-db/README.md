@@ -5,6 +5,11 @@ It owns connection pragmas, SQLCipher key ordering, bounded read pooling,
 checkpointing, optimization, and optional integrity checks. It does not own app
 schemas, migrations, or queries.
 
+Every connection uses WAL, a bounded busy wait and journal, memory-backed
+temporary storage, and the selected durability profile. Use `write_txn()` for
+any transaction that may write; it starts `BEGIN IMMEDIATE` so read-then-write
+work cannot fail with an unretryable stale snapshot.
+
 Plain SQLite is the default feature. SQLCipher consumers must disable defaults:
 
 ```toml
