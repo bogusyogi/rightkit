@@ -1,0 +1,25 @@
+[package]
+name = "rightkit-db"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+keywords = ["sqlite", "sqlcipher", "wal", "database"]
+categories = ["database"]
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = ["bundled"]
+bundled = ["rusqlite/bundled"]
+sqlcipher = ["rusqlite/bundled-sqlcipher-vendored-openssl"]
+
+[dependencies]
+rusqlite = { version = "0.40.1", default-features = false }
+thiserror = "2"
+zeroize = "1.8"
+
+[dev-dependencies]
+tempfile = "3"
