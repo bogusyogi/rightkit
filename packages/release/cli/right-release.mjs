@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commands = new Map([
-  ["release", "release.mjs"],
-  ["build", "release.mjs"],
-  ["package", "release.mjs"],
+  ["release", "build-release.mjs"],
+  ["build", "build-release.mjs"],
+  ["package", "build-release.mjs"],
+  ["publish", "upload-release.mjs"],
+  ["upload", "upload-release.mjs"],
   ["deps", "deps.mjs"],
   ["publish-update", "publish-update.mjs"],
   ["hardening", "hardeningscan.mjs"],
@@ -47,7 +49,7 @@ if (first === "--version" || first === "-v") {
   } else if (rest[0] === "swift") {
     run("publish-swift.mjs", rest.slice(1));
   } else {
-    run("release.mjs", rest.includes("--upload") || rest.includes("--publish") ? rest : [...rest, "--upload"]);
+    run("upload-release.mjs", rest);
   }
 } else if (first === "model") {
   const rest = args.slice(1);
@@ -63,7 +65,7 @@ if (first === "--version" || first === "-v") {
 } else if (commands.has(first)) {
   run(commands.get(first), args.slice(1));
 } else if (first.startsWith("-")) {
-  run("release.mjs", args);
+  run("build-release.mjs", args);
 } else {
   console.error(`right-release: unknown command: ${first}\n`);
   printHelp();
@@ -119,8 +121,11 @@ function printHelp() {
   console.log(`right-release <command> [options]
 
 Commands:
-  release [--platform mac|win] --tier patch|update   Build/package through the signed release lane
-  publish [--platform mac|win] --tier patch|update   Release plus R2 upload + RightApps registration
+  build [--platform mac|win]                         Build, sign/notarize, harden, and seal; never uploads
+  upload --release <id> --platform mac|win --tier patch|update
+                                                      Upload one sealed release; never builds
+  release                                             Compatibility alias for build
+  publish                                             Compatibility alias for upload
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
   publish swift [--scope <s>] [--url <u>] [--dry-run] Test, archive, scan, and publish RightKitSwift to a Swift registry
   model promote --authority heardright --config <file> [--dry-run]
@@ -135,6 +140,6 @@ Commands:
   mirror-root-artifact --file <path> --package-root <dir>
                                                       Persist a worktree artifact in the primary repo root
 
-Direct flags are treated as: right-release release <flags>.
-Publishing requires an explicit tier. Unsigned/local smoke builds stay app-local unless declared in right-release.config.mjs.`);
+Direct flags are treated as: right-release build <flags>.
+Build is tier-neutral. Upload requires an explicit tier. Unsigned/local smoke builds stay app-local.`);
 }

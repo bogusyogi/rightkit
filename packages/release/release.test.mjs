@@ -128,10 +128,11 @@ function runRaw(config, ...args) {
   });
 }
 
-test("rejects a release without an explicit entitlement tier", () => {
+test("accepts a tier-neutral internal build", () => {
   const result = run(fixture());
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /--tier is required.*patch\|update/i);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /tier=neutral/);
+  assert.doesNotMatch(result.stdout, /RIGHT_RELEASE_TIER=/);
 });
 
 test("accepts patch and exposes it to the signed package command", () => {
@@ -233,35 +234,31 @@ test("doctor rejects a RightKit override at an ancestor repository root", () => 
   assert.match(result.stderr, /forbidden RightKit Cargo override/i);
 });
 
-test("publish runs the signed package step before the updater publication step", () => {
+test("combined build and upload is rejected before the package step", () => {
   const result = run(fixture({ publish: true }), "--tier=update", "--upload");
-  assert.equal(result.status, 0, result.stderr);
-  const packageAt = result.stdout.indexOf("node -e process.exit(0)");
-  const publishAt = result.stdout.indexOf("node publish-update.mjs");
-  assert.ok(packageAt >= 0, result.stdout);
-  assert.ok(publishAt > packageAt, result.stdout);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /combined build\+upload was removed/i);
+  assert.doesNotMatch(result.stdout, /node -e process\.exit\(0\)/);
 });
 
-test("Windows patch signs the installer then minisigns the free updater payload", () => {
-  const result = run(fixture({ publish: true }), "--tier=patch", "--upload");
+test("Windows tier-neutral build signs the installer then minisigns the updater payload", () => {
+  const result = run(fixture({ publish: true }));
   assert.equal(result.status, 0, result.stderr);
   const azureAt = result.stdout.indexOf("sign-windows.mjs");
   const updaterAt = result.stdout.indexOf("sign-updater.mjs");
-  const publishAt = result.stdout.indexOf("publish-update.mjs");
   assert.ok(azureAt >= 0, result.stdout);
   assert.ok(updaterAt > azureAt, result.stdout);
-  assert.ok(publishAt > updaterAt, result.stdout);
+  assert.doesNotMatch(result.stdout, /publish-update\.mjs/);
 });
 
-test("Windows update re-signs the updater artifact after Azure code signing", () => {
-  const result = run(fixture({ publish: true }), "--tier=update", "--upload");
+test("legacy internal tier does not make the build worker upload", () => {
+  const result = run(fixture({ publish: true }), "--tier=update");
   assert.equal(result.status, 0, result.stderr);
   const azureAt = result.stdout.indexOf("sign-windows.mjs");
   const updaterAt = result.stdout.indexOf("sign-updater.mjs");
-  const publishAt = result.stdout.indexOf("publish-update.mjs");
   assert.ok(azureAt >= 0, result.stdout);
   assert.ok(updaterAt > azureAt, result.stdout);
-  assert.ok(publishAt > updaterAt, result.stdout);
+  assert.doesNotMatch(result.stdout, /publish-update\.mjs/);
 });
 
 test("release sweeps stale rust artifacts when a target dir exists", () => {

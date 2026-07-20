@@ -59,7 +59,7 @@ for (let i = 0; i < args.length; i++) {
   else usage(2, `unknown argument: ${arg}`);
 }
 
-if (!opts.doctor && !opts.tier) usage(2, "--tier is required (patch|update)");
+if (opts.upload) fail("combined build+upload was removed; run right-release build, then right-release upload --release <id> --tier patch|update");
 if (opts.tier && !TIERS.has(opts.tier)) usage(2, `invalid --tier: ${opts.tier} (expected patch|update)`);
 
 const configPath = path.resolve(opts.config);
@@ -103,7 +103,7 @@ if (opts.doctor) {
 }
 
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
-const mode = opts.upload ? "publish" : "package";
+const mode = "package";
 const command = target.package;
 if (!command) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
 if (opts.upload && !target.publish && !target.upload) {
@@ -111,7 +111,7 @@ if (opts.upload && !target.publish && !target.upload) {
 }
 
 const started = Date.now();
-console.log(`right-release ${VERSION}: ${config.app ?? path.basename(root)} ${opts.platform} ${mode} tier=${opts.tier}`);
+console.log(`right-release ${VERSION}: ${config.app ?? path.basename(root)} ${opts.platform} ${mode} tier=${opts.tier ?? "neutral"}`);
 
 if (opts.install) await runInstall(config.packageManager, workdir);
 if (!opts.skipChecks) {

@@ -1,10 +1,6 @@
 {
   "name": "@rightkit/release",
-<<<<<<< Updated upstream
-  "version": "0.2.31",
-=======
-  "version": "0.2.29",
->>>>>>> Stashed changes
+  "version": "0.2.32",
   "description": "Portable Right Suite release CLI/SDK: signed installers, updater artifacts, patch/update routing, hardening, R2 publish, and RightApps registration.",
   "type": "module",
   "bin": {

@@ -107,11 +107,8 @@ test("rejects a Windows installer license page: the in-app gate is the only asse
 });
 
 test("rejects a macOS DMG SLA too — one licenseFile drives both bundlers", () => {
-<<<<<<< Updated upstream
-=======
   // branded-dmg.mjs derives its --eula from bundle.licenseFile, so a Windows-only
   // check would let a mac release quietly reintroduce the mount-time SLA.
->>>>>>> Stashed changes
   const { root, legal } = fixture();
   writeFileSync(path.join(root, "src-tauri", "tauri.conf.json"), JSON.stringify({ bundle: { licenseFile: "../legal/EULA.md" } }));
   assert.throws(() => assertLegalReleaseContract(root, legal, "fixture", "mac"), /licenseFile must be absent/i);

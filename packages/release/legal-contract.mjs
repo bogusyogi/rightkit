@@ -135,10 +135,6 @@ export function assertLegalReleaseContract(root, legal, appName, platform) {
     appendices.push({ ...appendix, absolutePath: realFile });
   }
 
-<<<<<<< Updated upstream
-  // The in-app gate is the single assent surface. An installer or DMG can only
-  // present text; it cannot record who agreed or the individual/enterprise basis.
-=======
   // The in-app gate is the SINGLE assent surface (Adrian, 2026-07-17). An
   // installer/DMG can only PRESENT the text: it cannot record who agreed, cannot ask
   // the individual-vs-enterprise basis, and passive updaters reach neither — so a
@@ -148,7 +144,6 @@ export function assertLegalReleaseContract(root, legal, appName, platform) {
   // Checked on EVERY platform, not just Windows: one bundle.licenseFile drives BOTH
   // the NSIS license page and the macOS DMG SLA (branded-dmg.mjs derives its --eula
   // from it), so a win-only check would let a mac build reintroduce the SLA.
->>>>>>> Stashed changes
   if (typeof legal.tauriConfig !== "string") fail(appName, "the legal gate requires legal.tauriConfig");
   const tauriPath = path.resolve(appRoot, legal.tauriConfig);
   if (!within(appRoot, tauriPath) || !existsSync(tauriPath)) fail(appName, `missing Tauri config: ${legal.tauriConfig}`);
