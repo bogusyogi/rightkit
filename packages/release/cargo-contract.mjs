@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const SKIP_DIRECTORIES = new Set([".audit", ".cache", ".git", ".claude", ".worktrees", "node_modules", "target", "vendor"]);
+const SKIP_DIRECTORIES = new Set([".audit", ".cache", ".git", ".claude", ".right-release", ".worktrees", "node_modules", "target", "vendor"]);
 const CRATES_IO_SOURCES = new Set([
   "registry+https://github.com/rust-lang/crates.io-index",
   "registry+https://index.crates.io/",

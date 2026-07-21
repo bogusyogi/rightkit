@@ -35,13 +35,13 @@ export function resolveSharedCacheRoot({ platform = process.platform, env = proc
     if (!isAbsoluteForPlatform(override, platform)) throw new Error("RIGHT_RELEASE_CACHE_ROOT must be an absolute path");
     return resolveForPlatform(override, platform);
   }
-  if (platform === "darwin" || platform === "mac") return path.join(home, "Library", "Caches", "RightSuite", "release");
+  if (platform === "darwin" || platform === "mac") return path.posix.join(home, "Library", "Caches", "RightSuite", "release");
   if (platform === "win32" || platform === "win") {
     const local = env.LOCALAPPDATA;
     if (!local || !isAbsoluteForPlatform(local, platform)) throw new Error("LOCALAPPDATA must be an absolute path for the RightSuite cache");
     return path.win32.resolve(local, "RightSuite", "Cache", "release");
   }
-  return path.resolve(xdgCacheHome || env.XDG_CACHE_HOME || path.join(home, ".cache"), "rightsuite", "release");
+  return path.posix.resolve(xdgCacheHome || env.XDG_CACHE_HOME || path.posix.join(home, ".cache"), "rightsuite", "release");
 }
 
 export function resolveCacheLayout({ cacheRoot, platform, architecture, app, fingerprint, kind = "release" } = {}) {
@@ -417,7 +417,8 @@ function mkdirSafeDescendant(root, dir) {
     else mkdirSync(current);
   }
 }
-function isAbsoluteForPlatform(value, platform) { return platform === "win" || platform === "win32" ? path.win32.isAbsolute(value) : path.isAbsolute(value); }
-function resolveForPlatform(value, platform) { return platform === "win" || platform === "win32" ? path.win32.resolve(value) : path.resolve(value); }
+function isWindowsAbsolute(value) { return /^[A-Za-z]:[\\/]/.test(value) || /^\\\\/.test(value); }
+function isAbsoluteForPlatform(value) { return isWindowsAbsolute(value) || path.posix.isAbsolute(value); }
+function resolveForPlatform(value) { return isWindowsAbsolute(value) ? path.win32.resolve(value) : path.posix.resolve(value); }
 function readRustcVerbose() { const result = spawnSync("rustc", ["-vV"], { encoding: "utf8", windowsHide: true }); if (result.status !== 0) throw new Error(`rustc -vV failed: ${(result.stderr || result.error?.message || `exit ${result.status}`).trim()}`); return result.stdout.trim(); }
 function cargoNativeFeatures(cargoTomlPath) { if (!cargoTomlPath || !existsSync(cargoTomlPath)) return []; return [...readFileSync(cargoTomlPath, "utf8").matchAll(/features\s*=\s*\[([^\]]+)\]/g)].flatMap((match) => match[1].match(/"([^"]+)"/g) ?? []).map((value) => value.slice(1, -1)).filter((value) => /sqlcipher|openssl/i.test(value)); }

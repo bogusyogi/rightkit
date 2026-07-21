@@ -190,6 +190,28 @@ test("Cargo override contract accepts exact registry pins without repo-local ove
   }), 0);
 });
 
+test("Cargo contract ignores release caches and build outputs", () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "rightkit-cargo-scan-"));
+  const appRoot = path.join(fixtureRoot, "app");
+  mkdirSync(path.join(appRoot, ".right-release", "cache", "cargo-home", "registry", "cached"), { recursive: true });
+  writeFileSync(
+    path.join(appRoot, "Cargo.toml"),
+    '[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[lib]\npath = "fixture.rs"\n',
+    "utf8",
+  );
+  writeFileSync(path.join(appRoot, "fixture.rs"), "", "utf8");
+  writeFileSync(
+    path.join(appRoot, ".right-release", "cache", "cargo-home", "registry", "cached", "Cargo.toml"),
+    "this is deliberately invalid cached TOML",
+    "utf8",
+  );
+  try {
+    assert.equal(validateRightKitCargoContract(appRoot, new Map(), "fixture"), 1);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("Cargo override contract rejects RightKit patches and replacements in repo-local Cargo config", () => {
   for (const config of [
     { localConfig: `[patch.crates-io]\nrightkit-license = { path = "../rightkit-license" }` },
@@ -410,7 +432,7 @@ test("every app platform requires effective non-empty build inputs", () => {
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.42");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.43");
   assert.equal(versions.npm["@rightkit/legal"], "0.2.0");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
@@ -422,11 +444,11 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/license": "0.1.6",
   });
   assert.deepEqual(versions.legacyNpm, {
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42"],
   });
   assert.ok(
-    new Set([versions.npm["@rightkit/release"], ...versions.legacyNpm["@rightkit/release"]]).has("0.2.41"),
-    "the previously published @rightkit/release 0.2.41 must remain accepted during the 0.2.42 rollout",
+    new Set([versions.npm["@rightkit/release"], ...versions.legacyNpm["@rightkit/release"]]).has("0.2.42"),
+    "the previously published @rightkit/release 0.2.42 must remain accepted during the 0.2.43 rollout",
   );
   const licensePackage = JSON.parse(readFileSync(
     path.join(workspace, "tools/rightkit/packages/license/package.json"),

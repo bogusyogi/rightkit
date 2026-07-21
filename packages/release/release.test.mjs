@@ -238,7 +238,7 @@ test("doctor rejects a selected target with missing or empty buildInputs.include
 test("doctor passes a clean selected target", () => {
   const result = runDoctor(fixture());
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /right-release 0\.2\.42/);
+  assert.match(result.stdout, /right-release 0\.2\.43/);
 });
 
 test("doctor permits unrelated dirt", () => {

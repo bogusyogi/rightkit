@@ -60,8 +60,8 @@ test("shared release environment is isolated from the app vault", () => {
     cacheKey: "abcdef0123456789",
     mode: "shared",
   });
-  assert.match(env.CARGO_TARGET_DIR, /RightSuite\/release\/targets\/mac\/fixture\/abcdef0123456789$/);
-  assert.match(env.CARGO_HOME, /RightSuite\/release\/cargo-home$/);
+  assert.match(env.CARGO_TARGET_DIR, /RightSuite[\\/]release[\\/]targets[\\/]mac[\\/]fixture[\\/]abcdef0123456789$/);
+  assert.match(env.CARGO_HOME, /RightSuite[\\/]release[\\/]cargo-home$/);
   assert.equal(env.RIGHT_RELEASE_CACHE_OWNER, "rightkit-v2");
 });
 

@@ -32,8 +32,29 @@ function run(command, args, cwd) {
 function runPnpm(args, cwd, command) {
   if (process.platform !== "win32" || command !== "pnpm") return run(command, args, cwd);
   for (const entry of String(process.env.PATH ?? "").split(path.delimiter)) {
-    const cli = path.join(entry.replace(/^"|"$/g, ""), "node_modules", "pnpm", "bin", "pnpm.mjs");
+    const bin = entry.replace(/^"|"$/g, "");
+    const cli = path.join(bin, "node_modules", "pnpm", "bin", "pnpm.mjs");
     if (existsSync(cli)) return run(process.execPath, [cli, ...args], cwd);
+    const shim = path.join(bin, "pnpm.cmd");
+    if (existsSync(shim)) {
+      if (!args.every((value) => /^[A-Za-z0-9._:@+=-]+$/.test(value))) throw new Error("unsafe pnpm argument");
+      const commandLine = `"${shim}" ${args.join(" ")}`;
+      const result = spawnSync(commandLine, {
+        cwd,
+        encoding: "utf8",
+        windowsHide: true,
+        maxBuffer: 16 * 1024 * 1024,
+        env: { ...process.env, CI: "1", GIT_TERMINAL_PROMPT: "0" },
+        shell: true,
+      });
+      return {
+        command: commandLine,
+        status: result.status,
+        stdout: String(result.stdout ?? "").trim().slice(-8000),
+        stderr: String(result.stderr ?? "").trim().slice(-8000),
+        error: result.error?.message,
+      };
+    }
   }
   throw new Error("pnpm installation could not be resolved from PATH");
 }

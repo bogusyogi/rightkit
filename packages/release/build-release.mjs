@@ -89,7 +89,7 @@ try {
   const cargoToml = requiredInputs.find((file) => /Cargo\.toml$/i.test(file));
   const cacheIdentity = resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });
   const cacheKey = cacheIdentity.fingerprint;
-  const cacheMode = process.env.RIGHT_RELEASE_CACHE_MODE ?? (platform === "mac" ? "shared" : "legacy");
+  const cacheMode = process.env.RIGHT_RELEASE_CACHE_MODE ?? (platform === "mac" || platform === "win" ? "shared" : "legacy");
   if (cacheMode !== "legacy" && cacheMode !== "shared") fail("RIGHT_RELEASE_CACHE_MODE must be legacy or shared");
   const sharedCacheRoot = cacheMode === "shared" ? resolveSharedCacheRoot({ platform, env: process.env }) : undefined;
   const sharedLayout = cacheMode === "shared"
