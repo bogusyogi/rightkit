@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, watch } from "node:fs";
 import path from "node:path";
 
 export function cacheFingerprint({ cargoLockSha256, rustc, target, features = [] }) {
@@ -42,6 +42,21 @@ export function commandOutputPortable(cmd, args, { cwd, env = process.env } = {}
     throw new Error(`${cmd} ${args.join(" ")} failed: ${detail}`);
   }
   return result.stdout.trim();
+}
+
+export function watchProgress(paths, onProgress) {
+  const watchers = [];
+  for (const candidate of paths) {
+    if (!candidate || !existsSync(candidate)) continue;
+    try {
+      watchers.push(watch(candidate, { recursive: true }, onProgress));
+    } catch {
+      try { watchers.push(watch(candidate, onProgress)); } catch { /* output still counts as progress */ }
+    }
+  }
+  return () => {
+    for (const watcher of watchers) watcher.close();
+  };
 }
 
 export function releaseEnvironment({ root, platform, cacheKey, kind = "release" }) {

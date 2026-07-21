@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/release",
-  "version": "0.2.34",
+  "version": "0.2.35",
   "description": "Portable Right Suite release CLI/SDK: signed installers, updater artifacts, patch/update routing, hardening, R2 publish, and RightApps registration.",
   "type": "module",
   "bin": {

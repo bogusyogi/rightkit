@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,12 +9,31 @@ import test from "node:test";
 import {
   cacheFingerprint,
   commandOutputPortable,
+  watchProgress,
   resolveReleaseLayout,
   releaseEnvironment,
   runBuildStateMachine,
   runUploadStateMachine,
   verifySealedRelease,
 } from "./release-state.mjs";
+
+test("progress watcher observes writes in nested Cargo target directories", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-watch-"));
+  const nested = path.join(root, "release", "build", "openssl");
+  mkdirSync(nested, { recursive: true });
+  let resolveProgress;
+  const progress = new Promise((resolve) => { resolveProgress = resolve; });
+  const close = watchProgress([root], resolveProgress);
+  try {
+    await writeFile(path.join(nested, "object.lib"), "progress");
+    await Promise.race([
+      progress,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("nested progress event missing")), 2_000)),
+    ]);
+  } finally {
+    close();
+  }
+});
 
 test("portable command capture resolves Windows command shims", { skip: process.platform !== "win32" }, () => {
   assert.match(commandOutputPortable("pnpm", ["--version"]), /^11\.12\.0$/);

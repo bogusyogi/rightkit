@@ -20,7 +20,7 @@ import {
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { cacheFingerprint, commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine } from "./release-state.mjs";
+import { cacheFingerprint, commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, watchProgress } from "./release-state.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
@@ -145,7 +145,13 @@ try {
         await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget);
       },
       build: async () => {
-        await runProgress(process.execPath, [WORKER, "--config", worktreeConfigPath, "--platform", platform, "--no-upload"], appRoot, env, env.CARGO_TARGET_DIR);
+        await runProgress(
+          process.execPath,
+          [WORKER, "--config", worktreeConfigPath, "--platform", platform, "--no-upload"],
+          appRoot,
+          env,
+          [env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
+        );
         checkpoint(stateRoot, "build_complete");
         checkpoint(stateRoot, "signed");
         checkpoint(stateRoot, "hardened");
@@ -269,22 +275,25 @@ async function runProgress(cmd, runArgs, cwd, env, watchDir) {
   const inactivityMs = Number(process.env.RIGHT_RELEASE_STALL_MS ?? 10 * 60 * 1000);
   const absoluteMs = Number(process.env.RIGHT_RELEASE_ABSOLUTE_MS ?? 90 * 60 * 1000);
   let lastProgress = Date.now();
-  let lastMtime = newestMtime(watchDir);
+  const watchDirs = Array.isArray(watchDir) ? watchDir : [watchDir];
+  let lastMtime = Math.max(...watchDirs.map(newestMtime));
   const started = Date.now();
   await new Promise((resolve, reject) => {
     child = spawn(cmd, runArgs, { cwd, env, stdio: ["inherit", "pipe", "pipe"], windowsHide: true, shell: process.platform === "win32" });
+    const closeWatchers = watchProgress(watchDirs, () => { lastProgress = Date.now(); });
     for (const [stream, output] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
       stream.on("data", (chunk) => { lastProgress = Date.now(); output.write(chunk); });
     }
     const monitor = setInterval(() => {
-      const mtime = newestMtime(watchDir);
+      const mtime = Math.max(...watchDirs.map(newestMtime));
       if (mtime > lastMtime) { lastMtime = mtime; lastProgress = Date.now(); }
       if (Date.now() - started > absoluteMs) stop(`absolute limit exceeded (${Math.round(absoluteMs / 60000)}m)`);
       else if (Date.now() - lastProgress > inactivityMs) stop(`no output or file progress for ${Math.round(inactivityMs / 60000)}m`);
     }, Math.min(30_000, Math.max(250, Math.floor(inactivityMs / 4))));
-    const stop = (reason) => { clearInterval(monitor); killTree(child.pid); reject(new Error(`release step stalled: ${reason}`)); };
-    child.once("error", (error) => { clearInterval(monitor); reject(error); });
-    child.once("exit", (code) => { clearInterval(monitor); child = null; code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`)); });
+    const cleanup = () => { clearInterval(monitor); closeWatchers(); };
+    const stop = (reason) => { cleanup(); killTree(child.pid); reject(new Error(`release step stalled: ${reason}`)); };
+    child.once("error", (error) => { cleanup(); reject(error); });
+    child.once("exit", (code) => { cleanup(); child = null; code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`)); });
   });
 }
 
