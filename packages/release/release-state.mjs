@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -21,6 +22,26 @@ export function resolveReleaseLayout({ repoRoot, configPath }) {
     vaultRoot: path.join(resolvedRepoRoot, ".right-release"),
     targetLink: path.join(appRoot, "src-tauri", "target"),
   };
+}
+
+export function commandOutputPortable(cmd, args, { cwd, env = process.env } = {}) {
+  const windows = process.platform === "win32";
+  if (windows && ![cmd, ...args].every((value) => /^[A-Za-z0-9._:/@+=-]+$/.test(value))) {
+    throw new Error("unsafe Windows command token");
+  }
+  const executable = windows ? (env.ComSpec || env.COMSPEC || "cmd.exe") : cmd;
+  const executableArgs = windows ? ["/d", "/s", "/c", [cmd, ...args].join(" ")] : args;
+  const result = spawnSync(executable, executableArgs, {
+    cwd,
+    env,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    const detail = result.error?.message || result.stderr?.trim() || `exit ${result.status}`;
+    throw new Error(`${cmd} ${args.join(" ")} failed: ${detail}`);
+  }
+  return result.stdout.trim();
 }
 
 export function releaseEnvironment({ root, platform, cacheKey, kind = "release" }) {

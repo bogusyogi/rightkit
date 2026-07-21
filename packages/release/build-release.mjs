@@ -20,7 +20,7 @@ import {
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { cacheFingerprint, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine } from "./release-state.mjs";
+import { cacheFingerprint, commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine } from "./release-state.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
@@ -342,9 +342,11 @@ function commandExists(name) {
 }
 
 function commandOutput(cmd, runArgs) {
-  const result = spawnSync(cmd, runArgs, { encoding: "utf8", windowsHide: true });
-  if (result.status !== 0) fail(`required command failed: ${cmd} ${runArgs.join(" ")}`);
-  return result.stdout.trim();
+  try {
+    return commandOutputPortable(cmd, runArgs);
+  } catch (error) {
+    fail(`required command failed: ${error.message}`);
+  }
 }
 
 function git(cwd, runArgs) {

@@ -7,12 +7,17 @@ import test from "node:test";
 
 import {
   cacheFingerprint,
+  commandOutputPortable,
   resolveReleaseLayout,
   releaseEnvironment,
   runBuildStateMachine,
   runUploadStateMachine,
   verifySealedRelease,
 } from "./release-state.mjs";
+
+test("portable command capture resolves Windows command shims", { skip: process.platform !== "win32" }, () => {
+  assert.match(commandOutputPortable("pnpm", ["--version"]), /^11\.12\.0$/);
+});
 
 test("nested app configs keep the vault at repo root and build from the app root", () => {
   const layout = resolveReleaseLayout({
