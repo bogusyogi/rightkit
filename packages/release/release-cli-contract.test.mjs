@@ -52,3 +52,9 @@ test("Windows upload trust verification uses signtool instead of PowerShell modu
   assert.match(signingSource, /verifyOnly/);
   assert.match(signingSource, /\["verify", "\/pa", "\/v", file\]/);
 });
+
+test("upload uses only the pinned pnpm runner", () => {
+  const source = readFileSync(upload, "utf8");
+  assert.match(source, /spawnSync\("pnpm", \["dlx", "wrangler@4"/);
+  assert.doesNotMatch(source, /\bnpx\b/);
+});

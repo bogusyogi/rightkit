@@ -46,10 +46,7 @@ test("refuses unknown bucket aliases", () => {
 test("resolves a real package runner for wrangler on this machine", () => {
   const result = run("public");
   assert.equal(result.status, 0, result.stderr);
-  // A node install carrying neither npm nor npx is normal where pnpm is the pinned package
-  // manager; the uploader must find a runner that actually exists rather than assume npx.
-  // Assuming npx once made every R2 upload a silent no-op while the publish reported success.
-  assert.match(result.stdout, /^runner: (npx|pnpm dlx)$/m);
+  assert.match(result.stdout, /^runner: pnpm dlx$/m);
 });
 
 test("fails loudly when no package runner exists instead of skipping the upload", () => {
@@ -70,17 +67,4 @@ test("fails loudly when no package runner exists instead of skipping the upload"
   );
   assert.notEqual(result.status, 0, "a box with no runner must not report a successful upload");
   assert.match(result.stderr, /no package runner found/);
-});
-
-test("honours an explicit runner override", () => {
-  const result = spawnSync(
-    process.execPath,
-    [uploader, fixtureFile(), "fixture/installers/windows/current/Artifact.exe", "public"],
-    {
-      encoding: "utf8",
-      env: { ...process.env, RIGHT_RELEASE_UPLOAD_DRY_RUN: "1", RIGHT_RELEASE_WRANGLER_RUNNER: "pnpm dlx" },
-    },
-  );
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /^runner: pnpm dlx$/m);
 });

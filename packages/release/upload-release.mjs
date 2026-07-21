@@ -182,7 +182,7 @@ function bucketName(bucket) {
 }
 
 function wrangler(runArgs) {
-  return spawnSync("npx", ["wrangler@4", ...runArgs], { cwd: repoRoot, env: process.env, encoding: "utf8", windowsHide: true, shell: process.platform === "win32" });
+  return spawnSync("pnpm", ["dlx", "wrangler@4", ...runArgs], { cwd: repoRoot, env: process.env, encoding: "utf8", windowsHide: true, shell: process.platform === "win32" });
 }
 
 function hashFile(file) {

@@ -8,12 +8,7 @@ const BUCKETS = new Map([
   ["public", "rightapps-downloads"],
   ["private", "rightapps-updates"],
 ]);
-// Wrangler always runs remotely through a package runner; which one exists is machine-specific
-// (a node install without npm/npx is normal when pnpm is the pinned package manager).
-const RUNNERS = [
-  { cmd: "npx", prefix: [] },
-  { cmd: "pnpm", prefix: ["dlx"] },
-];
+const RUNNER = { cmd: "pnpm", prefix: ["dlx"] };
 
 const [, , localFile, r2Key, bucketAlias = "public"] = process.argv;
 if (!localFile || !r2Key) {
@@ -48,8 +43,7 @@ const runner = resolveRunner(env);
 if (!runner) {
   console.error(
     "upload-large: no package runner found. Tried: " +
-      `${RUNNERS.map((entry) => [entry.cmd, ...entry.prefix].join(" ")).join(", ")}. ` +
-      "Install one, or set RIGHT_RELEASE_WRANGLER_RUNNER (e.g. \"pnpm dlx\").",
+      "pnpm dlx. Install the pinned workspace package manager before release.",
   );
   process.exit(1);
 }
@@ -73,21 +67,13 @@ if (result.error) {
 process.exit(result.status ?? 1);
 
 function resolveRunner(env) {
-  const override = process.env.RIGHT_RELEASE_WRANGLER_RUNNER?.trim();
-  if (override) {
-    const [cmd, ...prefix] = override.split(/\s+/);
-    return { cmd, prefix };
-  }
-  for (const candidate of RUNNERS) {
-    const probe = spawnSync(candidate.cmd, ["--version"], {
-      env,
-      stdio: "ignore",
-      shell: process.platform === "win32",
-      windowsHide: true,
-    });
-    if (!probe.error && probe.status === 0) return candidate;
-  }
-  return null;
+  const probe = spawnSync(RUNNER.cmd, ["--version"], {
+    env,
+    stdio: "ignore",
+    shell: process.platform === "win32",
+    windowsHide: true,
+  });
+  return !probe.error && probe.status === 0 ? RUNNER : null;
 }
 
 function cleanCloudflareEnv(source) {
