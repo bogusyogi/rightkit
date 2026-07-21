@@ -61,6 +61,7 @@ for (let i = 0; i < args.length; i++) {
 
 if (opts.upload) fail("combined build+upload was removed; run right-release build, then right-release upload --release <id> --tier patch|update");
 if (opts.tier && !TIERS.has(opts.tier)) usage(2, `invalid --tier: ${opts.tier} (expected patch|update)`);
+const sccacheVersion = assertSharedSccachePrerequisite();
 
 const configPath = path.resolve(opts.config);
 const config = (await import(pathToFileURL(configPath))).default;
@@ -92,6 +93,7 @@ if (opts.doctor) {
   console.log(`packageManager: ${config.packageManager}`);
   console.log(`workdir: ${workdir}`);
   console.log(`hardeningscan: ${HARDENING_SCAN}`);
+  if (sccacheVersion) console.log(`sccache: ${sccacheVersion}`);
   if (legalContract) {
     console.log(`legal: ${legalContract.manifestPath}`);
     console.log(`legalAcceptance: ${legalContract.acceptanceVersion}`);
@@ -156,7 +158,11 @@ if (opts.upload && !target.publish) {
   }
 }
 
-sweepStaleRustArtifacts();
+if (process.env.RIGHT_RELEASE_CACHE_MODE === "shared" && process.env.RIGHT_RELEASE_CACHE_OWNER === "rightkit-v2") {
+  console.log("right-release: shared cache prune delegated to RightKit Cache V2");
+} else {
+  sweepStaleRustArtifacts();
+}
 
 console.log(`right-release: done (${Date.now() - started}ms)`);
 releaseLock.release();
@@ -170,6 +176,26 @@ function usage(code, message) {
 function fail(message) {
   console.error(`right-release: ${message}`);
   process.exit(1);
+}
+
+function assertSharedSccachePrerequisite() {
+  if (process.env.RIGHT_RELEASE_CACHE_MODE !== "shared") return null;
+  const result = spawnSync("sccache", ["--version"], { encoding: "utf8", windowsHide: true });
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  const version = output.match(/\b(\d+)\.(\d+)\.(\d+)\b/);
+  const valid = result.status === 0 && version && isAtLeastVersion(version.slice(1).map(Number), [0, 15, 0]);
+  if (!valid) {
+    const found = version ? ` (found ${version[0]})` : "";
+    fail(`shared cache mode requires sccache >= 0.15.0${found}. Install with: cargo install sccache --locked; then verify: sccache --version`);
+  }
+  return version[0];
+}
+
+function isAtLeastVersion(actual, minimum) {
+  for (let index = 0; index < minimum.length; index += 1) {
+    if (actual[index] !== minimum[index]) return actual[index] > minimum[index];
+  }
+  return true;
 }
 
 async function mustExist(file, message) {

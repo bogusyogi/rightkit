@@ -42,6 +42,8 @@ if (first === "--version" || first === "-v") {
     ["--test", path.join(packageRoot, "right-suite-contract.test.mjs")],
     "[right-release] suite-doctor passed",
   );
+} else if (first === "cache") {
+  run("cache-command.mjs", args.slice(1));
 } else if (first === "publish") {
   const rest = args.slice(1);
   if (rest[0] === "cargo") {
@@ -133,6 +135,10 @@ Commands:
   doctor [--platform mac|win]                        Inspect one app's release config
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories
+  cache status [--json]                              Inspect the shared local build cache
+  cache prune [--dry-run|--apply] [--json]           Plan or apply safe shared-target pruning
+  cache migrate --config <file> [--dry-run|--apply] [--json]
+                                                      Move a same-volume legacy target without copying
   deps --check|--audit|--update                      Shared dependency lane
   hardening <artifact...>                            Run the Right Suite hardening scan
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates

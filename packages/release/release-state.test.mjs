@@ -49,6 +49,22 @@ test("nested app configs keep the vault at repo root and build from the app root
   assert.equal(layout.targetLink, path.resolve("D:/suite/heardright/tauri-app-next/src-tauri/target"));
 });
 
+test("shared release environment is isolated from the app vault", () => {
+  const env = releaseEnvironment({
+    root: "/suite/.right-release",
+    cacheRoot: "/Users/test/Library/Caches/RightSuite/release",
+    platform: "mac",
+    architecture: "aarch64",
+    app: "fixture",
+    appRoot: "/suite/fixture",
+    cacheKey: "abcdef0123456789",
+    mode: "shared",
+  });
+  assert.match(env.CARGO_TARGET_DIR, /RightSuite\/release\/targets\/mac\/fixture\/abcdef0123456789$/);
+  assert.match(env.CARGO_HOME, /RightSuite\/release\/cargo-home$/);
+  assert.equal(env.RIGHT_RELEASE_CACHE_OWNER, "rightkit-v2");
+});
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }

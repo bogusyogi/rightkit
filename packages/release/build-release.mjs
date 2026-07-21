@@ -21,7 +21,8 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs } from "./release-invocation.mjs";
-import { cacheFingerprint, commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, watchProgress } from "./release-state.mjs";
+import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
+import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
@@ -50,16 +51,20 @@ const vaultRoot = resolveReleaseLayout({ repoRoot, configPath: path.resolve(conf
 mkdirSync(path.join(vaultRoot, "locks"), { recursive: true });
 const lock = acquireLock(path.join(vaultRoot, "locks", `${platform}.lock.json`));
 let child = null;
+let suiteSlot;
+let cacheLease;
+let interrupted;
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.once(signal, () => {
     if (child?.pid) killTree(child.pid);
-    lock.release();
-    process.exit(signal === "SIGINT" ? 130 : 143);
+    interrupted = new Error(`release interrupted by ${signal}`);
+    process.exitCode = signal === "SIGINT" ? 130 : 143;
   });
 }
 
 try {
+  throwIfInterrupted();
   if (!dryRun) git(repoRoot, ["fetch", "origin", "main"]);
   const commit = git(repoRoot, ["rev-parse", dryRun ? "HEAD" : "origin/main"]);
   const shortCommit = commit.slice(0, 8);
@@ -83,27 +88,35 @@ try {
   const target = config.targets?.[platform];
   if (!target?.package) fail(`${config.app} has no ${platform} package command`);
   const dirtyInputs = dirtyBuildInputs(repoRoot, repoBuildInputs(repoRoot, invocationRoot, relativeConfig, target.buildInputs ?? config.buildInputs), commit);
-  if (dirtyInputs.length > 0) {
-    fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
-  }
+  if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
   const requiredInputs = inputPaths(appRoot, worktreeConfigPath, target);
   const toolVersions = collectToolVersions(config.packageManager ?? "pnpm");
   const inputHashes = hashInputs(requiredInputs);
   const cargoLock = requiredInputs.find((file) => /Cargo\.lock$/i.test(file));
   const cargoToml = requiredInputs.find((file) => /Cargo\.toml$/i.test(file));
-  const cacheKey = cacheFingerprint({
-    cargoLockSha256: cargoLock ? inputHashes[path.relative(worktree, cargoLock)] : "none",
-    rustc: toolVersions.rustc,
-    target: toolVersions.rustHost,
-    features: cargoToml ? sqlCipherFeatures(readFileSync(cargoToml, "utf8")) : [],
-  });
+  const cacheIdentity = resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });
+  const cacheKey = cacheIdentity.fingerprint;
+  const cacheMode = process.env.RIGHT_RELEASE_CACHE_MODE ?? (platform === "mac" ? "shared" : "legacy");
+  if (cacheMode !== "legacy" && cacheMode !== "shared") fail("RIGHT_RELEASE_CACHE_MODE must be legacy or shared");
+  const sharedCacheRoot = cacheMode === "shared" ? resolveSharedCacheRoot({ platform, env: process.env }) : undefined;
+  const sharedLayout = cacheMode === "shared"
+    ? resolveCacheLayout({ cacheRoot: sharedCacheRoot, platform, architecture: cacheIdentity.architecture, app: config.app, fingerprint: cacheKey, kind: "release" })
+    : undefined;
+  if (cacheMode === "shared") assertSccacheVersion(toolVersions.sccache);
   const env = {
     ...process.env,
-    ...releaseEnvironment({ root: vaultRoot, platform, cacheKey, kind: "release" }),
+    ...releaseEnvironment({ root: vaultRoot, cacheRoot: sharedCacheRoot, platform, architecture: cacheIdentity.architecture, app: config.app, cacheKey, kind: "release", appRoot, mode: cacheMode }),
     RIGHT_RELEASE_REPO_ROOT: layout.repoRoot,
     RIGHT_RELEASE_APP_ROOT: layout.appRoot,
   };
-  if (!commandExists("sccache")) delete env.RUSTC_WRAPPER;
+  if (cacheMode === "legacy") delete env.RIGHT_RELEASE_CACHE_OWNER;
+  if (cacheMode === "shared" && env.RIGHT_RELEASE_CACHE_OWNER !== "rightkit-v2") fail("shared cache ownership token was not configured");
+  if (cacheMode === "legacy" && !commandExists("sccache")) delete env.RUSTC_WRAPPER;
+  if (cacheMode === "shared") {
+    suiteSlot = acquireSuiteBuildSlot({ layout: sharedLayout, pid: process.pid, argv: process.argv, waitMs: Number(process.env.BUILD_GUARD_WAIT_SECS ?? 900) * 1000 });
+    cacheLease = acquireCacheLease({ layout: sharedLayout, pid: process.pid, argv: process.argv });
+  }
+  throwIfInterrupted();
   const releaseId = `${config.app}-${config.version}-${shortCommit}`;
   const platformDir = platform === "win" ? "windows" : "mac";
   const buildRoot = path.join(vaultRoot, "build", config.app, config.version, shortCommit, platformDir);
@@ -130,7 +143,15 @@ try {
     requiredInputs,
     ops: {
       preflight: async () => {
-        assertDiskSpace(repoRoot, target.preflight?.minFreeGb ?? 20);
+        throwIfInterrupted();
+        if (cacheMode === "shared") {
+          const policy = readCachePolicy(process.env);
+          const snapshot = inspectCache({ cacheRoot: sharedCacheRoot });
+          const plan = planCachePrune({ snapshot, policy, protectedEntryIds: new Set([sharedLayout.id]) });
+          applyCachePrune({ plan, cacheRoot: sharedCacheRoot, dryRun: false });
+          const volumes = inspectWriteVolumes({ repoRoot, vaultRoot, cacheRoot: sharedCacheRoot });
+          assertWriteVolumeFloors({ volumes, policy, configuredRepoMinimumBytes: Math.max(Number(target.preflight?.minFreeGb ?? 25), 25) * 1024 ** 3 });
+        } else assertDiskSpace(repoRoot, target.preflight?.minFreeGb ?? 20);
         assertExecutables(["git", config.packageManager ?? "pnpm", "cargo", "rustc", ...(target.preflight?.executables ?? [])]);
         for (const name of target.preflight?.env ?? []) if (!process.env[name]) fail(`missing required environment variable: ${name}`);
         for (const command of target.preflight?.commands ?? []) runChecked(command.cmd, command.args ?? [], path.resolve(appRoot, command.cwd ?? "."), env);
@@ -141,6 +162,7 @@ try {
         checkpoint(stateRoot, "preflight_complete");
       },
       prepare: async () => {
+        throwIfInterrupted();
         const cacheTarget = env.CARGO_TARGET_DIR;
         const targetLink = path.join(appRoot, "src-tauri", "target");
         mkdirSync(cacheTarget, { recursive: true });
@@ -151,6 +173,7 @@ try {
         await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget);
       },
       build: async () => {
+        throwIfInterrupted();
         await runProgress(
           process.execPath,
           [WORKER, "--config", worktreeConfigPath, "--platform", platform, "--no-upload"],
@@ -164,13 +187,22 @@ try {
       },
       seal: async ({ sealedDir }) => {
         sealRelease({ configRoot: path.dirname(worktreeConfigPath), sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey });
+        verifySealedRelease(sealedDir);
+        if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
       },
     },
   });
+  if (cacheMode === "shared") {
+    const snapshot = inspectCache({ cacheRoot: sharedCacheRoot });
+    const plan = planCachePrune({ snapshot, policy: readCachePolicy(process.env), protectedEntryIds: new Set([sharedLayout.id]) });
+    applyCachePrune({ plan, cacheRoot: sharedCacheRoot, dryRun: false });
+  }
   console.log(`right-release build: ${result.resumed ? "resumed" : "sealed"} ${result.releaseId}`);
   console.log(`sealed: ${result.sealedDir}`);
 } finally {
+  cacheLease?.release();
+  suiteSlot?.release();
   lock.release();
 }
 
@@ -374,6 +406,11 @@ function commandExists(name) {
   return probe.status === 0;
 }
 
+function assertSccacheVersion(version) {
+  const match = String(version ?? "").match(/sccache\s+(\d+)\.(\d+)\.(\d+)/i);
+  if (!match || Number(match[1]) === 0 && Number(match[2]) < 15) fail("shared cache requires sccache >= 0.15.0; install with: cargo install sccache --locked; then verify: sccache --version");
+}
+
 function commandOutput(cmd, runArgs) {
   try {
     return commandOutputPortable(cmd, runArgs);
@@ -419,5 +456,7 @@ function usage(code) {
 
 function fail(message) {
   console.error(`right-release build: ${message}`);
-  process.exit(1);
+  throw new Error(message);
 }
+
+function throwIfInterrupted() { if (interrupted) throw interrupted; }

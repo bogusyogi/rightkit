@@ -8,6 +8,13 @@ const CRATES_IO_SOURCES = new Set([
   "registry+https://github.com/rust-lang/crates.io-index",
   "registry+https://index.crates.io/",
 ]);
+const CACHE_V2_ENVIRONMENT = ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "RIGHT_RELEASE_CACHE_OWNER"];
+
+export function isolatedCargoMetadataEnv(cargoHome, env = process.env) {
+  const metadataEnv = { ...env };
+  for (const name of CACHE_V2_ENVIRONMENT) delete metadataEnv[name];
+  return { ...metadataEnv, CARGO_HOME: cargoHome };
+}
 
 export function validateRightKitCargoContract(root, publishedVersions, label = path.basename(root)) {
   const scanRoot = path.resolve(root);
@@ -70,7 +77,7 @@ function readCargoManifestDependencies(manifestPath, cargoHome, label) {
     {
       cwd: path.dirname(manifestPath),
       encoding: "utf8",
-      env: { ...process.env, CARGO_HOME: cargoHome },
+      env: isolatedCargoMetadataEnv(cargoHome),
       windowsHide: true,
     },
   );
