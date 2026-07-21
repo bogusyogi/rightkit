@@ -11,8 +11,12 @@ import {
   validateRightKitCargoContract,
 } from "./cargo-contract.mjs";
 import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
+import { resolveConfiguredBuildInputs } from "./release-invocation.mjs";
 
-const workspace = path.resolve(new URL("../../../..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1"));
+const workspace = path.resolve(
+  process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
+    ?? new URL("../../../..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1"),
+);
 // The Right Suite web layer's repo + filesystem path is `rightsites` post the 2026-07-15 naming lock;
 // a not-yet-renamed checkout may still have `rightapps`. Resolve whichever exists so the contract
 // passes on both. (The runtime service namespace stays `rightapps` — that is deliberately untouched.)
@@ -57,6 +61,10 @@ function assertMacPackageEntry(packageCommand, scripts, label) {
   assert.equal(typeof implementation, "string", `${label} must define rightkit:package:mac`);
   assert.doesNotMatch(implementation, /\bright-release\b/, `${label} rightkit:package:mac must package directly instead of recursing into the release build`);
   assert.doesNotMatch(implementation, /\bpnpm(?:\s+run)?\s+rightkit:package:mac\b/, `${label} rightkit:package:mac must not recurse into itself`);
+}
+
+function assertBuildInputs(config, target, label) {
+  resolveConfiguredBuildInputs(config, target, label);
 }
 
 function resolveCargoVersionContract(versionManifest, canonicalVersions) {
@@ -389,10 +397,20 @@ test("mac release config uses a dedicated non-recursive package entry point", ()
   );
 });
 
+test("every app platform requires effective non-empty build inputs", () => {
+  assert.doesNotThrow(() => assertBuildInputs(
+    { buildInputs: { include: ["src/**"] } },
+    {},
+    "fixture mac",
+  ));
+  assert.throws(() => assertBuildInputs({}, {}, "fixture win"), /fixture win must declare non-empty buildInputs\.include paths/);
+  assert.throws(() => assertBuildInputs({}, { buildInputs: { include: [] } }, "fixture mac"), /fixture mac must declare non-empty buildInputs\.include paths/);
+});
+
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.41");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.42");
   assert.equal(versions.npm["@rightkit/legal"], "0.2.0");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
@@ -404,8 +422,12 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/license": "0.1.6",
   });
   assert.deepEqual(versions.legacyNpm, {
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41"],
   });
+  assert.ok(
+    new Set([versions.npm["@rightkit/release"], ...versions.legacyNpm["@rightkit/release"]]).has("0.2.41"),
+    "the previously published @rightkit/release 0.2.41 must remain accepted during the 0.2.42 rollout",
+  );
   const licensePackage = JSON.parse(readFileSync(
     path.join(workspace, "tools/rightkit/packages/license/package.json"),
     "utf8",
@@ -486,6 +508,7 @@ for (const app of apps) {
     assert.ok(config.version);
     for (const platform of ["mac", "win"]) {
       const target = config.targets[platform];
+      assertBuildInputs(config, target, `${app.key} ${platform}`);
       assert.equal(target.signed, true);
       assert.equal(target.upload, undefined, "generic uploads bypass tier manifest routing");
       assert.equal(target.publish.cmd, "right-release");

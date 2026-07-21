@@ -2,14 +2,20 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
+const cli = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
 const versions = JSON.parse(readFileSync(new URL("./rightkit-versions.json", import.meta.url), "utf8"));
+const defaultBuildInputs = { include: ["package.json", "pnpm-lock.yaml", "src-tauri/**"] };
 
-function fixture({ signed = true, publish = false, packageJson, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest } = {}) {
+function git(cwd, ...args) {
+  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function fixture({ signed = true, publish = false, packageJson, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -40,6 +46,7 @@ function fixture({ signed = true, publish = false, packageJson, cargoManifest, c
       checks: [],
       targets: {
         win: {
+          ...(buildInputs ? { buildInputs } : {}),
           signed,
           package: { cmd: "node", args: ["-e", "process.exit(0)"] },
           ...(publish ? { publish: { cmd: "node", args: ["publish-update.mjs"] } } : {}),
@@ -51,6 +58,12 @@ function fixture({ signed = true, publish = false, packageJson, cargoManifest, c
       },
     })};\n`,
   );
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+  const tauriDir = path.join(dir, "src-tauri");
+  mkdirSync(tauriDir, { recursive: true });
+  writeFileSync(path.join(tauriDir, "Cargo.toml"), `[package]\nname = "fixture-tauri"\nversion = "0.0.0"\nedition = "2021"\n[lib]\npath = "lib.rs"\n`, "utf8");
+  writeFileSync(path.join(tauriDir, "Cargo.lock"), "# fixture lock\n", "utf8");
+  writeFileSync(path.join(tauriDir, "lib.rs"), "pub fn fixture() {}\n", "utf8");
   if (cargoManifest) {
     writeFileSync(path.join(dir, "Cargo.toml"), `${cargoManifest}\n[lib]\npath = "fixture.rs"\n`, "utf8");
     writeFileSync(path.join(dir, "fixture.rs"), "", "utf8");
@@ -61,7 +74,6 @@ function fixture({ signed = true, publish = false, packageJson, cargoManifest, c
     writeFileSync(path.join(cargoDir, "config.toml"), cargoConfig, "utf8");
   }
   if (repoCargoConfig) {
-    mkdirSync(path.join(fixtureRoot, ".git"), { recursive: true });
     const cargoDir = path.join(fixtureRoot, ".cargo");
     mkdirSync(cargoDir, { recursive: true });
     writeFileSync(path.join(cargoDir, "config.toml"), repoCargoConfig, "utf8");
@@ -71,6 +83,11 @@ function fixture({ signed = true, publish = false, packageJson, cargoManifest, c
     mkdirSync(sibling, { recursive: true });
     writeFileSync(path.join(sibling, "Cargo.toml"), siblingCargoManifest, "utf8");
   }
+  git(fixtureRoot, "init", "--initial-branch", "main");
+  git(fixtureRoot, "config", "user.email", "release-test@example.com");
+  git(fixtureRoot, "config", "user.name", "Release Test");
+  git(fixtureRoot, "add", ".");
+  git(fixtureRoot, "commit", "-m", "initial");
   return config;
 }
 
@@ -124,6 +141,12 @@ function run(config, ...args) {
 
 function runRaw(config, ...args) {
   return spawnSync(process.execPath, [release, "--config", config, ...args], {
+    encoding: "utf8",
+  });
+}
+
+function runDoctor(config, ...args) {
+  return spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", "win", ...args], {
     encoding: "utf8",
   });
 }
@@ -202,6 +225,76 @@ test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", 
   const result = run(config, "--doctor");
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /right-release/);
+});
+
+test("doctor rejects a selected target with missing or empty buildInputs.include", () => {
+  for (const buildInputs of [null, { include: [] }]) {
+    const result = run(fixture({ buildInputs }), "--doctor");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /non-empty buildInputs\.include paths/i);
+  }
+});
+
+test("doctor passes a clean selected target", () => {
+  const result = runDoctor(fixture());
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /right-release 0\.2\.42/);
+});
+
+test("doctor permits unrelated dirt", () => {
+  const config = fixture();
+  const root = path.dirname(config);
+  mkdirSync(path.join(root, "notes"));
+  writeFileSync(path.join(root, "notes", "scratch.md"), "unrelated\n");
+  const result = run(config, "--doctor");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("doctor rejects tracked dirt inside declared buildInputs with the exact path", () => {
+  const config = fixture();
+  writeFileSync(path.join(path.dirname(config), "src-tauri", "lib.rs"), "pub fn changed() {}\n");
+  const result = run(config, "--doctor");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /dirty files can change the packaged app[\s\S]*- src-tauri\/lib\.rs/i);
+});
+
+test("doctor rejects untracked dirt inside declared buildInputs with the exact path", () => {
+  const config = fixture();
+  writeFileSync(path.join(path.dirname(config), "src-tauri", "new-runtime.rs"), "pub fn new_runtime() {}\n");
+  const result = run(config, "--doctor");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /dirty files can change the packaged app[\s\S]*- src-tauri\/new-runtime\.rs/i);
+});
+
+test("doctor rejects dirty required release metadata even when it is not declared", () => {
+  const config = fixture({ buildInputs: { include: ["src-tauri/lib.rs"] } });
+  writeFileSync(path.join(path.dirname(config), "pnpm-lock.yaml"), "lockfileVersion: '9.1'\n");
+  const result = run(config, "--doctor");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /dirty files can change the packaged app[\s\S]*- pnpm-lock\.yaml/i);
+});
+
+test("doctor rejects a dirty release config before importing it", () => {
+  const config = fixture();
+  writeFileSync(config, `${readFileSync(config, "utf8")}\n// dirty config\n`);
+  const result = run(config, "--doctor");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /dirty release config cannot be executed[\s\S]*- right-release\.config\.mjs/i);
+});
+
+test("doctor rejects linked and detached checkouts like build runtime", () => {
+  const primaryConfig = fixture();
+  const primary = path.dirname(primaryConfig);
+  const linked = `${primary}-linked`;
+  git(primary, "worktree", "add", "--detach", linked);
+  const linkedResult = run(path.join(linked, "right-release.config.mjs"), "--doctor");
+  assert.notEqual(linkedResult.status, 0);
+  assert.match(linkedResult.stderr, /must be invoked from the primary Git worktree/i);
+
+  git(primary, "checkout", "--detach");
+  const detachedResult = run(primaryConfig, "--doctor");
+  assert.notEqual(detachedResult.status, 0);
+  assert.match(detachedResult.stderr, /detached HEAD is forbidden/i);
 });
 
 test("doctor scopes Cargo inspection to the configured app inside a monorepo", () => {

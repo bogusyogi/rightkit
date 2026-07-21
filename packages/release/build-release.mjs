@@ -20,7 +20,7 @@ import {
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { assertPrimaryReleaseCheckout, dirtyBuildInputs } from "./release-invocation.mjs";
+import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
@@ -80,8 +80,8 @@ try {
   }
   const target = config.targets?.[platform];
   if (!target?.package) fail(`${config.app} has no ${platform} package command`);
-  const requiredInputs = inputPaths(appRoot, configPath, target);
-  const dirtyInputs = dirtyBuildInputs(repoRoot, repoBuildInputs(repoRoot, appRoot, target.buildInputs ?? config.buildInputs, requiredInputs), commit);
+  const { requiredInputs, buildInputs } = resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target });
+  const dirtyInputs = dirtyBuildInputs(repoRoot, buildInputs, commit);
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
   const toolVersions = collectToolVersions(config.packageManager ?? "pnpm");
   const inputHashes = hashInputs(requiredInputs);
@@ -201,37 +201,6 @@ try {
   cacheLease?.release();
   suiteSlot?.release();
   lock.release();
-}
-
-function inputPaths(appRoot, configPath, target) {
-  const candidates = [
-    configPath,
-    path.join(appRoot, "package.json"),
-    path.join(appRoot, "pnpm-lock.yaml"),
-    path.join(appRoot, "src-tauri", "Cargo.toml"),
-    path.join(appRoot, "src-tauri", "Cargo.lock"),
-    ...(target.preflight?.files ?? []).map((file) => path.resolve(appRoot, expandEnv(file))),
-  ];
-  const required = [...new Set(candidates)];
-  for (const file of required) if (!existsSync(file)) fail(`missing required release input: ${file}`);
-  return required;
-}
-
-function repoBuildInputs(repoRoot, appRoot, configured, requiredInputs) {
-  if (!Array.isArray(configured?.include) || configured.include.length === 0) {
-    fail("release config must declare non-empty buildInputs.include paths");
-  }
-  const appPrefix = path.relative(repoRoot, appRoot).replaceAll("\\", "/");
-  const qualify = (pattern) => path.posix.normalize([appPrefix, pattern.replaceAll("\\", "/").replace(/^\.\//, "")].filter(Boolean).join("/"));
-  const required = requiredInputs
-    .map((file) => path.relative(repoRoot, file).replaceAll("\\", "/"))
-    .filter((file) => file && file !== ".." && !file.startsWith("../") && !path.isAbsolute(file));
-  return {
-    include: configured.include.map(qualify),
-    exclude: (configured.exclude ?? []).map(qualify),
-    required,
-    json: Object.fromEntries(Object.entries(configured.json ?? {}).map(([file, fields]) => [qualify(file), fields])),
-  };
 }
 
 function hashInputs(files) {
@@ -434,10 +403,6 @@ function killTree(pid) {
   if (!pid) return;
   if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
   else { try { process.kill(-pid, "SIGTERM"); } catch { try { process.kill(pid, "SIGTERM"); } catch { /* gone */ } } }
-}
-
-function expandEnv(value) {
-  return String(value).replace(/%([^%]+)%/g, (_, name) => process.env[name] ?? "").replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] ?? "");
 }
 
 function writeJson(file, value) {

@@ -25,6 +25,48 @@ export function assertPrimaryReleaseCheckout(repoRoot) {
   if (branch.status !== 0) throw new Error("right-release requires a branch-attached primary Git checkout; detached HEAD is forbidden");
 }
 
+export function resolveConfiguredBuildInputs(config, target, label = "release config") {
+  const configured = target?.buildInputs ?? config?.buildInputs;
+  if (!Array.isArray(configured?.include) || configured.include.length === 0) {
+    throw new Error(`${label} must declare non-empty buildInputs.include paths`);
+  }
+  return configured;
+}
+
+export function resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target, env = process.env }) {
+  const requiredInputs = [
+    configPath,
+    path.join(appRoot, "package.json"),
+    path.join(appRoot, "pnpm-lock.yaml"),
+    path.join(appRoot, "src-tauri", "Cargo.toml"),
+    path.join(appRoot, "src-tauri", "Cargo.lock"),
+    ...(target?.preflight?.files ?? []).map((file) => path.resolve(appRoot, expandEnv(file, env))),
+  ].filter((file, index, files) => files.indexOf(file) === index);
+  for (const file of requiredInputs) {
+    if (!existsSync(file)) throw new Error(`missing required release input: ${file}`);
+  }
+
+  const configured = resolveConfiguredBuildInputs(config, target);
+  const appPrefix = path.relative(repoRoot, appRoot).replaceAll("\\", "/");
+  const qualify = (pattern) => path.posix.normalize([
+    appPrefix,
+    pattern.replaceAll("\\", "/").replace(/^\.\//, ""),
+  ].filter(Boolean).join("/"));
+  const required = requiredInputs
+    .map((file) => path.relative(repoRoot, file).replaceAll("\\", "/"))
+    .filter((file) => file && file !== ".." && !file.startsWith("../") && !path.isAbsolute(file));
+
+  return {
+    requiredInputs,
+    buildInputs: {
+      include: configured.include.map(qualify),
+      exclude: (configured.exclude ?? []).map(qualify),
+      required,
+      json: Object.fromEntries(Object.entries(configured.json ?? {}).map(([file, fields]) => [qualify(file), fields])),
+    },
+  };
+}
+
 function pathspec(pattern, exclude = false) {
   const normalized = pattern.replaceAll("\\", "/").replace(/^\.\//, "");
   return `:(top,${exclude ? "exclude," : ""}glob)${normalized}`;
@@ -88,4 +130,10 @@ function statusFiles(repoRoot, include, exclude = []) {
     if (/[RC]/.test(status)) index += 1;
   }
   return files;
+}
+
+function expandEnv(value, env) {
+  return String(value)
+    .replace(/%([^%]+)%/g, (_, name) => env[name] ?? "")
+    .replace(/\$\{([^}]+)\}/g, (_, name) => env[name] ?? "");
 }

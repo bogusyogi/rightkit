@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { access, readFile, readdir } from "node:fs/promises";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
+import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -63,7 +64,20 @@ if (opts.upload) fail("combined build+upload was removed; run right-release buil
 if (opts.tier && !TIERS.has(opts.tier)) usage(2, `invalid --tier: ${opts.tier} (expected patch|update)`);
 const sccacheVersion = assertSharedSccachePrerequisite();
 
-const configPath = path.resolve(opts.config);
+const requestedConfigPath = path.resolve(opts.config);
+const configPath = opts.doctor ? realpathSync(requestedConfigPath) : requestedConfigPath;
+let doctorInvocation;
+if (opts.doctor) {
+  const invocationRoot = path.dirname(configPath);
+  const repoRoot = git(invocationRoot, ["rev-parse", "--show-toplevel"]);
+  assertPrimaryReleaseCheckout(repoRoot);
+  const relativeConfig = path.relative(repoRoot, configPath).replaceAll("\\", "/");
+  if (relativeConfig.startsWith("../")) fail("release config must live inside the Git repository");
+  const commit = git(repoRoot, ["rev-parse", "HEAD"]);
+  const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
+  if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
+  doctorInvocation = { repoRoot, commit };
+}
 const config = (await import(pathToFileURL(configPath))).default;
 if (!config) usage(2, `config did not export default: ${configPath}`);
 if (config.schema !== 1) fail(`unsupported config schema: ${config.schema ?? "<missing>"} (expected 1)`);
@@ -85,6 +99,17 @@ if (opts.platform === "win" && !target.sign?.files?.length) {
 }
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 if (opts.doctor) {
+  const { buildInputs } = resolveReleaseBuildInputs({
+    repoRoot: doctorInvocation.repoRoot,
+    appRoot: root,
+    configPath,
+    config,
+    target,
+  });
+  const dirtyInputs = dirtyBuildInputs(doctorInvocation.repoRoot, buildInputs, doctorInvocation.commit);
+  if (dirtyInputs.length > 0) {
+    fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
+  }
   console.log(`right-release ${VERSION}`);
   console.log(`config: ${configPath}`);
   console.log(`app: ${config.app}`);
@@ -176,6 +201,12 @@ function usage(code, message) {
 function fail(message) {
   console.error(`right-release: ${message}`);
   process.exit(1);
+}
+
+function git(cwd, runArgs) {
+  const result = spawnSync("git", runArgs, { cwd, encoding: "utf8", windowsHide: true });
+  if (result.status !== 0) fail(`git ${runArgs.join(" ")} failed: ${(result.stderr ?? result.stdout ?? "").trim()}`);
+  return result.stdout.trim();
 }
 
 function assertSharedSccachePrerequisite() {
