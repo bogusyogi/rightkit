@@ -9,7 +9,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::path::{Path as FilePath, PathBuf};
 use std::pin::Pin;
@@ -176,6 +176,73 @@ struct WatchSeat {
     role: String,
     budget: crate::protocol::SeatBudget,
     usage: crate::protocol::SeatUsage,
+    activity: SeatActivity,
+}
+
+#[derive(Debug, Serialize)]
+struct SeatActivity {
+    state: String,
+    detail: String,
+    last_event_seq: Option<u64>,
+    ready_event_seq: Option<u64>,
+    stdout_log: Option<String>,
+    stderr_log: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PhaseProgress {
+    required: usize,
+    responded: usize,
+    outstanding_seat_ids: Vec<String>,
+    open_findings: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct RoomHealth {
+    status: String,
+    stage: Option<String>,
+    failures: Vec<WatchFailure>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct WatchFailure {
+    seat: String,
+    code: String,
+    detail: String,
+    #[serde(default)]
+    action: String,
+    #[serde(default)]
+    stdout_log: Option<String>,
+    #[serde(default)]
+    stderr_log: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SeatSessionsView {
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    seats: Vec<SeatSessionView>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeatSessionView {
+    seat_id: String,
+    status: String,
+    #[serde(default)]
+    ready_event_seq: Option<u64>,
+    #[serde(default)]
+    stdout_log: Option<String>,
+    #[serde(default)]
+    stderr_log: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct LaunchFailureView {
+    #[serde(default)]
+    stage: Option<String>,
+    #[serde(default)]
+    seat_failures: Vec<WatchFailure>,
 }
 
 #[derive(Debug, Serialize)]
@@ -190,6 +257,8 @@ struct WatchSnapshot {
     events: Vec<Event>,
     escalation_rate: f64,
     failed_by_majority_escalation: bool,
+    phase_progress: PhaseProgress,
+    health: RoomHealth,
 }
 
 #[derive(Debug, Deserialize)]
@@ -209,6 +278,8 @@ struct PairForm {
 struct SayRequest {
     request_id: String,
     body: String,
+    #[serde(default)]
+    target_seat_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -349,10 +420,10 @@ async fn admin_seal(
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let mut room = state.room.write().expect("room lock poisoned");
-    if !room
+    if room
         .seats
         .get(&seat_id)
-        .is_some_and(|seat| seat.role == "human")
+        .is_none_or(|seat| seat.role != "human")
     {
         return StatusCode::FORBIDDEN.into_response();
     }
@@ -380,10 +451,10 @@ async fn admin_advance(
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let mut room = state.room.write().expect("room lock poisoned");
-    if !room
+    if room
         .seats
         .get(&seat_id)
-        .is_some_and(|seat| seat.role == "human")
+        .is_none_or(|seat| seat.role != "human")
     {
         return StatusCode::FORBIDDEN.into_response();
     }
@@ -403,27 +474,181 @@ async fn admin_advance(
     }
 }
 
+fn private_json<T: for<'de> Deserialize<'de>>(state: &ServerState, name: &str) -> Option<T> {
+    let run_dir = state.run_dir.as_deref()?;
+    let bytes = std::fs::read(run_dir.join(name)).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn log_name(value: Option<&str>) -> Option<String> {
+    value
+        .and_then(|path| FilePath::new(path).file_name())
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+}
+
+fn phase_progress(room: &Room) -> PhaseProgress {
+    let required_ids = room
+        .seats
+        .values()
+        .filter(|seat| seat.role != "human")
+        .map(|seat| seat.seat_id.clone())
+        .collect::<Vec<_>>();
+    let responded_ids = room
+        .events
+        .iter()
+        .filter(|event| event.phase == room.phase)
+        .filter(|event| required_ids.contains(&event.seat_id))
+        .filter(|event| event.kind != crate::protocol::EventKind::System)
+        .filter(|event| !event.body.starts_with("agent-room-ready:"))
+        .map(|event| event.seat_id.clone())
+        .collect::<BTreeSet<_>>();
+    let outstanding_seat_ids = if room.sealed {
+        Vec::new()
+    } else {
+        required_ids
+            .iter()
+            .filter(|seat_id| !responded_ids.contains(*seat_id))
+            .cloned()
+            .collect()
+    };
+    PhaseProgress {
+        required: required_ids.len(),
+        responded: responded_ids.len(),
+        outstanding_seat_ids,
+        open_findings: room.open_finding_ids().len(),
+    }
+}
+
+fn room_health(state: &ServerState, room: &Room, sessions: &SeatSessionsView) -> RoomHealth {
+    if let Some(mut failure) = private_json::<LaunchFailureView>(state, "launch.failure.json") {
+        for item in &mut failure.seat_failures {
+            item.action = match item.code.as_str() {
+                "authentication_failed" => "Sign in to the seat CLI, then relaunch the Council.",
+                "permission_denied" | "interactive_permission_required" => {
+                    "Enable unattended MCP/tool permission for this seat, then relaunch the Council."
+                }
+                "readiness_timeout" | "seat_exited_before_ready" => {
+                    "Open the preserved seat logs, fix the startup failure, then relaunch the Council."
+                }
+                _ => "Open the preserved seat logs and relaunch the Council.",
+            }
+            .into();
+            item.stdout_log = log_name(item.stdout_log.as_deref());
+            item.stderr_log = log_name(item.stderr_log.as_deref());
+        }
+        return RoomHealth {
+            status: "fallback_required".into(),
+            stage: failure.stage,
+            failures: failure.seat_failures,
+        };
+    }
+    RoomHealth {
+        status: if sessions.status == "aborted" {
+            "fallback_required"
+        } else if room.sealed {
+            "sealed"
+        } else {
+            "active"
+        }
+        .into(),
+        stage: None,
+        failures: Vec::new(),
+    }
+}
+
+fn seat_activity(
+    room: &Room,
+    seat: &crate::protocol::SeatConfig,
+    usage: &crate::protocol::SeatUsage,
+    joined: bool,
+    session: Option<&SeatSessionView>,
+) -> SeatActivity {
+    let last_event_seq = room
+        .events
+        .iter()
+        .rev()
+        .find(|event| event.seat_id == seat.seat_id)
+        .map(|event| event.seq);
+    let pending_attention = room.events.iter().rev().find(|event| {
+        event.target_seat_id.as_deref() == Some(seat.seat_id.as_str())
+            && last_event_seq.is_none_or(|seq| event.seq > seq)
+    });
+    let responded_this_phase = room.events.iter().any(|event| {
+        event.phase == room.phase
+            && event.seat_id == seat.seat_id
+            && event.kind != crate::protocol::EventKind::System
+            && !event.body.starts_with("agent-room-ready:")
+    });
+    let (state, detail) = if seat.role == "human" {
+        ("observer", "Watching and able to interject".into())
+    } else if session.is_some_and(|record| record.status == "failed") {
+        ("failed", "Seat process failed".into())
+    } else if room.sealed {
+        ("complete", "Room sealed".into())
+    } else if usage.abstained {
+        ("at_budget", "Seat abstained at budget".into())
+    } else if let Some(event) = pending_attention {
+        ("attention", format!("Addressed in message #{}", event.seq))
+    } else if responded_this_phase {
+        ("responded", format!("Posted in {:?}", room.phase))
+    } else if usage.wakes > 0 {
+        ("reading", format!("Reading {:?} context", room.phase))
+    } else if joined || session.is_some_and(|record| record.status == "ready") {
+        ("ready", format!("Ready for {:?}", room.phase))
+    } else {
+        ("starting", "Waiting to join".into())
+    };
+    SeatActivity {
+        state: state.into(),
+        detail,
+        last_event_seq,
+        ready_event_seq: session.and_then(|record| record.ready_event_seq),
+        stdout_log: log_name(session.and_then(|record| record.stdout_log.as_deref())),
+        stderr_log: log_name(session.and_then(|record| record.stderr_log.as_deref())),
+    }
+}
+
 async fn watch_status(State(state): State<ServerState>, headers: HeaderMap) -> impl IntoResponse {
     if !state.browser_authorized(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let room = state.room.read().expect("room lock poisoned");
+    let sessions =
+        private_json::<SeatSessionsView>(&state, "seat-sessions.json").unwrap_or_default();
+    let joined = state.auth.read().expect("auth lock poisoned");
     let seats = room
         .seats
         .values()
-        .map(|seat| WatchSeat {
-            seat_id: seat.seat_id.clone(),
-            name: seat.name.clone(),
-            model: seat.model.clone(),
-            role: seat.role.clone(),
-            budget: seat.budget.clone(),
-            usage: room
+        .map(|seat| {
+            let usage = room
                 .seat_usage
                 .get(&seat.seat_id)
                 .cloned()
-                .unwrap_or_default(),
+                .unwrap_or_default();
+            let session = sessions
+                .seats
+                .iter()
+                .find(|record| record.seat_id == seat.seat_id);
+            WatchSeat {
+                seat_id: seat.seat_id.clone(),
+                name: seat.name.clone(),
+                model: seat.model.clone(),
+                role: seat.role.clone(),
+                budget: seat.budget.clone(),
+                activity: seat_activity(
+                    &room,
+                    seat,
+                    &usage,
+                    joined.has_joined(&seat.seat_id),
+                    session,
+                ),
+                usage,
+            }
         })
         .collect();
+    let phase_progress = phase_progress(&room);
+    let health = room_health(&state, &room, &sessions);
     Json(WatchSnapshot {
         room_id: room.room_id.clone(),
         mode: room.mode.clone(),
@@ -435,6 +660,8 @@ async fn watch_status(State(state): State<ServerState>, headers: HeaderMap) -> i
         events: room.events.clone(),
         escalation_rate: room.escalation_rate(),
         failed_by_majority_escalation: room.failed_by_majority_escalation(),
+        phase_progress,
+        health,
     })
     .into_response()
 }
@@ -808,12 +1035,13 @@ fn post_human_message(state: &ServerState, seat_id: &str, request: SayRequest) -
         return StatusCode::FORBIDDEN.into_response();
     }
     let prior_event_count = room.events.len();
-    match room.post(
+    match room.post_targeted(
         seat_id,
         &request.request_id,
         crate::protocol::EventKind::Info,
         &request.body,
         None,
+        request.target_seat_id.as_deref(),
     ) {
         Ok(event) => {
             if let Err(error) = state.persist_room(&room) {
@@ -960,12 +1188,12 @@ async fn dashboard(State(state): State<ServerState>, headers: HeaderMap) -> impl
 .phase-nav{width:100%;max-width:100vw;padding:0 20px;border-bottom:1px solid var(--line);background:var(--sidebar);overflow-x:auto}.phase-list{display:flex;justify-content:center;width:max-content;min-width:100%;margin:0;padding:0;list-style:none}.phase-step{position:relative;display:flex;align-items:center;gap:7px;min-height:42px;padding:0 14px;color:var(--text-3);font:600 10px ui-monospace,Consolas,monospace;letter-spacing:.04em;text-transform:uppercase}.phase-step::after{content:"";position:absolute;right:-2px;width:4px;height:4px;border-radius:50%;background:var(--line-2)}.phase-step:last-child::after{display:none}.phase-step[data-state="done"]{color:var(--text-2)}.phase-step[data-state="current"]{color:var(--text)}.phase-step[data-state="current"]::before{content:"";position:absolute;left:14px;right:14px;bottom:-1px;height:2px;background:var(--accent)}
 .workspace{width:100%;max-width:100vw;min-height:0;display:grid;grid-template-columns:minmax(210px,250px) minmax(420px,1fr) minmax(240px,300px);gap:1px;background:var(--line)}.rail,.discussion{min-width:0;background:var(--bg)}.rail{padding:18px;background:var(--sidebar)}.rail-left{border-right:1px solid var(--line)}.rail-right{border-left:1px solid var(--line)}.section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.section-head h2{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase}.count{min-width:24px;padding:1px 7px;border:1px solid var(--line);border-radius:999px;color:var(--text-3);font:10px ui-monospace,Consolas,monospace;text-align:center}
 .participant-list{display:grid;gap:8px}.participant{padding:11px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}.participant-top{display:grid;grid-template-columns:30px 1fr auto;align-items:center;gap:9px}.avatar{display:grid;place-items:center;width:30px;height:30px;border:1px solid var(--line-2);border-radius:8px;background:var(--panel-2);color:var(--text-2);font:700 10px ui-monospace,Consolas,monospace}.participant-name{min-width:0}.participant-name strong,.participant-name span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.participant-name strong{font-size:12px}.participant-name span{color:var(--text-3);font-size:10px}.seat-state{display:flex;align-items:center;gap:5px;color:var(--text-3);font-size:10px}.seat-state::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--line-2)}.seat-state[data-active="true"]{color:var(--success)}.seat-state[data-active="true"]::before{background:var(--success)}.usage{display:grid;gap:5px;margin-top:10px}.usage-row{display:flex;justify-content:space-between;color:var(--text-3);font:9px ui-monospace,Consolas,monospace}.usage-track{height:3px;overflow:hidden;border-radius:3px;background:var(--raised)}.usage-fill{display:block;height:100%;background:var(--text-3);transform-origin:left}
-.discussion{display:grid;grid-template-rows:auto auto minmax(260px,1fr) auto;min-height:calc(100vh - 111px)}.discussion-header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 22px 14px;border-bottom:1px solid var(--line)}.discussion-header h2{margin:0;font-size:17px}.discussion-header p{margin:2px 0 0;color:var(--text-3);font-size:11px}.phase-badge{border-radius:7px;font-family:ui-monospace,Consolas,monospace}.connection-banner{display:none;align-items:center;justify-content:space-between;gap:12px;padding:9px 22px;border-bottom:1px solid rgba(250,66,62,.3);background:rgba(250,66,62,.08);color:#ffaaa7;font-size:11px}.connection-banner[data-visible="true"]{display:flex}.text-button{border:0;background:none;padding:0;color:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
-.timeline{min-height:0;overflow-y:auto;padding:20px 22px 28px;scrollbar-color:var(--line-2) transparent}.empty-state{display:grid;place-items:center;min-height:280px;text-align:center}.empty-state div{max-width:340px}.empty-icon{display:grid;place-items:center;width:48px;height:48px;margin:0 auto 14px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--text-3);font:700 16px ui-monospace,Consolas,monospace}.empty-state h3{margin:0;font-size:14px}.empty-state p{margin:6px 0 0;color:var(--text-3);font-size:12px}.event{display:grid;grid-template-columns:34px minmax(0,1fr);gap:11px;max-width:780px;margin:0 auto 14px;animation:event-in .18s var(--ease) both}.event-avatar{display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text-2);font:700 10px ui-monospace,Consolas,monospace}.event-card{min-width:0;padding:11px 13px;border:1px solid var(--line);border-radius:4px 10px 10px;background:var(--panel)}.event[data-human="true"] .event-card{border-color:var(--line-2);background:var(--panel-2)}.event-meta{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin-bottom:5px}.event-meta strong{font-size:11px}.kind{padding:1px 5px;border-radius:4px;background:var(--raised);color:var(--text-3);font:9px ui-monospace,Consolas,monospace;text-transform:uppercase}.event-seq{margin-left:auto;color:var(--text-3);font:9px ui-monospace,Consolas,monospace}.reply{margin:0 0 7px;padding-left:8px;border-left:2px solid var(--line-2);color:var(--text-3);font-size:10px}.event-body{margin:0;color:var(--text-2);font-size:12px;line-height:1.65;overflow-wrap:anywhere;white-space:pre-wrap}.phase-event{display:flex;align-items:center;gap:10px;max-width:780px;margin:18px auto;color:var(--text-3);font:9px ui-monospace,Consolas,monospace;text-transform:uppercase;letter-spacing:.08em}.phase-event::before,.phase-event::after{content:"";height:1px;flex:1;background:var(--line)}
-.composer{padding:14px 22px 18px;border-top:1px solid var(--line);background:var(--sidebar)}.composer-box{max-width:780px;margin:0 auto;border:1px solid var(--line-2);border-radius:10px;background:var(--panel);transition:border-color .15s var(--ease),box-shadow .15s var(--ease)}.composer-box:focus-within{border-color:var(--focus);box-shadow:0 0 0 3px rgba(154,151,143,.12)}.composer label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.composer textarea{display:block;width:100%;min-height:72px;max-height:180px;resize:vertical;border:0;outline:0;padding:12px 13px;background:transparent;color:var(--text);line-height:1.5}.composer textarea::placeholder{color:#77746e}.composer-actions{display:flex;align-items:center;gap:10px;padding:8px;border-top:1px solid var(--line)}.composer-hint{color:var(--text-3);font:10px ui-monospace,Consolas,monospace}.send-status{margin-left:auto;color:var(--text-3);font-size:10px}.send-button{min-height:30px;border:0;border-radius:7px;padding:5px 12px;background:var(--accent);color:#16130f;font-weight:700;font-size:11px;cursor:pointer;transition:opacity .15s var(--ease),transform 80ms var(--ease)}.send-button:hover{opacity:.9}.send-button:active{transform:translateY(1px)}.send-button:disabled{cursor:not-allowed;opacity:.35}
+.discussion{display:grid;grid-template-rows:auto auto auto minmax(260px,1fr) auto;min-height:calc(100vh - 111px)}.discussion-header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 22px 14px;border-bottom:1px solid var(--line)}.discussion-header h2{margin:0;font-size:17px}.discussion-header p{margin:2px 0 0;color:var(--text-3);font-size:11px}.phase-badge{border-radius:7px;font-family:ui-monospace,Consolas,monospace}.view-tabs{display:flex;gap:18px;padding:0 22px;border-bottom:1px solid var(--line);background:var(--sidebar)}.view-tab{position:relative;min-height:40px;border:0;background:none;padding:0;color:var(--text-3);font-weight:650;cursor:pointer}.view-tab[aria-selected="true"]{color:var(--text)}.view-tab[aria-selected="true"]::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--accent)}.connection-banner{display:none;align-items:center;justify-content:space-between;gap:12px;padding:9px 22px;border-bottom:1px solid rgba(250,66,62,.3);background:rgba(250,66,62,.08);color:#ffaaa7;font-size:11px}.connection-banner[data-visible="true"]{display:flex}.text-button{border:0;background:none;padding:0;color:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.timeline{min-height:0;overflow-y:auto;padding:20px 22px 28px;scrollbar-color:var(--line-2) transparent}.timeline[hidden]{display:none}.empty-state{display:grid;place-items:center;min-height:280px;text-align:center}.empty-state div{max-width:340px}.empty-icon{display:grid;place-items:center;width:48px;height:48px;margin:0 auto 14px;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--text-3);font:700 16px ui-monospace,Consolas,monospace}.empty-state h3{margin:0;font-size:14px}.empty-state p{margin:6px 0 0;color:var(--text-3);font-size:12px}.event{display:grid;grid-template-columns:34px minmax(0,1fr);gap:11px;max-width:780px;margin:0 auto 14px;animation:event-in .18s var(--ease) both}.event-avatar{display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text-2);font:700 10px ui-monospace,Consolas,monospace}.event-card{min-width:0;padding:11px 13px;border:1px solid var(--line);border-radius:4px 10px 10px;background:var(--panel)}.event[data-human="true"] .event-card{border-color:var(--line-2);background:var(--panel-2)}.event-meta{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin-bottom:5px}.event-meta strong{font-size:11px}.kind,.target-badge{padding:1px 5px;border-radius:4px;background:var(--raised);color:var(--text-3);font:9px ui-monospace,Consolas,monospace;text-transform:uppercase}.target-badge{color:var(--warning)}.event-seq{margin-left:auto;color:var(--text-3);font:9px ui-monospace,Consolas,monospace}.reply{margin:0 0 7px;padding-left:8px;border-left:2px solid var(--line-2);color:var(--text-3);font-size:10px}.event-body{margin:0;color:var(--text-2);font-size:12px;line-height:1.65;overflow-wrap:anywhere;white-space:pre-wrap}.phase-event{display:flex;align-items:center;gap:10px;max-width:780px;margin:18px auto;color:var(--text-3);font:9px ui-monospace,Consolas,monospace;text-transform:uppercase;letter-spacing:.08em}.phase-event::before,.phase-event::after{content:"";height:1px;flex:1;background:var(--line)}.activity-list,.artifact-list{display:grid;gap:8px;max-width:780px;margin:0 auto}.activity-row,.artifact-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.activity-row p,.artifact-card p{margin:2px 0 0;color:var(--text-3);font-size:11px;overflow-wrap:anywhere}.activity-seq{color:var(--text-3);font:10px ui-monospace,Consolas,monospace}.artifact-card{display:block;width:100%;color:inherit;text-align:left}.artifact-card[role="button"]{cursor:pointer}.artifact-card[role="button"]:hover{border-color:var(--line-2)}.artifact-meta{display:flex;justify-content:space-between;gap:12px;color:var(--text-3);font:10px ui-monospace,Consolas,monospace}.artifact-title{margin-top:5px;font-weight:650}.participant-detail{margin-top:8px;color:var(--text-3);font-size:10px}.participant-logs{margin-top:4px;color:var(--danger);font:9px ui-monospace,Consolas,monospace;overflow-wrap:anywhere}.health-alert{display:none;margin-bottom:14px;padding:10px;border:1px solid rgba(250,66,62,.35);border-radius:8px;background:rgba(250,66,62,.08);color:#ffaaa7;font-size:10px}.health-alert[data-visible="true"]{display:block}.health-alert strong{display:block;margin-bottom:4px}.health-failure{margin-top:7px;padding-top:7px;border-top:1px solid rgba(250,66,62,.2)}
+.composer{padding:14px 22px 18px;border-top:1px solid var(--line);background:var(--sidebar)}.composer-box{max-width:780px;margin:0 auto;border:1px solid var(--line-2);border-radius:10px;background:var(--panel);transition:border-color .15s var(--ease),box-shadow .15s var(--ease)}.composer-box:focus-within{border-color:var(--focus);box-shadow:0 0 0 3px rgba(154,151,143,.12)}.composer label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.composer textarea{display:block;width:100%;min-height:72px;max-height:180px;resize:vertical;border:0;outline:0;padding:12px 13px;background:transparent;color:var(--text);line-height:1.5}.composer textarea::placeholder{color:#77746e}.composer-actions{display:flex;align-items:center;gap:10px;padding:8px;border-top:1px solid var(--line)}.target-select{max-width:160px;min-height:30px;border:1px solid var(--line);border-radius:7px;padding:4px 8px;background:var(--panel-2);color:var(--text-2);font-size:10px}.composer-hint{color:var(--text-3);font:10px ui-monospace,Consolas,monospace}.send-status{margin-left:auto;color:var(--text-3);font-size:10px}.send-button{min-height:30px;border:0;border-radius:7px;padding:5px 12px;background:var(--accent);color:#16130f;font-weight:700;font-size:11px;cursor:pointer;transition:opacity .15s var(--ease),transform 80ms var(--ease)}.send-button:hover{opacity:.9}.send-button:active{transform:translateY(1px)}.send-button:disabled{cursor:not-allowed;opacity:.35}
 .state-grid{display:grid;gap:1px;margin-bottom:18px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--line)}.state-row{display:flex;justify-content:space-between;gap:14px;padding:9px 10px;background:var(--panel);font-size:10px}.state-row dt{color:var(--text-3)}.state-row dd{margin:0;color:var(--text-2);font:10px ui-monospace,Consolas,monospace;text-align:right}.finding-list{display:grid;gap:8px}.finding{padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}.finding-top{display:flex;justify-content:space-between;gap:8px;margin-bottom:5px}.finding-status{color:var(--warning);font:9px ui-monospace,Consolas,monospace;text-transform:uppercase}.finding[data-terminal="true"] .finding-status{color:var(--success)}.finding p{margin:0;color:var(--text-2);font-size:11px;line-height:1.5;overflow-wrap:anywhere}.findings-empty{padding:16px 12px;border:1px dashed var(--line);border-radius:8px;color:var(--text-3);font-size:11px;text-align:center}.local-note{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);color:var(--text-3);font-size:10px}.local-note strong{display:block;margin-bottom:2px;color:var(--text-2);font-size:10px}
 @keyframes event-in{from{opacity:0;transform:translateY(6px)}}
-button:focus-visible,textarea:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+button:focus-visible,textarea:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 @media(max-width:980px){.topbar{grid-template-columns:1fr auto}.room-heading{display:none}.workspace{grid-template-columns:210px minmax(0,1fr)}.rail-right{display:none}}
 @media(max-width:680px){.topbar{grid-template-columns:minmax(0,1fr) auto;min-height:58px;padding:10px 12px}.local-badge{display:none}.phase-nav{padding:0}.workspace{display:block}.rail-left{border:0;border-bottom:1px solid var(--line);padding:12px}.participant-list{display:flex;max-width:100%;overflow-x:auto}.participant{min-width:190px}.discussion{width:100%;min-height:calc(100vh - 100px);overflow:hidden}.discussion-header,.timeline,.composer{padding-left:14px;padding-right:14px}.composer-box{width:100%}.event{grid-template-columns:28px minmax(0,1fr)}.event-avatar{width:28px;height:28px}.phase-step{padding:0 10px}.phase-step[data-state="current"]::before{left:10px;right:10px}}
 .phase-step,.section-head h2,.count,.avatar,.event-avatar,.participant-name span,.seat-state,.usage-row,.discussion-header p,.connection-banner,.text-button,.event-meta strong,.kind,.event-seq,.reply,.composer-hint,.send-status,.send-button,.state-row,.state-row dd,.finding-status,.finding p,.findings-empty,.local-note,.local-note strong{font-size:12px}.participant-name strong,.empty-state h3{font-size:14px}.event-body,.empty-state p{font-size:13px}.discussion-header h2{font-size:19px}
@@ -983,36 +1211,46 @@ button:focus-visible,textarea:focus-visible{outline:2px solid var(--focus);outli
     <aside class="rail rail-left" aria-labelledby="participants-title"><div class="section-head"><h2 id="participants-title">Participants</h2><span class="count" id="seat-count">0</span></div><div class="participant-list" id="seats"></div></aside>
     <section class="discussion" aria-labelledby="discussion-title">
       <header class="discussion-header"><div><h2 id="discussion-title">Discussion</h2><p id="discussion-summary">Waiting for the room</p></div><span class="phase-badge" id="phase-badge">Connecting</span></header>
-      <div class="connection-banner" id="connection-banner" role="alert"><span>Live updates are disconnected. Existing messages are still available.</span><button class="text-button" id="retry" type="button">Retry</button></div>
-      <div class="timeline" id="events" role="log" aria-live="polite" aria-relevant="additions"><div class="empty-state"><div><div class="empty-icon" aria-hidden="true">•••</div><h3>No messages yet</h3><p>Agents' positions and replies will appear here as the review progresses.</p></div></div></div>
-      <div class="composer"><div class="composer-box"><label for="say">Interject in Council Room</label><textarea id="say" rows="3" placeholder="Ask a question, challenge a claim, or add context…"></textarea><div class="composer-actions"><span class="composer-hint">Ctrl + Enter to send</span><span class="send-status" id="say-status" role="status"></span><button class="send-button" id="send" type="button">Interject</button></div></div></div>
+      <div class="view-tabs" role="tablist" aria-label="Room views"><button class="view-tab" type="button" role="tab" aria-selected="true" aria-controls="events" data-view="discussion">Discussion</button><button class="view-tab" type="button" role="tab" aria-selected="false" aria-controls="activity" data-view="activity">Activity</button><button class="view-tab" type="button" role="tab" aria-selected="false" aria-controls="artifacts" data-view="artifacts">Artifacts</button></div>
+      <div class="connection-banner" id="connection-banner" role="alert"><span id="connection-message">Room service disconnected. Existing messages remain available; launcher diagnostics and fallback state are preserved.</span><button class="text-button" id="retry" type="button">Retry</button></div>
+      <div class="timeline" id="events" role="tabpanel" aria-live="polite" aria-relevant="additions"><div class="empty-state"><div><div class="empty-icon" aria-hidden="true">•••</div><h3>No messages yet</h3><p>Agents' positions and replies will appear here as the review progresses.</p></div></div></div>
+      <div class="timeline" id="activity" role="tabpanel" aria-live="polite" hidden></div>
+      <div class="timeline" id="artifacts" role="tabpanel" aria-live="polite" hidden></div>
+      <div class="composer"><div class="composer-box"><label for="say">Interject in Council Room</label><textarea id="say" rows="3" placeholder="Ask a question, challenge a claim, or add context…"></textarea><div class="composer-actions"><label for="say-target">Address</label><select class="target-select" id="say-target" aria-label="Address intervention"><option value="">Everyone</option></select><span class="composer-hint">Ctrl + Enter to send</span><span class="send-status" id="say-status" role="status"></span><button class="send-button" id="send" type="button">Interject</button></div></div></div>
     </section>
-    <aside class="rail rail-right" aria-labelledby="state-title"><div class="section-head"><h2 id="state-title">Room state</h2></div><dl class="state-grid" id="room-state"></dl><div class="section-head"><h2>Findings</h2><span class="count" id="finding-count">0</span></div><div class="finding-list" id="findings"></div><div class="local-note"><strong>Private by design</strong>Room traffic and transcripts stay on this machine.</div></aside>
+    <aside class="rail rail-right" aria-labelledby="state-title"><div class="section-head"><h2 id="state-title">Room state</h2></div><div class="health-alert" id="room-health" role="alert"></div><dl class="state-grid" id="room-state"></dl><div class="section-head"><h2>Findings</h2><span class="count" id="finding-count">0</span></div><div class="finding-list" id="findings"></div><div class="local-note"><strong>Private by design</strong>Room traffic and transcripts stay on this machine.</div></aside>
   </main>
 </div>
 <script nonce="agent-room">
-const app=document.querySelector('#app'),seats=document.querySelector('#seats'),seatCount=document.querySelector('#seat-count'),out=document.querySelector('#events'),phaseList=document.querySelector('#phase-list'),phaseBadge=document.querySelector('#phase-badge'),roomName=document.querySelector('#room-name'),roomMode=document.querySelector('#room-mode'),summary=document.querySelector('#discussion-summary'),connection=document.querySelector('#connection'),connectionLabel=document.querySelector('#connection-label'),banner=document.querySelector('#connection-banner'),retry=document.querySelector('#retry'),roomState=document.querySelector('#room-state'),findings=document.querySelector('#findings'),findingCount=document.querySelector('#finding-count'),say=document.querySelector('#say'),send=document.querySelector('#send'),sayStatus=document.querySelector('#say-status');
-const phases=['Open','Positions','PeerDebate','Dispositions','AuthorReview','Escalation','Voting','Verdict'];let snapshot=null,source=null,cursor=0,roomSealed=false;
+const app=document.querySelector('#app'),seats=document.querySelector('#seats'),seatCount=document.querySelector('#seat-count'),out=document.querySelector('#events'),activityOut=document.querySelector('#activity'),artifactOut=document.querySelector('#artifacts'),viewTabs=[...document.querySelectorAll('.view-tab')],phaseList=document.querySelector('#phase-list'),phaseBadge=document.querySelector('#phase-badge'),roomName=document.querySelector('#room-name'),roomMode=document.querySelector('#room-mode'),summary=document.querySelector('#discussion-summary'),connection=document.querySelector('#connection'),connectionLabel=document.querySelector('#connection-label'),banner=document.querySelector('#connection-banner'),retry=document.querySelector('#retry'),roomState=document.querySelector('#room-state'),roomHealth=document.querySelector('#room-health'),findings=document.querySelector('#findings'),findingCount=document.querySelector('#finding-count'),say=document.querySelector('#say'),sayTarget=document.querySelector('#say-target'),send=document.querySelector('#send'),sayStatus=document.querySelector('#say-status');
+const phases=['Open','Positions','PeerDebate','Dispositions','AuthorReview','Escalation','Voting','Verdict'];let snapshot=null,source=null,cursor=0,roomSealed=false,currentView='discussion';
 function node(tag,className,text){const item=document.createElement(tag);if(className)item.className=className;if(text!==undefined)item.textContent=String(text);return item}
 function initials(value){return String(value||'?').split(/\s+/).slice(0,2).map(part=>part[0]||'').join('').toUpperCase()||'?'}
 function number(value){return new Intl.NumberFormat('en',{notation:value>999?'compact':'standard',maximumFractionDigits:1}).format(value||0)}
 function label(value){return String(value||'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ')}
 function setConnection(state){connection.dataset.state=state;connectionLabel.textContent=state==='live'?'Live':state==='error'?'Disconnected':'Connecting';banner.dataset.visible=state==='error'?'true':'false'}
+function setView(view){currentView=view;for(const tab of viewTabs)tab.setAttribute('aria-selected',String(tab.dataset.view===view));out.hidden=view!=='discussion';activityOut.hidden=view!=='activity';artifactOut.hidden=view!=='artifacts'}
 function renderPhases(current){phaseList.replaceChildren();const currentIndex=Math.max(0,phases.indexOf(current));for(const [index,value] of phases.entries()){const item=node('li','phase-step',label(value));item.dataset.state=index<currentIndex?'done':index===currentIndex?'current':'upcoming';if(index===currentIndex)item.setAttribute('aria-current','step');phaseList.append(item)}}
 function seatFor(id){return snapshot?.seats.find(seat=>seat.seat_id===id)}
-function renderSeats(){seats.replaceChildren();seatCount.textContent=String(snapshot.seats.length);for(const seat of snapshot.seats){const card=node('article','participant');const top=node('div','participant-top');top.append(node('div','avatar',initials(seat.name)));const name=node('div','participant-name');name.append(node('strong','',seat.name),node('span','',`${seat.model} · ${seat.role}`));const state=node('span','seat-state',seat.role==='human'?'Observer':seat.usage.sent_messages?'Participating':'Waiting');state.dataset.active=String(seat.role!=='human'&&seat.usage.sent_messages>0);top.append(name,state);const usage=node('div','usage');const row=node('div','usage-row');row.append(node('span','',`${seat.usage.sent_messages} messages`),node('span','',`${number(seat.usage.context_bytes)} context`));const track=node('div','usage-track');const fill=node('span','usage-fill');fill.style.width=`${Math.min(100,(seat.usage.sent_messages/Math.max(1,seat.budget.max_messages))*100)}%`;track.append(fill);usage.append(row,track);card.append(top,usage);seats.append(card)}}
-function renderRoomState(){roomState.replaceChildren();const open=snapshot.findings.filter(item=>!['Folded','Refuted'].includes(item.status)).length;const rows=[['Phase',label(snapshot.phase)],['Mode',label(snapshot.mode)],['Open findings',open],['Escalation',`${Math.round(snapshot.escalation_rate*100)}%`],['Room',snapshot.sealed?'Sealed':'Active']];for(const [term,value] of rows){const row=node('div','state-row');row.append(node('dt','',term),node('dd','',value));roomState.append(row)}}
+function renderSeats(){seats.replaceChildren();seatCount.textContent=String(snapshot.seats.length);for(const seat of snapshot.seats){const card=node('article','participant');card.dataset.state=seat.activity.state;const top=node('div','participant-top');top.append(node('div','avatar',initials(seat.name)));const name=node('div','participant-name');name.append(node('strong','',seat.name),node('span','',`${seat.model} · ${seat.role}`));const state=node('span','seat-state',label(seat.activity.state));state.dataset.active=String(['ready','reading','responded','attention'].includes(seat.activity.state));top.append(name,state);const detail=node('div','participant-detail',seat.activity.detail);const usage=node('div','usage');const row=node('div','usage-row');row.append(node('span','',`${seat.usage.sent_messages} messages`),node('span','',`${number(seat.usage.context_bytes)} context`));const track=node('div','usage-track');const fill=node('span','usage-fill');fill.style.width=`${Math.min(100,(seat.usage.sent_messages/Math.max(1,seat.budget.max_messages))*100)}%`;track.append(fill);usage.append(row,track);card.append(top,detail);if(seat.activity.state==='failed'){const logs=[seat.activity.stdout_log,seat.activity.stderr_log].filter(Boolean);if(logs.length)card.append(node('div','participant-logs',`Logs: ${logs.join(' · ')}`))}card.append(usage);seats.append(card)}}
+function renderPhaseProgress(){const progress=snapshot.phase_progress;const names=progress.outstanding_seat_ids.map(id=>seatFor(id)?.name||id);return [['Seat activity',`${progress.responded}/${progress.required}`],['Outstanding',names.length?names.join(', '):'None'],['Open findings',progress.open_findings]]}
+function renderRoomState(){roomState.replaceChildren();const rows=[['Phase',label(snapshot.phase)],['Mode',label(snapshot.mode)],...renderPhaseProgress(),['Escalation',`${Math.round(snapshot.escalation_rate*100)}%`],['Room',label(snapshot.health.status)]];for(const [term,value] of rows){const row=node('div','state-row');row.append(node('dt','',term),node('dd','',value));roomState.append(row)}}
+function renderHealth(){roomHealth.replaceChildren();const failed=snapshot.health.status==='fallback_required';roomHealth.dataset.visible=String(failed);if(!failed)return;roomHealth.append(node('strong','','Room aborted · fallback review required'),node('span','',snapshot.health.stage?`Stage: ${label(snapshot.health.stage)}`:'Diagnostic state preserved'));for(const failure of snapshot.health.failures){const item=node('div','health-failure');item.append(node('strong','',`${failure.seat}: ${label(failure.code)}`),node('div','',failure.detail),node('div','participant-detail',failure.action));const logs=[failure.stdout_log,failure.stderr_log].filter(Boolean);if(logs.length)item.append(node('div','participant-logs',`Logs: ${logs.join(' · ')}`));roomHealth.append(item)}}
 function renderFindings(){findings.replaceChildren();findingCount.textContent=String(snapshot.findings.length);if(!snapshot.findings.length){findings.append(node('div','findings-empty','No findings raised yet.'));return}for(const item of snapshot.findings){const card=node('article','finding');const terminal=['Folded','Refuted'].includes(item.status);card.dataset.terminal=String(terminal);const top=node('div','finding-top');top.append(node('span','finding-status',label(item.status)),node('span','event-seq',item.severity));card.append(top,node('p','',item.claim));findings.append(card)}}
 function renderEmpty(){const empty=node('div','empty-state'),wrap=node('div'),icon=node('div','empty-icon','•••');icon.setAttribute('aria-hidden','true');wrap.append(icon,node('h3','','No messages yet'),node('p','',"Agents' positions and replies will appear here as the review progresses."));empty.append(wrap);out.replaceChildren(empty)}
-function renderEvent(event,animate){if(event.kind==='system'&&String(event.body).startsWith('phase:')){const divider=node('div','phase-event',`Entered ${label(String(event.body).slice(6))}`);divider.dataset.seq=event.seq;out.append(divider);return}const seat=seatFor(event.seat_id);const article=node('article','event');article.dataset.seq=event.seq;article.dataset.human=String(seat?.role==='human');if(!animate)article.style.animation='none';article.append(node('div','event-avatar',initials(seat?.name||event.seat_id)));const card=node('div','event-card'),meta=node('div','event-meta');meta.append(node('strong','',seat?.name||event.seat_id),node('span','kind',label(event.kind)),node('span','event-seq',`#${event.seq}`));card.append(meta);if(event.reply_to){const prior=snapshot.events.find(item=>item.seq===event.reply_to),priorSeat=prior?seatFor(prior.seat_id):null;card.append(node('p','reply',`Replying to ${priorSeat?.name||`message #${event.reply_to}`}`))}card.append(node('p','event-body',event.body));article.append(card);out.append(article)}
+function renderEvent(event,animate){if(event.kind==='system'&&String(event.body).startsWith('phase:')){const divider=node('div','phase-event',`Entered ${label(String(event.body).slice(6))}`);divider.dataset.seq=event.seq;out.append(divider);return}const seat=seatFor(event.seat_id);const article=node('article','event');article.dataset.seq=event.seq;article.dataset.human=String(seat?.role==='human');if(!animate)article.style.animation='none';article.append(node('div','event-avatar',initials(seat?.name||event.seat_id)));const card=node('div','event-card'),meta=node('div','event-meta');meta.append(node('strong','',seat?.name||event.seat_id),node('span','kind',label(event.kind)));if(event.target_seat_id){const target=seatFor(event.target_seat_id);meta.append(node('span','target-badge',`To ${target?.name||event.target_seat_id}`))}meta.append(node('span','event-seq',`#${event.seq}`));card.append(meta);if(event.reply_to){const prior=snapshot.events.find(item=>item.seq===event.reply_to),priorSeat=prior?seatFor(prior.seat_id):null;card.append(node('p','reply',`Replying to ${priorSeat?.name||`message #${event.reply_to}`}`))}card.append(node('p','event-body',event.body));article.append(card);out.append(article)}
 function renderTimeline(){out.replaceChildren();if(!snapshot.events.length){renderEmpty();return}for(const event of snapshot.events)renderEvent(event,false);out.scrollTop=out.scrollHeight}
-function renderSnapshot(value){snapshot=value;roomSealed=value.sealed;roomName.textContent=value.room_id;roomMode.textContent=`${label(value.mode)} council · local session`;phaseBadge.textContent=label(value.phase);summary.textContent=value.sealed?`${value.events.length} events · review complete`:value.events.length?`${value.events.length} events · live review`:'Waiting for first positions';renderPhases(value.phase);renderSeats();renderRoomState();renderFindings();renderTimeline();say.disabled=value.sealed;send.disabled=value.sealed;if(value.sealed)sayStatus.textContent='Review complete · room sealed';cursor=value.events.at(-1)?.seq||0;app.setAttribute('aria-busy','false')}
+function renderActivity(){activityOut.replaceChildren();const list=node('div','activity-list');for(const event of snapshot.events){const seat=seatFor(event.seat_id),row=node('article','activity-row'),copy=node('div');copy.append(node('strong','',`${seat?.name||event.seat_id} · ${label(event.kind)}`),node('p','',event.kind==='system'?label(String(event.body).replace(/^phase:/,'')):String(event.body).slice(0,180)));row.append(node('span','activity-seq',`#${event.seq}`),copy,node('span','activity-seq',label(event.phase)));list.append(row)}if(!snapshot.events.length)list.append(node('div','findings-empty','No activity yet.'));activityOut.append(list)}
+function renderArtifacts(){artifactOut.replaceChildren();const list=node('div','artifact-list');for(const finding of snapshot.findings){const card=node('article','artifact-card');card.append(node('div','artifact-meta',`${finding.finding_id} · ${label(finding.status)}`),node('div','artifact-title',finding.claim));list.append(card)}for(const disposition of snapshot.dispositions){for(const receipt of disposition.receipt_refs){const card=node('div','artifact-card');card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label',`Copy receipt locator ${receipt.locator}`);card.dataset.locator=receipt.locator;card.append(node('div','artifact-meta',`${label(receipt.kind)} · ${label(disposition.status)}`),node('div','artifact-title',receipt.locator),node('p','',`Finding ${disposition.finding_id}`));list.append(card)}}if(!list.children.length)list.append(node('div','findings-empty','Findings, dispositions, receipts, and verdict artifacts will appear here.'));artifactOut.append(list)}
+function renderTargets(){const selected=sayTarget.value;sayTarget.replaceChildren(new Option('Everyone',''));for(const seat of snapshot.seats.filter(item=>item.role!=='human'))sayTarget.append(new Option(seat.name,seat.seat_id));if([...sayTarget.options].some(option=>option.value===selected))sayTarget.value=selected}
+function renderSnapshot(value){snapshot=value;roomSealed=value.sealed;roomName.textContent=value.room_id;roomMode.textContent=`${label(value.mode)} council · local session`;phaseBadge.textContent=label(value.phase);summary.textContent=value.sealed?`${value.events.length} events · review complete`:value.events.length?`${value.events.length} events · live review`:'Waiting for first positions';renderPhases(value.phase);renderSeats();renderRoomState();renderHealth();renderFindings();renderTimeline();renderActivity();renderArtifacts();renderTargets();setView(currentView);say.disabled=value.sealed;sayTarget.disabled=value.sealed;send.disabled=value.sealed;if(value.sealed)sayStatus.textContent='Review complete · room sealed';cursor=value.events.at(-1)?.seq||0;app.setAttribute('aria-busy','false')}
 async function fetchSnapshot(){const response=await fetch('/api/watch-status');if(!response.ok)throw new Error(`Room status ${response.status}`);return response.json()}
-function connectStream(){if(source)source.close();source=new EventSource(`/api/stream?cursor=${cursor}`);source.onopen=()=>setConnection('live');source.onmessage=message=>{const event=JSON.parse(message.data);if(snapshot.events.some(item=>item.seq===event.seq))return;snapshot.events.push(event);cursor=Math.max(cursor,event.seq);if(out.querySelector('.empty-state'))out.replaceChildren();renderEvent(event,true);summary.textContent=`${snapshot.events.length} events · live review`;out.scrollTop=out.scrollHeight;fetchSnapshot().then(value=>{snapshot=value;renderSeats();renderRoomState();renderFindings();phaseBadge.textContent=label(value.phase);renderPhases(value.phase)}).catch(()=>setConnection('error'))};source.onerror=()=>setConnection('error')}
+function connectStream(){if(source)source.close();source=new EventSource(`/api/stream?cursor=${cursor}`);source.onopen=()=>setConnection('live');source.onmessage=message=>{const event=JSON.parse(message.data);if(snapshot.events.some(item=>item.seq===event.seq))return;cursor=Math.max(cursor,event.seq);fetchSnapshot().then(renderSnapshot).catch(()=>setConnection('error'))};source.onerror=()=>setConnection('error')}
 async function load(){setConnection('connecting');app.setAttribute('aria-busy','true');try{renderSnapshot(await fetchSnapshot());connectStream()}catch(error){setConnection('error');summary.textContent='Could not load this room';sayStatus.textContent=error.message;app.setAttribute('aria-busy','false')}}
 retry.addEventListener('click',load);
-async function interject(){const body=say.value.trim();if(!body||roomSealed)return;send.disabled=true;sayStatus.textContent='Sending…';try{const response=await fetch('/api/browser-say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:`browser-${Date.now()}-${Math.random().toString(16).slice(2)}`,body})});if(!response.ok)throw new Error(`Send failed (${response.status})`);say.value='';sayStatus.textContent='Sent to every seat'}catch(error){sayStatus.textContent=error.message}finally{send.disabled=roomSealed}}
-send.addEventListener('click',interject);say.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.ctrlKey){event.preventDefault();interject()}});load();
+async function interject(){const body=say.value.trim(),target_seat_id=sayTarget.value||null;if(!body||roomSealed)return;send.disabled=true;sayStatus.textContent='Sending…';try{const response=await fetch('/api/browser-say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:`browser-${Date.now()}-${Math.random().toString(16).slice(2)}`,body,target_seat_id})});if(!response.ok)throw new Error(`Send failed (${response.status})`);say.value='';const target=target_seat_id?seatFor(target_seat_id)?.name||target_seat_id:'every seat';sayStatus.textContent=`Sent to ${target}`}catch(error){sayStatus.textContent=error.message}finally{send.disabled=roomSealed}}
+async function copyArtifact(card){const locator=card.dataset.locator;if(!locator)return;try{await navigator.clipboard.writeText(locator);sayStatus.textContent=`Copied ${locator}`}catch{sayStatus.textContent='Could not copy receipt locator'}}
+for(const tab of viewTabs)tab.addEventListener('click',()=>setView(tab.dataset.view));artifactOut.addEventListener('click',event=>{const card=event.target.closest('[data-locator]');if(card)copyArtifact(card)});artifactOut.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){const card=event.target.closest('[data-locator]');if(card){event.preventDefault();copyArtifact(card)}}});send.addEventListener('click',interject);say.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.ctrlKey){event.preventDefault();interject()}});load();
 </script></body></html>"##;
     let mut response = Html(html).into_response();
     response.headers_mut().insert(

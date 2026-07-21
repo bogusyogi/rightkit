@@ -104,6 +104,8 @@ pub struct Event {
     pub kind: EventKind,
     pub body: String,
     pub reply_to: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_seat_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -466,6 +468,18 @@ impl Room {
         body: String,
         reply_to: Option<u64>,
     ) -> Event {
+        self.append_event_targeted(actor, request_id, kind, body, reply_to, None)
+    }
+
+    fn append_event_targeted(
+        &mut self,
+        actor: &str,
+        request_id: &str,
+        kind: EventKind,
+        body: String,
+        reply_to: Option<u64>,
+        target_seat_id: Option<String>,
+    ) -> Event {
         let event = Event {
             seq: self.events.len() as u64 + 1,
             room_id: self.room_id.clone(),
@@ -475,6 +489,7 @@ impl Room {
             kind,
             body,
             reply_to,
+            target_seat_id,
         };
         self.events.push(event.clone());
         event
@@ -582,6 +597,18 @@ impl Room {
         body: &str,
         reply_to: Option<u64>,
     ) -> Result<Event, ProtocolError> {
+        self.post_targeted(actor, request_id, kind, body, reply_to, None)
+    }
+
+    pub fn post_targeted(
+        &mut self,
+        actor: &str,
+        request_id: &str,
+        kind: EventKind,
+        body: &str,
+        reply_to: Option<u64>,
+        target_seat_id: Option<&str>,
+    ) -> Result<Event, ProtocolError> {
         let body = body.trim().to_string();
         if body.is_empty() {
             return Err(ProtocolError::new("body_required", ""));
@@ -589,14 +616,30 @@ impl Room {
         if kind == EventKind::Position && self.phase != Phase::Positions {
             return Err(ProtocolError::new("phase_forbidden", "position"));
         }
+        let target_seat_id = target_seat_id
+            .map(str::trim)
+            .filter(|target| !target.is_empty())
+            .map(str::to_owned);
+        if let Some(target) = target_seat_id.as_deref() {
+            if !self.seats.contains_key(target) {
+                return Err(ProtocolError::new("unknown_target_seat", target));
+            }
+        }
         self.apply_idempotent(
             actor,
             request_id,
             "post",
-            json!({"kind":kind,"body":body,"reply_to":reply_to}),
+            json!({"kind":kind,"body":body,"reply_to":reply_to,"target_seat_id":target_seat_id}),
             move |room| {
                 room.consume_send(actor, body.len() as u64)?;
-                Ok(room.append_event(actor, request_id, kind, body, reply_to))
+                Ok(room.append_event_targeted(
+                    actor,
+                    request_id,
+                    kind,
+                    body,
+                    reply_to,
+                    target_seat_id,
+                ))
             },
         )
     }

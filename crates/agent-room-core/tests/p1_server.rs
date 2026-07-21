@@ -113,6 +113,13 @@ async fn authenticated_dashboard_exposes_browser_say_control() {
     assert!(html.contains("<textarea"));
     assert!(html.contains("Interject"));
     assert!(html.contains("/api/browser-say"));
+    assert!(html.contains("Discussion"));
+    assert!(html.contains("Activity"));
+    assert!(html.contains("Artifacts"));
+    assert!(html.contains("id=\"say-target\""));
+    assert!(html.contains("renderActivity"));
+    assert!(html.contains("renderArtifacts"));
+    assert!(html.contains("renderPhaseProgress"));
 }
 
 #[tokio::test]
@@ -172,6 +179,99 @@ async fn browser_say_requires_cookie_and_exact_origin_then_posts_human_event() {
         .unwrap()
         .iter()
         .any(|event| event["body"] == "human browser interjection"));
+}
+
+#[tokio::test]
+async fn browser_say_accepts_an_addressed_seat_and_watch_status_exposes_live_progress() {
+    let app = router(state());
+    let cookie = cookie(&app).await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/browser-say")
+                .header(header::COOKIE, &cookie)
+                .header(header::ORIGIN, ORIGIN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"request_id":"browser-target-1","body":"Inspect rollback","target_seat_id":"reviewer"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let event: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(event["target_seat_id"], "reviewer");
+
+    let snapshot = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/watch-status")
+                .header(header::COOKIE, cookie)
+                .header(header::ORIGIN, ORIGIN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let value: serde_json::Value =
+        serde_json::from_slice(&to_bytes(snapshot.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert_eq!(value["seats"][1]["activity"]["state"], "attention");
+    assert_eq!(
+        value["seats"][1]["activity"]["detail"],
+        "Addressed in message #1"
+    );
+    assert_eq!(value["phase_progress"]["required"], 1);
+    assert_eq!(value["phase_progress"]["responded"], 0);
+    assert_eq!(
+        value["phase_progress"]["outstanding_seat_ids"][0],
+        "reviewer"
+    );
+}
+
+#[tokio::test]
+async fn watch_status_projects_actionable_fallback_diagnostics_without_absolute_log_paths() {
+    let run_dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        run_dir.path().join("seat-sessions.json"),
+        r#"{"schema_version":1,"status":"aborted","seats":[{"seat":"codex","seat_id":"reviewer","pid":42,"status":"failed","ready_event_seq":null,"stdout_log":"C:\\private\\seat-codex.stdout.log","stderr_log":"C:\\private\\seat-codex.stderr.log"}]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        run_dir.path().join("launch.failure.json"),
+        r#"{"schema_version":1,"status":"aborted","stage":"preflight","seat_failures":[{"seat":"codex","code":"authentication_failed","detail":"Not logged in","stdout_log":"C:\\private\\seat-codex.stdout.log","stderr_log":"C:\\private\\seat-codex.stderr.log"}]}"#,
+    )
+    .unwrap();
+    let app = router(state().with_run_dir(run_dir.path()));
+    let cookie = cookie(&app).await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/watch-status")
+                .header(header::COOKIE, cookie)
+                .header(header::ORIGIN, ORIGIN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let value: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
+
+    assert_eq!(value["health"]["status"], "fallback_required");
+    assert_eq!(
+        value["health"]["failures"][0]["action"],
+        "Sign in to the seat CLI, then relaunch the Council."
+    );
+    assert_eq!(
+        value["health"]["failures"][0]["stderr_log"],
+        "seat-codex.stderr.log"
+    );
+    assert!(!value.to_string().contains("C:\\\\private"));
+    assert_eq!(value["seats"][1]["activity"]["state"], "failed");
 }
 
 #[tokio::test]

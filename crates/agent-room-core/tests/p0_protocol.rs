@@ -93,6 +93,43 @@ fn duplicate_request_applies_once_and_changed_payload_rejects() {
 }
 
 #[test]
+fn addressed_intervention_records_and_validates_the_target_seat() {
+    let (_workspace, mut room) = review_room();
+    room.advance("adrian", Phase::Positions).unwrap();
+
+    let event = room
+        .post_targeted(
+            "adrian",
+            "target-codex",
+            EventKind::Info,
+            "Please inspect the rollback path",
+            None,
+            Some("codex"),
+        )
+        .unwrap();
+
+    assert_eq!(event.target_seat_id.as_deref(), Some("codex"));
+    assert!(room
+        .visible_events("claude", 0)
+        .unwrap()
+        .iter()
+        .any(|visible| visible.seq == event.seq));
+    assert_eq!(
+        room.post_targeted(
+            "adrian",
+            "missing-target",
+            EventKind::Info,
+            "Please inspect this",
+            None,
+            Some("missing"),
+        )
+        .unwrap_err()
+        .code,
+        "unknown_target_seat"
+    );
+}
+
+#[test]
 fn folded_and_refuted_findings_require_receipts_and_author_acceptance() {
     let (workspace, mut room) = review_room();
     std::fs::write(workspace.path().join("evidence.txt"), "measured true\n").unwrap();
