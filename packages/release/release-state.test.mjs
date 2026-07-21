@@ -7,11 +7,22 @@ import test from "node:test";
 
 import {
   cacheFingerprint,
+  resolveReleaseLayout,
   releaseEnvironment,
   runBuildStateMachine,
   runUploadStateMachine,
   verifySealedRelease,
 } from "./release-state.mjs";
+
+test("nested app configs keep the vault at repo root and build from the app root", () => {
+  const layout = resolveReleaseLayout({
+    repoRoot: "D:/suite/heardright",
+    configPath: "D:/suite/heardright/tauri-app-next/right-release.config.mjs",
+  });
+  assert.equal(layout.vaultRoot, path.resolve("D:/suite/heardright/.right-release"));
+  assert.equal(layout.appRoot, path.resolve("D:/suite/heardright/tauri-app-next"));
+  assert.equal(layout.targetLink, path.resolve("D:/suite/heardright/tauri-app-next/src-tauri/target"));
+});
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");

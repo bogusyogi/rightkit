@@ -11,6 +11,18 @@ export function cacheFingerprint({ cargoLockSha256, rustc, target, features = []
   });
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
+
+export function resolveReleaseLayout({ repoRoot, configPath }) {
+  const resolvedRepoRoot = path.resolve(repoRoot);
+  const appRoot = path.dirname(path.resolve(configPath));
+  return {
+    repoRoot: resolvedRepoRoot,
+    appRoot,
+    vaultRoot: path.join(resolvedRepoRoot, ".right-release"),
+    targetLink: path.join(appRoot, "src-tauri", "target"),
+  };
+}
+
 export function releaseEnvironment({ root, platform, cacheKey, kind = "release" }) {
   if (kind !== "release" && kind !== "test") throw new Error(`invalid target kind: ${kind}`);
   const targetKind = kind === "release" ? "cargo-target" : "test-target";

@@ -20,7 +20,7 @@ import {
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { cacheFingerprint, releaseEnvironment, runBuildStateMachine } from "./release-state.mjs";
+import { cacheFingerprint, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine } from "./release-state.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
@@ -44,7 +44,7 @@ const invocationRoot = path.dirname(path.resolve(configName));
 const repoRoot = git(invocationRoot, ["rev-parse", "--show-toplevel"]);
 const relativeConfig = path.relative(repoRoot, path.resolve(configName)).replaceAll("\\", "/");
 if (relativeConfig.startsWith("../")) fail("release config must live inside the Git repository");
-const vaultRoot = path.join(repoRoot, ".right-release");
+const vaultRoot = resolveReleaseLayout({ repoRoot, configPath: path.resolve(configName) }).vaultRoot;
 mkdirSync(path.join(vaultRoot, "locks"), { recursive: true });
 const lock = acquireLock(path.join(vaultRoot, "locks", `${platform}.lock.json`));
 let child = null;
@@ -71,6 +71,8 @@ try {
   }
 
   const worktreeConfigPath = path.join(worktree, relativeConfig);
+  const appRoot = path.dirname(worktreeConfigPath);
+  const layout = resolveReleaseLayout({ repoRoot, configPath: path.resolve(configName) });
   const config = (await import(`${pathToFileURL(worktreeConfigPath).href}?commit=${commit}`)).default;
   if (!config?.app || !config?.version) fail("release config must expose app and version");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(config.app) || !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(config.version)) {
@@ -78,7 +80,7 @@ try {
   }
   const target = config.targets?.[platform];
   if (!target?.package) fail(`${config.app} has no ${platform} package command`);
-  const requiredInputs = inputPaths(worktree, worktreeConfigPath, target);
+  const requiredInputs = inputPaths(appRoot, worktreeConfigPath, target);
   const toolVersions = collectToolVersions(config.packageManager ?? "pnpm");
   const inputHashes = hashInputs(requiredInputs);
   const cargoLock = requiredInputs.find((file) => /Cargo\.lock$/i.test(file));
@@ -92,6 +94,8 @@ try {
   const env = {
     ...process.env,
     ...releaseEnvironment({ root: vaultRoot, platform, cacheKey, kind: "release" }),
+    RIGHT_RELEASE_REPO_ROOT: layout.repoRoot,
+    RIGHT_RELEASE_APP_ROOT: layout.appRoot,
   };
   if (!commandExists("sccache")) delete env.RUSTC_WRAPPER;
   const releaseId = `${config.app}-${config.version}-${shortCommit}`;
@@ -123,7 +127,7 @@ try {
         assertDiskSpace(repoRoot, target.preflight?.minFreeGb ?? 20);
         assertExecutables(["git", config.packageManager ?? "pnpm", "cargo", "rustc", ...(target.preflight?.executables ?? [])]);
         for (const name of target.preflight?.env ?? []) if (!process.env[name]) fail(`missing required environment variable: ${name}`);
-        for (const command of target.preflight?.commands ?? []) runChecked(command.cmd, command.args ?? [], path.resolve(worktree, command.cwd ?? "."), env);
+        for (const command of target.preflight?.commands ?? []) runChecked(command.cmd, command.args ?? [], path.resolve(appRoot, command.cwd ?? "."), env);
         mkdirSync(buildRoot, { recursive: true });
         mkdirSync(stateRoot, { recursive: true });
         writeJson(path.join(buildRoot, "release-inputs.lock.json"), lockPayload);
@@ -132,16 +136,16 @@ try {
       },
       prepare: async () => {
         const cacheTarget = env.CARGO_TARGET_DIR;
-        const targetLink = path.join(worktree, "src-tauri", "target");
+        const targetLink = path.join(appRoot, "src-tauri", "target");
         mkdirSync(cacheTarget, { recursive: true });
         if (!existsSync(targetLink)) symlinkSync(cacheTarget, targetLink, process.platform === "win32" ? "junction" : "dir");
         else if (realpathSync(targetLink) !== realpathSync(cacheTarget)) {
           fail(`worktree target exists and is not the release cache link: ${targetLink}`);
         }
-        await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], worktree, env, cacheTarget);
+        await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget);
       },
       build: async () => {
-        await runProgress(process.execPath, [WORKER, "--config", worktreeConfigPath, "--platform", platform, "--no-upload"], worktree, env, env.CARGO_TARGET_DIR);
+        await runProgress(process.execPath, [WORKER, "--config", worktreeConfigPath, "--platform", platform, "--no-upload"], appRoot, env, env.CARGO_TARGET_DIR);
         checkpoint(stateRoot, "build_complete");
         checkpoint(stateRoot, "signed");
         checkpoint(stateRoot, "hardened");
@@ -158,14 +162,14 @@ try {
   lock.release();
 }
 
-function inputPaths(worktree, configPath, target) {
+function inputPaths(appRoot, configPath, target) {
   const candidates = [
     configPath,
-    path.join(worktree, "package.json"),
-    path.join(worktree, "pnpm-lock.yaml"),
-    path.join(worktree, "src-tauri", "Cargo.toml"),
-    path.join(worktree, "src-tauri", "Cargo.lock"),
-    ...(target.preflight?.files ?? []).map((file) => path.resolve(worktree, expandEnv(file))),
+    path.join(appRoot, "package.json"),
+    path.join(appRoot, "pnpm-lock.yaml"),
+    path.join(appRoot, "src-tauri", "Cargo.toml"),
+    path.join(appRoot, "src-tauri", "Cargo.lock"),
+    ...(target.preflight?.files ?? []).map((file) => path.resolve(appRoot, expandEnv(file))),
   ];
   const required = [...new Set(candidates)];
   for (const file of required) if (!existsSync(file)) fail(`missing required release input: ${file}`);
