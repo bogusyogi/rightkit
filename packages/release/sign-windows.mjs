@@ -18,17 +18,24 @@ const userEnvCache = new Map();
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
-const files = args.filter((arg) => arg !== "--dry-run").map((arg) => path.resolve(arg));
+const verifyOnly = args.includes("--verify-only");
+const files = args.filter((arg) => arg !== "--dry-run" && arg !== "--verify-only").map((arg) => path.resolve(arg));
 
-if (!files.length) fail("usage: node sign-windows.mjs [--dry-run] <file>...");
+if (!files.length) fail("usage: node sign-windows.mjs [--dry-run|--verify-only] <file>...");
 if (dryRun) {
-  console.log(`dry-run: Azure Artifact Signing ${files.join(", ")}`);
+  console.log(`dry-run: ${verifyOnly ? "Authenticode verification" : "Azure Artifact Signing"} ${files.join(", ")}`);
   process.exit(0);
 }
 if (process.platform !== "win32") fail("Windows signing must run on Windows");
 for (const file of files) if (!existsSync(file)) fail(`missing file: ${file}`);
 
+const childEnv = signingEnv();
 const signtool = findFirst([env("AZURE_SIGNTOOL_PATH"), env("SIGNTOOL_PATH"), ...signtoolCandidates()]);
+if (!signtool) fail("signtool.exe not found; set AZURE_SIGNTOOL_PATH or install Windows SDK Build Tools");
+if (verifyOnly) {
+  for (const file of files) run(signtool, ["verify", "/pa", "/v", file]);
+  process.exit(0);
+}
 const dlib = findFirst([
   env("AZURE_CODESIGN_DLIB_PATH"),
   env("AZURE_ARTIFACT_SIGNING_DLIB_PATH"),
@@ -36,12 +43,10 @@ const dlib = findFirst([
   "C:\\Program Files\\Microsoft Azure Artifact Signing Client Tools\\x64\\Azure.CodeSigning.Dlib.dll",
   "C:\\Program Files (x86)\\Microsoft\\ArtifactSigningClientTools\\bin\\x64\\Azure.CodeSigning.Dlib.dll",
 ]);
-if (!signtool) fail("signtool.exe not found; set AZURE_SIGNTOOL_PATH or install Windows SDK Build Tools");
 if (!dlib) fail("Azure.CodeSigning.Dlib.dll not found; set AZURE_CODESIGN_DLIB_PATH or install Azure Artifact Signing Client Tools");
 
 const tempDir = mkdtempSync(path.join(os.tmpdir(), "right-sign-"));
 const metadata = metadataPath(tempDir);
-const childEnv = signingEnv();
 try {
   for (const file of files) {
     run(signtool, ["sign", "/v", "/fd", "SHA256", "/tr", "http://timestamp.acs.microsoft.com", "/td", "SHA256", "/dlib", dlib, "/dmdf", metadata, file]);

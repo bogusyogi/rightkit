@@ -9,6 +9,7 @@ import { runUploadStateMachine, verifySealedRelease } from "./release-state.mjs"
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLISH_UPDATE = path.join(TOOL_ROOT, "publish-update.mjs");
 const HARDENING = path.join(TOOL_ROOT, "hardeningscan.mjs");
+const SIGN_WINDOWS = path.join(TOOL_ROOT, "sign-windows.mjs");
 const UPLOAD = path.join(TOOL_ROOT, "upload-large.mjs");
 const PUBLIC_BASE = (process.env.RIGHTAPPS_PUBLIC_DOWNLOAD_BASE || "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev").replace(/\/$/, "");
 const API_BASE = (process.env.RIGHTAPPS_API_URL || "https://api.spoares.com").replace(/\/$/, "");
@@ -73,9 +74,7 @@ function verifyPlatformTrust(release) {
   if (platform === "win") {
     for (const artifact of artifacts) {
       const file = path.join(release.sealedDir, artifact.name);
-      const escaped = file.replaceAll("'", "''");
-      const status = commandOutput("powershell", ["-NoProfile", "-Command", `(Get-AuthenticodeSignature -LiteralPath '${escaped}').Status`]);
-      if (status.trim() !== "Valid") throw new Error(`Authenticode verification failed for ${artifact.name}: ${status}`);
+      runChecked(process.execPath, [SIGN_WINDOWS, "--verify-only", file], repoRoot);
     }
   } else {
     for (const artifact of artifacts.filter((file) => /\.dmg$/i.test(file.name))) {

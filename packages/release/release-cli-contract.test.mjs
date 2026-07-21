@@ -10,6 +10,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const cli = path.join(root, "cli", "right-release.mjs");
 const build = path.join(root, "build-release.mjs");
 const upload = path.join(root, "upload-release.mjs");
+const signWindows = path.join(root, "sign-windows.mjs");
 
 test("CLI routes build and release only to the build state machine", () => {
   const source = readFileSync(cli, "utf8");
@@ -40,4 +41,14 @@ test("upload requires an explicit patch or update tier before reading a release"
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /tier is required.*patch\|update/i);
+});
+
+test("Windows upload trust verification uses signtool instead of PowerShell modules", () => {
+  const uploadSource = readFileSync(upload, "utf8");
+  const signingSource = readFileSync(signWindows, "utf8");
+  assert.match(uploadSource, /SIGN_WINDOWS/);
+  assert.match(uploadSource, /--verify-only/);
+  assert.doesNotMatch(uploadSource, /Get-AuthenticodeSignature/);
+  assert.match(signingSource, /verifyOnly/);
+  assert.match(signingSource, /\["verify", "\/pa", "\/v", file\]/);
 });
