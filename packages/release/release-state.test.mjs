@@ -198,6 +198,40 @@ test("a valid sealed release resumes without rebuilding", async () => {
   assert.equal(builds, 0);
 });
 
+test("sealed build resume rejects changed input or cache identity", async () => {
+  const fx = fixture();
+  fx.manifest.inputs = { "src-tauri/Cargo.lock": "old-hash" };
+  fx.manifest.cacheKey = "old-cache";
+  writeFileSync(path.join(fx.sealedDir, "release-manifest.json"), `${JSON.stringify(fx.manifest, null, 2)}\n`);
+
+  await assert.rejects(
+    runBuildStateMachine({
+      root: fx.root,
+      app: fx.manifest.app,
+      version: fx.manifest.version,
+      commit: fx.manifest.commit,
+      platform: fx.manifest.platform,
+      inputHashes: { "src-tauri/Cargo.lock": "new-hash" },
+      cacheKey: fx.manifest.cacheKey,
+      ops: {},
+    }),
+    /sealed release input identity mismatch/i,
+  );
+  await assert.rejects(
+    runBuildStateMachine({
+      root: fx.root,
+      app: fx.manifest.app,
+      version: fx.manifest.version,
+      commit: fx.manifest.commit,
+      platform: fx.manifest.platform,
+      inputHashes: fx.manifest.inputs,
+      cacheKey: "new-cache",
+      ops: {},
+    }),
+    /sealed release cache identity mismatch/i,
+  );
+});
+
 test("manifest or file tampering blocks upload before any mutation", async () => {
   const fx = fixture();
   writeFileSync(fx.installer, "changed");

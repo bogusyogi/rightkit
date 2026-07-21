@@ -42,12 +42,15 @@ for (let i = 0; i < args.length; i += 1) {
 }
 if (platform !== "win" && platform !== "mac") fail("--platform must be win or mac");
 
-const invocationRoot = path.dirname(path.resolve(configName));
+const configPath = path.resolve(configName);
+const invocationRoot = path.dirname(configPath);
 const repoRoot = git(invocationRoot, ["rev-parse", "--show-toplevel"]);
 assertPrimaryReleaseCheckout(repoRoot);
-const relativeConfig = path.relative(repoRoot, path.resolve(configName)).replaceAll("\\", "/");
+const relativeConfig = path.relative(repoRoot, configPath).replaceAll("\\", "/");
 if (relativeConfig.startsWith("../")) fail("release config must live inside the Git repository");
-const vaultRoot = resolveReleaseLayout({ repoRoot, configPath: path.resolve(configName) }).vaultRoot;
+const appRoot = path.dirname(configPath);
+const layout = resolveReleaseLayout({ repoRoot, configPath });
+const vaultRoot = layout.vaultRoot;
 mkdirSync(path.join(vaultRoot, "locks"), { recursive: true });
 const lock = acquireLock(path.join(vaultRoot, "locks", `${platform}.lock.json`));
 let child = null;
@@ -65,31 +68,20 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 
 try {
   throwIfInterrupted();
-  if (!dryRun) git(repoRoot, ["fetch", "origin", "main"]);
-  const commit = git(repoRoot, ["rev-parse", dryRun ? "HEAD" : "origin/main"]);
+  const commit = git(repoRoot, ["rev-parse", "HEAD"]);
   const shortCommit = commit.slice(0, 8);
-  const worktree = path.join(vaultRoot, "worktrees", `${platform}-${shortCommit}`);
-  if (!existsSync(worktree)) {
-    if (dryRun) fail(`dry-run needs an existing worktree: ${worktree}`);
-    mkdirSync(path.dirname(worktree), { recursive: true });
-    runChecked("git", ["worktree", "add", "--detach", worktree, commit], repoRoot);
-  } else if (git(worktree, ["rev-parse", "HEAD"]) !== commit) {
-    fail(`release worktree exists at the wrong commit: ${worktree}`);
-  }
-
-  const worktreeConfigPath = path.join(worktree, relativeConfig);
-  const appRoot = path.dirname(worktreeConfigPath);
-  const layout = resolveReleaseLayout({ repoRoot, configPath: path.resolve(configName) });
-  const config = (await import(`${pathToFileURL(worktreeConfigPath).href}?commit=${commit}`)).default;
+  const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
+  if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
+  const config = (await import(`${pathToFileURL(configPath).href}?commit=${commit}`)).default;
   if (!config?.app || !config?.version) fail("release config must expose app and version");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(config.app) || !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(config.version)) {
     fail("app and version must be safe release-id components");
   }
   const target = config.targets?.[platform];
   if (!target?.package) fail(`${config.app} has no ${platform} package command`);
-  const dirtyInputs = dirtyBuildInputs(repoRoot, repoBuildInputs(repoRoot, invocationRoot, relativeConfig, target.buildInputs ?? config.buildInputs), commit);
+  const requiredInputs = inputPaths(appRoot, configPath, target);
+  const dirtyInputs = dirtyBuildInputs(repoRoot, repoBuildInputs(repoRoot, appRoot, target.buildInputs ?? config.buildInputs, requiredInputs), commit);
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
-  const requiredInputs = inputPaths(appRoot, worktreeConfigPath, target);
   const toolVersions = collectToolVersions(config.packageManager ?? "pnpm");
   const inputHashes = hashInputs(requiredInputs);
   const cargoLock = requiredInputs.find((file) => /Cargo\.lock$/i.test(file));
@@ -141,6 +133,8 @@ try {
     commit,
     platform,
     requiredInputs,
+    inputHashes,
+    cacheKey,
     ops: {
       preflight: async () => {
         throwIfInterrupted();
@@ -168,7 +162,7 @@ try {
         mkdirSync(cacheTarget, { recursive: true });
         if (!existsSync(targetLink)) symlinkSync(cacheTarget, targetLink, process.platform === "win32" ? "junction" : "dir");
         else if (realpathSync(targetLink) !== realpathSync(cacheTarget)) {
-          fail(`worktree target exists and is not the release cache link: ${targetLink}`);
+          fail(`primary checkout target exists and is not the release cache link: ${targetLink}`);
         }
         await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget);
       },
@@ -176,7 +170,7 @@ try {
         throwIfInterrupted();
         await runProgress(
           process.execPath,
-          [WORKER, "--config", worktreeConfigPath, "--platform", platform, "--no-upload"],
+          [WORKER, "--config", configPath, "--platform", platform, "--no-upload"],
           appRoot,
           env,
           [env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
@@ -186,7 +180,7 @@ try {
         checkpoint(stateRoot, "hardened");
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: path.dirname(worktreeConfigPath), sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey });
+        sealRelease({ configRoot: appRoot, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -220,20 +214,19 @@ function inputPaths(appRoot, configPath, target) {
   return required;
 }
 
-function repoBuildInputs(repoRoot, appRoot, relativeConfig, configured) {
+function repoBuildInputs(repoRoot, appRoot, configured, requiredInputs) {
   if (!Array.isArray(configured?.include) || configured.include.length === 0) {
     fail("release config must declare non-empty buildInputs.include paths");
   }
   const appPrefix = path.relative(repoRoot, appRoot).replaceAll("\\", "/");
-  const qualify = (pattern) => [appPrefix, pattern.replaceAll("\\", "/").replace(/^\.\//, "")].filter(Boolean).join("/");
+  const qualify = (pattern) => path.posix.normalize([appPrefix, pattern.replaceAll("\\", "/").replace(/^\.\//, "")].filter(Boolean).join("/"));
+  const required = requiredInputs
+    .map((file) => path.relative(repoRoot, file).replaceAll("\\", "/"))
+    .filter((file) => file && file !== ".." && !file.startsWith("../") && !path.isAbsolute(file));
   return {
-    include: [
-      relativeConfig,
-      qualify("package.json"),
-      qualify("pnpm-lock.yaml"),
-      ...configured.include.map(qualify),
-    ],
+    include: configured.include.map(qualify),
     exclude: (configured.exclude ?? []).map(qualify),
+    required,
     json: Object.fromEntries(Object.entries(configured.json ?? {}).map(([file, fields]) => [qualify(file), fields])),
   };
 }

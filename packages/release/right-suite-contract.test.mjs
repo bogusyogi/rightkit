@@ -32,6 +32,33 @@ const apps = [
   { key: "coderight", root: "coderight/apps/coderight-tauri", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs"] },
 ];
 
+function assertReleasePackageScripts(scripts, label) {
+  for (const platform of ["mac", "win"]) {
+    assert.equal(scripts[`release:build:${platform}`], `right-release build --platform ${platform}`, `${label} must use the tier-neutral ${platform} build entry point`);
+    for (const tier of ["patch", "update"]) {
+      assert.equal(scripts[`release:upload:${tier}:${platform}`], `right-release upload --platform ${platform} --tier ${tier}`, `${label} must select ${tier} only during ${platform} upload`);
+    }
+  }
+
+  const genericTauri = scripts.tauri;
+  if (typeof genericTauri === "string") {
+    assert.doesNotMatch(
+      genericTauri.trim(),
+      /^(?:(?:pnpm|npm)\s+(?:(?:exec|dlx)\s+)?|npx\s+)?(?:(?:\.\/)?node_modules\/\.bin\/)?(?:@tauri-apps\/cli\s+)?tauri(?:\s|$)/,
+      `${label} generic \"tauri\" package script bypasses the RightKit release entry points; use an explicitly named dev, debug, unsigned, or local command instead`,
+    );
+  }
+}
+
+function assertMacPackageEntry(packageCommand, scripts, label) {
+  assert.equal(packageCommand.cmd, "pnpm", `${label} must use the shared pnpm package entry point`);
+  assert.deepEqual(packageCommand.args, ["run", "rightkit:package:mac"], `${label} R2 release must use the dedicated signed and notarized macOS package entry point`);
+  const implementation = scripts["rightkit:package:mac"];
+  assert.equal(typeof implementation, "string", `${label} must define rightkit:package:mac`);
+  assert.doesNotMatch(implementation, /\bright-release\b/, `${label} rightkit:package:mac must package directly instead of recursing into the release build`);
+  assert.doesNotMatch(implementation, /\bpnpm(?:\s+run)?\s+rightkit:package:mac\b/, `${label} rightkit:package:mac must not recurse into itself`);
+}
+
 function resolveCargoVersionContract(versionManifest, canonicalVersions) {
   const consumer = new Map(Object.entries(versionManifest.cargo ?? {}));
   const staged = new Map(Object.entries(versionManifest.stagedCargo ?? {}));
@@ -314,10 +341,58 @@ test("Cargo version contract rejects staged versions that mismatch canonical man
   );
 });
 
+test("release package scripts use tier-neutral builds and tiered uploads", () => {
+  const scripts = {
+    "release:build:mac": "right-release build --platform mac",
+    "release:build:win": "right-release build --platform win",
+    "release:upload:patch:mac": "right-release upload --platform mac --tier patch",
+    "release:upload:patch:win": "right-release upload --platform win --tier patch",
+    "release:upload:update:mac": "right-release upload --platform mac --tier update",
+    "release:upload:update:win": "right-release upload --platform win --tier update",
+  };
+  assert.doesNotThrow(() => assertReleasePackageScripts(scripts, "fixture"));
+});
+
+test("release package scripts reject a generic direct Tauri alias but allow named local commands", () => {
+  const scripts = {
+    "release:build:mac": "right-release build --platform mac",
+    "release:build:win": "right-release build --platform win",
+    "release:upload:patch:mac": "right-release upload --platform mac --tier patch",
+    "release:upload:patch:win": "right-release upload --platform win --tier patch",
+    "release:upload:update:mac": "right-release upload --platform mac --tier update",
+    "release:upload:update:win": "right-release upload --platform win --tier update",
+    "tauri:dev": "tauri dev",
+    "mac:build:debug": "tauri build --debug",
+    "build:win:unsigned": "tauri build --bundles nsis --no-sign",
+    "cargo:check": "cargo check --locked",
+  };
+  assert.doesNotThrow(() => assertReleasePackageScripts(scripts, "fixture"));
+  for (const genericTauri of ["tauri", "pnpm exec tauri", "pnpm dlx tauri", "./node_modules/.bin/tauri"]) {
+    assert.throws(
+      () => assertReleasePackageScripts({ ...scripts, tauri: genericTauri }, "fixture"),
+      /generic \"tauri\" package script bypasses/i,
+      genericTauri,
+    );
+  }
+});
+
+test("mac release config uses a dedicated non-recursive package entry point", () => {
+  const command = { cmd: "pnpm", args: ["run", "rightkit:package:mac"] };
+  assert.doesNotThrow(() => assertMacPackageEntry(command, { "rightkit:package:mac": "node scripts/mac-dmg.mjs --notarize" }, "fixture"));
+  assert.throws(
+    () => assertMacPackageEntry(command, { "rightkit:package:mac": "right-release build --platform mac" }, "fixture"),
+    /instead of recursing into the release build/i,
+  );
+  assert.throws(
+    () => assertMacPackageEntry(command, { "rightkit:package:mac": "pnpm run rightkit:package:mac" }, "fixture"),
+    /must not recurse into itself/i,
+  );
+});
+
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.39");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.40");
   assert.equal(versions.npm["@rightkit/legal"], "0.2.0");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
@@ -399,14 +474,7 @@ for (const app of apps) {
     assert.equal(pkg.scripts["release:doctor"], "right-release doctor");
     assert.equal(pkg.scripts["release:mac"], undefined, "tierless release entry points are forbidden");
     assert.equal(pkg.scripts["release:win"], undefined, "tierless release entry points are forbidden");
-    assert.equal(pkg.scripts["release:patch:mac"], "right-release --platform mac --tier patch");
-    assert.equal(pkg.scripts["release:patch:win"], "right-release --platform win --tier patch");
-    assert.equal(pkg.scripts["release:update:mac"], "right-release --platform mac --tier update");
-    assert.equal(pkg.scripts["release:update:win"], "right-release --platform win --tier update");
-    assert.equal(pkg.scripts["publish:patch:mac"], "right-release publish --platform mac --tier patch");
-    assert.equal(pkg.scripts["publish:patch:win"], "right-release publish --platform win --tier patch");
-    assert.equal(pkg.scripts["publish:update:mac"], "right-release publish --platform mac --tier update");
-    assert.equal(pkg.scripts["publish:update:win"], "right-release publish --platform win --tier update");
+    assertReleasePackageScripts(pkg.scripts, app.key);
     assert.equal(pkg.scripts["deps:check"], "right-release deps --check");
     assert.equal(pkg.scripts["deps:update"], "right-release deps --update");
     assert.ok(!Object.entries(pkg.scripts).some(([name, command]) => /^(?:release|publish):/i.test(name) && /unsigned|--no-sign/i.test(command)), `${app.key} release/publish commands must not expose an unsigned macOS DMG mode`);
@@ -431,8 +499,7 @@ for (const app of apps) {
         assert.match(updater.key, /\/updates\/(mac|windows)\/current\//, `${app.key} ${platform} updaters must replace the stable current R2 object`);
       }
     }
-    assert.equal(config.targets.mac.package.cmd, "pnpm", `${app.key} must use the shared pnpm package entry point`);
-    assert.deepEqual(config.targets.mac.package.args, ["run", "mac:dmg:notarized"], `${app.key} R2 release must use the signed and notarized macOS package entry point`);
+    assertMacPackageEntry(config.targets.mac.package, pkg.scripts, app.key);
     for (const installer of config.targets.mac.installer.artifacts) {
       assert.equal(path.dirname(installer.file), ".", `${app.key} macOS installer must be copied to the app package root before upload`);
     }

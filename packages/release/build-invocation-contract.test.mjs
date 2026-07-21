@@ -53,15 +53,28 @@ test("allows release invocation from the primary Git checkout", () => {
   assert.doesNotThrow(() => assertPrimaryReleaseCheckout(primary));
 });
 
-test("reports dirty files that can change the packaged app", () => {
+test("rejects a detached HEAD even in the primary Git checkout", () => {
+  const primary = makeRepo();
+  git(primary, "checkout", "--detach");
+
+  assert.throws(
+    () => assertPrimaryReleaseCheckout(primary),
+    /detached HEAD is forbidden/i,
+  );
+});
+
+test("reports a dirty tracked file declared as a build input", () => {
   const primary = makeRepo();
   writeFileSync(path.join(primary, "src", "app.js"), "export const app = false;\n");
+
+  assert.deepEqual(dirtyBuildInputs(primary, buildInputs), ["src/app.js"]);
+});
+
+test("reports an untracked file declared as a build input", () => {
+  const primary = makeRepo();
   writeFileSync(path.join(primary, "src", "new-runtime.js"), "export {};\n");
 
-  assert.deepEqual(dirtyBuildInputs(primary, buildInputs), [
-    "src/app.js",
-    "src/new-runtime.js",
-  ]);
+  assert.deepEqual(dirtyBuildInputs(primary, buildInputs), ["src/new-runtime.js"]);
 });
 
 test("ignores dirty files outside the packaged app input set", () => {
@@ -71,6 +84,21 @@ test("ignores dirty files outside the packaged app input set", () => {
   writeFileSync(path.join(primary, "scratch.txt"), "evaluation output\n");
 
   assert.deepEqual(dirtyBuildInputs(primary, buildInputs), []);
+});
+
+test("required release metadata cannot be hidden by build-input exclusions", () => {
+  const primary = makeRepo();
+  writeFileSync(path.join(primary, "package.json"), "{\"version\":\"2.0.0\"}\n");
+
+  assert.deepEqual(dirtyBuildInputs(primary, {
+    ...buildInputs,
+    exclude: [...buildInputs.exclude, "package.json"],
+    required: ["package.json"],
+  }), ["package.json"]);
+  assert.deepEqual(dirtyBuildInputs(primary, {
+    include: ["package.json"],
+    required: ["package.json"],
+  }), ["package.json"]);
 });
 
 test("checks only build-relevant fields in mixed-purpose JSON manifests", () => {

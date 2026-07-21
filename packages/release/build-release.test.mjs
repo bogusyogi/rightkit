@@ -22,3 +22,23 @@ test("macOS builds default to Cache V2 while explicit legacy mode remains availa
   assert.match(source, /assertPrimaryReleaseCheckout\(repoRoot\)/);
   assert.match(source, /dirtyBuildInputs\(repoRoot/);
 });
+
+test("production builds package from the real primary app checkout", () => {
+  assert.match(source, /const configPath = path\.resolve\(configName\)/);
+  assert.match(source, /const appRoot = path\.dirname\(configPath\)/);
+  assert.match(source, /\[WORKER, "--config", configPath, "--platform", platform, "--no-upload"\]/);
+  assert.match(source, /sealRelease\(\{ configRoot: appRoot,/);
+});
+
+test("production builds never create or use an internal Git worktree", () => {
+  assert.doesNotMatch(source, /git", \["worktree", "add"/);
+  assert.doesNotMatch(source, /path\.join\(vaultRoot, "worktrees"/);
+  assert.doesNotMatch(source, /worktreeConfigPath/);
+});
+
+test("dirty release config is rejected before the config module is imported", () => {
+  const guard = source.indexOf("dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit)");
+  const imported = source.indexOf("await import(");
+  assert.ok(guard >= 0, "config cleanliness guard must exist");
+  assert.ok(guard < imported, "config cleanliness guard must run before module import");
+});

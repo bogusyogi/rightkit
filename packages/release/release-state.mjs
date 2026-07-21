@@ -111,6 +111,8 @@ export async function runBuildStateMachine({
   commit,
   platform,
   requiredInputs = [],
+  inputHashes,
+  cacheKey,
   ops,
 }) {
   const releaseId = `${app}-${version}-${commit.slice(0, 8)}`;
@@ -121,6 +123,11 @@ export async function runBuildStateMachine({
     if (sealed.manifest.app !== app || sealed.manifest.version !== version || sealed.manifest.commit !== commit) {
       throw new Error(`sealed release identity mismatch: ${releaseId}`);
     }
+    if (sealed.manifest.platform !== platform) throw new Error(`sealed release platform identity mismatch: ${releaseId}`);
+    if (inputHashes && JSON.stringify(sealed.manifest.inputs) !== JSON.stringify(inputHashes)) {
+      throw new Error(`sealed release input identity mismatch: ${releaseId}`);
+    }
+    if (cacheKey && sealed.manifest.cacheKey !== cacheKey) throw new Error(`sealed release cache identity mismatch: ${releaseId}`);
     return { status: "sealed", resumed: true, releaseId, sealedDir };
   }
   await ops.preflight?.({ root, app, version, commit, platform, requiredInputs, releaseId });
