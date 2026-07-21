@@ -42,3 +42,9 @@ test("dirty release config is rejected before the config module is imported", ()
   assert.ok(guard >= 0, "config cleanliness guard must exist");
   assert.ok(guard < imported, "config cleanliness guard must run before module import");
 });
+
+test("shared Cache V2 target bridge is owned by a finally-cleaned lifecycle", () => {
+  assert.match(source, /createTargetBridge\(\{ link: targetLink, target: env\.CARGO_TARGET_DIR \}\)/);
+  assert.match(source, /targetBridge\.run\(.*runBuildStateMachine/s);
+  assert.match(source, /if \(cacheMode === "shared"\) targetBridge\.ensure\(\)/);
+});

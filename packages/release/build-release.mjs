@@ -23,6 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs } from "./release-invocation.mjs";
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
+import { createTargetBridge } from "./target-bridge.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
@@ -125,8 +126,10 @@ try {
     tools: toolVersions,
     createdAt: new Date().toISOString(),
   };
+  const targetLink = path.join(appRoot, "src-tauri", "target");
+  const targetBridge = createTargetBridge({ link: targetLink, target: env.CARGO_TARGET_DIR });
 
-  const result = await runBuildStateMachine({
+  const result = await targetBridge.run(async () => runBuildStateMachine({
     root: repoRoot,
     app: config.app,
     version: config.version,
@@ -158,9 +161,9 @@ try {
       prepare: async () => {
         throwIfInterrupted();
         const cacheTarget = env.CARGO_TARGET_DIR;
-        const targetLink = path.join(appRoot, "src-tauri", "target");
         mkdirSync(cacheTarget, { recursive: true });
-        if (!existsSync(targetLink)) symlinkSync(cacheTarget, targetLink, process.platform === "win32" ? "junction" : "dir");
+        if (cacheMode === "shared") targetBridge.ensure();
+        else if (!existsSync(targetLink)) symlinkSync(cacheTarget, targetLink, process.platform === "win32" ? "junction" : "dir");
         else if (realpathSync(targetLink) !== realpathSync(cacheTarget)) {
           fail(`primary checkout target exists and is not the release cache link: ${targetLink}`);
         }
@@ -186,7 +189,7 @@ try {
         checkpoint(stateRoot, "sealed");
       },
     },
-  });
+  }));
   if (cacheMode === "shared") {
     const snapshot = inspectCache({ cacheRoot: sharedCacheRoot });
     const plan = planCachePrune({ snapshot, policy: readCachePolicy(process.env), protectedEntryIds: new Set([sharedLayout.id]) });
