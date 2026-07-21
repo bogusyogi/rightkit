@@ -20,6 +20,7 @@ import {
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertPrimaryReleaseCheckout, dirtyBuildInputs } from "./release-invocation.mjs";
 import { cacheFingerprint, commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, watchProgress } from "./release-state.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,7 @@ if (platform !== "win" && platform !== "mac") fail("--platform must be win or ma
 
 const invocationRoot = path.dirname(path.resolve(configName));
 const repoRoot = git(invocationRoot, ["rev-parse", "--show-toplevel"]);
+assertPrimaryReleaseCheckout(repoRoot);
 const relativeConfig = path.relative(repoRoot, path.resolve(configName)).replaceAll("\\", "/");
 if (relativeConfig.startsWith("../")) fail("release config must live inside the Git repository");
 const vaultRoot = resolveReleaseLayout({ repoRoot, configPath: path.resolve(configName) }).vaultRoot;
@@ -80,6 +82,10 @@ try {
   }
   const target = config.targets?.[platform];
   if (!target?.package) fail(`${config.app} has no ${platform} package command`);
+  const dirtyInputs = dirtyBuildInputs(repoRoot, repoBuildInputs(repoRoot, invocationRoot, relativeConfig, target.buildInputs ?? config.buildInputs), commit);
+  if (dirtyInputs.length > 0) {
+    fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
+  }
   const requiredInputs = inputPaths(appRoot, worktreeConfigPath, target);
   const toolVersions = collectToolVersions(config.packageManager ?? "pnpm");
   const inputHashes = hashInputs(requiredInputs);
@@ -180,6 +186,24 @@ function inputPaths(appRoot, configPath, target) {
   const required = [...new Set(candidates)];
   for (const file of required) if (!existsSync(file)) fail(`missing required release input: ${file}`);
   return required;
+}
+
+function repoBuildInputs(repoRoot, appRoot, relativeConfig, configured) {
+  if (!Array.isArray(configured?.include) || configured.include.length === 0) {
+    fail("release config must declare non-empty buildInputs.include paths");
+  }
+  const appPrefix = path.relative(repoRoot, appRoot).replaceAll("\\", "/");
+  const qualify = (pattern) => [appPrefix, pattern.replaceAll("\\", "/").replace(/^\.\//, "")].filter(Boolean).join("/");
+  return {
+    include: [
+      relativeConfig,
+      qualify("package.json"),
+      qualify("pnpm-lock.yaml"),
+      ...configured.include.map(qualify),
+    ],
+    exclude: (configured.exclude ?? []).map(qualify),
+    json: Object.fromEntries(Object.entries(configured.json ?? {}).map(([file, fields]) => [qualify(file), fields])),
+  };
 }
 
 function hashInputs(files) {

@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, wr
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { runUploadStateMachine, verifySealedRelease } from "./release-state.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,7 @@ if (!releaseId) fail("--release is required");
 if (platform !== "win" && platform !== "mac") fail("--platform must be win or mac");
 
 const repoRoot = git(process.cwd(), ["rev-parse", "--show-toplevel"]);
+assertPrimaryReleaseCheckout(repoRoot);
 const platformDir = platform === "win" ? "windows" : "mac";
 const sealedDir = path.join(repoRoot, ".right-release", "sealed", releaseId, platformDir);
 const sealed = verifySealedRelease(sealedDir);

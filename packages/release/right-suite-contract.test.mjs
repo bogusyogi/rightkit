@@ -317,7 +317,7 @@ test("Cargo version contract rejects staged versions that mismatch canonical man
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.37");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.38");
   assert.equal(versions.npm["@rightkit/legal"], "0.2.0");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");

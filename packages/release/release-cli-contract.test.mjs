@@ -34,6 +34,18 @@ test("build is tier-neutral and rejects a tier before touching a repository", ()
   assert.match(result.stderr, /build is tier-neutral/i);
 });
 
+test("build enforces primary-checkout and build-input cleanliness guards", () => {
+  const source = readFileSync(build, "utf8");
+  assert.match(source, /assertPrimaryReleaseCheckout\(repoRoot\)/);
+  assert.match(source, /dirtyBuildInputs\(repoRoot,/);
+  assert.match(source, /dirty files can change the packaged app/i);
+});
+
+test("upload enforces the same primary-checkout vault", () => {
+  const source = readFileSync(upload, "utf8");
+  assert.match(source, /assertPrimaryReleaseCheckout\(repoRoot\)/);
+});
+
 test("upload requires an explicit patch or update tier before reading a release", () => {
   const result = spawnSync(process.execPath, [upload, "--platform", "win", "--release", "fixture-1.0.0-deadbeef"], {
     cwd: mkdtempSync(path.join(os.tmpdir(), "right-upload-cli-")),
