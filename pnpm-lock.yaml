@@ -11,6 +11,8 @@ importers:
 
   .: {}
 
+  packages/agent-room-mcp: {}
+
   packages/legal:
     devDependencies:
       '@types/node':
