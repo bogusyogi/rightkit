@@ -24,6 +24,7 @@ import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInpu
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
+import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
@@ -80,6 +81,7 @@ try {
   }
   const target = config.targets?.[platform];
   if (!target?.package) fail(`${config.app} has no ${platform} package command`);
+  if (platform === "win") assertNsisInPlaceUpgradeContract(appRoot, target.nsisUpgradeContract);
   const { requiredInputs, buildInputs } = resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target });
   const dirtyInputs = dirtyBuildInputs(repoRoot, buildInputs, commit);
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
