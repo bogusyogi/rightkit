@@ -432,7 +432,7 @@ test("every app platform requires effective non-empty build inputs", () => {
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
-  assert.equal(versions.npm["@rightkit/release"], "0.2.43");
+  assert.equal(versions.npm["@rightkit/release"], "0.2.44");
   assert.equal(versions.npm["@rightkit/legal"], "0.2.0");
   assert.equal(versions.npm["@rightkit/license"], "0.1.5");
   assert.equal(versions.npm["@rightkit/logs"], "0.1.3");
@@ -444,11 +444,11 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/license": "0.1.6",
   });
   assert.deepEqual(versions.legacyNpm, {
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43"],
   });
   assert.ok(
     new Set([versions.npm["@rightkit/release"], ...versions.legacyNpm["@rightkit/release"]]).has("0.2.42"),
-    "the previously published @rightkit/release 0.2.42 must remain accepted during the 0.2.43 rollout",
+    "the previously published @rightkit/release 0.2.42 must remain accepted during the 0.2.44 rollout",
   );
   const licensePackage = JSON.parse(readFileSync(
     path.join(workspace, "tools/rightkit/packages/license/package.json"),

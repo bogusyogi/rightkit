@@ -150,6 +150,31 @@ test("missing runtime input fails before build preparation and cannot touch an e
   assert.equal(readFileSync(fx.installer, "utf8"), "signed-installer");
 });
 
+test("a version already sealed from another commit cannot be rebuilt", async () => {
+  const fx = fixture();
+  let prepared = false;
+  await assert.rejects(
+    runBuildStateMachine({
+      root: fx.root,
+      app: "fixture",
+      version: fx.manifest.version,
+      commit: "1234567890abcdef",
+      platform: "win",
+      requiredInputs: [],
+      ops: {
+        preflight: async () => {},
+        prepare: async () => { prepared = true; },
+        build: async () => {},
+        sign: async () => {},
+        harden: async () => {},
+        seal: async () => {},
+      },
+    }),
+    /version 1\.2\.3 is already sealed from commit abcdef1234567890/,
+  );
+  assert.equal(prepared, false);
+});
+
 test("an interrupted build leaves every previously sealed release untouched", async () => {
   const fx = fixture();
   await assert.rejects(

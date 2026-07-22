@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, watch } from "node:fs";
+import { existsSync, readFileSync, readdirSync, watch } from "node:fs";
 import path from "node:path";
 import { DEFAULT_SCCACHE_MAX_BYTES, resolveCacheLayout } from "./cache-policy.mjs";
 
@@ -118,6 +118,24 @@ export async function runBuildStateMachine({
   const releaseId = `${app}-${version}-${commit.slice(0, 8)}`;
   const platformDir = platform === "win" ? "windows" : platform === "mac" ? "mac" : platform;
   const sealedDir = path.join(root, ".right-release", "sealed", releaseId, platformDir);
+  const sealedRoot = path.join(root, ".right-release", "sealed");
+  if (existsSync(sealedRoot)) {
+    for (const releaseEntry of readdirSync(sealedRoot, { withFileTypes: true })) {
+      if (!releaseEntry.isDirectory()) continue;
+      const releaseRoot = path.join(sealedRoot, releaseEntry.name);
+      for (const platformEntry of readdirSync(releaseRoot, { withFileTypes: true })) {
+        if (!platformEntry.isDirectory()) continue;
+        const manifestPath = path.join(releaseRoot, platformEntry.name, "release-manifest.json");
+        if (!existsSync(manifestPath)) continue;
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+        if (manifest.app === app && manifest.version === version && manifest.commit !== commit) {
+          throw new Error(
+            `${app} version ${version} is already sealed from commit ${manifest.commit} (${manifest.releaseId}); bump the version before rebuilding`,
+          );
+        }
+      }
+    }
+  }
   if (existsSync(path.join(sealedDir, "release-manifest.json"))) {
     const sealed = verifySealedRelease(sealedDir);
     if (sealed.manifest.app !== app || sealed.manifest.version !== version || sealed.manifest.commit !== commit) {
