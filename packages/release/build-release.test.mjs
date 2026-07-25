@@ -45,7 +45,11 @@ test("dirty release config is rejected before the config module is imported", ()
 });
 
 test("shared Cache V2 target bridge is owned by a finally-cleaned lifecycle", () => {
-  assert.match(source, /createTargetBridge\(\{ link: targetLink, target: env\.CARGO_TARGET_DIR \}\)/);
+  assert.match(source, /createTargetBridge\(\{\s*link: targetLink,\s*target: env\.CARGO_TARGET_DIR,/);
+  // ownedRoot must stay wired: without it the bridge refuses every link left by
+  // an earlier fingerprint, so any Cargo.lock or version bump hard-stops the
+  // next build until someone deletes the link by hand.
+  assert.match(source, /ownedRoot: path\.dirname\(env\.CARGO_TARGET_DIR\)/);
   assert.match(source, /targetBridge\.run\(.*runBuildStateMachine/s);
   assert.match(source, /if \(cacheMode === "shared"\) targetBridge\.ensure\(\)/);
 });

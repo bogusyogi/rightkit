@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -152,4 +152,55 @@ test("cleanup is idempotent and reports process errors without masking a build f
   );
   assert.equal(lstatSync(fx.link).isSymbolicLink(), true);
   unlinkSync(fx.link);
+});
+
+test("a stale link from an earlier fingerprint is repointed, not a hard stop", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "bridge-stale-"));
+  const ownedRoot = path.join(dir, "cache", "heardright");
+  const oldTarget = path.join(ownedRoot, "aaaaaaaa");
+  const newTarget = path.join(ownedRoot, "bbbbbbbb");
+  mkdirSync(oldTarget, { recursive: true });
+  const link = path.join(dir, "target");
+  symlinkSync(oldTarget, link, "junction");
+
+  const bridge = createTargetBridge({ link, target: newTarget, ownedRoot });
+  const result = bridge.ensure();
+
+  assert.equal(result.created, true);
+  assert.equal(realpathSync(link), realpathSync(newTarget));
+  // The directory the stale link pointed at must survive: it is cache, and the
+  // link was only ever a pointer to it.
+  assert.equal(existsSync(oldTarget), true);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("a link pointing outside the owned root is still refused", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "bridge-foreign-"));
+  const ownedRoot = path.join(dir, "cache", "heardright");
+  const foreign = path.join(dir, "somewhere-else");
+  const newTarget = path.join(ownedRoot, "bbbbbbbb");
+  mkdirSync(foreign, { recursive: true });
+  const link = path.join(dir, "target");
+  symlinkSync(foreign, link, "junction");
+
+  const bridge = createTargetBridge({ link, target: newTarget, ownedRoot });
+  assert.throws(() => bridge.ensure(), /refusing to replace it/);
+  assert.equal(realpathSync(link), realpathSync(foreign));
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("a dangling link whose cache entry was pruned is reclaimed", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "bridge-dangling-"));
+  const ownedRoot = path.join(dir, "cache", "heardright");
+  const pruned = path.join(ownedRoot, "aaaaaaaa");
+  const newTarget = path.join(ownedRoot, "bbbbbbbb");
+  mkdirSync(pruned, { recursive: true });
+  const link = path.join(dir, "target");
+  symlinkSync(pruned, link, "junction");
+  rmSync(pruned, { recursive: true, force: true });
+
+  const bridge = createTargetBridge({ link, target: newTarget, ownedRoot });
+  assert.equal(bridge.ensure().created, true);
+  assert.equal(realpathSync(link), realpathSync(newTarget));
+  rmSync(dir, { recursive: true, force: true });
 });

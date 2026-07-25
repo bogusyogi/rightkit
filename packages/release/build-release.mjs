@@ -173,7 +173,14 @@ try {
     createdAt: new Date().toISOString(),
   };
   const targetLink = path.join(appRoot, "src-tauri", "target");
-  const targetBridge = createTargetBridge({ link: targetLink, target: env.CARGO_TARGET_DIR });
+  // ownedRoot is the per-app cache parent holding every fingerprint dir, so a
+  // link left by an earlier fingerprint is recognised as ours and repointed
+  // instead of hard-stopping the build.
+  const targetBridge = createTargetBridge({
+    link: targetLink,
+    target: env.CARGO_TARGET_DIR,
+    ownedRoot: path.dirname(env.CARGO_TARGET_DIR),
+  });
 
   const result = await targetBridge.run(async () => runBuildStateMachine({
     root: repoRoot,
