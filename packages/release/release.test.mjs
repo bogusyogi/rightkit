@@ -238,7 +238,10 @@ test("doctor rejects a selected target with missing or empty buildInputs.include
 test("doctor passes a clean selected target", () => {
   const result = runDoctor(fixture());
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /right-release 0\.2\.45/);
+  // Derived from the version manifest, not hardcoded: a literal here has to be
+  // hand-edited on every bump and fails the suite when someone forgets.
+  const expected = versions.stagedNpm?.["@rightkit/release"] ?? versions.npm["@rightkit/release"];
+  assert.match(result.stdout, new RegExp(`right-release ${expected.replace(/\./g, "\\.")}`));
 });
 
 test("doctor permits unrelated dirt", () => {

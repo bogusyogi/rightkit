@@ -25,6 +25,31 @@ import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBui
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
+import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
+
+/** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
+function buildPreflight({ config, appRoot, repoRoot, platform }) {
+  let version;
+  try {
+    version = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8")).version;
+  } catch {
+    version = undefined;
+  }
+  return collectPreflight({
+    platform,
+    appRoot,
+    repoRoot,
+    app: config.app,
+    // The version check is the doctor's job: by the time `build` runs, seal
+    // collision is already enforced downstream, and duplicating it here would
+    // reject a legitimate resume of an in-flight build.
+    version: undefined,
+    cargoLockPaths: [
+      path.join(appRoot, "src-tauri", "Cargo.lock"),
+      path.join(appRoot, "Cargo.lock"),
+    ],
+  });
+}
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
@@ -98,9 +123,28 @@ try {
     ? resolveCacheLayout({ cacheRoot: sharedCacheRoot, platform, architecture: cacheIdentity.architecture, app: config.app, fingerprint: cacheKey, kind: "release" })
     : undefined;
   if (cacheMode === "shared") assertSccacheVersion(toolVersions.sccache);
+
+  // Preflight BEFORE any compile. These preconditions used to be discovered one
+  // per build cycle, minutes deep, with errors that named a symptom instead of a
+  // cause. Blocking problems stop here, in seconds, naming the fix.
+  const preflight = buildPreflight({ config, appRoot, repoRoot: layout.repoRoot, platform });
+  const preflightBlockers = preflightFailures(preflight);
+  if (preflightBlockers.length > 0) {
+    fail(`preflight found ${preflightBlockers.length} blocking problem(s):\n${formatPreflight(preflightBlockers)}`);
+  }
+  for (const check of preflight) {
+    if (check.status !== "ok") console.error(`[right-release] preflight ${check.name}: ${check.detail}`);
+  }
+
+  // A tool being INSTALLED is not the same as it being the one PATH picks. The
+  // vendored-OpenSSL build shells out to `perl`, and under Git Bash/MSYS that
+  // resolves to MSYS Perl, which cannot configure OpenSSL. Put the real Windows
+  // Perl first so the build behaves the same from any shell.
+  const pathPrefix = buildPathPrefix({ platform });
   const env = {
     ...process.env,
     ...releaseEnvironment({ root: vaultRoot, cacheRoot: sharedCacheRoot, platform, architecture: cacheIdentity.architecture, app: config.app, cacheKey, kind: "release", appRoot, mode: cacheMode }),
+    ...(pathPrefix ? { PATH: `${pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
     RIGHT_RELEASE_REPO_ROOT: layout.repoRoot,
     RIGHT_RELEASE_APP_ROOT: layout.appRoot,
   };

@@ -8,6 +8,7 @@ import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+import { collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -98,6 +99,34 @@ if (opts.platform === "win" && !target.sign?.files?.length) {
   fail(`${config.app ?? "app"} win must declare sign.files for the signed release pipeline`);
 }
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
+/**
+ * Assemble preflight inputs from the app's own files. Kept here (not in
+ * preflight.mjs) so the check module stays free of release.mjs's config shape.
+ */
+function releasePreflight({ config, root, repoRoot, platform }) {
+  let version;
+  try {
+    version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
+  } catch {
+    version = undefined;
+  }
+  // Every Cargo.lock the build compiles from; a vendored-OpenSSL edge in any of
+  // them means the build needs a real Windows Perl.
+  const cargoLockPaths = [
+    path.join(root, "src-tauri", "Cargo.lock"),
+    path.join(root, "Cargo.lock"),
+    ...(config.cargoLocks ?? []).map((entry) => path.resolve(root, entry)),
+  ];
+  return collectPreflight({
+    platform,
+    appRoot: root,
+    repoRoot,
+    app: config.app,
+    version,
+    cargoLockPaths,
+  });
+}
+
 if (opts.doctor) {
   const { buildInputs } = resolveReleaseBuildInputs({
     repoRoot: doctorInvocation.repoRoot,
@@ -126,6 +155,16 @@ if (opts.doctor) {
   }
   if (target.sign?.files?.length) console.log(`sign: ${target.sign.files.join(", ")}`);
   if (target.publishBlocked) console.log(`publishBlocked: ${target.publishBlocked}`);
+
+  // Config above, MACHINE below. Printing config never told anyone whether this
+  // box could finish a build; these checks do.
+  const checks = releasePreflight({ config, root, repoRoot: doctorInvocation.repoRoot, platform: opts.platform });
+  console.log("preflight:");
+  console.log(formatPreflight(checks));
+  const failures = preflightFailures(checks);
+  if (failures.length > 0) {
+    fail(`preflight found ${failures.length} blocking problem(s); the build would fail on these`);
+  }
   process.exit(0);
 }
 
