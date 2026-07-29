@@ -57,7 +57,7 @@ function migrationFixture() {
 }
 
 test("cache roots are platform-native and overrides must be absolute", () => {
-  assert.equal(resolveSharedCacheRoot({ platform: "mac", home: "/Users/test", env: {} }), "/Users/test/Library/Caches/RightSuite/release");
+  assert.throws(() => resolveSharedCacheRoot({ platform: "mac", home: "/Users/test", env: {} }), /RIGHT_RELEASE_CACHE_ROOT is required/);
   assert.equal(resolveSharedCacheRoot({ platform: "win", env: { LOCALAPPDATA: "C:/Users/test/AppData/Local" } }), "C:\\Users\\test\\AppData\\Local\\RightSuite\\Cache\\release");
   assert.equal(resolveSharedCacheRoot({ platform: "linux", home: "/home/test", xdgCacheHome: "/tmp/xdg", env: {} }), "/tmp/xdg/rightsuite/release");
   assert.equal(resolveSharedCacheRoot({ platform: "mac", env: { RIGHT_RELEASE_CACHE_ROOT: "/tmp/cache" } }), "/tmp/cache");

@@ -35,7 +35,9 @@ export function resolveSharedCacheRoot({ platform = process.platform, env = proc
     if (!isAbsoluteForPlatform(override, platform)) throw new Error("RIGHT_RELEASE_CACHE_ROOT must be an absolute path");
     return resolveForPlatform(override, platform);
   }
-  if (platform === "darwin" || platform === "mac") return path.posix.join(home, "Library", "Caches", "RightSuite", "release");
+  if (platform === "darwin" || platform === "mac") {
+    throw new Error("RIGHT_RELEASE_CACHE_ROOT is required on macOS; set it to external storage");
+  }
   if (platform === "win32" || platform === "win") {
     const local = env.LOCALAPPDATA;
     if (!local || !isAbsoluteForPlatform(local, platform)) throw new Error("LOCALAPPDATA must be an absolute path for the RightSuite cache");
