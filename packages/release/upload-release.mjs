@@ -67,8 +67,8 @@ await runUploadStateMachine({
     discardBackup: async () => rmSync(backupRoot, { recursive: true, force: true }),
   },
 });
-writeJson(verifiedMarker, { schema: 1, releaseId, platform, tier, verifiedAt: new Date().toISOString() });
-console.log(`right-release upload: verified ${releaseId} tier=${tier}`);
+if (!dryRun) writeJson(verifiedMarker, { schema: 1, releaseId, platform, tier, verifiedAt: new Date().toISOString() });
+console.log(`right-release upload: ${dryRun ? "dry-run " : ""}verified ${releaseId} tier=${tier}`);
 
 function verifyPlatformTrust(release) {
   if (dryRun) return;

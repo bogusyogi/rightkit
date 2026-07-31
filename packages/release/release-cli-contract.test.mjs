@@ -25,6 +25,11 @@ test("CLI routes upload and legacy publish only to the upload state machine", ()
   assert.doesNotMatch(source, /first === "publish"[\s\S]{0,500}run\("release\.mjs"/);
 });
 
+test("upload dry-run cannot write a verified marker", () => {
+  const source = readFileSync(upload, "utf8");
+  assert.match(source, /if \(!dryRun\)\s+writeJson\(verifiedMarker,/);
+});
+
 test("build is tier-neutral and rejects a tier before touching a repository", () => {
   const result = spawnSync(process.execPath, [build, "--platform", "win", "--tier", "patch"], {
     cwd: mkdtempSync(path.join(os.tmpdir(), "right-build-cli-")),
