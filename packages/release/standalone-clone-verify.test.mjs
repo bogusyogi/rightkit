@@ -22,7 +22,7 @@ test("standalone verifier clones, installs, doctors from a nested app root, and 
   writeFileSync(path.join(source, "apps", "desktop", "package.json"), JSON.stringify({
     name: "standalone-fixture",
     private: true,
-    packageManager: "pnpm@11.12.0",
+    packageManager: "pnpm@11.17.0",
     scripts: { "release:doctor": "node doctor.mjs" },
   }), "utf8");
   writeFileSync(path.join(source, "apps", "desktop", "pnpm-lock.yaml"), "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\nimporters:\n  .: {}\n", "utf8");

@@ -28,7 +28,7 @@ import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 
 /** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
-function buildPreflight({ config, appRoot, repoRoot, platform }) {
+function buildPreflight({ config, configPath, appRoot, repoRoot, platform }) {
   let version;
   try {
     version = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8")).version;
@@ -40,6 +40,7 @@ function buildPreflight({ config, appRoot, repoRoot, platform }) {
     appRoot,
     repoRoot,
     app: config.app,
+    configPath,
     // The version check is the doctor's job: by the time `build` runs, seal
     // collision is already enforced downstream, and duplicating it here would
     // reject a legitimate resume of an in-flight build.
@@ -127,7 +128,7 @@ try {
   // Preflight BEFORE any compile. These preconditions used to be discovered one
   // per build cycle, minutes deep, with errors that named a symptom instead of a
   // cause. Blocking problems stop here, in seconds, naming the fix.
-  const preflight = buildPreflight({ config, appRoot, repoRoot: layout.repoRoot, platform });
+  const preflight = buildPreflight({ config, configPath, appRoot, repoRoot: layout.repoRoot, platform });
   const preflightBlockers = preflightFailures(preflight);
   if (preflightBlockers.length > 0) {
     fail(`preflight found ${preflightBlockers.length} blocking problem(s):\n${formatPreflight(preflightBlockers)}`);

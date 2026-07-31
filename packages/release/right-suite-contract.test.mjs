@@ -442,6 +442,7 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.0",
     "@rightkit/license": "0.1.6",
+    "@rightkit/release": "0.2.48",
   });
   assert.deepEqual(versions.legacyNpm, {
     "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46"],
@@ -499,7 +500,14 @@ for (const app of apps) {
       );
       if (allowed.size) assert.ok(allowed.has(specifier), `${app.key} ${name} must match a published rollout version`);
     }
-    assert.equal(pkg.packageManager, versions.packageManager);
+    const releaseVersion = pkg.devDependencies?.["@rightkit/release"];
+    const acceptedPackageManagers = releaseVersion === versions.stagedNpm?.["@rightkit/release"]
+      ? [versions.packageManager]
+      : [versions.packageManager, "pnpm@11.12.0"];
+    assert.ok(
+      acceptedPackageManagers.includes(pkg.packageManager),
+      `${app.key} packageManager must match its @rightkit/release rollout lane`,
+    );
     assert.ok(
       new Set([
         versions.npm["@rightkit/release"],

@@ -18,7 +18,7 @@
 //    certs on purpose and timestamps the signature, so "expires in 2 days" is
 //    the healthy state, not a problem.)
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -86,7 +86,7 @@ export function resolveWindowsPerl({
 } = {}) {
   const explicit = [env.OPENSSL_SRC_PERL, env.PERL].filter(Boolean);
   for (const candidate of [...explicit, ...candidates]) {
-    if (exists(candidate)) return { perlPath: candidate, dir: path.dirname(candidate) };
+    if (exists(candidate)) return { perlPath: candidate, dir: path.win32.dirname(candidate) };
   }
   return null;
 }
@@ -167,12 +167,32 @@ export function collectPreflight({
   repoRoot,
   app,
   version,
+  configPath,
   cargoLockPaths = [],
   minFreeGb = 25,
   env = process.env,
 } = {}) {
   const checks = [];
   const windows = platform === "win" || platform === "win32";
+
+  if (appRoot) {
+    const target = path.join(appRoot, "src-tauri", "target");
+    let entry = null;
+    try {
+      entry = lstatSync(target);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    checks.push(
+      !entry || entry.isSymbolicLink()
+        ? ok("target-bridge", entry ? "src-tauri/target is a symbolic link" : "src-tauri/target is ready for the shared cache bridge")
+        : fail(
+            "target-bridge",
+            `${target} is a real directory; bridge setup will refuse it`,
+            `run right-release cache migrate --config ${JSON.stringify(configPath ?? path.join(appRoot, "right-release.config.mjs"))} --dry-run, then repeat with --apply before building`,
+          ),
+    );
+  }
 
   if (version && app && repoRoot) {
     const sealedDir = path.join(repoRoot, ".right-release", "sealed");

@@ -27,8 +27,29 @@ export function createTargetBridge({
 
   const bridge = {
     ensure() {
-      mkdir(target, { recursive: true });
       let entry = readEntry(link, lstat);
+      if (entry && !entry.isSymbolicLink()) {
+        throw new Error(
+          `primary checkout target is not a symbolic link; refusing to replace it: ${link}\n` +
+            `  It is a real directory holding build output. Run right-release cache migrate before building.`,
+        );
+      }
+      let pointsAtTarget = false;
+      if (entry) {
+        try {
+          pointsAtTarget = sameRealPath(link, target, realpath, platform);
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
+        if (!pointsAtTarget && !isReclaimableLink(link, ownedRoot, realpath, platform)) {
+          throw new Error(
+            `primary checkout target is not the owned shared cache target; refusing to replace it: ${link}\n` +
+              `  It is a symlink pointing outside this app's release cache, so it was not created by RightKit.\n` +
+              `  Repoint or remove it yourself, then re-run.`,
+          );
+        }
+      }
+      mkdir(target, { recursive: true });
       if (!entry) {
         symlink(target, link, platform === "win32" ? "junction" : "dir");
         entry = lstat(link);
@@ -39,40 +60,17 @@ export function createTargetBridge({
         ownership = entryIdentity(entry);
         created = true;
       } else {
-        if (!entry.isSymbolicLink()) {
-          throw new Error(
-            `primary checkout target is not a symbolic link; refusing to replace it: ${link}\n` +
-              `  It is a real directory holding build output. Delete it yourself if that output is disposable, then re-run.`,
-          );
-        }
-        // A dangling link (its cache entry was pruned) makes realpath throw, so
-        // this comparison must tolerate ENOENT rather than crash before the
-        // reclaim path below gets a chance to handle exactly that case.
-        let pointsAtTarget = false;
-        try {
-          pointsAtTarget = sameRealPath(link, target, realpath, platform);
-        } catch (error) {
-          if (error?.code !== "ENOENT") throw error;
-        }
         if (!pointsAtTarget) {
           // Stale link from an earlier fingerprint, or one whose cache entry a
           // prune already removed. Both are ours to repoint.
-          if (isReclaimableLink(link, ownedRoot, realpath, platform)) {
-            unlink(link);
-            symlink(target, link, platform === "win32" ? "junction" : "dir");
-            entry = lstat(link);
-            if (!sameRealPath(link, target, realpath, platform)) {
-              throw new Error(`RightKit target bridge did not repoint to the owned shared cache target: ${link}`);
-            }
-            ownership = entryIdentity(entry);
-            created = true;
-          } else {
-            throw new Error(
-              `primary checkout target is not the owned shared cache target; refusing to replace it: ${link}\n` +
-                `  It is a symlink pointing outside this app's release cache, so it was not created by RightKit.\n` +
-                `  Repoint or remove it yourself, then re-run.`,
-            );
+          unlink(link);
+          symlink(target, link, platform === "win32" ? "junction" : "dir");
+          entry = lstat(link);
+          if (!sameRealPath(link, target, realpath, platform)) {
+            throw new Error(`RightKit target bridge did not repoint to the owned shared cache target: ${link}`);
           }
+          ownership = entryIdentity(entry);
+          created = true;
         }
       }
       acquired = true;

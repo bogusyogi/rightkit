@@ -119,6 +119,21 @@ test("build and migration derive identical native-feature cache fingerprints", (
   assert.notEqual(build.fingerprint, resolveSharedCacheIdentity({ ...inputs, features: [] }).fingerprint);
 });
 
+test("cache identity ignores local workspace version bumps but keeps registry dependency identity", () => {
+  const base = root();
+  const cargoLock = path.join(base, "Cargo.lock");
+  mkdirSync(base, { recursive: true });
+  const lock = (appVersion, depVersion, checksum) => `version = 4\n\n[[package]]\nname = "fixture"\nversion = "${appVersion}"\ndependencies = [\n "serde",\n]\n\n[[package]]\nname = "serde"\nversion = "${depVersion}"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${checksum}"\n`;
+  const inputs = { cargoLockPath: cargoLock, rustcVerbose: "rustc 1.91.0\nhost: aarch64-apple-darwin", targetTriple: "aarch64-apple-darwin" };
+
+  writeFileSync(cargoLock, lock("1.0.0", "1.0.0", "aaa"));
+  const original = resolveSharedCacheIdentity(inputs);
+  writeFileSync(cargoLock, lock("1.0.1", "1.0.0", "aaa"));
+  assert.equal(resolveSharedCacheIdentity(inputs).fingerprint, original.fingerprint);
+  writeFileSync(cargoLock, lock("1.0.1", "1.0.1", "bbb"));
+  assert.notEqual(resolveSharedCacheIdentity(inputs).fingerprint, original.fingerprint);
+});
+
 test("migration moves an actual src-tauri target symlink and keeps dry-run physically pure", () => {
   const fixture = migrationFixture();
   const preview = migrateLegacyCache({ ...fixture, dryRun: true });

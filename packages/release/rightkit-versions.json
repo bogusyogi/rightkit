@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "packageManager": "pnpm@11.12.0",
+  "packageManager": "pnpm@11.17.0",
   "npm": {
     "@rightkit/legal": "0.2.0",
     "@rightkit/license": "0.1.5",
@@ -14,7 +14,8 @@
   "stagedNpm": {
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.0",
-    "@rightkit/license": "0.1.6"
+    "@rightkit/license": "0.1.6",
+    "@rightkit/release": "0.2.48"
   },
   "legacyNpm": {
     "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46"]

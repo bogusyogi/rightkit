@@ -103,7 +103,7 @@ if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.pl
  * Assemble preflight inputs from the app's own files. Kept here (not in
  * preflight.mjs) so the check module stays free of release.mjs's config shape.
  */
-function releasePreflight({ config, root, repoRoot, platform }) {
+function releasePreflight({ config, configPath, root, repoRoot, platform }) {
   let version;
   try {
     version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
@@ -123,6 +123,7 @@ function releasePreflight({ config, root, repoRoot, platform }) {
     repoRoot,
     app: config.app,
     version,
+    configPath,
     cargoLockPaths,
   });
 }
@@ -158,7 +159,7 @@ if (opts.doctor) {
 
   // Config above, MACHINE below. Printing config never told anyone whether this
   // box could finish a build; these checks do.
-  const checks = releasePreflight({ config, root, repoRoot: doctorInvocation.repoRoot, platform: opts.platform });
+  const checks = releasePreflight({ config, configPath, root, repoRoot: doctorInvocation.repoRoot, platform: opts.platform });
   console.log("preflight:");
   console.log(formatPreflight(checks));
   const failures = preflightFailures(checks);

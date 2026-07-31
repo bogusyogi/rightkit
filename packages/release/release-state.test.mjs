@@ -63,6 +63,22 @@ test("shared release environment is isolated from the app vault", () => {
   assert.match(env.CARGO_TARGET_DIR, /RightSuite[\\/]release[\\/]targets[\\/]mac[\\/]fixture[\\/]abcdef0123456789$/);
   assert.match(env.CARGO_HOME, /RightSuite[\\/]release[\\/]cargo-home$/);
   assert.equal(env.RIGHT_RELEASE_CACHE_OWNER, "rightkit-v2");
+  assert.equal(env.SCCACHE_CACHE_SIZE, "32G");
+});
+
+test("shared release environment honors the cache policy override", () => {
+  const env = releaseEnvironment({
+    root: "/suite/.right-release",
+    cacheRoot: "/cache",
+    platform: "mac",
+    architecture: "aarch64",
+    app: "fixture",
+    appRoot: "/suite/fixture",
+    cacheKey: "abcdef0123456789",
+    mode: "shared",
+    env: { RIGHT_RELEASE_SCCACHE_MAX_BYTES: String(48 * 1024 ** 3) },
+  });
+  assert.equal(env.SCCACHE_CACHE_SIZE, "48G");
 });
 
 function sha256(value) {

@@ -21,7 +21,7 @@ import { spawnSync } from "node:child_process";
 
 export const CACHE_SCHEMA = 1;
 export const DEFAULT_TARGET_MAX_BYTES = 12 * 1024 ** 3;
-export const DEFAULT_SCCACHE_MAX_BYTES = 8 * 1024 ** 3;
+export const DEFAULT_SCCACHE_MAX_BYTES = 32 * 1024 ** 3;
 export const DEFAULT_DESIRED_FREE_BYTES = 60 * 1024 ** 3;
 export const DEFAULT_HARD_FREE_BYTES = 25 * 1024 ** 3;
 // Any build holds release -> suite slot -> GC -> entry lease; prune holds only GC.
@@ -94,10 +94,41 @@ export function resolveSharedCacheIdentity({ cargoLockPath, cargoTomlPath, rustc
   const target = targetTriple || host;
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(target)) throw new Error("invalid Cargo target triple");
   const architecture = target.split("-")[0];
-  const cargoLockSha256 = cargoLockPath && existsSync(cargoLockPath) ? createHash("sha256").update(readFileSync(cargoLockPath)).digest("hex") : "none";
+  const cargoLock = cargoLockPath && existsSync(cargoLockPath) ? readFileSync(cargoLockPath, "utf8") : null;
+  const cargoLockSha256 = cargoLock === null ? "none" : sha256(cargoLock);
+  const cargoBuildGraphSha256 = cargoLock === null ? "none" : sha256(normalizeCargoLockForCache(cargoLock));
   const nativeFeatures = features ?? cargoNativeFeatures(cargoTomlPath);
-  const payload = JSON.stringify({ cargoLockSha256, rustc, target, architecture, profile, features: [...nativeFeatures].sort() });
-  return { cargoLockSha256, rustc, target, architecture, profile, features: [...nativeFeatures].sort(), fingerprint: createHash("sha256").update(payload).digest("hex").slice(0, 16) };
+  const payload = JSON.stringify({ cargoBuildGraphSha256, rustc, target, architecture, profile, features: [...nativeFeatures].sort() });
+  return { cargoLockSha256, cargoBuildGraphSha256, rustc, target, architecture, profile, features: [...nativeFeatures].sort(), fingerprint: sha256(payload).slice(0, 16) };
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+/**
+ * Cargo invalidates local crates from their manifests and sources inside a
+ * reused target directory. Their package version is release metadata, not a
+ * dependency artifact identity. Registry and Git packages retain every byte,
+ * including source, version, and checksum.
+ */
+function normalizeCargoLockForCache(source) {
+  const lines = String(source).replace(/\r\n?/g, "\n").split("\n");
+  const normalized = [];
+  for (let start = 0; start < lines.length;) {
+    if (lines[start].trim() !== "[[package]]") {
+      normalized.push(lines[start]);
+      start += 1;
+      continue;
+    }
+    let end = start + 1;
+    while (end < lines.length && lines[end].trim() !== "[[package]]") end += 1;
+    const block = lines.slice(start, end);
+    const external = block.some((line) => /^\s*(?:source|checksum)\s*=/.test(line));
+    normalized.push(...(external ? block : block.filter((line) => !/^\s*version\s*=/.test(line))));
+    start = end;
+  }
+  return normalized.join("\n");
 }
 
 export function ensureCacheEntry({ layout, metadata = {}, now = new Date() } = {}) {

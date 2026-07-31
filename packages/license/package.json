@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/license",
   "version": "0.1.6",
-  "packageManager": "pnpm@11.12.0",
+  "packageManager": "pnpm@11.17.0",
   "description": "The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace).",
   "type": "module",
   "main": "dist/index.js",

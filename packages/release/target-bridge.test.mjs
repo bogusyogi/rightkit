@@ -133,6 +133,16 @@ test("fails closed and preserves a real target directory with user content", asy
   assert.equal(readFileSync(path.join(fx.link, "user.txt"), "utf8"), "keep\n");
 });
 
+test("rejecting a real target does not create the shared cache destination", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-target-bridge-pure-"));
+  const target = path.join(root, "shared", "target");
+  const link = path.join(root, "app", "src-tauri", "target");
+  mkdirSync(link, { recursive: true });
+
+  assert.throws(() => createTargetBridge({ link, target }).ensure(), /not a symbolic link/i);
+  assert.equal(existsSync(target), false);
+});
+
 test("cleanup is idempotent and reports process errors without masking a build failure", async () => {
   const fx = fixture();
   const bridge = createTargetBridge(fx);
@@ -185,6 +195,7 @@ test("a link pointing outside the owned root is still refused", () => {
 
   const bridge = createTargetBridge({ link, target: newTarget, ownedRoot });
   assert.throws(() => bridge.ensure(), /refusing to replace it/);
+  assert.equal(existsSync(newTarget), false);
   assert.equal(realpathSync(link), realpathSync(foreign));
   rmSync(dir, { recursive: true, force: true });
 });

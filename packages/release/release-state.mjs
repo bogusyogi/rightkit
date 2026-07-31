@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, watch } from "node:fs";
 import path from "node:path";
-import { DEFAULT_SCCACHE_MAX_BYTES, resolveCacheLayout } from "./cache-policy.mjs";
+import { readCachePolicy, resolveCacheLayout } from "./cache-policy.mjs";
 
 export function cacheFingerprint({ cargoLockSha256, rustc, target, architecture, features = [] }) {
   const payload = JSON.stringify({
@@ -61,17 +61,18 @@ export function watchProgress(paths, onProgress) {
   };
 }
 
-export function releaseEnvironment({ root, cacheRoot, platform, architecture, app, cacheKey, kind = "release", appRoot, mode = "legacy" }) {
+export function releaseEnvironment({ root, cacheRoot, platform, architecture, app, cacheKey, kind = "release", appRoot, mode = "legacy", env = process.env }) {
   if (kind !== "release" && kind !== "test") throw new Error(`invalid target kind: ${kind}`);
   if (mode !== "legacy" && mode !== "shared") throw new Error(`invalid cache mode: ${mode}`);
   if (mode === "shared") {
     if (!cacheRoot || !platform || !architecture || !app || !cacheKey || !appRoot) throw new Error("shared release environment requires cacheRoot, platform, architecture, app, cacheKey, and appRoot");
     const layout = resolveCacheLayout({ cacheRoot, platform, architecture, app, fingerprint: cacheKey, kind });
+    const policy = readCachePolicy(env);
     return {
       CARGO_TARGET_DIR: layout.targetDir,
       CARGO_HOME: layout.cargoHome,
       SCCACHE_DIR: layout.sccacheDir,
-      SCCACHE_CACHE_SIZE: `${DEFAULT_SCCACHE_MAX_BYTES / 1024 ** 3}G`,
+      SCCACHE_CACHE_SIZE: `${policy.sccacheMaxBytes / 1024 ** 3}G`,
       SCCACHE_BASEDIRS: [path.resolve(root), path.resolve(appRoot)].join(path.delimiter),
       RUSTC_WRAPPER: "sccache",
       RIGHT_RELEASE_CACHE_OWNER: "rightkit-v2",

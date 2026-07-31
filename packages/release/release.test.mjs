@@ -10,12 +10,13 @@ const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
 const cli = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
 const versions = JSON.parse(readFileSync(new URL("./rightkit-versions.json", import.meta.url), "utf8"));
 const defaultBuildInputs = { include: ["package.json", "pnpm-lock.yaml", "src-tauri/**"] };
+const hostPlatform = process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : process.platform;
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture({ signed = true, publish = false, packageJson, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs } = {}) {
+function fixture({ signed = true, publish = false, packageJson, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win" } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -25,7 +26,7 @@ function fixture({ signed = true, publish = false, packageJson, cargoManifest, c
     JSON.stringify(
       packageJson ?? {
         name: "fixture",
-        scripts: { "release:patch:win": "right-release --platform win --tier patch" },
+        scripts: { [`release:patch:${platform}`]: `right-release --platform ${platform} --tier patch` },
         packageManager: versions.packageManager,
         dependencies: {
           "@rightkit/license": versions.npm["@rightkit/license"],
@@ -45,13 +46,13 @@ function fixture({ signed = true, publish = false, packageJson, cargoManifest, c
       packageManager: "pnpm",
       checks: [],
       targets: {
-        win: {
+        [platform]: {
           ...(buildInputs ? { buildInputs } : {}),
           signed,
           package: { cmd: "node", args: ["-e", "process.exit(0)"] },
           ...(publish ? { publish: { cmd: "node", args: ["publish-update.mjs"] } } : {}),
           artifacts: [],
-          sign: { files: ["fixture.exe"] },
+          ...(platform === "win" ? { sign: { files: ["fixture.exe"] } } : {}),
           updater: { artifacts: [{ file: "fixture.exe", signature: "fixture.exe.sig", platform: "windows-x86_64", key: "fixture/fixture.exe" }] },
           hardening: [],
         },
@@ -146,7 +147,7 @@ function runRaw(config, ...args) {
 }
 
 function runDoctor(config, ...args) {
-  return spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", "win", ...args], {
+  return spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", hostPlatform, ...args], {
     encoding: "utf8",
   });
 }
@@ -219,10 +220,11 @@ test("rejects hosted workflow files before release work starts", () => {
 
 test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", () => {
   const config = fixture({
+    platform: hostPlatform,
     cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.2"`,
     cargoConfig: `[net]\nretry = 2\n[registries.private]\nindex = "https://example.test/index"`,
   });
-  const result = run(config, "--doctor");
+  const result = runDoctor(config);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /right-release/);
 });
@@ -236,7 +238,7 @@ test("doctor rejects a selected target with missing or empty buildInputs.include
 });
 
 test("doctor passes a clean selected target", () => {
-  const result = runDoctor(fixture());
+  const result = runDoctor(fixture({ platform: hostPlatform }));
   assert.equal(result.status, 0, result.stderr);
   // Derived from the version manifest, not hardcoded: a literal here has to be
   // hand-edited on every bump and fails the suite when someone forgets.
@@ -244,12 +246,20 @@ test("doctor passes a clean selected target", () => {
   assert.match(result.stdout, new RegExp(`right-release ${expected.replace(/\./g, "\\.")}`));
 });
 
+test("doctor rejects a real src-tauri target before release work", () => {
+  const config = fixture({ platform: hostPlatform });
+  mkdirSync(path.join(path.dirname(config), "src-tauri", "target"));
+  const result = runDoctor(config);
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}\n${result.stderr}`, /target-bridge[\s\S]*real directory[\s\S]*cache migrate/i);
+});
+
 test("doctor permits unrelated dirt", () => {
-  const config = fixture();
+  const config = fixture({ platform: hostPlatform });
   const root = path.dirname(config);
   mkdirSync(path.join(root, "notes"));
   writeFileSync(path.join(root, "notes", "scratch.md"), "unrelated\n");
-  const result = run(config, "--doctor");
+  const result = runDoctor(config);
   assert.equal(result.status, 0, result.stderr);
 });
 
@@ -302,11 +312,12 @@ test("doctor rejects linked and detached checkouts like build runtime", () => {
 
 test("doctor scopes Cargo inspection to the configured app inside a monorepo", () => {
   const config = fixture({
+    platform: hostPlatform,
     cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.2"`,
     repoCargoConfig: `[net]\nretry = 2`,
     siblingCargoManifest: `[package]\nname = "archived-copy"\nversion = "0.0.0"\n[dependencies]\nrightkit-license = { path = "../../rightkit-license" }`,
   });
-  const result = run(config, "--doctor");
+  const result = runDoctor(config);
   assert.equal(result.status, 0, result.stderr);
 });
 
