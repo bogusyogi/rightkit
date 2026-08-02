@@ -10,7 +10,7 @@ This notice applies to the proprietary Right Suite desktop software, object code
 
 The Right Suite Materials are licensed, not sold. Possession of an installer, executable, update, source file, model conversion, asset, or documentation does not transfer ownership and does not grant any right except the limited right to install and use the applicable product under the Right Suite End User License Agreement and Product Schedule.
 
-Except for that express permission or a separate written Commercial Order, no person may reproduce, copy, modify, adapt, translate, create derivative works from, publish, disclose, distribute, make available, sell, resell, sublicense, rent, lease, host, timeshare, or commercially exploit any Right Suite Material.
+Except for that express permission or a separate written Commercial Order, no person may reproduce, copy, modify, morph, translate, create derivative works from, publish, disclose, distribute, make available, sell, resell, sublicense, rent, lease, host, timeshare, or commercially exploit any Right Suite Material.
 
 No person may derive or attempt to derive source code, underlying structure, algorithms, non-public interfaces, model conversions, or trade secrets from the Right Suite Materials, or bypass a technical protection, license check, feature gate, update signature, access control, or usage limit, except to the limited extent applicable law gives a right that cannot be waived by contract.
 

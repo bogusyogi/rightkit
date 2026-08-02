@@ -48,7 +48,7 @@ Except where this EULA expressly permits it or applicable law provides a right t
 
 - copy the Software other than copies technically necessary to download, install, run, update, uninstall, and keep one reasonable archival backup;
 - sell, resell, sublicense, assign, distribute, publish, upload, broadcast, rent, lease, lend, host, timeshare, provide as a service bureau, or otherwise make the Software or a license key available to another person;
-- modify, adapt, translate, patch, create derivative works from, or combine proprietary Software code or assets into another product;
+- modify, morph, translate, patch, create derivative works from, or combine proprietary Software code or assets into another product;
 - reverse engineer, decompile, disassemble, decode, inspect, trace, or otherwise attempt to derive source code, non-public interfaces, algorithms, data structures, model conversions, prompts, or trade secrets;
 - bypass or interfere with license validation, feature gates, signatures, security controls, update routing, device/user limits, or technical restrictions;
 - use non-public Software code, assets, documentation, prompts, workflows, or extracted structure to build, train, benchmark for replication, or improve a competing product or dataset;
