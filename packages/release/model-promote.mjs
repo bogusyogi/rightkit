@@ -4,7 +4,7 @@ import { createReadStream } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
@@ -13,6 +13,7 @@ import {
 } from "./runtime-artifact-manifest.mjs";
 import { loadReleaseToken } from "./release-token.mjs";
 import { registerRightAppsRelease } from "./rightapps-register.mjs";
+import { assertCleanOverlay, loadBoundedAdminTrust, readVerificationDocument, verifyPromotionEvidence } from "./verification-ticket.mjs";
 
 export const RUNTIME_ARTIFACT_TRUSTED_KEY_ID = "rightkit-runtime-artifacts-2026-07";
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -24,6 +25,19 @@ export async function promoteRuntimeArtifact(input, deps = {}) {
   const register = deps.register;
   const { config } = input;
   assertPromotionConfig(config);
+  if (!input.verification) throw new Error("verification ticket, Mac and Windows receipts, and trusted promotion receipt are required");
+  const adminTrust = deps.adminTrust ?? loadBoundedAdminTrust();
+  verifyPromotionEvidence({
+    ticket: input.verification.ticket,
+    hostReceipts: input.verification.hostReceipts,
+    promotionReceipt: input.verification.promotionReceipt,
+    trustedKeys: adminTrust.ticketKeys,
+    hostTrust: { hosts: adminTrust.hosts, keys: adminTrust.hostKeys },
+    promotionTrustedKeys: adminTrust.ticketKeys,
+    candidateCommit: input.verification.candidateCommit,
+    candidateTree: input.verification.candidateTree,
+    commandId: "right-release.model-promote",
+  });
   if (input.authority !== "heardright") throw new Error("model promotion authority must be heardright");
   if (input.keyId !== RUNTIME_ARTIFACT_TRUSTED_KEY_ID) throw new Error(`untrusted runtime artifact key id: ${input.keyId}`);
   if (!input.privateKey) throw new Error("runtime artifact signing key is required");
@@ -134,6 +148,7 @@ async function main() {
     evidenceFile: path.resolve(configRoot, raw.evidence.file),
     config,
     dryRun: args.dryRun,
+    verification: readVerificationEvidence(args, configRoot),
   }, runtime);
   const manifest = result.envelope.manifest;
   console.log(`${args.dryRun ? "[dry-run] " : ""}runtime artifact promotion validated`);
@@ -160,6 +175,9 @@ Options:
   --dry-run                 Validate real files and sign, without R2 or RightApps mutations
   --signing-key-file <pem>  Override the protected PEM path
   --key-id <id>             Must equal ${RUNTIME_ARTIFACT_TRUSTED_KEY_ID}
+  --verification-ticket <file>
+  --host-receipt <file>     Repeat for Mac and Windows receipts
+  --promotion-receipt <file>
 
 Signing key inputs (never printed): RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY or
 RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE. Windows defaults to
@@ -173,6 +191,9 @@ function parseArgs(args) {
   let signingKeyFile;
   let keyId = process.env.RIGHTKIT_RUNTIME_ARTIFACT_KEY_ID || RUNTIME_ARTIFACT_TRUSTED_KEY_ID;
   let dryRun = false;
+  let verificationTicket = "";
+  let promotionReceipt = "";
+  const hostReceipts = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--authority") authority = args[++i] ?? "";
@@ -180,11 +201,39 @@ function parseArgs(args) {
     else if (arg === "--signing-key-file") signingKeyFile = args[++i] ?? "";
     else if (arg === "--key-id") keyId = args[++i] ?? "";
     else if (arg === "--dry-run") dryRun = true;
+    else if (arg === "--verification-ticket") verificationTicket = args[++i] ?? "";
+    else if (arg === "--host-receipt") hostReceipts.push(args[++i] ?? "");
+    else if (arg === "--promotion-receipt") promotionReceipt = args[++i] ?? "";
     else throw new Error(`unknown model promote argument: ${arg}`);
   }
   if (!config) throw new Error("model promote requires --config <path>");
   if (!authority) throw new Error("model promote requires --authority heardright");
-  return { authority, config, signingKeyFile, keyId, dryRun };
+  if (!verificationTicket || !promotionReceipt || hostReceipts.length === 0) throw new Error("model promote requires verification ticket, host receipts, and promotion receipt");
+  return { authority, config, signingKeyFile, keyId, dryRun, verificationTicket, promotionReceipt, hostReceipts };
+}
+
+function readVerificationEvidence(args, cwd) {
+  const candidateCommit = git(cwd, ["rev-parse", "HEAD"]);
+  const candidateTree = git(cwd, ["rev-parse", "HEAD^{tree}"]);
+  const ticket = readVerificationDocument(path.resolve(args.verificationTicket));
+  const adminTrust = loadBoundedAdminTrust();
+  assertCleanOverlay({ status: git(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]), ticket });
+  return {
+    ticket,
+    hostReceipts: args.hostReceipts.map((file) => readVerificationDocument(path.resolve(file))),
+    promotionReceipt: readVerificationDocument(path.resolve(args.promotionReceipt)),
+    trustedKeys: adminTrust.ticketKeys,
+    hostTrust: { hosts: adminTrust.hosts, keys: adminTrust.hostKeys },
+    promotionTrustedKeys: adminTrust.ticketKeys,
+    candidateCommit,
+    candidateTree,
+  };
+}
+
+function git(cwd, args) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed`);
+  return result.stdout.trim();
 }
 
 async function fileMetadata(file) {

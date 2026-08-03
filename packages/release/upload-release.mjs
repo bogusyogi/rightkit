@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { runUploadStateMachine, verifySealedRelease } from "./release-state.mjs";
+import { assertCleanOverlay, loadBoundedAdminTrust, readVerificationDocument, verifyPromotionEvidence } from "./verification-ticket.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLISH_UPDATE = path.join(TOOL_ROOT, "publish-update.mjs");
@@ -19,6 +20,9 @@ let platform = process.platform === "win32" ? "win" : process.platform === "darw
 let releaseId = "";
 let tier = "";
 let dryRun = false;
+let verificationTicket = "";
+let promotionReceipt = "";
+const hostReceipts = [];
 
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
@@ -27,6 +31,9 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === "--tier") tier = args[++i];
   else if (arg.startsWith("--tier=")) tier = arg.slice("--tier=".length);
   else if (arg === "--dry-run") dryRun = true;
+  else if (arg === "--verification-ticket") verificationTicket = args[++i] ?? "";
+  else if (arg === "--host-receipt") hostReceipts.push(args[++i] ?? "");
+  else if (arg === "--promotion-receipt") promotionReceipt = args[++i] ?? "";
   else if (arg === "-h" || arg === "--help") usage(0);
   else fail(`unknown argument: ${arg}`);
 }
@@ -36,9 +43,29 @@ if (platform !== "win" && platform !== "mac") fail("--platform must be win or ma
 
 const repoRoot = git(process.cwd(), ["rev-parse", "--show-toplevel"]);
 assertPrimaryReleaseCheckout(repoRoot);
+const candidateCommit = git(repoRoot, ["rev-parse", "HEAD"]);
+const candidateTree = git(repoRoot, ["rev-parse", "HEAD^{tree}"]);
+if (!verificationTicket || !promotionReceipt || hostReceipts.length === 0) {
+  fail("--verification-ticket, --host-receipt, and --promotion-receipt are required");
+}
+const ticket = readVerificationDocument(path.resolve(verificationTicket));
+const adminTrust = loadBoundedAdminTrust();
+verifyPromotionEvidence({
+  ticket,
+  hostReceipts: hostReceipts.map((file) => readVerificationDocument(path.resolve(file))),
+  promotionReceipt: readVerificationDocument(path.resolve(promotionReceipt)),
+  trustedKeys: adminTrust.ticketKeys,
+  hostTrust: { hosts: adminTrust.hosts, keys: adminTrust.hostKeys },
+  promotionTrustedKeys: adminTrust.ticketKeys,
+  candidateCommit,
+  candidateTree,
+  commandId: "right-release.upload",
+});
+assertCleanOverlay({ status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]), ticket });
 const platformDir = platform === "win" ? "windows" : "mac";
 const sealedDir = path.join(repoRoot, ".right-release", "sealed", releaseId, platformDir);
 const sealed = verifySealedRelease(sealedDir);
+if (sealed.manifest.commit !== candidateCommit) fail("sealed release candidate does not exactly match verification ticket source");
 const stateRoot = path.join(repoRoot, ".right-release", "state", releaseId, platformDir);
 const backupRoot = path.join(stateRoot, "rollback", tier);
 const verifiedMarker = path.join(stateRoot, `verified-${tier}.json`);
@@ -212,7 +239,7 @@ function writeJson(file, value) {
 }
 
 function usage(code) {
-  console.log("usage: right-release upload --release <sealed-id> --platform win|mac --tier patch|update");
+  console.log("usage: right-release upload --release <sealed-id> --platform win|mac --tier patch|update --verification-ticket <file> --host-receipt <file> --promotion-receipt <file>");
   process.exit(code);
 }
 
