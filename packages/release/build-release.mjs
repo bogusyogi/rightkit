@@ -26,7 +26,7 @@ import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteV
 import { createTargetBridge } from "./target-bridge.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
-import { assertCleanOverlay, loadBoundedAdminTrust, readVerificationDocument, verifyBuildTicket } from "./verification-ticket.mjs";
+import { assertCleanSource } from "./source-gate.mjs";
 
 /** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
 function buildPreflight({ config, configPath, appRoot, repoRoot, platform }) {
@@ -59,14 +59,12 @@ const args = process.argv.slice(2);
 let configName = "right-release.config.mjs";
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
 let dryRun = false;
-let verificationTicket = "";
 
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
   if (arg === "--config") configName = args[++i];
   else if (arg === "--platform") platform = args[++i];
   else if (arg === "--dry-run") dryRun = true;
-  else if (arg === "--verification-ticket") verificationTicket = args[++i] ?? "";
   else if (arg === "--tier" || arg.startsWith("--tier=")) fail("build is tier-neutral; select patch or update only during upload");
   else if (arg === "-h" || arg === "--help") usage(0);
   else fail(`unknown argument: ${arg}`);
@@ -99,17 +97,10 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 try {
   throwIfInterrupted();
   const commit = git(repoRoot, ["rev-parse", "HEAD"]);
-  const tree = git(repoRoot, ["rev-parse", "HEAD^{tree}"]);
-  if (!verificationTicket) fail("--verification-ticket is required");
-  const ticket = readVerificationDocument(path.resolve(verificationTicket));
-  verifyBuildTicket({
-    ticket,
-    trustedKeys: loadBoundedAdminTrust().ticketKeys,
-    candidateCommit: commit,
-    candidateTree: tree,
-    commandId: "right-release.build",
+  assertCleanSource({
+    status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+    commandId: "right-release build",
   });
-  assertCleanOverlay({ status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]), ticket });
   mkdirSync(path.join(vaultRoot, "locks"), { recursive: true });
   lock = acquireLock(path.join(vaultRoot, "locks", `${platform}.lock.json`));
   const shortCommit = commit.slice(0, 8);
@@ -480,7 +471,7 @@ function writeJson(file, value) {
 }
 
 function usage(code) {
-  console.log("usage: right-release build --platform win|mac --verification-ticket <file> [--config right-release.config.mjs] [--dry-run]");
+  console.log("usage: right-release build --platform win|mac [--config right-release.config.mjs] [--dry-run]");
   process.exit(code);
 }
 

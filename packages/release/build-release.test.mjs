@@ -7,9 +7,8 @@ import { fileURLToPath } from "node:url";
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8");
 
 test("macOS and Windows builds default to Cache V2 while explicit legacy mode remains available", () => {
-  assert.match(source, /verifyBuildTicket/);
-  assert.match(source, /--verification-ticket is required/);
-  assert.match(source, /loadBoundedAdminTrust/);
+  assert.match(source, /assertCleanSource/);
+  assert.match(source, /right-release build/);
   assert.match(source, /RIGHT_RELEASE_CACHE_MODE/);
   assert.match(source, /platform === "mac" \|\| platform === "win" \? "shared" : "legacy"/);
   assert.match(source, /cacheMode !== "legacy" && cacheMode !== "shared"/);

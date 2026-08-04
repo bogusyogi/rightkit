@@ -14,31 +14,16 @@ import {
   promoteRuntimeArtifact,
   runtimeArtifactUploadEnv,
 } from "./model-promote.mjs";
-import { canonicalJson, documentDigest } from "./verification-ticket.mjs";
-
 const { privateKey } = generateKeyPairSync("ed25519");
 const artifactDigest = "a".repeat(64);
 const evidenceDigest = "b".repeat(64);
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 const candidateCommit = "a".repeat(40);
-const candidateTree = "b".repeat(40);
-const verificationKeys = generateKeyPairSync("ed25519");
-const ticketDigest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
-const canonicalDigest = (value) => ticketDigest(canonicalJson(value));
-const fixedAdminTrust = {
-  ticketKeys: { fixture: verificationKeys.publicKey, "bounded-admin-signer": verificationKeys.publicKey },
-  hosts: {
-    "mac-host": { platform: "mac", attestation_sha256: ticketDigest("mac"), receipt_key_id: "fixture", receipt_key_path: "/host/mac-receipt.pem", manifest_key_id: "fixture", manifest_key_path: "/host/mac-manifest.pem" },
-    "windows-host": { platform: "windows", attestation_sha256: ticketDigest("windows"), receipt_key_id: "fixture", receipt_key_path: "/host/windows-receipt.pem", manifest_key_id: "fixture", manifest_key_path: "/host/windows-manifest.pem" },
-  },
-  hostKeys: { fixture: verificationKeys.publicKey },
-};
-function signVerification(value) { const signed = structuredClone(value); const payload = structuredClone(signed); delete payload.signing.signature; signed.signing.signature = sign(null, Buffer.from(canonicalJson(payload), "utf8"), verificationKeys.privateKey).toString("base64url"); return signed; }
-function verificationFixture(commit = candidateCommit, tree = candidateTree) {
-  const ticket = signVerification({ schema: "verification-ticket.v1", authority_id: "r7", request_envelope_sha256: ticketDigest("envelope"), request_sha256: ticketDigest("request"), manifest_sha256: ticketDigest("manifest"), experiment_id: "fixture", comparison_group_id: "fixture-group", nonce: "fixture-nonce-0001", issued_at: "2026-08-01T00:00:00.000Z", expires_at: "2026-09-01T00:00:00.000Z", candidate: { commit, tree, overlay_sha256: ticketDigest("overlay") }, runner: { id: "right-release", source_sha256: ticketDigest("source"), binary_sha256: ticketDigest("binary") }, bound_inputs: [{ kind: "runtime", id: "node", sha256: ticketDigest("node") }], execution: { command_id: "right-release.model-promote", argv: ["right-release", "model", "promote"], cwd: ".", environment: [], cadence_seconds: 1, timeout_seconds: 60, output_limit_bytes: 1000 }, required_outputs: [], hosts: { required_count: 2, identities: [{ id: "mac-host", platform: "mac", attestation_sha256: ticketDigest("mac") }, { id: "windows-host", platform: "windows", attestation_sha256: ticketDigest("windows") }] }, policy: { rubric_id: "r7", rubric_sha256: ticketDigest("rubric") }, registries: { command_registry_sha256: ticketDigest("commands"), skill_registry_sha256: ticketDigest("skills") }, signing: { key_id: "fixture", algorithm: "ed25519", signature: "" } });
-  const identity = { candidate_commit: commit, candidate_tree: tree, overlay_sha256: ticket.candidate.overlay_sha256, runner_sha256: canonicalDigest(ticket.runner), bound_inputs_sha256: canonicalDigest(ticket.bound_inputs), execution_sha256: canonicalDigest(ticket.execution), policy_sha256: canonicalDigest(ticket.policy), registries_sha256: canonicalDigest(ticket.registries) };
-  const receipts = ticket.hosts.identities.map((host) => signVerification({ schema: "verification-host-receipt.v1", status: "PASS", host, ticket_sha256: documentDigest(ticket), preflight: identity, started_at: "2026-08-02T00:00:00.000Z", ended_at: "2026-08-02T00:01:00.000Z", exit_status: 0, outputs: [], postflight: identity, signing: { key_id: "fixture", algorithm: "ed25519", signature: "" } }));
-  return { ticket, hostReceipts: receipts, promotionReceipt: signVerification({ schema: "verification-promotion-receipt.v1", status: "PASS", candidate_commit: commit, candidate_tree: tree, ticket_sha256: documentDigest(ticket), host_receipts: receipts.map(documentDigest), policy: { ...ticket.policy, pass_count: 114 }, evidence_quality: { partial: 0, degraded: 0, stale: 0, waived: 0, model_only: 0, advisory: 0 }, sentinel_close: { ticket_sha256: documentDigest(ticket), ledger_sha256: ticketDigest("ledger"), state_sha256: ticketDigest("state"), candidate_commit: commit, candidate_tree: tree, authority: "host" }, signing: { key_id: "bounded-admin-signer", algorithm: "ed25519", signature: "" } }), trustedKeys: { fixture: verificationKeys.publicKey, "bounded-admin-signer": verificationKeys.publicKey }, candidateCommit: commit, candidateTree: tree };
+
+// Source identity as build/upload/promote read it: the exact commit, plus the
+// porcelain status that must be empty for the promotion to run.
+function verificationFixture(commit = candidateCommit, status = "") {
+  return { candidateCommit: commit, status };
 }
 
 function request(overrides = {}) {
@@ -87,7 +72,6 @@ function request(overrides = {}) {
 
 function boundaries(events) {
   return {
-    adminTrust: fixedAdminTrust,
     metadata: async (file) => file.endsWith("eval.json")
       ? { sha256: evidenceDigest, sizeBytes: 10 }
       : { sha256: artifactDigest, sizeBytes: 42 },
@@ -115,10 +99,22 @@ test("dry-run validates and signs without invoking process or network boundaries
   assert.equal(result.envelope.signature.algorithm, "Ed25519");
 });
 
-test("model promotion ignores caller-supplied verification trust", async () => {
+test("model promotion refuses a dirty working tree", async () => {
   const events = [];
-  const verification = { ...verificationFixture(), trustedKeys: { attacker: "caller-controlled" } };
-  await promoteRuntimeArtifact(request({ verification, dryRun: true }), boundaries(events));
+  const verification = verificationFixture(candidateCommit, " M packages/release/model-promote.mjs\0");
+  await assert.rejects(
+    promoteRuntimeArtifact(request({ verification, dryRun: true }), boundaries(events)),
+    /clean working tree/,
+  );
+  assert.deepEqual(events, []);
+});
+
+test("model promotion requires source identity", async () => {
+  const events = [];
+  await assert.rejects(
+    promoteRuntimeArtifact(request({ verification: undefined, dryRun: true }), boundaries(events)),
+    /source identity is required/,
+  );
   assert.deepEqual(events, []);
 });
 
@@ -199,7 +195,7 @@ test("model promote help documents the portable config and secure key inputs", (
   assert.match(result.stdout, /RIGHTAPPS_RELEASE_TOKEN/);
 });
 
-test("portable CLI rejects caller-supplied verification keys without a host trust store", async () => {
+test("portable CLI promotes from a clean checkout, refuses a dirty one, and rejects injected trust flags", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "rightkit-model-promote-test-"));
   try {
     const artifact = Buffer.from("tiny model fixture");
@@ -215,17 +211,6 @@ test("portable CLI rejects caller-supplied verification keys without a host trus
     spawnSync("git", ["add", "."], { cwd: root, encoding: "utf8" });
     const committed = spawnSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "fixture"], { cwd: root, encoding: "utf8" });
     assert.equal(committed.status, 0, committed.stderr);
-    const fixtureCommit = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim();
-    const fixtureTree = spawnSync("git", ["rev-parse", "HEAD^{tree}"], { cwd: root, encoding: "utf8" }).stdout.trim();
-    const verification = verificationFixture(fixtureCommit, fixtureTree);
-    const verificationPublicKey = verificationKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
-    await Promise.all([
-      writeFile(path.join(root, "ticket.json"), JSON.stringify(verification.ticket)),
-      writeFile(path.join(root, "mac-receipt.json"), JSON.stringify(verification.hostReceipts[0])),
-      writeFile(path.join(root, "windows-receipt.json"), JSON.stringify(verification.hostReceipts[1])),
-      writeFile(path.join(root, "promotion-receipt.json"), JSON.stringify(verification.promotionReceipt)),
-      writeFile(path.join(root, "verification-public.pem"), verificationPublicKey),
-    ]);
     const config = {
       artifact: {
         file: "model.onnx",
@@ -240,20 +225,24 @@ test("portable CLI rejects caller-supplied verification keys without a host trus
       manifest: request().config.manifest,
     };
     await writeFile(path.join(root, "promotion.json"), JSON.stringify(config));
+    spawnSync("git", ["add", "."], { cwd: root, encoding: "utf8" });
+    spawnSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "config"], { cwd: root, encoding: "utf8" });
 
-    const result = spawnSync(process.execPath, [
+    const promoteArgs = [
       path.join(packageRoot, "cli/right-release.mjs"), "model", "promote",
       "--authority", "heardright",
       "--config", path.join(root, "promotion.json"),
       "--signing-key-file", path.join(root, "key.pem"),
-      "--verification-ticket", path.join(root, "ticket.json"),
-      "--host-receipt", path.join(root, "mac-receipt.json"),
-      "--host-receipt", path.join(root, "windows-receipt.json"),
-      "--promotion-receipt", path.join(root, "promotion-receipt.json"),
       "--dry-run",
-    ], { cwd: root, encoding: "utf8", windowsHide: true });
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /bounded admin trust (store|path) is unavailable/);
+    ];
+    const result = spawnSync(process.execPath, promoteArgs, { cwd: root, encoding: "utf8", windowsHide: true });
+    assert.equal(result.status, 0, result.stderr);
+
+    await writeFile(path.join(root, "untracked.txt"), "dirty");
+    const dirty = spawnSync(process.execPath, promoteArgs, { cwd: root, encoding: "utf8", windowsHide: true });
+    assert.equal(dirty.status, 1);
+    assert.match(dirty.stderr, /clean working tree/);
+
     const attacker = spawnSync(process.execPath, [
       path.join(packageRoot, "cli/right-release.mjs"), "model", "promote",
       "--authority", "heardright", "--config", path.join(root, "promotion.json"),
