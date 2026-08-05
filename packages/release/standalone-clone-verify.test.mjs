@@ -16,9 +16,9 @@ test("standalone verifier clones, installs, doctors from a nested app root, and 
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "rightkit-standalone-fixture-"));
   t.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
   const source = path.join(fixtureRoot, "source");
-  const outsideSentinel = path.join(fixtureRoot, "keep.txt");
+  const outsideForge = path.join(fixtureRoot, "keep.txt");
   mkdirSync(path.join(source, "apps", "desktop"), { recursive: true });
-  writeFileSync(outsideSentinel, "keep", "utf8");
+  writeFileSync(outsideForge, "keep", "utf8");
   writeFileSync(path.join(source, "apps", "desktop", "package.json"), JSON.stringify({
     name: "standalone-fixture",
     private: true,
@@ -44,7 +44,7 @@ test("standalone verifier clones, installs, doctors from a nested app root, and 
   assert.equal(result.apps[0].doctor.status, 0);
   assert.match(result.apps[0].doctor.stdout, /fixture doctor passed/);
   assert.equal(existsSync(result.workRoot), false, "generated clone tree must be removed");
-  assert.equal(readFileSync(outsideSentinel, "utf8"), "keep", "cleanup must not escape the generated tree");
+  assert.equal(readFileSync(outsideForge, "utf8"), "keep", "cleanup must not escape the generated tree");
   assert.deepEqual(JSON.parse(readFileSync(evidencePath, "utf8")).apps.map(({ key }) => key), ["fixture"]);
 });
 
