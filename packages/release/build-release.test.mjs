@@ -14,10 +14,13 @@ test("macOS and Windows builds default to Cache V2 while explicit legacy mode re
   assert.match(source, /cacheMode !== "legacy" && cacheMode !== "shared"/);
   assert.match(source, /resolveSharedCacheRoot/);
   assert.match(source, /acquireSuiteBuildSlot/);
+  assert.match(source, /acquireHeavyWorkSlot/);
+  assert.match(source, /heavyCommandEnvironment/);
   assert.match(source, /acquireCacheLease/);
   assert.match(source, /markCacheEntrySuccessful/);
   assert.match(source, /RIGHT_RELEASE_CACHE_OWNER/);
   assert.match(source, /suiteSlot\?\.release\(\)/);
+  assert.match(source, /heavySlot\?\.release\(\)/);
   assert.match(source, /cacheLease\?\.release\(\)/);
   assert.doesNotMatch(source, /process\.exit\(signal/);
   assert.match(source, /throwIfInterrupted/);

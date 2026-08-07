@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { once } from "node:events";
 
 import {
   CACHE_SCHEMA,
+  DEFAULT_BACKUP_RETENTION_DAYS,
   DEFAULT_DESIRED_FREE_BYTES,
   DEFAULT_HARD_FREE_BYTES,
   DEFAULT_SCCACHE_MAX_BYTES,
@@ -17,6 +18,7 @@ import {
   applyCachePrune,
   assertWriteVolumeFloors,
   ensureCacheEntry,
+  inspectCache,
   inspectWriteVolumes,
   markCacheEntrySuccessful,
   migrateLegacyCache,
@@ -80,6 +82,30 @@ test("policy defaults are the approved target, compiler, desired and hard limits
   assert.equal(policy.sccacheMaxBytes, DEFAULT_SCCACHE_MAX_BYTES);
   assert.equal(policy.desiredFreeBytes, DEFAULT_DESIRED_FREE_BYTES);
   assert.equal(policy.hardFreeBytes, DEFAULT_HARD_FREE_BYTES);
+  assert.equal(policy.backupRetentionDays, DEFAULT_BACKUP_RETENTION_DAYS);
+});
+
+test("pruning expires only old direct backup directories", () => {
+  const base = root();
+  const old = path.join(base, "manual-backups", "old-target");
+  const recent = path.join(base, "recovery", "recent-target");
+  const outside = root();
+  mkdirSync(old, { recursive: true }); writeFileSync(path.join(old, "artifact"), "old");
+  mkdirSync(recent, { recursive: true }); writeFileSync(path.join(recent, "artifact"), "recent");
+  mkdirSync(outside, { recursive: true });
+  mkdirSync(path.join(base, "legacy-backups"), { recursive: true });
+  symlinkSync(outside, path.join(base, "legacy-backups", "escape"));
+  utimesSync(old, new Date("2026-07-01T00:00:00Z"), new Date("2026-07-01T00:00:00Z"));
+  utimesSync(recent, new Date("2026-08-07T00:00:00Z"), new Date("2026-08-07T00:00:00Z"));
+  const snapshot = inspectCache({ cacheRoot: base, now: new Date("2026-08-08T00:00:00Z"), statfs: () => ({ bavail: 100, bsize: 1 }) });
+  assert.deepEqual(snapshot.backups.map((entry) => entry.id).sort(), ["backup:manual-backups:old-target", "backup:recovery:recent-target"]);
+  const plan = planCachePrune({ snapshot, policy: { ...readCachePolicy({}), targetMaxBytes: 1, desiredFreeBytes: 0 } });
+  assert.deepEqual(plan.candidateIds, ["backup:manual-backups:old-target"]);
+  const result = applyCachePrune({ plan, cacheRoot: base, dryRun: false });
+  assert.deepEqual(result.removedIds, ["backup:manual-backups:old-target"]);
+  assert.equal(existsSync(old), false);
+  assert.equal(existsSync(recent), true);
+  assert.equal(existsSync(outside), true);
 });
 
 test("entry metadata is atomic, complete, and updates success only after requested", () => {

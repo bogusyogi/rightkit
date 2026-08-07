@@ -27,6 +27,7 @@ import { createTargetBridge } from "./target-bridge.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
+import { acquireHeavyWorkSlot, heavyCommandEnvironment } from "./heavy-command.mjs";
 
 /** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
 function buildPreflight({ config, configPath, appRoot, repoRoot, platform }) {
@@ -84,6 +85,7 @@ let lock;
 let child = null;
 let suiteSlot;
 let cacheLease;
+let heavySlot;
 let interrupted;
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
@@ -149,7 +151,7 @@ try {
   // Perl first so the build behaves the same from any shell.
   const pathPrefix = buildPathPrefix({ platform });
   const env = {
-    ...process.env,
+    ...heavyCommandEnvironment(process.env),
     ...releaseEnvironment({ root: vaultRoot, cacheRoot: sharedCacheRoot, platform, architecture: cacheIdentity.architecture, app: config.app, cacheKey, kind: "release", appRoot, mode: cacheMode }),
     ...(pathPrefix ? { PATH: `${pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
     RIGHT_RELEASE_REPO_ROOT: layout.repoRoot,
@@ -158,6 +160,7 @@ try {
   if (cacheMode === "legacy") delete env.RIGHT_RELEASE_CACHE_OWNER;
   if (cacheMode === "shared" && env.RIGHT_RELEASE_CACHE_OWNER !== "rightkit-v2") fail("shared cache ownership token was not configured");
   if (cacheMode === "legacy" && !commandExists("sccache")) delete env.RUSTC_WRAPPER;
+  if (process.env.RIGHTSUITE_HEAVY_WORK_OWNER !== "1") heavySlot = acquireHeavyWorkSlot();
   if (cacheMode === "shared") {
     suiteSlot = acquireSuiteBuildSlot({ layout: sharedLayout, pid: process.pid, argv: process.argv, waitMs: Number(process.env.BUILD_GUARD_WAIT_SECS ?? 900) * 1000 });
     cacheLease = acquireCacheLease({ layout: sharedLayout, pid: process.pid, argv: process.argv });
@@ -260,6 +263,7 @@ try {
 } finally {
   cacheLease?.release();
   suiteSlot?.release();
+  heavySlot?.release();
   lock?.release();
 }
 

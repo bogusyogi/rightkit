@@ -24,6 +24,7 @@ export const DEFAULT_TARGET_MAX_BYTES = 12 * 1024 ** 3;
 export const DEFAULT_SCCACHE_MAX_BYTES = 32 * 1024 ** 3;
 export const DEFAULT_DESIRED_FREE_BYTES = 60 * 1024 ** 3;
 export const DEFAULT_HARD_FREE_BYTES = 25 * 1024 ** 3;
+export const DEFAULT_BACKUP_RETENTION_DAYS = 7;
 // Any build holds release -> suite slot -> GC -> entry lease; prune holds only GC.
 export const CACHE_LOCK_ORDER = ["release", "suite-build-slot", "gc", "entry-lease"];
 
@@ -84,6 +85,7 @@ export function readCachePolicy(env = process.env) {
     sccacheMaxBytes: readPositive(env.RIGHT_RELEASE_SCCACHE_MAX_BYTES, DEFAULT_SCCACHE_MAX_BYTES),
     desiredFreeBytes: readPositive(env.RIGHT_RELEASE_DESIRED_FREE_BYTES, DEFAULT_DESIRED_FREE_BYTES),
     hardFreeBytes: readPositive(env.RIGHT_RELEASE_HARD_FREE_BYTES, DEFAULT_HARD_FREE_BYTES),
+    backupRetentionDays: readPositive(env.RIGHT_RELEASE_BACKUP_RETENTION_DAYS, DEFAULT_BACKUP_RETENTION_DAYS),
   };
 }
 
@@ -197,7 +199,7 @@ export function markCacheEntrySuccessful({ layout, now = new Date() } = {}) {
 
 export function inspectCache({ cacheRoot, statfs = statfsSync, now = new Date() } = {}) {
   const root = readonlyRoot(cacheRoot);
-  if (!root) return { cacheRoot: path.resolve(cacheRoot), entries: [], targetBytes: 0, cacheFreeBytes: 0, device: undefined, inspectedAt: iso(now) };
+  if (!root) return { cacheRoot: path.resolve(cacheRoot), entries: [], backups: [], targetBytes: 0, backupBytes: 0, cacheFreeBytes: 0, device: undefined, inspectedAt: iso(now) };
   const entries = [];
   for (const kind of ["targets", "test-targets"]) {
     const kindRoot = path.join(root, kind);
@@ -215,8 +217,16 @@ export function inspectCache({ cacheRoot, statfs = statfsSync, now = new Date() 
       entries.push({ id: marker.id, dir, marker, bytes: directoryBytes(dir), leased: live, lease: live ? lease : null });
     }
   }
+  const backups = [];
+  for (const namespace of BACKUP_NAMESPACES) {
+    const namespaceRoot = path.join(root, namespace);
+    for (const entry of safeDirEntries(namespaceRoot)) {
+      const stat = lstatSync(entry.path);
+      backups.push({ id: `backup:${namespace}:${entry.name}`, namespace, name: entry.name, dir: entry.path, bytes: directoryBytes(entry.path), mtimeMs: stat.mtimeMs });
+    }
+  }
   const fs = statfs(root, { bigint: false });
-  return { cacheRoot: root, entries, targetBytes: entries.filter((x) => x.marker.kind === "release").reduce((sum, x) => sum + x.bytes, 0), cacheFreeBytes: freeBytes(fs), device: fs.dev ?? safeDevice(root), inspectedAt: iso(now) };
+  return { cacheRoot: root, entries, backups, targetBytes: entries.filter((x) => x.marker.kind === "release").reduce((sum, x) => sum + x.bytes, 0), backupBytes: backups.reduce((sum, x) => sum + x.bytes, 0), cacheFreeBytes: freeBytes(fs), device: fs.dev ?? safeDevice(root), inspectedAt: iso(now) };
 }
 
 export function inspectWriteVolumes({ repoRoot, vaultRoot, cacheRoot, statfs = statfsSync } = {}) {
@@ -253,6 +263,10 @@ export function planCachePrune({ snapshot, policy = readCachePolicy(), protected
   let bytes = snapshot.targetBytes ?? 0;
   let free = snapshot.cacheFreeBytes ?? Infinity;
   const selected = [];
+  const backupCutoff = new Date(snapshot.inspectedAt ?? Date.now()).getTime() - policy.backupRetentionDays * 86_400_000;
+  for (const entry of snapshot.backups ?? []) {
+    if (entry.mtimeMs < backupCutoff) selected.push({ id: entry.id, dir: entry.dir, bytes: entry.bytes, reason: "expired-backup" });
+  }
   for (const entry of candidates) {
     if (bytes <= policy.targetMaxBytes && free >= policy.desiredFreeBytes) break;
     selected.push({ id: entry.id, dir: entry.dir, bytes: entry.bytes, reason: bytes > policy.targetMaxBytes ? "target-cap" : "free-space" });
@@ -426,10 +440,18 @@ function acquireAtomicLock(file, payload, label, now) {
 function releaseFor(file, payload) { let released = false; return { release() { if (released) return; released = true; const current = readJson(file); if (current?.pid === payload.pid && current?.createdAt === payload.createdAt) safeUnlink(file); } }; }
 function touchEntry(layout, now) { const entry = readJson(layout.markerPath); if (!validEntry(entry, layout)) throw new Error(`invalid cache entry marker: ${layout.markerPath}`); entry.lastUsedAt = iso(now); atomicJson(layout.markerPath, entry); }
 function defaultSleep(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+const BACKUP_NAMESPACES = ["recovery", "manual-backups", "dev-target-backups", "legacy-backups"];
 function safePruneCandidate(root, candidate) {
   if (!candidate?.dir || path.resolve(candidate.dir) === root) return false;
   if (!existsSync(candidate.dir) || lstatSync(candidate.dir).isSymbolicLink()) return false;
-  const dir = realpathSync(candidate.dir); const targets = [path.join(root, "targets"), path.join(root, "test-targets")];
+  const dir = realpathSync(candidate.dir);
+  if (candidate.id?.startsWith("backup:")) {
+    const [, namespace, name] = candidate.id.split(":");
+    if (!BACKUP_NAMESPACES.includes(namespace) || !name || path.basename(dir) !== name) return false;
+    const backupRoot = path.join(root, namespace);
+    try { return path.dirname(dir) === backupRoot && realpathSync(backupRoot) === backupRoot; } catch { return false; }
+  }
+  const targets = [path.join(root, "targets"), path.join(root, "test-targets")];
   const targetRoot = targets.find((item) => { try { assertLexicalInside(item, dir); return true; } catch { return false; } });
   if (!targetRoot) return false;
   try {

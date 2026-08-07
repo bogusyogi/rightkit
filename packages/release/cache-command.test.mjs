@@ -19,6 +19,7 @@ test("cache status has human and schema-stable JSON output", () => {
   const json = run(["status", "--json"], cacheRoot);
   assert.equal(human.status, 0, human.stderr);
   assert.match(human.stdout, /RightKit cache root:/);
+  assert.match(human.stdout, /Backups: 0 bytes/);
   assert.equal(json.status, 0, json.stderr);
   assert.equal(JSON.parse(json.stdout).schema, 1);
 });

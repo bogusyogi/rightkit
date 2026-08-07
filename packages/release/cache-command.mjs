@@ -58,7 +58,7 @@ export async function runCacheCommand(args = process.argv.slice(2), { env = proc
 
 function output(value, json, stdout) {
   if (json) stdout(JSON.stringify(value));
-  else if (value.command === "status") stdout(`RightKit cache root: ${value.cacheRoot}\nTargets: ${value.targetBytes} bytes\nFree: ${(value.cacheFreeBytes / 1024 ** 3).toFixed(1)} GiB\nLeases: ${value.entries.filter((entry) => entry.leased).length}`);
+  else if (value.command === "status") stdout(`RightKit cache root: ${value.cacheRoot}\nTargets: ${value.targetBytes} bytes\nBackups: ${value.backupBytes} bytes\nFree: ${(value.cacheFreeBytes / 1024 ** 3).toFixed(1)} GiB\nLeases: ${value.entries.filter((entry) => entry.leased).length}`);
   else stdout(`RightKit cache ${value.command}: ${value.dryRun ? "dry-run" : "applied"}\nRoot: ${value.cacheRoot}\nCandidates: ${(value.candidateIds ?? value.plan?.candidateIds ?? []).join(", ") || "none"}\nReclaimed: ${value.reclaimedBytes ?? 0} bytes`);
   return value;
 }
