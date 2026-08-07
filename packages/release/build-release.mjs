@@ -27,7 +27,7 @@ import { createTargetBridge } from "./target-bridge.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
-import { acquireHeavyWorkSlot, heavyCommandEnvironment } from "./heavy-command.mjs";
+import { acquireHeavyWorkSlot, heavyCommandEnvironment, terminateProcessTree } from "./heavy-command.mjs";
 
 /** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
 function buildPreflight({ config, configPath, appRoot, repoRoot, platform }) {
@@ -364,7 +364,16 @@ async function runProgress(cmd, runArgs, cwd, env, watchDir) {
   let lastMtime = Math.max(...watchDirs.map(newestMtime));
   const started = Date.now();
   await new Promise((resolve, reject) => {
-    child = spawn(cmd, runArgs, { cwd, env, stdio: ["inherit", "pipe", "pipe"], windowsHide: true, shell: process.platform === "win32" });
+    child = spawn(cmd, runArgs, { cwd, env, stdio: ["inherit", "pipe", "pipe"], windowsHide: true, shell: process.platform === "win32", detached: process.platform !== "win32" });
+    try {
+      if (child.pid && heavySlot) heavySlot.trackChild(child.pid, cmd);
+    } catch (error) {
+      child.once("error", () => {});
+      if (child.pid) killTree(child.pid);
+      child = null;
+      reject(error);
+      return;
+    }
     const closeWatchers = watchProgress(watchDirs, () => { lastProgress = Date.now(); });
     for (const [stream, output] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
       stream.on("data", (chunk) => { lastProgress = Date.now(); output.write(chunk); });
@@ -464,9 +473,7 @@ function runChecked(cmd, runArgs, cwd, env = process.env) {
 }
 
 function killTree(pid) {
-  if (!pid) return;
-  if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-  else { try { process.kill(-pid, "SIGTERM"); } catch { try { process.kill(pid, "SIGTERM"); } catch { /* gone */ } } }
+  terminateProcessTree(pid);
 }
 
 function writeJson(file, value) {

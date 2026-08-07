@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
 const GB = 1024 ** 3;
+const SELF = fileURLToPath(import.meta.url);
 
 export function heavyWorkRoot({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   if (env.RIGHTSUITE_HEAVY_WORK_ROOT) return path.resolve(env.RIGHTSUITE_HEAVY_WORK_ROOT);
@@ -25,6 +26,10 @@ export function heavyCommandEnvironment(env = process.env) {
     RUST_TEST_THREADS: env.RUST_TEST_THREADS || env.BUILD_GUARD_TEST_THREADS || "2",
     RIGHTSUITE_HEAVY_WORK_OWNER: "1",
   };
+}
+
+export function heavyChildDetached({ slot, platform = process.platform } = {}) {
+  return Boolean(slot) && platform !== "win32" && platform !== "win";
 }
 
 export function parseMacResourceSnapshot({ memory = "", swap = "", thermal = "" } = {}) {
@@ -103,7 +108,11 @@ export function formatResourceSnapshot(snapshot) {
 
 function processAlive(pid) {
   if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return false;
-  try { process.kill(Number(pid), 0); return true; } catch { return false; }
+  try { process.kill(Number(pid), 0); return true; } catch (error) { return error?.code === "EPERM"; }
+}
+
+function processGroupAlive(pid) {
+  try { process.kill(-Number(pid), 0); return true; } catch (error) { return error?.code === "EPERM"; }
 }
 
 function sleep(ms) {
@@ -111,7 +120,74 @@ function sleep(ms) {
 }
 
 function readOwner(lockDir) {
-  try { return JSON.parse(readFileSync(path.join(lockDir, "owner.json"), "utf8")); } catch { return null; }
+  try {
+    const owner = JSON.parse(readFileSync(path.join(lockDir, "owner.json"), "utf8"));
+    try { return { ...owner, ...JSON.parse(readFileSync(path.join(lockDir, "child.json"), "utf8")) }; } catch { return owner; }
+  } catch { return null; }
+}
+
+function writeTrackedChild(lockDir, owner, child) {
+  const file = path.join(lockDir, "child.json");
+  const temporary = path.join(lockDir, `.child-${owner.token}.tmp`);
+  writeFileSync(temporary, `${JSON.stringify(child)}\n`, { mode: 0o600 });
+  renameSync(temporary, file);
+}
+
+export function processStartedAt(pid, { platform = process.platform, run = spawnSync } = {}) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return null;
+  const result = platform === "win32" || platform === "win"
+    ? run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${Number(pid)} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')`], { encoding: "utf8", windowsHide: true })
+    : run("ps", ["-p", String(pid), "-o", "lstart="], { encoding: "utf8", windowsHide: true });
+  if (result.status !== 0) return null;
+  const value = Date.parse(String(result.stdout ?? "").trim());
+  return Number.isFinite(value) ? value : null;
+}
+
+export function terminateProcessTree(pid, { platform = process.platform, run = spawnSync, kill = process.kill, treeAlive = processGroupAlive, pause = sleep } = {}) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return;
+  if (platform === "win32" || platform === "win") {
+    run("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    return;
+  }
+  try { kill(-Number(pid), "SIGTERM"); } catch { try { kill(Number(pid), "SIGTERM"); } catch { return; } }
+  pause(500);
+  if (treeAlive(pid)) { try { kill(-Number(pid), "SIGKILL"); } catch { try { kill(Number(pid), "SIGKILL"); } catch { /* gone */ } } }
+}
+
+export async function watchOwnedProcessTree(
+  { root, token, ownerPid, childPid, childStartedAtMs },
+  { alive = processAlive, startedAt = processStartedAt, terminate = terminateProcessTree, pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
+) {
+  const lockDir = path.join(root, "slot");
+  while (alive(ownerPid)) {
+    if (readOwner(lockDir)?.token !== token) return false;
+    await pause(500);
+  }
+  const owner = readOwner(lockDir);
+  if (owner?.token !== token || Number(owner.childPid) !== Number(childPid)) return false;
+  if (alive(childPid)) {
+    const observedStart = startedAt(childPid);
+    if (!Number.isFinite(observedStart) || Math.abs(observedStart - Number(childStartedAtMs)) > 2000) {
+      throw new Error(`watcher found reused child pid ${childPid}; refusing termination`);
+    }
+    terminate(childPid);
+  }
+  releaseOwned(lockDir, token);
+  return true;
+}
+
+function spawnOwnerWatcher(details) {
+  const payload = Buffer.from(JSON.stringify(details)).toString("base64url");
+  const watcher = spawn(process.execPath, [SELF, "--watch-owner-base64", payload], {
+    detached: true, env: process.env, stdio: "ignore", windowsHide: true,
+  });
+  watcher.once("error", () => {
+    const observedStart = processStartedAt(details.childPid);
+    if (Number.isFinite(observedStart) && Math.abs(observedStart - Number(details.childStartedAtMs)) <= 2000) {
+      terminateProcessTree(details.childPid);
+    }
+  });
+  watcher.unref();
 }
 
 export function acquireHeavyWorkSlot({
@@ -119,6 +195,7 @@ export function acquireHeavyWorkSlot({
   pollMs = 1000, alive = processAlive, pause = sleep, snapshot = systemResourceSnapshot,
   minFreePercent = Number(process.env.BUILD_GUARD_MIN_MEMORY_FREE_PERCENT ?? 15), log = (message) => console.error(`[heavy-work] ${message}`),
   maxCpuLoadPercent = Number(process.env.BUILD_GUARD_MAX_CPU_LOAD_PERCENT ?? 90),
+  processStartedAt: startedAt = processStartedAt, terminate = terminateProcessTree, startWatcher = spawnOwnerWatcher,
 } = {}) {
   mkdirSync(root, { recursive: true });
   const lockDir = path.join(root, "slot");
@@ -137,6 +214,14 @@ export function acquireHeavyWorkSlot({
       const owner = readOwner(lockDir);
       const incompleteAge = (() => { try { return Date.now() - statSync(lockDir).mtimeMs; } catch { return 0; } })();
       if (owner ? !alive(owner.pid) : incompleteAge > 10_000) {
+        if (owner?.childPid && alive(owner.childPid)) {
+          const observedStart = startedAt(owner.childPid);
+          if (!Number.isFinite(observedStart) || Math.abs(observedStart - Number(owner.childStartedAtMs)) > 2000) {
+            throw new Error(`dead heavy-work owner pid ${owner.pid}; tracked child pid ${owner.childPid} identity changed; refusing to kill or admit`);
+          }
+          log(`reaping owned process tree pid ${owner.childPid} after owner pid ${owner.pid} exited`);
+          terminate(owner.childPid);
+        }
         rmSync(lockDir, { recursive: true, force: true });
         continue;
       }
@@ -160,7 +245,22 @@ export function acquireHeavyWorkSlot({
     if (Date.now() - lastReport >= 10_000) { log(`resource wait: ${blockers.join(", ")}`); lastReport = Date.now(); }
     pause(Math.min(5000, Math.max(1, waitMs - (Date.now() - started))));
   }
-  return { root, release: () => releaseOwned(lockDir, token) };
+  return {
+    root,
+    trackChild(childPid, childCommand = "") {
+      const owner = readOwner(lockDir);
+      if (owner?.token !== token) throw new Error("heavy-work slot ownership changed before child tracking");
+      const childStartedAtMs = startedAt(childPid);
+      if (!Number.isFinite(childStartedAtMs)) {
+        if (!alive(childPid)) return false;
+        throw new Error(`heavy-work could not verify child pid ${childPid} start time`);
+      }
+      writeTrackedChild(lockDir, owner, { childPid: Number(childPid), childCommand: String(childCommand), childStartedAtMs });
+      startWatcher({ root, token, ownerPid: Number(pid), childPid: Number(childPid), childStartedAtMs });
+      return true;
+    },
+    release: () => releaseOwned(lockDir, token),
+  };
 }
 
 function releaseOwned(lockDir, token) {
@@ -183,17 +283,35 @@ export async function runHeavyCommand(args, { env = process.env } = {}) {
   if (!command) throw new Error("heavy-command: expected -- <command> or --shell-base64 <value>");
   if (env.RIGHTSUITE_HEAVY_WORK_OWNER === "1") return spawnAttached(command, commandArgs, env);
   const slot = acquireHeavyWorkSlot();
-  try { return await spawnAttached(command, commandArgs, heavyCommandEnvironment(env)); } finally { slot.release(); }
+  try { return await spawnAttached(command, commandArgs, heavyCommandEnvironment(env), slot); } finally { slot.release(); }
 }
 
-function spawnAttached(command, args, env) {
+function spawnAttached(command, args, env, slot) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: process.cwd(), env, stdio: "inherit", windowsHide: true });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+    const child = spawn(command, args, { cwd: process.cwd(), env, stdio: "inherit", windowsHide: true, detached: heavyChildDetached({ slot }) });
+    try {
+      if (child.pid && slot) slot.trackChild(child.pid, command);
+    } catch (error) {
+      child.once("error", () => {});
+      if (child.pid) terminateProcessTree(child.pid);
+      reject(error);
+      return;
+    }
+    const handlers = new Map(["SIGINT", "SIGTERM", "SIGHUP"].map((signal) => [signal, () => {
+      if (child.pid) terminateProcessTree(child.pid);
+      process.exitCode = signal === "SIGINT" ? 130 : 143;
+    }]));
+    for (const [signal, handler] of handlers) process.once(signal, handler);
+    const cleanup = () => { for (const [signal, handler] of handlers) process.removeListener(signal, handler); };
+    child.once("error", (error) => { cleanup(); reject(error); });
+    child.once("exit", (code, signal) => { cleanup(); resolve(code ?? (signal ? 1 : 0)); });
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runHeavyCommand(process.argv.slice(2)).then((code) => { process.exitCode = code; }).catch((error) => { console.error(`heavy-command: ${error.message}`); process.exitCode = 1; });
+if (process.argv[1] && path.resolve(process.argv[1]) === SELF) {
+  const args = process.argv.slice(2);
+  const task = args[0] === "--watch-owner-base64"
+    ? watchOwnedProcessTree(JSON.parse(Buffer.from(args[1] || "", "base64url").toString("utf8"))).then(() => 0)
+    : runHeavyCommand(args);
+  task.then((code) => { process.exitCode = code; }).catch((error) => { console.error(`heavy-command: ${error.message}`); process.exitCode = 1; });
 }

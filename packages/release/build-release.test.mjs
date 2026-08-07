@@ -16,6 +16,8 @@ test("macOS and Windows builds default to Cache V2 while explicit legacy mode re
   assert.match(source, /acquireSuiteBuildSlot/);
   assert.match(source, /acquireHeavyWorkSlot/);
   assert.match(source, /heavyCommandEnvironment/);
+  assert.match(source, /heavySlot\.trackChild/);
+  assert.match(source, /detached: process\.platform !== "win32"/);
   assert.match(source, /acquireCacheLease/);
   assert.match(source, /markCacheEntrySuccessful/);
   assert.match(source, /RIGHT_RELEASE_CACHE_OWNER/);
