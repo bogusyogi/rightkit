@@ -36,6 +36,13 @@ const apps = [
   { key: "coderight", root: "coderight/apps/coderight-tauri", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs"] },
 ];
 
+// ScreenRight is intentionally a macOS-only AppKit consumer. It has no Tauri
+// manifest or Windows target, so keep it in an explicit registry lane rather
+// than manufacturing unsupported platform entries.
+const macOnlyApps = [
+  { key: "screenright", root: "tools/screenright", releaseFiles: ["scripts/release-package.mjs"] },
+];
+
 function assertReleasePackageScripts(scripts, label) {
   for (const platform of ["mac", "win"]) {
     assert.equal(scripts[`release:build:${platform}`], `right-release build --platform ${platform}`, `${label} must use the tier-neutral ${platform} build entry point`);
@@ -604,6 +611,45 @@ for (const app of apps) {
       const source = readFileSync(path.join(root, releaseFile), "utf8");
       assert.doesNotMatch(source, /(?:\.\.\/)+tools\/right-release|tools\/right-release\//, `${app.key} ${releaseFile} must consume the installed package`);
       assert.match(source, /right-release["']?,?\s*["']mirror-root-artifact|right-release mirror-root-artifact/, `${app.key} ${releaseFile} must mirror the final DMG to the canonical package root`);
+    }
+  });
+}
+
+for (const app of macOnlyApps) {
+  test(`${app.key} follows the macOS-only AppKit Right Release contract`, async () => {
+    const root = path.join(workspace, app.root);
+    const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+    assert.equal(pkg.scripts["release:doctor"], "right-release doctor");
+    assert.equal(pkg.scripts["release:build:mac"], "right-release build --platform mac");
+    assert.equal(pkg.scripts["release:upload:patch:mac"], "right-release upload --platform mac --tier patch");
+    assert.equal(pkg.scripts["release:build:win"], undefined, `${app.key} must not fake a Windows target`);
+    assert.equal(pkg.scripts["release:upload:patch:win"], undefined, `${app.key} must not fake a Windows target`);
+    assert.equal(pkg.scripts["release:upload:update:mac"], undefined, `${app.key} must not expose ungated feature-update upload`);
+    assert.equal(pkg.scripts["release:upload:update:win"], undefined);
+
+    const config = (await import(`${pathToFileURL(path.join(root, "right-release.config.mjs"))}?mac-only=${Date.now()}`)).default;
+    assert.equal(config.app, app.key);
+    assert.deepEqual(Object.keys(config.targets), ["mac"]);
+    assert.equal(config.targets.mac.signed, true);
+    assert.deepEqual(config.targets.mac.publish, {
+      cmd: "right-release",
+      args: ["publish-update", "--config", "right-release.config.mjs", "--platform", "mac"],
+    });
+    assert.equal(config.targets.mac.updater.artifacts.length, 1);
+    const updater = config.targets.mac.updater.artifacts[0];
+    assert.equal(updater.platform, "darwin-aarch64");
+    assert.match(updater.file, /\.dmg$/);
+    assert.equal(updater.signature, `${updater.file}.sig`);
+    assert.equal(updater.key, `${app.key}/updates/mac/current/ScreenRight.dmg`);
+    assertBuildInputs(config, config.targets.mac, `${app.key} mac`);
+    assertMacPackageEntry(config.targets.mac.package, pkg.scripts, app.key);
+    assert.ok(config.targets.mac.installer.artifacts.length >= 1);
+    assert.ok(config.checks.includes("legal:check"), `${app.key} must gate generated legal notices`);
+    assert.deepEqual(config.deps, { workdirs: ["."] });
+    assert.equal(existsSync(path.join(root, "src-tauri", "tauri.conf.json")), false, `${app.key} must not invent a Tauri manifest`);
+    for (const releaseFile of app.releaseFiles) {
+      const source = readFileSync(path.join(root, releaseFile), "utf8");
+      assert.match(source, /mirror-root-artifact/);
     }
   });
 }
