@@ -8,6 +8,7 @@ import test, { after } from "node:test";
 import {
   assertNoRightKitCargoOverrides,
   assertPublishedRightKitCargoDependencies,
+  cargoExecutable,
   validateRightKitCargoContract,
 } from "./cargo-contract.mjs";
 import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
@@ -449,10 +450,10 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.0",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.51",
+    "@rightkit/release": "0.2.52",
   });
   assert.deepEqual(versions.legacyNpm, {
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51"],
   });
   assert.ok(
     new Set([versions.npm["@rightkit/release"], ...versions.legacyNpm["@rightkit/release"]]).has("0.2.42"),
@@ -471,6 +472,11 @@ test("RightKit exposes one current version manifest", () => {
     "rightkit-tauri": "0.1.1",
   });
   getCurrentCargoVersionContract();
+});
+
+test("Cargo metadata uses the native Windows executable", () => {
+  assert.equal(cargoExecutable("win32"), "cargo.exe");
+  assert.equal(cargoExecutable("darwin"), "cargo");
 });
 
 test("license v2 public vector is identical at every portable consumer boundary", () => {
