@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +26,81 @@ export function cargoSubcommand(args) {
 export function shouldGuardCargo(args) {
   const command = cargoSubcommand(args);
   return command !== null && !LIGHT_COMMANDS.has(command);
+}
+
+export function computePolicyPath({ env = process.env, platform = process.platform, home = os.userInfo().homedir } = {}) {
+  if (env.RIGHTSUITE_COMPUTE_POLICY) return path.resolve(env.RIGHTSUITE_COMPUTE_POLICY);
+  if (platform === "win32" || platform === "win") {
+    return path.win32.join(env.LOCALAPPDATA || path.win32.join(home, "AppData", "Local"), "RightSuite", "compute-policy.json");
+  }
+  if (platform === "darwin" || platform === "mac") return path.join(home, "Library", "Application Support", "RightSuite", "compute-policy.json");
+  return path.join(env.XDG_CONFIG_HOME || path.join(home, ".config"), "rightsuite", "compute-policy.json");
+}
+
+export function loadComputePolicy(options = {}) {
+  const policyPath = computePolicyPath(options);
+  if (!(options.exists ?? existsSync)(policyPath)) return { schemaVersion: 1, cargoTest: "allow" };
+  const policy = JSON.parse((options.read ?? readFileSync)(policyPath, "utf8"));
+  if (!policy || Object.keys(policy).sort().join(",") !== "cargoTest,schemaVersion"
+      || policy.schemaVersion !== 1 || !["allow", "deny"].includes(policy.cargoTest)) {
+    throw new Error(`invalid compute policy: ${policyPath}`);
+  }
+  return policy;
+}
+
+function shellSegments(command) {
+  const segments = [[]];
+  let word = "", quote = null, escaped = false;
+  const push = () => { if (word) segments.at(-1).push(word); word = ""; };
+  for (const char of String(command)) {
+    if (escaped) { word += char; escaped = false; continue; }
+    if (char === "\\" && quote !== "'") { escaped = true; continue; }
+    if (quote) { if (char === quote) quote = null; else word += char; continue; }
+    if (char === "'" || char === '"') { quote = char; continue; }
+    if (/\s/.test(char)) { push(); if (char === "\n" && segments.at(-1).length) segments.push([]); continue; }
+    if (";&|".includes(char)) { push(); if (segments.at(-1).length) segments.push([]); continue; }
+    word += char;
+  }
+  push();
+  return segments.filter((segment) => segment.length);
+}
+
+function segmentRunsCargoTest(segment) {
+  let index = 0;
+  while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(segment[index] ?? "")) index += 1;
+  if (path.basename(segment[index] ?? "").toLowerCase() === "env") {
+    index += 1;
+    while ((segment[index] ?? "").startsWith("-") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(segment[index] ?? "")) index += 1;
+  }
+  const executable = path.basename(segment[index] ?? "").toLowerCase();
+  if (["cargo", "cargo.exe"].includes(executable)) return cargoSubcommand(segment.slice(index + 1)) === "test";
+  if (["rustup", "rustup.exe"].includes(executable) && segment[index + 1] === "run") {
+    const cargoIndex = segment.findIndex((value, offset) => offset > index + 1 && ["cargo", "cargo.exe"].includes(path.basename(value).toLowerCase()));
+    return cargoIndex >= 0 && cargoSubcommand(segment.slice(cargoIndex + 1)) === "test";
+  }
+  if (["sh", "bash", "zsh"].includes(executable)) {
+    const commandIndex = segment.findIndex((value, offset) => offset > index && value === "-c");
+    return commandIndex >= 0 && shellRunsCargoTest(segment[commandIndex + 1] ?? "");
+  }
+  return false;
+}
+
+export function shellRunsCargoTest(command) {
+  return shellSegments(command).some(segmentRunsCargoTest);
+}
+
+export function assertComputePolicyAllowsCargo(args, options = {}) {
+  if (cargoSubcommand(args) === "test" && loadComputePolicy(options).cargoTest === "deny") {
+    throw new Error("cargo test denied by global RightSuite compute policy");
+  }
+}
+
+export function checkHookInput(input, options = {}) {
+  const event = JSON.parse(String(input));
+  const command = event?.tool_input?.command ?? event?.toolInput?.command ?? "";
+  if (loadComputePolicy(options).cargoTest === "deny" && shellRunsCargoTest(command)) {
+    throw new Error("cargo test denied by global RightSuite compute policy");
+  }
 }
 
 export function resolveRealCargo({ env = process.env, run = spawnSync } = {}) {
@@ -117,7 +193,8 @@ function spawnCargo(command, args, env) {
   });
 }
 
-export async function runCargoGuard(args, { env = process.env, resolveCargo = resolveRealCargo, resolveRustc = resolveRealRustc, runHeavy = runHeavyCommand, runLight = spawnCargo } = {}) {
+export async function runCargoGuard(args, { env = process.env, policyOptions = {}, resolveCargo = resolveRealCargo, resolveRustc = resolveRealRustc, runHeavy = runHeavyCommand, runLight = spawnCargo } = {}) {
+  assertComputePolicyAllowsCargo(args, { ...policyOptions, env });
   const cargo = resolveCargo({ env });
   if (shouldGuardCargo(args)) {
     const guarded = cargoCacheEnvironment(args, { env });
@@ -128,5 +205,11 @@ export async function runCargoGuard(args, { env = process.env, resolveCargo = re
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runCargoGuard(process.argv.slice(2)).then((code) => { process.exitCode = code; }).catch((error) => { console.error(`cargo-guard: ${error.message}`); process.exitCode = 1; });
+  const args = process.argv.slice(2);
+  if (args[0] === "--check-hook-base64") {
+    try { checkHookInput(Buffer.from(args[1] ?? "", "base64url").toString("utf8")); }
+    catch (error) { console.error(`cargo-guard: ${error.message}`); process.exitCode = 2; }
+  } else {
+    runCargoGuard(args).then((code) => { process.exitCode = code; }).catch((error) => { console.error(`cargo-guard: ${error.message}`); process.exitCode = 1; });
+  }
 }
