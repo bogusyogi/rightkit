@@ -17,6 +17,8 @@ import {
   verifySealedRelease,
 } from "./release-state.mjs";
 
+const expectedPnpmVersion = JSON.parse(readFileSync(new URL("./rightkit-versions.json", import.meta.url), "utf8")).packageManager.replace(/^pnpm@/, "");
+
 test("progress watcher observes writes in nested Cargo target directories", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "right-release-watch-"));
   const nested = path.join(root, "release", "build", "openssl");
@@ -36,7 +38,7 @@ test("progress watcher observes writes in nested Cargo target directories", asyn
 });
 
 test("portable command capture resolves Windows command shims", { skip: process.platform !== "win32" }, () => {
-  assert.match(commandOutputPortable("pnpm", ["--version"]), /^11\.12\.0$/);
+  assert.equal(commandOutputPortable("pnpm", ["--version"]), expectedPnpmVersion);
 });
 
 test("nested app configs keep the vault at repo root and build from the app root", () => {

@@ -15,8 +15,8 @@ export function heavyWorkRoot({ platform = process.platform, env = process.env, 
     if (!env.LOCALAPPDATA) throw new Error("LOCALAPPDATA is required for the RightSuite heavy-work guard");
     return path.win32.resolve(env.LOCALAPPDATA, "RightSuite", "heavy-work");
   }
-  if (platform === "darwin" || platform === "mac") return path.join(home, "Library", "Caches", "RightSuite", "heavy-work");
-  return path.resolve(env.XDG_CACHE_HOME || path.join(home, ".cache"), "rightsuite", "heavy-work");
+  if (platform === "darwin" || platform === "mac") return path.posix.join(home, "Library", "Caches", "RightSuite", "heavy-work");
+  return path.posix.resolve(env.XDG_CACHE_HOME || path.posix.join(home, ".cache"), "rightsuite", "heavy-work");
 }
 
 export function heavyCommandEnvironment(env = process.env) {
