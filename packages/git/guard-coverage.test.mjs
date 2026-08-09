@@ -225,3 +225,11 @@ test("qualification preserves failing schema evidence as a unique required artif
   assert.match(template, /set -o pipefail[\s\S]*tee qualification-schema\.log/);
   assert.match(template, /uses: actions\/upload-artifact@v4[\s\S]*github\.run_id[\s\S]*github\.run_attempt[\s\S]*if-no-files-found: error/);
 });
+
+test("rust-hybrid ci keeps its work behind the public-repository guard", () => {
+  const manifest = { ...FULL_MANIFEST, lanes: ["ci"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
+  const template = fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8");
+  const jobs = parseJobs(renderTemplate(template, buildRenderContext(manifest, "/repos/widgets")));
+  assert.ok(isGuarded(jobs, "private-repo-guard"));
+  assert.ok(isGuarded(jobs, "ci"));
+});

@@ -21,7 +21,7 @@ Agent-experience (AX) conformance gates and agent-plugins.org packaging validati
 - **Artifact-root is mandatory for MCP gates.** `static`, `conformance`, `adversarial`, matrix behavioral runs, and reports that run those gates require an external clean-room directory: an absolute path or repo-relative path resolving outside source repo. AX records its SHA-256 digest and verifies it stayed unchanged.
 - **Adversarial evidence is separate.** `ax adversarial` executes declared cases with per-case deterministic canaries tied to artifact digest. It reports pass or fail evidence; it never converts coverage into signoff.
 
-Both limitations fail closed (the tool never falsely claims what it did not verify); they are disclosed here so consumers do not infer coverage the tool did not perform.
+These boundaries fail closed; consumers must not infer coverage AX did not prove.
 
 ## Install
 

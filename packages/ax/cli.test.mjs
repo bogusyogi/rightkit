@@ -48,6 +48,16 @@ test("ax static exits non-zero when .rightax.json is missing", () => {
   assert.match(result.stderr, /invalid or missing \.rightax\.json/);
 });
 
+test("plugin init rejects a missing repo path with one controlled error", () => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), "right-ax-cli-"));
+  const missing = path.join(parent, "missing-repo");
+  const result = run(["plugin", "init", missing]);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, `right-ax plugin init: repo path does not exist: ${missing}\n`);
+  assert.doesNotMatch(result.stderr, /\bat\s+.*\.mjs/);
+});
+
 test("ax report --format sarif against the fixture server emits SARIF on stdout", () => {
   const repo = mkdtempSync(path.join(os.tmpdir(), "right-ax-cli-"));
   // F12 (invariant I5 containment): runConformance refuses a serve command

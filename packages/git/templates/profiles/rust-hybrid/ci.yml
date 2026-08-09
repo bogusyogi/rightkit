@@ -1,0 +1,29 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: profiles/rust-hybrid/ci.yml | Template version: ${TEMPLATE_VERSION}
+name: ci
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  private-repo-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: exit 1
+  ci:
+    needs: [private-repo-guard]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${OS_MATRIX}
+        node: ${NODE_MATRIX}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+      - run: corepack enable && corepack prepare ${PM_NAME}@${PM_VERSION} --activate
+      - run: rustup toolchain install stable --profile minimal
+      - run: bash ./${GATE_PATH}

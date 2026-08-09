@@ -55,7 +55,10 @@ const TOP_LEVEL_KEYS = new Set([
   "packageManager",
   "publish",
   "templateVersion",
+  "profile",
+  "gate",
 ]);
+const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 /**
  * Validate a parsed manifest object against the right-git manifest contract.
@@ -115,6 +118,17 @@ export function validateManifest(manifest) {
 
   if (typeof manifest.templateVersion !== "string" || !TEMPLATE_VERSION_RE.test(manifest.templateVersion)) {
     errors.push("templateVersion must be a semver string 'X.Y.Z'");
+  }
+
+  const profile = manifest.profile === undefined ? "node" : manifest.profile;
+  if (profile !== "node" && profile !== "rust-hybrid") errors.push("profile must be 'node' or 'rust-hybrid'");
+  if (profile === "rust-hybrid") {
+    if (lanes.length !== 1 || lanes[0] !== "ci") errors.push("profile 'rust-hybrid' supports only lane 'ci'");
+    if (!manifest.gate || typeof manifest.gate !== "object" || Array.isArray(manifest.gate) || Object.keys(manifest.gate).some((key) => key !== "path") || typeof manifest.gate.path !== "string" || !GATE_PATH_RE.test(manifest.gate.path)) {
+      errors.push("profile 'rust-hybrid' requires gate.path with a safe relative path");
+    }
+  } else if (manifest.gate !== undefined) {
+    errors.push("gate is only valid for profile 'rust-hybrid'");
   }
 
   const publish = manifest.publish;
@@ -256,11 +270,13 @@ export function buildRenderContext(manifest, repoPath) {
     NODE_MATRIX: yamlFlowStringList(manifest.matrix.node),
     NODE_PUBLISH_VERSION: JSON.stringify(String(manifest.matrix.node[0])),
     PM_NAME: pm.name,
+    PM_VERSION: pm.version,
     PM_CACHE: pm.name,
     INSTALL_COMMAND: pm.installCommand,
     PM_RUN: pm.runPrefix,
     ARTIFACT_PREFIX: artifactPrefix,
     TEMPLATE_VERSION: manifest.templateVersion,
+    GATE_PATH: manifest.gate?.path,
   };
 
   if (manifest.publish?.npm) {

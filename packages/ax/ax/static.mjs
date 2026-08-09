@@ -94,7 +94,13 @@ function rule5(tools, manifest) {
 // Rule 6 — typed errors: stable code, retryable flag, remediation (P11).
 // Static evidence: a redaction/error-envelope helper exists in source that
 // carries all three keys together.
-function grepRepoForTokens(repoPath, tokenSets, maxFiles = 400) {
+const GENERATED_OR_VENDOR_DIRS = new Set(["node_modules", ".git", "target", "dist", "build", "out", "coverage", ".next"]);
+
+function isIgnoredScanDirectory(name) {
+  return GENERATED_OR_VENDOR_DIRS.has(name) || name.startsWith(".audit");
+}
+
+export function grepRepoForTokens(repoPath, tokenSets, maxFiles = 400) {
   const hits = [];
   const stack = [repoPath];
   let visited = 0;
@@ -103,7 +109,7 @@ function grepRepoForTokens(repoPath, tokenSets, maxFiles = 400) {
     let entries;
     try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const entry of entries) {
-      if (entry.name === "node_modules" || entry.name === ".git" || entry.name.startsWith(".audit")) continue;
+      if (entry.isDirectory() && isIgnoredScanDirectory(entry.name)) continue;
       const path = join(dir, entry.name);
       if (entry.isDirectory()) { stack.push(path); continue; }
       if (!/\.(mjs|js|ts|mts|cts)$/.test(entry.name)) continue;

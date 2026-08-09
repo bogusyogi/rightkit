@@ -21,8 +21,9 @@
     "plugin",
     "ax",
     "lib",
-    "*.mjs",
-    "*.json"
+    "adopt.mjs",
+    "manifest.mjs",
+    "manifest.schema.json"
   ],
   "sideEffects": false,
   "scripts": {

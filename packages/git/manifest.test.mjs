@@ -16,6 +16,15 @@ test("accepts a minimal valid manifest", () => {
   assert.deepEqual(errors, []);
 });
 
+test("rust-hybrid requires only ci and a safe gate path", () => {
+  const valid = { ...VALID_MINIMAL, profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
+  assert.equal(validateManifest(valid).valid, true);
+  for (const path of ["/tmp/gate.sh", "../gate.sh", "scripts/gate sh", "${{ secrets.X }}", "scripts/gate;sh"]) {
+    assert.equal(validateManifest({ ...valid, gate: { path } }).valid, false, path);
+  }
+  assert.equal(validateManifest({ ...valid, lanes: ["ci", "qualification"] }).valid, false);
+});
+
 test("rejects non-object input", () => {
   for (const bad of [null, undefined, "not an object", 42, ["array"]]) {
     const { valid, errors } = validateManifest(bad);

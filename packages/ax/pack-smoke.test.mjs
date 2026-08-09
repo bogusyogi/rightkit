@@ -30,6 +30,11 @@ test("packaged tarball: public exports plus right-ax --help and --version run fr
     const packResult = run("npm", ["pack", "--json", "--pack-destination", workDir], { cwd: packageRoot, shell: true });
     assert.equal(packResult.status, 0, `npm pack failed: ${packResult.stderr}`);
     const [packInfo] = JSON.parse(packResult.stdout);
+    const packedPaths = packInfo.files.map((entry) => entry.path.replaceAll("\\", "/"));
+    assert.ok(!packedPaths.some((file) => file.endsWith(".test.mjs")), "published tarball must exclude tests");
+    assert.ok(!packedPaths.some((file) => file.includes("/fixtures/") || file.startsWith("fixtures/")), "published tarball must exclude fixtures");
+    assert.ok(!packedPaths.some((file) => file.includes("/preview/") || file.startsWith("preview/")), "published tarball must exclude previews");
+    for (const required of ["cli/right-ax.mjs", "adopt.mjs", "manifest.mjs", "manifest.schema.json", "ax/adapter.mjs", "ax/adversarial.mjs", "ax/artifact.mjs", "lib/version.mjs"]) assert.ok(packedPaths.includes(required), `missing packed runtime file: ${required}`);
 
     // Run tar FROM the temp dir on the bare filename so no absolute "C:\..."
     // path reaches tar — that colon is the only reason GNU tar's --force-local

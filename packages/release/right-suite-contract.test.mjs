@@ -64,7 +64,13 @@ function assertReleasePackageScripts(scripts, label) {
 
 function assertMacPackageEntry(packageCommand, scripts, label) {
   assert.equal(packageCommand.cmd, "pnpm", `${label} must use the shared pnpm package entry point`);
-  assert.deepEqual(packageCommand.args, ["run", "rightkit:package:mac"], `${label} R2 release must use the dedicated signed and notarized macOS package entry point`);
+  assert.ok(
+    [
+      ["run", "rightkit:package:mac"],
+      ["run", "rightkit:package:mac", "--", "--notarize"],
+    ].some((allowed) => JSON.stringify(packageCommand.args) === JSON.stringify(allowed)),
+    `${label} R2 release must use the dedicated signed and notarized macOS package entry point`,
+  );
   const implementation = scripts["rightkit:package:mac"];
   assert.equal(typeof implementation, "string", `${label} must define rightkit:package:mac`);
   assert.doesNotMatch(implementation, /\bright-release\b/, `${label} rightkit:package:mac must package directly instead of recursing into the release build`);
@@ -417,6 +423,11 @@ test("release package scripts reject a generic direct Tauri alias but allow name
 test("mac release config uses a dedicated non-recursive package entry point", () => {
   const command = { cmd: "pnpm", args: ["run", "rightkit:package:mac"] };
   assert.doesNotThrow(() => assertMacPackageEntry(command, { "rightkit:package:mac": "node scripts/mac-dmg.mjs --notarize" }, "fixture"));
+  assert.doesNotThrow(() => assertMacPackageEntry(
+    { cmd: "pnpm", args: ["run", "rightkit:package:mac", "--", "--notarize"] },
+    { "rightkit:package:mac": "node scripts/mac-dmg.mjs" },
+    "fixture",
+  ));
   assert.throws(
     () => assertMacPackageEntry(command, { "rightkit:package:mac": "right-release build --platform mac" }, "fixture"),
     /instead of recursing into the release build/i,
@@ -449,15 +460,15 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
   assert.deepEqual(versions.stagedNpm, {
     "@rightkit/ax": "0.2.0",
-    "@rightkit/git": "0.1.1",
+    "@rightkit/git": "0.2.0",
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.53",
+    "@rightkit/release": "0.2.54",
   });
   assert.deepEqual(versions.legacyNpm, {
     "@rightkit/legal-ui": ["0.1.0"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53"],
   });
   assert.ok(
     new Set([versions.npm["@rightkit/release"], ...versions.legacyNpm["@rightkit/release"]]).has("0.2.42"),
@@ -651,7 +662,7 @@ for (const app of macOnlyApps) {
     });
     const updaters = config.targets.mac.updater.artifacts;
     assert.equal(updaters.length, 2);
-    assert.deepEqual(updaters.map((updater) => updater.platform), ["darwin-aarch64", "darwin-x86_64"]);
+    assert.deepEqual(updaters.map((updater) => updater.platform).sort(), ["darwin-aarch64", "darwin-x86_64"]);
     assert.equal(new Set(updaters.map((updater) => updater.file)).size, 1, `${app.key} universal updater must share one DMG`);
     assert.equal(new Set(updaters.map((updater) => updater.signature)).size, 1, `${app.key} universal updater must share one signature`);
     assert.equal(new Set(updaters.map((updater) => updater.key)).size, 1, `${app.key} universal updater must share one current R2 object`);

@@ -6,6 +6,7 @@
 // gate needs a live process).
 
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { adoptRepo } from "../adopt.mjs";
 import { runConformance } from "../ax/conformance.mjs";
@@ -88,6 +89,11 @@ async function main() {
   if (first === "plugin") {
     const repoPath = resolveRepoPath(rest[0]?.startsWith("--") ? undefined : rest[0]);
     if (second === "init") {
+      if (!existsSync(repoPath)) {
+        console.error(`right-ax plugin init: repo path does not exist: ${repoPath}`);
+        process.exitCode = 1;
+        return;
+      }
       const result = scaffoldPlugin(repoPath, {
         name: flag("name"),
         version: flag("version"),

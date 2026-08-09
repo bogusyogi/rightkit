@@ -35,3 +35,7 @@ npm install -g @rightkit/git   # or: npx @rightkit/git --help
 ```
 
 Node builtins only; no runtime dependencies.
+
+## Profiles
+
+`profile` defaults to `node`. `rust-hybrid` accepts only `ci`, requires safe relative `gate.path`, installs pinned Node plus `rustup stable`, then runs that gate. It never adds release, signing, publishing, or approval steps.

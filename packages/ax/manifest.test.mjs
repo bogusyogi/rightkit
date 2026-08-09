@@ -15,7 +15,7 @@ test("a well-formed .rightax.json loads with no errors", () => {
     schemaVersion: 2,
     surfaces: { mcp: { command: "node", args: ["scripts/server.mjs"], cwd: "$ARTIFACT_ROOT", tools: 6 } },
     plugin: { name: "widget", skills: ["widget"] },
-    ax: { scenariosDir: "evals/ax/scenarios", matrix: { adapters: [{ id: "a", model: "m-a", version: "1", command: "node", args: [] }, { id: "b", model: "m-b", version: "1", command: "node", args: [] }], trialsPerAgent: 5, limits: { timeoutMs: 1, maxToolCalls: 0, maxTokens: 0, maxCostUsd: 0 } }, adversarial: { casesDir: "cases", gate: "hard" }, gates: { static: "hard", conformance: "hard", behavioral: "report-only" }, claimBoundaryRequired: true },
+    ax: { scenariosDir: "evals/ax/scenarios", conformanceExamples: { widget_lookup: { query: "example" } }, matrix: { adapters: [{ id: "a", model: "m-a", version: "1", command: "node", args: [] }, { id: "b", model: "m-b", version: "1", command: "node", args: [] }], trialsPerAgent: 5, limits: { timeoutMs: 1, maxToolCalls: 0, maxTokens: 0, maxCostUsd: 0 } }, adversarial: { casesDir: "cases", gate: "hard" }, gates: { static: "hard", conformance: "hard", behavioral: "report-only" }, claimBoundaryRequired: true },
   }));
   const { manifest, errors } = loadManifest(repo);
   assert.deepEqual(errors, []);
@@ -41,6 +41,14 @@ test("matrix is optional, but supplied adapters and limits are strict", () => {
   const duplicate = loadManifest(repo); writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ ...base, ax: { ...base.ax, matrix } }));
   assert.ok(loadManifest(repo).errors.some((error) => error.includes("duplicate normalized adapter id")));
   void duplicate;
+});
+
+test("conformanceExamples accepts only non-empty tool names mapped to JSON objects", () => {
+  const repo = tempRepo();
+  writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ schemaVersion: 1, surfaces: {}, ax: { gates: {}, conformanceExamples: { widget_lookup: { query: "example" }, "": { query: "invalid" }, bad_array: [], bad_string: "value", bad_null: null } } }));
+  const { manifest, errors } = loadManifest(repo);
+  assert.equal(manifest, null);
+  assert.ok(errors.some((error) => /conformanceExamples/.test(error)), JSON.stringify(errors));
 });
 
 test("missing .rightax.json is reported, not thrown", () => {

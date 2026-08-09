@@ -56,6 +56,11 @@
           }
         },
         "adversarial": { "type": "object", "additionalProperties": false, "required": ["casesDir", "gate"], "properties": { "casesDir": { "type": "string", "minLength": 1 }, "gate": { "enum": ["hard", "report-only"] } } },
+        "conformanceExamples": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "object" }
+        },
         "gates": {
           "type": "object",
           "additionalProperties": false,
