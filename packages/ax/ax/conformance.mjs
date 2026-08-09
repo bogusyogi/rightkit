@@ -6,10 +6,23 @@
 // stack trace leaks. Invariant I5: probes run against whatever
 // surfaces.mcp.serve actually launches — callers that want the packaged
 // artifact tested point that command at the built/installed bin, not source.
+//
+// F12 — SCOPED, not fixed: I5 says probes should mean "what a user actually
+// receives" (the packaged tarball / installed bin), but nothing in this
+// module verifies WHICH artifact surfaces.mcp.serve actually launches — a
+// command pointing at arbitrary source code inside the supplied repo root
+// (in-tree, not packaged) still passes containment (findArtifactContainment
+// Violation below only proves "inside the repo", never "is the shipped
+// artifact") and gets probed as if it were the release. Closing this needs a
+// packaging-identity convention this design does not yet define — e.g. a
+// required tarball checksum/installed-bin path in .rightax.json and a check
+// that surfaces.mcp.serve resolves to exactly that artifact. That is a new
+// engineering decision (what counts as "the packaged artifact", how a caller
+// declares it), not a bug fix, so it is left as this comment plus the open
+// item it already was, rather than invented here.
 
-import { resolve, sep } from "node:path";
 import { validateAgainstSchema } from "../lib/json-schema-lite.mjs";
-import { describePathHazard, isBareToken } from "../lib/path-safety.mjs";
+import { describePathHazard, resolvesOutsideRoot } from "../lib/path-safety.mjs";
 import { redactText } from "../lib/redact.mjs";
 import { classifyResponse, findStackTraces, openMcpSession, tryParseJson } from "./lib/mcp-stdio-client.mjs";
 import { splitServeCommand } from "./static.mjs";
@@ -84,21 +97,34 @@ function evaluateProbe(kind, classification, tool) {
   return { status: "fail", detail: `unknown probe kind ${kind}` };
 }
 
-// F12 (invariant I5, partial): probes must run against something inside the
+// F12 (invariant I5, partial — SCOPED, not fixed here, see the module-level
+// note above runConformance): probes must run against something inside the
 // repo the caller pointed us at, not an arbitrary external path — the exact
 // shape the QA repro exploited (a manifest command/arg pointing at a scratch
 // file outside repoPath). This is containment only: it cannot by itself
 // distinguish a packaged tarball/installed bin from the source tree, which
 // would require a packaging-identity convention this package does not yet
 // define (tracked as an open decision, not decided here).
+//
+// F8 fix: containment is checked with resolvesOutsideRoot(), which
+// canonicalizes both the candidate and cwd via fs.realpathSync — a lexically
+// contained path that passes THROUGH a directory symlink resolving outside
+// cwd is caught, not just an absolute/UNC/parent-traversal string shape.
+//
+// F8 (round 3): a bare token (e.g. "node", or a same-directory filename with
+// no "./" prefix such as "file-link.mjs") was previously skipped entirely —
+// but a bare token still resolves to a real filesystem entry relative to
+// cwd, and that entry can itself be a symlink pointing outside cwd. Every
+// candidate is now routed through the same resolvesOutsideRoot()
+// canonicalization regardless of prefix shape; a genuinely PATH-resolved bare
+// command like "node" has nothing on disk at cwd/node and degrades
+// gracefully there (see path-safety.mjs), so it is still never flagged.
 function findArtifactContainmentViolation({ command, args, cwd }) {
   const candidates = [["command", command], ...args.map((arg, index) => [`args[${index}]`, arg])];
-  const normalizedRoot = resolve(cwd);
   for (const [field, value] of candidates) {
-    if (typeof value !== "string" || isBareToken(value)) continue; // PATH-resolved executable name, e.g. "node" — nothing to contain
-    const resolved = resolve(cwd, value);
-    if (resolved === normalizedRoot || resolved.startsWith(normalizedRoot + sep)) continue;
-    return { field, value, hazard: describePathHazard(value) ?? "resolves outside the repo" };
+    if (typeof value !== "string") continue;
+    if (!resolvesOutsideRoot(value, cwd)) continue;
+    return { field, value, hazard: describePathHazard(value) ?? "resolves outside the repo (directly, or via a symlink)" };
   }
   return null;
 }

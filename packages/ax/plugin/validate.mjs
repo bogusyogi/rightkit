@@ -6,10 +6,10 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateAgainstSchema } from "../lib/json-schema-lite.mjs";
-import { describePathHazard, isBareToken } from "../lib/path-safety.mjs";
+import { describePathHazard, resolvesOutsideRoot } from "../lib/path-safety.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_DIR = join(HERE, "schemas");
@@ -54,23 +54,26 @@ function expandPlaceholders(value, pluginRoot) {
   return String(value).replace(PLACEHOLDER_PATTERN, (_, kind) => (kind === "ROOT" ? pluginRoot : join(pluginRoot, ".data")));
 }
 
-// A path escapes the plugin root if, after placeholder expansion and
-// resolution, it is not equal to or inside pluginRoot. Relative paths are
-// resolved against pluginRoot itself.
-function pathEscapesRoot(rawValue, pluginRoot) {
-  const expanded = expandPlaceholders(rawValue, pluginRoot);
-  const resolved = resolve(pluginRoot, expanded);
-  const normalizedRoot = resolve(pluginRoot);
-  return resolved !== normalizedRoot && !resolved.startsWith(normalizedRoot + sep);
-}
-
 // F8 fix: every path-bearing field is examined — command, every arg, cwd,
 // and every env value — not just args/env entries that happen to contain a
 // ${PLUGIN_ROOT}/${PLUGIN_DATA} placeholder (the original gap: command was
 // never checked at all, and args/env without a placeholder were skipped
 // entirely, so a plain parent-relative, absolute, UNC, or drive-relative
-// path sailed through unexamined). A bare token (e.g. "node", "python3") is
-// resolved via PATH and is never treated as a path to contain.
+// path sailed through unexamined).
+//
+// F8 (round 3): a bare token (e.g. "node", "python3", or a same-directory
+// filename with no "./" prefix like "file-link.mjs") is NEVER lexically
+// hazardous — describePathHazard() already returns null for it, since it has
+// no separators to be absolute/UNC/drive-relative/parent-traversing. But a
+// bare token still resolves to a real filesystem entry relative to
+// pluginRoot, and that entry can itself be a symlink pointing outside the
+// root — the earlier fix special-cased bare tokens and skipped
+// resolvesOutsideRoot() for them entirely, which is exactly the gap a bare
+// symlinked filename walks through. Every candidate — bare or not — is now
+// routed through the same resolvesOutsideRoot() canonicalization; a bare
+// token that genuinely has nothing on disk at pluginRoot/<token> (e.g. the
+// PATH-resolved "node") degrades gracefully there (see path-safety.mjs) and
+// is still never flagged.
 function collectPathCandidates(server) {
   const candidates = [];
   if (typeof server.command === "string") candidates.push(["command", server.command]);
@@ -84,20 +87,16 @@ function validateMcpPathSafety(mcpManifest, pluginRoot) {
   const findings = [];
   for (const [serverName, server] of Object.entries(mcpManifest.mcpServers ?? {})) {
     for (const [field, value] of collectPathCandidates(server)) {
-      if (isBareToken(value) && !HAS_PLACEHOLDER.test(value)) continue; // e.g. "node" — nothing path-shaped to contain
-      if (HAS_PLACEHOLDER.test(value)) {
-        if (pathEscapesRoot(value, pluginRoot)) {
-          findings.push(finding(
-            "plugin-path-containment",
-            "error",
-            "mcp.json path escapes the plugin root",
-            `mcpServers.${serverName}.${field} = ${JSON.stringify(value)}`,
-            "keep expanded ${PLUGIN_ROOT}/${PLUGIN_DATA} paths inside the plugin directory; remove '..' segments that climb above it",
-          ));
-        }
-        continue;
-      }
-      const hazard = describePathHazard(value);
+      const hasPlaceholder = HAS_PLACEHOLDER.test(value);
+      const expanded = hasPlaceholder ? expandPlaceholders(value, pluginRoot) : value;
+      // Lexical hazard shapes (absolute/UNC/drive-relative/'..') get a
+      // precise, actionable message first. A value with none of those
+      // shapes (including every ${PLACEHOLDER} value, which never itself
+      // looks hazardous before expansion) still goes through the F8
+      // resolvesOutsideRoot() check below: a plain-looking relative
+      // reference can pass THROUGH a directory symlink that resolves
+      // outside pluginRoot, which no lexical shape check can see.
+      const hazard = hasPlaceholder ? null : describePathHazard(value);
       if (hazard) {
         findings.push(finding(
           "plugin-path-containment",
@@ -105,6 +104,16 @@ function validateMcpPathSafety(mcpManifest, pluginRoot) {
           "mcp.json path escapes the plugin root",
           `mcpServers.${serverName}.${field} = ${JSON.stringify(value)} (${hazard}, not anchored to \${PLUGIN_ROOT}/\${PLUGIN_DATA})`,
           "reference paths via ${PLUGIN_ROOT}/${PLUGIN_DATA}, or a plain relative path with no '..' segments, instead of an absolute, UNC, drive-relative, or parent-escaping path",
+        ));
+        continue;
+      }
+      if (resolvesOutsideRoot(expanded, pluginRoot)) {
+        findings.push(finding(
+          "plugin-path-containment",
+          "error",
+          "mcp.json path escapes the plugin root",
+          `mcpServers.${serverName}.${field} = ${JSON.stringify(value)} (resolves outside the plugin root, directly or via a symlinked directory)`,
+          "keep this path, and every symlinked directory component in it, inside the plugin root",
         ));
       }
     }

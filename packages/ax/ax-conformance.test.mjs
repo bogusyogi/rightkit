@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync } from "node:fs";
+import { cpSync, mkdtempSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -140,4 +140,59 @@ test("F12: a relative serve command that resolves inside the repo is not flagged
   const { repo, manifest } = repoWithServer("fake-mcp-server.mjs");
   const result = await runConformance({ repoPath: repo, manifest });
   assert.notEqual(result.fatal?.code, "artifact_outside_repo");
+});
+
+// F8 regression: lexical containment (resolve()+startsWith on the raw
+// string) is blind to a directory symlink that lives INSIDE the repo but
+// resolves OUTSIDE it — the lexical path never leaves the repo, but the real
+// filesystem target does. This creates an actual directory symlink/junction
+// in a temp dir and points a serve command through it; if this host cannot
+// create filesystem symlinks (e.g. no Developer Mode / admin on Windows),
+// the test skips rather than false-failing — but the containment code path
+// (resolvesOutsideRoot in lib/path-safety.mjs) must be exercised whenever a
+// symlink can actually be created.
+test("F8: a serve command reached through a directory symlink resolving outside the repo is refused", async (t) => {
+  const repo = tempRepo();
+  const outsideDir = mkdtempSync(path.join(os.tmpdir(), "right-ax-outside-"));
+  cpSync(path.join(HERE, "fixtures", "fake-mcp-server.mjs"), path.join(outsideDir, "fake-mcp-server.mjs"));
+  const linkPath = path.join(repo, "inside-link");
+  try {
+    symlinkSync(outsideDir, linkPath, "junction");
+  } catch (error) {
+    t.skip(`cannot create a filesystem symlink/junction on this host: ${error?.message ?? error}`);
+    return;
+  }
+  const manifest = { surfaces: { mcp: { serve: `node inside-link${path.sep}fake-mcp-server.mjs` } } };
+  const result = await runConformance({ repoPath: repo, manifest });
+  assert.equal(result.fatal?.code, "artifact_outside_repo", JSON.stringify(result.fatal));
+  assert.equal(result.rows.length, 0);
+  assert.equal(result.verdict, "fail");
+});
+
+// F8 (round 3) regression: a BARE arg — no path separator, no "./" prefix,
+// e.g. "server-link.mjs" directly at the repo root — was treated identically
+// to a PATH-resolved executable name like "node" and skipped realpath
+// containment entirely, even though it resolves to a real filesystem entry
+// relative to the repo (unlike a genuine PATH lookup). This creates that
+// exact shape: a bare-named FILE symlink sitting directly in the repo root
+// whose target lives outside the repo. Skips gracefully if this host cannot
+// create filesystem symlinks.
+test("F8: a bare (no './' prefix, no separator) arg symlink resolving outside the repo is refused", async (t) => {
+  const repo = tempRepo();
+  const outsideDir = mkdtempSync(path.join(os.tmpdir(), "right-ax-outside-"));
+  const outsideFile = path.join(outsideDir, "fake-mcp-server.mjs");
+  cpSync(path.join(HERE, "fixtures", "fake-mcp-server.mjs"), outsideFile);
+  const bareLinkName = "server-link.mjs";
+  const linkPath = path.join(repo, bareLinkName);
+  try {
+    symlinkSync(outsideFile, linkPath, "file");
+  } catch (error) {
+    t.skip(`cannot create a filesystem symlink on this host: ${error?.message ?? error}`);
+    return;
+  }
+  const manifest = { surfaces: { mcp: { serve: `node ${bareLinkName}` } } };
+  const result = await runConformance({ repoPath: repo, manifest });
+  assert.equal(result.fatal?.code, "artifact_outside_repo", JSON.stringify(result.fatal));
+  assert.equal(result.rows.length, 0);
+  assert.equal(result.verdict, "fail");
 });

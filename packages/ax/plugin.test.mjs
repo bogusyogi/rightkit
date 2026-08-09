@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -130,6 +130,59 @@ test("F8: a bare executable name (e.g. \"node\") in command/args is never flagge
   writeFileSync(path.join(repo, "mcp.json"), JSON.stringify(mcpManifestWithServer({ args: ["server.mjs", "--flag"] })));
   const { valid, findings } = validateRepoLayout(repo);
   assert.equal(valid, true, JSON.stringify(findings));
+});
+
+// F8 regression: a relative arg with no hazard shape (no absolute/UNC/
+// drive-relative/'..' text) can still escape the plugin root by passing
+// THROUGH a directory symlink whose target lives outside it. Lexical hazard
+// detection cannot see this at all — it requires real (symlink-resolving)
+// containment, exercised here with an actual filesystem junction. Skips
+// gracefully if this host cannot create one.
+test("F8: an mcp.json arg reached through a directory symlink resolving outside the plugin root is flagged", (t) => {
+  const repo = tempRepo();
+  writeFileSync(path.join(repo, "plugin.json"), JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "ok-name" }));
+  const outsideDir = mkdtempSync(path.join(os.tmpdir(), "right-ax-plugin-outside-"));
+  writeFileSync(path.join(outsideDir, "server.mjs"), "// outside the plugin root\n");
+  const linkPath = path.join(repo, "linked");
+  try {
+    symlinkSync(outsideDir, linkPath, "junction");
+  } catch (error) {
+    t.skip(`cannot create a filesystem symlink/junction on this host: ${error?.message ?? error}`);
+    return;
+  }
+  writeFileSync(path.join(repo, "mcp.json"), JSON.stringify(mcpManifestWithServer({ args: [`linked${path.sep}server.mjs`] })));
+  const { valid, findings } = validateRepoLayout(repo);
+  assert.equal(valid, false);
+  assert.ok(findings.some((f) => f.ruleId === "plugin-path-containment" && /symlink/.test(f.evidence)), JSON.stringify(findings));
+});
+
+// F8 (round 3) regression: the earlier fix caught a symlink escape reached
+// through a "./"-prefixed or subdirectory-qualified path (e.g.
+// "linked/server.mjs"), but a BARE token with no path separator at all — a
+// same-directory filename with no "./" prefix, e.g. "file-link.mjs" — was
+// treated identically to a PATH-resolved executable name like "node" and
+// skipped realpath entirely. This creates an actual file symlink directly at
+// the plugin root (no "./" prefix, no directory component) pointing outside
+// the root, and references it as a bare arg. Skips gracefully if this host
+// cannot create filesystem symlinks.
+test("F8: a bare (no './' prefix, no separator) file symlink resolving outside the plugin root is flagged", (t) => {
+  const repo = tempRepo();
+  writeFileSync(path.join(repo, "plugin.json"), JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "ok-name" }));
+  const outsideDir = mkdtempSync(path.join(os.tmpdir(), "right-ax-plugin-outside-"));
+  const outsideFile = path.join(outsideDir, "server.mjs");
+  writeFileSync(outsideFile, "// outside the plugin root\n");
+  const bareLinkName = "file-link.mjs";
+  const linkPath = path.join(repo, bareLinkName);
+  try {
+    symlinkSync(outsideFile, linkPath, "file");
+  } catch (error) {
+    t.skip(`cannot create a filesystem symlink on this host: ${error?.message ?? error}`);
+    return;
+  }
+  writeFileSync(path.join(repo, "mcp.json"), JSON.stringify(mcpManifestWithServer({ args: [bareLinkName] })));
+  const { valid, findings } = validateRepoLayout(repo);
+  assert.equal(valid, false);
+  assert.ok(findings.some((f) => f.ruleId === "plugin-path-containment" && /symlink/.test(f.evidence)), JSON.stringify(findings));
 });
 
 test("a skills/<name>/ directory missing SKILL.md is a fatal finding", () => {

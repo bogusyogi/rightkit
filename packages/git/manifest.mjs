@@ -29,6 +29,25 @@ export const LANE_FILENAMES = Object.freeze({
 const PACKAGE_MANAGER_RE = /^(pnpm|npm|yarn)@\d+\.\d+\.\d+$/;
 const TEMPLATE_VERSION_RE = /^\d+\.\d+\.\d+$/;
 
+// F15 fix: every one of these fields is manifest (attacker-controlled)
+// input that flows verbatim into a rendered workflow file via render.mjs's
+// literal `${TOKEN}` substitution — render.mjs does no escaping, by design
+// (it is a byte-deterministic template engine, not a YAML/expression-aware
+// one). The re-validation proved a hostile `publish.homebrew.formulaName`
+// containing GitHub Actions expression syntax (`${{ secrets.APPLE_... }}`)
+// survived unmodified into rendered YAML, which GitHub Actions would then
+// evaluate as a real expression — a workflow-expression injection, not just
+// a cosmetic issue. The fix is at the INPUT boundary, not the render step:
+// every manifest field that reaches a template must match a strict
+// allowlist charset that cannot express `${{ }}`, backticks, `$()`,
+// newlines, or any other shell/YAML/expression metacharacter — validated
+// once here, so render.mjs can stay a dumb, deterministic string replacer.
+const SAFE_MATRIX_VALUE_RE = /^[A-Za-z0-9][A-Za-z0-9._/*-]*$/;
+const GITHUB_OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+const GITHUB_REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/;
+const HOMEBREW_FORMULA_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9+_.-]*$/;
+const WINGET_PACKAGE_IDENTIFIER_RE = /^[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9][A-Za-z0-9-]*)+$/;
+
 const TOP_LEVEL_KEYS = new Set([
   "schemaVersion",
   "lanes",
@@ -79,8 +98,10 @@ export function validateManifest(manifest) {
   } else {
     for (const field of ["os", "node"]) {
       const value = manifest.matrix[field];
-      if (!Array.isArray(value) || value.length === 0 || !value.every((v) => typeof v === "string" && v.length > 0)) {
-        errors.push(`matrix.${field} must be a non-empty array of non-empty strings`);
+      if (!Array.isArray(value) || value.length === 0 || !value.every((v) => typeof v === "string" && SAFE_MATRIX_VALUE_RE.test(v))) {
+        errors.push(
+          `matrix.${field} must be a non-empty array of safe runner/version labels (letters, digits, '.', '_', '-', '/', '*' only — no expression or shell syntax)`,
+        );
       }
     }
     for (const key of Object.keys(manifest.matrix)) {
@@ -118,18 +139,25 @@ export function validateManifest(manifest) {
         if (hb === null || typeof hb !== "object") {
           errors.push("publish.homebrew must be an object");
         } else {
-          if (typeof hb.tap !== "string" || !/^[^/]+\/[^/]+$/.test(hb.tap)) {
-            errors.push("publish.homebrew.tap must be 'owner/repo'");
+          const tapMatch = typeof hb.tap === "string" ? /^([^/]+)\/([^/]+)$/.exec(hb.tap) : null;
+          if (!tapMatch || !GITHUB_OWNER_RE.test(tapMatch[1]) || !GITHUB_REPO_RE.test(tapMatch[2])) {
+            errors.push(
+              "publish.homebrew.tap must be 'owner/repo' using GitHub-safe characters only (letters, digits, '-', '_', '.' — no expression or shell syntax)",
+            );
           }
-          if (typeof hb.formulaName !== "string" || hb.formulaName.length === 0) {
-            errors.push("publish.homebrew.formulaName must be a non-empty string");
+          if (typeof hb.formulaName !== "string" || !HOMEBREW_FORMULA_NAME_RE.test(hb.formulaName)) {
+            errors.push(
+              "publish.homebrew.formulaName must be a Homebrew-safe identifier (letters, digits, '+', '_', '.', '-' only — no expression or shell syntax)",
+            );
           }
         }
       }
       if (publish.winget !== undefined) {
         const wg = publish.winget;
-        if (wg === null || typeof wg !== "object" || typeof wg.packageIdentifier !== "string" || wg.packageIdentifier.length === 0) {
-          errors.push("publish.winget.packageIdentifier must be a non-empty string");
+        if (wg === null || typeof wg !== "object" || typeof wg.packageIdentifier !== "string" || !WINGET_PACKAGE_IDENTIFIER_RE.test(wg.packageIdentifier)) {
+          errors.push(
+            "publish.winget.packageIdentifier must be a dotted WinGet-safe identifier, e.g. 'Publisher.Package' (letters, digits, '-', '.' only — no expression or shell syntax)",
+          );
         }
       }
     }

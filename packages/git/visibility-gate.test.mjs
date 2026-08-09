@@ -100,3 +100,42 @@ test("F16: parseOwnerRepo identifies a valid GitHub repo whose name contains dot
 test("F16: parseOwnerRepo still fails closed for an unconfigured enterprise GitHub host", () => {
   assert.equal(parseOwnerRepo("https://github.example.com/owner/repo.git"), null);
 });
+
+// Canonicalization hygiene regression: uppercase host, embedded userinfo
+// (credentials), and a non-standard port are all *genuinely* github.com —
+// DNS is case-insensitive, userinfo is just embedded credentials, and the
+// API query ignores the port. These are not lookalike hosts, so they must
+// still resolve to the real owner/repo rather than fail closed. The WHATWG
+// URL parser already lowercases hostnames and separates userinfo/port from
+// host — parseOwnerRepo's `url.hostname` comparison relies on exactly that,
+// so this locks the behavior in against any future regression that starts
+// comparing against the raw authority string instead of `url.hostname`.
+test("canonicalization: parseOwnerRepo accepts uppercase github.com host", () => {
+  assert.deepEqual(parseOwnerRepo("https://GITHUB.COM/owner/repo"), { owner: "owner", repo: "repo" });
+  assert.deepEqual(parseOwnerRepo("https://GitHub.com/owner/repo.git"), { owner: "owner", repo: "repo" });
+});
+
+test("canonicalization: parseOwnerRepo accepts a github.com remote with embedded userinfo", () => {
+  assert.deepEqual(parseOwnerRepo("https://attacker@github.com/victim/repo"), {
+    owner: "victim",
+    repo: "repo",
+  });
+});
+
+test("canonicalization: parseOwnerRepo accepts a github.com remote on a non-standard port", () => {
+  assert.deepEqual(parseOwnerRepo("https://github.com:8443/owner/repo"), { owner: "owner", repo: "repo" });
+});
+
+// Lookalike-family non-regression (N1): every one of these has a host that
+// is NOT github.com — they must keep failing closed to null. Re-asserted
+// here alongside the canonicalization-hygiene cases above so the two
+// concerns (accept real github.com in any authority shape, reject anything
+// that merely contains the substring "github.com") are tested side by side.
+test("N1 lookalikes: parseOwnerRepo still rejects every non-github.com host", () => {
+  assert.equal(parseOwnerRepo("https://notgithub.com/owner/repo"), null);
+  assert.equal(parseOwnerRepo("https://github.com.evil.io/owner/repo"), null);
+  assert.equal(parseOwnerRepo("https://mygithub.com/owner/repo"), null);
+  assert.equal(parseOwnerRepo("https://github.com@evil.io/owner/repo"), null);
+  assert.equal(parseOwnerRepo("https://github.como/owner/repo"), null);
+  assert.equal(parseOwnerRepo("https://github.example.com/owner/repo"), null);
+});

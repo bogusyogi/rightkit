@@ -8,6 +8,21 @@
 // A "bare token" (no path separators, no drive prefix) such as "node" or
 // "python3" is deliberately never flagged: it is resolved via PATH, exactly
 // like invoking an installed CLI, and has no path shape to contain.
+//
+// F8 fix: lexical hazard detection (above) and lexical resolve()+startsWith
+// containment are both blind to a directory symlink that lives inside the
+// root but resolves (readlink-follows) outside it — the lexical path stays
+// "inside", the real filesystem path does not. resolvesOutsideRoot() is the
+// property-level fix: it canonicalizes both the root and the candidate via
+// fs.realpathSync and re-checks containment against the REAL paths, so a
+// symlinked directory anywhere in the chain is caught. It is additive to the
+// lexical check (a lexical escape is still an escape), and it degrades
+// gracefully — a candidate/root that does not exist on disk yet has no real
+// path to canonicalize, so the function falls back to the lexical result
+// rather than throwing.
+
+import { realpathSync } from "node:fs";
+import { resolve, sep } from "node:path";
 
 const HAS_PLACEHOLDER = /\$\{[A-Z_]+\}/;
 const PARENT_SEGMENT = /(^|[\\/])\.\.(?:[\\/]|$)/;
@@ -15,6 +30,28 @@ const UNC_PATH = /^\\\\/;
 const WINDOWS_ABSOLUTE = /^[a-zA-Z]:[\\/]/;
 const WINDOWS_DRIVE_RELATIVE = /^[a-zA-Z]:(?![\\/])/;
 const POSIX_ABSOLUTE = /^\//;
+
+function isLexicallyContained(resolvedCandidate, normalizedRoot) {
+  return resolvedCandidate === normalizedRoot || resolvedCandidate.startsWith(normalizedRoot + sep);
+}
+
+// F8: the property-level containment check. `candidatePath` is resolved
+// against `root` exactly like the lexical checks always did, but containment
+// is ALSO re-verified against the realpath'd (symlink-resolved) forms of
+// both sides, so a directory symlink anywhere in candidatePath's chain that
+// points outside root cannot lexically-pass and then be spawned/read
+// anyway. Returns true (escapes) on either signal firing.
+export function resolvesOutsideRoot(candidatePath, root) {
+  const normalizedRoot = resolve(root);
+  const resolvedCandidate = resolve(root, candidatePath);
+  if (!isLexicallyContained(resolvedCandidate, normalizedRoot)) return true;
+
+  let realRoot;
+  try { realRoot = realpathSync(normalizedRoot); } catch { return false; } // root doesn't exist on disk (yet) — nothing further to canonicalize
+  let realCandidate;
+  try { realCandidate = realpathSync(resolvedCandidate); } catch { return false; } // candidate doesn't exist on disk (yet) — lexical containment already held
+  return !isLexicallyContained(realCandidate, realRoot);
+}
 
 export function isBareToken(value) {
   return typeof value === "string" && value.length > 0 && !/[\\/]/.test(value) && !WINDOWS_DRIVE_RELATIVE.test(value) && !WINDOWS_ABSOLUTE.test(value);

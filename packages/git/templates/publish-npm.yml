@@ -12,20 +12,25 @@ on:
     types: [published]
 permissions:
   contents: read
+# F5 fix: see ci.yml for why the guard is its own always-runs job rather
+# than a job-level `if: !private` (which only skipped instead of failing).
 jobs:
-  publish-npm:
-    if: ${{ !github.event.repository.private }}
+  private-repo-guard:
     runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - name: Refuse private repository
         if: ${{ github.event.repository.private }}
         run: |
           echo "::error::right-git: repository is private; managed public-only workflows must not run here."
           exit 1
+  publish-npm:
+    needs: [private-repo-guard]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.release.tag_name }}

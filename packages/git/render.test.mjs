@@ -50,14 +50,33 @@ test("render determinism: same manifest renders byte-identical output every time
   }
 });
 
-test("guard injection: every rendered workflow's first job refuses a private repository", () => {
+// F5 fix: a job-level `if: !private` on the real work job means GitHub
+// SKIPS that job entirely for a private repo — the nested "refuse" step
+// inside it is then unreachable and never runs, so nothing fails and the
+// workflow can read as "nothing to do" rather than a loud failure. The
+// fix moves the refusal into its own `private-repo-guard` job that carries
+// NO job-level `if` (so it always executes); its single step's own `if`
+// fires only when private and exits 1, which fails that job outright. Real
+// work jobs `needs: [private-repo-guard]` instead of gating themselves, so
+// a failed (not skipped) guard blocks them via GitHub's default
+// needs-implies-success semantics. This test asserts the corrected shape;
+// see guard-coverage.test.mjs for the full job-graph reachability proof.
+test("guard injection: every rendered workflow has an unconditional guard job that refuses a private repository", () => {
   const rendered = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
   for (const lane of KNOWN_LANES) {
     const content = rendered[lane];
     assert.ok(content.startsWith(MANAGED_MARKER), `lane ${lane} is missing the managed marker`);
-    assert.match(content, /if: \$\{\{ !github\.event\.repository\.private \}\}/, `lane ${lane} first job missing the run-time if guard`);
+    assert.match(content, /^ {2}private-repo-guard:\s*$/m, `lane ${lane} missing the private-repo-guard job`);
     assert.match(content, /Refuse private repository/, `lane ${lane} missing the fail-fast guard step`);
     assert.match(content, /if: \$\{\{ github\.event\.repository\.private \}\}/, `lane ${lane} guard step missing its own if condition`);
+    assert.match(content, /exit 1/, `lane ${lane} guard step must exit non-zero`);
+    // No job anywhere in the file may gate itself on the OLD (skip, not
+    // fail) pattern — that is exactly the bug being fixed.
+    assert.doesNotMatch(
+      content,
+      /if: \$\{\{ !github\.event\.repository\.private \}\}/,
+      `lane ${lane} still gates a job with the skip-not-fail 'if: !private' pattern`,
+    );
   }
 });
 

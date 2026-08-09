@@ -91,8 +91,21 @@ export function createRpcClient(child, { timeoutMs = 60000, onUnsolicited, maxBu
 // further tools/call probes keep using the returned rpc/child directly
 // (ax/conformance.mjs); ax/static.mjs calls close() immediately after listing.
 const MAX_STDERR_BYTES = 1 * 1024 * 1024; // F13: cap diagnostic stderr accumulation
+// F13 (round 2): stdout line-buffer growth (maxBufferBytes) and stderr
+// accumulation (MAX_STDERR_BYTES) were bounded, but UNSOLICITED messages
+// (JSON-RPC messages/notifications with no matching pending request — see
+// createRpcClient's `else onUnsolicited?.(message)` branch) were retained in
+// an always-growing array with no cap at all: a target process that floods
+// out-of-band notifications could grow memory without bound even though
+// every other stream in this client was already bounded. Both a count cap
+// and a byte cap apply (belt-and-braces: a flood of huge messages is bounded
+// by bytes even if it never reaches the count cap, and vice versa); once
+// either is hit, further messages are DROPPED (not buffered, not blocked)
+// and the drop is recorded so callers can tell the retained list is partial.
+const DEFAULT_MAX_UNSOLICITED_MESSAGES = 500;
+const DEFAULT_MAX_UNSOLICITED_BYTES = 1 * 1024 * 1024;
 
-export async function openMcpSession({ command, args = [], cwd, timeoutMs = 60000, listResourcesAndPrompts = false, maxBufferBytes } = {}) {
+export async function openMcpSession({ command, args = [], cwd, timeoutMs = 60000, listResourcesAndPrompts = false, maxBufferBytes, maxUnsolicitedMessages = DEFAULT_MAX_UNSOLICITED_MESSAGES, maxUnsolicitedBytes = DEFAULT_MAX_UNSOLICITED_BYTES } = {}) {
   const child = spawn(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   let stderrText = "";
   let stderrTruncated = false;
@@ -103,7 +116,20 @@ export async function openMcpSession({ command, args = [], cwd, timeoutMs = 6000
     if (stderrText.length > MAX_STDERR_BYTES) { stderrText = stderrText.slice(0, MAX_STDERR_BYTES); stderrTruncated = true; }
   });
   const unsolicited = [];
-  const rpc = createRpcClient(child, { timeoutMs, maxBufferBytes, onUnsolicited: (message) => unsolicited.push(message) });
+  let unsolicitedBytes = 0;
+  let unsolicitedDropped = 0;
+  const rpc = createRpcClient(child, {
+    timeoutMs,
+    maxBufferBytes,
+    onUnsolicited: (message) => {
+      if (unsolicited.length >= maxUnsolicitedMessages) { unsolicitedDropped += 1; return; }
+      let size = 0;
+      try { size = JSON.stringify(message)?.length ?? 0; } catch { size = 0; }
+      if (unsolicitedBytes + size > maxUnsolicitedBytes) { unsolicitedDropped += 1; return; }
+      unsolicitedBytes += size;
+      unsolicited.push(message);
+    },
+  });
 
   const initializeResponse = await rpc.request("initialize", {
     protocolVersion: PROTOCOL_VERSION,
@@ -137,7 +163,10 @@ export async function openMcpSession({ command, args = [], cwd, timeoutMs = 6000
     initialize: initializeResponse.error
       ? { status: "fail", error: initializeResponse.error }
       : { status: "pass", protocolVersion: initializeResponse.result?.protocolVersion ?? null, serverInfo: initializeResponse.result?.serverInfo ?? null },
-    getUnsolicited: () => unsolicited,
+    // F13: `messages` is capped (see maxUnsolicitedMessages/maxUnsolicitedBytes
+    // above); `truncated`/`droppedCount` make the cap explicit to callers
+    // instead of silently returning a partial list that looks complete.
+    getUnsolicited: () => ({ messages: unsolicited, truncated: unsolicitedDropped > 0, droppedCount: unsolicitedDropped }),
     getStderr: () => stderrText + (stderrTruncated ? "\n...[stderr truncated at 1MiB]" : ""),
     async close() {
       rpc.close();

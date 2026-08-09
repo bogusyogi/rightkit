@@ -27,6 +27,16 @@
 # why this lane (unlike every other right-git lane) requires explicit,
 # per-target configuration rather than being available by just naming it.
 #
+# Trust-posture note (do not overstate): this lane's `secrets.*` posture
+# differs from publish-npm.yml's, which is OIDC-only and stores no
+# long-lived token at all. HOMEBREW_TAP_TOKEN and WINGET_CREATE_GITHUB_TOKEN
+# ARE real, owner-provisioned, long-lived GitHub tokens sitting in this
+# repo's Actions secrets for as long as the lane stays enabled. Invariant I1
+# (right-git installs into public repos only) makes that exposure
+# public-repo-scoped, never private-repo-scoped — but "public-repo-scoped"
+# is a narrower blast radius, not zero, and is a materially different trust
+# posture from "no credential in secrets.* at all."
+#
 # WinGet stays fail-closed on a missing token and defaults to validate-only;
 # a real microsoft/winget-pkgs PR requires the manual `submit: true` dispatch
 # input (OD-4 in DESIGN.md is left open — this preserves Cortex's existing
@@ -43,17 +53,25 @@ on:
     types: [published]
 permissions:
   contents: read
+# F5 fix: see ci.yml for why the guard is its own always-runs job rather
+# than a job-level `if: !private` (which only skipped instead of failing).
+# Both root jobs below (`homebrew`, `winget-token`) depend on it, so
+# `winget` (which itself only depends on `winget-token`) is guarded
+# transitively too.
 jobs:
-  homebrew:
-    if: ${{ !github.event.repository.private }}
+  private-repo-guard:
     runs-on: ubuntu-latest
-    environment: release
     steps:
       - name: Refuse private repository
         if: ${{ github.event.repository.private }}
         run: |
           echo "::error::right-git: repository is private; managed public-only workflows must not run here."
           exit 1
+  homebrew:
+    needs: [private-repo-guard]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
@@ -85,14 +103,14 @@ jobs:
   # public_repo scope, created by the repo owner as WINGET_CREATE_GITHUB_TOKEN,
   # and is only ever passed to wingetcreate via env.
   #
-  # F5 fix: this job carries its own private-repo guard rather than relying
-  # on `winget` (below) alone. It has no `needs`, so without a guard here it
-  # would run unconditionally regardless of repository visibility — the
-  # probe step always exits 0, so a repo flipped private after install could
-  # still satisfy `winget`'s `needs.winget-token` success requirement and let
-  # `winget` run its real work in a private repo.
+  # F5 fix: this job depends on `private-repo-guard` rather than relying on
+  # `winget` (below) alone. It has no other `needs`, so without this
+  # dependency it would run unconditionally regardless of repository
+  # visibility — the probe step always exits 0, so a repo flipped private
+  # after install could still satisfy `winget`'s `needs.winget-token` success
+  # requirement and let `winget` run its real work in a private repo.
   winget-token:
-    if: ${{ !github.event.repository.private }}
+    needs: [private-repo-guard]
     runs-on: ubuntu-latest
     environment: release
     outputs:

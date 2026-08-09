@@ -11,22 +11,137 @@
 // is legible without ever being able to hide a real failure behind it. The
 // behavioral section is hard-pinned to "unproven" language whenever
 // provenBy !== "real-matrix" (invariant I2), regardless of trial pass/fail.
+//
+// F1 (round 2) fix: a gate result's own `verdict` field is a SIGNAL, never
+// the sole SOURCE of truth. The previous fix computed failure from each
+// gate's top-level `verdict` alone — so a hand-built (or bugged-upstream)
+// gate object like `{ verdict: "pass", rules: [{ status: "fail" }] }` still
+// read as a passing gate here, because nothing ever looked at `rules`
+// itself. Each gate now ALSO scans its own leaf findings directly
+// (staticResult.rules[].status, conformanceResult.rows[].status,
+// behavioralResult.scenarioResults{}.status, and any `.fatal`) and fails if
+// EITHER the leaf scan OR the verdict field says fail. A caller cannot flip
+// a real leaf failure to PASS by forging/miscomputing the verdict field,
+// because the leaf scan is unconditional; a caller that supplies verdict
+// alone with no leaf array (e.g. this file's own unit tests, or a future
+// gate module with a different internal shape) still gets an honest result
+// from that field.
+//
+// F1 (round 3) fix: the round-2 scan only checked ONE level of leaf —
+// rows[].status itself, scenarioResults{}.status itself — so a row/scenario
+// whose OWN summary said "pass" while something nested underneath it
+// (rows[].probes[].status from ax/conformance.mjs, or the
+// trials[].trials[].status entries ax/behavioral.mjs records alongside
+// scenarioResults) said "fail" still read as a passing gate: nothing looked
+// past the first `.status` field. The scan is now fully recursive — it walks
+// every object/array under the gate's leaf root and fails on ANY nested
+// `.status === "fail"` found at ANY depth, not just the outermost summary.
+// This makes the property depth-independent: a future nesting level added to
+// either module's report shape is covered by construction, not by adding
+// another named field here.
+// Bound only to stop pathological/cyclic structures, never to bless deep input.
+// At the cap we cannot prove the remaining subtree is clean, so we FAIL CLOSED
+// (return true = "a failure may exist here") — the package never claims pass on
+// evidence it did not inspect. A real report is a handful of levels deep; a node
+// nested past this cap is itself anomalous and correctly treated as unverifiable.
+const MAX_LEAF_SCAN_DEPTH = 256;
+function anyNestedStatusFails(node, depth = 0) {
+  if (node === null || typeof node !== "object") return false;
+  if (depth > MAX_LEAF_SCAN_DEPTH) return true;
+  if (Array.isArray(node)) return node.some((item) => anyNestedStatusFails(item, depth + 1));
+  if (node.status === "fail") return true;
+  return Object.values(node).some((value) => anyNestedStatusFails(value, depth + 1));
+}
 
 const SARIF_LEVEL = { error: "error", warning: "warning", info: "note" };
 
-export function toSarif(staticResult, toolName = "right-ax") {
+// CLAIM-FIDELITY fix: toSarif previously only read staticResult, so a run
+// failing on CONFORMANCE or BEHAVIORAL (with static clean) emitted a SARIF
+// doc with zero results — reading as CLEAN while `gateResult` was "fail".
+// For a package whose entire purpose is claim fidelity, a SARIF artifact
+// that can disagree with the gate it describes is unacceptable. toSarif now
+// takes the raw per-gate results (the same three the CLI already has,
+// pre-aggregation) and emits a SARIF result for every failing static rule,
+// every failing conformance row/probe, and every failing behavioral
+// scenario/trial. A fail-closed fallback (below) additionally guarantees
+// the invariant holds even for gate shapes this mapping does not
+// specifically recognize: SARIF `results` emptiness is equivalent to
+// `gateResult === "pass"`, always — never just "usually".
+export function toSarif({ staticResult, conformanceResult, behavioralResult } = {}, toolName = "right-ax") {
   const rules = new Map();
   const results = [];
-  for (const finding of staticResult?.rules ?? []) {
-    if (!rules.has(finding.ruleId)) rules.set(finding.ruleId, { id: finding.ruleId, shortDescription: { text: finding.claim } });
-    if (finding.status !== "fail") continue;
+
+  function addRule(id, claim) {
+    if (!rules.has(id)) rules.set(id, { id, shortDescription: { text: claim } });
+  }
+  function pushResult(ruleId, claim, severity, evidenceText) {
+    addRule(ruleId, claim);
     results.push({
-      ruleId: finding.ruleId,
-      level: SARIF_LEVEL[finding.severity] ?? "warning",
-      message: { text: `${finding.claim} — ${finding.evidence ?? ""}`.trim() },
+      ruleId,
+      level: SARIF_LEVEL[severity] ?? "warning",
+      message: { text: `${claim} — ${evidenceText ?? ""}`.trim() },
       locations: [{ physicalLocation: { artifactLocation: { uri: "." } } }],
     });
   }
+
+  // Static gate: one result per failing rule (unchanged behavior).
+  for (const finding of staticResult?.rules ?? []) {
+    addRule(finding.ruleId, finding.claim);
+    if (finding.status !== "fail") continue;
+    pushResult(finding.ruleId, finding.claim, finding.severity, finding.evidence);
+  }
+
+  // Conformance gate: one result per failing row (a row fails if its own
+  // status says so, or any probe/check nested under it does).
+  for (const row of conformanceResult?.rows ?? []) {
+    const rowFailed = row.status === "fail" || anyNestedStatusFails(row.probes) || anyNestedStatusFails(row.checks);
+    if (!rowFailed) continue;
+    const toolLabel = row.tool ?? "unknown-tool";
+    const failingProbes = (row.probes ?? []).filter((probe) => probe.status === "fail");
+    const evidence = failingProbes.length
+      ? failingProbes.map((probe) => `${probe.kind}: ${probe.detail ?? probe.sample ?? "failed"}`).join("; ")
+      : "conformance row failed";
+    pushResult(`conformance-${toolLabel}`, `conformance probe: ${toolLabel}`, "error", evidence);
+  }
+
+  // Behavioral gate: one result per failing scenario summary, plus one per
+  // failing trial (a trial can fail while its scenario summary — computed
+  // separately — has not yet been read, so both leaf roots are scanned).
+  for (const [scenarioId, scenarioResult] of Object.entries(behavioralResult?.scenarioResults ?? {})) {
+    if (scenarioResult?.status !== "fail") continue;
+    pushResult(`behavioral-${scenarioId}`, `behavioral scenario: ${scenarioId}`, "error", `${scenarioResult.failCount ?? "?"} failing trial(s)`);
+  }
+  for (const trialGroup of behavioralResult?.trials ?? []) {
+    const scenarioId = trialGroup?.scenarioId ?? "unknown-scenario";
+    for (const trial of trialGroup?.trials ?? []) {
+      if (trial?.status !== "fail") continue;
+      const evidence = Array.isArray(trial.failures) && trial.failures.length ? trial.failures.join("; ") : "trial failed";
+      pushResult(`behavioral-${scenarioId}-trial-${trial.trial ?? "?"}`, `behavioral trial: ${scenarioId}`, "error", evidence);
+    }
+  }
+
+  // Fail-closed fallback: recompute each gate's own fail/pass the same way
+  // aggregateReport does (isFailing + the recursive leaf scan), independent
+  // of the specific-shape mapping above. If a gate is failing but nothing
+  // was pushed for it — an unrecognized/future result shape, a synthetic
+  // test fixture, a `.fatal` with no leaf array — emit one generic result
+  // for that gate rather than let the SARIF doc go clean while the gate
+  // did not. This is what keeps the invariant true by construction instead
+  // of by enumeration.
+  const staticFailed = isFailing(staticResult, staticLeafFailed);
+  const conformanceFailed = isFailing(conformanceResult, conformanceLeafFailed);
+  const behavioralFailed = isFailing(behavioralResult, behavioralLeafFailed);
+  const mappedStatic = results.some((result) => result.ruleId.startsWith("static") || staticResult?.rules?.some((rule) => rule.ruleId === result.ruleId));
+  if (staticFailed && !mappedStatic) {
+    pushResult("static-gate-failed", "static gate failed", "error", "static gate reported a failure not captured by per-rule mapping");
+  }
+  if (conformanceFailed && !results.some((result) => result.ruleId.startsWith("conformance-"))) {
+    pushResult("conformance-gate-failed", "conformance gate failed", "error", "conformance gate reported a failure not captured by per-row mapping");
+  }
+  if (behavioralFailed && !results.some((result) => result.ruleId.startsWith("behavioral-"))) {
+    pushResult("behavioral-gate-failed", "behavioral gate failed", "error", "behavioral gate reported a failure not captured by per-scenario mapping");
+  }
+
   return {
     $schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
     version: "2.1.0",
@@ -34,32 +149,66 @@ export function toSarif(staticResult, toolName = "right-ax") {
   };
 }
 
-function isFailing(result) {
-  return Boolean(result) && result.verdict !== "pass";
+// F1: never trust a single precomputed field — a result fails when EITHER
+// its own `.fatal`/`.verdict` says fail OR the caller-supplied leaf-status
+// scanner (`leafFailed`) finds a failing leaf. `leafFailed` is a function so
+// each gate type can scan its own leaf shape (see the *LeafFailed functions
+// below); it returns false, never throws, when the expected leaf array is
+// absent so a minimal/summary-only result object still resolves from
+// `.verdict` alone.
+function isFailing(result, leafFailed) {
+  if (!result) return false;
+  return Boolean(result.fatal) || result.verdict === "fail" || Boolean(leafFailed(result));
+}
+
+// F1 (round 3): each leaf scan now recurses into the FULL subtree rooted at
+// its gate's finding array/map — not just the top status field of each
+// direct item — so a failing probe nested under a pass-looking row, or a
+// failing trial nested under a pass-looking scenario, is still caught. See
+// anyNestedStatusFails above.
+function staticLeafFailed(result) {
+  return anyNestedStatusFails(result?.rules);
+}
+function conformanceLeafFailed(result) {
+  return anyNestedStatusFails(result?.rows);
+}
+function behavioralLeafFailed(result) {
+  // Two independent leaf roots: scenarioResults{} (the per-scenario summary,
+  // itself possibly holding nested detail) and trials[] (the actual
+  // per-trial records — trials[].trials[].status — which is where a real
+  // trial failure lives even when the scenario summary next to it says
+  // "pass").
+  return anyNestedStatusFails(result?.scenarioResults ? Object.values(result.scenarioResults) : []) || anyNestedStatusFails(result?.trials);
 }
 
 // F1: status is severity-aware for presentation, but the underlying failure
-// (isFailing) is never hidden by "report-only" — a report-only gate that is
+// (`failed`) is never hidden by "report-only" — a report-only gate that is
 // actually failing renders "report-only-failing", never a bare "report-only"
 // or "pass".
-function gateStatus(result, severity) {
+function gateStatus(result, severity, failed) {
   if (!result) return "not-run";
-  const failed = isFailing(result);
   if (severity === "report-only") return failed ? "report-only-failing" : "report-only";
   return failed ? "fail" : "pass";
 }
 
 export function aggregateReport({ manifest, staticResult, conformanceResult, behavioralResult }) {
   const gates = manifest?.ax?.gates ?? { static: "hard", conformance: "hard", behavioral: "report-only" };
-  const staticStatus = gateStatus(staticResult, gates.static);
-  const conformanceStatus = gateStatus(conformanceResult, gates.conformance);
+  const staticFailed = isFailing(staticResult, staticLeafFailed);
+  const conformanceFailed = isFailing(conformanceResult, conformanceLeafFailed);
+  const behavioralFailed = isFailing(behavioralResult, behavioralLeafFailed);
+  const staticStatus = gateStatus(staticResult, gates.static, staticFailed);
+  const conformanceStatus = gateStatus(conformanceResult, gates.conformance, conformanceFailed);
   const behavioralProvenBy = behavioralResult?.provenBy ?? "stub";
-  const behavioralStatus = gateStatus(behavioralResult, gates.behavioral);
+  const behavioralStatus = gateStatus(behavioralResult, gates.behavioral, behavioralFailed);
 
   // F1: the top-level result must never read PASS while any rule or probe
   // failed, at any severity — severity only changes per-gate presentation
-  // (see gateStatus), never whether a real failure is visible here.
-  const anyFailure = isFailing(staticResult) || isFailing(conformanceResult) || isFailing(behavioralResult);
+  // (see gateStatus), never whether a real failure is visible here. Each of
+  // staticFailed/conformanceFailed/behavioralFailed already combines its
+  // gate's own leaf scan with its verdict/fatal fields (see isFailing), so a
+  // contradictory or forged intermediate (e.g. `verdict: "pass"` alongside a
+  // failing leaf rule) cannot flip this to "pass".
+  const anyFailure = staticFailed || conformanceFailed || behavioralFailed;
 
   const report = {
     schemaVersion: 1,

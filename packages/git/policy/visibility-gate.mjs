@@ -31,20 +31,51 @@ async function ghVisibility(repoPath, execFile) {
   }
 }
 
+const GITHUB_HOST = "github.com";
+
+/**
+ * Normalize a git remote into something the WHATWG `URL` parser accepts.
+ * Full URLs (`https://…`, `ssh://…`, `git://…`) pass through unchanged.
+ * Git's scp-like shorthand (`[user@]host:path`, no `://`) is rewritten to
+ * `ssh://[user@]host/path` so the same parser handles both forms — that
+ * parser is what does the real work below, not this rewrite.
+ */
+function toParseableUrl(remoteUrl) {
+  const trimmed = remoteUrl.trim();
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) return trimmed;
+  const scpMatch = /^([a-zA-Z0-9_.-]+@)?([a-zA-Z0-9.-]+):(?!\/\/)(.+)$/.exec(trimmed);
+  if (!scpMatch) return trimmed;
+  const [, userAt = "", host, path] = scpMatch;
+  return `ssh://${userAt}${host}/${path}`;
+}
+
 /**
  * Parse an owner/repo pair out of a git remote URL (https or ssh form).
  *
- * F16 fix: the repo-name group must allow internal dots (e.g. `repo.with.dot`)
- * — it only excludes `/` (which ends the segment), not `.`. A trailing
- * `.git` suffix is stripped afterward in code rather than excluded from the
- * character class, because excluding `.` from the class (the previous bug)
- * makes the whole match fail for any dotted name: the lazy group can never
- * cross a `.` to reach the required end-of-string anchor. Enterprise hosts
- * (e.g. github.example.com) still fail closed — the literal `github.com`
- * requirement is unchanged.
+ * N1 fix: host matching must be exact, not substring. The prior regex
+ * searched the raw string for the text `github.com` anywhere, so
+ * `notgithub.com`, `github.com.evil.io`, and `https://github.com@evil.io/…`
+ * (github.com as userinfo, real host evil.io) were all misread as GitHub.
+ * This parses the remote as a real URL and requires `url.hostname` to equal
+ * `github.com` exactly (case-insensitive; WHATWG URL already lowercases
+ * hostnames) — the URL parser itself separates userinfo/port from host, so
+ * those tricks fall out for free. Enterprise hosts (e.g. github.example.com)
+ * and any other non-exact host still fail closed to null.
+ *
+ * F16 fix (kept): the repo-name group allows internal dots (e.g.
+ * `repo.with.dot`) — it only excludes `/` (which ends the segment), not `.`.
+ * A trailing `.git` suffix is stripped afterward in code.
  */
 export function parseOwnerRepo(remoteUrl) {
-  const match = /github\.com[/:]([^/]+)\/([^/]+?)\/?$/.exec(remoteUrl.trim());
+  let url;
+  try {
+    url = new URL(toParseableUrl(remoteUrl));
+  } catch {
+    return null;
+  }
+  if (url.hostname.toLowerCase() !== GITHUB_HOST) return null;
+
+  const match = /^\/?([^/]+)\/([^/]+?)\/?$/.exec(url.pathname);
   if (!match) return null;
   const owner = match[1];
   const repo = match[2].endsWith(".git") ? match[2].slice(0, -4) : match[2];

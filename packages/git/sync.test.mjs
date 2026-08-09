@@ -53,3 +53,32 @@ test("sync reports manifest errors instead of writing files", async () => {
   assert.equal(result.ok, false);
   assert.equal(result.stage, "manifest");
 });
+
+// F15 end-to-end: a hostile `.rightgit.json` on disk — the real attack
+// surface, not just the in-memory validateManifest() unit — must be refused
+// at the manifest stage, before renderLanes() (and therefore render.mjs's
+// unescaped `${TOKEN}` substitution) ever sees the payload. This is the
+// concrete proof that "none survive into rendered output": nothing is
+// rendered or written at all when the manifest is hostile. Covers a family
+// of payloads across the fields that flow into the credential-bearing
+// publish-package-managers lane.
+const HOSTILE_MANIFESTS = [
+  { tap: "acme/tap", formulaName: "${{ secrets.APPLE_CERTIFICATE }}" },
+  { tap: "acme/tap", formulaName: "`whoami`" },
+  { tap: "acme/tap", formulaName: "widgets\nrun: exit 1" },
+  { tap: "acme/${{ secrets.X }}", formulaName: "widgets" },
+];
+
+for (const [i, homebrew] of HOSTILE_MANIFESTS.entries()) {
+  test(`F15: sync refuses a hostile manifest and writes nothing (payload ${i})`, async () => {
+    const dir = makeTempRepo({
+      ...SAMPLE_MANIFEST,
+      lanes: ["publish-package-managers"],
+      publish: { homebrew, winget: { packageIdentifier: "Acme.Widgets" } },
+    });
+    const result = await syncCommand(dir, { deps: PUBLIC_DEPS });
+    assert.equal(result.ok, false);
+    assert.equal(result.stage, "manifest");
+    assert.equal(fs.existsSync(path.join(dir, ".github", "workflows")), false, "no workflow file may be written for a hostile manifest");
+  });
+}

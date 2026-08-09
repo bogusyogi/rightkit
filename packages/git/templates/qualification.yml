@@ -7,9 +7,10 @@ on:
     branches: [main]
 permissions:
   contents: read
+# F5 fix: see ci.yml for why the guard is its own always-runs job rather
+# than a job-level `if: !private` (which only skipped instead of failing).
 jobs:
-  qualification:
-    if: ${{ !github.event.repository.private }}
+  private-repo-guard:
     runs-on: ubuntu-latest
     steps:
       - name: Refuse private repository
@@ -17,6 +18,10 @@ jobs:
         run: |
           echo "::error::right-git: repository is private; managed public-only workflows must not run here."
           exit 1
+  qualification:
+    needs: [private-repo-guard]
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:

@@ -7,9 +7,25 @@ on:
     branches: [main]
 permissions:
   contents: read
+# F5 fix: `private-repo-guard` carries no job-level `if`, so it always runs.
+# Its one step's own `if` fires only when the repo is private, and `exit 1`
+# then fails the JOB (loud, visible, non-zero) rather than the previous
+# design of gating the whole job with `if: !private`, which made the guard
+# step unreachable and left the run merely SKIPPED — indistinguishable from
+# "nothing to do" instead of a failure nobody can miss. Every other job below
+# depends on this one, so a skipped-by-failure guard blocks them too
+# (GitHub's default `needs` semantics require the needed job to succeed).
 jobs:
+  private-repo-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "::error::right-git: repository is private; managed public-only workflows must not run here."
+          exit 1
   test:
-    if: ${{ !github.event.repository.private }}
+    needs: [private-repo-guard]
     strategy:
       fail-fast: false
       matrix:
@@ -17,11 +33,6 @@ jobs:
         node: ${NODE_MATRIX}
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Refuse private repository
-        if: ${{ github.event.repository.private }}
-        run: |
-          echo "::error::right-git: repository is private; managed public-only workflows must not run here."
-          exit 1
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:

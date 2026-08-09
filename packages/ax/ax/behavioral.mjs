@@ -114,36 +114,121 @@ export function stubTrial(scenario) {
 const MIN_TRIALS_PER_AGENT = 5;
 const MIN_DISTINCT_AGENTS = 2;
 
-// F2: counts trials per distinct agentId within a single scenario's own
-// trial list (never summed across scenarios or across agents) — the exact
-// count the I2 real-matrix bar is defined against.
+// F2 (round 2): identity is normalized — trimmed, casefolded, and internal
+// whitespace collapsed — BEFORE it is used as a counting key, anywhere. This
+// alone fixes trivially-spoofable "distinct" identities: "agent-a",
+// " agent-a ", "Agent-A", and "agent-a\t" are all the same agent and must
+// collapse to one bucket, not count as up to four.
+//
+// F2 (round 3): case/whitespace normalization alone still let two Unicode
+// strings that render as, and are canonically equivalent to, the same
+// identity count as distinct agents — e.g. ASCII "agent-a" versus a fullwidth
+// "ａｇｅｎｔ-ａ" alias survive casefold/trim untouched because they are
+// different code points, not different case/whitespace. Unicode NFKC
+// normalization (String.prototype.normalize) is applied FIRST, before
+// casefold/trim/whitespace-collapse, so canonical-equivalent forms (fullwidth
+// variants, compatibility ligatures, etc.) collapse to the same normalized
+// key exactly like a plain casing/whitespace alias does.
+function normalizeAgentId(id) {
+  if (typeof id !== "string") return null;
+  const normalized = id.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+  return normalized.length ? normalized : null;
+}
+
+// F2: counts trials per distinct (normalized) agentId within a single
+// scenario's own trial list (never summed across scenarios or across
+// agents). This is DISPLAY data (report.scenarioResults[id].agentTrialCounts)
+// for debugging/visibility — it merges trivial aliases but is intentionally
+// NOT itself the real-matrix gate; see scenarioMeetsRealMatrixBar, which
+// additionally requires the caller's declared roster.
 function countTrialsByAgent(trials) {
   const counts = new Map();
   for (const trial of trials) {
-    if (!trial.agentId) continue;
-    counts.set(trial.agentId, (counts.get(trial.agentId) ?? 0) + 1);
+    const normalized = normalizeAgentId(trial.agentId);
+    if (!normalized) continue;
+    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
   }
   return counts;
 }
-
-// F2: a scenario clears the real-matrix bar only when >=2 distinct agents
-// each individually completed >=5 trials of THIS scenario — an uneven split
-// (e.g. 3 trials for agent-a, 2 for agent-b) does not count, even though the
-// total (5) meets the old, incorrect "k >= 5" check.
 function scenarioAgentCounts(trials) {
   return Object.fromEntries(countTrialsByAgent(trials));
 }
-function scenarioMeetsRealMatrixBar(trials) {
-  const counts = countTrialsByAgent(trials);
+
+// F2: builds the declared-roster set a real-matrix claim is checked against.
+// Normalization matches normalizeAgentId so a roster entry and a trial's
+// agentId referring to the same agent always compare equal regardless of
+// whitespace/case/padding.
+function normalizeRoster(agents) {
+  const roster = new Set();
+  for (const id of agents ?? []) {
+    const normalized = normalizeAgentId(id);
+    if (normalized) roster.add(normalized);
+  }
+  return roster;
+}
+
+// F2: identity honesty is a CALLER CONTRACT, not a property string analysis
+// can prove. Normalizing trivial aliases (whitespace/case/padding — handled
+// above) collapses accidental near-duplicates, but nothing in this module
+// can distinguish a genuine second human/agent from one actor deliberately
+// supplying two distinct-looking IDs it fully controls — that is not a
+// string-shape problem, and this code does not pretend to solve it. Instead,
+// the CALLER must explicitly declare its agent roster (the `agents` array
+// passed to runScenarios), asserting "these N identifiers are N distinct
+// real agents." The real-matrix bar only ever credits trials whose
+// (normalized) agentId is a member of that declared, normalized roster, AND
+// the roster itself must normalize to >=2 distinct entries — a caller that
+// "declares" two IDs which alias to the same normalized string has not
+// declared two agents. A caller that dishonestly declares two IDs it
+// controls as if they were two agents has broken the contract; no code here
+// can detect that, and no code here should claim to.
+//
+// A scenario clears the real-matrix bar only when >=2 distinct DECLARED
+// agents each individually completed >=5 trials of THIS scenario — an
+// uneven split (e.g. 3 trials for agent-a, 2 for agent-b) does not count,
+// even though the total (5) meets the old, incorrect "k >= 5" check.
+function scenarioMeetsRealMatrixBar(trials, declaredRoster) {
+  if (declaredRoster.size < MIN_DISTINCT_AGENTS) return false;
+  const counts = new Map();
+  for (const trial of trials) {
+    const normalized = normalizeAgentId(trial.agentId);
+    if (!normalized || !declaredRoster.has(normalized)) continue; // undeclared identity earns no real-matrix credit
+    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
+  }
   if (counts.size < MIN_DISTINCT_AGENTS) return false;
   return [...counts.values()].every((count) => count >= MIN_TRIALS_PER_AGENT);
+}
+
+// F2 (round 3): scenarioMeetsRealMatrixBar already refuses to CREDIT an
+// undeclared identity toward the per-agent bar, but crediting was the only
+// thing it withheld — a trial run by an agentId outside the declared roster
+// was otherwise silently tolerated and the matrix still passed as clean once
+// the declared agents alone cleared the bar. That is not an honest matrix:
+// an unexpected participant means the run mixed something the caller never
+// declared into what it is now claiming as a controlled multi-agent
+// comparison. Any trial (across any scenario) whose agentId is present but
+// does NOT normalize into the declared roster forces the whole run out of
+// real-matrix, exactly like every other way of failing to clear the bar.
+function hasUndeclaredAgentTrial(trialEntries, declaredRoster) {
+  for (const entry of trialEntries) {
+    for (const trial of entry.trials) {
+      if (trial.agentId == null) continue; // no identity claimed — nothing to compare against the roster
+      const normalized = normalizeAgentId(trial.agentId);
+      if (!normalized || !declaredRoster.has(normalized)) return true;
+    }
+  }
+  return false;
 }
 
 // Real-agent driver: shells out to an externally supplied runner (never the
 // bundled stub). `runTrial` is caller-injected — e.g. wired to `claude -p`
 // or another CLI — so this package never hardcodes a provider. Distinct
-// agent identities are tracked via `agentId` for the I2 real-matrix check.
+// agent identities are tracked via `agentId` for the I2 real-matrix check;
+// `agents` is the caller's explicit declared roster (F2 — see
+// scenarioMeetsRealMatrixBar's banner) and is REQUIRED (>=2 distinct
+// normalized entries) for provenBy to ever become "real-matrix".
 export async function runScenarios({ scenariosDir, k = 3, driver = "stub", agents = [], runTrial }) {
+  const declaredRoster = normalizeRoster(agents);
   const { scenarios, loadErrors } = loadScenarios(scenariosDir);
   const report = { schemaVersion: 1, gate: "behavioral", driver, k, agents, scenarioCount: scenarios.length, scenarioIds: scenarios.map((scenario) => scenario.scenarioId).sort(), trials: [], scenarioResults: {}, totals: { pass: 0, fail: 0, "skipped-pending": 0 }, loadErrors, fatal: null, verdict: "fail", provenBy: driver === "stub" ? "stub" : "real-matrix-claimed" };
 
@@ -173,11 +258,15 @@ export async function runScenarios({ scenariosDir, k = 3, driver = "stub", agent
   for (const entry of report.trials) for (const trial of entry.trials) report.totals[trial.status] = (report.totals[trial.status] ?? 0) + 1;
 
   // F2: a real matrix requires every scenario to individually clear the
-  // per-agent bar (>=2 distinct agents, >=5 trials each, for THAT scenario).
-  // report.trials is empty when report.fatal is set, so `every` is
-  // vacuously true in that case — the `!report.fatal` guard below is load-
-  // bearing and must stay.
-  const realMatrix = driver !== "stub" && !report.fatal && report.trials.length > 0 && report.trials.every((entry) => scenarioMeetsRealMatrixBar(entry.trials));
+  // per-agent bar (>=2 distinct DECLARED agents, >=5 trials each, for THAT
+  // scenario — see scenarioMeetsRealMatrixBar). report.trials is empty when
+  // report.fatal is set, so `every` is vacuously true in that case — the
+  // `!report.fatal` guard below is load-bearing and must stay.
+  //
+  // F2 (round 3): a trial run by an agentId outside the declared roster
+  // (hasUndeclaredAgentTrial) forces the run out of real-matrix even if the
+  // declared agents themselves cleared the bar — see that function's banner.
+  const realMatrix = driver !== "stub" && !report.fatal && report.trials.length > 0 && !hasUndeclaredAgentTrial(report.trials, declaredRoster) && report.trials.every((entry) => scenarioMeetsRealMatrixBar(entry.trials, declaredRoster));
   report.provenBy = realMatrix ? "real-matrix" : "stub";
   report.verdict = !report.fatal && Object.values(report.scenarioResults).every((result) => result.status !== "fail") ? "pass" : "fail";
   return report;

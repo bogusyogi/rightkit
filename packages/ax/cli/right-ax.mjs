@@ -30,6 +30,13 @@ function resolveRepoPath(candidate) {
   return path.resolve(candidate ?? ".");
 }
 
+// F2: parses --agents into runScenarios' declared-roster array. Comma-
+// separated, blank entries dropped; ax/behavioral.mjs normalizes and
+// validates the roster itself (see scenarioMeetsRealMatrixBar).
+function parseAgentsFlag(value) {
+  return String(value ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
 function printJson(value) {
   console.log(JSON.stringify(value, null, 2));
 }
@@ -96,7 +103,24 @@ async function main() {
       const scenariosDir = path.join(repoPath, manifest.ax?.scenariosDir ?? "evals/ax/scenarios");
       const driver = flag("driver", "stub");
       const k = Number(flag("k", "3"));
-      const result = await runScenarios({ scenariosDir, k, driver });
+      // F2: --agents is the caller's explicit declared roster (comma-
+      // separated distinct agent identifiers); runScenarios only credits
+      // real-matrix status to trials whose agentId is a declared member —
+      // see ax/behavioral.mjs's scenarioMeetsRealMatrixBar for why this is a
+      // caller contract, not something this CLI can verify on its own.
+      const agents = parseAgentsFlag(flag("agents"));
+      // F11 — SCOPED, not fixed: --driver accepts any name, but only "stub"
+      // actually executes anything here. There is no --run-trial-command (or
+      // equivalent) that spawns/talks to a real external agent process per
+      // trial, so passing --driver claude-opus (for example) still calls
+      // runTrial, which is undefined, and every trial fails with "driver
+      // produced no trial". Building that bridge means choosing which
+      // agent CLI(s) to shell out to, the trial invocation/prompt shape, and
+      // a timeout/cost policy — DESIGN.md OD-2 ("behavioral matrix
+      // composition") is exactly that open decision, and it is not decided
+      // here; fabricating a driver integration would be inventing that
+      // decision, not fixing a bug.
+      const result = await runScenarios({ scenariosDir, k, driver, agents });
       printJson(result);
       // F11 fix: this was previously `result.fatal ? 1 : 0`, which ignored
       // result.verdict entirely — a total-failure run (every trial failed,
@@ -115,10 +139,13 @@ async function main() {
       let behavioralResult = null;
       if (manifest.ax?.scenariosDir) {
         const scenariosDir = path.join(repoPath, manifest.ax.scenariosDir);
-        behavioralResult = await runScenarios({ scenariosDir, k: Number(flag("k", "3")), driver: flag("driver", "stub") });
+        behavioralResult = await runScenarios({ scenariosDir, k: Number(flag("k", "3")), driver: flag("driver", "stub"), agents: parseAgentsFlag(flag("agents")) });
       }
       const report = aggregateReport({ manifest, staticResult, conformanceResult, behavioralResult });
-      const sarif = toSarif(staticResult);
+      // CLAIM-FIDELITY: pass all three raw gate results, not just static —
+      // see ax/report.mjs's toSarif for why a static-only SARIF can read
+      // clean while gateResult is "fail".
+      const sarif = toSarif({ staticResult, conformanceResult, behavioralResult });
       const format = flag("format", "json");
       if (format === "sarif") printJson(sarif);
       else if (format === "markdown" || format === "md") console.log(renderMarkdown(report));
@@ -153,9 +180,11 @@ Commands:
   plugin validate <repo-path>                Validate agent-plugins.org layout + path-safety rules
   ax static <repo-path>                      Phase B contract checklist (14 rules, DESIGN §6)
   ax conformance <repo-path>                 Phase C live stdio probes against .rightax.json's MCP surface
-  ax behavioral <repo-path> [--driver stub|<name>] [--k <n>]
-                                              Phase D scenario runner; UNPROVEN until a real matrix runs
-  ax report <repo-path> [--format json|sarif|markdown] [--driver] [--k]
+  ax behavioral <repo-path> [--driver stub|<name>] [--k <n>] [--agents a,b]
+                                              Phase D scenario runner; UNPROVEN until a real matrix runs.
+                                              --agents declares the distinct-agent roster (required for
+                                              real-matrix; see DESIGN.md OD-2 — no bundled real driver ships)
+  ax report <repo-path> [--format json|sarif|markdown] [--driver] [--k] [--agents a,b]
                                               Aggregate scorecard; gates and reports, never signs off
   adopt <repo-path> [--scenarios-dir] [--serve] [--dry-run]
                                               Infer and write .rightax.json from an existing harness
