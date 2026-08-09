@@ -73,6 +73,19 @@ test("F9: classifyResponse redacts a credential-shaped string from a typed-error
   assert.ok(classification.message.includes("[REDACTED]"));
 });
 
+test("SDK Input validation error messages are stable invalid-arguments typed rejections", () => {
+  const classification = classifyResponse({ result: { isError: true, content: [{ type: "text", text: "Input validation error: Invalid arguments for tool strict_tool: data must NOT have additional properties" }] } });
+  assert.equal(classification.kind, "typed-error");
+  assert.equal(classification.code, "invalid_arguments");
+  assert.equal(classification.retryable, false);
+  assert.match(classification.message, /strict_tool/);
+});
+
+test("arbitrary tool error text remains untyped", () => {
+  const classification = classifyResponse({ result: { isError: true, content: [{ type: "text", text: "Input validation error: unexpected custom implementation failure" }] } });
+  assert.equal(classification.kind, "untyped-error");
+});
+
 test("F9: redactText preserves the key= prefix but redacts the value, and never crosses patterns into the wrong replacement (offset-as-prefix regression)", () => {
   // Regression for a real bug caught during implementation: the first
   // version of redactText used one callback `(match, prefix) => ...` for

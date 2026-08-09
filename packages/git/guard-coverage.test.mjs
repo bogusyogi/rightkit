@@ -218,3 +218,11 @@ test("F5: private-repo-guard job has no job-level `if` (always runs) and fails o
     );
   }
 });
+
+test("rust-hybrid ci keeps its work behind the public-repository guard", () => {
+  const manifest = { ...FULL_MANIFEST, lanes: ["ci"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
+  const template = fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8");
+  const jobs = parseJobs(renderTemplate(template, buildRenderContext(manifest, "/repos/widgets")));
+  assert.ok(isGuarded(jobs, "private-repo-guard"));
+  assert.ok(isGuarded(jobs, "ci"));
+});

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { runConformance } from "./ax/conformance.mjs";
+import { buildValidArgs, runConformance } from "./ax/conformance.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,6 +26,52 @@ function repoWithServer(fixtureName) {
   // Files\nodejs\node.exe" on Windows), which would corrupt that split.
   return { repo, manifest: { surfaces: { mcp: { serve: `node ${fixtureName}` } } } };
 }
+
+test("buildValidArgs recursively synthesizes required nested schema values", () => {
+  const tool = {
+    inputSchema: {
+      type: "object",
+      required: ["caller", "mode", "fixed", "choice", "alternate", "attempts", "items"],
+      properties: {
+        caller: { type: "object", required: ["root", "repositoryId", "scopeId"], properties: { root: { type: "string", minLength: 2 }, repositoryId: { type: "string" }, scopeId: { type: "string" } } },
+        mode: { enum: ["repo", "workspace"] },
+        fixed: { const: "fixed-value" },
+        choice: { oneOf: [{ type: "string", minLength: 3 }, { type: "integer", minimum: 5, maximum: 7 }] },
+        alternate: { anyOf: [{ type: "boolean" }, { type: "string" }] },
+        attempts: { type: "integer", minimum: 3, maximum: 7 },
+        items: { type: "array", minItems: 2, items: { type: "object", required: ["name"], properties: { name: { type: "string", maxLength: 4 } } } },
+      },
+    },
+  };
+  assert.deepEqual(buildValidArgs(tool), {
+    caller: { root: "conformance-probe", repositoryId: "conformance-probe", scopeId: "conformance-probe" },
+    mode: "repo",
+    fixed: "fixed-value",
+    choice: "conformance-probe",
+    alternate: true,
+    attempts: 3,
+    items: [{ name: "conf" }, { name: "conf" }],
+  });
+});
+
+test("buildValidArgs prefers a deep-cloned declared conformance example", () => {
+  const example = { caller: { root: "/repo", repositoryId: "repo", scopeId: "scope" } };
+  const args = buildValidArgs({ inputSchema: { type: "object", required: ["caller"], properties: { caller: { type: "object" } } } }, example);
+  assert.deepEqual(args, example);
+  assert.notEqual(args, example);
+  assert.notEqual(args.caller, example.caller);
+  args.caller.root = "/changed";
+  assert.equal(example.caller.root, "/repo");
+});
+
+test("runConformance uses a matching declared example for its valid-args probe", async () => {
+  const { repo, manifest } = repoWithServer("fake-mcp-server.mjs");
+  manifest.ax = { conformanceExamples: { good_tool: { input: "example", unexpected: true } } };
+  const result = await runConformance({ repoPath: repo, manifest });
+  const valid = result.rows.find((row) => row.tool === "good_tool").probes.find((probe) => probe.kind === "valid-args");
+  assert.equal(valid.status, "fail");
+  assert.equal(valid.code, "unknown_field");
+});
 
 test("conformance passes good_tool and fails bad_tool against the fixture MCP server", async () => {
   const { repo, manifest } = repoWithServer("fake-mcp-server.mjs");

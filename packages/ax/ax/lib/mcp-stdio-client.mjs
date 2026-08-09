@@ -134,7 +134,7 @@ export async function openMcpSession({ command, args = [], cwd, timeoutMs = 6000
   const initializeResponse = await rpc.request("initialize", {
     protocolVersion: PROTOCOL_VERSION,
     capabilities: {},
-    clientInfo: { name: "right-ax", version: "0.1.0" },
+    clientInfo: { name: "right-ax", version: "0.1.1" },
   });
   rpc.notify("notifications/initialized");
   const toolsResponse = await rpc.request("tools/list", {});
@@ -217,6 +217,8 @@ export function classifyResponse(message) {
   if (result.isError === true) {
     const typed = texts.map((text) => ({ text, parsed: tryParseJson(text) })).find(({ parsed }) => parsed && parsed.error && parsed.error.code !== undefined);
     if (typed) return { kind: "typed-error", code: String(typed.parsed.error.code), message: redactText(String(typed.parsed.error.message ?? "")), remediation: typed.parsed.error.remediation ?? null, sample: redactText(typed.text.slice(0, 400)) };
+    const sdkValidationError = texts.find((text) => /^Input validation error: Invalid arguments for tool [A-Za-z0-9_.-]+:/.test(text));
+    if (sdkValidationError) return { kind: "typed-error", code: "invalid_arguments", retryable: false, remediation: null, message: redactText(sdkValidationError), sample: redactText(sdkValidationError.slice(0, 400)) };
     return { kind: "untyped-error", sample: redactText(joined.slice(0, 500)) };
   }
   return { kind: "success", structuredContent: result.structuredContent ?? null, sample: redactText(joined.slice(0, 300)) };

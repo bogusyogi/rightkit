@@ -37,7 +37,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${NODE_PUBLISH_VERSION}
-          cache: ${PM_CACHE}
           registry-url: https://registry.npmjs.org
       - run: corepack enable
       - run: ${INSTALL_COMMAND}

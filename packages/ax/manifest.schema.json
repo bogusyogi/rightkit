@@ -43,6 +43,11 @@
       "required": ["gates"],
       "properties": {
         "scenariosDir": { "type": "string", "minLength": 1 },
+        "conformanceExamples": {
+          "type": "object",
+          "propertyNames": { "type": "string", "minLength": 1 },
+          "additionalProperties": { "type": "object" }
+        },
         "gates": {
           "type": "object",
           "additionalProperties": false,

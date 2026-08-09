@@ -14,9 +14,9 @@ Agent-experience (AX) conformance gates and agent-plugins.org packaging validati
 
 `right-ax` **gates and reports; it never signs off.** The top-level field is `gateResult` (`pass`/`fail`), never a "clean"/"verdict"/"signoff" claim. If any finding fails at any depth, in any output format including SARIF, the report cannot read as pass and the exit code is non-zero. Verdict authority stays with a human or a designated audit authority — this tool produces evidence, not authorization.
 
-## Known limitations at 0.1.0 (read before relying on results)
+## Known limitations at 0.1.1 (read before relying on results)
 
-- **Behavioral results are UNPROVEN unless a real multi-agent matrix ran.** The bundled `--driver stub` proves harness plumbing only, not real-agent AX reliability. A real matrix requires ≥2 distinct declared agents with ≥5 trials each; **no real-agent driver ships in 0.1.0**, so behavioral output is labelled `UNPROVEN` by construction and must not be read as proven coverage. Wiring a real driver depends on an unresolved design decision (agent-matrix composition).
+- **Behavioral results are UNPROVEN unless a real multi-agent matrix ran.** The bundled `--driver stub` proves harness plumbing only, not real-agent AX reliability. A real matrix requires ≥2 distinct declared agents with ≥5 trials each; **no real-agent driver ships in 0.1.1**, so behavioral output is labelled `UNPROVEN` by construction and must not be read as proven coverage. Wiring a real driver depends on an unresolved design decision (agent-matrix composition).
 - **Conformance probes the source tree, not a verified packaged artifact.** Containment is enforced (symlink-aware realpath), but the tool does not assert that the probed `mcp.serve` command is the built tarball / installed bin rather than a source checkout. "Conformance passed" therefore means "passed for the code at this path," not "for the artifact a user installs."
 
 Both limitations fail closed (the tool never falsely claims what it did not verify); they are disclosed here so consumers do not infer coverage the tool did not perform.

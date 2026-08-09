@@ -18,7 +18,9 @@ export function renderLanes(manifest, repoPath) {
   const context = buildRenderContext(manifest, repoPath);
   return manifest.lanes.map((lane) => {
     const filename = LANE_FILENAMES[lane];
-    const templatePath = path.join(TEMPLATES_DIR, filename);
+    const templatePath = manifest.profile === "rust-hybrid"
+      ? path.join(TEMPLATES_DIR, "profiles", "rust-hybrid", filename)
+      : path.join(TEMPLATES_DIR, filename);
     const templateText = fs.readFileSync(templatePath, "utf8");
     return { lane, filename, content: renderTemplate(templateText, context) };
   });

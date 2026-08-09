@@ -198,7 +198,11 @@ export async function runCargoGuard(args, { env = process.env, policyOptions = {
   const cargo = resolveCargo({ env });
   if (shouldGuardCargo(args)) {
     const guarded = cargoCacheEnvironment(args, { env });
-    if (process.platform === "win32" && !guarded.RUSTC) guarded.RUSTC = resolveRustc({ env });
+    // Pin RUSTC on every platform, not just Windows: cargo otherwise resolves
+    // bare `rustc` from its child PATH, and on this Mac that reached a stale
+    // 1.78.0 shim while cargo 1.97 passed --check-cfg — failing any crate
+    // build with "the `-Z unstable-options` flag must also be passed".
+    if (!guarded.RUSTC) guarded.RUSTC = resolveRustc({ env });
     return runHeavy(["--", cargo, ...args], { env: guarded });
   }
   return runLight(cargo, args, env);

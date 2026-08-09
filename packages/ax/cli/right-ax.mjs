@@ -6,6 +6,7 @@
 // gate needs a live process).
 
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { adoptRepo } from "../adopt.mjs";
 import { runConformance } from "../ax/conformance.mjs";
@@ -53,11 +54,16 @@ function requireManifest(repoPath) {
 
 async function main() {
   if (!first || first === "-h" || first === "--help") return printHelp();
-  if (first === "--version" || first === "-v") { console.log("right-ax 0.1.0"); return; }
+  if (first === "--version" || first === "-v") { console.log("right-ax 0.1.1"); return; }
 
   if (first === "plugin") {
     const repoPath = resolveRepoPath(rest[0]?.startsWith("--") ? undefined : rest[0]);
     if (second === "init") {
+      if (!existsSync(repoPath)) {
+        console.error(`right-ax plugin init: repo path does not exist: ${repoPath}`);
+        process.exitCode = 1;
+        return;
+      }
       const result = scaffoldPlugin(repoPath, {
         name: flag("name"),
         version: flag("version"),

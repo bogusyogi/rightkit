@@ -31,22 +31,72 @@ const OMIT = Symbol("omit");
 const PROBE_KINDS = ["valid-args", "missing-required", "unknown-field"];
 
 function semanticValue(type, schema) {
-  if (type === "string") return "conformance-probe";
-  if (type === "integer" || type === "number") return Math.min(Math.max(typeof schema.minimum === "number" ? schema.minimum : 1, 1), typeof schema.maximum === "number" ? schema.maximum : 100);
+  if (type === "string") {
+    const minimum = Math.max(0, Number.isInteger(schema.minLength) ? schema.minLength : 0);
+    const maximum = Number.isInteger(schema.maxLength) ? schema.maxLength : Infinity;
+    if (minimum > maximum) return OMIT;
+    return "conformance-probe".slice(0, maximum).padEnd(minimum, "x");
+  }
+  if (type === "integer" || type === "number") {
+    const minimum = typeof schema.minimum === "number" ? schema.minimum : 1;
+    const maximum = typeof schema.maximum === "number" ? schema.maximum : 100;
+    const candidate = type === "integer" ? Math.ceil(Math.max(minimum, 1)) : Math.max(minimum, 1);
+    return candidate <= maximum ? candidate : OMIT;
+  }
   if (type === "boolean") return true;
-  if (type === "object") return {};
-  if (type === "array") return [];
+  if (type === "null") return null;
   return OMIT;
 }
 
-function buildValidArgs(tool) {
+function schemaValue(schema) {
+  if (!schema || typeof schema !== "object") return OMIT;
+  if (Object.hasOwn(schema, "const")) return schema.const;
+  if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
+  for (const branches of [schema.anyOf, schema.oneOf]) {
+    if (!Array.isArray(branches)) continue;
+    for (const branch of branches) {
+      const value = schemaValue(branch);
+      if (value !== OMIT) return value;
+    }
+    return OMIT;
+  }
+
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type ?? (schema.properties || schema.required ? "object" : schema.items ? "array" : undefined)];
+  for (const type of types) {
+    if (type === "object") {
+      const value = {};
+      for (const name of schema.required ?? []) {
+        const child = schemaValue(schema.properties?.[name]);
+        if (child === OMIT) return OMIT;
+        value[name] = child;
+      }
+      return value;
+    }
+    if (type === "array") {
+      const minimum = Math.max(0, Number.isInteger(schema.minItems) ? schema.minItems : 0);
+      if (minimum === 0) return [];
+      const item = schemaValue(schema.items);
+      if (item === OMIT) return OMIT;
+      return Array.from({ length: minimum }, () => item);
+    }
+    const value = semanticValue(type, schema);
+    if (value !== OMIT) return value;
+  }
+  return OMIT;
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function buildValidArgs(tool, example) {
+  if (example !== undefined) return cloneJson(example);
   const properties = tool.inputSchema?.properties ?? {};
   const required = new Set(tool.inputSchema?.required ?? []);
   const args = {};
   for (const [name, schema] of Object.entries(properties)) {
     if (!required.has(name)) continue; // conservative: only fill required fields generically
-    const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
-    const value = semanticValue(type, schema);
+    const value = schemaValue(schema);
     if (value !== OMIT) args[name] = value;
   }
   return args;
@@ -54,7 +104,7 @@ function buildValidArgs(tool) {
 
 function omitRequired(args, tool) {
   const required = new Set(tool.inputSchema?.required ?? []);
-  const next = { ...args };
+  const next = cloneJson(args);
   for (const key of required) delete next[key];
   return next;
 }
@@ -172,11 +222,12 @@ export async function runConformance({ repoPath, manifest, timeoutMs = 60000 }) 
 
     for (const tool of report.fatal ? [] : session.tools) {
       const row = { tool: tool.name, inputSchema: tool.inputSchema ?? null, outputSchema: tool.outputSchema ?? null, probes: [], checks: {} };
-      const validArgs = buildValidArgs(tool);
+      const examples = manifest.ax?.conformanceExamples ?? {};
+      const validArgs = buildValidArgs(tool, Object.hasOwn(examples, tool.name) ? examples[tool.name] : undefined);
       const probes = [
         { kind: "valid-args", args: validArgs },
         { kind: "missing-required", args: omitRequired(validArgs, tool) },
-        { kind: "unknown-field", args: { ...validArgs, __right_ax_unknown_field__: "probe" } },
+        { kind: "unknown-field", args: { ...cloneJson(validArgs), __right_ax_unknown_field__: "probe" } },
       ];
       for (const probe of probes) {
         const started = Date.now();

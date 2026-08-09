@@ -19,6 +19,7 @@ const commands = new Map([
   ["sign-updater", "sign-updater.mjs"],
   ["create-mac-updater", "create-mac-updater.mjs"],
   ["mirror-root-artifact", "mirror-root-artifact.mjs"],
+  ["github", "github-release.mjs"],
 ]);
 
 const args = process.argv.slice(2);
@@ -145,6 +146,8 @@ Commands:
   generate-dmg-background <options>                 Generate the branded multi-resolution DMG background
   mirror-root-artifact --file <path> --package-root <dir>
                                                       Persist a worktree artifact in the primary repo root
+  github --release <id> --platform mac|win --repo owner/repo [--dry-run]
+                                                      Attach one sealed installer to a verified GitHub Release
 
 Direct flags are treated as: right-release build <flags>.
 Build is tier-neutral. Upload requires an explicit tier. Unsigned/local smoke builds stay app-local.`);

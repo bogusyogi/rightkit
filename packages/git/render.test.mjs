@@ -42,11 +42,32 @@ test("every known lane has a template file and renders without an unresolved pla
   assert.equal(Object.keys(rendered).length, KNOWN_LANES.length);
 });
 
+test("rust-hybrid ci renders its pinned package manager and gate", () => {
+  const manifest = { ...FULL_MANIFEST, lanes: ["ci"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" }, templateVersion: "1.1.0" };
+  const content = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"), buildRenderContext(manifest, "/repos/widgets"));
+  assert.match(content, /corepack prepare pnpm@11\.18\.0 --activate/);
+  assert.match(content, /rustup toolchain install stable/);
+  assert.match(content, /bash \.\/scripts\/gate\.sh/);
+});
+
 test("render determinism: same manifest renders byte-identical output every time", () => {
   const first = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
   const second = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
   for (const lane of KNOWN_LANES) {
     assert.equal(first[lane], second[lane], `lane ${lane} was not deterministic`);
+  }
+});
+
+test("rendered workflows never request pnpm or yarn setup-node caching before package-manager activation", () => {
+  for (const packageManager of ["pnpm@11.18.0", "yarn@4.6.0"]) {
+    const rendered = renderAllLanes({ ...FULL_MANIFEST, packageManager }, "/repos/widgets");
+    for (const [lane, content] of Object.entries(rendered)) {
+      assert.doesNotMatch(
+        content,
+        /^\s*cache:\s*(?:pnpm|yarn)\s*$/m,
+        `lane ${lane} must not ask actions/setup-node for ${packageManager.split("@")[0]} caching before corepack activation`,
+      );
+    }
   }
 });
 

@@ -26,7 +26,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-          cache: ${PM_CACHE}
       - run: corepack enable
       - run: ${INSTALL_COMMAND}
       - run: ${PM_RUN} test:all
@@ -38,7 +37,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-          cache: ${PM_CACHE}
       - run: corepack enable
       - run: ${INSTALL_COMMAND}
       - run: node scripts/ci/check-schema.mjs || true
@@ -50,7 +48,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-          cache: ${PM_CACHE}
       - run: corepack enable
       - run: ${INSTALL_COMMAND}
       - run: node scripts/ci/check-network-boundary.mjs
@@ -64,7 +61,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-          cache: ${PM_CACHE}
       - run: corepack enable
       - run: ${INSTALL_COMMAND}
       - run: ${PM_RUN} test:hardening
@@ -76,7 +72,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-          cache: ${PM_CACHE}
       - run: corepack enable
       - run: ${INSTALL_COMMAND}
       - run: ${PM_RUN} test:conformance

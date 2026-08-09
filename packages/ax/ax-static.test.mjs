@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { runStaticChecks } from "./ax/static.mjs";
+import { grepRepoForTokens, runStaticChecks } from "./ax/static.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -247,4 +247,14 @@ test("static gate can fetch the live tools/list payload from a real MCP server (
   assert.equal(result.toolCount, 2);
   assert.ok(result.rules.some((r) => r.ruleId === "static-2-wire-description" && r.evidence.includes("good_tool") && r.status === "pass"));
   assert.ok(result.rules.some((r) => r.ruleId === "static-2-wire-description" && r.evidence.includes("bad_tool") && r.status === "fail"));
+});
+
+test("scanner skips generated and vendor trees before file counting or token matching", () => {
+  const repo = tempRepo();
+  for (const ignored of ["node_modules", ".git", "target", "dist", "build", "out", "coverage", ".next", ".audit-cache"]) {
+    const dir = path.join(repo, ignored, "deep");
+    mkdirSync(dir, { recursive: true });
+    for (let index = 0; index < 450; index += 1) writeFileSync(path.join(dir, `generated-${index}.mjs`), "export const typed = { code: 'generated', retryable: true, remediation: 'none' };\n");
+  }
+  assert.deepEqual(grepRepoForTokens(repo, [["code", "retryable", "remediation"]]), []);
 });

@@ -23,7 +23,7 @@ test("--help prints usage and exits 0", () => {
 test("--version prints a version string", () => {
   const result = run(["--version"]);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /right-ax 0\.1\.0/);
+  assert.match(result.stdout, /right-ax 0\.1\.1/);
 });
 
 test("an unknown command exits non-zero with usage", () => {
@@ -37,6 +37,16 @@ test("ax static exits non-zero when .rightax.json is missing", () => {
   const result = run(["ax", "static", repo]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /invalid or missing \.rightax\.json/);
+});
+
+test("plugin init rejects a missing repo path with one controlled error", () => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), "right-ax-cli-"));
+  const missing = path.join(parent, "missing-repo");
+  const result = run(["plugin", "init", missing]);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, `right-ax plugin init: repo path does not exist: ${missing}\n`);
+  assert.doesNotMatch(result.stderr, /\bat\s+.*\.mjs/);
 });
 
 test("ax report --format sarif against the fixture server emits SARIF on stdout", () => {

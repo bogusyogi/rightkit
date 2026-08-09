@@ -79,7 +79,7 @@ async function runInstall(argv) {
   const { positional, flags } = parseFlags(argv);
   const repoPath = positional[0];
   if (!repoPath) {
-    console.error("right-git install <repo-path> --lanes ci,qualification,...");
+    console.error("right-git install <repo-path> --lanes ci,qualification,... [--profile node|rust-hybrid --gate-path scripts/gate.sh]");
     return 2;
   }
   const opts = {
@@ -88,6 +88,8 @@ async function runInstall(argv) {
     homebrewFormula: flags["homebrew-formula"],
     wingetId: flags["winget-id"],
     provenance: flags["no-provenance"] ? false : undefined,
+    profile: flags.profile,
+    gatePath: flags["gate-path"],
   };
   const result = await installCommand(path.resolve(repoPath), opts);
   if (!result.ok) {
@@ -196,7 +198,7 @@ function printHelp() {
   console.log(`right-git <command> [options]
 
 Commands:
-  install <repo-path> --lanes ci,qualification,...   Write .rightgit.json and render workflows; refuses private repos
+  install <repo-path> --lanes ci,... [--profile rust-hybrid --gate-path scripts/gate.sh]  Write .rightgit.json and render workflows; refuses private repos
   sync <repo-path> [--dry-run]                        Re-render templates from .rightgit.json, show diff, apply
   drift <repo-path>                                   CI-safe check: installed workflows == rendered templates?
   drift --all [workspace-root]                        Drift-check + re-check visibility for every managed repo found

@@ -15,11 +15,19 @@ test("a well-formed .rightax.json loads with no errors", () => {
     schemaVersion: 1,
     surfaces: { mcp: { serve: "node scripts/server.mjs", tools: 6 } },
     plugin: { name: "widget", skills: ["widget"] },
-    ax: { scenariosDir: "evals/ax/scenarios", gates: { static: "hard", conformance: "hard", behavioral: "report-only" }, claimBoundaryRequired: true },
+    ax: { scenariosDir: "evals/ax/scenarios", conformanceExamples: { widget_lookup: { query: "example" } }, gates: { static: "hard", conformance: "hard", behavioral: "report-only" }, claimBoundaryRequired: true },
   }));
   const { manifest, errors } = loadManifest(repo);
   assert.deepEqual(errors, []);
   assert.equal(manifest.schemaVersion, 1);
+});
+
+test("conformanceExamples accepts only non-empty tool names mapped to JSON objects", () => {
+  const repo = tempRepo();
+  writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ schemaVersion: 1, surfaces: {}, ax: { gates: {}, conformanceExamples: { widget_lookup: { query: "example" }, "": { query: "invalid" }, bad_array: [], bad_string: "value", bad_null: null } } }));
+  const { manifest, errors } = loadManifest(repo);
+  assert.equal(manifest, null);
+  assert.ok(errors.some((error) => /conformanceExamples/.test(error)), JSON.stringify(errors));
 });
 
 test("missing .rightax.json is reported, not thrown", () => {
