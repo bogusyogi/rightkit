@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "title": "AgentPluginMcpManifestV1",
+  "description": "Vendored agent-plugins.org 1.0.0 mcp.json schema (pinned; see plugin/schemas/pins.json for the recorded sha256, invariant I4 — no runtime fetching). Only the stdio transport is modeled: command/args/env/cwd support ${PLUGIN_ROOT}/${PLUGIN_DATA} expansion, checked for plugin-root containment by plugin/validate.mjs (a path-safety rule, not expressible in JSON Schema alone).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "mcpServers"],
+  "properties": {
+    "$schema": {
+      "const": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+    },
+    "mcpServers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "command"],
+        "properties": {
+          "type": { "const": "stdio" },
+          "command": { "type": "string", "minLength": 1 },
+          "args": { "type": "array", "items": { "type": "string" } },
+          "env": { "type": "object", "additionalProperties": { "type": "string" } },
+          "cwd": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

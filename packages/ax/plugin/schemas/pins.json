@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "specVersion": "1.0.0",
+  "source": "https://agent-plugins.org/schemas/1.0.0/",
+  "note": "Invariant I4: these hashes pin the vendored schemas below. A spec upgrade is an explicit versioned change (edit the schema file, recompute the hash, bump specVersion) — right-ax never fetches schemas at runtime.",
+  "files": {
+    "plugin.schema.json": "sha256:a7552d7e6cdeae4b6cc75623324d3f187e3e5cd9ddb550fd43e1d7113ede56ce",
+    "mcp.schema.json": "sha256:f374a4872a8f57417581a8d4b412a83dabe4d63dca9ffe59886de7f0d5ede455"
+  }
+}

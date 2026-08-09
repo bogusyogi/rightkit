@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rightkit.dev/schemas/rightax-manifest-v1.json",
+  "title": "RightAxManifestV1",
+  "description": "Per-repo .rightax.json contract (DESIGN §4). schemaVersion pins the shape so a future breaking change is explicit, never silent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "surfaces", "ax"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "surfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["serve"],
+          "properties": {
+            "serve": { "type": "string", "minLength": 1 },
+            "tools": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "cli": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bin"],
+          "properties": { "bin": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "skills": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ax": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gates"],
+      "properties": {
+        "scenariosDir": { "type": "string", "minLength": 1 },
+        "gates": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "static": { "enum": ["hard", "report-only"] },
+            "conformance": { "enum": ["hard", "report-only"] },
+            "behavioral": { "enum": ["hard", "report-only"] }
+          }
+        },
+        "claimBoundaryRequired": { "type": "boolean" }
+      }
+    }
+  }
+}

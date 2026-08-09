@@ -5,6 +5,8 @@
   "packageManager": "pnpm@11.18.0",
   "scripts": {
     "test:release": "pnpm --dir packages/release test",
+    "test:git": "pnpm --dir packages/git test",
+    "test:ax": "pnpm --dir packages/ax test",
     "doctor:release": "pnpm --dir packages/release doctor:all",
     "test:qa": "pnpm --dir packages/qa test",
     "test:swift-contracts": "node --test swift/contracts/contracts.test.mjs",

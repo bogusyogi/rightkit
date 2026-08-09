@@ -1,0 +1,139 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: publish-package-managers.yml | Template version: ${TEMPLATE_VERSION}
+# Adapted from Cortex's publish-package-managers.yml (DESIGN.md §6). Consumes
+# artifacts already signed locally by right-release and attached to the
+# GitHub Release — never signs anything here. Invariant I2 ("no signing
+# credential is ever configured in Actions") is about *signing* material —
+# Apple/Azure/update-key credentials — and holds here: nothing in this file
+# signs, notarizes, or handles code-signing key material.
+#
+# CREDENTIAL BOUNDARY (read before enabling this lane): this is the one lane
+# in right-git that configures long-lived repository secrets, and it is
+# opt-in only — it is rendered only when a repo's .rightgit.json explicitly
+# lists the 'publish-package-managers' lane, and `right-git install`/
+# `validateManifest` (manifest.mjs) refuse that lane unless both
+# publish.homebrew and publish.winget are supplied (--homebrew-tap,
+# --homebrew-formula, --winget-id). No repo gets these secrets by default.
+#   - HOMEBREW_TAP_TOKEN: a GitHub PAT with write access to the Homebrew tap
+#     repo (${HOMEBREW_TAP}), used only to check out that repo and open a
+#     formula-update pull request. Scoped to one tap repo, not the org; the
+#     repo owner creates and stores it, right-git never generates it.
+#   - WINGET_CREATE_GITHUB_TOKEN: a classic PAT with `public_repo` scope,
+#     passed to `wingetcreate` only via env, used only to submit a manifest
+#     PR to microsoft/winget-pkgs when the manual `submit: true` dispatch
+#     input is set.
+# Both are package-manager PR-submission tokens, not signing credentials —
+# narrower than an npm publish token, but still long-lived secrets, which is
+# why this lane (unlike every other right-git lane) requires explicit,
+# per-target configuration rather than being available by just naming it.
+#
+# WinGet stays fail-closed on a missing token and defaults to validate-only;
+# a real microsoft/winget-pkgs PR requires the manual `submit: true` dispatch
+# input (OD-4 in DESIGN.md is left open — this preserves Cortex's existing
+# reviewed-by-default behavior rather than picking a side).
+name: publish-package-managers
+on:
+  workflow_dispatch:
+    inputs:
+      submit:
+        description: 'Submit WinGet PR to microsoft/winget-pkgs (true) or validate/output-only (false)'
+        required: false
+        default: 'false'
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  homebrew:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "::error::right-git: repository is private; managed public-only workflows must not run here."
+          exit 1
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          cache: ${PM_CACHE}
+      - run: corepack enable
+      - run: ${INSTALL_COMMAND}
+      - run: ruby -c release/homebrew/${HOMEBREW_FORMULA_NAME}.rb
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v5
+        with:
+          repository: ${HOMEBREW_TAP}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - run: |
+          mkdir -p homebrew-tap/Formula
+          cp release/homebrew/${HOMEBREW_FORMULA_NAME}.rb homebrew-tap/Formula/${HOMEBREW_FORMULA_NAME}.rb
+      # Downstream PR only — never rewrites an existing release.
+      - name: Open Homebrew tap PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+          branch: ${HOMEBREW_FORMULA_NAME}-${{ github.ref_name }}
+          title: "${HOMEBREW_FORMULA_NAME} ${{ github.ref_name }}"
+          delete-branch: true
+
+  # WinGet is fail-closed: no token, no job. The token is a classic PAT with
+  # public_repo scope, created by the repo owner as WINGET_CREATE_GITHUB_TOKEN,
+  # and is only ever passed to wingetcreate via env.
+  #
+  # F5 fix: this job carries its own private-repo guard rather than relying
+  # on `winget` (below) alone. It has no `needs`, so without a guard here it
+  # would run unconditionally regardless of repository visibility — the
+  # probe step always exits 0, so a repo flipped private after install could
+  # still satisfy `winget`'s `needs.winget-token` success requirement and let
+  # `winget` run its real work in a private repo.
+  winget-token:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      available: ${{ steps.probe.outputs.available }}
+    steps:
+      - id: probe
+        env:
+          TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
+        run: echo "available=${TOKEN:+true}" >> "$GITHUB_OUTPUT"
+
+  winget:
+    needs: [winget-token]
+    runs-on: windows-latest
+    environment: release
+    if: ${{ needs.winget-token.outputs.available == 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install wingetcreate
+        run: dotnet tool install --global Microsoft.WingetCreate
+      - name: Validate WinGet manifests (output-only)
+        shell: pwsh
+        run: |
+          $catalog = Get-Content -Raw release/catalog.json | ConvertFrom-Json
+          $installer = $catalog.artifacts | Where-Object { $_.name -like '*-Setup.exe' } | Select-Object -First 1
+          if (-not $installer) { throw 'release/catalog.json missing a *-Setup.exe installer artifact' }
+          $version = [string]$catalog.version
+          if ($version -notmatch '^\d+\.\d+\.\d+') { throw "unresolved catalog version: $version" }
+          $url = "https://github.com/${{ github.repository }}/releases/download/v$version/$($installer.name)"
+          $out = "${{ runner.temp }}\winget"
+          wingetcreate update ${WINGET_PACKAGE_IDENTIFIER} --version $version --urls $url --output $out
+          Get-ChildItem $out -Filter '${WINGET_PACKAGE_IDENTIFIER}.*' | ForEach-Object { wingetcreate validate $_.FullName }
+      - name: Submit WinGet PR to microsoft/winget-pkgs
+        if: ${{ inputs.submit == 'true' }}
+        shell: pwsh
+        env:
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
+        run: |
+          $catalog = Get-Content -Raw release/catalog.json | ConvertFrom-Json
+          $installer = $catalog.artifacts | Where-Object { $_.name -like '*-Setup.exe' } | Select-Object -First 1
+          if (-not $installer) { throw 'release/catalog.json missing a *-Setup.exe installer artifact' }
+          $version = [string]$catalog.version
+          if ($version -notmatch '^\d+\.\d+\.\d+') { throw "unresolved catalog version: $version" }
+          $url = "https://github.com/${{ github.repository }}/releases/download/v$version/$($installer.name)"
+          wingetcreate update ${WINGET_PACKAGE_IDENTIFIER} --version $version --urls $url --submit --token $env:WINGET_CREATE_GITHUB_TOKEN

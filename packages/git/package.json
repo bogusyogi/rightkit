@@ -1,0 +1,29 @@
+{
+  "name": "@rightkit/git",
+  "version": "0.1.0",
+  "description": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.",
+  "type": "module",
+  "bin": {
+    "right-git": "cli/right-git.mjs"
+  },
+  "files": [
+    "cli",
+    "templates",
+    "*.mjs",
+    "*.json"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "test": "node --test *.test.mjs"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adrdsouza/claude.git",
+    "directory": "tools/rightkit/packages/git"
+  },
+  "packageManager": "pnpm@11.18.0"
+}

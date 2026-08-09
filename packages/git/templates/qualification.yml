@@ -1,0 +1,77 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: qualification.yml | Template version: ${TEMPLATE_VERSION}
+name: qualification
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  qualification:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "::error::right-git: repository is private; managed public-only workflows must not run here."
+          exit 1
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          cache: ${PM_CACHE}
+      - run: corepack enable
+      - run: ${INSTALL_COMMAND}
+      - run: ${PM_RUN} test:all
+  schema:
+    needs: [qualification]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          cache: ${PM_CACHE}
+      - run: corepack enable
+      - run: ${INSTALL_COMMAND}
+      - run: node scripts/ci/check-schema.mjs || true
+  security:
+    needs: [qualification]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          cache: ${PM_CACHE}
+      - run: corepack enable
+      - run: ${INSTALL_COMMAND}
+      - run: node scripts/ci/check-network-boundary.mjs
+      - name: Hostile-repository and secret-egress suite
+        run: ${PM_RUN} test:security
+  hardening:
+    needs: [qualification]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          cache: ${PM_CACHE}
+      - run: corepack enable
+      - run: ${INSTALL_COMMAND}
+      - run: ${PM_RUN} test:hardening
+  conformance:
+    needs: [qualification]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          cache: ${PM_CACHE}
+      - run: corepack enable
+      - run: ${INSTALL_COMMAND}
+      - run: ${PM_RUN} test:conformance

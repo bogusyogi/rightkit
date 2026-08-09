@@ -1,0 +1,36 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: ci.yml | Template version: ${TEMPLATE_VERSION}
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    if: ${{ !github.event.repository.private }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${OS_MATRIX}
+        node: ${NODE_MATRIX}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "::error::right-git: repository is private; managed public-only workflows must not run here."
+          exit 1
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: ${PM_CACHE}
+      - run: corepack enable
+      - run: ${INSTALL_COMMAND}
+      - run: ${PM_RUN} test
+      - run: ${PM_RUN} test:random
+      - run: ${PM_RUN} test:all
+      - run: node scripts/ci/check-generated.mjs
+      - run: node scripts/ci/check-network-boundary.mjs

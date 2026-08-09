@@ -1,0 +1,98 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
+import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES } from "./manifest.mjs";
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
+const templatesDir = path.join(packageRoot, "templates");
+
+const FULL_MANIFEST = {
+  schemaVersion: 1,
+  lanes: [...KNOWN_LANES],
+  matrix: { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] },
+  packageManager: "pnpm@11.18.0",
+  publish: {
+    npm: { oidc: true, provenance: true },
+    homebrew: { tap: "acme/homebrew-tap", formulaName: "widgets" },
+    winget: { packageIdentifier: "Acme.Widgets" },
+  },
+  templateVersion: "1.0.0",
+};
+
+function renderAllLanes(manifest, repoPath) {
+  const context = buildRenderContext(manifest, repoPath);
+  const rendered = {};
+  for (const lane of manifest.lanes) {
+    const templatePath = path.join(templatesDir, LANE_FILENAMES[lane]);
+    const templateText = fs.readFileSync(templatePath, "utf8");
+    rendered[lane] = renderTemplate(templateText, context);
+  }
+  return rendered;
+}
+
+test("every known lane has a template file and renders without an unresolved placeholder", () => {
+  for (const lane of KNOWN_LANES) {
+    const templatePath = path.join(templatesDir, LANE_FILENAMES[lane]);
+    assert.ok(fs.existsSync(templatePath), `missing template for lane ${lane}`);
+  }
+  const rendered = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
+  assert.equal(Object.keys(rendered).length, KNOWN_LANES.length);
+});
+
+test("render determinism: same manifest renders byte-identical output every time", () => {
+  const first = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
+  const second = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
+  for (const lane of KNOWN_LANES) {
+    assert.equal(first[lane], second[lane], `lane ${lane} was not deterministic`);
+  }
+});
+
+test("guard injection: every rendered workflow's first job refuses a private repository", () => {
+  const rendered = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
+  for (const lane of KNOWN_LANES) {
+    const content = rendered[lane];
+    assert.ok(content.startsWith(MANAGED_MARKER), `lane ${lane} is missing the managed marker`);
+    assert.match(content, /if: \$\{\{ !github\.event\.repository\.private \}\}/, `lane ${lane} first job missing the run-time if guard`);
+    assert.match(content, /Refuse private repository/, `lane ${lane} missing the fail-fast guard step`);
+    assert.match(content, /if: \$\{\{ github\.event\.repository\.private \}\}/, `lane ${lane} guard step missing its own if condition`);
+  }
+});
+
+// F15 regression: the old template shipped HOMEBREW_TAP_TOKEN and
+// WINGET_CREATE_GITHUB_TOKEN with no documentation of what they are or why
+// they don't violate I2, while the surrounding design text describes a
+// strict credential boundary ("no signing credential ... beyond OIDC-to-npm"
+// / "never signs in CI") without acknowledging these two long-lived PATs.
+// Fails against the pre-fix header comment (no such text existed) and
+// passes once the template documents the boundary honestly.
+test("F15: publish-package-managers documents its credential boundary honestly", () => {
+  const rendered = renderAllLanes(FULL_MANIFEST, "/repos/widgets")["publish-package-managers"];
+  assert.match(rendered, /CREDENTIAL BOUNDARY/, "template must call out its credential boundary explicitly");
+  assert.match(rendered, /HOMEBREW_TAP_TOKEN:[\s\S]*?PAT/i, "must document what HOMEBREW_TAP_TOKEN is");
+  assert.match(rendered, /WINGET_CREATE_GITHUB_TOKEN:[\s\S]*?PAT/i, "must document what WINGET_CREATE_GITHUB_TOKEN is");
+  assert.match(rendered, /not signing credentials/i, "must state that these tokens are not signing material (I2 is about signing credentials specifically)");
+  assert.match(rendered, /opt-in/i, "must state the lane is opt-in, not rendered by default");
+});
+
+// F15 non-regression: the two PAT-style secrets must never leak into any
+// OTHER lane's rendered output — they belong solely to the explicitly
+// opted-in publish-package-managers lane.
+test("F15: HOMEBREW_TAP_TOKEN and WINGET_CREATE_GITHUB_TOKEN never appear outside the publish-package-managers lane", () => {
+  const otherLanes = KNOWN_LANES.filter((lane) => lane !== "publish-package-managers");
+  const rendered = renderAllLanes({ ...FULL_MANIFEST, lanes: otherLanes }, "/repos/widgets");
+  for (const lane of otherLanes) {
+    assert.doesNotMatch(rendered[lane], /HOMEBREW_TAP_TOKEN|WINGET_CREATE_GITHUB_TOKEN/, `lane ${lane} must never reference the package-manager PAT secrets`);
+  }
+});
+
+test("renderTemplate throws on an unresolved placeholder rather than emitting it", () => {
+  assert.throws(() => renderTemplate("value: ${MISSING_TOKEN}\n", {}), /no value provided/);
+});
+
+test("renderTemplate never substitutes inside GitHub Actions double-brace expressions", () => {
+  const out = renderTemplate("run: echo ${{ github.repository }}\nname: ${TEMPLATE_VERSION}\n", { TEMPLATE_VERSION: "1.0.0" });
+  assert.equal(out, "run: echo ${{ github.repository }}\nname: 1.0.0\n");
+});

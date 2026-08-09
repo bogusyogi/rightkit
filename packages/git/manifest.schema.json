@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rightkit.dev/schemas/rightgit-manifest-v1.json",
+  "title": "right-git per-repo manifest (.rightgit.json)",
+  "description": "Declares which right-git lanes a public repo installs and how templates should be parameterized. Hand-validated by manifest.mjs — this file documents the contract, it is not fed to a JSON Schema validator at runtime.",
+  "type": "object",
+  "required": ["schemaVersion", "lanes", "matrix", "packageManager", "templateVersion"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "lanes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "ci",
+          "qualification",
+          "package-smoke",
+          "release-candidate",
+          "publish-npm",
+          "publish-package-managers"
+        ]
+      }
+    },
+    "matrix": {
+      "type": "object",
+      "required": ["os", "node"],
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "node": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "packageManager": {
+      "type": "string",
+      "pattern": "^(pnpm|npm|yarn)@\\d+\\.\\d+\\.\\d+$"
+    },
+    "publish": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "npm": {
+          "type": "object",
+          "required": ["oidc", "provenance"],
+          "additionalProperties": false,
+          "properties": {
+            "oidc": { "type": "boolean", "const": true },
+            "provenance": { "type": "boolean" }
+          }
+        },
+        "homebrew": {
+          "type": "object",
+          "required": ["tap", "formulaName"],
+          "additionalProperties": false,
+          "properties": {
+            "tap": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+            "formulaName": { "type": "string", "minLength": 1 }
+          }
+        },
+        "winget": {
+          "type": "object",
+          "required": ["packageIdentifier"],
+          "additionalProperties": false,
+          "properties": {
+            "packageIdentifier": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "templateVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    }
+  }
+}

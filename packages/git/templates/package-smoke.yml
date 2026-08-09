@@ -1,0 +1,32 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: package-smoke.yml | Template version: ${TEMPLATE_VERSION}
+# Adapted from Cortex's package.yml (DESIGN.md §6).
+name: package-smoke
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  clean-tarball:
+    if: ${{ !github.event.repository.private }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${OS_MATRIX}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "::error::right-git: repository is private; managed public-only workflows must not run here."
+          exit 1
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          cache: ${PM_CACHE}
+      - run: corepack enable
+      - run: ${INSTALL_COMMAND}
+      - run: node scripts/test-package.mjs

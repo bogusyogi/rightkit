@@ -1,0 +1,43 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: release-candidate.yml | Template version: ${TEMPLATE_VERSION}
+# Adapted from Cortex's release-candidate.yml (DESIGN.md §6). No signing
+# credentials of any kind (invariant I2) — unsigned candidate build only.
+name: release-candidate
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  candidate:
+    if: ${{ !github.event.repository.private }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${OS_MATRIX}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "::error::right-git: repository is private; managed public-only workflows must not run here."
+          exit 1
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
+          cache: ${PM_CACHE}
+      - run: corepack enable
+      - run: ${INSTALL_COMMAND}
+      - run: node --test tests/release-candidate.test.mjs
+      - run: node scripts/release/build-candidate.mjs --platform current --out "${{ runner.temp }}/${ARTIFACT_PREFIX}-rc"
+      - run: node scripts/release/check-release.mjs "${{ runner.temp }}/${ARTIFACT_PREFIX}-rc"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${ARTIFACT_PREFIX}-rc-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/${ARTIFACT_PREFIX}-rc/**
+            ${{ runner.temp }}/${ARTIFACT_PREFIX}-*.tar.gz
+            ${{ runner.temp }}/${ARTIFACT_PREFIX}-*.zip
+            ${{ runner.temp }}/${ARTIFACT_PREFIX}-*.sha256
