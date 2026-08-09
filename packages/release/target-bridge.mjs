@@ -168,8 +168,24 @@ function isReclaimableLink(link, ownedRoot, realpath, platform) {
     if (error?.code === "ENOENT") return true;
     throw error;
   }
-  const root = canonical(ownedRoot);
+  const root = canonicalPlannedPath(ownedRoot, realpath, canonical);
   return resolved === root || resolved.startsWith(root.endsWith(path.sep) ? root : `${root}${path.sep}`);
+}
+
+function canonicalPlannedPath(value, realpath, canonical) {
+  let cursor = path.resolve(value);
+  const missing = [];
+  while (true) {
+    try {
+      return canonical(path.join(realpath(cursor), ...missing.reverse()));
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      const parent = path.dirname(cursor);
+      if (parent === cursor) throw error;
+      missing.push(path.basename(cursor));
+      cursor = parent;
+    }
+  }
 }
 
 function sameRealPath(left, right, realpath, platform) {
