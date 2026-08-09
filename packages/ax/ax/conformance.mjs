@@ -22,13 +22,38 @@
 // item it already was, rather than invented here.
 
 import { validateAgainstSchema } from "../lib/json-schema-lite.mjs";
-import { describePathHazard, resolvesOutsideRoot } from "../lib/path-safety.mjs";
 import { redactText } from "../lib/redact.mjs";
 import { classifyResponse, findStackTraces, openMcpSession, tryParseJson } from "./lib/mcp-stdio-client.mjs";
-import { splitServeCommand } from "./static.mjs";
+import { bindArtifactCommand, resolveArtifact, verifyArtifactUnchanged } from "./artifact.mjs";
 
 const OMIT = Symbol("omit");
 const PROBE_KINDS = ["valid-args", "missing-required", "unknown-field"];
+
+export async function runBlockingCapabilityProbe({ bindingId, invoke }) {
+  const normalizedBinding = typeof bindingId === "string" ? bindingId.trim() : "";
+  if (!normalizedBinding || typeof invoke !== "function") {
+    return { schemaVersion: 1, kind: "rightax-harness-capability", axRef: "AX-4", bindingId: normalizedBinding || null, capability: "pre-effect-block", verdict: "fail", observed: { blocked: false, reason: "binding adapter unavailable", interceptionOrder: [] } };
+  }
+  try {
+    const observed = await invoke({ probeId: "AX-4", command: "rightax-deny-probe" });
+    const blocked = observed?.blocked === true;
+    return {
+      schemaVersion: 1,
+      kind: "rightax-harness-capability",
+      axRef: "AX-4",
+      bindingId: normalizedBinding,
+      capability: "pre-effect-block",
+      verdict: blocked ? "pass" : "fail",
+      observed: {
+        blocked,
+        reason: typeof observed?.reason === "string" ? observed.reason : null,
+        interceptionOrder: Array.isArray(observed?.interceptionOrder) ? observed.interceptionOrder : [],
+      },
+    };
+  } catch {
+    return { schemaVersion: 1, kind: "rightax-harness-capability", axRef: "AX-4", bindingId: normalizedBinding, capability: "pre-effect-block", verdict: "fail", observed: { blocked: false, reason: "binding probe failed", interceptionOrder: [] } };
+  }
+}
 
 function semanticValue(type, schema) {
   if (type === "string") return "conformance-probe";
@@ -141,18 +166,15 @@ function rowAggregate(row) {
   return { status: "pass", reasons: [] };
 }
 
-export async function runConformance({ repoPath, manifest, timeoutMs = 60000 }) {
-  if (!manifest?.surfaces?.mcp?.serve) {
-    return { schemaVersion: 1, gate: "conformance", fatal: { code: "no_mcp_surface", message: ".rightax.json declares no surfaces.mcp.serve command" }, rows: [], verdict: "fail" };
+export async function runConformance({ repoPath, manifest, timeoutMs = 60000, artifactRoot }) {
+  if (!manifest?.surfaces?.mcp?.command) {
+    return { schemaVersion: 2, gate: "conformance", fatal: { code: "no_mcp_surface", message: ".rightax.json declares no surfaces.mcp command" }, rows: [], verdict: "fail" };
   }
-  const { command, args, cwd } = splitServeCommand(manifest.surfaces.mcp.serve, repoPath);
-  const report = { schemaVersion: 1, gate: "conformance", server: { command, args, cwd }, initialize: null, resources: null, prompts: null, rows: [], rawStackTraces: [], totals: { pass: 0, fail: 0, "skipped-pending": 0 }, fatal: null, verdict: "fail" };
-
-  const containmentViolation = findArtifactContainmentViolation({ command, args, cwd });
-  if (containmentViolation) {
-    report.fatal = { code: "artifact_outside_repo", message: `invariant I5: surfaces.mcp.serve ${containmentViolation.field} (${JSON.stringify(containmentViolation.value)}) resolves outside the repo (${containmentViolation.hazard}) — probes must run against an artifact inside the package, not an arbitrary external path` };
-    return report;
-  }
+  let artifact, server;
+  try { artifact = resolveArtifact({ repoPath, artifactRoot }); server = bindArtifactCommand({ artifact, ...manifest.surfaces.mcp }); }
+  catch (error) { return { schemaVersion: 2, gate: "conformance", fatal: { code: "invalid_artifact", message: redactText(String(error.message)) }, rows: [], verdict: "fail" }; }
+  const { command, args, cwd } = server;
+  const report = { schemaVersion: 2, gate: "conformance", artifact, server: { command, args, cwd }, initialize: null, resources: null, prompts: null, rows: [], rawStackTraces: [], totals: { pass: 0, fail: 0, "skipped-pending": 0 }, fatal: null, verdict: "fail" };
 
   let session = null;
   try {
@@ -223,6 +245,9 @@ export async function runConformance({ repoPath, manifest, timeoutMs = 60000 }) 
   }
 
   for (const row of report.rows) for (const probe of row.probes) report.totals[probe.status] = (report.totals[probe.status] ?? 0) + 1;
+  artifact = verifyArtifactUnchanged(artifact);
+  report.artifact = artifact;
+  if (!artifact.proof.immutable) report.fatal = { code: "artifact_mutated" };
   report.verdict = !report.fatal && report.initialize?.status === "pass" && report.rawStackTraces.length === 0 && report.rows.every((row) => row.status !== "fail") ? "pass" : "fail";
   return report;
 }

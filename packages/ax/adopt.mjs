@@ -7,10 +7,10 @@
 // what it could not infer.
 
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { isAbsolute, join, posix, relative } from "node:path";
 
 const CANDIDATE_SCENARIO_DIRS = ["evals/ax/scenarios", "ax/scenarios", "test/ax/scenarios"];
-const CANDIDATE_SERVE_HINTS = [{ file: "scripts/cortex-mcp.mjs", serve: "node scripts/cortex-mcp.mjs" }];
+const CANDIDATE_SERVE_HINTS = [{ file: "scripts/cortex-mcp.mjs", command: "node", args: ["scripts/cortex-mcp.mjs"] }];
 
 function findScenariosDir(repoPath) {
   for (const relPath of CANDIDATE_SCENARIO_DIRS) {
@@ -21,10 +21,31 @@ function findScenariosDir(repoPath) {
 }
 
 function findServeCommand(repoPath, packageJson) {
-  for (const candidate of CANDIDATE_SERVE_HINTS) if (existsSync(join(repoPath, candidate.file))) return candidate.serve;
+  for (const candidate of CANDIDATE_SERVE_HINTS) if (existsSync(join(repoPath, candidate.file))) return candidate;
   const binEntries = Object.entries(packageJson?.bin ?? {});
-  if (binEntries.length) return `node ${binEntries[0][1]}`;
+  if (binEntries.length) return { command: "node", args: [binEntries[0][1]] };
   return null;
+}
+
+function isAbsolutePath(value) {
+  return isAbsolute(value) || /^[/\\]|^[A-Za-z]:[\\/]/.test(value);
+}
+
+function isPathLike(value) {
+  return value.includes("/") || value.includes("\\") || /^\.{1,2}(?:[\\/]|$)/.test(value) || /\.[A-Za-z0-9]+$/.test(value);
+}
+
+function artifactPath(value) {
+  return `\${ARTIFACT_ROOT}/${posix.normalize(value.replaceAll("\\", "/"))}`;
+}
+
+function normalizeServe(serve, findings) {
+  if (!serve || typeof serve.command !== "string" || !Array.isArray(serve.args) || serve.args.some((arg) => typeof arg !== "string")) return null;
+  if (serve.args.some(isAbsolutePath)) {
+    findings.push({ code: "unsafe_serve_arg", message: "serve command contains an absolute path argument" });
+    return null;
+  }
+  return { command: serve.command, args: serve.args.map((arg) => isPathLike(arg) ? artifactPath(arg) : arg) };
 }
 
 function readPackageJsonSafe(repoPath) {
@@ -36,18 +57,18 @@ function readPackageJsonSafe(repoPath) {
 export function adoptRepo(repoPath, options = {}) {
   const packageJson = readPackageJsonSafe(repoPath);
   const scenariosDir = options.scenariosDir ?? findScenariosDir(repoPath);
-  const serve = options.serve ?? findServeCommand(repoPath, packageJson);
   const findings = [];
+  const serve = normalizeServe(options.serve ?? findServeCommand(repoPath, packageJson), findings);
   if (!scenariosDir) findings.push({ code: "no_scenarios_dir", message: `no scenarios directory found under ${CANDIDATE_SCENARIO_DIRS.join(", ")}; pass --scenarios-dir explicitly` });
-  if (!serve) findings.push({ code: "no_serve_command", message: "could not infer an MCP serve command; pass --serve explicitly" });
+  if (!serve && !findings.some((finding) => finding.code === "unsafe_serve_arg")) findings.push({ code: "no_serve_command", message: "could not infer an MCP serve command; pass --serve explicitly" });
 
   const manifest = {
-    schemaVersion: 1,
-    surfaces: serve ? { mcp: { serve } } : {},
+    schemaVersion: 2,
+    surfaces: serve ? { mcp: { ...serve, cwd: "${ARTIFACT_ROOT}" } } : {},
     plugin: packageJson?.name ? { name: packageJson.name.replace(/^@[^/]+\//, "") } : {},
     ax: {
       ...(scenariosDir ? { scenariosDir } : {}),
-      gates: { static: "report-only", conformance: "report-only", behavioral: "report-only" },
+      gates: { static: "report-only", conformance: "report-only", behavioral: "report-only", adversarial: "report-only" },
       claimBoundaryRequired: false,
     },
   };

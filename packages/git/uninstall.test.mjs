@@ -33,7 +33,7 @@ test("uninstall removes every managed file, leaving zero behind — including th
 // only ever looked at marker-bearing workflow files, so it reported success
 // while leaving the manifest behind. Reproduces the QA report's
 // "interruptedInstall" probe.
-test("F6: uninstall removes the manifest left behind by an install interrupted after the visibility check", async () => {
+test("install rolls back precisely when visibility changes after preflight", async () => {
   const dir = makeTempRepo(null);
   let calls = 0;
   const flakyDeps = {
@@ -47,13 +47,8 @@ test("F6: uninstall removes the manifest left behind by an install interrupted a
 
   const installResult = await installCommand(dir, { lanes: ["ci"] }, flakyDeps);
   assert.equal(installResult.ok, false);
-  assert.equal(installResult.stage, "synced");
-  assert.ok(fs.existsSync(path.join(dir, MANIFEST_FILENAME)), "setup: interrupted install must still leave the manifest on disk");
-
-  const uninstallResult = uninstallCommand(dir);
-  assert.equal(uninstallResult.ok, true);
-  assert.ok(uninstallResult.removed.includes(MANIFEST_FILENAME));
-  assert.equal(fs.existsSync(path.join(dir, MANIFEST_FILENAME)), false, "F6: manifest must not survive uninstall after an interrupted install");
+  assert.equal(installResult.stage, "visibility");
+  assert.equal(fs.existsSync(path.join(dir, MANIFEST_FILENAME)), false);
 });
 
 test("uninstall never touches an unmanaged file in the same directory", async () => {
@@ -74,4 +69,11 @@ test("uninstall on a repo with no managed files is a no-op, not an error", () =>
   const result = uninstallCommand(dir);
   assert.equal(result.ok, true);
   assert.deepEqual(result.removed, []);
+});
+
+test("install validates before it creates a manifest", async () => {
+  const dir = makeTempRepo(null);
+  const result = await installCommand(dir, { lanes: ["not-a-lane"] }, PUBLIC_DEPS);
+  assert.equal(result.stage, "manifest-invalid");
+  assert.equal(fs.existsSync(path.join(dir, MANIFEST_FILENAME)), false);
 });

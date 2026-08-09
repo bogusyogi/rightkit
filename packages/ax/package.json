@@ -1,10 +1,20 @@
 {
   "name": "@rightkit/ax",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface.",
   "type": "module",
   "bin": {
     "right-ax": "cli/right-ax.mjs"
+  },
+  "exports": {
+    "./manifest": "./manifest.mjs",
+    "./ax/static": "./ax/static.mjs",
+    "./ax/conformance": "./ax/conformance.mjs",
+    "./ax/behavioral": "./ax/behavioral.mjs",
+    "./ax/adversarial": "./ax/adversarial.mjs",
+    "./ax/report": "./ax/report.mjs",
+    "./plugin/scaffold": "./plugin/scaffold.mjs",
+    "./plugin/validate": "./plugin/validate.mjs"
   },
   "files": [
     "cli",
@@ -24,7 +34,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/adrdsouza/claude.git",
+    "url": "git+https://github.com/bogusyogi/claude.git",
     "directory": "tools/rightkit/packages/ax"
   },
   "packageManager": "pnpm@11.18.0"

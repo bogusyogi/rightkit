@@ -4,12 +4,17 @@ Shared, platform-neutral primitives for every Right Suite app.
 
 | Package | Runtime | Responsibility |
 |---|---|---|
+| [`@rightkit/ax`](packages/ax) | Node CLI | Agent-experience, plugin, conformance, behavioral, and adversarial gates (`right-ax`) |
+| [`@rightkit/git`](packages/git) | Node CLI | Public-repository GitHub Actions workflow templates and visibility gate (`right-git`) |
+| [`@rightkit/legal`](packages/legal) | TypeScript | Legal manifest schema 2, assent receipt, and release-contract primitives |
+| [`@rightkit/legal-ui`](packages/legal-ui) | TypeScript + React | Shared desktop legal acceptance gate |
 | [`@rightkit/license`](packages/license) | TypeScript | License network, storage, and UX client |
 | [`@rightkit/logs`](packages/logs) | TypeScript + Rust payload | Durable local JSONL logging and privacy-safe diagnostics bundles |
-| [`@rightkit/release`](packages/release) | Node CLI | Signed release, hardening, patch/update routing, R2 upload, and RightApps registration |
-| [`@rightkit/updates`](packages/updates) | TypeScript | Runtime update policy helper |
 | [`@rightkit/platform-ui`](packages/platform-ui) | TypeScript + React | Platform detection, shortcut rendering, capabilities, and headless window controls |
-| [`rightkit-process`](crates/rightkit-process) | Rust | Ownership-safe child lifecycle, restart, and health primitives |
+| [`@rightkit/qa`](packages/qa) | Node CLI | Cross-platform desktop QA gates |
+| [`@rightkit/release`](packages/release) | Node CLI | Signed release, hardening, patch/update routing, R2 upload, and RightApps registration |
+| [`@rightkit/tauri`](packages/tauri) | TypeScript | Typed Tauri host adapter for license and device commands |
+| [`@rightkit/updates`](packages/updates) | TypeScript | Runtime update policy helper |
 
 This is the only source home for shared RightKit packages and crates in the
 Claude repo. Apps consume the published npm packages; they do not depend on

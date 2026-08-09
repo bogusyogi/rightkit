@@ -315,3 +315,44 @@ test("F1 depth: a failing leaf nested beyond the old scan cap fails closed, neve
   assert.equal(report.gateResult, "fail");
   assert.equal(gateExitCode(report), 1);
 });
+
+test("I2: adversarial nested failure prevents pass and maps to SARIF", () => { const adversarialResult={verdict:"pass",artifactDigest:"adv",cases:[{caseId:"leak",status:"pass",nested:{status:"fail"},reasons:["canary echoed"]}]}; const report=aggregateReport({manifest:MANIFEST,staticResult:staticResultWith([]),conformanceResult:{rows:[],verdict:"pass"},behavioralResult:{provenBy:"stub",verdict:"pass"},adversarialResult}); assert.equal(report.gateResult,"fail"); assert.match(report.gates.behavioral.claim,/UNPROVEN/); assert.ok(toSarif({staticResult:staticResultWith([]),conformanceResult:{rows:[]},behavioralResult:null,adversarialResult}).runs[0].results.some(x=>x.ruleId.startsWith("adversarial-"))); });
+test("I2: JSON/markdown retain all digest types", () => { const report=aggregateReport({manifest:MANIFEST,staticResult:staticResultWith([]),conformanceResult:{rows:[],verdict:"pass",artifact:{digest:"artifact"}},behavioralResult:{provenBy:"stub",verdict:"pass",matrixDigest:"matrix",scenarioDigest:"scenarios"},adversarialResult:{verdict:"pass",artifactDigest:"adversarial",cases:[]}}); assert.deepEqual(report.digests,{artifact:"artifact",matrix:"matrix",scenarios:"scenarios",adversarial:"adversarial"}); assert.match(renderMarkdown(report),/adversarial/); });
+
+test("EC-AX-F2: no executed gates is fatal in JSON, markdown, SARIF, and exit code", () => {
+  const report = aggregateReport({ manifest: MANIFEST, staticResult: null, conformanceResult: null, behavioralResult: null, adversarialResult: null });
+  assert.equal(report.executedGateCount, 0);
+  assert.deepEqual(report.fatal, { code: "no_gates_executed", message: "report contains no executed gates" });
+  assert.equal(gateExitCode(report), 1);
+  assert.match(renderMarkdown(report), /report contains no executed gates/);
+  const sarif = toSarif({});
+  assert.deepEqual(sarif.runs[0].results.map((result) => [result.ruleId, result.level]), [["report-no-gates-executed", "error"]]);
+});
+
+test("EC-AX-F2: matrix-only evidence does not invent an artifact digest", () => {
+  const report = aggregateReport({ manifest: MANIFEST, staticResult: null, conformanceResult: null, behavioralResult: { provenBy: "real-matrix", verdict: "pass", matrixDigest: "matrix" }, adversarialResult: null });
+  assert.equal(report.executedGateCount, 1);
+  assert.equal(report.fatal, null);
+  assert.equal(report.digests.artifact, null);
+  assert.equal(gateExitCode(report), 0);
+});
+
+test("EC-AX-F2: matching executed artifact digests pass", () => {
+  const report = aggregateReport({ manifest: MANIFEST, staticResult: null, conformanceResult: { verdict: "pass", artifact: { digest: "shared" } }, behavioralResult: { provenBy: "real-matrix", verdict: "pass", artifactDigest: "shared" }, adversarialResult: { verdict: "pass", artifactDigest: "shared", cases: [] } });
+  assert.equal(report.executedGateCount, 3);
+  assert.equal(report.fatal, null);
+  assert.equal(report.digests.artifact, "shared");
+  assert.equal(gateExitCode(report), 0);
+});
+
+test("EC-AX-F2: mismatched executed artifact digests fail in JSON, markdown, SARIF, and exit code", () => {
+  const conformanceResult = { verdict: "pass", artifact: { digest: "one" } };
+  const adversarialResult = { verdict: "pass", artifactDigest: "two", cases: [] };
+  const report = aggregateReport({ manifest: MANIFEST, staticResult: null, conformanceResult, behavioralResult: null, adversarialResult });
+  assert.equal(report.executedGateCount, 2);
+  assert.deepEqual(report.fatal, { code: "artifact_digest_mismatch", message: "executed artifact-bound gates reference different artifacts" });
+  assert.equal(gateExitCode(report), 1);
+  assert.match(renderMarkdown(report), /executed artifact-bound gates reference different artifacts/);
+  const sarif = toSarif({ conformanceResult, adversarialResult });
+  assert.deepEqual(sarif.runs[0].results.map((result) => [result.ruleId, result.level]), [["report-artifact-digest-mismatch", "error"]]);
+});

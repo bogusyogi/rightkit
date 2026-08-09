@@ -68,13 +68,15 @@ export function lineDiff(oldText, newText) {
  * managed file whose lane fell out of the manifest.
  * Returns a typed result — never throws.
  */
-export async function planSync(repoPath, deps = {}) {
+export async function planSync(repoPath, deps = {}, manifestOverride = null) {
   const visibility = await assertPublic(repoPath, deps);
   if (!visibility.allowed) {
     return { ok: false, stage: "visibility", errors: [visibility.reason], changes: [] };
   }
 
-  const loaded = loadManifest(repoPath);
+  const loaded = manifestOverride === null
+    ? loadManifest(repoPath)
+    : { ok: true, manifest: manifestOverride };
   if (!loaded.ok) {
     return { ok: false, stage: "manifest", errors: loaded.errors, changes: [] };
   }
@@ -92,24 +94,38 @@ export async function planSync(repoPath, deps = {}) {
       // not installed yet
     }
     if (existing === content) {
-      changes.push({ lane, filename, action: "unchanged", diff: [] });
+      changes.push({ lane, filename, action: "unchanged", before: existing, diff: [] });
+    } else if (existing !== null && !existing.startsWith(MANAGED_MARKER)) {
+      changes.push({ lane, filename, action: "managed-conflict", before: existing, diff: [] });
     } else {
-      changes.push({ lane, filename, action: existing === null ? "create" : "update", diff: lineDiff(existing, content), content });
+      changes.push({ lane, filename, action: existing === null ? "create" : "update", before: existing, diff: lineDiff(existing, content), content });
     }
   }
 
   for (const managedFilename of listManagedFiles(repoPath)) {
     if (!wantedFilenames.has(managedFilename)) {
-      changes.push({ lane: null, filename: managedFilename, action: "remove", diff: [] });
+      changes.push({ lane: null, filename: managedFilename, action: "remove", before: fs.readFileSync(path.join(repoPath, WORKFLOWS_SUBDIR, managedFilename), "utf8"), diff: [] });
     }
   }
 
-  return { ok: true, stage: "planned", errors: [], changes };
+  const conflicts = changes.filter((change) => change.action === "managed-conflict");
+  return conflicts.length
+    ? { ok: false, stage: "managed-conflict", errors: conflicts.map((change) => `${change.filename} is unmanaged`), changes }
+    : { ok: true, stage: "planned", errors: [], changes };
 }
 
 /** Apply a plan produced by planSync: write/update/remove files on disk. */
 export function applyPlan(repoPath, plan) {
   const dir = path.join(repoPath, WORKFLOWS_SUBDIR);
+  for (const change of plan.changes) {
+    if (change.action === "unchanged") continue;
+    const target = path.join(dir, change.filename);
+    let current = null;
+    try { current = fs.readFileSync(target, "utf8"); } catch {}
+    if (current !== change.before) {
+      return { ok: false, stage: "apply-conflict", errors: [`${change.filename} changed after planning`] };
+    }
+  }
   fs.mkdirSync(dir, { recursive: true });
   for (const change of plan.changes) {
     const target = path.join(dir, change.filename);
@@ -119,6 +135,7 @@ export function applyPlan(repoPath, plan) {
       fs.rmSync(target, { force: true });
     }
   }
+  return { ok: true, stage: "applied", errors: [] };
 }
 
 /** Full sync: plan, print diff, apply unless dryRun. Returns the plan. */
@@ -133,7 +150,8 @@ export async function syncCommand(repoPath, { dryRun = false, deps = {} } = {}) 
   }
 
   if (!dryRun) {
-    applyPlan(repoPath, plan);
+    const applied = applyPlan(repoPath, plan);
+    if (!applied.ok) return { ...plan, ...applied };
   }
   return plan;
 }

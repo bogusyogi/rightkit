@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { syncCommand } from "./sync.mjs";
+import { applyPlan, planSync, syncCommand } from "./sync.mjs";
 import { makeTempRepo, PUBLIC_DEPS, PRIVATE_DEPS, SAMPLE_MANIFEST } from "./test-support.mjs";
 
 test("sync refuses a private repo and writes nothing", async () => {
@@ -52,6 +52,27 @@ test("sync reports manifest errors instead of writing files", async () => {
   const result = await syncCommand(dir, { deps: PUBLIC_DEPS });
   assert.equal(result.ok, false);
   assert.equal(result.stage, "manifest");
+});
+
+test("sync refuses an unmanaged same-name workflow", async () => {
+  const dir = makeTempRepo(SAMPLE_MANIFEST);
+  const target = path.join(dir, ".github", "workflows", "ci.yml");
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, "name: handwritten\n", "utf8");
+  const result = await syncCommand(dir, { deps: PUBLIC_DEPS });
+  assert.equal(result.stage, "managed-conflict");
+  assert.equal(fs.readFileSync(target, "utf8"), "name: handwritten\n");
+});
+
+test("apply preflights every planned byte before writing", async () => {
+  const dir = makeTempRepo(SAMPLE_MANIFEST);
+  const plan = await planSync(dir, PUBLIC_DEPS);
+  const target = path.join(dir, ".github", "workflows", "ci.yml");
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, "raced\n", "utf8");
+  const applied = applyPlan(dir, plan);
+  assert.equal(applied.stage, "apply-conflict");
+  assert.equal(fs.existsSync(path.join(dir, ".github", "workflows", "package-smoke.yml")), false);
 });
 
 // F15 end-to-end: a hostile `.rightgit.json` on disk — the real attack

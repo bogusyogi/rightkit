@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/git",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.",
   "type": "module",
   "bin": {
@@ -23,7 +23,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/adrdsouza/claude.git",
+    "url": "git+https://github.com/bogusyogi/claude.git",
     "directory": "tools/rightkit/packages/git"
   },
   "packageManager": "pnpm@11.18.0"

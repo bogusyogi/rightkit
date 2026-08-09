@@ -7,11 +7,12 @@
 // --help and --version from inside that extracted tree only.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import packageJson from "./package.json" with { type: "json" };
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,7 +22,7 @@ function run(command, args, options) {
   return result;
 }
 
-test("packaged tarball: right-ax --help and --version run clean from the published files only", () => {
+test("packaged tarball: public exports plus right-ax --help and --version run from published files only", () => {
   const workDir = mkdtempSync(path.join(os.tmpdir(), "rightkit-ax-pack-"));
   try {
     // shell:true — on Windows "npm" only resolves (to npm.cmd) through the
@@ -39,6 +40,10 @@ test("packaged tarball: right-ax --help and --version run clean from the publish
     // npm tarballs always nest content under a top-level "package/" directory.
     const extractedPackageDir = path.join(workDir, "package");
     const bin = path.join(extractedPackageDir, "cli", "right-ax.mjs");
+    const importProbe = path.join(extractedPackageDir, "pack-imports.mjs");
+    writeFileSync(importProbe, `await Promise.all([\n  import("@rightkit/ax/manifest"),\n  import("@rightkit/ax/ax/static"),\n  import("@rightkit/ax/ax/conformance"),\n  import("@rightkit/ax/ax/behavioral"),\n  import("@rightkit/ax/ax/adversarial"),\n  import("@rightkit/ax/ax/report"),\n  import("@rightkit/ax/plugin/scaffold"),\n  import("@rightkit/ax/plugin/validate"),\n]);\n`);
+    const importResult = run("node", [importProbe], { cwd: extractedPackageDir });
+    assert.equal(importResult.status, 0, `public export import failed: ${importResult.stderr}`);
 
     const helpResult = run("node", [bin, "--help"], { cwd: extractedPackageDir });
     assert.equal(helpResult.status, 0, `--help exited non-zero: ${helpResult.stderr}`);
@@ -48,7 +53,7 @@ test("packaged tarball: right-ax --help and --version run clean from the publish
     const versionResult = run("node", [bin, "--version"], { cwd: extractedPackageDir });
     assert.equal(versionResult.status, 0, `--version exited non-zero: ${versionResult.stderr}`);
     assert.ok(!/ERR_MODULE_NOT_FOUND/.test(versionResult.stderr ?? ""), versionResult.stderr);
-    assert.match(versionResult.stdout, /right-ax \d+\.\d+\.\d+/);
+    assert.equal(versionResult.stdout.trim(), `right-ax ${packageJson.version}`);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

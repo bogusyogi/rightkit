@@ -1,16 +1,30 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, symlinkSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { runConformance } from "./ax/conformance.mjs";
+import { runBlockingCapabilityProbe, runConformance } from "./ax/conformance.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 function tempRepo() {
   return mkdtempSync(path.join(os.tmpdir(), "right-ax-conformance-"));
 }
+
+test("AX-4 records blocking per harness binding and fails closed without one", async () => {
+  let calls = 0;
+  const passing = await runBlockingCapabilityProbe({
+    bindingId: "codex-windows",
+    invoke: async () => { calls += 1; return { blocked: true, reason: "denied", interceptionOrder: ["arcane"] }; },
+  });
+  assert.equal(calls, 1);
+  assert.equal(passing.verdict, "pass");
+  assert.deepEqual(passing.observed.interceptionOrder, ["arcane"]);
+  const missing = await runBlockingCapabilityProbe({ bindingId: "future-harness" });
+  assert.equal(missing.verdict, "fail");
+  assert.equal(missing.observed.blocked, false);
+});
 
 // F12 (invariant I5 containment): runConformance now refuses to spawn a
 // server whose command/args resolve outside the repo it was pointed at, so
@@ -19,17 +33,18 @@ function tempRepo() {
 // command, exactly like a real product's `surfaces.mcp.serve` would.
 function repoWithServer(fixtureName) {
   const repo = tempRepo();
-  cpSync(path.join(HERE, "fixtures", fixtureName), path.join(repo, fixtureName));
+  const artifactRoot = mkdtempSync(path.join(os.tmpdir(), "right-ax-artifact-"));
+  cpSync(path.join(HERE, "fixtures", fixtureName), path.join(artifactRoot, fixtureName));
   // "node" (bare, PATH-resolved) rather than process.execPath: .rightax.json
   // serve commands are a single whitespace-split string (splitServeCommand),
   // and process.execPath can itself contain spaces (e.g. "C:\Program
   // Files\nodejs\node.exe" on Windows), which would corrupt that split.
-  return { repo, manifest: { surfaces: { mcp: { serve: `node ${fixtureName}` } } } };
+  return { repo, artifactRoot, manifest: { schemaVersion: 2, surfaces: { mcp: { command: "node", args: [fixtureName], cwd: "${ARTIFACT_ROOT}" } }, ax: { scenariosDir: "scenarios", matrix: { adapters: [{ id: "a", command: "node", args: [] }, { id: "b", command: "node", args: [] }], trialsPerAgent: 5, limits: {} }, adversarial: { casesDir: "cases", gate: "hard" }, gates: {} } } };
 }
 
 test("conformance passes good_tool and fails bad_tool against the fixture MCP server", async () => {
-  const { repo, manifest } = repoWithServer("fake-mcp-server.mjs");
-  const result = await runConformance({ repoPath: repo, manifest });
+  const { repo, manifest, artifactRoot } = repoWithServer("fake-mcp-server.mjs");
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
   assert.equal(result.fatal, null, JSON.stringify(result.fatal));
   assert.equal(result.initialize.status, "pass");
   const good = result.rows.find((row) => row.tool === "good_tool");
@@ -41,8 +56,8 @@ test("conformance passes good_tool and fails bad_tool against the fixture MCP se
 });
 
 test("structuredContent is validated against the advertised outputSchema", async () => {
-  const { repo, manifest } = repoWithServer("fake-mcp-server.mjs");
-  const result = await runConformance({ repoPath: repo, manifest });
+  const { repo, manifest, artifactRoot } = repoWithServer("fake-mcp-server.mjs");
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
   const good = result.rows.find((row) => row.tool === "good_tool");
   assert.equal(good.checks.structuredContentValidation.status, "pass", JSON.stringify(good.checks.structuredContentValidation.errors));
   const bad = result.rows.find((row) => row.tool === "bad_tool");
@@ -50,8 +65,8 @@ test("structuredContent is validated against the advertised outputSchema", async
 });
 
 test("zero raw stack traces leak from the fixture server", async () => {
-  const { repo, manifest } = repoWithServer("fake-mcp-server.mjs");
-  const result = await runConformance({ repoPath: repo, manifest });
+  const { repo, manifest, artifactRoot } = repoWithServer("fake-mcp-server.mjs");
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
   assert.deepEqual(result.rawStackTraces, []);
 });
 
@@ -68,8 +83,8 @@ test("a missing surfaces.mcp.serve command is a typed fatal, not a crash", async
 // valid-args as a pass ("the server responded with a stable error code"),
 // so a completely unusable tool passed.
 test("F3: a tool that rejects every valid call fails conformance (not a vacuous pass)", async () => {
-  const { repo, manifest } = repoWithServer("nonconforming-mcp-server.mjs");
-  const result = await runConformance({ repoPath: repo, manifest });
+  const { repo, manifest, artifactRoot } = repoWithServer("nonconforming-mcp-server.mjs");
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
   const row = result.rows.find((r) => r.tool === "reject_all_tool");
   const validArgsProbe = row.probes.find((p) => p.kind === "valid-args");
   assert.equal(validArgsProbe.status, "fail", JSON.stringify(validArgsProbe));
@@ -82,8 +97,8 @@ test("F3: a tool that rejects every valid call fails conformance (not a vacuous 
 // advertises. Before the fix, any "success" response to the unknown-field
 // probe was unconditionally a pass.
 test("F3: a tool declaring additionalProperties:false but accepting unknown fields fails conformance", async () => {
-  const { repo, manifest } = repoWithServer("nonconforming-mcp-server.mjs");
-  const result = await runConformance({ repoPath: repo, manifest });
+  const { repo, manifest, artifactRoot } = repoWithServer("nonconforming-mcp-server.mjs");
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
   const row = result.rows.find((r) => r.tool === "lax_enforcement_tool");
   const unknownFieldProbe = row.probes.find((p) => p.kind === "unknown-field");
   assert.equal(unknownFieldProbe.status, "fail", JSON.stringify(unknownFieldProbe));
@@ -93,9 +108,9 @@ test("F3: a tool declaring additionalProperties:false but accepting unknown fiel
 // F4 regression: a JSON-RPC error on tools/list must be a typed fatal, never
 // silently collapsed into an empty tool list that then passes vacuously.
 test("F4: a tools/list JSON-RPC error is a typed fatal, not zero tools with a passing verdict", async () => {
-  const { repo, manifest } = repoWithServer("tools-list-error-mcp-server.mjs");
-  manifest.surfaces.mcp.serve = "node tools-list-error-mcp-server.mjs error";
-  const result = await runConformance({ repoPath: repo, manifest });
+  const { repo, manifest, artifactRoot } = repoWithServer("tools-list-error-mcp-server.mjs");
+  manifest.surfaces.mcp.args = ["tools-list-error-mcp-server.mjs", "error"];
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
   assert.equal(result.fatal?.code, "tools_list_failed", JSON.stringify(result.fatal));
   assert.equal(result.rows.length, 0);
   assert.equal(result.verdict, "fail");
@@ -104,9 +119,9 @@ test("F4: a tools/list JSON-RPC error is a typed fatal, not zero tools with a pa
 // F4 regression, second shape: zero tools with NO error is equally
 // untestable and must not pass either.
 test("F4: zero tools (no error) is a typed fatal, not a passing empty rowset", async () => {
-  const { repo, manifest } = repoWithServer("tools-list-error-mcp-server.mjs");
-  manifest.surfaces.mcp.serve = "node tools-list-error-mcp-server.mjs empty";
-  const result = await runConformance({ repoPath: repo, manifest });
+  const { repo, manifest, artifactRoot } = repoWithServer("tools-list-error-mcp-server.mjs");
+  manifest.surfaces.mcp.args = ["tools-list-error-mcp-server.mjs", "empty"];
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
   assert.equal(result.fatal?.code, "no_tools", JSON.stringify(result.fatal));
   assert.equal(result.verdict, "fail");
 });
@@ -115,8 +130,8 @@ test("F4: zero tools (no error) is a typed fatal, not a passing empty rowset", a
 // in an error message must never be copied verbatim into the conformance
 // report.
 test("F9: a credential-shaped string in a tool's error message is redacted from the report", async () => {
-  const { repo, manifest } = repoWithServer("nonconforming-mcp-server.mjs");
-  const result = await runConformance({ repoPath: repo, manifest });
+  const { repo, manifest, artifactRoot } = repoWithServer("nonconforming-mcp-server.mjs");
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
   const serialized = JSON.stringify(result);
   assert.ok(!serialized.includes("sk-test-EXAMPLE123"), "credential leaked into conformance report");
   assert.ok(serialized.includes("[REDACTED]"));
@@ -128,18 +143,19 @@ test("F9: a credential-shaped string in a tool's error message is redacted from 
 // entirely outside the audited repo).
 test("F12: a serve command pointing outside the repo is refused as a typed fatal", async () => {
   const repo = tempRepo();
+  const artifactRoot = "artifact"; mkdirSync(path.join(repo, artifactRoot));
   const outsideServer = path.join(HERE, "fixtures", "fake-mcp-server.mjs"); // deliberately NOT copied into repo
-  const manifest = { surfaces: { mcp: { serve: `node ${outsideServer}` } } };
-  const result = await runConformance({ repoPath: repo, manifest });
-  assert.equal(result.fatal?.code, "artifact_outside_repo", JSON.stringify(result.fatal));
+  const manifest = { surfaces: { mcp: { command: "node", args: [outsideServer], cwd: "$ARTIFACT_ROOT" } } };
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
+  assert.equal(result.fatal?.code, "invalid_artifact", JSON.stringify(result.fatal));
   assert.equal(result.rows.length, 0);
   assert.equal(result.verdict, "fail");
 });
 
 test("F12: a relative serve command that resolves inside the repo is not flagged", async () => {
-  const { repo, manifest } = repoWithServer("fake-mcp-server.mjs");
-  const result = await runConformance({ repoPath: repo, manifest });
-  assert.notEqual(result.fatal?.code, "artifact_outside_repo");
+  const { repo, manifest, artifactRoot } = repoWithServer("fake-mcp-server.mjs");
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
+  assert.notEqual(result.fatal?.code, "invalid_artifact");
 });
 
 // F8 regression: lexical containment (resolve()+startsWith on the raw
@@ -153,18 +169,19 @@ test("F12: a relative serve command that resolves inside the repo is not flagged
 // symlink can actually be created.
 test("F8: a serve command reached through a directory symlink resolving outside the repo is refused", async (t) => {
   const repo = tempRepo();
+  const artifactRoot = "artifact"; mkdirSync(path.join(repo, artifactRoot));
   const outsideDir = mkdtempSync(path.join(os.tmpdir(), "right-ax-outside-"));
   cpSync(path.join(HERE, "fixtures", "fake-mcp-server.mjs"), path.join(outsideDir, "fake-mcp-server.mjs"));
-  const linkPath = path.join(repo, "inside-link");
+  const linkPath = path.join(repo, artifactRoot, "inside-link");
   try {
     symlinkSync(outsideDir, linkPath, "junction");
   } catch (error) {
     t.skip(`cannot create a filesystem symlink/junction on this host: ${error?.message ?? error}`);
     return;
   }
-  const manifest = { surfaces: { mcp: { serve: `node inside-link${path.sep}fake-mcp-server.mjs` } } };
-  const result = await runConformance({ repoPath: repo, manifest });
-  assert.equal(result.fatal?.code, "artifact_outside_repo", JSON.stringify(result.fatal));
+  const manifest = { surfaces: { mcp: { command: "node", args: [`inside-link${path.sep}fake-mcp-server.mjs`], cwd: "$ARTIFACT_ROOT" } } };
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
+  assert.equal(result.fatal?.code, "invalid_artifact", JSON.stringify(result.fatal));
   assert.equal(result.rows.length, 0);
   assert.equal(result.verdict, "fail");
 });
@@ -179,20 +196,21 @@ test("F8: a serve command reached through a directory symlink resolving outside 
 // create filesystem symlinks.
 test("F8: a bare (no './' prefix, no separator) arg symlink resolving outside the repo is refused", async (t) => {
   const repo = tempRepo();
+  const artifactRoot = "artifact"; mkdirSync(path.join(repo, artifactRoot));
   const outsideDir = mkdtempSync(path.join(os.tmpdir(), "right-ax-outside-"));
   const outsideFile = path.join(outsideDir, "fake-mcp-server.mjs");
   cpSync(path.join(HERE, "fixtures", "fake-mcp-server.mjs"), outsideFile);
   const bareLinkName = "server-link.mjs";
-  const linkPath = path.join(repo, bareLinkName);
+  const linkPath = path.join(repo, artifactRoot, bareLinkName);
   try {
     symlinkSync(outsideFile, linkPath, "file");
   } catch (error) {
     t.skip(`cannot create a filesystem symlink on this host: ${error?.message ?? error}`);
     return;
   }
-  const manifest = { surfaces: { mcp: { serve: `node ${bareLinkName}` } } };
-  const result = await runConformance({ repoPath: repo, manifest });
-  assert.equal(result.fatal?.code, "artifact_outside_repo", JSON.stringify(result.fatal));
+  const manifest = { surfaces: { mcp: { command: "node", args: [bareLinkName], cwd: "$ARTIFACT_ROOT" } } };
+  const result = await runConformance({ repoPath: repo, manifest, artifactRoot });
+  assert.equal(result.fatal?.code, "invalid_artifact", JSON.stringify(result.fatal));
   assert.equal(result.rows.length, 0);
   assert.equal(result.verdict, "fail");
 });

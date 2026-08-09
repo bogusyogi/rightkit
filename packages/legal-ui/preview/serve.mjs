@@ -19,10 +19,30 @@ const MIME = {
   ".png": "image/png",
   ".svg": "image/svg+xml",
 };
+const axeReports = new Map();
 
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", `http://${host}`);
+    if (url.pathname === "/__axe-report") {
+      const key = `${url.searchParams.get("id") ?? ""}/${url.searchParams.get("state") ?? ""}`;
+      if (req.method === "POST") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        const report = JSON.parse(body);
+        if (!Array.isArray(report.violations)) throw new Error("invalid axe report");
+        axeReports.set(key, report);
+        res.writeHead(204).end();
+        return;
+      }
+      const report = axeReports.get(key);
+      if (!report) {
+        res.writeHead(404).end("report not found");
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" }).end(JSON.stringify(report));
+      return;
+    }
     let pathname = decodeURIComponent(url.pathname);
     if (pathname === "/") pathname = "/index.html";
     const filePath = normalize(join(root, pathname));

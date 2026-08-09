@@ -19,6 +19,8 @@ GitHub Actions minutes are free and unlimited on public repos, and billed on pri
 
 Workflows are thin callers over the repo's own scripts, so a private repo running the same gates locally executes identical checks.
 
+Sync records exact prior bytes, refuses unmanaged same-name workflows, & preflights every target before any write. Qualification preserves schema logs with a unique required artifact.
+
 ## Credential posture (read before enabling package-manager publishing)
 
 - **No code-signing credential ever reaches CI.** Signing and notarization stay local in `@rightkit/release`. The only publish credential in the npm lane is short-lived OIDC (trusted publishing, no long-lived token).

@@ -48,8 +48,8 @@ test("Cargo guard resolves real Cargo through rustup or explicit override", () =
   const cargo = resolveRealCargo({ env: {}, run: (command, args) => { calls.push([command, args]); return { status: 0, stdout: "/real/cargo\n" }; } });
   assert.equal(cargo, path.resolve("/real/cargo"));
   assert.deepEqual(calls[0][1], ["which", "cargo"]);
-  assert.equal(resolveRealRustc({ env: { RIGHTSUITE_REAL_RUSTC: "/opt/toolchain/rustc" } }), "/opt/toolchain/rustc");
-  assert.equal(resolveRealRustc({ env: {}, run: () => ({ status: 0, stdout: "/real/rustc\n" }) }), "/real/rustc");
+  assert.equal(resolveRealRustc({ env: { RIGHTSUITE_REAL_RUSTC: "/opt/toolchain/rustc" } }), path.resolve("/opt/toolchain/rustc"));
+  assert.equal(resolveRealRustc({ env: {}, run: () => ({ status: 0, stdout: "/real/rustc\n" }) }), path.resolve("/real/rustc"));
 });
 
 function cacheEnv(overrides = {}) {
@@ -81,7 +81,7 @@ test("Cargo guard rejects cache escapes and alternate compiler wrappers", async 
 test("Cargo guard routes heavy and light commands without recursion", async () => {
   const calls = [];
   const options = {
-    env: { TEST: "1", RIGHT_RELEASE_CACHE_ROOT: "/cache" },
+    env: { TEST: "1", ...cacheEnv() },
     policyOptions: { exists: () => false },
     resolveCargo: () => "/real/cargo",
     runHeavy: async (args, config) => { calls.push(["heavy", args, config.env]); return 0; },
@@ -90,7 +90,8 @@ test("Cargo guard routes heavy and light commands without recursion", async () =
   assert.equal(await runCargoGuard(["test"], options), 0);
   assert.equal(await runCargoGuard(["fmt", "--check"], options), 0);
   assert.deepEqual(calls[0].slice(0, 2), ["heavy", ["--", "/real/cargo", "test"]]);
-  assert.equal(calls[0][2].CARGO_TARGET_DIR.startsWith("/cache/dev-targets/"), true);
+  const cacheRoot = cacheEnv().RIGHT_RELEASE_CACHE_ROOT ?? path.join(cacheEnv().LOCALAPPDATA, "RightSuite", "Cache", "release");
+  assert.equal(calls[0][2].CARGO_TARGET_DIR.startsWith(path.join(path.resolve(cacheRoot), "dev-targets") + path.sep), true);
   assert.equal(calls[0][2].RUSTC_WRAPPER, "sccache");
   assert.deepEqual(calls[1], ["light", "/real/cargo", ["fmt", "--check"], options.env]);
 });

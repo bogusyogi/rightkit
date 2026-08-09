@@ -25,7 +25,19 @@
 // it renders "unproven" regardless of trial outcomes.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
+import { runAdapter } from "./adapter.mjs";
+import { resolveArtifact, verifyArtifactUnchanged } from "./artifact.mjs";
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function digestValue(value) { return createHash("sha256").update(canonicalJson(value)).digest("hex"); }
+function executionFingerprint(adapter) { return digestValue({ model: adapter.model.normalize("NFKC").trim(), version: adapter.version.normalize("NFKC").trim(), command: adapter.command.normalize("NFKC").trim(), args: adapter.args }); }
 
 export function listScenarioFiles(scenariosDir) {
   if (!existsSync(scenariosDir)) return [];
@@ -270,4 +282,30 @@ export async function runScenarios({ scenariosDir, k = 3, driver = "stub", agent
   report.provenBy = realMatrix ? "real-matrix" : "stub";
   report.verdict = !report.fatal && Object.values(report.scenarioResults).every((result) => result.status !== "fail") ? "pass" : "fail";
   return report;
+}
+
+export async function runMatrix({ repoPath, artifactRoot, scenariosDir, matrix }) {
+  let artifact;
+  try { artifact = resolveArtifact({ repoPath, artifactRoot }); }
+  catch (error) { return { schemaVersion: 2, gate: "behavioral", artifact: null, scenarioResults: {}, trials: [], totals: { pass: 0, fail: 0 }, fatal: { code: "invalid_artifact", reason: error.message }, verdict: "fail", claimBoundary: "UNPROVEN" }; }
+  const { scenarios, loadErrors } = loadScenarios(scenariosDir);
+  const adapters = [...(matrix?.adapters ?? [])].sort((a,b)=>a.id.trim().toLowerCase().localeCompare(b.id.trim().toLowerCase())); const trialCount = matrix?.trialsPerAgent;
+  const report = { schemaVersion: 2, gate: "behavioral", scenarioResults: {}, trials: [], totals: { pass: 0, fail: 0 }, loadErrors, fatal: null, verdict: "fail", claimBoundary:"UNPROVEN" };
+  const identities = adapters.every((adapter) => typeof adapter.model === "string" && typeof adapter.version === "string" && typeof adapter.command === "string" && Array.isArray(adapter.args)) ? adapters.map(executionFingerprint) : [];
+  const invalid=!Number.isInteger(trialCount)||trialCount<5||adapters.length<2||new Set(adapters.map(x=>x.id.trim().toLowerCase())).size!==adapters.length||new Set(identities).size!==adapters.length||adapters.some(a=>["id","model","version","command"].some(k=>typeof a[k]!=="string"||!a[k].trim())||!Array.isArray(a.args))||!matrix?.limits||!["timeoutMs","maxToolCalls","maxTokens","maxCostUsd"].every(k=>Number.isFinite(matrix.limits[k]));
+  if (loadErrors.length || !scenarios.length || invalid) { report.fatal = { code: loadErrors.length?"scenario_load_failed":"matrix_invalid", reason:"invalid configuration" }; report.artifact=verifyArtifactUnchanged(artifact); report.artifactDigest=report.artifact.digest; if(!report.artifact.proof.immutable)report.fatal={code:"artifact_mutated"}; return report; }
+  const scenarioEvidence = scenarios.map(({ _source, ...scenario }) => ({ source: _source, scenario })).sort((a, b) => a.scenario.scenarioId.localeCompare(b.scenario.scenarioId));
+  report.scenarioCount=scenarios.length; report.scenarioIds=scenarios.map((scenario)=>scenario.scenarioId).sort(); report.scenarioDigest=digestValue(scenarioEvidence);
+  report.adapters=adapters.map((adapter,index)=>({adapterId:adapter.id,executionFingerprint:identities[index]})); report.matrixDigest=digestValue({adapters:adapters.map(({id,model,version,command,args})=>({id,model,version,command,args})),trialsPerAgent:trialCount,limits:matrix.limits});
+  for (const scenario of scenarios) {
+    const trials = [];
+    for (const adapter of adapters) for (let trialIndex = 1; trialIndex <= trialCount; trialIndex += 1) try {
+      const raw = await runAdapter({ adapter, request: { schemaVersion: 1, repoRoot: repoPath, artifactRoot: artifact.root, scenario, trialIndex, agent: { id: adapter.id, model: adapter.model, version: adapter.version }, limits: matrix.limits }, timeoutMs: matrix.limits.timeoutMs });
+      const result = evaluateTrial(scenario, raw); trials.push({ trial: trialIndex, agentId: raw.agentId, ...result, response: raw });
+    } catch (error) { trials.push({ trial: trialIndex, agentId: adapter.id, status: "fail", envVerified: false, claimsChecked: false, failures: [error.code ?? "adapter_protocol_invalid"], error: { code:error.code ?? "adapter_protocol_invalid", details:error.details ?? {} } }); }
+    const counts = Object.fromEntries(adapters.map((adapter) => [adapter.id, trials.filter((row) => row.agentId === adapter.id && row.status === "pass").length]));
+    report.trials.push({ scenarioId: scenario.scenarioId, trials }); report.scenarioResults[scenario.scenarioId] = { status: Object.values(counts).every((count) => count >= trialCount) ? "pass" : "fail", agentTrialCounts: counts, failCount: trials.filter((x) => x.status !== "pass").length };
+  }
+  for (const group of report.trials) for (const trial of group.trials) report.totals[trial.status] = (report.totals[trial.status] ?? 0) + 1;
+  const incomplete=report.trials.some(g=>g.trials.some(t=>t.error)); report.claimBoundary=incomplete?"UNPROVEN":"PROVEN"; report.provenBy=incomplete?"real-matrix-incomplete":"real-matrix"; report.artifact=verifyArtifactUnchanged(artifact); report.artifactDigest=report.artifact.digest; if(!report.artifact.proof.immutable){report.fatal={code:"artifact_mutated"};report.verdict="fail";return report;} report.verdict = Object.values(report.scenarioResults).every((x) => x.status === "pass") ? "pass" : "fail"; return report;
 }

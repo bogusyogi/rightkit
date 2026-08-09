@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import packageJson from "./package.json" with { type: "json" };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, "cli", "right-ax.mjs");
@@ -23,7 +24,15 @@ test("--help prints usage and exits 0", () => {
 test("--version prints a version string", () => {
   const result = run(["--version"]);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /right-ax 0\.1\.0/);
+  assert.equal(result.stdout.trim(), `right-ax ${packageJson.version}`);
+});
+
+test("help advertises current matrix and artifact surface only", () => {
+  const result = run(["--help"]);
+  assert.match(result.stdout, /adversarial/);
+  assert.match(result.stdout, /artifact-root/);
+  assert.match(result.stdout, /--matrix/);
+  assert.doesNotMatch(result.stdout, /--driver|--agents/);
 });
 
 test("an unknown command exits non-zero with usage", () => {
@@ -44,9 +53,11 @@ test("ax report --format sarif against the fixture server emits SARIF on stdout"
   // F12 (invariant I5 containment): runConformance refuses a serve command
   // that resolves outside the repo, so the fixture server must live inside
   // the repo under test, referenced by a repo-relative command.
-  cpSync(SERVER_PATH, path.join(repo, "fake-mcp-server.mjs"));
-  writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ schemaVersion: 1, surfaces: { mcp: { serve: "node fake-mcp-server.mjs" } }, ax: { gates: { static: "report-only", conformance: "report-only", behavioral: "report-only" } } }));
-  const result = run(["ax", "report", repo, "--format", "sarif"]);
+  const artifact = path.join(repo, "artifact");
+  mkdirSync(artifact);
+  cpSync(SERVER_PATH, path.join(artifact, "fake-mcp-server.mjs"));
+  writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ schemaVersion: 2, surfaces: { mcp: { command: "node", args: ["fake-mcp-server.mjs"], cwd: "${ARTIFACT_ROOT}" } }, ax: { scenariosDir: "evals/ax/scenarios", gates: { static: "report-only", conformance: "report-only" } } }));
+  const result = run(["ax", "report", repo, "--artifact-root", artifact, "--format", "sarif"]);
   const sarif = JSON.parse(result.stdout);
   assert.equal(sarif.version, "2.1.0");
 });
@@ -56,14 +67,43 @@ test("ax report --format sarif against the fixture server emits SARIF on stdout"
 // itself didn't crash. Uses --driver external with no --agents wiring, so
 // every trial comes back as "produced no trial for scenario X" — a real,
 // total failure, not a harness break.
-test("ax behavioral exits non-zero on a total-failure run (not exit 0 because only .fatal was checked)", () => {
+test("removed behavioral driver flags fail with usage", () => {
   const repo = mkdtempSync(path.join(os.tmpdir(), "right-ax-cli-"));
   const scenariosDir = path.join(repo, "evals", "ax", "scenarios");
   mkdirSync(scenariosDir, { recursive: true });
   writeFileSync(path.join(scenariosDir, "one.yaml"), JSON.stringify({ scenarioId: "one", expected: { requiredClaims: ["done"] } }));
-  writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ schemaVersion: 1, surfaces: {}, ax: { scenariosDir: "evals/ax/scenarios", gates: { static: "hard", conformance: "hard", behavioral: "report-only" } } }));
-  const result = run(["ax", "behavioral", repo, "--driver", "external", "--k", "2"]);
+  writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ schemaVersion: 2, surfaces: {}, ax: { scenariosDir: "evals/ax/scenarios", gates: { behavioral: "report-only" } } }));
+  const result = run(["ax", "behavioral", repo, "--driver", "external"]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /uses manifest adapters/);
+});
+
+test("static without MCP and report without a live gate need no artifact", () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "right-ax-cli-"));
+  mkdirSync(path.join(repo, "evals", "ax", "scenarios"), { recursive: true });
+  writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ schemaVersion: 2, surfaces: {}, ax: { scenariosDir: "evals/ax/scenarios", gates: { static: "report-only" } } }));
+  const staticResult = run(["ax", "static", repo]);
+  assert.notEqual(staticResult.status, 2);
+  const reportResult = run(["ax", "report", repo]);
+  assert.notEqual(reportResult.status, 2);
+  assert.doesNotThrow(() => JSON.parse(reportResult.stdout));
+});
+
+test("MCP gates require an artifact and conformance requires MCP", () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "right-ax-cli-"));
+  mkdirSync(path.join(repo, "evals", "ax", "scenarios"), { recursive: true });
+  writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ schemaVersion: 2, surfaces: { mcp: { command: "node", args: ["server.mjs"], cwd: "${ARTIFACT_ROOT}" } }, ax: { scenariosDir: "evals/ax/scenarios", gates: { static: "hard", conformance: "hard" } } }));
+  assert.equal(run(["ax", "static", repo]).status, 2);
+  assert.equal(run(["ax", "conformance", repo]).status, 2);
+  writeFileSync(path.join(repo, ".rightax.json"), JSON.stringify({ schemaVersion: 2, surfaces: {}, ax: { scenariosDir: "evals/ax/scenarios", gates: { conformance: "hard" } } }));
+  assert.equal(run(["ax", "conformance", repo, "--artifact-root", "artifact"]).status, 2);
+});
+
+test("adopt parses one serve program and repeatable argv tokens", () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "right-ax-cli-"));
+  mkdirSync(path.join(repo, "evals", "ax", "scenarios"), { recursive: true });
+  const result = run(["adopt", repo, "--dry-run", "--serve", "node", "--serve-arg", "scripts/{server}.mjs", "--serve-arg", "--stdio"]);
   const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.verdict, "fail");
-  assert.notEqual(result.status, 0);
+  assert.deepEqual(parsed.manifest.surfaces.mcp, { command: "node", args: ["${ARTIFACT_ROOT}/scripts/{server}.mjs", "--stdio"], cwd: "${ARTIFACT_ROOT}" });
+  assert.equal(run(["adopt", repo, "--dry-run", "--serve-arg", "server.mjs"]).status, 2);
 });

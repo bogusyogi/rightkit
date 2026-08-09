@@ -11,6 +11,18 @@ taste-gate approval before any app is wired to this package.
 package (`package.json` `files` only lists `dist`, `README.md`, and the
 license files).
 
+## Verification
+
+```bash
+pnpm --dir tools/rightkit/packages/legal-ui preview:verify
+```
+
+This runs each light variant in default, pending, and rejected acceptance
+states. It drives selection, acknowledgement, and submit through the shared
+QA action engine; waits for the pending or rejected state; injects axe-core;
+and requires zero WCAG 2.0/2.1/2.2 A/AA violations. It writes 15 PNGs,
+`axe-report.json`, and `contact-sheet.html` to `.preview/verification/`.
+
 ## Build + serve
 
 ```bash

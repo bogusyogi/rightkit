@@ -439,6 +439,7 @@ test("every app platform requires effective non-empty build inputs", () => {
 
 test("RightKit exposes one current version manifest", () => {
   assert.equal(existsSync(versionsPath), true, "rightkit-versions.json must be the single current-version source");
+  assert.equal(versions.schema, 2);
   assert.match(versions.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
   assert.equal(versions.npm["@rightkit/release"], "0.2.47");
   assert.equal(versions.npm["@rightkit/legal"], "0.2.0");
@@ -447,23 +448,30 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/tauri"], "0.1.0");
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
   assert.deepEqual(versions.stagedNpm, {
+    "@rightkit/ax": "0.2.0",
+    "@rightkit/git": "0.1.1",
     "@rightkit/legal": "0.3.0",
-    "@rightkit/legal-ui": "0.1.0",
+    "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.52",
+    "@rightkit/release": "0.2.53",
   });
   assert.deepEqual(versions.legacyNpm, {
+    "@rightkit/legal-ui": ["0.1.0"],
     "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51"],
   });
   assert.ok(
     new Set([versions.npm["@rightkit/release"], ...versions.legacyNpm["@rightkit/release"]]).has("0.2.42"),
     "previously published @rightkit/release versions must remain accepted during the 0.2.46 rollout",
   );
-  const licensePackage = JSON.parse(readFileSync(
-    path.join(workspace, "tools/rightkit/packages/license/package.json"),
-    "utf8",
-  ));
-  assert.equal(licensePackage.version, versions.stagedNpm["@rightkit/license"]);
+  for (const [name, version] of Object.entries(versions.stagedNpm)) {
+    const packageName = name.slice("@rightkit/".length);
+    const manifest = JSON.parse(readFileSync(
+      path.join(workspace, "tools/rightkit/packages", packageName, "package.json"),
+      "utf8",
+    ));
+    assert.equal(manifest.name, name);
+    assert.equal(manifest.version, version, `${name} package version must equal stagedNpm`);
+  }
   assert.equal(versions.cargo["rightkit-license"], "0.1.2");
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
   assert.equal(versions.cargo["rightkit-tauri"], "0.1.0");
@@ -641,12 +649,17 @@ for (const app of macOnlyApps) {
       cmd: "right-release",
       args: ["publish-update", "--config", "right-release.config.mjs", "--platform", "mac"],
     });
-    assert.equal(config.targets.mac.updater.artifacts.length, 1);
-    const updater = config.targets.mac.updater.artifacts[0];
-    assert.equal(updater.platform, "darwin-aarch64");
-    assert.match(updater.file, /\.dmg$/);
-    assert.equal(updater.signature, `${updater.file}.sig`);
-    assert.equal(updater.key, `${app.key}/updates/mac/current/ScreenRight.dmg`);
+    const updaters = config.targets.mac.updater.artifacts;
+    assert.equal(updaters.length, 2);
+    assert.deepEqual(updaters.map((updater) => updater.platform), ["darwin-aarch64", "darwin-x86_64"]);
+    assert.equal(new Set(updaters.map((updater) => updater.file)).size, 1, `${app.key} universal updater must share one DMG`);
+    assert.equal(new Set(updaters.map((updater) => updater.signature)).size, 1, `${app.key} universal updater must share one signature`);
+    assert.equal(new Set(updaters.map((updater) => updater.key)).size, 1, `${app.key} universal updater must share one current R2 object`);
+    for (const updater of updaters) {
+      assert.match(updater.file, /\.dmg$/);
+      assert.equal(updater.signature, `${updater.file}.sig`);
+      assert.equal(updater.key, `${app.key}/updates/mac/current/ScreenRight.dmg`);
+    }
     assertBuildInputs(config, config.targets.mac, `${app.key} mac`);
     assertMacPackageEntry(config.targets.mac.package, pkg.scripts, app.key);
     assert.ok(config.targets.mac.installer.artifacts.length >= 1);

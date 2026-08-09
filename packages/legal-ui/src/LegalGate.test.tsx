@@ -170,4 +170,52 @@ describe("LegalGate", () => {
     expect(style!.textContent).toContain('font-family: "Tanker"');
     expect(style!.textContent).toContain("/fonts/Tanker-400.woff2");
   });
+  it("shows pending state", async () => {
+    const { act, waitFor } = await import("@testing-library/react");
+    const user = userEvent.setup();
+    let resolveAccept!: () => void;
+    const onAgree = vi.fn(() => new Promise<void>((resolve) => { resolveAccept = resolve; }));
+    render(<LegalGate {...baseProps({ onAgree })} />);
+    await user.click(screen.getByRole("radio", { name: /for myself/i }));
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: /agree/i }));
+    const submitting = screen.getByRole("button", { name: "Saving…" });
+    expect(submitting).toBeDisabled();
+    expect(submitting).toHaveAttribute("aria-busy", "true");
+    await act(async () => resolveAccept());
+    await waitFor(() => expect(screen.getByRole("button", { name: /agree/i })).toBeEnabled());
+  });
+
+  it("shows rejection & permits retry", async () => {
+    const user = userEvent.setup();
+    const onAgree = vi.fn().mockRejectedValueOnce(new Error("network down"));
+    render(<LegalGate {...baseProps({ onAgree })} />);
+    await user.click(screen.getByRole("radio", { name: /for myself/i }));
+    await user.click(screen.getByRole("checkbox"));
+    const agree = screen.getByRole("button", { name: /agree/i });
+    await user.click(agree);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn’t save your acceptance. Try again.");
+    onAgree.mockResolvedValueOnce(undefined);
+    await user.click(screen.getByRole("button", { name: /agree/i }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(onAgree).toHaveBeenCalledTimes(2);
+  });
+
+  it("contains synchronous throw", async () => {
+    const user = userEvent.setup();
+    const onAgree = vi.fn(() => {
+      throw new Error("boom");
+    });
+    render(<LegalGate {...baseProps({ onAgree })} />);
+
+    await user.click(screen.getByRole("radio", { name: /for myself/i }));
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: /agree/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn’t save your acceptance. Try again.");
+    expect(screen.getByRole("button", { name: /agree/i })).toBeEnabled();
+  });
 });

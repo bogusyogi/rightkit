@@ -9,10 +9,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { adoptRepo } from "../adopt.mjs";
 import { runConformance } from "../ax/conformance.mjs";
-import { runScenarios } from "../ax/behavioral.mjs";
+import { runScenarios, runMatrix } from "../ax/behavioral.mjs";
+import { runAdversarial } from "../ax/adversarial.mjs";
+import { resolveArtifact } from "../ax/artifact.mjs";
 import { aggregateReport, gateExitCode, renderMarkdown, toSarif } from "../ax/report.mjs";
 import { runStaticChecks } from "../ax/static.mjs";
 import { loadManifest } from "../manifest.mjs";
+import { PACKAGE_VERSION } from "../lib/version.mjs";
 import { scaffoldPlugin } from "../plugin/scaffold.mjs";
 import { validateRepoLayout } from "../plugin/validate.mjs";
 
@@ -30,11 +33,38 @@ function resolveRepoPath(candidate) {
   return path.resolve(candidate ?? ".");
 }
 
-// F2: parses --agents into runScenarios' declared-roster array. Comma-
-// separated, blank entries dropped; ax/behavioral.mjs normalizes and
-// validates the roster itself (see scenarioMeetsRealMatrixBar).
-function parseAgentsFlag(value) {
-  return String(value ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+function hasMcp(manifest) {
+  return Boolean(manifest?.surfaces?.mcp?.command);
+}
+
+function configured(manifest, gate) {
+  return Object.hasOwn(manifest?.ax?.gates ?? {}, gate);
+}
+
+function usage(message) {
+  console.error(`right-ax: ${message}`);
+  process.exit(2);
+}
+
+function requireArtifact(artifactRoot, message) {
+  if (!artifactRoot) usage(`${message}; --artifact-root <external clean-room directory> is required`);
+}
+
+function parseAdoptServe(argv) {
+  const serveIndex = argv.indexOf("--serve");
+  const argIndexes = argv.reduce((indexes, value, index) => value === "--serve-arg" ? [...indexes, index] : indexes, []);
+  if (serveIndex === -1) {
+    if (argIndexes.length) usage("--serve-arg requires --serve <program>");
+    return undefined;
+  }
+  const command = argv[serveIndex + 1];
+  if (!command || command.startsWith("--")) usage("--serve requires one program token");
+  const args = argIndexes.map((index) => {
+    const value = argv[index + 1];
+    if (!value) usage("--serve-arg requires one argv token");
+    return value;
+  });
+  return { command, args };
 }
 
 function printJson(value) {
@@ -53,7 +83,7 @@ function requireManifest(repoPath) {
 
 async function main() {
   if (!first || first === "-h" || first === "--help") return printHelp();
-  if (first === "--version" || first === "-v") { console.log("right-ax 0.1.0"); return; }
+  if (first === "--version" || first === "-v") { console.log(`right-ax ${PACKAGE_VERSION}`); return; }
 
   if (first === "plugin") {
     const repoPath = resolveRepoPath(rest[0]?.startsWith("--") ? undefined : rest[0]);
@@ -86,41 +116,32 @@ async function main() {
   if (first === "ax") {
     const repoPath = resolveRepoPath(rest[0]?.startsWith("--") ? undefined : rest[0]);
     const manifest = requireManifest(repoPath);
+    const artifactRoot = flag("artifact-root");
+    const matrix = rest.includes("--matrix");
 
     if (second === "static") {
-      const result = await runStaticChecks({ repoPath, manifest });
+      if (hasMcp(manifest)) requireArtifact(artifactRoot, "ax static with an MCP surface");
+      const result = await runStaticChecks({ repoPath, manifest, artifactRoot });
       printJson(result);
       process.exitCode = result.verdict === "pass" ? 0 : 1;
       return;
     }
     if (second === "conformance") {
-      const result = await runConformance({ repoPath, manifest });
+      if (!hasMcp(manifest)) usage("ax conformance requires a manifest MCP surface");
+      requireArtifact(artifactRoot, "ax conformance");
+      const result = await runConformance({ repoPath, manifest, artifactRoot });
       printJson(result);
       process.exitCode = result.verdict === "pass" ? 0 : 1;
       return;
     }
     if (second === "behavioral") {
-      const scenariosDir = path.join(repoPath, manifest.ax?.scenariosDir ?? "evals/ax/scenarios");
-      const driver = flag("driver", "stub");
-      const k = Number(flag("k", "3"));
-      // F2: --agents is the caller's explicit declared roster (comma-
-      // separated distinct agent identifiers); runScenarios only credits
-      // real-matrix status to trials whose agentId is a declared member —
-      // see ax/behavioral.mjs's scenarioMeetsRealMatrixBar for why this is a
-      // caller contract, not something this CLI can verify on its own.
-      const agents = parseAgentsFlag(flag("agents"));
-      // F11 — SCOPED, not fixed: --driver accepts any name, but only "stub"
-      // actually executes anything here. There is no --run-trial-command (or
-      // equivalent) that spawns/talks to a real external agent process per
-      // trial, so passing --driver claude-opus (for example) still calls
-      // runTrial, which is undefined, and every trial fails with "driver
-      // produced no trial". Building that bridge means choosing which
-      // agent CLI(s) to shell out to, the trial invocation/prompt shape, and
-      // a timeout/cost policy — DESIGN.md OD-2 ("behavioral matrix
-      // composition") is exactly that open decision, and it is not decided
-      // here; fabricating a driver integration would be inventing that
-      // decision, not fixing a bug.
-      const result = await runScenarios({ scenariosDir, k, driver, agents });
+      const scenariosDir = path.join(repoPath, manifest.ax.scenariosDir);
+      if (rest.includes("--driver") || rest.includes("--agents")) usage("ax behavioral uses manifest adapters; pass --matrix");
+      if (matrix && !manifest.ax.matrix) usage("ax behavioral --matrix requires manifest matrix");
+      if (matrix) requireArtifact(artifactRoot, "ax behavioral --matrix");
+      const result = matrix
+        ? await runMatrix({ repoPath, artifactRoot, scenariosDir, matrix: manifest.ax.matrix })
+        : await runScenarios({ scenariosDir, k: Number(flag("k", "3")), driver: "stub" });
       printJson(result);
       // F11 fix: this was previously `result.fatal ? 1 : 0`, which ignored
       // result.verdict entirely — a total-failure run (every trial failed,
@@ -131,21 +152,38 @@ async function main() {
       process.exitCode = result.verdict === "pass" ? 0 : 1;
       return;
     }
+    if (second === "adversarial") {
+      if (!manifest.ax?.adversarial) usage("ax adversarial requires manifest ax.adversarial configuration");
+      if (!hasMcp(manifest)) usage("ax adversarial requires a manifest MCP surface");
+      requireArtifact(artifactRoot, "ax adversarial");
+      const result = await runAdversarial({ repoPath, manifest, artifactRoot, casesDir: path.join(repoPath, manifest.ax.adversarial.casesDir) });
+      printJson(result);
+      process.exitCode = result.verdict === "pass" ? 0 : 1;
+      return;
+    }
     if (second === "report") {
-      const [staticResult, conformanceResult] = await Promise.all([
-        runStaticChecks({ repoPath, manifest }),
-        runConformance({ repoPath, manifest }),
-      ]);
+      const gates = manifest.ax?.gates ?? {};
+      const needsArtifact = (hasMcp(manifest) && (configured(manifest, "static") || configured(manifest, "conformance")))
+        || (configured(manifest, "adversarial") && Boolean(manifest.ax?.adversarial))
+        || (configured(manifest, "behavioral") && Boolean(manifest.ax?.matrix));
+      if (needsArtifact) requireArtifact(artifactRoot, "ax report");
+      const staticResult = configured(manifest, "static") ? await runStaticChecks({ repoPath, manifest, artifactRoot }) : null;
+      const conformanceResult = configured(manifest, "conformance") ? await runConformance({ repoPath, manifest, artifactRoot }) : null;
       let behavioralResult = null;
-      if (manifest.ax?.scenariosDir) {
+      if (configured(manifest, "behavioral")) {
         const scenariosDir = path.join(repoPath, manifest.ax.scenariosDir);
-        behavioralResult = await runScenarios({ scenariosDir, k: Number(flag("k", "3")), driver: flag("driver", "stub"), agents: parseAgentsFlag(flag("agents")) });
+        behavioralResult = manifest.ax.matrix
+          ? await runMatrix({ repoPath, artifactRoot, scenariosDir, matrix: manifest.ax.matrix })
+          : await runScenarios({ scenariosDir, k: Number(flag("k", "3")), driver: "stub" });
       }
-      const report = aggregateReport({ manifest, staticResult, conformanceResult, behavioralResult });
+      const adversarialResult = configured(manifest, "adversarial") && manifest.ax?.adversarial
+        ? await runAdversarial({ repoPath, manifest, artifactRoot, casesDir: path.join(repoPath, manifest.ax.adversarial.casesDir) })
+        : null;
+      const report = aggregateReport({ manifest, staticResult, conformanceResult, behavioralResult, adversarialResult });
       // CLAIM-FIDELITY: pass all three raw gate results, not just static —
       // see ax/report.mjs's toSarif for why a static-only SARIF can read
       // clean while gateResult is "fail".
-      const sarif = toSarif({ staticResult, conformanceResult, behavioralResult });
+      const sarif = toSarif({ staticResult, conformanceResult, behavioralResult, adversarialResult });
       const format = flag("format", "json");
       if (format === "sarif") printJson(sarif);
       else if (format === "markdown" || format === "md") console.log(renderMarkdown(report));
@@ -153,14 +191,14 @@ async function main() {
       process.exitCode = gateExitCode(report);
       return;
     }
-    console.error("right-ax ax: expected static, conformance, behavioral, or report");
+    console.error("right-ax ax: expected static, conformance, behavioral, adversarial, or report");
     process.exitCode = 2;
     return;
   }
 
   if (first === "adopt") {
     const repoPath = resolveRepoPath(rest[0]?.startsWith("--") ? undefined : rest[0]);
-    const result = adoptRepo(repoPath, { scenariosDir: flag("scenarios-dir"), serve: flag("serve"), write: flag("dry-run") !== undefined ? false : undefined });
+    const result = adoptRepo(repoPath, { scenariosDir: flag("scenarios-dir"), serve: parseAdoptServe(rest), write: flag("dry-run") !== undefined ? false : undefined });
     printJson(result);
     process.exitCode = result.ok ? 0 : 1;
     return;
@@ -178,16 +216,20 @@ Commands:
   plugin init <repo-path> [--name] [--version] [--description] [--license] [--homepage] [--mcp-command] [--skill-name]
                                               Scaffold plugin.json / skills/<name>/SKILL.md / mcp.json
   plugin validate <repo-path>                Validate agent-plugins.org layout + path-safety rules
-  ax static <repo-path>                      Phase B contract checklist (14 rules, DESIGN §6)
-  ax conformance <repo-path>                 Phase C live stdio probes against .rightax.json's MCP surface
-  ax behavioral <repo-path> [--driver stub|<name>] [--k <n>] [--agents a,b]
-                                              Phase D scenario runner; UNPROVEN until a real matrix runs.
-                                              --agents declares the distinct-agent roster (required for
-                                              real-matrix; see DESIGN.md OD-2 — no bundled real driver ships)
-  ax report <repo-path> [--format json|sarif|markdown] [--driver] [--k] [--agents a,b]
+  ax static <repo-path> [--artifact-root <dir>]
+                                              Phase B contract checklist; artifact required for MCP surfaces
+  ax conformance <repo-path> --artifact-root <dir>
+                                              Phase C live stdio probes against packaged MCP surface
+  ax behavioral <repo-path> [--matrix --artifact-root <dir>] [--k <n>]
+                                              Phase D stub or configured real-adapter matrix
+  ax adversarial <repo-path> --artifact-root <dir>
+                                              Phase E packaged MCP security probes
+  ax report <repo-path> [--artifact-root <dir>] [--format json|sarif|markdown] [--k]
                                               Aggregate scorecard; gates and reports, never signs off
-  adopt <repo-path> [--scenarios-dir] [--serve] [--dry-run]
+  adopt <repo-path> [--scenarios-dir] [--serve <program> [--serve-arg <argv>]...] [--dry-run]
                                               Infer and write .rightax.json from an existing harness
+
+Artifact roots are external clean-room directories, absolute or repo-relative paths resolving outside source repo.
 
 Package root: ${packageRoot}`);
 }

@@ -166,6 +166,7 @@ export function LegalGate({
   const [eligibilityBasis, setEligibilityBasis] = useState<LegalGateEligibilityBasis | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const headlineId = useId();
   const trustLineId = useId();
@@ -176,12 +177,16 @@ export function LegalGate({
   const { base, suffix } = splitWordmark(appName);
   const canAgree = eligibilityBasis !== null && agreed && !submitting;
 
-  const handleAgree = (): void => {
+  const handleAgree = async (): Promise<void> => {
     if (eligibilityBasis === null || !agreed || submitting) return;
-    const result = onAgree({ eligibilityBasis });
-    if (result && typeof (result as Promise<void>).then === "function") {
-      setSubmitting(true);
-      void (result as Promise<void>).finally(() => setSubmitting(false));
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      await Promise.resolve(onAgree({ eligibilityBasis }));
+    } catch {
+      setSubmitError("Couldn’t save your acceptance. Try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -239,7 +244,7 @@ export function LegalGate({
         aria-describedby={trustLineId}
         onSubmit={(event) => {
           event.preventDefault();
-          handleAgree();
+          void handleAgree();
         }}
       >
         {/* Left rail: who is asking, and what they can read before agreeing. */}
@@ -359,6 +364,7 @@ export function LegalGate({
             type="submit"
             className="rk-legal-gate__agree"
             disabled={!canAgree}
+            aria-busy={submitting || undefined}
             style={{
               background: theme.accent,
               color: theme.accentContrast,
@@ -370,7 +376,7 @@ export function LegalGate({
               opacity: canAgree ? 1 : 0.45,
             }}
           >
-            Agree &amp; continue
+            {submitting ? "Saving…" : "Agree & continue"}
           </button>
           <button
             type="button"
@@ -382,12 +388,31 @@ export function LegalGate({
               color: theme.muted,
               fontSize: 14,
               padding: "11px 4px",
-              opacity: 0.85,
             }}
           >
             Quit
           </button>
         </div>
+
+        {submitError ? (
+          <div
+            role="alert"
+            data-rk-legal-gate-error=""
+            style={{
+              fontFamily: theme.fontBody,
+              fontSize: 13.5,
+              lineHeight: 1.5,
+              color: theme.text,
+              margin: "14px 0 0",
+              padding: "10px 12px",
+              border: `1px solid ${theme.border}`,
+              borderRadius: 6,
+              background: theme.surface,
+            }}
+          >
+            {submitError}
+          </div>
+        ) : null}
 
         <p
           className="rk-legal-gate__dba"
@@ -397,7 +422,6 @@ export function LegalGate({
             lineHeight: 1.6,
             color: theme.muted,
             margin: "20px 0 0",
-            opacity: 0.85,
           }}
         >
           {dbaLine}

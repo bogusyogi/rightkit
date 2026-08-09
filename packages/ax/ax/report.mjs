@@ -55,6 +55,24 @@ function anyNestedStatusFails(node, depth = 0) {
 
 const SARIF_LEVEL = { error: "error", warning: "warning", info: "note" };
 
+function reportIntegrity({ staticResult, conformanceResult, behavioralResult, adversarialResult }) {
+  const executedGateCount = [staticResult, conformanceResult, behavioralResult, adversarialResult]
+    .filter(Boolean)
+    .length;
+  const artifactDigests = [
+    conformanceResult?.artifact?.digest,
+    behavioralResult?.artifactDigest,
+    adversarialResult?.artifactDigest,
+  ].filter((digest) => typeof digest === "string" && digest.trim() !== "");
+  const uniqueArtifactDigests = [...new Set(artifactDigests)];
+  const fatal = executedGateCount === 0
+    ? { code: "no_gates_executed", message: "report contains no executed gates" }
+    : uniqueArtifactDigests.length > 1
+      ? { code: "artifact_digest_mismatch", message: "executed artifact-bound gates reference different artifacts" }
+      : null;
+  return { executedGateCount, artifactDigest: uniqueArtifactDigests[0] ?? null, fatal };
+}
+
 // CLAIM-FIDELITY fix: toSarif previously only read staticResult, so a run
 // failing on CONFORMANCE or BEHAVIORAL (with static clean) emitted a SARIF
 // doc with zero results — reading as CLEAN while `gateResult` was "fail".
@@ -67,7 +85,7 @@ const SARIF_LEVEL = { error: "error", warning: "warning", info: "note" };
 // the invariant holds even for gate shapes this mapping does not
 // specifically recognize: SARIF `results` emptiness is equivalent to
 // `gateResult === "pass"`, always — never just "usually".
-export function toSarif({ staticResult, conformanceResult, behavioralResult } = {}, toolName = "right-ax") {
+export function toSarif({ staticResult, conformanceResult, behavioralResult, adversarialResult } = {}, toolName = "right-ax") {
   const rules = new Map();
   const results = [];
 
@@ -141,6 +159,13 @@ export function toSarif({ staticResult, conformanceResult, behavioralResult } = 
   if (behavioralFailed && !results.some((result) => result.ruleId.startsWith("behavioral-"))) {
     pushResult("behavioral-gate-failed", "behavioral gate failed", "error", "behavioral gate reported a failure not captured by per-scenario mapping");
   }
+  for (const item of adversarialResult?.cases ?? []) if (item.status === "fail") pushResult(`adversarial-${item.caseId ?? "case"}`, "adversarial case", "error", (item.reasons ?? []).join("; "));
+  if (isFailing(adversarialResult, result => anyNestedStatusFails(result?.cases)) && !results.some(result => result.ruleId.startsWith("adversarial-"))) pushResult("adversarial-gate-failed", "adversarial gate failed", "error", "adversarial gate reported a failure");
+  const integrity = reportIntegrity({ staticResult, conformanceResult, behavioralResult, adversarialResult });
+  if (integrity.fatal) {
+    const ruleId = integrity.fatal.code === "no_gates_executed" ? "report-no-gates-executed" : "report-artifact-digest-mismatch";
+    pushResult(ruleId, integrity.fatal.code, "error", integrity.fatal.message);
+  }
 
   return {
     $schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
@@ -191,15 +216,17 @@ function gateStatus(result, severity, failed) {
   return failed ? "fail" : "pass";
 }
 
-export function aggregateReport({ manifest, staticResult, conformanceResult, behavioralResult }) {
-  const gates = manifest?.ax?.gates ?? { static: "hard", conformance: "hard", behavioral: "report-only" };
+export function aggregateReport({ manifest, staticResult, conformanceResult, behavioralResult, adversarialResult }) {
+  const gates = manifest?.ax?.gates ?? { static: "hard", conformance: "hard", behavioral: "report-only", adversarial: "report-only" };
   const staticFailed = isFailing(staticResult, staticLeafFailed);
   const conformanceFailed = isFailing(conformanceResult, conformanceLeafFailed);
   const behavioralFailed = isFailing(behavioralResult, behavioralLeafFailed);
+  const adversarialFailed = isFailing(adversarialResult, result => anyNestedStatusFails(result?.cases));
   const staticStatus = gateStatus(staticResult, gates.static, staticFailed);
   const conformanceStatus = gateStatus(conformanceResult, gates.conformance, conformanceFailed);
   const behavioralProvenBy = behavioralResult?.provenBy ?? "stub";
   const behavioralStatus = gateStatus(behavioralResult, gates.behavioral, behavioralFailed);
+  const integrity = reportIntegrity({ staticResult, conformanceResult, behavioralResult, adversarialResult });
 
   // F1: the top-level result must never read PASS while any rule or probe
   // failed, at any severity — severity only changes per-gate presentation
@@ -208,7 +235,7 @@ export function aggregateReport({ manifest, staticResult, conformanceResult, beh
   // gate's own leaf scan with its verdict/fatal fields (see isFailing), so a
   // contradictory or forged intermediate (e.g. `verdict: "pass"` alongside a
   // failing leaf rule) cannot flip this to "pass".
-  const anyFailure = staticFailed || conformanceFailed || behavioralFailed;
+  const anyFailure = staticFailed || conformanceFailed || behavioralFailed || adversarialFailed || Boolean(integrity.fatal);
 
   const report = {
     schemaVersion: 1,
@@ -228,6 +255,7 @@ export function aggregateReport({ manifest, staticResult, conformanceResult, beh
           ? "real-matrix executed; see retirement-condition fields for release-threshold review"
           : "UNPROVEN — the stub driver proves harness plumbing only, never real-agent AX reliability",
       },
+      adversarial: { severity: gates.adversarial ?? "report-only", status: adversarialResult ? gateStatus(adversarialResult, gates.adversarial ?? "report-only", adversarialFailed) : "not-run", caseCount: adversarialResult?.cases?.length ?? 0, digest: adversarialResult?.artifactDigest ?? null },
     },
     // gateResult, never "verdict" or "signoff": right-ax gates and reports,
     // it never certifies (I1). Nemesis/Seer own any clean/sign-off claim.
@@ -237,6 +265,9 @@ export function aggregateReport({ manifest, staticResult, conformanceResult, beh
     // directly instead of this field.
     gateResult: anyFailure ? "fail" : "pass",
     signoff: null,
+    fatal: integrity.fatal,
+    executedGateCount: integrity.executedGateCount,
+    digests: { artifact: integrity.artifactDigest, matrix: behavioralResult?.matrixDigest ?? null, scenarios: behavioralResult?.scenarioDigest ?? null, adversarial: adversarialResult?.artifactDigest ?? null },
   };
   return report;
 }
@@ -251,6 +282,7 @@ export function renderMarkdown(report) {
     "",
     `- Generated: ${report.generatedAt}`,
     `- Gate result: **${report.gateResult.toUpperCase()}**`,
+    ...(report.fatal ? [`- Fatal: **${report.fatal.code}** — ${report.fatal.message}`] : []),
     "",
     "right-ax gates and reports; it never signs off. Verdict authority stays with Nemesis/Seer.",
     "",
@@ -261,6 +293,7 @@ export function renderMarkdown(report) {
     `| static | ${report.gates.static.severity} | ${report.gates.static.status} | ${report.gates.static.failCount}/${report.gates.static.ruleCount} rules failing |`,
     `| conformance | ${report.gates.conformance.severity} | ${report.gates.conformance.status} | ${report.gates.conformance.rowCount} tools probed |`,
     `| behavioral | ${report.gates.behavioral.severity} | ${report.gates.behavioral.status} | ${markdownEscape(report.gates.behavioral.claim)} |`,
+    `| adversarial | ${report.gates.adversarial.severity} | ${report.gates.adversarial.status} | ${report.gates.adversarial.caseCount} cases |`,
     "",
   ];
   if (report.gates.behavioral.provenBy !== "real-matrix") {

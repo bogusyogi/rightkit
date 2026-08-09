@@ -58,6 +58,12 @@ import { LegalGate } from "@rightkit/legal-ui";
 />
 ```
 
+## Async acceptance behavior
+
+`onAgree` accepts `void` or a Promise. Pending submission disables its button, exposes `aria-busy`, & displays `Saving…`.
+
+Errors, including synchronous throws, render `Couldn’t save your acceptance. Try again.` in an alert; completion restores retry. Retry clears prior error before invoking handler again.
+
 ## Design bar
 
 - Full-window solid `theme.bg`. No gradients, no cards-on-cards, no progress bar, no step counter.

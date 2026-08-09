@@ -10,6 +10,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { validateRepoLayout } from "../plugin/validate.mjs";
 import { openMcpSession } from "./lib/mcp-stdio-client.mjs";
+import { bindArtifactCommand, resolveArtifact, verifyArtifactUnchanged } from "./artifact.mjs";
 
 function finding(ruleId, severity, status, claim, evidence, remediation) {
   return { ruleId, severity, status, claim, evidence, remediation };
@@ -265,7 +266,7 @@ const REFERENCED_PATH = /`((?:\.{0,2}\/)?[\w.-]+(?:\/[\w.-]+)+\.[a-zA-Z0-9]+)`/g
 function extractReferencedPaths(markdown) {
   return [...markdown.matchAll(REFERENCED_PATH)].map((match) => match[1]).filter((path) => !path.includes("://") && !path.startsWith("http"));
 }
-function rule14(repoPath) {
+function rule14(repoPath, generatedPaths = []) {
   const findings = [];
   const skillPaths = [join(repoPath, "SKILL.md"), ...(existsSync(join(repoPath, "skills")) ? readdirSync(join(repoPath, "skills")).map((name) => join(repoPath, "skills", name, "SKILL.md")) : [])];
   for (const skillPath of skillPaths) {
@@ -282,7 +283,11 @@ function rule14(repoPath) {
       // adds a resolution path; it removes no existing pass.
       const resolvedFromSkillDir = join(skillDir, referenced);
       const resolvedFromRepoRoot = join(repoPath, referenced);
-      if (existsSync(resolvedFromSkillDir) || existsSync(resolvedFromRepoRoot)) continue;
+      const declaredGenerated = generatedPaths.includes(referenced);
+      if (existsSync(resolvedFromSkillDir) || existsSync(resolvedFromRepoRoot) || declaredGenerated) {
+        if (declaredGenerated && !existsSync(resolvedFromSkillDir) && !existsSync(resolvedFromRepoRoot)) findings.push(finding("static-14-skill-references", "info", "pass", "generated path exemption", `${referenced} is exactly declared in ax.generatedPaths`, null));
+        continue;
+      }
       findings.push(finding("static-14-skill-references", "error", "fail", "SKILL.md references no nonexistent files", `${relative(repoPath, skillPath)} references \`${referenced}\`, which does not exist (checked relative to both the SKILL.md's own directory and the package root)`, `remove the reference or ship the file at ${referenced}`));
     }
   }
@@ -296,10 +301,14 @@ export async function fetchLiveTools({ command, args = [], cwd, timeoutMs }) {
   return session.tools;
 }
 
-export async function runStaticChecks({ repoPath, manifest, tools }) {
-  const liveTools = tools ?? (manifest?.surfaces?.mcp?.serve
-    ? await fetchLiveTools(splitServeCommand(manifest.surfaces.mcp.serve, repoPath))
-    : []);
+export async function runStaticChecks({ repoPath, manifest, tools, artifactRoot }) {
+  let artifact = null;
+  let liveTools;
+  try {
+    artifact = artifactRoot ? resolveArtifact({ repoPath, artifactRoot }) : null;
+    if (manifest?.surfaces?.mcp?.command && !artifact) throw new Error("artifact root is required");
+    liveTools = tools ?? (manifest?.surfaces?.mcp?.command ? await fetchLiveTools(bindArtifactCommand({ artifact, ...manifest.surfaces.mcp })) : []);
+  } catch (error) { return { schemaVersion: 1, gate: "static", artifact: artifact?.proof ?? null, fatal: { code: "invalid_artifact", message: String(error.message) }, rules: [], verdict: "fail" }; }
   const rules = [
     ...rule1(liveTools),
     ...rule2(liveTools),
@@ -314,13 +323,10 @@ export async function runStaticChecks({ repoPath, manifest, tools }) {
     ...rule11(repoPath),
     ...rule12(liveTools, repoPath),
     ...rule13(repoPath),
-    ...rule14(repoPath),
+    ...rule14(repoPath, manifest?.ax?.generatedPaths ?? []),
   ];
-  const verdict = rules.every((rule) => rule.status !== "fail") ? "pass" : "fail";
-  return { schemaVersion: 1, gate: "static", toolCount: liveTools.length, rules, verdict };
-}
-
-export function splitServeCommand(serveCommand, cwd) {
-  const [command, ...args] = String(serveCommand).split(/\s+/).filter(Boolean);
-  return { command, args, cwd };
+  artifact = artifact ? verifyArtifactUnchanged(artifact) : null;
+  const mutated = Boolean(artifact && !artifact.proof.immutable);
+  const verdict = !mutated && rules.every((rule) => rule.status !== "fail") ? "pass" : "fail";
+  return { schemaVersion: 1, gate: "static", artifact, toolCount: liveTools.length, rules, fatal: mutated ? { code: "artifact_mutated" } : null, verdict };
 }

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://rightkit.dev/schemas/rightax-manifest-v1.json",
-  "title": "RightAxManifestV1",
+  "$id": "https://rightkit.dev/schemas/rightax-manifest-v2.json",
+  "title": "RightAxManifestV2",
   "description": "Per-repo .rightax.json contract (DESIGN §4). schemaVersion pins the shape so a future breaking change is explicit, never silent.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "surfaces", "ax"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "surfaces": {
       "type": "object",
       "additionalProperties": false,
@@ -15,9 +15,11 @@
         "mcp": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["serve"],
+          "required": ["command", "args", "cwd"],
           "properties": {
-            "serve": { "type": "string", "minLength": 1 },
+            "command": { "type": "string", "minLength": 1 },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "cwd": { "type": "string", "minLength": 1 },
             "tools": { "type": "integer", "minimum": 0 }
           }
         },
@@ -40,16 +42,28 @@
     "ax": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["gates"],
+      "required": ["scenariosDir", "gates"],
       "properties": {
         "scenariosDir": { "type": "string", "minLength": 1 },
+        "generatedPaths": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "matrix": {
+          "type": "object", "additionalProperties": false,
+          "required": ["adapters", "trialsPerAgent", "limits"],
+          "properties": {
+            "adapters": { "type": "array", "minItems": 2, "items": { "type": "object", "additionalProperties": false, "required": ["id", "model", "version", "command", "args"], "properties": { "id": { "type": "string", "minLength": 1 }, "model": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 }, "command": { "type": "string", "minLength": 1 }, "args": { "type": "array", "items": { "type": "string" } } } } },
+            "trialsPerAgent": { "type": "integer", "minimum": 5 },
+            "limits": { "type": "object", "additionalProperties": false, "required": ["timeoutMs", "maxToolCalls", "maxTokens", "maxCostUsd"], "properties": { "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 3600000 }, "maxToolCalls": { "type": "integer", "minimum": 0 }, "maxTokens": { "type": "integer", "minimum": 0 }, "maxCostUsd": { "type": "number", "minimum": 0 } } }
+          }
+        },
+        "adversarial": { "type": "object", "additionalProperties": false, "required": ["casesDir", "gate"], "properties": { "casesDir": { "type": "string", "minLength": 1 }, "gate": { "enum": ["hard", "report-only"] } } },
         "gates": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "static": { "enum": ["hard", "report-only"] },
             "conformance": { "enum": ["hard", "report-only"] },
-            "behavioral": { "enum": ["hard", "report-only"] }
+            "behavioral": { "enum": ["hard", "report-only"] },
+            "adversarial": { "enum": ["hard", "report-only"] }
           }
         },
         "claimBoundaryRequired": { "type": "boolean" }

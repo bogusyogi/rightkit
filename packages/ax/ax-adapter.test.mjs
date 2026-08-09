@@ -1,0 +1,10 @@
+import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+import { runAdapter, RightAxAdapterError } from "./ax/adapter.mjs";
+const fixture=fileURLToPath(new URL("./fixtures/fake-ax-adapter.mjs",import.meta.url));
+const request={schemaVersion:1,repoRoot:"D:/repo",artifactRoot:"D:/artifact",scenario:{scenarioId:"s",expected:{requiredOperations:["cortex_status"],requiredClaims:["done"],finalEnvironment:{ready:true}}},trialIndex:1,agent:{id:"alpha",model:"m",version:"1"},limits:{timeoutMs:1000,maxToolCalls:2,maxTokens:2,maxCostUsd:1}};
+const run=(mode,timeoutMs=1000)=>runAdapter({adapter:{id:"alpha",command:process.execPath,args:[fixture,mode]},request:{...request,limits:{...request.limits,timeoutMs}}});
+test("adapter pass and domain result preserve protocol",async()=>{assert.equal((await run("pass")).agentId,"alpha");assert.equal((await run("domain-fail")).answer,"");});
+for(const [mode,code] of [["timeout","adapter_timeout"],["stdout-limit","adapter_stdout_limit"],["stderr-limit","adapter_stderr_limit"],["exit","adapter_exit_nonzero"],["malformed","adapter_malformed_json"],["agent-mismatch","adapter_agent_mismatch"],["over-toolcalls","adapter_limit_exceeded"],["over-tokens","adapter_limit_exceeded"]])test(mode,async()=>await assert.rejects(()=>run(mode,mode==="timeout"?100:1000),error=>error instanceof RightAxAdapterError&&error.code===code));
+test("exited nonzero adapter retains its exit verdict under contention",async()=>{const results=await Promise.all(Array.from({length:24},()=>assert.rejects(()=>run("exit",5000),error=>error instanceof RightAxAdapterError&&error.code==="adapter_exit_nonzero")));assert.equal(results.length,24);});

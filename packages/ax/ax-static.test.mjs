@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -241,9 +241,10 @@ test("F10: rule 11 reports unverifiable (not pass) when the only evidence is the
 
 test("static gate can fetch the live tools/list payload from a real MCP server (no pre-supplied tools)", async () => {
   const repo = tempRepo();
-  const serverPath = path.join(HERE, "fixtures", "fake-mcp-server.mjs");
-  const manifest = { surfaces: { mcp: { serve: `node ${serverPath}` } }, ax: {} };
-  const result = await runStaticChecks({ repoPath: repo, manifest });
+  const artifactRoot = mkdtempSync(path.join(os.tmpdir(), "right-ax-static-artifact-"));
+  cpSync(path.join(HERE, "fixtures", "fake-mcp-server.mjs"), path.join(artifactRoot, "fake-mcp-server.mjs"));
+  const manifest = { surfaces: { mcp: { command: "node", args: ["fake-mcp-server.mjs"], cwd: "${ARTIFACT_ROOT}" } }, ax: {} };
+  const result = await runStaticChecks({ repoPath: repo, manifest, artifactRoot });
   assert.equal(result.toolCount, 2);
   assert.ok(result.rules.some((r) => r.ruleId === "static-2-wire-description" && r.evidence.includes("good_tool") && r.status === "pass"));
   assert.ok(result.rules.some((r) => r.ruleId === "static-2-wire-description" && r.evidence.includes("bad_tool") && r.status === "fail"));

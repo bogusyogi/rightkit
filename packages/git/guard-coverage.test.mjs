@@ -218,3 +218,10 @@ test("F5: private-repo-guard job has no job-level `if` (always runs) and fails o
     );
   }
 });
+
+test("qualification preserves failing schema evidence as a unique required artifact", () => {
+  const template = fs.readFileSync(path.join(templatesDir, "qualification.yml"), "utf8");
+  assert.doesNotMatch(template, /\|\| true/);
+  assert.match(template, /set -o pipefail[\s\S]*tee qualification-schema\.log/);
+  assert.match(template, /uses: actions\/upload-artifact@v4[\s\S]*github\.run_id[\s\S]*github\.run_attempt[\s\S]*if-no-files-found: error/);
+});

@@ -41,7 +41,18 @@ jobs:
           cache: ${PM_CACHE}
       - run: corepack enable
       - run: ${INSTALL_COMMAND}
-      - run: node scripts/ci/check-schema.mjs || true
+      - name: Check schema with evidence log
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/ci/check-schema.mjs 2>&1 | tee qualification-schema.log
+      - name: Upload schema evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-schema-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qualification-schema.log
+          if-no-files-found: error
   security:
     needs: [qualification]
     runs-on: ubuntu-latest

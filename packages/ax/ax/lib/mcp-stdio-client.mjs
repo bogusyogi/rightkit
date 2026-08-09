@@ -8,6 +8,7 @@
 
 import { spawn } from "node:child_process";
 import { redactText } from "../../lib/redact.mjs";
+import { PACKAGE_VERSION } from "../../lib/version.mjs";
 
 const PROTOCOL_VERSION = "2025-03-26";
 const DEFAULT_MAX_BUFFER_BYTES = 10 * 1024 * 1024; // F13: bound stdout line-buffer growth
@@ -134,7 +135,7 @@ export async function openMcpSession({ command, args = [], cwd, timeoutMs = 6000
   const initializeResponse = await rpc.request("initialize", {
     protocolVersion: PROTOCOL_VERSION,
     capabilities: {},
-    clientInfo: { name: "right-ax", version: "0.1.0" },
+    clientInfo: { name: "right-ax", version: PACKAGE_VERSION },
   });
   rpc.notify("notifications/initialized");
   const toolsResponse = await rpc.request("tools/list", {});

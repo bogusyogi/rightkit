@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { evaluateTrial, runScenarios } from "./ax/behavioral.mjs";
+import { evaluateTrial, runMatrix, runScenarios } from "./ax/behavioral.mjs";
+import { fileURLToPath } from "node:url";
 
 function scenariosDir() {
   const dir = mkdtempSync(path.join(os.tmpdir(), "right-ax-behavioral-"));
@@ -301,3 +302,13 @@ test("no scenario files is a typed fatal, not zero-scenario silent pass", async 
   assert.equal(result.fatal.code, "no_scenarios");
   assert.equal(result.verdict, "fail");
 });
+
+const fake = fileURLToPath(new URL("./fixtures/fake-ax-adapter.mjs", import.meta.url));
+const artifactInput = () => ({ repoPath: mkdtempSync(path.join(os.tmpdir(), "ax-matrix-repo-")), artifactRoot: mkdtempSync(path.join(os.tmpdir(), "ax-matrix-artifact-")) });
+const matrix = (mode = "pass", overrides = {}) => ({ adapters: ["alpha", "beta"].map((id) => ({ id, model: `m-${id}`, version: "1", command: process.execPath, args: [fake, mode, id] })), trialsPerAgent: 5, limits: { timeoutMs: 5000, maxToolCalls: 2, maxTokens: 2, maxCostUsd: 1 }, ...overrides });
+test("matrix happy path binds full evidence", async () => { const dir = scenariosDir(); writeScenario(dir, "matrix"); const input=artifactInput(); const a = await runMatrix({ ...input, scenariosDir: dir, matrix: matrix() }); const b = await runMatrix({ ...artifactInput(), scenariosDir: dir, matrix: { ...matrix(), adapters: [...matrix().adapters].reverse() } }); assert.equal(a.verdict, "pass"); assert.deepEqual(a.scenarioResults.matrix.agentTrialCounts, { alpha: 5, beta: 5 }); assert.equal(a.provenBy, "real-matrix"); assert.equal(a.matrixDigest, b.matrixDigest); assert.equal(a.scenarioCount,1); assert.deepEqual(a.scenarioIds,["matrix"]); assert.equal(a.artifactDigest,a.artifact.digest); assert.deepEqual(a.trials[0].trials.map((row)=>row.trial),[1,2,3,4,5,1,2,3,4,5]); assert.ok(a.trials[0].trials.every((row)=>path.isAbsolute(row.response.transcriptSha256)===false)); });
+test("matrix digest binds command and limits while scenario digest binds content", async () => { const dir = scenariosDir(); writeScenario(dir,"bound"); const base=await runMatrix({...artifactInput(),scenariosDir:dir,matrix:matrix()}); const changed=matrix(); changed.limits={...changed.limits,maxTokens:3}; const other=await runMatrix({...artifactInput(),scenariosDir:dir,matrix:changed}); assert.notEqual(base.matrixDigest,other.matrixDigest); writeFileSync(path.join(dir,"bound.yaml"),JSON.stringify({scenarioId:"bound",expected:{requiredClaims:["changed"]}})); const content=await runMatrix({...artifactInput(),scenariosDir:dir,matrix:matrix()}); assert.notEqual(base.scenarioDigest,content.scenarioDigest); });
+test("duplicate execution identity is invalid", async () => { const dir=scenariosDir(); writeScenario(dir,"duplicate"); const adapters=matrix().adapters; const bad=[adapters[0],{...adapters[0],id:"beta"}]; const result=await runMatrix({...artifactInput(),scenariosDir:dir,matrix:matrix("pass",{adapters:bad})}); assert.equal(result.fatal.code,"matrix_invalid"); });
+test("domain failure is complete real matrix with fail verdict", async () => { const dir = scenariosDir(); writeScenario(dir, "domain"); const r = await runMatrix({ ...artifactInput(), scenariosDir: dir, matrix: matrix("domain-fail") }); assert.equal(r.provenBy, "real-matrix"); assert.equal(r.claimBoundary, "PROVEN"); assert.equal(r.verdict, "fail"); });
+test("timeout is incomplete and UNPROVEN", async () => { const dir = scenariosDir(); writeScenario(dir, "timeout"); const r = await runMatrix({ ...artifactInput(), scenariosDir: dir, matrix: matrix("timeout", { limits: { timeoutMs: 50, maxToolCalls: 2, maxTokens: 2, maxCostUsd: 1 } }) }); assert.equal(r.claimBoundary, "UNPROVEN"); assert.equal(r.verdict, "fail"); });
+test("invalid matrix forms reject before spawn", async () => { const dir = scenariosDir(); writeScenario(dir, "invalid"); for (const bad of [{ adapters: [matrix().adapters[0], { ...matrix().adapters[0], id: " ALPHA " }] }, { trialsPerAgent: 4 }, { adapters: [{ ...matrix().adapters[0], model: "" }, matrix().adapters[1]] }, { limits: { timeoutMs: 1 } }]) { const r = await runMatrix({ ...artifactInput(), scenariosDir: dir, matrix: matrix("exit", bad) }); assert.equal(r.fatal.code, "matrix_invalid"); } });

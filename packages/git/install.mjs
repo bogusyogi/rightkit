@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { assertPublic } from "./policy/visibility-gate.mjs";
 import { MANIFEST_FILENAME, validateManifest } from "./manifest.mjs";
-import { syncCommand } from "./sync.mjs";
+import { applyPlan, planSync } from "./sync.mjs";
 
 export const DEFAULT_MATRIX = { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] };
 export const DEFAULT_PACKAGE_MANAGER = "pnpm@11.18.0";
@@ -65,8 +65,14 @@ export async function installCommand(repoPath, opts = {}, deps = {}) {
   const { valid, errors } = validateManifest(manifest);
   if (!valid) return { ok: false, stage: "manifest-invalid", errors };
 
-  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-
-  const plan = await syncCommand(repoPath, { dryRun: false, deps });
-  return { ok: plan.ok, stage: "synced", errors: plan.errors || [], manifestPath, plan };
+  const manifestBytes = `${JSON.stringify(manifest, null, 2)}\n`;
+  const plan = await planSync(repoPath, deps, manifest);
+  if (!plan.ok) return { ok: false, stage: plan.stage, errors: plan.errors, plan };
+  fs.writeFileSync(manifestPath, manifestBytes, "utf8");
+  const applied = applyPlan(repoPath, plan);
+  if (!applied.ok) {
+    if (fs.readFileSync(manifestPath, "utf8") === manifestBytes) fs.rmSync(manifestPath);
+    return { ok: false, stage: applied.stage, errors: applied.errors, plan };
+  }
+  return { ok: true, stage: "synced", errors: [], manifestPath, plan };
 }
