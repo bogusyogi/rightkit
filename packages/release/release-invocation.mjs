@@ -16,13 +16,32 @@ function canonical(file) {
 
 export function assertPrimaryReleaseCheckout(repoRoot) {
   const worktrees = git(repoRoot, ["worktree", "list", "--porcelain"]);
-  const primary = worktrees.match(/^worktree (.+)$/m)?.[1];
+  const gitDir = git(repoRoot, ["rev-parse", "--git-dir"]).trim();
+  const configured = spawnSync("git", ["config", "--path", "--get", "core.worktree"], {
+    cwd: repoRoot, encoding: "utf8", windowsHide: true,
+  });
+  const primary = resolvePrimaryWorktree({
+    repoRoot,
+    worktrees,
+    gitDir,
+    coreWorktree: configured.status === 0 ? configured.stdout.trim() : "",
+  });
   if (!primary) throw new Error("unable to resolve the primary Git worktree");
   if (canonical(repoRoot) !== canonical(primary)) {
     throw new Error(`right-release must be invoked from the primary Git worktree: ${primary}`);
   }
   const branch = spawnSync("git", ["symbolic-ref", "--quiet", "HEAD"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
   if (branch.status !== 0) throw new Error("right-release requires a branch-attached primary Git checkout; detached HEAD is forbidden");
+}
+
+export function resolvePrimaryWorktree({ repoRoot, worktrees, gitDir, coreWorktree }) {
+  const listed = worktrees.match(/^worktree (.+)$/m)?.[1];
+  if (!listed) return undefined;
+  const resolvedGitDir = path.resolve(repoRoot, gitDir);
+  if (path.resolve(listed) === resolvedGitDir && coreWorktree) {
+    return path.resolve(resolvedGitDir, coreWorktree);
+  }
+  return listed;
 }
 
 export function resolveConfiguredBuildInputs(config, target, label = "release config") {

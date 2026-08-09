@@ -16,6 +16,10 @@ export function isolatedCargoMetadataEnv(cargoHome, env = process.env) {
   return { ...metadataEnv, CARGO_HOME: cargoHome };
 }
 
+export function cargoExecutable(platform = process.platform) {
+  return platform === "win32" ? "cargo.exe" : "cargo";
+}
+
 export function validateRightKitCargoContract(root, publishedVersions, label = path.basename(root)) {
   const scanRoot = path.resolve(root);
   const boundary = findRepositoryRoot(scanRoot);
@@ -72,7 +76,7 @@ export function assertNoRightKitCargoOverrides(manifestPath, repoRoot, label) {
 
 function readCargoManifestDependencies(manifestPath, cargoHome, label) {
   const result = spawnSync(
-    "cargo",
+    cargoExecutable(),
     ["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", manifestPath],
     {
       cwd: path.dirname(manifestPath),
