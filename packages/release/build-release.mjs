@@ -29,6 +29,17 @@ import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures }
 import { assertCleanSource } from "./source-gate.mjs";
 import { acquireHeavyWorkSlot, heavyCommandEnvironment, terminateProcessTree } from "./heavy-command.mjs";
 
+// Fingerprint of the pipeline code that can change the bytes we ship or the way
+// they are signed — deliberately NOT the package version, which moves for docs
+// and test-only edits and would force a cold Rust rebuild of every app each time.
+// These four files are the ones whose behaviour the cached target directory can
+// outlive.
+const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
+const PIPELINE_FINGERPRINT = createHash("sha256")
+  .update(PIPELINE_FINGERPRINT_SOURCES.map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
+  .digest("hex")
+  .slice(0, 16);
+
 /** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
 function buildPreflight({ config, configPath, appRoot, repoRoot, platform }) {
   let version;
@@ -124,8 +135,13 @@ try {
   const receiptRoot = path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(appRoot, ".right-release", "receipts"));
   const signingIdentity = platform === "win" ? {
     contract: target.signingContract ?? "<missing>",
+    // Pipeline code participates in cache identity. Without it, a fix to the
+    // signing or packaging logic leaves the previous logic's target directory
+    // eligible for reuse — which is how outputs from a known-bad pipeline
+    // outlived the change that was supposed to retire them.
+    pipeline: PIPELINE_FINGERPRINT,
     configSha256: hashFile(configPath),
-    receiptInputs: ["raw-exe", "installer"].map((phase) => path.join(receiptRoot, `windows-${phase}.json`)),
+    receiptInputs: ["raw-exe", "installer", "embedding"].map((phase) => path.join(receiptRoot, `windows-${phase}.json`)),
   } : null;
   if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
   const cargoLock = requiredInputs.find((file) => /Cargo\.lock$/i.test(file));

@@ -372,6 +372,17 @@ test("Windows tier-neutral build builds raw EXE, signs it, bundles, signs instal
   assert.doesNotMatch(result.stdout, /publish-update\.mjs/);
 });
 
+test("Windows verifies the installer embeds the signed EXE after bundling and before the installer is signed", () => {
+  const result = run(fixture({ publish: true }));
+  assert.equal(result.status, 0, result.stderr);
+  const rawSignAt = result.stdout.indexOf("signing windows raw-exe");
+  const bundleAt = result.stdout.indexOf("node -e", rawSignAt);
+  const embeddingAt = result.stdout.indexOf("verify installer embeds the signed raw EXE");
+  const installerSignAt = result.stdout.indexOf("signing windows installer");
+  assert.ok(embeddingAt > bundleAt, `embedding check must follow bundling:\n${result.stdout}`);
+  assert.ok(installerSignAt > embeddingAt, `a mutated payload must never reach the installer signature:\n${result.stdout}`);
+});
+
 test("legacy internal tier does not make the build worker upload", () => {
   const result = run(fixture({ publish: true }), "--tier=update");
   assert.equal(result.status, 0, result.stderr);

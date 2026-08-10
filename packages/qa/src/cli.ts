@@ -5,11 +5,14 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
+  addEvidenceArtifact,
   addEvidenceCheck,
   createEvidenceBundle,
   finishEvidenceBundle,
   writeEvidenceBundle,
 } from './evidence.js';
+import type { EvidenceBundle } from './evidence.js';
+import { createQaWorkspace, pruneAbandonedWorkspaces } from './workspace.js';
 import { createWdioConfig, defineRightQaConfig } from './native.js';
 import type { NativeQaRuntimeOptions, RightQaConfig } from './native.js';
 import { acquireRunOwnership } from './ownership.js';
@@ -48,10 +51,13 @@ export async function runNativeQa(
 
   const cacheRoot = path.resolve(app.appRoot, app.evidenceDir ?? '.cache/rightkit-qa');
   const runId = crypto.randomUUID();
-  const runRoot = path.join(cacheRoot, 'runs', runId);
+  // Earlier crashed runs left their directories behind; sweep them before adding
+  // one more, and never touch the run about to start.
+  pruneAbandonedWorkspaces(cacheRoot, { keep: [runId] });
+  const workspace = createQaWorkspace({ root: cacheRoot, runId, appKey: app.app });
+  const runRoot = workspace.root;
   const generatedConfig = path.join(runRoot, 'wdio.generated.mjs');
   const evidencePath = path.join(runRoot, 'evidence.json');
-  fs.mkdirSync(runRoot, { recursive: true });
   fs.writeFileSync(
     generatedConfig,
     [
@@ -77,16 +83,22 @@ export async function runNativeQa(
         timeoutMs: options.timeoutMs ?? 5 * 60_000,
         env: {
           ...process.env,
-          RIGHTKIT_QA_NATIVE: '1',
+          // The isolated data directory is what makes this a separate instance
+          // rather than a second claimant on the installed app's single-instance lock.
+          ...workspace.env,
           RIGHTKIT_QA_HIDDEN: '1',
           TAURI_WEBDRIVER_PORT: String(options.embeddedPort ?? 4445),
         },
       },
     );
     const passed = result.code === 0;
+    // Bind the receipt to the driver log actually produced, so "the run passed"
+    // is checkable against bytes rather than taken on trust.
+    const logArtifacts = recordRunArtifacts(evidence, path.join(runRoot, 'wdio'));
     addEvidenceCheck(evidence, {
       name: 'wdio.run',
       status: passed ? 'passed' : 'failed',
+      artifacts: logArtifacts,
       details: {
         code: result.code,
         signal: result.signal,
@@ -154,6 +166,32 @@ function requireDesktopPlatform(): DesktopPlatform {
 function valueAfter(argv: string[], flag: string): string | undefined {
   const index = argv.indexOf(flag);
   return index >= 0 ? argv[index + 1] : undefined;
+}
+
+/**
+ * Hash whatever the driver actually wrote. Missing logs are simply not recorded
+ * — a check that references nothing is honest; a check that references a file
+ * that was never hashed is refused by addEvidenceCheck.
+ */
+function recordRunArtifacts(evidence: EvidenceBundle, logDir: string): string[] {
+  const names: string[] = [];
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(logDir);
+  } catch {
+    return names;
+  }
+  for (const entry of entries.sort()) {
+    const file = path.join(logDir, entry);
+    try {
+      if (!fs.statSync(file).isFile()) continue;
+      addEvidenceArtifact(evidence, { name: `wdio/${entry}`, path: file });
+      names.push(`wdio/${entry}`);
+    } catch {
+      // An unreadable log is not evidence; leaving it unreferenced is the point.
+    }
+  }
+  return names;
 }
 
 function tail(value: string, maxLength = 4_000): string {

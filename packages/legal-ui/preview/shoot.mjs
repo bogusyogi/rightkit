@@ -14,7 +14,7 @@ const outDir = join(pkgRoot, ".preview");
 mkdirSync(outDir, { recursive: true });
 
 const origin = process.env.PREVIEW_ORIGIN ?? "http://127.0.0.1:4310";
-const qaScript = "D:/Claude/tools/skills/qa/scripts/qa.mjs";
+const qaScript = "D:/Claude/tools/lib/qa-engine/qa.mjs";
 
 // Mirrors preview/variants.ts APPS order/keys — kept in plain JS here so this
 // script needs no TS loader to run standalone. LIGHT-ONLY (locked 2026-07-17);

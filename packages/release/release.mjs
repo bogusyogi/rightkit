@@ -10,6 +10,8 @@ import { assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
+import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
+import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -193,10 +195,19 @@ if (!opts.skipChecks) {
   for (const script of config.checks ?? []) await runPackageScript(config.packageManager, script, workdir);
 }
 
+let bundleMarkerReceipts = [];
 if (opts.platform === "win") {
   const rawFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
   await runCommand(target.prePackage, root);
   for (const file of rawFiles) await mustExist(file, `missing raw EXE signing artifact: ${file}`);
+  // The marker must reach its FINAL value before signing. Tauri rewrites it during
+  // bundling, and doing that to signed bytes invalidates Authenticode — the exact
+  // defect that shipped invalid binaries. Idempotent, so an app that still patches
+  // in its own prePackage script simply reports alreadyPatched here.
+  bundleMarkerReceipts = opts.dryRun ? [] : rawFiles.map((file) => patchTauriBundleType(file, { bundle: target.bundleMarker ?? "nsis" }));
+  for (const receipt of bundleMarkerReceipts) {
+    console.log(`right-release: bundle marker ${receipt.bundle} ${receipt.alreadyPatched ? "already applied" : "applied"} at offset ${receipt.offset} in ${path.basename(receipt.file)}`);
+  }
   await signWindows(rawFiles, "raw-exe", root);
 }
 
@@ -209,6 +220,10 @@ for (const rel of target.artifacts ?? []) {
 if (opts.platform === "win" && target.sign?.files?.length) {
   const files = target.sign.files.map((p) => path.resolve(root, p));
   for (const file of files) await mustExist(file, `missing signing artifact: ${file}`);
+  // Before the installer earns its own signature, prove it carries the bytes we
+  // signed. An installer-only signature on a mutated payload verifies perfectly
+  // and still installs a binary Windows rejects.
+  await verifyWindowsEmbedding({ root, target, files, markers: bundleMarkerReceipts });
   await signWindows(files, "installer", root);
   if (target.postSign) await runCommand(target.postSign, root);
   const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => path.resolve(root, artifact.file)))];
@@ -404,6 +419,69 @@ async function signWindows(files, phase, root) {
   console.log(`right-release: signing windows ${phase}`);
   await run("node", [...args, ...files], root);
   if (!opts.dryRun) verifyWindowsReceipt(receipt, files, phase);
+}
+
+function windowsReceiptPath(root, phase) {
+  return path.join(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `windows-${phase}.json`);
+}
+
+/**
+ * Close the gap between "the raw EXE was signed" and "the installer ships that
+ * EXE". Three independent facts, each able to fail on its own:
+ *   1. the signed EXE on disk is byte-identical to what the signing receipt says
+ *      (catches an in-place rewrite during bundling),
+ *   2. it still verifies as Authenticode-valid (catches a mutation that somehow
+ *      preserved the hash we recorded), and
+ *   3. the executable extracted back out of the installer matches it byte for
+ *      byte (catches a bundler that patched its own copy and left ours alone).
+ * Only the third is proof the shipped artifact is correct; the first two name
+ * the cause when it is not.
+ */
+async function verifyWindowsEmbedding({ root, target, files, markers }) {
+  if (opts.dryRun) {
+    console.log("dry-run: verify installer embeds the signed raw EXE");
+    return;
+  }
+  const rawFile = path.resolve(root, target.sign.prePackageFiles[0]);
+  const rawReceiptPath = windowsReceiptPath(root, "raw-exe");
+  let rawReceipt;
+  try { rawReceipt = JSON.parse(readFileSync(rawReceiptPath, "utf8")); } catch { fail(`missing raw EXE signing receipt: ${rawReceiptPath}`); }
+  const signed = rawReceipt.files?.find((item) => path.resolve(item.file) === rawFile);
+  const signedSha256 = signed?.after?.sha256;
+  if (!signedSha256) fail(`raw EXE signing receipt does not record a signed digest for ${rawFile}`);
+
+  await mustExist(rawFile, `signed raw EXE disappeared before packaging completed: ${rawFile}`);
+  const currentSha256 = createHash("sha256").update(readFileSync(rawFile)).digest("hex");
+  if (currentSha256 !== signedSha256) {
+    fail(
+      `packaging rewrote the signed raw EXE: signed sha256 ${signedSha256}, on-disk sha256 ${currentSha256}. `
+      + "Its Authenticode signature is now invalid. Apply every deterministic byte patch before signing, never after.",
+    );
+  }
+  // signtool, not inference: a hash match proves the bytes, this proves the chain.
+  await run("node", [SIGN_WINDOWS, "--verify-only", rawFile], root);
+
+  const embedded = [];
+  for (const installer of files) {
+    let receipt;
+    try {
+      receipt = verifyNsisEmbeddedBinary({ installer, entryName: path.basename(rawFile), expectedSha256: signedSha256 });
+    } catch (error) {
+      fail(error.message);
+    }
+    console.log(`right-release: ${path.basename(installer)} embeds the signed ${receipt.entry} (sha256 ${receipt.sha256.slice(0, 16)}…)`);
+    embedded.push(receipt);
+  }
+
+  const receiptPath = windowsReceiptPath(root, "embedding");
+  mkdirSync(path.dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify({
+    schema: 1,
+    rawExe: { file: rawFile, signedSha256, verifiedSha256: currentSha256 },
+    bundleMarkers: markers ?? [],
+    embedded,
+    verifiedAt: new Date().toISOString(),
+  }, null, 2)}\n`);
 }
 
 function verifyWindowsReceipt(receipt, files, phase) {
