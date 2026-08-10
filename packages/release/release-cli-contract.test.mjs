@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 import test from "node:test";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +69,36 @@ test("Windows upload trust verification uses signtool instead of PowerShell modu
   assert.doesNotMatch(uploadSource, /Get-AuthenticodeSignature/);
   assert.match(signingSource, /verifyOnly/);
   assert.match(signingSource, /\["verify", "\/pa", "\/v", file\]/);
+});
+
+test("Windows signer verification accepts CRLF subjects and retains identity checks", () => {
+  const source = readFileSync(signWindows, "utf8");
+  const functionSource = source.slice(source.indexOf("function assertVerification"), source.indexOf("\nfunction fileEvidence"));
+  const assertVerification = vm.runInNewContext(`(${functionSource})`, {
+    fail(message) { throw new Error(message); },
+  });
+  const valid = "Successfully verified\r\n\tIssued to: Damned Ventures LLC  \r\nTimestamp: present\r\n";
+  assert.equal(JSON.stringify(assertVerification("fixture.exe", valid)), JSON.stringify({
+    authenticode: "Valid",
+    subject: "CN=Damned Ventures LLC",
+    timestampPresent: true,
+  }));
+  assert.throws(
+    () => assertVerification("fixture.exe", valid.replace("Damned Ventures LLC", "Other Company")),
+    /subject must be Damned Ventures LLC/,
+  );
+  assert.throws(
+    () => assertVerification("fixture.exe", valid.replace("Damned Ventures LLC", "damned ventures llc")),
+    /subject must be Damned Ventures LLC/,
+  );
+  assert.throws(
+    () => assertVerification("fixture.exe", valid.replace("Timestamp: present", "")),
+    /timestamp is missing/,
+  );
+  assert.throws(
+    () => assertVerification("fixture.exe", valid.replace("Successfully verified", "Verification failed")),
+    /did not report Valid/,
+  );
 });
 
 test("upload uses only the pinned pnpm runner", () => {

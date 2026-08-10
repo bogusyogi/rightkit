@@ -151,7 +151,7 @@ function run(cmd, runArgs) {
 
 function assertVerification(file, output) {
   if (!/successfully verified/i.test(output)) fail(`Authenticode verification did not report Valid for ${file}`);
-  if (!/^Issued to:\s*Damned Ventures LLC\s*$/im.test(output)) fail(`Authenticode subject must be Damned Ventures LLC for ${file}`);
+  if (!/^[ \t]*Issued to:[ \t]*Damned Ventures LLC[ \t]*$/m.test(output)) fail(`Authenticode subject must be Damned Ventures LLC for ${file}`);
   if (!/(?:timestamp|time stamped|timestamped)/i.test(output)) fail(`Authenticode timestamp is missing for ${file}`);
   return { authenticode: "Valid", subject: "CN=Damned Ventures LLC", timestampPresent: true };
 }
