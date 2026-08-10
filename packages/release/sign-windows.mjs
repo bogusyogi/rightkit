@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -19,9 +20,14 @@ const userEnvCache = new Map();
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const verifyOnly = args.includes("--verify-only");
-const files = args.filter((arg) => arg !== "--dry-run" && arg !== "--verify-only").map((arg) => path.resolve(arg));
+const receiptIndex = args.indexOf("--receipt");
+const receiptPath = receiptIndex >= 0 ? args[receiptIndex + 1] : null;
+const files = args
+  .filter((arg, index) => arg !== "--dry-run" && arg !== "--verify-only" && arg !== "--receipt" && (receiptIndex < 0 || index !== receiptIndex + 1))
+  .map((arg) => path.resolve(arg));
 
 if (!files.length) fail("usage: node sign-windows.mjs [--dry-run|--verify-only] <file>...");
+if (receiptIndex >= 0 && !receiptPath) fail("--receipt requires a path");
 if (dryRun) {
   console.log(`dry-run: ${verifyOnly ? "Authenticode verification" : "Azure Artifact Signing"} ${files.join(", ")}`);
   process.exit(0);
@@ -33,7 +39,7 @@ const childEnv = signingEnv();
 const signtool = findFirst([env("AZURE_SIGNTOOL_PATH"), env("SIGNTOOL_PATH"), ...signtoolCandidates()]);
 if (!signtool) fail("signtool.exe not found; set AZURE_SIGNTOOL_PATH or install Windows SDK Build Tools");
 if (verifyOnly) {
-  for (const file of files) run(signtool, ["verify", "/pa", "/v", file]);
+  for (const file of files) assertVerification(file, run(signtool, ["verify", "/pa", "/v", file]));
   process.exit(0);
 }
 const dlib = findFirst([
@@ -47,13 +53,21 @@ if (!dlib) fail("Azure.CodeSigning.Dlib.dll not found; set AZURE_CODESIGN_DLIB_P
 
 const tempDir = mkdtempSync(path.join(os.tmpdir(), "right-sign-"));
 const metadata = metadataPath(tempDir);
+const evidence = [];
 try {
   for (const file of files) {
+    const before = fileEvidence(file);
     run(signtool, ["sign", "/v", "/fd", "SHA256", "/tr", "http://timestamp.acs.microsoft.com", "/td", "SHA256", "/dlib", dlib, "/dmdf", metadata, file]);
-    run(signtool, ["verify", "/pa", "/v", file]);
+    const verification = assertVerification(file, run(signtool, ["verify", "/pa", "/v", file]));
+    evidence.push({ file, before, after: fileEvidence(file), ...verification });
   }
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
+}
+if (receiptPath) {
+  const absoluteReceipt = path.resolve(receiptPath);
+  mkdirSync(path.dirname(absoluteReceipt), { recursive: true });
+  writeFileSync(absoluteReceipt, `${JSON.stringify({ schema: 1, files: evidence }, null, 2)}\n`);
 }
 
 function metadataPath(dir) {
@@ -128,8 +142,23 @@ function userEnv(name) {
 }
 
 function run(cmd, runArgs) {
-  const result = spawnSync(cmd, runArgs, { env: childEnv, stdio: "inherit" });
+  const result = spawnSync(cmd, runArgs, { env: childEnv, encoding: "utf8", windowsHide: true });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
   if (result.status !== 0) process.exit(result.status ?? 1);
+  return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+}
+
+function assertVerification(file, output) {
+  if (!/successfully verified/i.test(output)) fail(`Authenticode verification did not report Valid for ${file}`);
+  if (!/^Issued to:\s*Damned Ventures LLC\s*$/im.test(output)) fail(`Authenticode subject must be Damned Ventures LLC for ${file}`);
+  if (!/(?:timestamp|time stamped|timestamped)/i.test(output)) fail(`Authenticode timestamp is missing for ${file}`);
+  return { authenticode: "Valid", subject: "CN=Damned Ventures LLC", timestampPresent: true };
+}
+
+function fileEvidence(file) {
+  const bytes = readFileSync(file);
+  return { sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: statSync(file).size };
 }
 
 function fail(message) {

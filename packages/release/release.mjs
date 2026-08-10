@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { access, readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -25,6 +26,7 @@ const RIGHTKIT_ALLOWED = buildAllowedVersions(
 );
 const RIGHTKIT_CARGO_ALLOWED = buildAllowedVersions(RIGHTKIT_VERSIONS.cargo, RIGHTKIT_VERSIONS.stagedCargo);
 const FORBIDDEN_RIGHTKIT_SPEC = /^(?:git|file|link|workspace):|github|github\.com/i;
+const WINDOWS_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-nsis-v1";
 
 const args = process.argv.slice(2);
 const opts = {
@@ -97,6 +99,12 @@ if (target.signed !== true) {
 }
 if (opts.platform === "win" && !target.sign?.files?.length) {
   fail(`${config.app ?? "app"} win must declare sign.files for the signed release pipeline`);
+}
+if (opts.platform === "win") {
+  if (target.signingContract !== WINDOWS_SIGNING_CONTRACT) fail(`${config.app ?? "app"} win must declare signingContract: ${WINDOWS_SIGNING_CONTRACT}`);
+  if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} win must declare prePackage for the raw EXE build`);
+  if (target.sign?.prePackageFiles?.length !== 1) fail(`${config.app ?? "app"} win must declare exactly one sign.prePackageFiles raw EXE`);
+  if (target.sign.prePackageFiles.some((file) => target.sign.files.includes(file))) fail(`${config.app ?? "app"} win raw EXE and installer signing files must be distinct`);
 }
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
@@ -185,6 +193,13 @@ if (!opts.skipChecks) {
   for (const script of config.checks ?? []) await runPackageScript(config.packageManager, script, workdir);
 }
 
+if (opts.platform === "win") {
+  const rawFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
+  await runCommand(target.prePackage, root);
+  for (const file of rawFiles) await mustExist(file, `missing raw EXE signing artifact: ${file}`);
+  await signWindows(rawFiles, "raw-exe", root);
+}
+
 await runCommand(command, root);
 
 for (const rel of target.artifacts ?? []) {
@@ -194,13 +209,14 @@ for (const rel of target.artifacts ?? []) {
 if (opts.platform === "win" && target.sign?.files?.length) {
   const files = target.sign.files.map((p) => path.resolve(root, p));
   for (const file of files) await mustExist(file, `missing signing artifact: ${file}`);
-  await run("node", [SIGN_WINDOWS, ...(opts.dryRun ? ["--dry-run"] : []), ...files], root);
+  await signWindows(files, "installer", root);
+  if (target.postSign) await runCommand(target.postSign, root);
   const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => path.resolve(root, artifact.file)))];
   if (!updaterFiles.length) fail(`${config.app} win must declare updater.artifacts for post-code-signing minisign`);
   await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
-if (target.postSign) {
+if (target.postSign && opts.platform !== "win") {
   await runCommand(target.postSign, root);
 }
 
@@ -375,6 +391,32 @@ async function commandEnv(command, root) {
 
 function expandEnv(value) {
   return String(value).replace(/%([^%]+)%/g, (_, name) => process.env[name] ?? "");
+}
+
+async function signWindows(files, phase, root) {
+  const args = [SIGN_WINDOWS];
+  const receipt = path.join(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `windows-${phase}.json`);
+  if (opts.dryRun) args.push("--dry-run");
+  else {
+    if (existsSync(receipt)) unlinkSync(receipt);
+    args.push("--receipt", receipt);
+  }
+  console.log(`right-release: signing windows ${phase}`);
+  await run("node", [...args, ...files], root);
+  if (!opts.dryRun) verifyWindowsReceipt(receipt, files, phase);
+}
+
+function verifyWindowsReceipt(receipt, files, phase) {
+  if (!existsSync(receipt)) fail(`missing ${phase} Windows signing receipt: ${receipt}`);
+  let evidence;
+  try { evidence = JSON.parse(readFileSync(receipt, "utf8")); } catch { fail(`invalid ${phase} Windows signing receipt: ${receipt}`); }
+  if (evidence.schema !== 1 || !Array.isArray(evidence.files) || evidence.files.length !== files.length) fail(`ambiguous ${phase} Windows signing receipt: ${receipt}`);
+  const expected = files.map((file) => path.resolve(file)).sort();
+  const actual = evidence.files.map((item) => path.resolve(item.file)).sort();
+  const currentHashes = new Map(files.map((file) => [path.resolve(file), createHash("sha256").update(readFileSync(file)).digest("hex")]));
+  if (JSON.stringify(expected) !== JSON.stringify(actual) || evidence.files.some((item) => item.authenticode !== "Valid" || item.subject !== "CN=Damned Ventures LLC" || item.timestampPresent !== true || item.after?.sha256 !== currentHashes.get(path.resolve(item.file)))) {
+    fail(`invalid ${phase} Windows signing receipt evidence: ${receipt}`);
+  }
 }
 
 function run(cmd, runArgs, cwd, env = {}, options = {}) {

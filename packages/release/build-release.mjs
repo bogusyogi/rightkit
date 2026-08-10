@@ -121,10 +121,17 @@ try {
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
   const toolVersions = collectToolVersions(config.packageManager ?? "pnpm");
   const inputHashes = hashInputs(requiredInputs);
+  const receiptRoot = path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(appRoot, ".right-release", "receipts"));
+  const signingIdentity = platform === "win" ? {
+    contract: target.signingContract ?? "<missing>",
+    configSha256: hashFile(configPath),
+    receiptInputs: ["raw-exe", "installer"].map((phase) => path.join(receiptRoot, `windows-${phase}.json`)),
+  } : null;
+  if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
   const cargoLock = requiredInputs.find((file) => /Cargo\.lock$/i.test(file));
   const cargoToml = requiredInputs.find((file) => /Cargo\.toml$/i.test(file));
   const cacheIdentity = resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });
-  const cacheKey = cacheIdentity.fingerprint;
+  const cacheKey = hashFileText(JSON.stringify({ cache: cacheIdentity.fingerprint, signingIdentity })).slice(0, 16);
   const cacheMode = process.env.RIGHT_RELEASE_CACHE_MODE ?? (platform === "mac" || platform === "win" ? "shared" : "legacy");
   if (cacheMode !== "legacy" && cacheMode !== "shared") fail("RIGHT_RELEASE_CACHE_MODE must be legacy or shared");
   const sharedCacheRoot = cacheMode === "shared" ? resolveSharedCacheRoot({ platform, env: process.env }) : undefined;
@@ -179,6 +186,7 @@ try {
     platform,
     cacheKey,
     inputs: inputHashes,
+    signingIdentity,
     tools: toolVersions,
     createdAt: new Date().toISOString(),
   };
@@ -246,7 +254,7 @@ try {
         checkpoint(stateRoot, "hardened");
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey });
+        sealRelease({ configRoot: appRoot, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -275,6 +283,10 @@ function hashFile(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
+function hashFileText(text) {
+  return createHash("sha256").update(text).digest("hex");
+}
+
 function sqlCipherFeatures(text) {
   return [...text.matchAll(/features\s*=\s*\[([^\]]+)\]/g)]
     .flatMap((match) => match[1].match(/"([^"]+)"/g) ?? [])
@@ -282,7 +294,7 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey }) {
+function sealRelease({ configRoot, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity }) {
   const sources = new Map();
   const addSource = (source, role) => {
     const current = sources.get(source) ?? new Set();
@@ -327,6 +339,7 @@ function sealRelease({ configRoot, sealedDir, releaseId, config, target, platfor
     commit,
     platform,
     cacheKey,
+    signing: signingIdentity ? { ...signingIdentity, receipts: signingIdentity.receiptInputs.map((file) => ({ file, sha256: hashFile(file) })) } : null,
     files,
     routes,
     inputs: inputHashes,

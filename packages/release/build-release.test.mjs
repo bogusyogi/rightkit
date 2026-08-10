@@ -60,3 +60,14 @@ test("shared Cache V2 target bridge is owned by a finally-cleaned lifecycle", ()
   assert.match(source, /targetBridge\.run\(.*runBuildStateMachine/s);
   assert.match(source, /if \(cacheMode === "shared"\) targetBridge\.ensure\(\)/);
 });
+
+test("Windows seal and cache identity bind the signing contract, config, and receipts", () => {
+  assert.match(source, /signingIdentity = platform === "win"/);
+  assert.match(source, /contract: target\.signingContract/);
+  assert.match(source, /configSha256: hashFile\(configPath\)/);
+  assert.match(source, /windows-\$\{phase\}\.json/);
+  assert.match(source, /inputHashes\["\.right-release\/signing-identity\.json"\]/);
+  assert.match(source, /cache: cacheIdentity\.fingerprint, signingIdentity/);
+  assert.match(source, /receipts: signingIdentity\.receiptInputs\.map/);
+  assert.match(readFileSync(new URL("./release.mjs", import.meta.url), "utf8"), /item\.after\?\.sha256 !== currentHashes/);
+});

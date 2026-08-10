@@ -16,7 +16,7 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture({ signed = true, publish = false, packageJson, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win" } = {}) {
+function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], packageJson, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win" } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -52,7 +52,7 @@ function fixture({ signed = true, publish = false, packageJson, cargoManifest, c
           package: { cmd: "node", args: ["-e", "process.exit(0)"] },
           ...(publish ? { publish: { cmd: "node", args: ["publish-update.mjs"] } } : {}),
           artifacts: [],
-          ...(platform === "win" ? { sign: { files: ["fixture.exe"] } } : {}),
+          ...(platform === "win" ? { signingContract, prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles, files: ["fixture.exe"] } } : {}),
           updater: { artifacts: [{ file: "fixture.exe", signature: "fixture.exe.sig", platform: "windows-x86_64", key: "fixture/fixture.exe" }] },
           hardening: [],
         },
@@ -183,6 +183,14 @@ test("rejects targets that do not explicitly declare signed release output", () 
   const result = run(fixture({ signed: false }), "--tier=patch");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /signed: true/);
+});
+
+test("rejects Windows targets with missing or ambiguous signing configuration", () => {
+  for (const options of [{ signingContract: null }, { prePackageFiles: [] }, { prePackageFiles: ["raw.exe", "other.exe"] }]) {
+    const result = run(fixture(options), "--tier=patch");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /signingContract|prePackageFiles/i);
+  }
 });
 
 test("rejects Git, path, or link RightKit app dependencies before release work starts", () => {
@@ -348,13 +356,19 @@ test("combined build and upload is rejected before the package step", () => {
   assert.doesNotMatch(result.stdout, /node -e process\.exit\(0\)/);
 });
 
-test("Windows tier-neutral build signs the installer then minisigns the updater payload", () => {
+test("Windows tier-neutral build builds raw EXE, signs it, bundles, signs installer, then minisigns updater payload", () => {
   const result = run(fixture({ publish: true }));
   assert.equal(result.status, 0, result.stderr);
-  const azureAt = result.stdout.indexOf("sign-windows.mjs");
+  const rawBuildAt = result.stdout.indexOf("node -e");
+  const rawSignAt = result.stdout.indexOf("signing windows raw-exe");
+  const bundleAt = result.stdout.indexOf("node -e", rawSignAt);
+  const installerSignAt = result.stdout.indexOf("signing windows installer");
   const updaterAt = result.stdout.indexOf("sign-updater.mjs");
-  assert.ok(azureAt >= 0, result.stdout);
-  assert.ok(updaterAt > azureAt, result.stdout);
+  assert.ok(rawBuildAt >= 0, result.stdout);
+  assert.ok(rawSignAt > rawBuildAt, result.stdout);
+  assert.ok(bundleAt > rawSignAt, result.stdout);
+  assert.ok(installerSignAt > bundleAt, result.stdout);
+  assert.ok(updaterAt > installerSignAt, result.stdout);
   assert.doesNotMatch(result.stdout, /publish-update\.mjs/);
 });
 
