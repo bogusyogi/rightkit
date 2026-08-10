@@ -85,6 +85,15 @@ function readCargoManifestDependencies(manifestPath, cargoHome, label) {
       windowsHide: true,
     },
   );
+  if (result.error) {
+    // spawnSync failed to launch the process at all (no exit code, no stderr) -
+    // a missing/unspawnable binary, not cargo rejecting the manifest. Reporting
+    // this as a version-contract violation sent a real diagnosis (a Windows
+    // rustup-proxy binary that can't be spawned from a non-console session)
+    // down the wrong path: it read as "fix your Cargo.toml" instead of "cargo
+    // could not be launched here".
+    throw new Error(`${label} could not launch ${cargoExecutable()} to read Cargo metadata: ${result.error.message}`);
+  }
   if (result.status !== 0) {
     throw new Error(`${label} Cargo metadata rejected manifest; RightKit dependencies must use exact crates.io versions: ${String(result.stderr ?? "").trim()}`);
   }
