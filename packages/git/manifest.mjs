@@ -232,7 +232,12 @@ function parsePackageManager(spec) {
     yarn: "yarn install --frozen-lockfile",
   }[name];
   const runPrefix = { pnpm: "pnpm run", npm: "npm run", yarn: "yarn run" }[name];
-  return { name, version, installCommand, runPrefix };
+  const setup = {
+    pnpm: `      - uses: pnpm/action-setup@v4\n        with:\n          version: ${version}`,
+    npm: "",
+    yarn: `      - run: corepack enable && corepack prepare yarn@${version} --activate`,
+  }[name];
+  return { name, version, installCommand, runPrefix, setup };
 }
 
 function yamlFlowStringList(values) {
@@ -274,6 +279,7 @@ export function buildRenderContext(manifest, repoPath) {
     PM_CACHE: pm.name,
     INSTALL_COMMAND: pm.installCommand,
     PM_RUN: pm.runPrefix,
+    PACKAGE_MANAGER_SETUP: pm.setup,
     ARTIFACT_PREFIX: artifactPrefix,
     TEMPLATE_VERSION: manifest.templateVersion,
     GATE_PATH: manifest.gate?.path,

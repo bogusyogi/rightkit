@@ -45,7 +45,8 @@ test("every known lane has a template file and renders without an unresolved pla
 test("rust-hybrid ci renders its pinned package manager and gate", () => {
   const manifest = { ...FULL_MANIFEST, lanes: ["ci"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" }, templateVersion: "1.1.0" };
   const content = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"), buildRenderContext(manifest, "/repos/widgets"));
-  assert.match(content, /corepack prepare pnpm@11\.18\.0 --activate/);
+  assert.match(content, /uses: pnpm\/action-setup@v4/);
+  assert.match(content, /version: 11\.18\.0/);
   assert.match(content, /rustup toolchain install stable/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
 });
@@ -68,6 +69,26 @@ test("rendered workflows never request pnpm or yarn setup-node caching before pa
         `lane ${lane} must not ask actions/setup-node for ${packageManager.split("@")[0]} caching before corepack activation`,
       );
     }
+  }
+});
+
+test("rendered workflows bootstrap each declared package manager safely", () => {
+  const pnpm = renderAllLanes({ ...FULL_MANIFEST, packageManager: "pnpm@11.18.0" }, "/repos/widgets");
+  for (const content of Object.values(pnpm)) {
+    assert.match(content, /uses: pnpm\/action-setup@v4/);
+    assert.match(content, /version: 11\.18\.0/);
+    assert.doesNotMatch(content, /corepack enable/);
+  }
+
+  const npm = renderAllLanes({ ...FULL_MANIFEST, packageManager: "npm@11.0.0" }, "/repos/widgets");
+  for (const content of Object.values(npm)) {
+    assert.doesNotMatch(content, /pnpm\/action-setup|corepack enable/);
+  }
+
+  const yarn = renderAllLanes({ ...FULL_MANIFEST, packageManager: "yarn@4.6.0" }, "/repos/widgets");
+  for (const content of Object.values(yarn)) {
+    assert.match(content, /corepack prepare yarn@4\.6\.0 --activate/);
+    assert.doesNotMatch(content, /pnpm\/action-setup/);
   }
 });
 

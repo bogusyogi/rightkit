@@ -26,7 +26,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-      - run: corepack enable
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
       - run: ${PM_RUN} test:all
   schema:
@@ -37,7 +38,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-      - run: corepack enable
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
       - name: Check schema with evidence log
         shell: bash
@@ -59,7 +61,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-      - run: corepack enable
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
       - run: node scripts/ci/check-network-boundary.mjs
       - name: Hostile-repository and secret-egress suite
@@ -72,7 +75,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-      - run: corepack enable
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
       - run: ${PM_RUN} test:hardening
   conformance:
@@ -83,6 +87,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-      - run: corepack enable
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
       - run: ${PM_RUN} test:conformance

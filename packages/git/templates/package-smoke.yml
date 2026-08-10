@@ -31,6 +31,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-      - run: corepack enable
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
       - run: node scripts/test-package.mjs

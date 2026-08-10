@@ -1,7 +1,6 @@
 # Managed by right-git — do not hand-edit. Run `right-git sync` to update.
 # Template: publish-npm.yml | Template version: ${TEMPLATE_VERSION}
-# Extracted from Cortex's immutable-release.yml publish-npm job only
-# (DESIGN.md §6). OIDC trusted publishing is the sole publish credential —
+# OIDC trusted publishing is the sole publish credential —
 # no long-lived npm token, no signing material (invariant I2). Runs after
 # right-release has already built/signed/notarized locally and attached
 # artifacts to the GitHub Release (DESIGN.md §7); this job publishes the
@@ -38,7 +37,8 @@ jobs:
         with:
           node-version: ${NODE_PUBLISH_VERSION}
           registry-url: https://registry.npmjs.org
-      - run: corepack enable
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
       - run: node scripts/release/build-candidate.mjs --version "${{ github.event.release.tag_name }}" --platform current --out "release/candidates/publish"
       - run: node scripts/release/check-release.mjs release/candidates/publish

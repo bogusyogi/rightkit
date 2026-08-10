@@ -37,7 +37,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
-      - run: corepack enable
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
       - run: ${PM_RUN} test
       - run: ${PM_RUN} test:random

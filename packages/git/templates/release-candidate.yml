@@ -32,7 +32,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ fromJSON('${NODE_MATRIX}')[0] }}
-      - run: corepack enable
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
       - run: node --test tests/release-candidate.test.mjs
       - run: node scripts/release/build-candidate.mjs --platform current --out "${{ runner.temp }}/${ARTIFACT_PREFIX}-rc"

@@ -24,6 +24,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
-      - run: corepack enable && corepack prepare ${PM_NAME}@${PM_VERSION} --activate
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
       - run: rustup toolchain install stable --profile minimal
       - run: bash ./${GATE_PATH}
