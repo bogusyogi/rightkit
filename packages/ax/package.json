@@ -27,7 +27,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "test": "node --test *.test.mjs"
+    "test": "node --test --test-concurrency=1 *.test.mjs"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
