@@ -133,6 +133,30 @@ function writeTrackedChild(lockDir, owner, child) {
   renameSync(temporary, file);
 }
 
+function matchingProcessIdentity(pid, expectedStartedAtMs, { alive = processAlive, startedAt = processStartedAt, assumeCurrentWhenStartUnavailable = false } = {}) {
+  if (!alive(pid)) return false;
+  if (!Number.isFinite(Number(expectedStartedAtMs))) return assumeCurrentWhenStartUnavailable;
+  const observedStartedAtMs = startedAt(pid);
+  if (!Number.isFinite(observedStartedAtMs)) return assumeCurrentWhenStartUnavailable;
+  return Math.abs(observedStartedAtMs - Number(expectedStartedAtMs)) <= 2000;
+}
+
+export function sweepTrackedHeavyWorkOrphan({ root = heavyWorkRoot(), alive = processAlive, startedAt = processStartedAt, terminate = terminateProcessTree, log = (message) => console.error(`[heavy-work] ${message}`) } = {}) {
+  const lockDir = path.join(root, "slot");
+  const owner = readOwner(lockDir);
+  if (!owner) return false;
+  if (matchingProcessIdentity(owner.pid, owner.ownerStartedAtMs, { alive, startedAt, assumeCurrentWhenStartUnavailable: true })) return false;
+  if (owner.childPid && alive(owner.childPid)) {
+    if (!matchingProcessIdentity(owner.childPid, owner.childStartedAtMs, { alive, startedAt })) {
+      throw new Error(`dead heavy-work owner pid ${owner.pid}; tracked child pid ${owner.childPid} identity changed; refusing to kill or admit`);
+    }
+    log(`reaping owned process tree pid ${owner.childPid} after stale owner pid ${owner.pid}`);
+    terminate(owner.childPid);
+  }
+  rmSync(lockDir, { recursive: true, force: true });
+  return true;
+}
+
 export function processStartedAt(pid, { platform = process.platform, run = spawnSync } = {}) {
   if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return null;
   const result = platform === "win32" || platform === "win"
@@ -206,23 +230,15 @@ export function acquireHeavyWorkSlot({
     try {
       mkdirSync(lockDir);
       const fd = openSync(path.join(lockDir, "owner.json"), "wx");
-      writeFileSync(fd, `${JSON.stringify({ schema: 1, pid: Number(pid), token, argv: [...argv], createdAt: new Date().toISOString() })}\n`);
+      writeFileSync(fd, `${JSON.stringify({ schema: 1, pid: Number(pid), ownerStartedAtMs: startedAt(pid), token, argv: [...argv], createdAt: new Date().toISOString() })}\n`);
       closeSync(fd);
       break;
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
       const owner = readOwner(lockDir);
       const incompleteAge = (() => { try { return Date.now() - statSync(lockDir).mtimeMs; } catch { return 0; } })();
-      if (owner ? !alive(owner.pid) : incompleteAge > 10_000) {
-        if (owner?.childPid && alive(owner.childPid)) {
-          const observedStart = startedAt(owner.childPid);
-          if (!Number.isFinite(observedStart) || Math.abs(observedStart - Number(owner.childStartedAtMs)) > 2000) {
-            throw new Error(`dead heavy-work owner pid ${owner.pid}; tracked child pid ${owner.childPid} identity changed; refusing to kill or admit`);
-          }
-          log(`reaping owned process tree pid ${owner.childPid} after owner pid ${owner.pid} exited`);
-          terminate(owner.childPid);
-        }
-        rmSync(lockDir, { recursive: true, force: true });
+      if (owner ? sweepTrackedHeavyWorkOrphan({ root, alive, startedAt, terminate, log }) : incompleteAge > 10_000) {
+        if (!owner) rmSync(lockDir, { recursive: true, force: true });
         continue;
       }
       if (Date.now() - started >= waitMs) throw new Error(`heavy-work slot timed out after ${waitMs}ms; holder pid ${owner?.pid ?? "starting"}`);

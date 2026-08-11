@@ -15,6 +15,7 @@ import {
   parseWindowsResourceSnapshot,
   resourceBlockers,
   runHeavyCommand,
+  sweepTrackedHeavyWorkOrphan,
   systemResourceSnapshot,
   terminateProcessTree,
   watchOwnedProcessTree,
@@ -145,6 +146,54 @@ test("dead slot owner refuses to kill a reused child PID", () => {
   observedStart = 5678;
   assert.throws(() => acquireHeavyWorkSlot({ ...options, pid: 404 }), /identity changed/);
   first.release();
+});
+
+test("preflight sweep reaps only a tracked child after an owner PID is reused", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightsuite-heavy-preflight-"));
+  const lockDir = path.join(root, "slot");
+  mkdirSync(lockDir);
+  writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify({ pid: 101, ownerStartedAtMs: 100, token: "stale" }));
+  writeFileSync(path.join(lockDir, "child.json"), JSON.stringify({ childPid: 202, childStartedAtMs: 200 }));
+  const killed = [];
+  assert.equal(sweepTrackedHeavyWorkOrphan({
+    root,
+    alive: (pid) => pid === 101 || pid === 202,
+    startedAt: (pid) => pid === 101 ? 5_000 : pid === 202 ? 200 : null,
+    terminate: (pid) => killed.push(pid),
+    log: () => {},
+  }), true);
+  assert.deepEqual(killed, [202]);
+  assert.equal(existsSync(lockDir), false);
+});
+
+test("preflight sweep refuses a reused tracked child PID instead of killing broadly", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightsuite-heavy-preflight-reused-"));
+  const lockDir = path.join(root, "slot");
+  mkdirSync(lockDir);
+  writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify({ pid: 101, ownerStartedAtMs: 100, token: "stale" }));
+  writeFileSync(path.join(lockDir, "child.json"), JSON.stringify({ childPid: 202, childStartedAtMs: 200 }));
+  assert.throws(() => sweepTrackedHeavyWorkOrphan({
+    root,
+    alive: (pid) => pid === 101 || pid === 202,
+    startedAt: (pid) => pid === 101 ? 5_000 : pid === 202 ? 4_000 : null,
+    terminate: () => assert.fail("reused child PID must not be terminated"),
+    log: () => {},
+  }), /identity changed/);
+});
+
+test("preflight sweep refuses a tracked child without a verifiable start identity", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightsuite-heavy-preflight-unverified-"));
+  const lockDir = path.join(root, "slot");
+  mkdirSync(lockDir);
+  writeFileSync(path.join(lockDir, "owner.json"), JSON.stringify({ pid: 101, ownerStartedAtMs: 100, token: "stale" }));
+  writeFileSync(path.join(lockDir, "child.json"), JSON.stringify({ childPid: 202, childStartedAtMs: 200 }));
+  assert.throws(() => sweepTrackedHeavyWorkOrphan({
+    root,
+    alive: (pid) => pid === 101 || pid === 202,
+    startedAt: (pid) => pid === 101 ? 5_000 : null,
+    terminate: () => assert.fail("unverified child PID must not be terminated"),
+    log: () => {},
+  }), /identity changed/);
 });
 
 test("detached watcher reaps an owned child as soon as its owner disappears", async () => {

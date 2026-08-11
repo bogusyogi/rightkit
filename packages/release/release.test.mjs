@@ -16,7 +16,7 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], packageJson, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win" } = {}) {
+function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win" } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -49,7 +49,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
         [platform]: {
           ...(buildInputs ? { buildInputs } : {}),
           signed,
-          package: { cmd: "node", args: ["-e", "process.exit(0)"] },
+          package: packageCommand ?? { cmd: "node", args: ["-e", "process.exit(0)"] },
           ...(publish ? { publish: { cmd: "node", args: ["publish-update.mjs"] } } : {}),
           artifacts: [],
           ...(platform === "win" ? { signingContract, prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles, files: ["fixture.exe"] } } : {}),
@@ -157,6 +157,28 @@ test("accepts a tier-neutral internal build", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /tier=neutral/);
   assert.doesNotMatch(result.stdout, /RIGHT_RELEASE_TIER=/);
+});
+
+test("notarization commands default to a bounded 30-minute timeout without changing explicit overrides", () => {
+  const defaultResult = runRaw(fixture({
+    platform: "mac",
+    packageCommand: { cmd: "node", args: ["-e", "process.exit(0)", "--notarize"] },
+  }), "--platform", "mac", "--dry-run");
+  assert.equal(defaultResult.status, 0, defaultResult.stderr);
+  assert.match(defaultResult.stdout, /timeout=1800000ms/);
+
+  const explicitResult = runRaw(fixture({
+    platform: "mac",
+    packageCommand: { cmd: "node", args: ["-e", "process.exit(0)", "--notarize"], timeoutMs: 1234 },
+  }), "--platform", "mac", "--dry-run");
+  assert.equal(explicitResult.status, 0, explicitResult.stderr);
+  assert.match(explicitResult.stdout, /timeout=1234ms/);
+});
+
+test("release worker reuses owned process-tree termination for Windows and remote command descendants", () => {
+  const source = readFileSync(release, "utf8");
+  assert.match(source, /import \{ terminateProcessTree \} from "\.\/heavy-command\.mjs"/);
+  assert.match(source, /function killProcessTree\(pid\) \{\s*terminateProcessTree\(pid\);\s*\}/s);
 });
 
 test("accepts patch and exposes it to the signed package command", () => {

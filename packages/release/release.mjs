@@ -12,6 +12,7 @@ import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInpu
 import { collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
+import { terminateProcessTree } from "./heavy-command.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -29,6 +30,7 @@ const RIGHTKIT_ALLOWED = buildAllowedVersions(
 const RIGHTKIT_CARGO_ALLOWED = buildAllowedVersions(RIGHTKIT_VERSIONS.cargo, RIGHTKIT_VERSIONS.stagedCargo);
 const FORBIDDEN_RIGHTKIT_SPEC = /^(?:git|file|link|workspace):|github|github\.com/i;
 const WINDOWS_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-nsis-v1";
+const DEFAULT_NOTARIZATION_TIMEOUT_MS = 30 * 60 * 1000;
 
 const args = process.argv.slice(2);
 const opts = {
@@ -344,7 +346,18 @@ async function runPackageScript(pm, script, cwd) {
 
 async function runCommand(command, root) {
   const cwd = path.resolve(root, command.cwd ?? ".");
-  await run(command.cmd, command.args ?? [], cwd, await commandEnv(command, root), command);
+  await run(command.cmd, command.args ?? [], cwd, await commandEnv(command, root), {
+    ...command,
+    timeoutMs: commandTimeoutMs(command),
+  });
+}
+
+function commandTimeoutMs(command) {
+  if (Object.hasOwn(command, "timeoutMs")) return command.timeoutMs;
+  const tokens = [command.cmd, ...(command.args ?? [])].map((value) => String(value));
+  return command.notarize === true || command.notarization === true || tokens.some((value) => /notari[sz]/i.test(value))
+    ? DEFAULT_NOTARIZATION_TIMEOUT_MS
+    : undefined;
 }
 
 async function validateRightKitPackageContract(root, appName) {
@@ -624,18 +637,5 @@ function processCommandLine(pid) {
 }
 
 function killProcessTree(pid) {
-  if (!pid) return;
-  if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
-    return;
-  }
-  const children = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" });
-  for (const child of (children.stdout ?? "").split(/\s+/).filter(Boolean)) {
-    killProcessTree(Number(child));
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // already gone
-  }
+  terminateProcessTree(pid);
 }

@@ -46,19 +46,38 @@ export function commandOutputPortable(cmd, args, { cwd, env = process.env } = {}
   return result.stdout.trim();
 }
 
-export function watchProgress(paths, onProgress) {
+export function watchProgress(paths, onProgress, { maxFallbackWatchers = 128, watchFactory = watch, readDirectory = readdirSync } = {}) {
+  if (!Number.isInteger(maxFallbackWatchers) || maxFallbackWatchers < 1) throw new TypeError("maxFallbackWatchers must be a positive integer");
   const watchers = [];
+  const fallback = { remaining: maxFallbackWatchers };
   for (const candidate of paths) {
     if (!candidate || !existsSync(candidate)) continue;
     try {
-      watchers.push(watch(candidate, { recursive: true }, onProgress));
+      watchers.push(watchFactory(candidate, { recursive: true }, onProgress));
     } catch {
-      try { watchers.push(watch(candidate, onProgress)); } catch { /* output still counts as progress */ }
+      watchDirectoryTree(candidate, onProgress, watchers, fallback, { watchFactory, readDirectory });
     }
   }
   return () => {
     for (const watcher of watchers) watcher.close();
   };
+}
+
+function watchDirectoryTree(root, onProgress, watchers, fallback, { watchFactory = watch, readDirectory = readdirSync } = {}) {
+  const pending = [root];
+  const visited = new Set();
+  while (pending.length) {
+    const directory = pending.pop();
+    if (visited.has(directory)) continue;
+    visited.add(directory);
+    if (fallback.remaining <= 0) return;
+    try { watchers.push(watchFactory(directory, onProgress)); fallback.remaining -= 1; } catch { /* output still counts as progress */ }
+    let entries;
+    try { entries = readDirectory(directory, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (entry.isDirectory()) pending.push(path.join(directory, entry.name));
+    }
+  }
 }
 
 export function releaseEnvironment({ root, cacheRoot, platform, architecture, app, cacheKey, kind = "release", appRoot, mode = "legacy", env = process.env }) {
