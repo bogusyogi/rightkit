@@ -80,10 +80,24 @@ test("existing GitHub add-on release is verified without upload mutation", () =>
     calls.push(args);
     if (args[0] === "repo") return JSON.stringify({ visibility: "PUBLIC" });
     if (args[0] === "release" && args[1] === "view") return options.allowFailure ? { ok: true } : "";
-    if (args[0] === "release" && args[1] === "download") { mkdirSync(args[args.indexOf("--dir") + 1], { recursive: true }); writeFileSync(path.join(args[args.indexOf("--dir") + 1], path.basename(asset)), "sealed"); return ""; }
+    if (args[0] === "release" && args[1] === "download") { mkdirSync(args[args.indexOf("--dir") + 1], { recursive: true }); writeFileSync(path.join(args[args.indexOf("--dir") + 1], path.basename(asset)), "sealed"); return options.allowFailure ? { ok: true, output: "" } : ""; }
     throw new Error(`unexpected mutation: ${args.join(" ")}`);
   };
   const result = publishGitHubRelease({ kind: "addon", manifest: { files: [] }, sealedDir: path.dirname(asset), tag: "immutable", assets: [asset], manifestUrl: "https://example.test/manifest" }, { repo: "Orthic-Labs/Membrane", run });
   assert.equal(result.status, "already-verified");
   assert.equal(calls.some((args) => args[0] === "release" && args[1] === "upload"), false);
+});
+
+test("partial GitHub add-on release uploads only missing assets then verifies all", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-resume-")); const first = path.join(root, "first"); const second = path.join(root, "second"); writeFileSync(first, "one"); writeFileSync(second, "two");
+  const remote = new Map([["first", "one"]]); const uploads = [];
+  const run = (_command, args, options = {}) => {
+    if (args[0] === "repo") return JSON.stringify({ visibility: "PUBLIC" });
+    if (args[0] === "release" && args[1] === "view") return { ok: true };
+    if (args[0] === "release" && args[1] === "download") { const name = args[args.indexOf("--pattern") + 1]; if (!remote.has(name)) return { ok: false, error: "no assets match" }; const dir = args[args.indexOf("--dir") + 1]; mkdirSync(dir, { recursive: true }); writeFileSync(path.join(dir, name), remote.get(name)); return { ok: true, output: "" }; }
+    if (args[0] === "release" && args[1] === "upload") { for (const value of args.slice(3, args.indexOf("--repo"))) { uploads.push(path.basename(value)); remote.set(path.basename(value), readFileSync(value, "utf8")); } return ""; }
+    throw new Error(`unexpected call: ${args.join(" ")}`);
+  };
+  const result = publishGitHubRelease({ kind: "addon", manifest: { files: [] }, sealedDir: root, tag: "immutable", assets: [first, second], manifestUrl: "https://example.test/manifest" }, { repo: "Orthic-Labs/Membrane", run });
+  assert.equal(result.status, "resumed-verified"); assert.deepEqual(uploads, ["second"]);
 });

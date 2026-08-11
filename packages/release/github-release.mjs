@@ -78,8 +78,11 @@ export function publishGitHubRelease(plan, { repo, dryRun = false, run = runComm
   const existing = run("gh", ["release", "view", plan.tag, "--repo", repo, "--json", "tagName"], { allowFailure: true });
   if (dryRun) return { status: existing.ok ? plan.kind === "addon" ? "would-verify" : "would-update" : "would-create", tag: plan.tag, assets: plan.assets };
   if (plan.kind === "addon" && existing.ok) {
+    const missing = plan.assets.filter((asset) => inspectRemoteAsset(plan.tag, repo, asset, run) === "missing");
+    if (missing.length === 0) return { status: "already-verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
+    run("gh", ["release", "upload", plan.tag, ...missing, "--repo", repo]);
     for (const asset of plan.assets) verifyRemoteAsset(plan.tag, repo, asset, run);
-    return { status: "already-verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
+    return { status: "resumed-verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
   }
   if (!existing.ok) {
     const notesFile = plan.notesFile;
@@ -87,7 +90,7 @@ export function publishGitHubRelease(plan, { repo, dryRun = false, run = runComm
     run("gh", ["release", "create", plan.tag, "--repo", repo, "--title", plan.title, "--notes-file", notesFile]);
     rmSync(notesFile, { force: true });
   }
-  run("gh", ["release", "upload", plan.tag, ...plan.assets, "--repo", repo, "--clobber"]);
+  run("gh", ["release", "upload", plan.tag, ...plan.assets, "--repo", repo, ...(plan.kind === "addon" ? [] : ["--clobber"])]);
   for (const asset of plan.assets) verifyRemoteAsset(plan.tag, repo, asset, run);
   return { status: "verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
 }
@@ -110,13 +113,23 @@ function verifyPlatformTrust(plan) {
 }
 
 function verifyRemoteAsset(tag, repo, asset, run) {
+  if (inspectRemoteAsset(tag, repo, asset, run) !== "match") throw new Error(`GitHub release asset missing: ${path.basename(asset)}`);
+}
+
+function inspectRemoteAsset(tag, repo, asset, run) {
   const verifyDir = `${path.dirname(asset)}/verify-${path.basename(asset)}`;
   rmSync(verifyDir, { recursive: true, force: true });
   mkdirSync(verifyDir, { recursive: true });
-  run("gh", ["release", "download", tag, "--repo", repo, "--pattern", path.basename(asset), "--dir", verifyDir]);
+  const result = run("gh", ["release", "download", tag, "--repo", repo, "--pattern", path.basename(asset), "--dir", verifyDir], { allowFailure: true });
+  if (!result.ok) {
+    rmSync(verifyDir, { recursive: true, force: true });
+    if (/no assets match|not found/i.test(`${result.output ?? ""}\n${result.error ?? ""}`)) return "missing";
+    throw new Error(`cannot inspect GitHub release asset: ${path.basename(asset)}: ${result.error || result.output}`);
+  }
   const downloaded = path.join(verifyDir, path.basename(asset));
   if (!existsSync(downloaded) || sha256(downloaded) !== sha256(asset)) throw new Error(`GitHub release asset hash mismatch: ${path.basename(asset)}`);
   rmSync(verifyDir, { recursive: true, force: true });
+  return "match";
 }
 
 function sha256(file) {
