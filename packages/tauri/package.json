@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Typed host adapters for shared Right Suite Tauri commands.",
   "license": "MIT OR Apache-2.0",
+  "packageManager": "pnpm@11.18.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,7 +16,7 @@
   "files": ["dist", "README.md", "LICENSE"],
   "sideEffects": false,
   "dependencies": {
-    "@rightkit/updates": "0.2.3"
+    "@rightkit/updates": "workspace:0.2.3"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

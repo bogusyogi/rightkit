@@ -1,7 +1,8 @@
 {
   "name": "@rightkit/release",
-  "version": "0.2.60",
-  "description": "Portable Right Suite release CLI/SDK: signed installers, updater artifacts, patch/update routing, hardening, R2 publish, and RightApps registration.",
+  "version": "0.2.61",
+  "description": "Portable Right Suite release CLI/SDK: native-host signed installers, updater artifacts, hardening, immutable GitHub Release upload, and add-on adoption.",
+  "license": "MIT OR Apache-2.0",
   "type": "module",
   "bin": {
     "right-release": "cli/right-release.mjs"
@@ -25,7 +26,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/adrdsouza/claude.git",
+    "url": "git+https://github.com/bogusyogi/claude.git",
     "directory": "tools/rightkit/packages/release"
   },
   "packageManager": "pnpm@11.18.0"

@@ -2,6 +2,7 @@
   "name": "@rightkit/hooks",
   "version": "0.1.0",
   "description": "Neutral lifecycle runtime shared by independently installable agent systems.",
+  "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "lib/runtime.mjs",
   "exports": {

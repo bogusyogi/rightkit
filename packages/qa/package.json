@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "Shared native QA runner, evidence, ownership, and release-backdoor guards for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
+  "packageManager": "pnpm@11.18.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -10,14 +10,13 @@ The SDK batches schema-v1 JSON events into three shared native commands:
 - `rightkit_logs_collect`
 - `rightkit_logs_clear`
 
-The Rust host implements those commands with the vendored `rightkit-logs` crate.
+The Rust host implements those commands with the published `rightkit-logs` crate.
 Nothing uploads automatically; the user explicitly collects a diagnostics
 bundle and decides whether to share it.
 
-The npm tarball also carries the matching Rust source under `rust/`. App repos
-vendor that directory into `src-tauri/vendor/rightkit-logs` and use a local
-Cargo path dependency. Release builds therefore require neither Git access nor
-a sibling RightKit checkout.
+Install `rightkit-logs` from crates.io at the version pinned by RightKit's
+release manifest. Canonical Rust source lives only in `crates/rightkit-logs`;
+app repositories must not vendor npm-carried or local copies.
 
 ```ts
 import { invoke } from '@tauri-apps/api/core';
