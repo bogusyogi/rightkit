@@ -8,6 +8,7 @@ import test, { after } from "node:test";
 import {
   assertNoRightKitCargoOverrides,
   assertPublishedRightKitCargoDependencies,
+  cargoArguments,
   cargoExecutable,
   validateRightKitCargoContract,
 } from "./cargo-contract.mjs";
@@ -464,7 +465,7 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.60",
+    "@rightkit/release": "0.2.61",
     "@rightkit/qa": "0.2.0",
   });
   assert.deepEqual(versions.legacyNpm, {
@@ -495,8 +496,9 @@ test("RightKit exposes one current version manifest", () => {
   getCurrentCargoVersionContract();
 });
 
-test("Cargo metadata uses the native Windows executable", () => {
-  assert.equal(cargoExecutable("win32"), "cargo.exe");
+test("Cargo metadata uses native rustup on Windows", () => {
+  assert.equal(cargoExecutable("win32"), "rustup");
+  assert.deepEqual(cargoArguments(["metadata"], "win32"), ["run", "stable", "cargo", "metadata"]);
   assert.equal(cargoExecutable("darwin"), "cargo");
 });
 
