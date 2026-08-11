@@ -1,0 +1,32 @@
+{
+  "name": "@rightkit/hooks",
+  "version": "0.1.0",
+  "description": "Neutral lifecycle runtime shared by independently installable agent systems.",
+  "type": "module",
+  "main": "lib/runtime.mjs",
+  "exports": {
+    ".": "./lib/runtime.mjs"
+  },
+  "bin": {
+    "rightkit-hooks": "./bin/rightkit-hooks.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bogusyogi/claude.git",
+    "directory": "tools/rightkit/packages/hooks"
+  },
+  "packageManager": "pnpm@11.18.0"
+}

@@ -6,6 +6,7 @@
   "scripts": {
     "test:release": "pnpm --dir packages/release test",
     "test:git": "pnpm --dir packages/git test",
+    "test:hooks": "pnpm --dir packages/hooks test",
     "test:ax": "pnpm --dir packages/ax test",
     "doctor:release": "pnpm --dir packages/release doctor:all",
     "test:qa": "pnpm --dir packages/qa test",
