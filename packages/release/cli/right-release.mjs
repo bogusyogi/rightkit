@@ -149,8 +149,8 @@ Commands:
   generate-dmg-background <options>                 Generate the branded multi-resolution DMG background
   mirror-root-artifact --file <path> --package-root <dir>
                                                       Persist a worktree artifact in the primary repo root
-  github --release <id> --platform mac|win --repo owner/repo [--dry-run]
-                                                      Attach one sealed installer to a verified GitHub Release
+  github --release <id> --platform mac|win [--repo owner/repo] [--dry-run]
+                                                      Attach sealed signed artifacts to a verified GitHub Release
 
 Direct flags are treated as: right-release build <flags>.
 Build is tier-neutral. Upload requires an explicit tier. Unsigned/local smoke builds stay app-local.`);

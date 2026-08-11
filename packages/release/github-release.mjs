@@ -24,22 +24,30 @@ export function prepareGitHubRelease({ repoRoot, releaseId, platform, repo, stat
   const manifestAsset = path.join(releaseState, `${sealed.manifest.app}-${sealed.manifest.version}-${platform}-release-manifest.json`);
   const checksumsAsset = path.join(releaseState, `${sealed.manifest.app}-${sealed.manifest.version}-${platform}-SHA256SUMS.txt`);
   copyFileSync(sealed.manifestPath, manifestAsset);
-  writeFileSync(checksumsAsset, `${installers[0].sha256}  ${installers[0].name}\n`);
+  writeFileSync(checksumsAsset, `${sealed.manifest.files.map((file) => `${file.sha256}  ${file.name}`).join("\n")}\n`);
   const installer = path.join(sealed.sealedDir, installers[0].name);
+  const assets = [...sealed.manifest.files.map((file) => path.join(sealed.sealedDir, file.name)), manifestAsset, checksumsAsset];
   return {
     sealed,
     installer,
-    assets: [installer, manifestAsset, checksumsAsset],
+    assets,
     tag: `v${sealed.manifest.version}`,
     title: `${sealed.manifest.app === "cutright" ? "CutRight Studio" : sealed.manifest.app} ${sealed.manifest.version}`,
     notes: [
       `Signed ${platform === "mac" ? "& notarized universal macOS" : "Windows"} installer.`,
       "",
       `Build commit: \`${sealed.manifest.commit}\``,
-      `SHA-256: \`${installers[0].sha256}\``,
+      `Artifacts: ${sealed.manifest.files.map((file) => `\`${file.name}\``).join(", ")}`,
     ].join("\n"),
     notesFile: path.join(releaseState, "release-notes.md"),
   };
+}
+
+export function repositoryFromRemote(repoRoot) {
+  const remote = runCommand("git", ["remote", "get-url", "origin"], { cwd: repoRoot });
+  const match = remote.trim().match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/i);
+  if (!match || !REPO_RE.test(match[1])) throw new Error(`origin is not a GitHub repository: ${remote.trim()}`);
+  return match[1];
 }
 
 export function prepareGitHubAddonRelease({ repoRoot, config, configRoot = repoRoot, platform, repo }) {
@@ -72,12 +80,16 @@ export function prepareGitHubAddonRelease({ repoRoot, config, configRoot = repoR
 
 export function publishGitHubRelease(plan, { repo, dryRun = false, run = runCommand } = {}) {
   const visibility = JSON.parse(run("gh", ["repo", "view", repo, "--json", "visibility"]));
-  if (visibility.visibility !== "PUBLIC") throw new Error(`GitHub releases require a public repository: ${repo}`);
-  if (plan.kind === "addon") verifyAddonTrust(plan);
-  else verifyPlatformTrust(plan);
+  if (visibility.visibility !== "PUBLIC" && !(plan.kind !== "addon" && visibility.visibility === "PRIVATE")) {
+    throw new Error(`GitHub releases require a public or private repository: ${repo}`);
+  }
+  if (!dryRun) {
+    if (plan.kind === "addon") verifyAddonTrust(plan);
+    else verifyPlatformTrust(plan);
+  }
   const existing = run("gh", ["release", "view", plan.tag, "--repo", repo, "--json", "tagName"], { allowFailure: true });
   if (dryRun) return { status: existing.ok ? plan.kind === "addon" ? "would-verify" : "would-update" : "would-create", tag: plan.tag, assets: plan.assets };
-  if (plan.kind === "addon" && existing.ok) {
+  if (existing.ok) {
     const missing = plan.assets.filter((asset) => inspectRemoteAsset(plan.tag, repo, asset, run) === "missing");
     if (missing.length === 0) return { status: "already-verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
     run("gh", ["release", "upload", plan.tag, ...missing, "--repo", repo]);
@@ -90,7 +102,7 @@ export function publishGitHubRelease(plan, { repo, dryRun = false, run = runComm
     run("gh", ["release", "create", plan.tag, "--repo", repo, "--title", plan.title, "--notes-file", notesFile]);
     rmSync(notesFile, { force: true });
   }
-  run("gh", ["release", "upload", plan.tag, ...plan.assets, "--repo", repo, ...(plan.kind === "addon" ? [] : ["--clobber"])]);
+  run("gh", ["release", "upload", plan.tag, ...plan.assets, "--repo", repo]);
   for (const asset of plan.assets) verifyRemoteAsset(plan.tag, repo, asset, run);
   return { status: "verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
 }
@@ -107,7 +119,10 @@ function verifyAddonTrust(plan) {
 }
 
 function verifyPlatformTrust(plan) {
-  if (plan.sealed.manifest.platform !== "mac") return;
+  if (plan.sealed.manifest.platform === "win") {
+    runCommand(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "sign-windows.mjs"), "--verify-only", plan.installer]);
+    return;
+  }
   runCommand("spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", plan.installer]);
   runCommand("xcrun", ["stapler", "validate", plan.installer]);
 }
@@ -179,7 +194,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (config.distribution?.provider !== "github-releases") throw new Error("add-on config must select github-releases distribution");
     plan = prepareGitHubAddonRelease({ repoRoot, config, configRoot: path.dirname(configPath), ...options });
   } else {
-    if (!options.repo) usage(2);
+    options.repo ||= repositoryFromRemote(repoRoot);
     plan = prepareGitHubRelease({ repoRoot, ...options });
   }
   const result = publishGitHubRelease(plan, options);

@@ -12,7 +12,7 @@ Shared, platform-neutral primitives for every Right Suite app.
 | [`@rightkit/logs`](packages/logs) | TypeScript + Rust payload | Durable local JSONL logging and privacy-safe diagnostics bundles |
 | [`@rightkit/platform-ui`](packages/platform-ui) | TypeScript + React | Platform detection, shortcut rendering, capabilities, and headless window controls |
 | [`@rightkit/qa`](packages/qa) | Node CLI | Cross-platform desktop QA gates |
-| [`@rightkit/release`](packages/release) | Node CLI | Signed release, hardening, patch/update routing, R2 upload, and RightApps registration |
+| [`@rightkit/release`](packages/release) | Node CLI | Native-host signed release, hardening, immutable GitHub Release upload, and add-on adoption |
 | [`@rightkit/tauri`](packages/tauri) | TypeScript | Typed Tauri host adapter for license and device commands |
 | [`@rightkit/updates`](packages/updates) | TypeScript | Runtime update policy helper |
 
