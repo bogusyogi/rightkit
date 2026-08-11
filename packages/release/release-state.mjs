@@ -53,12 +53,28 @@ export function watchProgress(paths, onProgress) {
     try {
       watchers.push(watch(candidate, { recursive: true }, onProgress));
     } catch {
-      try { watchers.push(watch(candidate, onProgress)); } catch { /* output still counts as progress */ }
+      watchDirectoryTree(candidate, onProgress, watchers);
     }
   }
   return () => {
     for (const watcher of watchers) watcher.close();
   };
+}
+
+function watchDirectoryTree(root, onProgress, watchers) {
+  const pending = [root];
+  const visited = new Set();
+  while (pending.length) {
+    const directory = pending.pop();
+    if (visited.has(directory)) continue;
+    visited.add(directory);
+    try { watchers.push(watch(directory, onProgress)); } catch { /* output still counts as progress */ }
+    let entries;
+    try { entries = readdirSync(directory, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (entry.isDirectory()) pending.push(path.join(directory, entry.name));
+    }
+  }
 }
 
 export function releaseEnvironment({ root, cacheRoot, platform, architecture, app, cacheKey, kind = "release", appRoot, mode = "legacy", env = process.env }) {

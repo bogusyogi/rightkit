@@ -23,19 +23,39 @@ test("progress watcher observes writes in nested Cargo target directories", asyn
   const root = mkdtempSync(path.join(os.tmpdir(), "right-release-watch-"));
   const nested = path.join(root, "release", "build", "openssl");
   mkdirSync(nested, { recursive: true });
+  const readyFile = path.join(root, "watch-ready");
+  const nestedFile = path.join(nested, "object.lib");
+  let resolveReady;
   let resolveProgress;
+  const ready = new Promise((resolve) => { resolveReady = resolve; });
   const progress = new Promise((resolve) => { resolveProgress = resolve; });
-  const close = watchProgress([root], resolveProgress);
+  const close = watchProgress([root], (_eventType, filename) => {
+    const eventName = String(filename ?? "");
+    if (eventName === path.basename(readyFile)) resolveReady();
+    if (eventName.endsWith(path.basename(nestedFile))) resolveProgress();
+  });
   try {
-    await writeFile(path.join(nested, "object.lib"), "progress");
-    await Promise.race([
-      progress,
-      new Promise((_, reject) => setTimeout(() => reject(new Error("nested progress event missing")), 2_000)),
-    ]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await writeFile(readyFile, "ready");
+    await waitForEvent(ready, "watcher readiness event missing");
+    await writeFile(nestedFile, "progress");
+    await waitForEvent(progress, "nested progress event missing");
   } finally {
     close();
   }
 });
+
+async function waitForEvent(event, message) {
+  let timer;
+  try {
+    await Promise.race([
+      event,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), 5_000); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 test("portable command capture resolves Windows command shims", { skip: process.platform !== "win32" }, () => {
   assert.equal(commandOutputPortable("pnpm", ["--version"]), expectedPnpmVersion);
