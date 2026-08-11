@@ -61,6 +61,8 @@ if (first === "--version" || first === "-v") {
     process.exit(2);
   }
   run("model-promote.mjs", rest.slice(1));
+} else if (first === "addon") {
+  run("addon-command.mjs", args.slice(1));
 } else if (first === "lsclean") {
   runBinary("bash", [path.join(packageRoot, "lsclean.sh"), ...args.slice(1)]);
 } else if (first === "generate-dmg-background") {
@@ -133,6 +135,7 @@ Commands:
   publish swift [--scope <s>] [--url <u>] [--dry-run] Test, archive, scan, and publish RightKitSwift to a Swift registry
   model promote --authority heardright --config <file> [--dry-run]
                                                       Sign and promote one runtime/model artifact
+  addon doctor|build|upload|adopt <options>           Manage a signed headless add-on
   doctor [--platform mac|win]                        Inspect one app's release config
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories

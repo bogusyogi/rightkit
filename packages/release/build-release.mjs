@@ -99,6 +99,23 @@ let cacheLease;
 let heavySlot;
 let interrupted;
 
+// A dry-run is an inspection contract, not a partial build. It must finish
+// before locks, cache directories, receipts, dependency installation, or any
+// child build/sign process can exist.
+if (dryRun) {
+  const commit = git(invocationRoot, ["rev-parse", "HEAD"]);
+  const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
+  if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
+  const config = (await import(`${pathToFileURL(configPath).href}?dry-run=${commit}`)).default;
+  if (!config?.app || !config?.version) fail("release config must expose app and version");
+  const target = config.targets?.[platform];
+  if (!target?.package) fail(`${config.app} has no ${platform} package command`);
+  console.log(`right-release build dry-run: ${config.app} ${config.version} ${platform}`);
+  console.log(`config: ${configPath}`);
+  console.log(`commit: ${commit}`);
+  process.exit(0);
+}
+
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.once(signal, () => {
     if (child?.pid) killTree(child.pid);

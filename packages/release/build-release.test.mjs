@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8");
+const build = path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs");
+
+test("general build dry-run is filesystem-pure and never starts its package command", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-build-dry-run-"));
+  writeFileSync(path.join(root, "right-release.config.mjs"), "export default { app: 'fixture', version: '1.0.0', targets: { mac: { package: { cmd: 'false' } } } };\n");
+  for (const args of [["init", "--initial-branch", "main"], ["config", "user.email", "test@example.com"], ["config", "user.name", "Test"], ["add", "."], ["commit", "-m", "init"]]) execFileSync("git", args, { cwd: root });
+  const before = readdirSync(root).sort();
+  const result = spawnSync(process.execPath, [build, "--config", "right-release.config.mjs", "--platform", "mac", "--dry-run"], { cwd: root, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /build dry-run/);
+  assert.deepEqual(readdirSync(root).sort(), before);
+});
 
 test("macOS and Windows builds default to Cache V2 while explicit legacy mode remains available", () => {
   assert.match(source, /assertCleanSource/);

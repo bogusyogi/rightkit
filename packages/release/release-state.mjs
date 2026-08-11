@@ -93,6 +93,7 @@ export function verifySealedRelease(sealedDir) {
   if (!existsSync(manifestPath)) throw new Error(`sealed manifest missing: ${manifestPath}`);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (manifest.schema !== 1) throw new Error(`unsupported sealed manifest schema: ${manifest.schema}`);
+  if (manifest.kind != null && typeof manifest.kind !== "string") throw new Error("sealed manifest kind must be a string when present");
   if (!manifest.checkpoints?.includes("sealed")) throw new Error("release is not sealed");
   for (const item of manifest.files ?? []) {
     const file = path.join(sealedDir, item.name);
