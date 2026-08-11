@@ -6,12 +6,14 @@ const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const ROLES = new Set(["command", "service", "icon", "license", "eula", "privacy", "third-party-notices"]);
 const LEGAL_ROLES = new Set(["license", "eula", "privacy", "third-party-notices"]);
 const PLATFORM = new Set(["mac", "win"]);
+const GITHUB_REPOSITORY = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
 export function validateAddonConfig(config, { root, platform, allowMissingExecutables = false }) {
   if (!PLATFORM.has(platform)) throw new Error("add-on platform must be mac or win");
   if (!config || config.schema !== 1 || config.kind !== "headless-addon") throw new Error("add-on config must use schema 1 headless-addon");
   for (const key of ["addon", "version", "packageManager"]) if (typeof config[key] !== "string" || !SAFE_NAME.test(config[key])) throw new Error(`unsafe add-on ${key}`);
   if (!Array.isArray(config.checks)) throw new Error("add-on checks must be an array");
+  if (config.distribution && (config.distribution.provider !== "github-releases" || !GITHUB_REPOSITORY.test(config.distribution.repository ?? ""))) throw new Error("add-on distribution must name a GitHub Releases repository");
   validateBuildInputs(config.buildInputs);
   const target = config.targets?.[platform];
   if (!target?.targetTriple || !target?.build?.cmd || !Array.isArray(target.build.args)) throw new Error(`add-on ${platform} target requires targetTriple and build command`);
@@ -77,6 +79,14 @@ export function addonRoutes(manifest) {
   const digest = addonManifestSha256(manifest);
   const root = `${manifest.addon}/addons/${manifest.platform}/sha256/${digest}`;
   return [...manifest.files.map((file) => ({ name: file.name, key: `${root}/${file.name}`, sha256: file.sha256, manifest: false })), { name: "addon-manifest.json", key: `${root}/addon-manifest.json`, sha256: digest, manifest: true }];
+}
+
+export function immutableAddonManifestUrl(manifest, manifestUrl, digest = addonManifestSha256(manifest)) {
+  if (/[?#]/.test(manifestUrl)) return false;
+  const r2Suffix = `/${manifest.addon}/addons/${manifest.platform}/sha256/${digest}/addon-manifest.json`;
+  const githubTag = `addon-${manifest.addon}-v${manifest.version}-${manifest.platform}-sha256-${digest}`;
+  const githubSuffix = `/releases/download/${githubTag}/addon-manifest.json`;
+  return manifestUrl.endsWith(r2Suffix) || (/^https:\/\/github\.com\//.test(manifestUrl) && manifestUrl.endsWith(githubSuffix));
 }
 
 export async function downloadImmutableAddOn(manifestUrl, destination, { fetchImpl = fetch } = {}) {

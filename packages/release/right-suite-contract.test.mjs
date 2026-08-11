@@ -464,7 +464,7 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.58",
+    "@rightkit/release": "0.2.59",
     "@rightkit/qa": "0.2.0",
   });
   assert.deepEqual(versions.legacyNpm, {

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { verifySealedRelease } from "./release-state.mjs";
+import { addonManifestSha256, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
 
 const REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const RELEASE_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/;
@@ -37,24 +38,69 @@ export function prepareGitHubRelease({ repoRoot, releaseId, platform, repo, stat
       `Build commit: \`${sealed.manifest.commit}\``,
       `SHA-256: \`${installers[0].sha256}\``,
     ].join("\n"),
+    notesFile: path.join(releaseState, "release-notes.md"),
+  };
+}
+
+export function prepareGitHubAddonRelease({ repoRoot, config, configRoot = repoRoot, platform, repo }) {
+  if (platform !== "mac" && platform !== "win") throw new Error("platform must be mac or win");
+  if (!REPO_RE.test(repo)) throw new Error(`invalid GitHub repository: ${repo}`);
+  validateAddonConfig(config, { root: configRoot, platform, allowMissingExecutables: true });
+  const commit = runCommand("git", ["rev-parse", "HEAD"], { cwd: repoRoot });
+  const sealedDir = path.join(repoRoot, ".right-release", "addons", config.addon, config.version, commit.slice(0, 8), platform);
+  const manifestPath = path.join(sealedDir, "addon-manifest.json");
+  if (!existsSync(manifestPath)) throw new Error(`sealed add-on manifest not found: ${manifestPath}`);
+  const manifest = validateAddonManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
+  if (manifest.addon !== config.addon || manifest.version !== config.version || manifest.platform !== platform || manifest.commit !== commit) throw new Error("sealed add-on identity mismatch");
+  const assets = manifest.files.map((file) => {
+    const asset = path.join(sealedDir, file.name);
+    if (!existsSync(asset) || statSync(asset).size !== file.sizeBytes || sha256(asset) !== file.sha256) throw new Error(`sealed add-on file mismatch: ${file.name}`);
+    return asset;
+  });
+  const digest = addonManifestSha256(manifest);
+  const tag = `addon-${manifest.addon}-v${manifest.version}-${platform}-sha256-${digest}`;
+  const stateDir = path.join(repoRoot, ".right-release", "state", "addons", manifest.addon, manifest.version, commit.slice(0, 8), platform, "github");
+  mkdirSync(stateDir, { recursive: true });
+  return {
+    kind: "addon", manifest, manifestPath, sealedDir, assets: [...assets, manifestPath], tag,
+    title: `${manifest.addon} ${manifest.version} ${platform} add-on`,
+    notes: [`Signed ${platform === "mac" ? "macOS" : "Windows"} add-on component set.`, "", `Build commit: \`${manifest.commit}\``, `Manifest SHA-256: \`${digest}\``].join("\n"),
+    notesFile: path.join(stateDir, "release-notes.md"),
+    manifestUrl: `https://github.com/${repo}/releases/download/${tag}/addon-manifest.json`,
   };
 }
 
 export function publishGitHubRelease(plan, { repo, dryRun = false, run = runCommand } = {}) {
   const visibility = JSON.parse(run("gh", ["repo", "view", repo, "--json", "visibility"]));
   if (visibility.visibility !== "PUBLIC") throw new Error(`GitHub releases require a public repository: ${repo}`);
-  verifyPlatformTrust(plan);
+  if (plan.kind === "addon") verifyAddonTrust(plan);
+  else verifyPlatformTrust(plan);
   const existing = run("gh", ["release", "view", plan.tag, "--repo", repo, "--json", "tagName"], { allowFailure: true });
-  if (dryRun) return { status: existing.ok ? "would-update" : "would-create", tag: plan.tag, assets: plan.assets };
+  if (dryRun) return { status: existing.ok ? plan.kind === "addon" ? "would-verify" : "would-update" : "would-create", tag: plan.tag, assets: plan.assets };
+  if (plan.kind === "addon" && existing.ok) {
+    for (const asset of plan.assets) verifyRemoteAsset(plan.tag, repo, asset, run);
+    return { status: "already-verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
+  }
   if (!existing.ok) {
-    const notesFile = `${plan.assets[1]}.notes.md`;
+    const notesFile = plan.notesFile;
     writeFileSync(notesFile, `${plan.notes}\n`);
     run("gh", ["release", "create", plan.tag, "--repo", repo, "--title", plan.title, "--notes-file", notesFile]);
     rmSync(notesFile, { force: true });
   }
   run("gh", ["release", "upload", plan.tag, ...plan.assets, "--repo", repo, "--clobber"]);
   for (const asset of plan.assets) verifyRemoteAsset(plan.tag, repo, asset, run);
-  return { status: "verified", tag: plan.tag, assets: plan.assets };
+  return { status: "verified", tag: plan.tag, assets: plan.assets, manifestUrl: plan.manifestUrl };
+}
+
+function verifyAddonTrust(plan) {
+  for (const file of plan.manifest.files.filter((entry) => entry.executable)) {
+    const executable = path.join(plan.sealedDir, file.name);
+    if (plan.manifest.platform === "mac") {
+      const output = runCombined("codesign", ["-dv", "--verbose=4", executable]);
+      if (!/TeamIdentifier=6KLGD3LLKF/.test(output)) throw new Error(`codesign team mismatch: ${file.name}`);
+      runCommand("codesign", ["--verify", "--strict", "--verbose=2", executable]);
+    } else runCommand(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "sign-windows.mjs"), "--verify-only", executable]);
+  }
 }
 
 function verifyPlatformTrust(plan) {
@@ -77,8 +123,8 @@ function sha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
-function runCommand(command, args, { allowFailure = false } = {}) {
-  const result = spawnSync(command, args, { encoding: "utf8", windowsHide: true });
+function runCommand(command, args, { allowFailure = false, cwd } = {}) {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8", windowsHide: true });
   const output = result.stdout?.trim() ?? "";
   if (result.status !== 0) {
     if (allowFailure) return { ok: false, output, error: result.stderr?.trim() ?? "" };
@@ -87,25 +133,43 @@ function runCommand(command, args, { allowFailure = false } = {}) {
   return allowFailure ? { ok: true, output } : output;
 }
 
+function runCombined(command, args) {
+  const result = spawnSync(command, args, { encoding: "utf8", windowsHide: true });
+  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr?.trim() || `exit ${result.status}`}`);
+  return `${result.stdout ?? ""}${result.stderr ?? ""}`;
+}
+
 function usage(code) {
-  console.log("usage: right-release github --release <sealed-id> --platform mac|win --repo owner/repo [--dry-run]");
+  console.log("usage: right-release github (--release <sealed-id> | --addon <config>) --platform mac|win [--repo owner/repo] [--dry-run]");
   process.exit(code);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const options = { platform: process.platform === "win32" ? "win" : "mac", releaseId: "", repo: "", dryRun: false };
+  const options = { platform: process.platform === "win32" ? "win" : "mac", releaseId: "", addon: "", repo: "", dryRun: false };
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--platform") options.platform = args[++index];
     else if (args[index] === "--release") options.releaseId = args[++index];
+    else if (args[index] === "--addon") options.addon = args[++index];
     else if (args[index] === "--repo") options.repo = args[++index];
     else if (args[index] === "--dry-run") options.dryRun = true;
     else if (args[index] === "-h" || args[index] === "--help") usage(0);
     else throw new Error(`unknown argument: ${args[index]}`);
   }
-  if (!options.releaseId || !options.repo) usage(2);
+  if (Boolean(options.releaseId) === Boolean(options.addon)) usage(2);
   const repoRoot = runCommand("git", ["rev-parse", "--show-toplevel"]);
-  const plan = prepareGitHubRelease({ repoRoot, ...options });
+  let plan;
+  if (options.addon) {
+    const configPath = path.resolve(options.addon);
+    const config = (await import(`${pathToFileURL(configPath).href}?github=${Date.now()}`)).default;
+    options.repo ||= config.distribution?.repository ?? "";
+    if (config.distribution?.provider !== "github-releases") throw new Error("add-on config must select github-releases distribution");
+    plan = prepareGitHubAddonRelease({ repoRoot, config, configRoot: path.dirname(configPath), ...options });
+  } else {
+    if (!options.repo) usage(2);
+    plan = prepareGitHubRelease({ repoRoot, ...options });
+  }
   const result = publishGitHubRelease(plan, options);
   console.log(`right-release github: ${result.status} ${result.tag}`);
+  if (result.manifestUrl) console.log(`manifestUrl: ${result.manifestUrl}`);
 }

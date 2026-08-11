@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { addonManifestSha256, addonRoutes, canonicalAddonManifest, createAddonManifest, downloadImmutableAddOn, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
+import { addonManifestSha256, addonRoutes, canonicalAddonManifest, createAddonManifest, downloadImmutableAddOn, immutableAddonManifestUrl, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 
@@ -80,6 +80,7 @@ function signExecutableRoles(config, root, platform) {
 }
 
 async function upload({ config, root, repoRoot, options }) {
+  if (config.distribution?.provider === "github-releases") fail("this add-on publishes with right-release github --addon <config> --platform <platform>");
   if (!new Set(["patch", "update"]).has(options.tier)) fail("add-on upload requires --tier patch|update");
   const commit = git(repoRoot, ["rev-parse", "HEAD"]);
   const sealed = path.join(repoRoot, ".right-release", "addons", config.addon, config.version, commit.slice(0, 8), options.platform);
@@ -124,8 +125,7 @@ async function adopt(options) {
   const manifest = JSON.parse(readFileSync(path.join(source, "addon-manifest.json"), "utf8"));
   validateAddonManifest(manifest);
   if (addonManifestSha256(manifest) !== entry.manifestSha256) fail("add-on lock manifest SHA mismatch");
-  const immutableSuffix = `/${manifest.addon}/addons/${manifest.platform}/sha256/${entry.manifestSha256}/addon-manifest.json`;
-  if (!entry.manifestUrl.endsWith(immutableSuffix) || /[?#]/.test(entry.manifestUrl)) fail("add-on lock manifestUrl is not immutable");
+  if (!immutableAddonManifestUrl(manifest, entry.manifestUrl, entry.manifestSha256)) fail("add-on lock manifestUrl is not immutable");
   const output = path.resolve(options.output);
   const destination = path.join(output, manifest.addon);
   const stage = `${destination}.tmp-${process.pid}`;

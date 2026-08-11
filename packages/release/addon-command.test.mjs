@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
-import { createAddonManifest, addonManifestSha256, canonicalAddonManifest, downloadImmutableAddOn } from "./addon-contract.mjs";
+import { createAddonManifest, addonManifestSha256, canonicalAddonManifest, downloadImmutableAddOn, immutableAddonManifestUrl } from "./addon-contract.mjs";
 
 const command = fileURLToPath(new URL("./addon-command.mjs", import.meta.url));
 function fixture() {
@@ -50,4 +50,5 @@ test("remote downloader accepts only immutable manifest plus file routes", async
   const destination = path.join(root, "remote"); mkdirSync(destination);
   await downloadImmutableAddOn(`${base}addon-manifest.json`, destination, { fetchImpl: async (url) => ({ ok: bytes.has(url), status: bytes.has(url) ? 200 : 404, arrayBuffer: async () => bytes.get(url) }) });
   assert.equal(readFileSync(path.join(destination, "crypt-service"), "utf8"), "service");
+  assert.equal(immutableAddonManifestUrl(manifest, `https://github.com/Orthic-Labs/Membrane/releases/download/addon-membrane-v0.1.0-mac-sha256-${digest}/addon-manifest.json`, digest), true);
 });
