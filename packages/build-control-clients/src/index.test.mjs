@@ -26,6 +26,8 @@ test('all named aliases normalize into a managed-agent request', () => {
   assert.equal(createManagedAgentRequest({ argv0: 'clang', workspace: '/external/work' }).shim, 'clang');
   assert.throws(() => createManagedAgentRequest({ argv0: 'bash', workspace: '/external/work' }), /unregistered/);
   assert.throws(() => createManagedAgentRequest({ argv0: 'cargo', argv: ['build', '--target-dir', '/tmp/escape'], workspace: '/external/work' }), /cannot redirect/);
+  assert.throws(() => createManagedAgentRequest({ argv0: 'rustup', argv: ['run', 'stable', 'cargo', 'test'], workspace: '/external/work' }), /rustup run cannot launch/);
+  assert.doesNotThrow(() => createManagedAgentRequest({ argv0: 'rustup', argv: ['toolchain', 'list'], workspace: '/external/work' }));
   assert.deepEqual(createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work', environment: { CARGO_TARGET_DIR: '/tmp/escape' } }).observedEnvironment, { CARGO_TARGET_DIR: '/tmp/escape' });
   assert.equal(shimManifest().links.length, 5);
   assert.deepEqual(INSTALLED_MANAGED_SHIMS, ['cargo', 'rustc', 'rustdoc', 'rustup']);

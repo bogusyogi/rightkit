@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, captureManagedRustEnvironment, externalRoots, immutableToolRoot, normalizeBuildRequest, normalizeManagedAgentRequest, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment } from './index.mjs';
+import { LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, captureManagedRustEnvironment, externalRoots, immutableToolRoot, normalizeBuildRequest, normalizeManagedAgentRequest, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
 
 test('normalizes registered request without executable authority', () => {
   const request = normalizeBuildRequest({ frontend: 'cargo', argv: ['test'], workspace: '/external/work', environment: { CI: '1' } });
@@ -46,6 +46,12 @@ test('captures every controlled Rust/Cargo override for fail-closed admission', 
   assert.deepEqual(validateManagedRustEnvironment({ CARGO_TARGET_DIR: '/managed/target' }, { CARGO_TARGET_DIR: '/managed/target' }), { CARGO_TARGET_DIR: '/managed/target' });
   assert.throws(() => validateManagedRustEnvironment({ CARGO_TARGET_DIR: '/unsafe' }, { CARGO_TARGET_DIR: '/managed/target' }), /conflicting CARGO_TARGET_DIR/);
   assert.throws(() => validateManagedRustEnvironment({ RUSTFLAGS: '-C target-dir=/unsafe' }, {}), /conflicting RUSTFLAGS/);
+});
+
+test('rustup administration stays available but rustup-run build tools fail closed', () => {
+  assert.doesNotThrow(() => validateManagedRustupInvocation('rustup', ['toolchain', 'list']));
+  assert.throws(() => validateManagedRustupInvocation('rustup', ['run', 'stable', 'cargo', 'test']), /cannot launch/);
+  assert.throws(() => validateManagedRustupInvocation('rustup', ['--verbose', 'run', 'stable', 'rustc.exe']), /cannot launch/);
 });
 test('external roots are deterministic & output scan policy identifies local payload roots', () => {
   const input = { externalRoot: '/Volumes/builds', repositoryIdentity: 'git:abc123', toolchain: 'rust-1.97.1', target: 'aarch64-apple-darwin', buildProfile: 'release', policyProfile: PROFILES.MANAGED_AGENT };

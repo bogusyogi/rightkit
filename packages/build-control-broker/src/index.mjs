@@ -3,7 +3,7 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import { lstat, mkdir, open, readFile, readdir, rename, rm, stat, statfs, unlink } from 'node:fs/promises';
 import net from 'node:net';
 import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
-import { externalRoots, immutableToolRoot, normalizeManagedAgentRequest, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment } from '@rightkit/build-control-core';
+import { externalRoots, immutableToolRoot, normalizeManagedAgentRequest, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from '@rightkit/build-control-core';
 
 const byteCount = (value, field) => { if (!Number.isSafeInteger(value) || value < 0) throw new TypeError(`${field} must be a non-negative safe integer`); return value; };
 const contained = (root, value) => { const diff = relative(root, value); return diff === '' || (!diff.startsWith('..') && !isAbsolute(diff)); };
@@ -92,8 +92,9 @@ export class LocalNdjsonBrokerService {
   }
   #enrich(message) {
     if (!message || message.type !== 'MANAGED_AGENT' || message.protocol !== 'rightkit.build-control.client.v1') throw new TypeError('MANAGED_AGENT v1 payload is required');
-    const toolId = this.#defaults.shims[message.shim]; if (!toolId) throw new Error(`no registered tool for shim ${message.shim ?? '<empty>'}`);
     const request = normalizeManagedAgentRequest(message.request);
+    validateManagedRustupInvocation(message.shim, request.argv);
+    const toolId = this.#defaults.shims[message.shim]; if (!toolId) throw new Error(`no registered tool for shim ${message.shim ?? '<empty>'}`);
     const enriched = { ...this.#defaults, ...message, toolId, request, repositoryIdentity: message.repositoryIdentity ?? this.#defaults.repositoryIdentity ?? request.workspace, toolchain: message.toolchain ?? this.#defaults.toolchain, targetTriple: message.targetTriple ?? this.#defaults.targetTriple, buildProfile: message.buildProfile ?? classifyBuildProfile(request.argv, this.#defaults.buildProfile), reservationBytes: message.reservationBytes ?? this.#defaults.reservationBytes };
     const roots = this.#broker.rootsFor(enriched);
     validateManagedRustEnvironment(message.observedEnvironment ?? {}, {

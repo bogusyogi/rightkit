@@ -89,6 +89,13 @@ export function validateManagedRustEnvironment(observed = {}, allowed = {}) {
   return captured;
 }
 
+export function validateManagedRustupInvocation(shim, argv) {
+  if (shim !== 'rustup') return;
+  if (!Array.isArray(argv)) throw new TypeError('argv must be an array');
+  const run = argv.indexOf('run');
+  if (run >= 0 && argv.slice(run + 1).some((value) => /^(?:cargo|rustc|rustdoc)(?:\.exe)?$/i.test(basename(value)))) throw new TypeError('managed rustup run cannot launch Cargo, rustc, or rustdoc');
+}
+
 export function externalRoots({ externalRoot, repositoryIdentity, toolchain, target, buildProfile = 'development', policyProfile = PROFILES.MANAGED_AGENT }) {
   if (!isAbsolute(externalRoot)) throw new TypeError('external root must be absolute');
   if (![repositoryIdentity, toolchain, target, buildProfile].every((value) => typeof value === 'string' && value.length > 0)) throw new TypeError('repository identity, toolchain, target, & build profile are required');
