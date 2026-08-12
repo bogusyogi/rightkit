@@ -12,6 +12,13 @@ export const LOCAL_OUTPUT_SCAN_POLICY = Object.freeze({
 const digest = /^[a-f0-9]{64}$/;
 const managedToolNames = new Set(['cargo', 'rustup', 'rustc', 'rustdoc', 'swift', 'cmake', 'make', 'cc', 'clang', 'gcc', 'node', 'node-gyp', 'pnpm', 'npm']);
 const redirectEnvironment = /^(?:CARGO_(?:HOME|TARGET_DIR|BUILD_TARGET_DIR|BUILD_BUILD_DIR|BUILD_RUSTC|BUILD_RUSTDOC|BUILD_RUSTC_WRAPPER|BUILD_RUSTC_WORKSPACE_WRAPPER|BUILD_RUSTFLAGS|ENCODED_RUSTFLAGS|INSTALL_ROOT)|RUSTUP_HOME|RUSTC|RUSTDOC|RUSTFLAGS|RUSTDOCFLAGS|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|TMPDIR|TMP|TEMP|TEMP_DIR|PNPM_HOME|NPM_CONFIG_(?:CACHE|STORE_DIR|STATE_DIR|VIRTUAL_STORE_DIR|PREFIX|NODE_GYP|TMP|USERCONFIG|GLOBALCONFIG|NODEDIR|DEV_DIR|PYTHON)|NODE_GYP|NODE_PATH|CC|CXX|CMAKE_(?:BUILD|INSTALL|PREFIX)_?PATH|SWIFTPM_(?:CACHE|BUILD|MODULECACHE)_PATH)$/;
+export const MANAGED_RUST_ENVIRONMENT_KEYS = Object.freeze([
+  'CARGO_HOME', 'CARGO_TARGET_DIR', 'CARGO_BUILD_TARGET_DIR', 'CARGO_BUILD_BUILD_DIR',
+  'CARGO_BUILD_RUSTC', 'CARGO_BUILD_RUSTDOC', 'CARGO_BUILD_RUSTC_WRAPPER',
+  'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_RUSTFLAGS',
+  'CARGO_ENCODED_RUSTFLAGS', 'CARGO_INSTALL_ROOT', 'RUSTUP_HOME', 'RUSTC', 'RUSTDOC',
+  'RUSTFLAGS', 'RUSTDOCFLAGS', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER'
+]);
 const redirectArgument = /^(?:--(?:target-dir|config|cache-dir|build-dir|toolchain|temp-dir)(?:=|$)|-Z(?:build-std|config)(?:=|$))/;
 const redirectConfig = /(?:^|[._-])(?:target(?:[_-]?dir)?|build(?:[_-]?dir)?|cache(?:[_-]?dir)?|toolchain|rustc|rustdoc|temp(?:[_-]?dir)?|home|cargo_(?:target_dir|build_build_dir|install_root))$/i;
 
@@ -62,6 +69,24 @@ export function normalizeBuildRequest(request) {
 
 export function normalizeManagedAgentRequest(request) {
   return normalizeBuildRequest({ ...request, profile: PROFILES.MANAGED_AGENT });
+}
+
+export function captureManagedRustEnvironment(environment = {}) {
+  if (!environment || typeof environment !== 'object' || Array.isArray(environment)) throw new TypeError('environment must be an object');
+  const controlled = new Set(MANAGED_RUST_ENVIRONMENT_KEYS);
+  return Object.freeze(Object.fromEntries(Object.entries(environment).filter(([key, value]) => controlled.has(key.toUpperCase()) && value !== undefined).map(([key, value]) => {
+    if (typeof value !== 'string') throw new TypeError('environment values must be strings');
+    return [key, value];
+  })));
+}
+
+export function validateManagedRustEnvironment(observed = {}, allowed = {}) {
+  const captured = captureManagedRustEnvironment(observed);
+  for (const [key, value] of Object.entries(captured)) {
+    const expected = Object.entries(allowed).find(([candidate]) => candidate.toUpperCase() === key.toUpperCase())?.[1];
+    if (expected === undefined || normalize(String(expected)) !== normalize(value)) throw new TypeError(`managed agent request has conflicting ${key}`);
+  }
+  return captured;
 }
 
 export function externalRoots({ externalRoot, repositoryIdentity, toolchain, target, buildProfile = 'development', policyProfile = PROFILES.MANAGED_AGENT }) {

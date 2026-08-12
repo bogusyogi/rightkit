@@ -1,0 +1,19 @@
+{
+  "schema": "rightkit.build-control.windows.managed-agent-parity.v1",
+  "generatedAt": "2026-08-13T00:00:00Z",
+  "sourceCommit": "2e62d3f4e15f11a1091e2cabf8000b35770019ae",
+  "runtime": "D:\\.rightkit-managed\\runtime-current",
+  "storage": { "root": "D:\\.rightkit-managed", "external": true, "capacityBytes": 53687091200, "reservedBytesAfter": 0, "activeLeasesAfter": 0 },
+  "broker": { "transport": "\\\\.\\pipe\\rightkit-managed-agent-bogus-dell-v2", "scheduledTask": "RightKitManagedAgentBroker", "restartVersionProbe": "PASS" },
+  "routing": { "rightkitVersion": "PASS", "lockedBuild": "PASS", "pnpmChildCargo": "PASS", "npmChildCargo": "PASS", "localTargetCacheDebug": "ABSENT" },
+  "policies": { "codex": "PASS_SHARED_HOOK", "claude": "PASS_SHARED_HOOK_MEMBRANE_PRESERVED", "cline": "PASS_SHARED_RULE_HOOK", "commandcode": "PASS_SHARED_RULE_HOOK", "directAndAbsoluteCargoRustcRustdocRustupRun": "DENY_BY_SHARED_POLICY" },
+  "adapterExecution": {
+    "cline": { "cargo": "cancel=true", "absoluteCargo": "cancel=true", "envPathCargo": "cancel=true", "rustupRunCargo": "cancel=true", "rightkit": "cancel=false", "pnpm": "cancel=false", "npm": "cancel=false" },
+    "commandcode": { "cargo": "exit=2 deny", "absoluteCargo": "exit=2 deny", "envPathCargo": "exit=2 deny", "rustupRunCargo": "exit=2 deny", "rightkit": "exit=0 allow", "pnpm": "exit=0 allow", "npm": "exit=0 allow" },
+    "controlledRedirects": { "--target-dir": "live exit=125", "+toolchain": "live exit=125", "CARGO_TARGET_DIR": "NOT_TRANSMITTED by current client; live invocation exited 0", ".cargo/config": "not executed", "alias-wrapper": "not executed" },
+    "policyParser": "shared committed source rejects redirecting environment, target/config arguments, toolchain aliases & unmanaged absolute tools"
+  },
+  "gc": { "mode": "deployed BuildControlBroker.gcApply controlled namespace", "reclaimedBytes": 5757042, "deletedEntries": 31, "remainingCandidates": 0, "durableReceipt": "D:\\.rightkit-managed\\external\\receipts\\gc-*.json" },
+  "strictSystemProfile": "UNCHANGED_BLOCKED_EXTERNAL",
+  "outcome": "PASS_MANAGED_AGENT"
+}

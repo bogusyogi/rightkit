@@ -4,7 +4,7 @@ import { createManagedAgentRequest, sendManagedAgentRequest } from './index.mjs'
 const write = (value, stream) => { if (typeof value === 'string' && value) stream.write(value); };
 const argv0 = process.env.RIGHTKIT_MANAGED_AGENT_SHIM ?? process.argv[1];
 try {
-  const message = createManagedAgentRequest({ argv0, argv: process.argv.slice(2), workspace: process.cwd(), environment: {} });
+  const message = createManagedAgentRequest({ argv0, argv: process.argv.slice(2), workspace: process.cwd(), environment: process.env });
   const result = await sendManagedAgentRequest(message, {
     onEvent(event) {
       if (event.type === 'STDOUT') write(event.data, process.stdout);

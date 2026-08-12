@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LOCAL_OUTPUT_SCAN_POLICY, PROFILES, externalRoots, immutableToolRoot, normalizeBuildRequest, normalizeManagedAgentRequest, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs } from './index.mjs';
+import { LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, captureManagedRustEnvironment, externalRoots, immutableToolRoot, normalizeBuildRequest, normalizeManagedAgentRequest, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment } from './index.mjs';
 
 test('normalizes registered request without executable authority', () => {
   const request = normalizeBuildRequest({ frontend: 'cargo', argv: ['test'], workspace: '/external/work', environment: { CI: '1' } });
@@ -34,6 +34,18 @@ test('managed-agent normalization rejects redirect vectors & unmanaged tools', (
   assert.throws(() => normalizeManagedAgentRequest({ ...request, argv: ['/usr/local/bin/cargo', 'test'] }), /redirect/);
   assert.doesNotThrow(() => normalizeManagedAgentRequest({ ...request, argv: ['test', '--', '--target-dir'] }));
   assert.doesNotThrow(() => normalizeBuildRequest({ ...request, profile: PROFILES.STRICT_SYSTEM, argv: ['--target-dir', '/managed/target'] }));
+});
+
+test('captures every controlled Rust/Cargo override for fail-closed admission', () => {
+  const ambient = Object.fromEntries(MANAGED_RUST_ENVIRONMENT_KEYS.map((key) => [key.toLowerCase(), `/unsafe/${key}`]));
+  ambient.PATH = '/safe/path'; ambient.CI = '1';
+  const captured = captureManagedRustEnvironment(ambient);
+  assert.equal(Object.keys(captured).length, MANAGED_RUST_ENVIRONMENT_KEYS.length);
+  assert.equal(captured.PATH, undefined);
+  assert.throws(() => normalizeManagedAgentRequest({ frontend: 'cargo', argv: ['build'], workspace: '/workspace', environment: captured }), /environment/);
+  assert.deepEqual(validateManagedRustEnvironment({ CARGO_TARGET_DIR: '/managed/target' }, { CARGO_TARGET_DIR: '/managed/target' }), { CARGO_TARGET_DIR: '/managed/target' });
+  assert.throws(() => validateManagedRustEnvironment({ CARGO_TARGET_DIR: '/unsafe' }, { CARGO_TARGET_DIR: '/managed/target' }), /conflicting CARGO_TARGET_DIR/);
+  assert.throws(() => validateManagedRustEnvironment({ RUSTFLAGS: '-C target-dir=/unsafe' }, {}), /conflicting RUSTFLAGS/);
 });
 test('external roots are deterministic & output scan policy identifies local payload roots', () => {
   const input = { externalRoot: '/Volumes/builds', repositoryIdentity: 'git:abc123', toolchain: 'rust-1.97.1', target: 'aarch64-apple-darwin', buildProfile: 'release', policyProfile: PROFILES.MANAGED_AGENT };

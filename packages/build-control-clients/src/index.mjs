@@ -1,4 +1,4 @@
-import { FRONTENDS, normalizeBuildRequest, normalizeManagedAgentRequest } from '@rightkit/build-control-core';
+import { FRONTENDS, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest } from '@rightkit/build-control-core';
 import net from 'node:net';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, resolve, win32 } from 'node:path';
@@ -30,8 +30,9 @@ export function createManagedAgentRequest({ argv0, argv = [], workspace = proces
   const shim = shimName(argv0);
   const frontend = SHIM_ALIASES[shim];
   const invocation = normalizedInvocation(frontend, argv, resolve(workspace));
-  const request = normalizeManagedAgentRequest({ frontend, argv: invocation.argv, workspace: invocation.workspace, environment });
-  return Object.freeze({ type: 'MANAGED_AGENT', protocol: 'rightkit.build-control.client.v1', shim, request });
+  const observedEnvironment = captureManagedRustEnvironment(environment);
+  const request = normalizeManagedAgentRequest({ frontend, argv: invocation.argv, workspace: invocation.workspace, environment: {} });
+  return Object.freeze({ type: 'MANAGED_AGENT', protocol: 'rightkit.build-control.client.v1', shim, observedEnvironment, request });
 }
 
 export function createRightkitRequest({ argv = [], workspace = process.cwd(), environment = {} }) {

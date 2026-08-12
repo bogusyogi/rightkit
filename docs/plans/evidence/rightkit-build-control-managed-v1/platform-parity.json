@@ -1,0 +1,8 @@
+{
+  "schema": "rightkit.build-control.managed-agent.platform-parity.v1",
+  "sourceCommit": "2e62d3f4e15f11a1091e2cabf8000b35770019ae",
+  "invariants": ["MANAGED_AGENT", "external-root", "request-only-shims", "digest-pinned-tools", "durable-receipts", "ACTIVE=0", "reservedBytes=0", "direct-tool-deny", "rightkit-allow", "pnpm-npm-child-routing"],
+  "macos": { "root": "/Volumes/D/.rightkit-managed", "transport": "unix-socket", "status": "recorded-separately" },
+  "windows": { "root": "D:\\.rightkit-managed", "transport": "named-pipe", "runtime": "runtime-current", "status": "live-managed-agent" },
+  "strictSystemProfile": "independent"
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "kind": "rightkit-managed-build-control-publication",
+  "generatedAt": "2026-08-13T04:01:00+05:30",
+  "status": "PASS",
+  "repository": "bogusyogi/claude",
+  "branch": "main",
+  "implementationCommit": "2e62d3f4e15f11a1091e2cabf8000b35770019ae",
+  "publishedHead": "9998c8bbcc1c20e7ea8c038435a867931160ca60",
+  "remoteRef": "origin/main",
+  "containment": {
+    "command": "git merge-base --is-ancestor 2e62d3f4e15f11a1091e2cabf8000b35770019ae origin/main",
+    "result": "PASS"
+  },
+  "remoteEquality": {
+    "localHead": "9998c8bbcc1c20e7ea8c038435a867931160ca60",
+    "originMain": "9998c8bbcc1c20e7ea8c038435a867931160ca60",
+    "result": "PASS"
+  },
+  "packagePublication": {
+    "mode": "private-workspace-source",
+    "npmPublished": false,
+    "reason": "All RightKit build-control package manifests declare private=true; publication is repository commit containment."
+  },
+  "canonicalVerificationAtPublication": "IN_PROGRESS",
+  "pendingAfterPublication": [
+    "macOS capped-root legacy inventory closure",
+    "Windows self-contained parity deployment",
+    "cross-platform parity report"
+  ]
+}

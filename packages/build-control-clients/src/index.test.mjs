@@ -6,7 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { MANAGED_RUST_ENVIRONMENT_KEYS } from '@rightkit/build-control-core';
 import { adapterRegistry, brokerEndpoint, createClientRequest, createManagedAgentRequest, createRightkitRequest, installAgentShims, INSTALLED_MANAGED_SHIMS, MAX_BROKER_LINE_BYTES, sendManagedAgentRequest, shimManifest } from './index.mjs';
+
+const cleanProcessEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !MANAGED_RUST_ENVIRONMENT_KEYS.includes(key.toUpperCase())));
 
 test('every frozen frontend produces a request-only client payload', () => {
   assert.equal(Object.keys(adapterRegistry).length, 7);
@@ -23,10 +26,20 @@ test('all named aliases normalize into a managed-agent request', () => {
   assert.equal(createManagedAgentRequest({ argv0: 'clang', workspace: '/external/work' }).shim, 'clang');
   assert.throws(() => createManagedAgentRequest({ argv0: 'bash', workspace: '/external/work' }), /unregistered/);
   assert.throws(() => createManagedAgentRequest({ argv0: 'cargo', argv: ['build', '--target-dir', '/tmp/escape'], workspace: '/external/work' }), /cannot redirect/);
-  assert.throws(() => createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work', environment: { CARGO_TARGET_DIR: '/tmp/escape' } }), /cannot set redirecting environment/);
+  assert.deepEqual(createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work', environment: { CARGO_TARGET_DIR: '/tmp/escape' } }).observedEnvironment, { CARGO_TARGET_DIR: '/tmp/escape' });
   assert.equal(shimManifest().links.length, 5);
   assert.deepEqual(INSTALLED_MANAGED_SHIMS, ['cargo', 'rustc', 'rustdoc', 'rustup']);
   assert.throws(() => brokerEndpoint({}), /not configured/);
+});
+
+test('ambient Rust/Cargo overrides are captured & rejected instead of silently dropped', () => {
+  for (const environment of [
+    { CARGO_TARGET_DIR: '/tmp/escape' },
+    { cargo_build_build_dir: '/tmp/build' },
+    { RUSTC_WRAPPER: '/tmp/wrapper' },
+    { RUSTFLAGS: '-C target-dir=/tmp/escape' }
+  ]) assert.deepEqual(createRightkitRequest({ argv: ['cargo', 'build'], workspace: '/external/work', environment }).observedEnvironment, environment);
+  assert.deepEqual(createRightkitRequest({ argv: ['cargo', 'build'], workspace: '/external/work', environment: { PATH: '/usr/bin', CI: '1' } }).observedEnvironment, {});
 });
 
 test('rightkit normalizes explicit build & shim invocations into request-only identity', () => {
@@ -89,12 +102,12 @@ test('rightkit wrapper sends explicit request identity & fails closed without br
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const directory = join(root, 'agent-bin'); const endpoint = join(root, 'broker.sock');
   const server = net.createServer((socket) => socket.on('data', (data) => { const message = JSON.parse(data.toString()); assert.equal(message.entrypoint, 'rightkit'); assert.equal(message.shim, 'cargo'); assert.deepEqual(message.request.argv, ['metadata']); socket.end(`${JSON.stringify({ type: 'RESULT', exitCode: 0 })}\n`); }));
   await new Promise((resolve) => server.listen(endpoint, resolve)); await installAgentShims({ directory, platform: 'linux' });
-  const child = spawn(join(directory, 'rightkit'), ['build', 'cargo', '--', 'metadata'], { cwd: root, env: { ...process.env, RIGHTKIT_BUILD_BROKER_SOCKET: endpoint } });
+  const child = spawn(join(directory, 'rightkit'), ['build', 'cargo', '--', 'metadata'], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: endpoint } });
   assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }), 0);
   await new Promise((resolve) => server.close(resolve));
-  const malformed = spawn(join(directory, 'rightkit'), ['build', 'cargo', 'test'], { cwd: root, env: { ...process.env } });
+  const malformed = spawn(join(directory, 'rightkit'), ['build', 'cargo', 'test'], { cwd: root, env: cleanProcessEnvironment() });
   assert.equal(await new Promise((resolve, reject) => { malformed.once('error', reject); malformed.once('close', resolve); }), 125);
-  const unavailable = spawn(join(directory, 'rightkit'), ['cargo', 'test'], { cwd: root, env: { ...process.env, RIGHTKIT_BUILD_BROKER_SOCKET: join(root, 'missing.sock') } });
+  const unavailable = spawn(join(directory, 'rightkit'), ['cargo', 'test'], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: join(root, 'missing.sock') } });
   assert.equal(await new Promise((resolve, reject) => { unavailable.once('error', reject); unavailable.once('close', resolve); }), 125);
   await rm(root, { recursive: true, force: true });
 });
@@ -109,7 +122,7 @@ test('installed cargo wrapper preserves exact shim identity for broker routing',
   }));
   await new Promise((resolve) => server.listen(endpoint, resolve));
   await installAgentShims({ directory, platform: 'linux' });
-  const child = spawn(join(directory, 'cargo'), ['metadata'], { cwd: root, env: { ...process.env, RIGHTKIT_BUILD_BROKER_SOCKET: endpoint } });
+  const child = spawn(join(directory, 'cargo'), ['metadata'], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: endpoint } });
   const exitCode = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
   assert.equal(exitCode, 0);
   await new Promise((resolve) => server.close(resolve));
@@ -143,7 +156,7 @@ test('managed agent CLI prints typed broker rejection reason', async () => {
   const endpoint = join(root, 'broker.sock');
   const server = net.createServer((socket) => socket.on('data', () => socket.end(`${JSON.stringify({ type: 'RESULT', exitCode: 125, status: 'REJECTED', error: 'policy rejected request' })}\n`)));
   await new Promise((resolve) => server.listen(endpoint, resolve));
-  const child = spawn(process.execPath, [fileURLToPath(new URL('./managed-agent.mjs', import.meta.url)), '--version'], { cwd: root, env: { ...process.env, RIGHTKIT_BUILD_BROKER_SOCKET: endpoint, RIGHTKIT_MANAGED_AGENT_SHIM: 'cargo' } });
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./managed-agent.mjs', import.meta.url)), '--version'], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: endpoint, RIGHTKIT_MANAGED_AGENT_SHIM: 'cargo' } });
   let stderr = '';
   child.stderr.on('data', (chunk) => { stderr += chunk; });
   const exitCode = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
