@@ -1,0 +1,11 @@
+{
+  "name": "@rightkit/build-control-clients",
+  "version": "0.1.0-phase1",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.mjs",
+  "bin": { "rightkit": "src/rightkit.mjs", "rightkit-managed-agent": "src/managed-agent.mjs", "rightkit-install-agent-shims": "src/install-agent-shims.mjs" },
+  "scripts": { "test": "node --test src/*.test.mjs" },
+  "dependencies": { "@rightkit/build-control-core": "workspace:0.1.0-phase1" },
+  "engines": { "node": ">=24" }
+}

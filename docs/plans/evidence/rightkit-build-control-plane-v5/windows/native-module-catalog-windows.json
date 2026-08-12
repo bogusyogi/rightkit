@@ -1,0 +1,1640 @@
+{
+  "schema": "rightkit.build-control.windows.native-module-catalog.v1",
+  "capturedAt": "2026-08-12T18:15:39.0494645Z",
+  "roots": [
+    "C:\\nvm4w\\nodejs\\lib\\node",
+    "C:\\Users\\adrds\\.cargo\\git",
+    "C:\\Users\\adrds\\.cargo\\registry",
+    "C:\\Users\\adrds\\.node_libraries",
+    "C:\\Users\\adrds\\.node_modules",
+    "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv",
+    "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages",
+    "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages",
+    "D:\\Claude\\node_modules"
+  ],
+  "modules": [
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libloading-0.7.4\\tests\\nagisa32.dll",
+      "kind": "rust",
+      "sizeBytes": 3072,
+      "sha256": "5c69b2bd9c8a6ad04165c221075fc9fade1dd66ca697399ace528a5a62328e36"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libloading-0.7.4\\tests\\nagisa64.dll",
+      "kind": "rust",
+      "sizeBytes": 2560,
+      "sha256": "e20b95e3036f3289421abd100760874d4f455afd33c3b5b64fec56b191f7d477"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libloading-0.8.9\\tests\\nagisa32.dll",
+      "kind": "rust",
+      "sizeBytes": 3072,
+      "sha256": "5c69b2bd9c8a6ad04165c221075fc9fade1dd66ca697399ace528a5a62328e36"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libloading-0.8.9\\tests\\nagisa64.dll",
+      "kind": "rust",
+      "sizeBytes": 2560,
+      "sha256": "e20b95e3036f3289421abd100760874d4f455afd33c3b5b64fec56b191f7d477"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libloading-0.9.0\\tests\\nagisa32.dll",
+      "kind": "rust",
+      "sizeBytes": 3072,
+      "sha256": "5c69b2bd9c8a6ad04165c221075fc9fade1dd66ca697399ace528a5a62328e36"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libloading-0.9.0\\tests\\nagisa64.dll",
+      "kind": "rust",
+      "sizeBytes": 2560,
+      "sha256": "e20b95e3036f3289421abd100760874d4f455afd33c3b5b64fec56b191f7d477"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_atomic-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_chrono-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_container-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_date_time-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_filesystem-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_graph-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_iostreams-vc141-mt-x32-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_locale-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_math_c99f-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_math_c99l-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_math_c99-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_math_tr1f-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_math_tr1l-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_math_tr1-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_prg_exec_monitor-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_random-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_regex-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_serialization-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_system-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_thread-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_timer-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_unit_test_framework-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\boost_wserialization-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\icudt61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\icuin61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\icuio61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\icutu61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\icuuc61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\libbz2.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\libeay32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\libmysql.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\lz4.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\lzma.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\ssleay32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\bin\\zlib1.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_atomic-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_chrono-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_container-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_date_time-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_filesystem-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_graph-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_iostreams-vc141-mt-gd-x32-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_locale-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_math_c99f-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_math_c99l-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_math_c99-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_math_tr1f-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_math_tr1l-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_math_tr1-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_prg_exec_monitor-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_random-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_regex-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_serialization-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_system-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_thread-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_timer-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_unit_test_framework-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\boost_wserialization-vc141-mt-gd-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\icudtd61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\icuind61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\icuiod61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\icutud61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\icuucd61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\libbz2d.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\libeay32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\libmysql.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\lz4d.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\lzma.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\ssleay32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\debug\\bin\\zlibd1.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\tools\\openssl\\LIBEAY32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x64-windows\\tools\\openssl\\SSLEAY32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\freetype.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\graphite2.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\harfbuzz.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\icudt61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\icuin61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\icuio61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\icutu61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\icuuc61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\libbz2.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\libpng16.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\normalized\\installed\\x86-windows\\bin\\zlib1.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_atomic-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_chrono-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_container-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_date_time-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_filesystem-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_graph-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_iostreams-vc141-mt-x32-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_locale-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_math_c99f-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_math_c99l-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_math_c99-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_math_tr1f-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_math_tr1l-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_math_tr1-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_prg_exec_monitor-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_random-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_regex-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_serialization-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_system-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_thread-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_timer-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_unit_test_framework-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\boost_wserialization-vc141-mt-x64-1_67.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\icudt61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\icuin61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\icuio61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\icutu61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\icuuc61.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\libbz2.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\libeay32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\libmysql.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\lz4.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\lzma.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\ssleay32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\bin\\zlib1.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\tools\\openssl\\LIBEAY32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\vcpkg-0.2.15\\test-data\\no-status\\installed\\x64-windows\\tools\\openssl\\SSLEAY32.dll",
+      "kind": "rust",
+      "sizeBytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\webview2-com-sys-0.38.2\\arm64\\WebView2Loader.dll",
+      "kind": "rust",
+      "sizeBytes": 145984,
+      "sha256": "df5816669f5123595c475d97929240d7d0e04f0bdc7dbe18af1dda42348b73a6"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\webview2-com-sys-0.38.2\\x64\\WebView2Loader.dll",
+      "kind": "rust",
+      "sizeBytes": 160320,
+      "sha256": "8427b1fc58ec707813e5c0a51eb5d69397bb333250a7b891be4d3b123f1e0f1c"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\webview2-com-sys-0.38.2\\x86\\WebView2Loader.dll",
+      "kind": "rust",
+      "sizeBytes": 120904,
+      "sha256": "44ab92c2246ebfb5f98aa5726626fb44beb61543f2ef1803338af9fd295e63f0"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\webview2-com-sys-0.39.1\\arm64\\WebView2Loader.dll",
+      "kind": "rust",
+      "sizeBytes": 146536,
+      "sha256": "a0de1844933a10c898f833771a85f0ab9a0e3c745d4715f63d2d9730f9416025"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\webview2-com-sys-0.39.1\\x64\\WebView2Loader.dll",
+      "kind": "rust",
+      "sizeBytes": 160880,
+      "sha256": "86545b66cdb0603bc26b626fb9ad610cb6e71f28d468f5ea66df23b03dda96d5"
+    },
+    {
+      "path": "C:\\Users\\adrds\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\webview2-com-sys-0.39.1\\x86\\WebView2Loader.dll",
+      "kind": "rust",
+      "sizeBytes": 121448,
+      "sha256": "161dc6673084a31f64670ace8e61cb0e1b55af815b6c7c8217a0cdd8503454e2"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\_cffi_backend.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 178688,
+      "sha256": "8100f667a3f64eeb37b9326d0c53a931e0ea3cea4ade5dbdc638c368355c0948"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\_ruamel_yaml.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 274432,
+      "sha256": "57f146818007a7393650ad3065c27b6b2c2ff4b01206790078075701359d0275"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\aiohttp\\_http_parser.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 252928,
+      "sha256": "511cd7062151ae724f1f194d009caa38cf0c2bbfac709b5476dcc8354a0575ed"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\aiohttp\\_http_writer.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 45568,
+      "sha256": "6d2b1bffc5ceb0322b9a924516bac95bbbc91ca0842c20408a6758fb2ba2d5dc"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\aiohttp\\_websocket\\mask.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 34816,
+      "sha256": "1904ebaef453f681cca022fd4e6ae88930fedec16e30b87797cbe72f5b371944"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\aiohttp\\_websocket\\reader_c.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 141824,
+      "sha256": "3efc2e02a76c14b85eb5aa6beeebe4604cf30c1b957f972c877b10578a635ffb"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\brotlicffi\\_brotlicffi.pyd",
+      "kind": "python",
+      "sizeBytes": 858624,
+      "sha256": "bdcfb6022d73b22aef357cddae2bde7a03660528c56104edb9beaffe586560c8"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\charset_normalizer\\md.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 10752,
+      "sha256": "4ec4eb6ffb5b9e286897f9ea870561de463421f8312af1e976c045ad6b3f3751"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\charset_normalizer\\md__mypyc.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 123392,
+      "sha256": "ce678f5ffa66a0b576796dadf6e1e0fdf3d10a40d056c9a58cb46d4aabb87901"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\cryptography\\hazmat\\bindings\\_rust.pyd",
+      "kind": "python",
+      "sizeBytes": 9121280,
+      "sha256": "fe5c4cdb5512f792fb0f5b3ce0cd8c1484614851d56ff5d1e7215213eb9e0bca"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\davey\\davey.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 1892352,
+      "sha256": "eb83b23fafae5730b0560e8bf7072c433108a606c047e5088718264b324968c4"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\dependency_injector\\_cwiring.pyd",
+      "kind": "python",
+      "sizeBytes": 93184,
+      "sha256": "aaf78013dc21067885e9db57bc1d9b02452a514929d0931ae30ea15091d3e609"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\dependency_injector\\containers.pyd",
+      "kind": "python",
+      "sizeBytes": 250880,
+      "sha256": "6a1c2b5bc5d9f791889c702aae278d367396ca359313f5ea026daf0073e2376a"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\dependency_injector\\providers.pyd",
+      "kind": "python",
+      "sizeBytes": 1145344,
+      "sha256": "cc7362c41dd695b2cca776547d521aadaef30bcc12229c50d2d7156488c50059"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\discord\\bin\\libopus-0.x64.dll",
+      "kind": "shared",
+      "sizeBytes": 441856,
+      "sha256": "c84da836e8d92421ac305842cfe5a724898ed09d340d46b129e210bdc9448131"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\discord\\bin\\libopus-0.x86.dll",
+      "kind": "shared",
+      "sizeBytes": 366080,
+      "sha256": "3b5bfe12950f35043ed75d2b6fa902c936d67a507160bf76358d67c76c1dbde8"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\frozenlist\\_frozenlist.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 68096,
+      "sha256": "cb0227473d0c9e53c49fd548b539522a73e5ba7fc02ba7702ef45db8da7b4119"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\google\\_upb\\_message.pyd",
+      "kind": "python",
+      "sizeBytes": 724239,
+      "sha256": "81e863b2b3759b261e33d9e17c76376112dad6d2f0555e93a341cae856338d8b"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\httptools\\parser\\parser.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 123392,
+      "sha256": "a2cee889a53377b99eb87d279b0f91d306a8fb0c3688ecf5f8c24ac7144b21df"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\httptools\\parser\\url_parser.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 50688,
+      "sha256": "c5e4c5de2a8d31266e709827529b84feddc02ca8e3952d1d99d6a4e6d6587e0a"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\isapi\\PyISAPI_loader.dll",
+      "kind": "shared",
+      "sizeBytes": 68608,
+      "sha256": "c7a13e6308cfab9c668eabbb06844fa3c2035f5f73c4093e9a5b53ce60336151"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\jiter\\jiter.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 443904,
+      "sha256": "f05f5218d8feea6624ae9cbe7dc616c8c1563dd3a5b299b2d1a443f142b25e6d"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\markupsafe\\_speedups.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 13312,
+      "sha256": "755b26c10a4ece4acfb14a30201b5a5ff97b930784a0800b1bbc9bd93407a9fd"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\msgpack\\_cmsgpack.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 121344,
+      "sha256": "dff11d7908e847a140db6bb18d74cdfb733f63b428018cc6b350941d2aab1297"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\multidict\\_multidict.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 78848,
+      "sha256": "f92555975df808e8f4ba64e60af52ba32ccdebc69aa4dcca23d54d098dcb5d74"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\nacl\\_sodium.pyd",
+      "kind": "python",
+      "sizeBytes": 348672,
+      "sha256": "d733c23c6a4b21625a4ff07f6562ba882bcbdb0f50826269419d8de0574f88cd"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\PIL\\_avif.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 7895040,
+      "sha256": "21e5118201e7d9a1d8e22f2dc62af5d550943d5cc020c077703c5c8385a9a059"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\PIL\\_imaging.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 2588160,
+      "sha256": "e04dfdb2bdba09efc4bee07924e7be18b0b324a890eae81a12509d54370d4621"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\PIL\\_imagingcms.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 271360,
+      "sha256": "2533e49538d43bf7655379234cfdccb364fa523f454b245bc7b4726ef9bd11ea"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\PIL\\_imagingft.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 2166272,
+      "sha256": "36de3f5dcf98e5d0a04c391fd6cc7ccee5cb807f6a4881e894c973ba085f8547"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\PIL\\_imagingmath.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 25088,
+      "sha256": "947d15f95576d6a156ece0111a408818cfe00413c64a34ae89f5800dcd3aa590"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\PIL\\_imagingmorph.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 13824,
+      "sha256": "1b86df8712abb2df2250cf8c0ca4ca898a2486996e35ab6f772d3f8c8cd8c726"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\PIL\\_imagingtk.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 14848,
+      "sha256": "f9e0365a71be22f27b2a2b31fac56240a2f87a2902f1477751f1456f5dda92c7"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\PIL\\_webp.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 409600,
+      "sha256": "bcc87ca62bab7d494703413d513022653545f8f6ad5fc117dcb0086c17c5639f"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\propcache\\_helpers_c.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 64000,
+      "sha256": "3947d0188c405d0425dfe4363a00f180eed28eb8839e518418c7eed96afee82d"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\psutil\\_psutil_windows.pyd",
+      "kind": "python",
+      "sizeBytes": 70656,
+      "sha256": "0035450801bd7d938e9e146c5ec28e619cb5a5f4a18cdc53ac7e9734c7f94f78"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pydantic_core\\_pydantic_core.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 5240320,
+      "sha256": "a0291ce64fc21ad1743626894f97c2e669bcac44226cd54897a661a1e5a147d0"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pythonwin\\dde.pyd",
+      "kind": "python",
+      "sizeBytes": 98304,
+      "sha256": "eb7946adc69635e87b8d34065c8255f62b18693a5b6d9c28312d5e6847aa7a66"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pythonwin\\mfc140u.dll",
+      "kind": "shared",
+      "sizeBytes": 5664848,
+      "sha256": "643ce7fe6a203c53a96a00f272a1a5b42d5b0c320c84364a6fe866307a19bb65"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pythonwin\\scintilla.dll",
+      "kind": "shared",
+      "sizeBytes": 1500160,
+      "sha256": "de3e3026de55675f108847a872c32f63cc9ca19db0712d14e8d1a1e775ddc0aa"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pythonwin\\win32ui.pyd",
+      "kind": "python",
+      "sizeBytes": 1146880,
+      "sha256": "7d89d290d54e30c188ab0f153a26edad15d7f03b1aadc574a6e79ddb2fb08ff7"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pythonwin\\win32uiole.pyd",
+      "kind": "python",
+      "sizeBytes": 74240,
+      "sha256": "cd1da089aff8b6b4c3f2d314a25adf2b4c1898613a6ceeac7a3cdc0915d7a763"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pywin32_system32\\pythoncom311.dll",
+      "kind": "shared",
+      "sizeBytes": 680448,
+      "sha256": "d6172ee192e577b786ce2e06f0020782c257e1ee48fc4ba56c1affc5c3e915eb"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\pywin32_system32\\pywintypes311.dll",
+      "kind": "shared",
+      "sizeBytes": 135168,
+      "sha256": "f33290cafcf91b6bd5b12b808198cbf816b68529e00e1b3563f63916529a0657"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\rpds\\rpds.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 612352,
+      "sha256": "b4863c2bdd944fb8c56b7cb0fbf7d90ed8dbc83004f20cd2e57a1b0fc177f03f"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\watchfiles\\_rust_notify.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 680448,
+      "sha256": "f30105f654b7136b9eb8a9d6018268ce63f09e2ab4c6401d7ddba854e5d0ac7b"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\websockets\\speedups.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 11776,
+      "sha256": "cd975e265ec0959189992db097ac6fc452885b34434b53d3561d4ff2e696d66c"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\_win32sysloader.pyd",
+      "kind": "python",
+      "sizeBytes": 14848,
+      "sha256": "b034fa86fda7ec312142756f5013bf5cdb0ad2dcf8549820259cd3691074d699"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\_winxptheme.pyd",
+      "kind": "python",
+      "sizeBytes": 25600,
+      "sha256": "3ec8f687f7ba21decff512f1dbbd5d4287ffcb60ed83fe7b60c6eac6183d1ff8"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\mmapfile.pyd",
+      "kind": "python",
+      "sizeBytes": 21504,
+      "sha256": "72d5179cfa1e3383cac48c91ebc886842f92d15014af57f9f1b4544217fc81f7"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\odbc.pyd",
+      "kind": "python",
+      "sizeBytes": 41472,
+      "sha256": "5e871b8e3b7caf11a01a96f5197d688eda4b93ab8e6e1207b47ab31767c51a18"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\perfmon.pyd",
+      "kind": "python",
+      "sizeBytes": 28672,
+      "sha256": "8b4c8b5ae537ebad906b2ff2e1578d30e328f51e6917c85cdfc3f27e266cdfa4"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\perfmondata.dll",
+      "kind": "shared",
+      "sizeBytes": 19456,
+      "sha256": "4e27f5afc5f36f45d8eed23b676c37b520643d8bc3be5e2d416411abc139c0e2"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\servicemanager.pyd",
+      "kind": "python",
+      "sizeBytes": 41472,
+      "sha256": "3b0f51df15f2638bc95e643640fc388010080a0f774edac6fd5423a45478917e"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\timer.pyd",
+      "kind": "python",
+      "sizeBytes": 16896,
+      "sha256": "4fa19d22e3ed9a86a52d375e65f7c1ef7b7bf05a93541a82e8253b5cb7254b39"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32api.pyd",
+      "kind": "python",
+      "sizeBytes": 134144,
+      "sha256": "cd52611ae8331959797d4a6e1087bdb4816a3ffabf97bfd135568786339a9ed4"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32clipboard.pyd",
+      "kind": "python",
+      "sizeBytes": 28160,
+      "sha256": "c68e2ba7f9e326daf1970ad85e16eae7ed92253c1420efc73639d06c087ad6ee"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32console.pyd",
+      "kind": "python",
+      "sizeBytes": 59904,
+      "sha256": "a28c1ae2602753faba9125e38c4f8b7ad9d02d56864c0b9e580d08142ba7a96c"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32cred.pyd",
+      "kind": "python",
+      "sizeBytes": 38912,
+      "sha256": "7e2364983f7e7ecec49cd7ba32c68645a69cbe8e39177d0a80f317e2655c02b8"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32crypt.pyd",
+      "kind": "python",
+      "sizeBytes": 123392,
+      "sha256": "fc5a93faa4b353a5e11efad460b6e552efeb040a8e44eca64d8d49bff655fdb6"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32event.pyd",
+      "kind": "python",
+      "sizeBytes": 29184,
+      "sha256": "2163fb040302482993f9513116c53b9088a16e96d1d478d766d36609ae1fc0f6"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32evtlog.pyd",
+      "kind": "python",
+      "sizeBytes": 74752,
+      "sha256": "35f2d6ff44866f80c7e51e91080b426e3d067c1359b4c6c7c17e3f2f59225cc9"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32file.pyd",
+      "kind": "python",
+      "sizeBytes": 143872,
+      "sha256": "cac9f2e4a65cc6a69ae477c4162433c7f0cb678b1de2cf341ecc7a890537f7c8"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32gui.pyd",
+      "kind": "python",
+      "sizeBytes": 220160,
+      "sha256": "56c4284a00bc18e0a1b629cbf588d9bc1e25311b0bab771dceb37630903f7762"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32help.pyd",
+      "kind": "python",
+      "sizeBytes": 53760,
+      "sha256": "f44b22c6edc48180dc09857a3df1907f6d60310633d88e1254ed1cc7871df7c3"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32inet.pyd",
+      "kind": "python",
+      "sizeBytes": 54272,
+      "sha256": "0440ef9665f8e0ce9602f2bcb72688a0a99f31d12a45f45c68637ef85a98d55b"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32job.pyd",
+      "kind": "python",
+      "sizeBytes": 28672,
+      "sha256": "523223717f27f96bcd0254928af41ad06c7cd5b44b86ec90a7716445f2495e2d"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32lz.pyd",
+      "kind": "python",
+      "sizeBytes": 16896,
+      "sha256": "d53dd87b61d0e01afb2c9e1d60cac5578c1a7b1891c245d716ffcac604d15bd5"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32net.pyd",
+      "kind": "python",
+      "sizeBytes": 93184,
+      "sha256": "27b56d411e441e6a370e52d762aea277587fc42e4768762a214c9fb654a0fb36"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32pdh.pyd",
+      "kind": "python",
+      "sizeBytes": 34816,
+      "sha256": "d8f511eef9ddf64681b41c5758bf8fe72667f3c2e4ee628c9398ccc46ef63648"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32pipe.pyd",
+      "kind": "python",
+      "sizeBytes": 28160,
+      "sha256": "c3b5dc78374dfbf3addcdc5532560ad20f4fe74c026f030b4a7e25c6a13d6489"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32print.pyd",
+      "kind": "python",
+      "sizeBytes": 74752,
+      "sha256": "e83d429277f278d2580afe7aaafc4ba7c64c85c232d769ce2005aa32f5ddfa5d"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32process.pyd",
+      "kind": "python",
+      "sizeBytes": 53248,
+      "sha256": "5e7d23dd019c0c39e53bb9b9674122627dd51fcdea34413b63620bfb8e771c14"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32profile.pyd",
+      "kind": "python",
+      "sizeBytes": 26624,
+      "sha256": "33d44c372b3c08b08c767c13407896b917caecbc1a62df3c22553b9312ac97dd"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32ras.pyd",
+      "kind": "python",
+      "sizeBytes": 33792,
+      "sha256": "a1ec333252d691acf6d2ca442f29378e579d4fd450f33a1382adf96067070e44"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32security.pyd",
+      "kind": "python",
+      "sizeBytes": 135680,
+      "sha256": "351632cb9bc00d96da46c975d3c396e4851488c814b4660ba35e9c6787528469"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32service.pyd",
+      "kind": "python",
+      "sizeBytes": 59904,
+      "sha256": "cc9aed29d2e9c20c22de0cecad15238e691ece934726d33a9ba1cb26888bd1ac"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32trace.pyd",
+      "kind": "python",
+      "sizeBytes": 23552,
+      "sha256": "981d8c24cb563a05861da6523f2f6a4f001f46211d808c4870b857a81134d465"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32transaction.pyd",
+      "kind": "python",
+      "sizeBytes": 19456,
+      "sha256": "168e2e04a2a5a53572dd9ef57b92f9966ed96fdd33493b1ac17511d95b198863"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32ts.pyd",
+      "kind": "python",
+      "sizeBytes": 33280,
+      "sha256": "84dbfc10c2b58516ef44f3330c3b1fd1c4f44bccba4a5fc04e194ab546a6eb40"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32\\win32wnet.pyd",
+      "kind": "python",
+      "sizeBytes": 37888,
+      "sha256": "ed2df06cee4ac3a51bb0542bc6197c2be17ec581283eab94791181e5bbfeecb7"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\adsi\\adsi.pyd",
+      "kind": "python",
+      "sizeBytes": 99840,
+      "sha256": "4f292d19d1111cf7d910ea66b3cac338eafcc0c3022c0866dca55b542a96e7b4"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\authorization\\authorization.pyd",
+      "kind": "python",
+      "sizeBytes": 29184,
+      "sha256": "e77ac5eaafde7a25d8ea6d142882d4a43ccb37baa0e866c9f4e2d7079e23faf8"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\axcontrol\\axcontrol.pyd",
+      "kind": "python",
+      "sizeBytes": 145408,
+      "sha256": "80df255fcc6f786e80ceea644abda70e42f4782ac6d91e7f818f3bf71891a591"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\axscript\\axscript.pyd",
+      "kind": "python",
+      "sizeBytes": 93696,
+      "sha256": "fd9fd78279f8e45139233768a8ab4aa20ece5b08736ea2c81350c69feb02ce3f"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\bits\\bits.pyd",
+      "kind": "python",
+      "sizeBytes": 64512,
+      "sha256": "33439734ea9ef7ba1b285489f914f273db593e5fa1a714d319029eefce3f06e8"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\directsound\\directsound.pyd",
+      "kind": "python",
+      "sizeBytes": 77312,
+      "sha256": "951b4e4a7e5aa1cfec7fd5e4185d05672c24b8e58648412f3883f06881b77f75"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\ifilter\\ifilter.pyd",
+      "kind": "python",
+      "sizeBytes": 30720,
+      "sha256": "451c71a738a4d35656c3ac64cae988290992ea7b814a67f7cc7cd73d167d0502"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\internet\\internet.pyd",
+      "kind": "python",
+      "sizeBytes": 94208,
+      "sha256": "52eff71125a6e1302eff83f948d757a0772563ffe4d074d868525ae78c79eef9"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\mapi\\exchange.pyd",
+      "kind": "python",
+      "sizeBytes": 138240,
+      "sha256": "8883497345052199a8dc2966a09551d26f297f9ce476183659b11374b4e85662"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\mapi\\mapi.pyd",
+      "kind": "python",
+      "sizeBytes": 247808,
+      "sha256": "6bf64be4d340831e6749bfde241ad7dbcfb6d77fa40f6bb8b768dc9e5e99a3ec"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\propsys\\propsys.pyd",
+      "kind": "python",
+      "sizeBytes": 141312,
+      "sha256": "94cb8564861120a7376a44f02968cba61a899abd2e2724c41f97f51bb8a5296e"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\shell\\shell.pyd",
+      "kind": "python",
+      "sizeBytes": 540672,
+      "sha256": "4bbac8868fd3b0ceb89470dc5bea5ac2fe5fdda35e6455b214db764263d6b4c8"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\win32comext\\taskscheduler\\taskscheduler.pyd",
+      "kind": "python",
+      "sizeBytes": 53248,
+      "sha256": "4e9acf5a97a2fc4532167333b8c8ecca55e54359965f4433ad7bc36c1c4bff97"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\winpty\\winpty.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 533504,
+      "sha256": "0bdbcda99f77f54ca1bb8fb10bbf9d78a721aac5f32ea95249254e19d3002298"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\winpty\\winpty.dll",
+      "kind": "shared",
+      "sizeBytes": 2509089,
+      "sha256": "5177f321aac2fa85436dd6ec6bfc6d41459d25f5b533aa03349ef513461b4c79"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\yaml\\_yaml.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 258560,
+      "sha256": "ee7df83fa5dca1467bfd841dc08189b10361f31700cf57a6aacddaf0c05706f4"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Lib\\site-packages\\yarl\\_quoting_c.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 84480,
+      "sha256": "f02c0fd7adf978c01647caf04ff0e71f621517adc1c1da635805efeb3103761c"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\iconv.dll",
+      "kind": "shared",
+      "sizeBytes": 32787,
+      "sha256": "d46b3b3a367df4099794fa14f9cba27d84ddc9cf83efaa55678bee2d73943fef"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libcrypto-3.dll",
+      "kind": "shared",
+      "sizeBytes": 5081107,
+      "sha256": "7220692972824af486d5af0bfde0da7383f5bcf3f5fc7366c52cfdd4884b78f3"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libcurl-4.dll",
+      "kind": "shared",
+      "sizeBytes": 853011,
+      "sha256": "0ba82796308f7773b1ab801cf6e93cdcd15e51f7797ca1a41ccce8855cd341e2"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libgcc_s_seh-1.dll",
+      "kind": "shared",
+      "sizeBytes": 113664,
+      "sha256": "645763b1b6f52c6a755444dfb781e6a606e1fda3061b2a3d9806780bb3dc54b4"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libgmp-10.dll",
+      "kind": "shared",
+      "sizeBytes": 654867,
+      "sha256": "c188e570157c109181e6788c2837fcead79747a7b10209cd82ebf5365787f508"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libidn2-0.dll",
+      "kind": "shared",
+      "sizeBytes": 393747,
+      "sha256": "ed5cdfc8fc176b79016d28e16d9cac22dca193673d08fbd48d9793effe863e6c"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libintl-8.dll",
+      "kind": "shared",
+      "sizeBytes": 187411,
+      "sha256": "e1aae1773d95347fa185b138b8793b076cbb4438193914e0ab8dbdfcc5e10232"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libnghttp2-14.dll",
+      "kind": "shared",
+      "sizeBytes": 184851,
+      "sha256": "1d813f209a3185c7ab9edc22c85559245029f46decdeac17662642bbf4455067"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libpcre-1.dll",
+      "kind": "shared",
+      "sizeBytes": 293395,
+      "sha256": "83a039fa9d2da101884650ec1f66d3f669045b57854ac17bf385402dee055afa"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libpcre2-8-0.dll",
+      "kind": "shared",
+      "sizeBytes": 691219,
+      "sha256": "3947d2222ec264ed95f8549572b110442146bec00d96130746ee942115514ed7"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libssh2-1.dll",
+      "kind": "shared",
+      "sizeBytes": 246291,
+      "sha256": "240b1644c8ffbc4cd7e95847dfdc7271c3e781e68c423e20a572f8a9fd036c39"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libssl-3.dll",
+      "kind": "shared",
+      "sizeBytes": 640019,
+      "sha256": "cec6f3dee861cc7824ab7878f965061f2ca2950b160fd53c609eadd0bf79a4b5"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libstdc++-6.dll",
+      "kind": "shared",
+      "sizeBytes": 2159616,
+      "sha256": "6244b77e3635c735ec7d463dcd748beef08a7e6facfa6e47e5463f388fa3b178"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libtree-sitter.dll",
+      "kind": "shared",
+      "sizeBytes": 214528,
+      "sha256": "e93c46e53284667f30b1f5a933aa1f16414a9f1953cffcc7398f4463b50f5d42"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libwinpthread-1.dll",
+      "kind": "shared",
+      "sizeBytes": 57875,
+      "sha256": "fe0259c7c8bf875cce79dc63f7af2c350138e77e60c51cb44d35aaee4d45e3ee"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\libzstd-1.dll",
+      "kind": "shared",
+      "sizeBytes": 710675,
+      "sha256": "bbf5c934a2a80cf28b944e2e493aef3b4886fa6f9b4b026f42531f3f53c62907"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\~emgrep\\bin\\zlib1.dll",
+      "kind": "shared",
+      "sizeBytes": 117779,
+      "sha256": "1b998ab51f16a8e3549c00c69d9ebad34d5dcf41d198e1d665df0ac2c8d737fd"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\3c22db458360489351e4__mypyc.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 165376,
+      "sha256": "6efc972310c26b6073ced0e0bf632e56f75c7ad86da97cac8d38eeed931ff893"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\clang\\native\\libclang.dll",
+      "kind": "shared",
+      "sizeBytes": 83988992,
+      "sha256": "b13ec96d9a036d6c6c36dd09e00415ead7acc7fcfd40e721bf33ea86b3490f9d"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\iconv.dll",
+      "kind": "shared",
+      "sizeBytes": 32787,
+      "sha256": "d46b3b3a367df4099794fa14f9cba27d84ddc9cf83efaa55678bee2d73943fef"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libcrypto-3.dll",
+      "kind": "shared",
+      "sizeBytes": 5083667,
+      "sha256": "eb33c4ba433640f6c24569047e4f5b9bf0936d5e02b7ca42d2a17cd6f0ecf5a4"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libcurl-4.dll",
+      "kind": "shared",
+      "sizeBytes": 853011,
+      "sha256": "0ba82796308f7773b1ab801cf6e93cdcd15e51f7797ca1a41ccce8855cd341e2"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libgcc_s_seh-1.dll",
+      "kind": "shared",
+      "sizeBytes": 113664,
+      "sha256": "645763b1b6f52c6a755444dfb781e6a606e1fda3061b2a3d9806780bb3dc54b4"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libgmp-10.dll",
+      "kind": "shared",
+      "sizeBytes": 654867,
+      "sha256": "c188e570157c109181e6788c2837fcead79747a7b10209cd82ebf5365787f508"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libidn2-0.dll",
+      "kind": "shared",
+      "sizeBytes": 393747,
+      "sha256": "ed5cdfc8fc176b79016d28e16d9cac22dca193673d08fbd48d9793effe863e6c"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libintl-8.dll",
+      "kind": "shared",
+      "sizeBytes": 187411,
+      "sha256": "e1aae1773d95347fa185b138b8793b076cbb4438193914e0ab8dbdfcc5e10232"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libnghttp2-14.dll",
+      "kind": "shared",
+      "sizeBytes": 184851,
+      "sha256": "1d813f209a3185c7ab9edc22c85559245029f46decdeac17662642bbf4455067"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libpcre2-8-0.dll",
+      "kind": "shared",
+      "sizeBytes": 691219,
+      "sha256": "3947d2222ec264ed95f8549572b110442146bec00d96130746ee942115514ed7"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libssh2-1.dll",
+      "kind": "shared",
+      "sizeBytes": 246291,
+      "sha256": "240b1644c8ffbc4cd7e95847dfdc7271c3e781e68c423e20a572f8a9fd036c39"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libssl-3.dll",
+      "kind": "shared",
+      "sizeBytes": 640019,
+      "sha256": "24ac020e88070417a7c0b8f4f78bf35e786dfaf474a12c697aa1684ba8c51d63"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libstdc++-6.dll",
+      "kind": "shared",
+      "sizeBytes": 2159616,
+      "sha256": "6244b77e3635c735ec7d463dcd748beef08a7e6facfa6e47e5463f388fa3b178"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libtree-sitter.dll",
+      "kind": "shared",
+      "sizeBytes": 214528,
+      "sha256": "c8ab7953b3d2979901ec323123e93d3487cd1e586a5dad7d61e038c32b632625"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libwinpthread-1.dll",
+      "kind": "shared",
+      "sizeBytes": 57875,
+      "sha256": "fe0259c7c8bf875cce79dc63f7af2c350138e77e60c51cb44d35aaee4d45e3ee"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\libzstd-1.dll",
+      "kind": "shared",
+      "sizeBytes": 710675,
+      "sha256": "bbf5c934a2a80cf28b944e2e493aef3b4886fa6f9b4b026f42531f3f53c62907"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\semgrep\\bin\\zlib1.dll",
+      "kind": "shared",
+      "sizeBytes": 117779,
+      "sha256": "1b998ab51f16a8e3549c00c69d9ebad34d5dcf41d198e1d665df0ac2c8d737fd"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\tomli\\__init__.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 10752,
+      "sha256": "0b929fefd6c826bda8f7accf07994ec35f45fab7e8c07953ff629e6b71847a5c"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\tomli\\_parser.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 10752,
+      "sha256": "969acc3481a26cd00fd39a771a5973de384689354614a8b7b40a240ba2304f66"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\tomli\\_re.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 10752,
+      "sha256": "9b6191594b9c2753b00e60cef0335e2903f4c5525dd2804b28f92ffb9ddb3691"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\tomli\\_types.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 10752,
+      "sha256": "95622373f212d1cf2d8eaa2550c3a4f0be9b0c6af3f62bdf630aa9353a8506ad"
+    },
+    {
+      "path": "C:\\Users\\adrds\\AppData\\Roaming\\Python\\Python311\\site-packages\\wrapt\\_wrappers.cp311-win_amd64.pyd",
+      "kind": "python",
+      "sizeBytes": 38400,
+      "sha256": "cfe4c57771a70c8f5babe60a222dbbb7061f3da06061b7698c8d689b0fa35d88"
+    }
+  ],
+  "count": 270,
+  "hashAlgorithm": "SHA256",
+  "discoveryOnly": true
+}

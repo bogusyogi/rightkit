@@ -1,0 +1,60 @@
+{
+  "broker": {
+    "externalRoot": {
+      "path": "D:\\RightKitManagedAgent\\external",
+      "volumeId": "eui.E8238FA6BF530001001B448B4DCFB196:partition-{b516383f-fc7e-40a4-9257-6958d98af355}",
+      "mounted": true,
+      "writable": true,
+      "internal": false
+    },
+    "capacityBytes": 53687091200,
+    "stateFile": "D:\\RightKitManagedAgent\\external\\state.json",
+    "receiptsDir": "D:\\RightKitManagedAgent\\external\\receipts"
+  },
+  "windowsPipe": "\\\\.\\pipe\\rightkit-managed-agent-bogus-dell-persistent-v1",
+  "tools": [
+    {
+      "id": "cargo-stable-1.97.1",
+      "path": "C:\\Users\\adrds\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "root": "C:\\Users\\adrds\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin",
+      "sha256": "ddfbad20b31b918d3439d070945ec59bbfe037a6ec0ab5b584459e69c8b37d1b"
+    },
+    {
+      "id": "rustc-stable-1.97.1",
+      "path": "C:\\Users\\adrds\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\rustc.exe",
+      "root": "C:\\Users\\adrds\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin",
+      "sha256": "cf79cfd77b0a144c56a0a6af6bf10bcdf095a73718cd4bf2b9d4fe2d2cbded55"
+    },
+    {
+      "id": "rustdoc-stable-1.97.1",
+      "path": "C:\\Users\\adrds\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\rustdoc.exe",
+      "root": "C:\\Users\\adrds\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin",
+      "sha256": "0c6ccda72363b77afc177b2c9a75ced422e3b88c0930ec1aab552e83a40e381e"
+    },
+    {
+      "id": "rustup-1.97.1",
+      "path": "C:\\Users\\adrds\\.cargo\\bin\\rustup.exe",
+      "root": "C:\\Users\\adrds\\.cargo\\bin",
+      "sha256": "f574ea2bd6d798b6072b3a45e3053f3cabcc2cb48d6b4bd59b661b41d675b31a"
+    },
+    {
+      "id": "sccache-0.15.0",
+      "path": "C:\\Users\\adrds\\.cargo\\bin\\sccache.exe",
+      "root": "C:\\Users\\adrds\\.cargo\\bin",
+      "sha256": "7a2b4220389c959bd78a12187f0d2339f4b3d794d3e9ff75cf1e5426f7c16a29"
+    }
+  ],
+  "shims": { "cargo": "cargo-stable-1.97.1", "rustc": "rustc-stable-1.97.1", "rustdoc": "rustdoc-stable-1.97.1", "rustup": "rustup-1.97.1" },
+  "defaults": {
+    "repositoryIdentity": "windows-managed-agent-verification",
+    "toolchain": "stable-1.97.1-x86_64-pc-windows-msvc",
+    "targetTriple": "x86_64-pc-windows-msvc",
+    "buildProfile": "development",
+    "reservationBytes": 536870912,
+    "rustcToolId": "rustc-stable-1.97.1",
+    "rustdocToolId": "rustdoc-stable-1.97.1",
+    "sccacheToolId": "sccache-0.15.0"
+  },
+  "outputPolicy": { "mode": "enforce" },
+  "bounds": { "freeFloorBytes": 21474836480, "quotaWatermarkBytes": 48318382080 }
+}

@@ -1,0 +1,7 @@
+{
+  "schema": "rightkit.build-control-phase0.macos.internal-write/v1",
+  "status": "BLOCKED_EXTERNAL",
+  "command": "fs_usage -w -f filesystem -t 1",
+  "detail": "filesystem tracing requires elevated host authorization",
+  "diagnostic": "'fs_usage' must be run as root..."
+}

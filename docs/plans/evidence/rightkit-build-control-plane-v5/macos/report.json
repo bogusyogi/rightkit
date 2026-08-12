@@ -1,0 +1,899 @@
+{
+  "schema": "rightkit.build-control-phase0.macos.report/v1",
+  "version": 1,
+  "generatedAt": "2026-08-12T18:19:34.545Z",
+  "status": "BLOCKED_EXTERNAL",
+  "machine": {
+    "hardwareModel": "MacBookAir10,1",
+    "os": "ProductName:\t\tmacOS\nProductVersion:\t\t26.5.2\nBuildVersion:\t\t25F84"
+  },
+  "gates": [
+    {
+      "id": "apple-entitlement",
+      "status": "BLOCKED_EXTERNAL",
+      "detail": "Authenticated Apple Developer account access plus Apple Developer Program entitlement approval for team 6KLGD3LLKF",
+      "evidence": [
+        "machine-inventory-macos.json"
+      ]
+    },
+    {
+      "id": "system-extension-activation",
+      "status": "BLOCKED_EXTERNAL",
+      "detail": "Verified Apple-granted com.apple.developer.endpoint-security.client entitlement plus isolated interactive system-extension test context",
+      "evidence": [
+        "endpoint-security-spike.json"
+      ]
+    },
+    {
+      "id": "auth-exec",
+      "status": "BLOCKED_EXTERNAL",
+      "detail": "No extension has been built, signed, installed, activated, denied, or allowed by this Phase-0 harness.",
+      "evidence": [
+        "endpoint-security-spike.json"
+      ]
+    },
+    {
+      "id": "capacity-floor",
+      "status": "BLOCKED_EXTERNAL",
+      "detail": "D capacity 995872473088 bytes, free 219802836992 bytes. Inventory is incomplete; no aspirational cache maximum is emitted.",
+      "evidence": [
+        "capacity-model-macos.json"
+      ]
+    },
+    {
+      "id": "apfs-clone",
+      "status": "PASS",
+      "detail": "cp -c success is clonefile capability evidence; block counts alone do not prove shared extents.",
+      "evidence": [
+        "apfs-clone-reflink.json"
+      ]
+    },
+    {
+      "id": "baseline",
+      "status": "PASS",
+      "detail": "current execution-route baseline",
+      "evidence": [
+        "baseline.json"
+      ]
+    },
+    {
+      "id": "runner-uid-isolation",
+      "status": "BLOCKED_EXTERNAL",
+      "detail": "No pre-provisioned locked non-login runner UID pool exists. sudo -n cannot create isolated accounts; no account or session mutation was attempted.",
+      "evidence": [
+        "runner-uid-isolation.json"
+      ]
+    },
+    {
+      "id": "internal-write",
+      "status": "BLOCKED_EXTERNAL",
+      "detail": "filesystem tracing requires elevated host authorization",
+      "evidence": [
+        "internal-write.json"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "schema": "rightkit.build-control-phase0.macos.inventory/v1",
+      "generatedAt": "2026-08-12T18:16:30.499Z",
+      "os": "ProductName:\t\tmacOS\nProductVersion:\t\t26.5.2\nBuildVersion:\t\t25F84",
+      "hardwareModel": "MacBookAir10,1",
+      "diskutilPlist": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>AllDisks</key>\n\t<array>\n\t\t<string>disk0</string>\n\t\t<string>disk0s1</string>\n\t\t<string>disk0s2</string>\n\t\t<string>disk0s3</string>\n\t\t<string>disk1</string>\n\t\t<string>disk1s1</string>\n\t\t<string>disk1s2</string>\n\t\t<string>disk1s3</string>\n\t\t<string>disk1s4</string>\n\t\t<string>disk2</string>\n\t\t<string>disk2s1</string>\n\t\t<string>disk2s2</string>\n\t\t<string>disk3</string>\n\t\t<string>disk3s1</string>\n\t\t<string>disk3s2</string>\n\t\t<string>disk3s3</string>\n\t\t<string>disk3s3s1</string>\n\t\t<string>disk3s4</string>\n\t\t<string>disk3s5</string>\n\t\t<string>disk3s6</string>\n\t\t<string>disk4</string>\n\t\t<string>disk4s1</string>\n\t\t<string>disk4s2</string>\n\t\t<string>disk4s3</string>\n\t\t<string>disk4s4</string>\n\t\t<string>disk4s5</string>\n\t\t<string>disk4s6</string>\n\t\t<string>disk5</string>\n\t\t<string>disk5s1</string>\n\t\t<string>disk6</string>\n\t\t<string>disk6s1</string>\n\t\t<string>disk7</string>\n\t\t<string>disk7s1</string>\n\t\t<string>disk8</string>\n\t\t<string>disk8s1</string>\n\t\t<string>disk9</string>\n\t\t<string>disk9s1</string>\n\t</array>\n\t<key>AllDisksAndPartitions</key>\n\t<array>\n\t\t<dict>\n\t\t\t<key>Content</key>\n\t\t\t<string>GUID_partition_scheme</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk0</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<false/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Apple_APFS_ISC</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk0s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>E7BD42E0-C976-4531-849F-F35F367F2F9B</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>524288000</integer>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Apple_APFS</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk0s2</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>322919F2-58EB-4207-9A2F-7E52776C9B5F</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>245107195904</integer>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Apple_APFS_Recovery</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk0s3</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>3C032F62-AB00-4FB7-8BEE-55ADB32882DA</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>5368664064</integer>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Size</key>\n\t\t\t<integer>251000193024</integer>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>APFSPhysicalStores</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk0s1</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>APFSVolumes</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>6029312</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk1s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>F37D79A7-4DF2-4811-9043-C0BA17D8539D</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/System/Volumes/iSCPreboot</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<true/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>524288000</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>iSCPreboot</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>F37D79A7-4DF2-4811-9043-C0BA17D8539D</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>6311936</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk1s2</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>FFF5A5C1-6ACE-462C-962B-A96AC8CB58E9</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/System/Volumes/xarts</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<true/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>524288000</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>xART</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>FFF5A5C1-6ACE-462C-962B-A96AC8CB58E9</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>1540096</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk1s3</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>B4053F62-728A-46EA-8E2C-8AB686C5F492</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/System/Volumes/Hardware</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<true/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>524288000</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Hardware</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>B4053F62-728A-46EA-8E2C-8AB686C5F492</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>20480</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk1s4</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>12B14A0B-6BFF-4462-ADE2-1C9A8D4A0806</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<true/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>524288000</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Recovery</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>12B14A0B-6BFF-4462-ADE2-1C9A8D4A0806</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Content</key>\n\t\t\t<string>Apple_APFS_Container</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk1</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<true/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array/>\n\t\t\t<key>Size</key>\n\t\t\t<integer>524288000</integer>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>APFSPhysicalStores</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk0s3</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>APFSVolumes</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>2304622592</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk2s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>BE4B2510-2006-4F75-BDCB-27CFA730687F</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<true/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>5368664064</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Recovery</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>BE4B2510-2006-4F75-BDCB-27CFA730687F</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>1847296</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk2s2</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>11B04500-7368-4437-8410-26D17C2095D9</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<true/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>5368664064</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Update</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>11B04500-7368-4437-8410-26D17C2095D9</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Content</key>\n\t\t\t<string>Apple_APFS_Container</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk2</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<true/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array/>\n\t\t\t<key>Size</key>\n\t\t\t<integer>5368664064</integer>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>APFSPhysicalStores</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk0s2</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>APFSVolumes</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>191867449344</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk3s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>B497184C-1E2F-4938-8AF4-5B9F72510067</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/System/Volumes/Data</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<false/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>245107195904</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Macintosh HD - Data</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>B497184C-1E2F-4938-8AF4-5B9F72510067</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>47173632</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk3s2</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>CBE88ED3-D42E-4484-8D38-883526B41FD2</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/System/Volumes/Update</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<true/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>245107195904</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Update</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>CBE88ED3-D42E-4484-8D38-883526B41FD2</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>12563341312</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk3s3</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>82B0FC55-04AD-4391-AF41-3EB28E7F8F9E</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array>\n\t\t\t\t\t\t<dict>\n\t\t\t\t\t\t\t<key>Sealed</key>\n\t\t\t\t\t\t\t<string>Yes</string>\n\t\t\t\t\t\t\t<key>SnapshotBSD</key>\n\t\t\t\t\t\t\t<string>disk3s3s1</string>\n\t\t\t\t\t\t\t<key>SnapshotMountPoint</key>\n\t\t\t\t\t\t\t<string>/</string>\n\t\t\t\t\t\t\t<key>SnapshotName</key>\n\t\t\t\t\t\t\t<string>com.apple.os.update-5B92CE4BA1034457A0921532291F4A4AD939CBE48D3A1381163A9AD3687D5694</string>\n\t\t\t\t\t\t\t<key>SnapshotUUID</key>\n\t\t\t\t\t\t\t<string>250B1DF6-87B0-46A3-9560-0C8B694DADCB</string>\n\t\t\t\t\t\t</dict>\n\t\t\t\t\t</array>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<false/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>245107195904</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Macintosh HD</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>82B0FC55-04AD-4391-AF41-3EB28E7F8F9E</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>12563341312</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk3s3s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>250B1DF6-87B0-46A3-9560-0C8B694DADCB</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/</string>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<false/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>245107195904</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Macintosh HD</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>250B1DF6-87B0-46A3-9560-0C8B694DADCB</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>9089728512</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk3s4</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>604427BE-DD90-4FDA-89FB-445A37689240</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/System/Volumes/Preboot</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<false/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>245107195904</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Preboot</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>604427BE-DD90-4FDA-89FB-445A37689240</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>1300533248</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk3s5</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>5D5290F6-C599-4CED-81A8-B0FBFE64EEC1</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<false/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>245107195904</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>Recovery</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>5D5290F6-C599-4CED-81A8-B0FBFE64EEC1</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>9664806912</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk3s6</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>8E3F385F-F46B-4272-BCB6-521F3CAE81B1</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/System/Volumes/VM</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<false/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>245107195904</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>VM</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>8E3F385F-F46B-4272-BCB6-521F3CAE81B1</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Content</key>\n\t\t\t<string>Apple_APFS_Container</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk3</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<false/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array/>\n\t\t\t<key>Size</key>\n\t\t\t<integer>245107195904</integer>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>Content</key>\n\t\t\t<string>GUID_partition_scheme</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk4</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<false/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>EFI</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk4s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>32755E61-664A-4331-BE66-D9ED5D1E65CD</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>209715200</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>ESP</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>8A9034DD-5451-3C6A-93D0-EFBD1D8ADABD</string>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Microsoft Reserved</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk4s2</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>309E573B-9FC9-4349-9BE1-8B0FB42877AB</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>134217728</integer>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Apple_APFS</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk4s3</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>22DD54FB-6AE4-4DA3-ACC3-71EA468533C1</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>995872473088</integer>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Windows Recovery</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk4s4</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>E021823A-C5CD-4749-81B0-A3F23CA48980</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>1365245952</integer>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Windows Recovery</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk4s5</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>BF1021DD-E4DF-49E4-B6E6-3CEDAA98CC8B</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>24872222720</integer>\n\t\t\t\t</dict>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Windows Recovery</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk4s6</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>699C10C0-F347-4190-BE9E-D9FA20DC27D0</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>1737490432</integer>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Size</key>\n\t\t\t<integer>1024209543168</integer>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>APFSPhysicalStores</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk4s3</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>APFSVolumes</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>775862878208</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk5s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>8044ACA5-835C-43FC-8418-AB3AAF16DFF8</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/Volumes/D</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<false/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>995872473088</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>D</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>8044ACA5-835C-43FC-8418-AB3AAF16DFF8</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Content</key>\n\t\t\t<string>Apple_APFS_Container</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk5</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<false/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array/>\n\t\t\t<key>Size</key>\n\t\t\t<integer>995872473088</integer>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>Content</key>\n\t\t\t<string>GUID_partition_scheme</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk6</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<false/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Apple_APFS</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk6s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>5E92C816-1E32-43CA-A667-2AB9C2676C2A</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>18083741696</integer>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Size</key>\n\t\t\t<integer>18083776000</integer>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>APFSPhysicalStores</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk6s1</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>APFSVolumes</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>17571344384</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk7s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>E631F872-4852-4BE2-9150-C1E42641621F</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/Library/Developer/CoreSimulator/Volumes/iOS_23F77</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<false/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>18083741696</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>iOS 26.5 Simulator</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>E631F872-4852-4BE2-9150-C1E42641621F</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Content</key>\n\t\t\t<string>Apple_APFS_Container</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk7</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<false/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array/>\n\t\t\t<key>Size</key>\n\t\t\t<integer>18083741696</integer>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>Content</key>\n\t\t\t<string>GUID_partition_scheme</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk8</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<false/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>Content</key>\n\t\t\t\t\t<string>Apple_APFS</string>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk8s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>E9080452-167C-471D-A276-12B37C0B6C6C</string>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>2306867200</integer>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Size</key>\n\t\t\t<integer>2306901504</integer>\n\t\t</dict>\n\t\t<dict>\n\t\t\t<key>APFSPhysicalStores</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk8s1</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>APFSVolumes</key>\n\t\t\t<array>\n\t\t\t\t<dict>\n\t\t\t\t\t<key>CapacityInUse</key>\n\t\t\t\t\t<integer>2221293568</integer>\n\t\t\t\t\t<key>DeviceIdentifier</key>\n\t\t\t\t\t<string>disk9s1</string>\n\t\t\t\t\t<key>DiskUUID</key>\n\t\t\t\t\t<string>8FBF648C-5893-4C7A-B2D0-56DD267979E8</string>\n\t\t\t\t\t<key>MountPoint</key>\n\t\t\t\t\t<string>/private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.LBgJ2E</string>\n\t\t\t\t\t<key>MountedSnapshots</key>\n\t\t\t\t\t<array/>\n\t\t\t\t\t<key>OSInternal</key>\n\t\t\t\t\t<false/>\n\t\t\t\t\t<key>Size</key>\n\t\t\t\t\t<integer>2306867200</integer>\n\t\t\t\t\t<key>VolumeName</key>\n\t\t\t\t\t<string>MetalToolchainCryptex</string>\n\t\t\t\t\t<key>VolumeUUID</key>\n\t\t\t\t\t<string>8FBF648C-5893-4C7A-B2D0-56DD267979E8</string>\n\t\t\t\t</dict>\n\t\t\t</array>\n\t\t\t<key>Content</key>\n\t\t\t<string>Apple_APFS_Container</string>\n\t\t\t<key>DeviceIdentifier</key>\n\t\t\t<string>disk9</string>\n\t\t\t<key>OSInternal</key>\n\t\t\t<false/>\n\t\t\t<key>Partitions</key>\n\t\t\t<array/>\n\t\t\t<key>Size</key>\n\t\t\t<integer>2306867200</integer>\n\t\t</dict>\n\t</array>\n\t<key>VolumesFromDisks</key>\n\t<array>\n\t\t<string>iSCPreboot</string>\n\t\t<string>xART</string>\n\t\t<string>Hardware</string>\n\t\t<string>Macintosh HD - Data</string>\n\t\t<string>Update</string>\n\t\t<string>Macintosh HD</string>\n\t\t<string>Preboot</string>\n\t\t<string>VM</string>\n\t\t<string>D</string>\n\t\t<string>iOS 26.5 Simulator</string>\n\t\t<string>MetalToolchainCryptex</string>\n\t</array>\n\t<key>WholeDisks</key>\n\t<array>\n\t\t<string>disk0</string>\n\t\t<string>disk1</string>\n\t\t<string>disk2</string>\n\t\t<string>disk3</string>\n\t\t<string>disk4</string>\n\t\t<string>disk5</string>\n\t\t<string>disk6</string>\n\t\t<string>disk7</string>\n\t\t<string>disk8</string>\n\t\t<string>disk9</string>\n\t</array>\n</dict>\n</plist>",
+      "signing": {
+        "developerIdIdentityPresent": true,
+        "commandOk": true
+      },
+      "entitlementRequest": {
+        "entitlement": "com.apple.developer.endpoint-security.client",
+        "state": "BLOCKED_EXTERNAL",
+        "browserAttempt": {
+          "surface": "Apple Developer account",
+          "result": "AUTHENTICATION_REQUIRED",
+          "submitted": false,
+          "dispositionRead": false
+        },
+        "requestPath": "Apple Developer account holder submits Endpoint Security entitlement request in Certificates, Identifiers & Profiles. Current in-app browser reached Apple sign-in, but no authenticated account session was available; existing request state was not read & no request was submitted.",
+        "dependency": "Authenticated Apple Developer account access plus Apple Developer Program entitlement approval for team 6KLGD3LLKF"
+      }
+    },
+    {
+      "schema": "rightkit.build-control-phase0.macos.capacity/v1",
+      "generatedAt": "2026-08-12T18:19:34.542Z",
+      "status": "BLOCKED_EXTERNAL",
+      "protectedClasses": [
+        "toolchains",
+        "package-inputs",
+        "registry",
+        "receipts",
+        "policy-state",
+        "stage",
+        "target",
+        "temp",
+        "shared-cache"
+      ],
+      "volumes": [
+        {
+          "filesystem": "/dev/disk3s3s1",
+          "totalBytes": 245107195904,
+          "usedBytes": 12563341312,
+          "freeBytes": 20436877312,
+          "mount": "/"
+        },
+        {
+          "filesystem": "devfs",
+          "totalBytes": 224256,
+          "usedBytes": 224256,
+          "freeBytes": 0,
+          "mount": "/dev"
+        },
+        {
+          "filesystem": "/dev/disk3s6",
+          "totalBytes": 245107195904,
+          "usedBytes": 9664806912,
+          "freeBytes": 20436877312,
+          "mount": "/System/Volumes/VM"
+        },
+        {
+          "filesystem": "/dev/disk3s4",
+          "totalBytes": 245107195904,
+          "usedBytes": 9089728512,
+          "freeBytes": 20436877312,
+          "mount": "/System/Volumes/Preboot"
+        },
+        {
+          "filesystem": "/dev/disk3s2",
+          "totalBytes": 245107195904,
+          "usedBytes": 47173632,
+          "freeBytes": 20436877312,
+          "mount": "/System/Volumes/Update"
+        },
+        {
+          "filesystem": "/dev/disk1s2",
+          "totalBytes": 524288000,
+          "usedBytes": 6311936,
+          "freeBytes": 505430016,
+          "mount": "/System/Volumes/xarts"
+        },
+        {
+          "filesystem": "/dev/disk1s1",
+          "totalBytes": 524288000,
+          "usedBytes": 6029312,
+          "freeBytes": 505430016,
+          "mount": "/System/Volumes/iSCPreboot"
+        },
+        {
+          "filesystem": "/dev/disk1s3",
+          "totalBytes": 524288000,
+          "usedBytes": 1540096,
+          "freeBytes": 505430016,
+          "mount": "/System/Volumes/Hardware"
+        },
+        {
+          "filesystem": "/dev/disk3s1",
+          "totalBytes": 245107195904,
+          "usedBytes": 191867453440,
+          "freeBytes": 20436877312,
+          "mount": "/System/Volumes/Data"
+        },
+        {
+          "filesystem": "map",
+          "totalBytes": null,
+          "usedBytes": 0,
+          "freeBytes": 0,
+          "mount": "100% /System/Volumes/Data/home"
+        },
+        {
+          "filesystem": "/dev/disk5s1",
+          "totalBytes": 995872473088,
+          "usedBytes": 775862878208,
+          "freeBytes": 219802836992,
+          "mount": "/Volumes/D"
+        },
+        {
+          "filesystem": "/dev/disk7s1",
+          "totalBytes": 18083741696,
+          "usedBytes": 17571344384,
+          "freeBytes": 466067456,
+          "mount": "/Library/Developer/CoreSimulator/Volumes/iOS_23F77"
+        },
+        {
+          "filesystem": "/Volumes/D/Downloads/CodexBar.app",
+          "totalBytes": 995872473088,
+          "usedBytes": 860516335616,
+          "freeBytes": 135149379584,
+          "mount": "/private/var/folders/xr/ywbcn9sx25jd9b7h3tn3dk2m0000gn/T/AppTranslocation/29EBA6FF-8606-4A95-B5AD-DCD6D17EDAE5"
+        },
+        {
+          "filesystem": "/dev/disk9s1",
+          "totalBytes": 2306867200,
+          "usedBytes": 2221293568,
+          "freeBytes": 75771904,
+          "mount": "/private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.LBgJ2E"
+        }
+      ],
+      "externalD": {
+        "filesystem": "/dev/disk5s1",
+        "totalBytes": 995872473088,
+        "usedBytes": 775862878208,
+        "freeBytes": 219802836992,
+        "mount": "/Volumes/D"
+      },
+      "classifiedInventory": {
+        "complete": false,
+        "entries": [
+          {
+            "path": "/Volumes/D/.DS_Store",
+            "type": "file",
+            "class": "unmanaged-user-data",
+            "bytes": 20480,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.DocumentRevisions-V100",
+            "type": "directory",
+            "class": "unmanaged-user-data",
+            "bytes": null,
+            "measured": false,
+            "diagnostic": "du: /Volumes/D/.DocumentRevisions-V100: Permission denied"
+          },
+          {
+            "path": "/Volumes/D/.Spotlight-V100",
+            "type": "directory",
+            "class": "unmanaged-user-data",
+            "bytes": 10731048960,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.TemporaryItems",
+            "type": "directory",
+            "class": "unmanaged-user-data",
+            "bytes": null,
+            "measured": false,
+            "diagnostic": "du: /Volumes/D/.TemporaryItems: Permission denied"
+          },
+          {
+            "path": "/Volumes/D/.Trashes",
+            "type": "directory",
+            "class": "unmanaged-user-data",
+            "bytes": null,
+            "measured": false,
+            "diagnostic": "du: /Volumes/D/.Trashes: Permission denied"
+          },
+          {
+            "path": "/Volumes/D/.build-home",
+            "type": "directory",
+            "class": "target-or-stage",
+            "bytes": null,
+            "measured": false,
+            "diagnostic": ""
+          },
+          {
+            "path": "/Volumes/D/.codex-window-inspect.GBX18e",
+            "type": "directory",
+            "class": "unmanaged-user-data",
+            "bytes": 2363392,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.eou-r2-archive.342HYA",
+            "type": "directory",
+            "class": "backup-or-archive",
+            "bytes": 165953536,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.eou-r2-extract.SP31GJ",
+            "type": "directory",
+            "class": "backup-or-archive",
+            "bytes": 172081152,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.eou-r2-presence-check.tar.gz",
+            "type": "file",
+            "class": "unmanaged-user-data",
+            "bytes": 0,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.eou-r2-readback-final.tar.gz",
+            "type": "file",
+            "class": "backup-or-archive",
+            "bytes": 165953536,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.eou-r2-readback-second.tar.gz",
+            "type": "file",
+            "class": "backup-or-archive",
+            "bytes": 0,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.eou-r2-readback-third.tar.gz",
+            "type": "file",
+            "class": "backup-or-archive",
+            "bytes": 0,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.eou-r2-readback.tar.gz",
+            "type": "file",
+            "class": "backup-or-archive",
+            "bytes": 0,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.fseventsd",
+            "type": "directory",
+            "class": "unmanaged-user-data",
+            "bytes": 176340992,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.heardright-target-pre-release-20260728-1655",
+            "type": "directory",
+            "class": "target-or-stage",
+            "bytes": 1312247808,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.heardright-target-pre-release-20260728-1738",
+            "type": "directory",
+            "class": "target-or-stage",
+            "bytes": 1200537600,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.pnpm-store",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 1624592384,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.pytest_cache",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 16384,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.rightsuite-demo-backups",
+            "type": "directory",
+            "class": "backup-or-archive",
+            "bytes": 147456,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.rightsuite-dev-cache",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 3720765440,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.rightsuite-install-backups",
+            "type": "directory",
+            "class": "backup-or-archive",
+            "bytes": 130678784,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.rightsuite-local-build-cache",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 6509834240,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.rightsuite-native-probes",
+            "type": "directory",
+            "class": "target-or-stage",
+            "bytes": 737951744,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.rightsuite-release-cache",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 60023754752,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.swift-module-cache",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 67440640,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.tdt-r2-readback.tar.gz",
+            "type": "file",
+            "class": "backup-or-archive",
+            "bytes": 401960960,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.viewright-0134-build.log",
+            "type": "file",
+            "class": "target-or-stage",
+            "bytes": 61440,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.viewright-0134-verify.log",
+            "type": "file",
+            "class": "unmanaged-user-data",
+            "bytes": 73728,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.viewright-0135-build.log",
+            "type": "file",
+            "class": "target-or-stage",
+            "bytes": 61440,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.viewright-ax-test",
+            "type": "directory",
+            "class": "unmanaged-user-data",
+            "bytes": 188416,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.viewright-browser-qa-glass.json",
+            "type": "file",
+            "class": "unmanaged-user-data",
+            "bytes": 4096,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.viewright-install-stage.Byagwu",
+            "type": "directory",
+            "class": "target-or-stage",
+            "bytes": 32669696,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.viewright-mount.Qm7s0h",
+            "type": "directory",
+            "class": "unmanaged-user-data",
+            "bytes": 0,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/.viewright-native-glass-qa.log",
+            "type": "file",
+            "class": "unmanaged-user-data",
+            "bytes": 57344,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/Downloads",
+            "type": "directory",
+            "class": "repository-or-user-data",
+            "bytes": 485576704,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/HeardRight_0.1.63_universal_notarized.dmg",
+            "type": "file",
+            "class": "installer",
+            "bytes": 64315392,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/RightSuite-cache-backup-20260726",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 16060948480,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/ScreenRight",
+            "type": "directory",
+            "class": "repository-or-user-data",
+            "bytes": 0,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/ScreenRight-2026-08-08-060452-Finder.mp4",
+            "type": "file",
+            "class": "media",
+            "bytes": 4239360,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/ScreenRight-2026-08-08-061924-Finder.mp4",
+            "type": "file",
+            "class": "media",
+            "bytes": 3919872,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/ScreenRight-2026-08-08-124531-ViewRight.mp4",
+            "type": "file",
+            "class": "media",
+            "bytes": 32571392,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/ScreenRight-2026-08-08-130051-ChatGPT.mp4",
+            "type": "file",
+            "class": "media",
+            "bytes": 6656000,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/ScreenRight-2026-08-08-130757-ChatGPT.mp4",
+            "type": "file",
+            "class": "media",
+            "bytes": 7868416,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/ScreenRight-2026-08-08-132743-ChatGPT.mp4",
+            "type": "file",
+            "class": "media",
+            "bytes": 43732992,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/ScreenRight-2026-08-08-143456-ViewRight.mp4",
+            "type": "file",
+            "class": "media",
+            "bytes": 209096704,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/ScreenRight-2026-08-12-203003-ChatGPT.mp4",
+            "type": "file",
+            "class": "media",
+            "bytes": 2539520,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/You are.txt",
+            "type": "file",
+            "class": "unmanaged-user-data",
+            "bytes": 4096,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/adrdsouza-cargo-home-20260726",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 7812915200,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/adrdsouza-home-cache-20260726",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 13400764416,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/adrdsouza-npm-cache-20260726",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 3195539456,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/adrdsouza-user-caches-20260726",
+            "type": "directory",
+            "class": "shared-cache",
+            "bytes": 40853405696,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/claude",
+            "type": "directory",
+            "class": "repository-or-user-data",
+            "bytes": null,
+            "measured": false,
+            "diagnostic": ""
+          },
+          {
+            "path": "/Volumes/D/claude-dispatch",
+            "type": "directory",
+            "class": "repository-or-user-data",
+            "bytes": 21154791424,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/kwstest",
+            "type": "directory",
+            "class": "unmanaged-user-data",
+            "bytes": 464621568,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/orthic-target-backup-20260811-0745",
+            "type": "directory",
+            "class": "target-or-stage",
+            "bytes": 4034289664,
+            "measured": true
+          },
+          {
+            "path": "/Volumes/D/tools",
+            "type": "directory",
+            "class": "repository-or-user-data",
+            "bytes": 3788800,
+            "measured": true
+          }
+        ]
+      },
+      "workingSets": {
+        "observed": [
+          {
+            "class": "target-or-stage",
+            "path": "/Volumes/D/.heardright-target-pre-release-20260728-1655",
+            "bytes": 1312247808,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "target-or-stage",
+            "path": "/Volumes/D/.heardright-target-pre-release-20260728-1738",
+            "bytes": 1200537600,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/.pnpm-store",
+            "bytes": 1624592384,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/.pytest_cache",
+            "bytes": 16384,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/.rightsuite-dev-cache",
+            "bytes": 3720765440,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/.rightsuite-local-build-cache",
+            "bytes": 6509834240,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "target-or-stage",
+            "path": "/Volumes/D/.rightsuite-native-probes",
+            "bytes": 737951744,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/.rightsuite-release-cache",
+            "bytes": 60023754752,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/.swift-module-cache",
+            "bytes": 67440640,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "target-or-stage",
+            "path": "/Volumes/D/.viewright-0134-build.log",
+            "bytes": 61440,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "target-or-stage",
+            "path": "/Volumes/D/.viewright-0135-build.log",
+            "bytes": 61440,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "target-or-stage",
+            "path": "/Volumes/D/.viewright-install-stage.Byagwu",
+            "bytes": 32669696,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/RightSuite-cache-backup-20260726",
+            "bytes": 16060948480,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/adrdsouza-cargo-home-20260726",
+            "bytes": 7812915200,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/adrdsouza-home-cache-20260726",
+            "bytes": 13400764416,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/adrdsouza-npm-cache-20260726",
+            "bytes": 3195539456,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "shared-cache",
+            "path": "/Volumes/D/adrdsouza-user-caches-20260726",
+            "bytes": 40853405696,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          },
+          {
+            "class": "target-or-stage",
+            "path": "/Volumes/D/orthic-target-backup-20260811-0745",
+            "bytes": 4034289664,
+            "source": "current top-level occupancy; not a clean/warm build measurement"
+          }
+        ],
+        "complete": false,
+        "missing": [
+          "clean build peak per workspace/class/toolchain",
+          "warm build working set per workspace/class/toolchain",
+          "P50/P95/P99 growth",
+          "stage size"
+        ]
+      },
+      "reservationPeaks": {
+        "observedRequests": 0,
+        "maximumActiveReservationsBytes": 0,
+        "complete": false,
+        "detail": "No broker request or reservation trace exists on this machine; zero is an observed count, not a capacity allowance."
+      },
+      "nativeModules": {
+        "command": "rg --files /Volumes/D/claude -g *.node -g *.dylib -g *.so -g *.bundle",
+        "status": "PASS",
+        "count": 8,
+        "representativePaths": [
+          "/Volumes/D/claude/coderight2/coderight/apps/coderight-tauri/src-tauri/resources/runtime/libonnxruntime.dylib",
+          "/Volumes/D/claude/coderight2/pi/packages/tui/native/win32/prebuilds/win32-x64/win32-console-mode.node",
+          "/Volumes/D/claude/coderight2/pi/packages/tui/native/win32/prebuilds/win32-arm64/win32-console-mode.node",
+          "/Volumes/D/claude/coderight2/pi/packages/tui/native/darwin/prebuilds/darwin-arm64/darwin-modifiers.node",
+          "/Volumes/D/claude/coderight2/pi/packages/tui/native/darwin/prebuilds/darwin-x64/darwin-modifiers.node",
+          "/Volumes/D/claude/vendor/homebrew-x86_64/libsodium/1.0.22/lib/libsodium.26.dylib",
+          "/Volumes/D/claude/cortex2/ast-grep__ast-grep/fixtures/json-linux.so",
+          "/Volumes/D/claude/cortex2/ast-grep__ast-grep/fixtures/json-mac.so"
+        ]
+      },
+      "capacityEquation": {
+        "formula": "Cmax = T - P - A - R - F - X",
+        "totalBytes": 995872473088,
+        "protectedNonCacheBytes": null,
+        "artifactBudgetBytes": null,
+        "recoveryBudgetBytes": null,
+        "reserveFloorBytes": null,
+        "transitionHeadroomBytes": null,
+        "cacheMaximumBytes": null,
+        "measured": false,
+        "unsolvedTerms": [
+          "A",
+          "R",
+          "F",
+          "X"
+        ],
+        "note": "Inventory is incomplete; Cmax is intentionally unsolved."
+      },
+      "detail": "D capacity 995872473088 bytes, free 219802836992 bytes. Inventory is incomplete; no aspirational cache maximum is emitted."
+    },
+    {
+      "schema": "rightkit.build-control-phase0.macos.clone/v1",
+      "status": "PASS",
+      "root": "/Volumes/D",
+      "command": {
+        "ok": true,
+        "stderr": ""
+      },
+      "source": {
+        "size": 1048576,
+        "blocks": 2048
+      },
+      "destination": {
+        "size": 1048576,
+        "blocks": 2048
+      },
+      "note": "cp -c success is clonefile capability evidence; block counts alone do not prove shared extents."
+    },
+    {
+      "schema": "rightkit.build-control-phase0.macos.baseline/v1",
+      "generatedAt": "2026-08-12T18:16:30.495Z",
+      "routes": {
+        "cargo": {
+          "ok": true,
+          "stdout": "cargo 1.97.1 (c980f4866 2026-06-30)",
+          "stderr": ""
+        },
+        "rustc": {
+          "ok": true,
+          "stdout": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+          "stderr": ""
+        },
+        "node": {
+          "ok": true,
+          "stdout": "v26.5.0",
+          "stderr": ""
+        },
+        "git": {
+          "ok": true,
+          "stdout": "git version 2.50.1 (Apple Git-155)",
+          "stderr": ""
+        }
+      },
+      "status": "PASS"
+    },
+    {
+      "schema": "rightkit.build-control-phase0.macos.provenance/v1",
+      "workspace": "/Volumes/D/claude",
+      "head": "7f4adfeeb8dec603c9e60ea820a7f21052eef102",
+      "branch": "main",
+      "dirty": 38,
+      "digest": "35de011a46611d9c40a397e9ed2335ab09fc15fbd84bd53c7ecaea741e11c243",
+      "status": "PASS"
+    },
+    {
+      "schema": "rightkit.build-control-phase0.macos.internal-write/v1",
+      "status": "BLOCKED_EXTERNAL",
+      "command": "fs_usage -w -f filesystem -t 1",
+      "detail": "filesystem tracing requires elevated host authorization",
+      "diagnostic": "'fs_usage' must be run as root..."
+    },
+    {
+      "schema": "rightkit.build-control-phase0.macos.runner-uid/v1",
+      "status": "BLOCKED_EXTERNAL",
+      "currentUid": "501",
+      "accountDirectoryReadable": true,
+      "runnerCandidates": [],
+      "adminProbe": {
+        "command": "sudo -n true",
+        "ok": false,
+        "exitCode": 1,
+        "diagnostic": "sudo: a password is required"
+      },
+      "attemptedCommands": [
+        "id -u",
+        "dscl . -list /Users UniqueID",
+        "sudo -n true"
+      ],
+      "detail": "No pre-provisioned locked non-login runner UID pool exists. sudo -n cannot create isolated accounts; no account or session mutation was attempted."
+    },
+    {
+      "schema": "rightkit.build-control-phase0.macos.endpoint-security/v1",
+      "status": "BLOCKED_EXTERNAL",
+      "mode": "NOT_ACTIVATED",
+      "authExecDefault": "DENY",
+      "authorizationPath": "bounded in-memory lookup only",
+      "installation": {
+        "signedUniversalHost": "NOT_TESTED",
+        "applicationsActivation": "NOT_TESTED",
+        "interactiveApproval": "NOT_TESTED",
+        "fullDiskAccess": "NOT_TESTED",
+        "headlessProvisioningHandoff": "NOT_TESTED"
+      },
+      "stress": {
+        "deadlineMisses": "NOT_MEASURED",
+        "implicitAllows": "NOT_MEASURED",
+        "sequenceGaps": "NOT_MEASURED"
+      },
+      "entitlement": {
+        "state": "UNKNOWN_NOT_AUTHENTICATED",
+        "browserAttempt": "AUTHENTICATION_REQUIRED",
+        "submitted": false,
+        "dispositionRead": false
+      },
+      "dependency": "Verified Apple-granted com.apple.developer.endpoint-security.client entitlement plus isolated interactive system-extension test context",
+      "detail": "No extension has been built, signed, installed, activated, denied, or allowed by this Phase-0 harness."
+    }
+  ]
+}

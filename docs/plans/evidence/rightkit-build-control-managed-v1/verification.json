@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "rightkit-managed-agent-build-control-verification",
+  "generatedAt": "2026-08-12T21:39:02Z",
+  "status": "IN_PROGRESS",
+  "profile": "MANAGED_AGENT",
+  "strictSystemProfile": "UNCHANGED_BLOCKED_EXTERNAL",
+  "checks": [
+    { "id": "core", "command": "pnpm --dir packages/build-control-core test", "status": "PASS", "passed": 9, "failed": 0 },
+    { "id": "broker", "command": "pnpm --dir packages/build-control-broker test", "status": "PASS", "passed": 17, "failed": 0 },
+    { "id": "clients", "command": "pnpm --dir packages/build-control-clients test", "status": "PASS", "passed": 15, "failed": 0 },
+    { "id": "policy", "command": "pnpm --dir packages/build-control-policy test", "status": "PASS", "passed": 28, "failed": 0 },
+    { "id": "staging", "command": "pnpm --dir packages/build-control-staging test", "status": "PASS", "passed": 1, "failed": 0 },
+    { "id": "phase0-regression", "command": "pnpm --dir packages/build-control-phase0 test", "status": "PASS", "passed": 12, "failed": 0 },
+    { "id": "contract-schema", "command": "Ajv 2020 validation of canonical contracts and evidence", "status": "PASS", "passed": 8, "failed": 0 },
+    { "id": "macos-live", "command": "bounded rightkit cargo --version and rightkit cargo build --locked via runtime-v1.8; receipt 1710dedd-4cbf-444c-9459-027a090eb61a; zero active reservations", "status": "PASS", "passed": 5, "failed": 0 },
+    { "id": "windows-live", "command": "fresh rightkit cargo --version and rightkit cargo build --locked after bounded S4U RightKitManagedAgentBroker restart; receipt 7f8e223f-2e16-456d-bd2f-2e40ce0df831; no local target", "status": "PASS", "passed": 5, "failed": 0 },
+    { "id": "rightkit-entrypoint", "command": "rightkit build cargo -- <args> and rightkit cargo request-only/live matrix", "status": "PASS", "passed": 4, "failed": 0 },
+    { "id": "codex-policy", "command": "Codex Desktop/CLI Rust/Cargo managed-agent policy matrix", "status": "PASS", "passed": 5, "failed": 0 },
+    { "id": "claude-policy", "command": "Claude native deny/allow Rust/Cargo policy matrix plus PreToolUse bypass-gap matrix", "status": "PASS", "passed": 5, "failed": 0 },
+    { "id": "macos-matrix", "command": "macOS Rust/Cargo managed-agent runtime and pnpm/npm child-Cargo inheritance matrix", "status": "PASS", "passed": 10, "failed": 0 },
+    { "id": "windows-matrix", "command": "Windows Rust/Cargo direct, absolute, rustup wrapper deny; exact rightkit, trusted pnpm/npm child Cargo allow; locked build, receipt and no-local-target matrix", "status": "PASS", "passed": 9, "failed": 0 },
+    { "id": "runtime-deployment", "command": "self-contained atomic runtime deploy, bounded health probe and rollback test", "status": "PASS", "passed": 3, "failed": 0 },
+    { "id": "restart-recovery", "command": "stale ACTIVE lease restart recovery and zero-reservation proof", "status": "PASS", "passed": 2, "failed": 0 },
+    { "id": "released-gc", "command": "expired RELEASED namespace LRU/retention/quota reclamation proof", "status": "PASS", "passed": 2, "failed": 0 },
+    { "id": "disk-reconciliation", "command": "startup managed-root usedBytes reconciliation from actual disk", "status": "PASS", "passed": 2, "failed": 0 },
+    { "id": "bounded-scanner", "command": "bounded nested pre-existing/new unmanaged Rust-output scanner matrix", "status": "PASS", "passed": 4, "failed": 0 },
+    { "id": "unmanaged-cleanup", "command": "external legacy and workspace unmanaged Rust-output before/after inventory", "status": "PASS", "passed": 503, "failed": 0 },
+    { "id": "cline-policy", "command": "Cline CLI Rust/Cargo policy matrix", "status": "PASS", "passed": 2, "failed": 0 },
+    { "id": "commandcode-policy", "command": "CommandCode Rust/Cargo policy matrix", "status": "PASS", "passed": 2, "failed": 0 },
+    { "id": "quota-floor", "command": "reservation, quota and measured free-floor safe-kill proof", "status": "PASS", "passed": 2, "failed": 0 },
+    { "id": "service-health", "command": "bounded functional rightkit Cargo probes plus post-restart LaunchAgent & Windows S4U task health", "status": "PASS", "passed": 8, "failed": 0 },
+    { "id": "cortex-check", "command": "cortex build --out .agent --check", "status": "PASS", "passed": 1, "failed": 0 },
+    { "id": "diff-check", "command": "git diff --check", "status": "PASS", "passed": 1, "failed": 0 }
+    ,{ "id": "canonical-agent-docs", "command": "agent rule source sync/check plus managed Rust UX assertions", "status": "PENDING", "passed": 0, "failed": 0 }
+    ,{ "id": "operations-runbook", "command": "RightKit managed build-control operations and troubleshooting documentation assertions", "status": "PENDING", "passed": 0, "failed": 0 }
+    ,{ "id": "legacy-inventory-close", "command": "bounded classification of retained outputs and capped roots; eligible reproducible output cleanup", "status": "PENDING", "passed": 0, "failed": 0 }
+    ,{ "id": "remote-publication", "command": "commit/push exact managed build-control scope and prove origin/main containment", "status": "PENDING", "passed": 0, "failed": 0 }
+    ,{ "id": "windows-runtime-parity", "command": "pull published commit, deploy self-contained runtime, restart/GC/recovery/external-root matrix", "status": "PENDING", "passed": 0, "failed": 0 }
+    ,{ "id": "windows-four-client-policy", "command": "Windows Codex, Claude, Cline and CommandCode Rust-only policy matrix", "status": "PENDING", "passed": 0, "failed": 0 }
+    ,{ "id": "cross-platform-parity", "command": "deterministic macOS/Windows managed-control parity report", "status": "PENDING", "passed": 0, "failed": 0 }
+  ],
+  "acceptance": {
+    "requestOnlyShims": "PASS",
+    "digestPinnedToolExecution": "PASS",
+    "controlledExternalEnvironment": "PASS",
+    "deterministicNamespacedTargets": "PASS",
+    "durableQuotaAndReceipts": "PASS",
+    "recursiveUnmanagedOutputFailure": "PASS",
+    "failClosedBrokerTransport": "PASS",
+    "clientToBrokerEndToEnd": "PASS",
+    "explicitRightkitEntrypoint": "PASS",
+    "codexManagedPolicy": "PASS",
+    "claudeManagedPolicy": "PASS",
+    "macosManagedMatrix": "PASS",
+    "windowsManagedMatrix": "PASS",
+    "agentOnlyEnforcement": "PASS",
+    "selfContainedRuntime": "PASS",
+    "restartRecovery": "PASS",
+    "releasedNamespaceGc": "PASS",
+    "startupDiskReconciliation": "PASS",
+    "boundedScanner": "PASS",
+    "unmanagedRustCleanup": "PASS",
+    "clineManagedPolicy": "PASS",
+    "commandCodeManagedPolicy": "PASS",
+    "quotaFloorEnforcement": "PASS",
+    "serviceHealth": "PASS",
+    "canonicalAgentDocs": "PENDING",
+    "operationsRunbook": "PENDING",
+    "legacyInventoryClosed": "PENDING",
+    "remotePublication": "PENDING",
+    "windowsRuntimeParity": "PENDING",
+    "windowsFourClientPolicy": "PENDING",
+    "crossPlatformParity": "PENDING"
+  }
+}

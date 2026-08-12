@@ -1,0 +1,192 @@
+{
+  "schema": "rightkit.build-control.windows.managed-agent-verification.v1",
+  "generatedAt": "2026-08-12T21:28:34Z",
+  "profile": {
+    "scope": "persistent user-scoped brokered tool routing; not strict OS enforcement",
+    "name": "MANAGED_AGENT",
+    "outcome": "PASS"
+  },
+  "host": {
+    "strictEnforcementEnabled": false,
+    "bridge": "win",
+    "name": "BOGUS-DELL"
+  },
+  "storage": {
+    "assessment": "D: resides on distinct non-boot/non-system physical disk; stable disk UniqueId plus partition GUID attest managed-profile storage separation.",
+    "disk": {
+      "isSystem": false,
+      "friendlyName": "WD_BLACK SN850X 4000GB",
+      "busType": "NVMe",
+      "isBoot": false,
+      "uniqueId": "eui.E8238FA6BF530001001B448B4DCFB196",
+      "number": 1,
+      "health": "Healthy"
+    },
+    "path": "D:\\RightKitManagedAgent\\external",
+    "partition": {
+      "isBoot": false,
+      "guid": "{b516383f-fc7e-40a4-9257-6958d98af355}",
+      "isSystem": false,
+      "drive": "D:"
+    }
+  },
+  "session": {
+    "brokerEndpoint": "\\\\.\\pipe\\rightkit-managed-agent-bogus-dell-persistent-v1",
+    "hostService": "PASS_USER_TASK",
+    "pathPrefix": "D:\\RightKitManagedAgent\\agent-bin",
+    "pathOrProfileMutated": true,
+    "brokerLifetime": "persistent per-user Scheduled Task RightKitManagedAgentBroker",
+    "pathScope": "user only; system PATH untouched",
+    "userPathPrefix": "D:\\RightKitManagedAgent\\agent-bin",
+    "rolloutOutcome": "PASS",
+    "task": {
+      "name": "RightKitManagedAgentBroker",
+      "runAs": "adrds",
+      "schedule": "ONLOGON",
+      "state": "Running",
+      "restartedAndVerified": true,
+      "logonType": "S4U",
+      "action": {
+        "execute": "C:\\Windows\\System32\\cmd.exe",
+        "arguments": "/d /c call D:\\RightKitManagedAgent\\broker-launch.cmd",
+        "workingDirectory": "D:\\Claude\\tools\\rightkit"
+      },
+      "observedBrokerProcesses": 1
+    }
+  },
+  "tools": [
+    {
+      "id": "cargo-stable-1.97.1",
+      "sha256": "ddfbad20b31b918d3439d070945ec59bbfe037a6ec0ab5b584459e69c8b37d1b"
+    },
+    {
+      "id": "rustc-stable-1.97.1",
+      "sha256": "cf79cfd77b0a144c56a0a6af6bf10bcdf095a73718cd4bf2b9d4fe2d2cbded55"
+    },
+    {
+      "id": "rustdoc-stable-1.97.1",
+      "sha256": "0c6ccda72363b77afc177b2c9a75ced422e3b88c0930ec1aab552e83a40e381e"
+    },
+    {
+      "id": "sccache-0.15.0",
+      "sha256": "7a2b4220389c959bd78a12187f0d2339f4b3d794d3e9ff75cf1e5426f7c16a29"
+    }
+  ],
+  "shims": {
+    "manifest": {
+      "schema": "rightkit.build-control.agent-shims.v1",
+      "installRoot": "D:\\RightKitManagedAgent\\agent-bin",
+      "executable": "rightkit-managed-agent",
+      "pathPrecedence": "prepend",
+      "links": [
+        "cargo.cmd",
+        "rustc.cmd",
+        "rustdoc.cmd",
+        "rustup.cmd",
+        "pnpm.cmd",
+        "node-gyp.cmd",
+        "swift.cmd",
+        "swiftc.cmd",
+        "cmake.cmd",
+        "make.cmd",
+        "cc.cmd",
+        "c++.cmd",
+        "clang.cmd",
+        "gcc.cmd",
+        "npm.cmd"
+      ],
+      "guarantee": "Shims submit MANAGED_AGENT requests only; they never spawn a real toolchain.",
+      "marker": "rightkit.build-control.agent-shims.install.v1",
+      "platform": "win32",
+      "launcher": "D:\\Claude\\tools\\rightkit\\packages\\build-control-clients\\src\\managed-agent.mjs",
+      "nodePath": "C:\\nvm4w\\nodejs\\node.exe"
+    },
+    "resolvedCargo": "D:\\RightKitManagedAgent\\agent-bin\\cargo.cmd",
+    "mappings": {
+      "rustup": "rustup-1.97.1",
+      "rustc": "rustc-stable-1.97.1",
+      "rustdoc": "rustdoc-stable-1.97.1",
+      "cargo": "cargo-stable-1.97.1"
+    }
+  },
+  "verification": {
+    "latestValidation": {
+      "command": "fresh user-environment process: rightkit cargo --version; rightkit cargo build --locked",
+      "versionExitCode": 0,
+      "buildExitCode": 0,
+      "workspace": "D:\\RightKitManagedAgent\\standalone-locked-fixture",
+      "receipt": "D:\\RightKitManagedAgent\\external\\receipts\\7f8e223f-2e16-456d-bd2f-2e40ce0df831.json",
+      "receiptState": "RELEASED",
+      "externalTarget": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\workspaces\\3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d\\targets\\x86_64-pc-windows-msvc\\875b9380866e9d56e7110b0e",
+      "localTargetExists": false,
+      "receiptCount": "22 -> 23"
+    },
+    "reportedTargetDirectory": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\workspaces\\3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d\\targets\\x86_64-pc-windows-msvc\\875b9380866e9d56e7110b0e",
+    "command": "fresh user-environment process: cargo --version; cargo metadata --no-deps --format-version 1 after Scheduled Task restart",
+    "exitCode": 0,
+    "receipt": {
+      "id": "06316911-886c-4c4d-b5be-490bc9cecd2d",
+      "request": {
+        "frontend": "cargo",
+        "argv": [
+          "metadata",
+          "--no-deps",
+          "--format-version",
+          "1"
+        ],
+        "workspace": "D:\\Claude\\tmp\\rightkit-managed-agent-workspace",
+        "environment": {},
+        "profile": "MANAGED_AGENT",
+        "configuration": {}
+      },
+      "repositoryIdentity": "windows-managed-agent-verification",
+      "toolchain": "stable-1.97.1-x86_64-pc-windows-msvc",
+      "targetTriple": "x86_64-pc-windows-msvc",
+      "buildProfile": "development",
+      "target": "x86_64-pc-windows-msvc",
+      "writer": true,
+      "reservationBytes": 536870912,
+      "leaseKey": "3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d:x86_64-pc-windows-msvc:development",
+      "roots": {
+        "namespace": "3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d",
+        "policyProfile": "MANAGED_AGENT",
+        "buildProfile": "development",
+        "root": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\workspaces\\3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d",
+        "cargoHome": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\global\\cargo-home",
+        "compilerCache": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\global\\compiler-cache",
+        "targets": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\workspaces\\3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d\\targets",
+        "build": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\workspaces\\3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d\\build",
+        "temp": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\tmp\\3d92e7d4e7dd012d",
+        "stage": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\workspaces\\3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d\\build\\stage",
+        "target": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\workspaces\\3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d\\targets\\x86_64-pc-windows-msvc\\875b9380866e9d56e7110b0e",
+        "packageCache": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\workspaces\\3d92e7d4e7dd012d75181ec1a795e95128a639f1088cca3755ee61d73bf0ef7d\\package-cache",
+        "rustupHome": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\global\\toolchains\\3fb352f1f82106a9dcb853eb",
+        "sccache": "D:\\RightKitManagedAgent\\external\\rightkit-build-control\\global\\compiler-cache",
+        "sccacheSocket": "D:\\RightKitManagedAgent\\external\\.rk-sccache.sock"
+      },
+      "state": "RELEASED",
+      "admittedAt": "2026-08-12T19:57:43.862Z",
+      "actualGrowthBytes": 0,
+      "lruAt": "2026-08-12T19:57:43.896Z",
+      "capacity": {
+        "capacityBytes": 53687091200,
+        "usedBytes": 0,
+        "reservedBytes": 0,
+        "availableBytes": 53687091200,
+        "volumeId": "eui.E8238FA6BF530001001B448B4DCFB196:partition-{b516383f-fc7e-40a4-9257-6958d98af355}"
+      }
+    },
+    "localTargetExists": false,
+    "workspace": "D:\\Claude\\tmp\\rightkit-managed-agent-workspace",
+    "versionExitCode": 0,
+    "receiptCount": 5
+  },
+  "strictEnforcement": {
+    "separateFromManagedProfile": true,
+    "blockers": [
+      "No WDAC/App Control strict execution policy",
+      "No sacrificial-ring supplemental policy activation/recovery timings"
+    ],
+    "outcome": "BLOCKED_EXTERNAL"
+  }
+}

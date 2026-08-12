@@ -1,0 +1,550 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "rightkit-build-control-phase0",
+  "generatedAt": "2026-08-12T18:23:01.625Z",
+  "status": "PASS",
+  "inventory": {
+    "schemaVersion": "1.0.0",
+    "generatedAt": "2026-08-12T18:22:51.924Z",
+    "host": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "release": "25.5.0"
+    },
+    "tools": {
+      "cargo": {
+        "available": true,
+        "version": "cargo 1.97.1 (c980f4866 2026-06-30)"
+      },
+      "rustc": {
+        "available": true,
+        "version": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+      },
+      "swift": {
+        "available": true,
+        "version": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)"
+      },
+      "node": {
+        "available": true,
+        "version": "v26.5.0"
+      },
+      "pnpm": {
+        "available": true,
+        "version": "11.18.0"
+      },
+      "node-gyp": {
+        "available": false,
+        "version": null
+      },
+      "cmake": {
+        "available": true,
+        "version": "cmake version 4.3.4"
+      },
+      "make": {
+        "available": true,
+        "version": "GNU Make 3.81"
+      },
+      "cc": {
+        "available": true,
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+      }
+    },
+    "cargoExtensions": [
+      "cargo-about",
+      "cargo-audit",
+      "cargo-clippy",
+      "cargo-deny",
+      "cargo-fmt",
+      "cargo-geiger",
+      "cargo-machete",
+      "cargo-miri",
+      "cargo-outdated",
+      "cargo-sweep"
+    ]
+  },
+  "capacity": {
+    "schemaVersion": "1.0.0",
+    "generatedAt": "2026-08-12T18:23:01.625Z",
+    "mountProbe": "/Volumes/D/.build-home/adrdsouza/tmp",
+    "protectedNonCacheClasses": [
+      "broker-state",
+      "receipts",
+      "policy",
+      "toolchains",
+      "staging",
+      "request-targets",
+      "sync-back"
+    ],
+    "filesystem": {
+      "blockSize": 4096,
+      "totalBytes": 995872473088,
+      "freeBytes": 219225034752,
+      "availableBytes": 219225034752
+    },
+    "assumptions": {
+      "requestReservations": 0,
+      "cacheBytes": 0,
+      "reserveFloorBytes": 0
+    },
+    "status": "MEASURED_BASELINE_REQUIRES_PRODUCT_RESERVATIONS"
+  },
+  "adapters": [
+    {
+      "adapter": "cargo",
+      "status": "PASS",
+      "fixture": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cargo-K8WhXi",
+      "steps": [
+        {
+          "phase": "clean",
+          "command": [
+            "cargo",
+            "build"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cargo-K8WhXi",
+          "startedAt": "2026-08-12T18:20:31.812Z",
+          "durationMs": 11085,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "[heavy-work] admitted memory-free=27% swap=8.7/10.0GiB thermal=ok jobs=2\n   Compiling phase0-cargo v0.1.0 (/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cargo-K8WhXi)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.72s\n"
+        },
+        {
+          "phase": "incremental",
+          "command": [
+            "cargo",
+            "build"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cargo-K8WhXi",
+          "startedAt": "2026-08-12T18:20:42.908Z",
+          "durationMs": 1117,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "[heavy-work] admitted memory-free=27% swap=8.8/10.0GiB thermal=ok jobs=2\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.20s\n"
+        },
+        {
+          "phase": "test",
+          "command": [
+            "cargo",
+            "test"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cargo-K8WhXi",
+          "startedAt": "2026-08-12T18:20:44.027Z",
+          "durationMs": 3437,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "\nrunning 1 test\ntest t::works ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+          "stderr": "[heavy-work] admitted memory-free=28% swap=8.8/10.0GiB thermal=ok jobs=2\n   Compiling phase0-cargo v0.1.0 (/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cargo-K8WhXi)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.89s\n     Running unittests src/main.rs (/Volumes/D/.rightsuite-release-cache/dev-targets/rightkit-phase0-cargo-K8WhXi-9a467eb1f87b/debug/deps/phase0_cargo-057c0f6cca1b896d)\n"
+        },
+        {
+          "phase": "generatedExecutable",
+          "command": [
+            "cargo",
+            "run"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cargo-K8WhXi",
+          "startedAt": "2026-08-12T18:20:47.464Z",
+          "durationMs": 2171,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "[heavy-work] admitted memory-free=28% swap=8.8/10.0GiB thermal=ok jobs=2\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s\n     Running `/Volumes/D/.rightsuite-release-cache/dev-targets/rightkit-phase0-cargo-K8WhXi-9a467eb1f87b/debug/phase0-cargo`\n"
+        }
+      ]
+    },
+    {
+      "adapter": "swiftpm",
+      "status": "PASS",
+      "fixture": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-swiftpm-msiYmD",
+      "steps": [
+        {
+          "phase": "clean",
+          "command": [
+            "swift",
+            "build"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-swiftpm-msiYmD",
+          "startedAt": "2026-08-12T18:20:49.713Z",
+          "durationMs": 17604,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "Building for debugging...\n[0/6] Write sources\n[1/6] Write Phase0-entitlement.plist\n[2/6] Write swift-version--58304C5D6DBC2206.txt\n[4/8] Compiling Phase0 main.swift\n[5/8] Emitting module Phase0\n[5/8] Write Objects.LinkFileList\n[6/8] Linking Phase0\n[7/8] Applying Phase0\nBuild complete! (8.88s)\n",
+          "stderr": ""
+        },
+        {
+          "phase": "incremental",
+          "command": [
+            "swift",
+            "build"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-swiftpm-msiYmD",
+          "startedAt": "2026-08-12T18:21:07.317Z",
+          "durationMs": 4351,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "[0/1] Planning build\nBuilding for debugging...\n[0/3] Write swift-version--58304C5D6DBC2206.txt\nBuild complete! (1.20s)\n",
+          "stderr": ""
+        },
+        {
+          "phase": "test",
+          "command": [
+            "swift",
+            "test"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-swiftpm-msiYmD",
+          "startedAt": "2026-08-12T18:21:11.669Z",
+          "durationMs": 31078,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "Test Suite 'All tests' started at 2026-08-12 23:51:42.545.\nTest Suite 'All tests' passed at 2026-08-12 23:51:42.604.\n\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.059) seconds\n◇ Test run started.\n↳ Testing Library Version: 1902\n↳ Target Platform: arm64e-apple-macos14.0\n◇ Test works() started.\n✔ Test works() passed after 0.002 seconds.\n✔ Test run with 1 test in 0 suites passed after 0.005 seconds.\n",
+          "stderr": "[0/1] Planning build\nBuilding for debugging...\n[0/8] Write sources\n[1/8] /Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-swiftpm-msiYmD/.build/arm64-apple-macosx/debug/Phase0PackageTests.derived/runner.swift\n[2/8] Write sources\n[3/8] Write swift-version--58304C5D6DBC2206.txt\n[5/8] Compiling Phase0Tests Phase0Tests.swift\n/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-swiftpm-msiYmD/Tests/Phase0Tests/Phase0Tests.swift:2:29: note: '#expect(_:_:)' will always pass here; use 'Bool(true)' to silence this warning (from macro 'expect')\n1 | import Testing\n2 | @Test func works(){ #expect(true) }\n  |                             `- note: '#expect(_:_:)' will always pass here; use 'Bool(true)' to silence this warning (from macro 'expect')\n3 | \n[6/8] Emitting module Phase0Tests\n[7/10] Compiling Phase0PackageTests runner.swift\n[8/10] Emitting module Phase0PackageTests\n[8/10] Write Objects.LinkFileList\n[9/10] Linking Phase0PackageTests\nBuild complete! (24.31s)\n"
+        },
+        {
+          "phase": "generatedExecutable",
+          "command": [
+            "swift",
+            "run"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-swiftpm-msiYmD",
+          "startedAt": "2026-08-12T18:21:42.754Z",
+          "durationMs": 5498,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "generated executable\n",
+          "stderr": "[0/1] Planning build\nBuilding for debugging...\n[0/3] Write swift-version--58304C5D6DBC2206.txt\nBuild of product 'Phase0' complete! (0.93s)\n"
+        }
+      ]
+    },
+    {
+      "adapter": "node-pnpm",
+      "status": "PASS",
+      "fixture": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-pnpm-KFCF3U",
+      "steps": [
+        {
+          "phase": "clean",
+          "command": [
+            "pnpm",
+            "run",
+            "build"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-pnpm-KFCF3U",
+          "startedAt": "2026-08-12T18:21:48.871Z",
+          "durationMs": 4938,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "Already up to date\n\nDone in 1.8s using pnpm v11.18.0\n",
+          "stderr": "$ node scripts/build.mjs\n"
+        },
+        {
+          "phase": "incremental",
+          "command": [
+            "pnpm",
+            "run",
+            "build"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-pnpm-KFCF3U",
+          "startedAt": "2026-08-12T18:21:53.810Z",
+          "durationMs": 2828,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "$ node scripts/build.mjs\n"
+        },
+        {
+          "phase": "test",
+          "command": [
+            "pnpm",
+            "run",
+            "test"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-pnpm-KFCF3U",
+          "startedAt": "2026-08-12T18:21:56.638Z",
+          "durationMs": 3576,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "✔ works (3.100167ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 318.402583\n",
+          "stderr": "$ node --test test.mjs\n"
+        },
+        {
+          "phase": "generatedExecutable",
+          "command": [
+            "pnpm",
+            "run",
+            "generated"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-pnpm-KFCF3U",
+          "startedAt": "2026-08-12T18:22:00.215Z",
+          "durationMs": 2632,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "generated executable\n",
+          "stderr": "$ node generated.mjs\n"
+        }
+      ]
+    },
+    {
+      "adapter": "node-gyp",
+      "status": "PASS",
+      "fixture": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd",
+      "steps": [
+        {
+          "phase": "clean",
+          "command": [
+            "pnpm",
+            "install",
+            "--ignore-scripts"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd",
+          "startedAt": "2026-08-12T18:22:02.879Z",
+          "durationMs": 7444,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "Progress: resolved 1, reused 0, downloaded 0, added 0\nProgress: resolved 41, reused 4, downloaded 0, added 0\nPackages: +54\n++++++++++++++++++++++++++++++++++++++++++++++++++++++\nProgress: resolved 54, reused 54, downloaded 0, added 0\nPackages are cloned from the content-addressable store to the virtual store.\n  Content-addressable store is at: /Volumes/D/.build-home/adrdsouza/pnpm/store/v11\n  Virtual store is at:             node_modules/.pnpm\nProgress: resolved 54, reused 54, downloaded 0, added 54, done\n\ndevDependencies:\n+ node-gyp 12.1.0 (13.0.1 is available)\n\nDone in 7s using pnpm v11.18.0\n",
+          "stderr": ""
+        },
+        {
+          "phase": "incremental",
+          "command": [
+            "pnpm",
+            "run",
+            "rebuild"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd",
+          "startedAt": "2026-08-12T18:22:10.324Z",
+          "durationMs": 19357,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "\n  CXX(target) Release/obj.target/phase0/phase0.o\n  SOLINK_MODULE(target) Release/phase0.node\n",
+          "stderr": "$ node-gyp rebuild\ngyp info it worked if it ends with ok\ngyp info using node-gyp@12.1.0\ngyp info using node@26.5.0 | darwin | arm64\ngyp info find Python using Python version 3.14.6 found at \"/opt/homebrew/opt/python@3.14/bin/python3.14\"\ngyp info spawn /opt/homebrew/opt/python@3.14/bin/python3.14\ngyp info spawn args [\ngyp info spawn args '/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd/node_modules/.pnpm/node-gyp@12.1.0/node_modules/node-gyp/gyp/gyp_main.py',\ngyp info spawn args 'binding.gyp',\ngyp info spawn args '-f',\ngyp info spawn args 'make',\ngyp info spawn args '-I',\ngyp info spawn args '/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd/build/config.gypi',\ngyp info spawn args '-I',\ngyp info spawn args '/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd/node_modules/.pnpm/node-gyp@12.1.0/node_modules/node-gyp/addon.gypi',\ngyp info spawn args '-I',\ngyp info spawn args '/Users/adrdsouza/Library/Caches/node-gyp/26.5.0/include/node/common.gypi',\ngyp info spawn args '-Dlibrary=shared_library',\ngyp info spawn args '-Dvisibility=default',\ngyp info spawn args '-Dnode_root_dir=/Users/adrdsouza/Library/Caches/node-gyp/26.5.0',\ngyp info spawn args '-Dnode_gyp_dir=/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd/node_modules/.pnpm/node-gyp@12.1.0/node_modules/node-gyp',\ngyp info spawn args '-Dnode_lib_file=/Users/adrdsouza/Library/Caches/node-gyp/26.5.0/<(target_arch)/node.lib',\ngyp info spawn args '-Dmodule_root_dir=/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd',\ngyp info spawn args '-Dnode_engine=v8',\ngyp info spawn args '--depth=.',\ngyp info spawn args '--no-parallel',\ngyp info spawn args '--generator-output',\ngyp info spawn args 'build',\ngyp info spawn args '-Goutput_dir=.'\ngyp info spawn args ]\ngyp info spawn make\ngyp info spawn args [ 'BUILDTYPE=Release', '-C', 'build' ]\n../phase0.cc:2:39: warning: cast from 'void (*)(v8::Local<v8::Object>)' to 'node::addon_register_func' (aka 'void (*)(v8::Local<v8::Object>, v8::Local<v8::Value>, void *)') converts to incompatible function type [-Wcast-function-type-mismatch]\n    2 | void Init(v8::Local<v8::Object> e){ } NODE_MODULE(NODE_GYP_MODULE_NAME, Init)\n      |                                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n/Users/adrdsouza/Library/Caches/node-gyp/26.5.0/include/node/node.h:1342:3: note: expanded from macro 'NODE_MODULE'\n 1342 |   NODE_MODULE_X(modname, regfunc, NULL, 0)  // NOLINT (readability/null_usage)\n      |   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n/Users/adrdsouza/Library/Caches/node-gyp/26.5.0/include/node/node.h:1308:7: note: expanded from macro 'NODE_MODULE_X'\n 1308 |       (node::addon_register_func) (regfunc),                          \\\n      |       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n1 warning generated.\ngyp info ok \n"
+        },
+        {
+          "phase": "test",
+          "command": [
+            "pnpm",
+            "run",
+            "test"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd",
+          "startedAt": "2026-08-12T18:22:29.681Z",
+          "durationMs": 3766,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "$ node -e \"require('./build/Release/phase0.node')\"\n"
+        },
+        {
+          "phase": "generatedExecutable",
+          "command": [
+            "pnpm",
+            "run",
+            "generated"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-node-gyp-6nIgUd",
+          "startedAt": "2026-08-12T18:22:33.448Z",
+          "durationMs": 2833,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "$ node -e \"require('./build/Release/phase0.node')\"\n"
+        }
+      ]
+    },
+    {
+      "adapter": "cmake",
+      "status": "PASS",
+      "fixture": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cmake-rqW3RJ",
+      "steps": [
+        {
+          "phase": "clean",
+          "command": [
+            "cmake",
+            "-S",
+            ".",
+            "-B",
+            "build"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cmake-rqW3RJ",
+          "startedAt": "2026-08-12T18:22:37.739Z",
+          "durationMs": 5983,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "-- The C compiler identification is AppleClang 21.0.0.21000101\n-- Detecting C compiler ABI info\n-- Detecting C compiler ABI info - done\n-- Check for working C compiler: /usr/bin/cc - skipped\n-- Detecting C compile features\n-- Detecting C compile features - done\n-- Configuring done (4.3s)\n-- Generating done (0.0s)\n-- Build files have been written to: /Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cmake-rqW3RJ/build\n",
+          "stderr": ""
+        },
+        {
+          "phase": "incremental",
+          "command": [
+            "cmake",
+            "--build",
+            "build"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cmake-rqW3RJ",
+          "startedAt": "2026-08-12T18:22:43.723Z",
+          "durationMs": 3425,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "[ 50%] Building C object CMakeFiles/phase0.dir/main.c.o\n[100%] Linking C executable phase0\n[100%] Built target phase0\n",
+          "stderr": ""
+        },
+        {
+          "phase": "test",
+          "command": [
+            "ctest",
+            "--test-dir",
+            "build",
+            "--output-on-failure"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cmake-rqW3RJ",
+          "startedAt": "2026-08-12T18:22:47.149Z",
+          "durationMs": 2108,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "Test project /Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cmake-rqW3RJ/build\n    Start 1: phase0\n1/1 Test #1: phase0 ...........................   Passed    0.71 sec\n\n100% tests passed, 0 tests failed out of 1\n\nTotal Test time (real) =   0.84 sec\n",
+          "stderr": ""
+        },
+        {
+          "phase": "generatedExecutable",
+          "command": [
+            "./build/phase0"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-cmake-rqW3RJ",
+          "startedAt": "2026-08-12T18:22:49.257Z",
+          "durationMs": 17,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "generated executable\n",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "adapter": "make",
+      "status": "PASS",
+      "fixture": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-make-bhNmI5",
+      "steps": [
+        {
+          "phase": "clean",
+          "command": [
+            "make",
+            "clean",
+            "all"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-make-bhNmI5",
+          "startedAt": "2026-08-12T18:22:49.329Z",
+          "durationMs": 655,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "rm -f phase0\ncc -o phase0 main.c\n",
+          "stderr": ""
+        },
+        {
+          "phase": "incremental",
+          "command": [
+            "make",
+            "all"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-make-bhNmI5",
+          "startedAt": "2026-08-12T18:22:49.984Z",
+          "durationMs": 94,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "make: Nothing to be done for `all'.\n",
+          "stderr": ""
+        },
+        {
+          "phase": "test",
+          "command": [
+            "make",
+            "test"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-make-bhNmI5",
+          "startedAt": "2026-08-12T18:22:50.079Z",
+          "durationMs": 747,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "./phase0\ngenerated executable\n",
+          "stderr": ""
+        },
+        {
+          "phase": "generatedExecutable",
+          "command": [
+            "make",
+            "generated"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-make-bhNmI5",
+          "startedAt": "2026-08-12T18:22:50.826Z",
+          "durationMs": 91,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "./phase0\ngenerated executable\n",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "adapter": "raw-compiler",
+      "status": "PASS",
+      "fixture": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-raw-compiler-CSKOny",
+      "steps": [
+        {
+          "phase": "clean",
+          "command": [
+            "cc",
+            "-o",
+            "phase0",
+            "main.c"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-raw-compiler-CSKOny",
+          "startedAt": "2026-08-12T18:22:50.951Z",
+          "durationMs": 318,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "phase": "incremental",
+          "command": [
+            "cc",
+            "-o",
+            "phase0",
+            "main.c"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-raw-compiler-CSKOny",
+          "startedAt": "2026-08-12T18:22:51.269Z",
+          "durationMs": 218,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "phase": "test",
+          "command": [
+            "./phase0"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-raw-compiler-CSKOny",
+          "startedAt": "2026-08-12T18:22:51.487Z",
+          "durationMs": 406,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "generated executable\n",
+          "stderr": ""
+        },
+        {
+          "phase": "generatedExecutable",
+          "command": [
+            "./phase0"
+          ],
+          "cwd": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-phase0-raw-compiler-CSKOny",
+          "startedAt": "2026-08-12T18:22:51.893Z",
+          "durationMs": 15,
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "generated executable\n",
+          "stderr": ""
+        }
+      ]
+    }
+  ]
+}

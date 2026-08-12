@@ -1,0 +1,49 @@
+{
+  "$schema": "../../../../../packages/build-control-phase0/schemas/implementation-contract.schema.json",
+  "schemaVersion": "1.0.0",
+  "contractId": "EC-250",
+  "version": 1,
+  "taskId": "T-1",
+  "state": "SEALED",
+  "ownedPaths": [
+    "tools/rightkit/packages/build-control-core/**",
+    "tools/rightkit/packages/build-control-staging/**",
+    "tools/rightkit/packages/build-control-clients/**"
+  ],
+  "readPaths": [
+    "tools/rightkit/packages/release/**",
+    "tools/rightkit/docs/plans/2026-08-12-rightkit-build-control-plane-v5.md",
+    "tools/rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/**"
+  ],
+  "forbiddenPaths": [
+    "apps/**",
+    "tools/rightkit/packages/release/cargo-guard.mjs",
+    "tools/rhook/**",
+    "qualification/**"
+  ],
+  "commands": [
+    "pnpm --dir tools/rightkit/packages/build-control-phase0 test",
+    "pnpm --dir tools/rightkit/packages/build-control-phase0 run run -- --output tools/rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/shared/phase0-report.json"
+  ],
+  "checks": [
+    "frontend fixture clean/incremental/test/generatedExecutable parity",
+    "strict default-deny policy remains request-bound",
+    "no internal payload write evidence before Phase-1 promotion"
+  ],
+  "evidenceProducers": [
+    { "id": "shared-phase0-harness", "path": "tools/rightkit/packages/build-control-phase0/src/cli.mjs", "produces": "phase0-report.json" },
+    { "id": "platform-policy-spikes", "path": "platform-owned", "produces": "typed platform reports" }
+  ],
+  "openQuestions": [],
+  "closedPhase1Slice": {
+    "scope": "Shared request normalization, adapter registry, immutable tool-root model & transactional external staging interface.",
+    "excludes": ["macOS Endpoint Security implementation", "Windows App Control deployment", "product cutover", "enforcement promotion"],
+    "entryGate": "Applicable platform Phase-0 report is PASS.",
+    "currentPlatformDisposition": {
+      "shared": "PASS",
+      "macos": "BLOCKED_EXTERNAL",
+      "windows": "BLOCKED_EXTERNAL"
+    },
+    "acceptance": "No Phase-1 effect is authorized until its applicable platform report is PASS; FAIL stops only that platform & BLOCKED_EXTERNAL preserves independent progress."
+  }
+}

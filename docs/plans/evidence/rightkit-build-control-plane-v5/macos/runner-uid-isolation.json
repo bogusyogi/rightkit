@@ -1,0 +1,19 @@
+{
+  "schema": "rightkit.build-control-phase0.macos.runner-uid/v1",
+  "status": "BLOCKED_EXTERNAL",
+  "currentUid": "501",
+  "accountDirectoryReadable": true,
+  "runnerCandidates": [],
+  "adminProbe": {
+    "command": "sudo -n true",
+    "ok": false,
+    "exitCode": 1,
+    "diagnostic": "sudo: a password is required"
+  },
+  "attemptedCommands": [
+    "id -u",
+    "dscl . -list /Users UniqueID",
+    "sudo -n true"
+  ],
+  "detail": "No pre-provisioned locked non-login runner UID pool exists. sudo -n cannot create isolated accounts; no account or session mutation was attempted."
+}

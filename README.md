@@ -5,6 +5,11 @@ Shared, platform-neutral primitives for every Right Suite app.
 | Package | Runtime | Responsibility |
 |---|---|---|
 | [`@rightkit/ax`](packages/ax) | Node CLI | Agent-experience, plugin, conformance, behavioral, and adversarial gates (`right-ax`) |
+| [`@rightkit/build-control-core`](packages/build-control-core) | Node | Managed-agent/strict profiles, request normalization, external namespaces & unmanaged-output scanning |
+| [`@rightkit/build-control-broker`](packages/build-control-broker) | Node service | Digest-pinned tool execution, external cache environment, quotas, reservations, leases & typed receipts |
+| [`@rightkit/build-control-clients`](packages/build-control-clients) | Node CLI | Explicit RightKit entrypoint, Rust/Cargo agent shims & request-only frontend registry |
+| [`@rightkit/build-control-policy`](packages/build-control-policy) | Node hook | Rust/Cargo agent command policy & wrapper/compound-command gap detection |
+| [`@rightkit/build-control-staging`](packages/build-control-staging) | Node | External transactional staging & sync-back contract |
 | [`@rightkit/git`](packages/git) | Node CLI | Public-repository GitHub Actions workflow templates and visibility gate (`right-git`) |
 | [`@rightkit/legal`](packages/legal) | TypeScript | Legal manifest schema 2, assent receipt, and release-contract primitives |
 | [`@rightkit/legal-ui`](packages/legal-ui) | TypeScript + React | Shared desktop legal acceptance gate |
@@ -12,7 +17,7 @@ Shared, platform-neutral primitives for every Right Suite app.
 | [`@rightkit/logs`](packages/logs) | TypeScript + Rust payload | Durable local JSONL logging and privacy-safe diagnostics bundles |
 | [`@rightkit/platform-ui`](packages/platform-ui) | TypeScript + React | Platform detection, shortcut rendering, capabilities, and headless window controls |
 | [`@rightkit/qa`](packages/qa) | Node CLI | Cross-platform desktop QA gates |
-| [`@rightkit/release`](packages/release) | Node CLI | Signed release, hardening, patch/update routing, R2 upload, and RightApps registration |
+| [`@rightkit/release`](packages/release) | Node CLI | Native-host signed release, hardening, immutable GitHub Release upload, and add-on adoption |
 | [`@rightkit/tauri`](packages/tauri) | TypeScript | Typed Tauri host adapter for license and device commands |
 | [`@rightkit/updates`](packages/updates) | TypeScript | Runtime update policy helper |
 
@@ -172,3 +177,56 @@ expect(lic.status).toBe("active");
 ```
 
 Inject `fetchImpl` only if you need a non-global fetch. The SDK's own suite (`src/index.test.ts`) covers activate/refresh/deactivate + the grace logic.
+
+## Managed-agent Rust builds
+
+Configured coding agents use RightKit as a request-only broker client:
+
+```bash
+rightkit cargo test
+rightkit cargo build --release
+rightkit rustc --version
+rightkit rustdoc --version
+```
+
+Direct `cargo`, `rustc`, `rustdoc`, & `rustup run …` are intentionally denied in
+managed-agent contexts. Do not substitute an absolute toolchain binary, alter
+`PATH` or Rust/Cargo environment, set a target directory, add `.cargo`
+configuration or aliases/wrappers, or write local `target`/`.cache` output.
+`pnpm` & `npm` remain usable; their child Cargo invocation must inherit RightKit
+shim precedence.
+
+Each request is normalized, admitted against quota/reservation/lease state, then
+ends in a durable receipt under managed external storage. Success releases its
+namespace; failure, cancellation, unmanaged local output, or quota overrun
+poisons it. The broker performs bounded automatic GC of eligible `RELEASED` &
+`POISONED` namespaces and never deletes an active lease or shared live root.
+
+### Operations
+
+On macOS, managed roots live below configured external storage (normally
+`/Volumes/D/rightkit-build-control`); the broker endpoint is a short Unix socket
+from `RIGHTKIT_BUILD_BROKER_SOCKET`. On Windows, the same external root holds
+`rightkit-build-control`; broker & sccache use native Windows IPC. In both cases,
+global Cargo home, toolchains, compiler cache, workspace targets, build state,
+temporary state, & receipts stay below that root.
+
+Runtime installation publishes a self-contained version directory, verifies
+socket plus functional `cargo --version` health, atomically switches its current
+pointer, & rolls back if post-switch health fails. To investigate any non-zero or
+`125` result, inspect broker service health first, then its terminal receipt &
+reported violation. Restore broker/external-volume availability or remove only
+receipt-identified unmanaged output; never retry through a direct Rust command.
+
+Cleanup records a before/after inventory and removes only confirmed disposable
+build/cache/temp roots. GC is broker-owned: it reconciles disk use, respects
+leases/reservations, emits a receipt, & retains uncertain or protected paths.
+
+### Publication boundary
+
+Build-control workspace components are private implementation packages, not
+consumer dependencies; they are never independently published. Their delivery is
+one exact commit on `bogusyogi/claude` `main`, with no npm-publication claim.
+
+See [Managed Build Control](docs/MANAGED-BUILD-CONTROL.md) for health, receipts,
+recovery, cleanup, GC, & platform operations.

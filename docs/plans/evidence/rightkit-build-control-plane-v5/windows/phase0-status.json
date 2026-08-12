@@ -1,0 +1,39 @@
+{
+  "schema": "rightkit.build-control.windows.phase0.status.v1",
+  "outcome": "BLOCKED_EXTERNAL",
+  "generatedAt": "2026-08-12",
+  "machine": {
+    "bridge": "win",
+    "windowsProductName": "Windows 10 Pro",
+    "osBuild": "26200",
+    "osArchitecture": "64-bit"
+  },
+  "observed": {
+    "inventory": "machine-inventory-windows.json",
+    "capacity": "capacity-model-windows.json",
+    "appControl": "app-control-audit-windows.json",
+    "nativeModuleCatalog": "native-module-catalog-windows.json",
+    "supplementalPolicyPackage": "supplemental-policy-package-windows.json",
+    "policyLoadBenchmark": "policy-load-benchmark-windows.json",
+    "configCi": true,
+    "ciTool": "C:\\WINDOWS\\system32\\CiTool.exe"
+  },
+  "blockers": [
+    {
+      "id": "sacrificial-enforce-ring",
+      "requiredFor": "UMCI enforcement/default-deny/chamber negative tests",
+      "dependency": "Dedicated sacrificial Windows 11 Pro/Enterprise VM or ring; do not run enforced policy on current workstation."
+    },
+    {
+      "id": "local-admin-recovery",
+      "requiredFor": "App Control policy deployment, rollback, boot recovery drill",
+      "dependency": "Administrator-operated policy deployment plus documented recovery policy and tested boot recovery path."
+    },
+    {
+      "id": "sacrificial-policy-activation",
+      "requiredFor": "2x supplemental hash policy activation P99 <= 60 seconds and five-minute admission benchmark",
+      "dependency": "Activate generated package only in a sacrificial ring; measure compile/sign/deploy/refresh, recovery, and self-service admissions."
+    }
+  ],
+  "safety": "No UMCI policy, boot setting, VHDX, or protected chamber was mutated."
+}

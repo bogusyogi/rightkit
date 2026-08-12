@@ -1,0 +1,61 @@
+{
+  "schema": "rightkit.build-control.macos.runtime-durability.v1",
+  "version": 1,
+  "status": "PASS",
+  "capturedAt": "2026-08-13T03:07:00+05:30",
+  "runtime": {
+    "externalRoot": "/Volumes/D/.rightkit-managed",
+    "current": "/Volumes/D/.rightkit-managed/runtime-current",
+    "selectedVersion": "runtime-v1.8",
+    "selfContainedPackages": ["build-control-broker", "build-control-core", "build-control-clients"],
+    "atomicInstall": {
+      "preSwitchHealth": "runtime install copies all required packages, health-checks & atomically selects it",
+      "postSwitchRollback": "runtime activation failure restores prior selected runtime & refuses version overwrite",
+      "testCommand": "pnpm --dir tools/rightkit/packages/build-control-broker test",
+      "result": "PASS (17 tests); functional cargo health is required during runtime install"
+    }
+  },
+  "launchAgent": {
+    "label": "dev.rightkit.build-control-managed",
+    "program": "/Volumes/D/.rightkit-managed/runtime-current/build-control-broker/src/broker.mjs",
+    "status": "running",
+    "pid": 4790
+  },
+  "managedCargo": {
+    "workspace": "/Volumes/D/.rightkit-managed/fixture-rust",
+    "versionCommand": "rightkit cargo --version",
+    "versionResult": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "lockedBuildCommand": "rightkit cargo build --locked",
+    "lockedBuildDurationSeconds": 0.81,
+    "lockedBuildReceipt": "/Volumes/D/.rightkit-managed/receipts/0812d719-605d-40dc-b578-ac49069ac766.json",
+    "externalTargetRoot": "/Volumes/D/.rightkit-managed/rightkit-build-control/workspaces/099cbbf277564619b55d7510c842a03b6034d3bdc0642055d29e9a7ba9c737b7/targets/aarch64-apple-darwin/875b9380866e9d56e7110b0e",
+    "workspaceLocalTargetAbsent": true
+  },
+  "restartRecovery": {
+    "staleActiveReceipt": "/Volumes/D/.rightkit-managed/receipts/runtime-recovery-proof-v1.json",
+    "recoveryReceipt": "/Volumes/D/.rightkit-managed/receipts/recovery-7a8834d1-afef-4861-a02b-2ad3e353cb9b.json",
+    "recoveredIds": ["runtime-recovery-proof-v1"],
+    "releasedReservationBytes": 4096,
+    "reservedBytesAfterRestart": 0,
+    "startupUsedBytesFromDisk": 79059029,
+    "boundedReconciliation": "20,000-entry or 1-second scan bound; a timed-out filesystem call preserves durable accounting & cannot block startup"
+  },
+  "gc": {
+    "forcedReleasedNamespaceReceipt": "/Volumes/D/.rightkit-managed/receipts/gc-d9318129-0114-4587-9e4f-ab291bcd8936.json",
+    "reclaimedBytes": 145926130,
+    "proofNamespaceEntry": "runtime-gc-proof-v1",
+    "selection": "expired RELEASED namespaces only; active/shared-live namespaces are preserved",
+    "activePreservationTest": "retention reclaims released namespace, but never a shared live namespace"
+  },
+  "bounds": {
+    "capacityBytes": 206158430208,
+    "freeBytes": 386183168000,
+    "quotaAndFreeFloorTest": "free-floor breach kills execution & poisons reservation",
+    "quotaAndFreeFloorResult": "PASS"
+  },
+  "verification": {
+    "focusedTestCommand": "pnpm --dir tools/rightkit/packages/build-control-broker test",
+    "focusedTestResult": "PASS: 17 passed, 0 failed",
+    "noSecretsEmbedded": true
+  }
+}

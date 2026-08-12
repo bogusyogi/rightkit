@@ -1,0 +1,10 @@
+{
+  "schema": "rightkit.build-control.capacity-model.v1",
+  "capturedAt": "2026-08-12",
+  "input": "machine-inventory-windows.json",
+  "protectedNonCacheClasses": ["runtime", "policy", "receipts", "stage", "vhdx-host"],
+  "observedFreeBytes": 1242017705984,
+  "reserveFloorBytes": 21474836480,
+  "status": "OBSERVED_BASELINE_ONLY",
+  "notProven": ["per-workspace clean/warm working sets", "stage size", "VHDX hard limit", "concurrent reservations", "full-disk behavior"]
+}

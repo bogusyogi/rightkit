@@ -1,0 +1,691 @@
+{
+  "schema": "rightkit.build-control-phase0.macos.capacity/v1",
+  "generatedAt": "2026-08-12T18:19:34.542Z",
+  "status": "BLOCKED_EXTERNAL",
+  "protectedClasses": [
+    "toolchains",
+    "package-inputs",
+    "registry",
+    "receipts",
+    "policy-state",
+    "stage",
+    "target",
+    "temp",
+    "shared-cache"
+  ],
+  "volumes": [
+    {
+      "filesystem": "/dev/disk3s3s1",
+      "totalBytes": 245107195904,
+      "usedBytes": 12563341312,
+      "freeBytes": 20436877312,
+      "mount": "/"
+    },
+    {
+      "filesystem": "devfs",
+      "totalBytes": 224256,
+      "usedBytes": 224256,
+      "freeBytes": 0,
+      "mount": "/dev"
+    },
+    {
+      "filesystem": "/dev/disk3s6",
+      "totalBytes": 245107195904,
+      "usedBytes": 9664806912,
+      "freeBytes": 20436877312,
+      "mount": "/System/Volumes/VM"
+    },
+    {
+      "filesystem": "/dev/disk3s4",
+      "totalBytes": 245107195904,
+      "usedBytes": 9089728512,
+      "freeBytes": 20436877312,
+      "mount": "/System/Volumes/Preboot"
+    },
+    {
+      "filesystem": "/dev/disk3s2",
+      "totalBytes": 245107195904,
+      "usedBytes": 47173632,
+      "freeBytes": 20436877312,
+      "mount": "/System/Volumes/Update"
+    },
+    {
+      "filesystem": "/dev/disk1s2",
+      "totalBytes": 524288000,
+      "usedBytes": 6311936,
+      "freeBytes": 505430016,
+      "mount": "/System/Volumes/xarts"
+    },
+    {
+      "filesystem": "/dev/disk1s1",
+      "totalBytes": 524288000,
+      "usedBytes": 6029312,
+      "freeBytes": 505430016,
+      "mount": "/System/Volumes/iSCPreboot"
+    },
+    {
+      "filesystem": "/dev/disk1s3",
+      "totalBytes": 524288000,
+      "usedBytes": 1540096,
+      "freeBytes": 505430016,
+      "mount": "/System/Volumes/Hardware"
+    },
+    {
+      "filesystem": "/dev/disk3s1",
+      "totalBytes": 245107195904,
+      "usedBytes": 191867453440,
+      "freeBytes": 20436877312,
+      "mount": "/System/Volumes/Data"
+    },
+    {
+      "filesystem": "map",
+      "totalBytes": null,
+      "usedBytes": 0,
+      "freeBytes": 0,
+      "mount": "100% /System/Volumes/Data/home"
+    },
+    {
+      "filesystem": "/dev/disk5s1",
+      "totalBytes": 995872473088,
+      "usedBytes": 775862878208,
+      "freeBytes": 219802836992,
+      "mount": "/Volumes/D"
+    },
+    {
+      "filesystem": "/dev/disk7s1",
+      "totalBytes": 18083741696,
+      "usedBytes": 17571344384,
+      "freeBytes": 466067456,
+      "mount": "/Library/Developer/CoreSimulator/Volumes/iOS_23F77"
+    },
+    {
+      "filesystem": "/Volumes/D/Downloads/CodexBar.app",
+      "totalBytes": 995872473088,
+      "usedBytes": 860516335616,
+      "freeBytes": 135149379584,
+      "mount": "/private/var/folders/xr/ywbcn9sx25jd9b7h3tn3dk2m0000gn/T/AppTranslocation/29EBA6FF-8606-4A95-B5AD-DCD6D17EDAE5"
+    },
+    {
+      "filesystem": "/dev/disk9s1",
+      "totalBytes": 2306867200,
+      "usedBytes": 2221293568,
+      "freeBytes": 75771904,
+      "mount": "/private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.LBgJ2E"
+    }
+  ],
+  "externalD": {
+    "filesystem": "/dev/disk5s1",
+    "totalBytes": 995872473088,
+    "usedBytes": 775862878208,
+    "freeBytes": 219802836992,
+    "mount": "/Volumes/D"
+  },
+  "classifiedInventory": {
+    "complete": false,
+    "entries": [
+      {
+        "path": "/Volumes/D/.DS_Store",
+        "type": "file",
+        "class": "unmanaged-user-data",
+        "bytes": 20480,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.DocumentRevisions-V100",
+        "type": "directory",
+        "class": "unmanaged-user-data",
+        "bytes": null,
+        "measured": false,
+        "diagnostic": "du: /Volumes/D/.DocumentRevisions-V100: Permission denied"
+      },
+      {
+        "path": "/Volumes/D/.Spotlight-V100",
+        "type": "directory",
+        "class": "unmanaged-user-data",
+        "bytes": 10731048960,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.TemporaryItems",
+        "type": "directory",
+        "class": "unmanaged-user-data",
+        "bytes": null,
+        "measured": false,
+        "diagnostic": "du: /Volumes/D/.TemporaryItems: Permission denied"
+      },
+      {
+        "path": "/Volumes/D/.Trashes",
+        "type": "directory",
+        "class": "unmanaged-user-data",
+        "bytes": null,
+        "measured": false,
+        "diagnostic": "du: /Volumes/D/.Trashes: Permission denied"
+      },
+      {
+        "path": "/Volumes/D/.build-home",
+        "type": "directory",
+        "class": "target-or-stage",
+        "bytes": null,
+        "measured": false,
+        "diagnostic": ""
+      },
+      {
+        "path": "/Volumes/D/.codex-window-inspect.GBX18e",
+        "type": "directory",
+        "class": "unmanaged-user-data",
+        "bytes": 2363392,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.eou-r2-archive.342HYA",
+        "type": "directory",
+        "class": "backup-or-archive",
+        "bytes": 165953536,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.eou-r2-extract.SP31GJ",
+        "type": "directory",
+        "class": "backup-or-archive",
+        "bytes": 172081152,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.eou-r2-presence-check.tar.gz",
+        "type": "file",
+        "class": "unmanaged-user-data",
+        "bytes": 0,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.eou-r2-readback-final.tar.gz",
+        "type": "file",
+        "class": "backup-or-archive",
+        "bytes": 165953536,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.eou-r2-readback-second.tar.gz",
+        "type": "file",
+        "class": "backup-or-archive",
+        "bytes": 0,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.eou-r2-readback-third.tar.gz",
+        "type": "file",
+        "class": "backup-or-archive",
+        "bytes": 0,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.eou-r2-readback.tar.gz",
+        "type": "file",
+        "class": "backup-or-archive",
+        "bytes": 0,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.fseventsd",
+        "type": "directory",
+        "class": "unmanaged-user-data",
+        "bytes": 176340992,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.heardright-target-pre-release-20260728-1655",
+        "type": "directory",
+        "class": "target-or-stage",
+        "bytes": 1312247808,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.heardright-target-pre-release-20260728-1738",
+        "type": "directory",
+        "class": "target-or-stage",
+        "bytes": 1200537600,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.pnpm-store",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 1624592384,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.pytest_cache",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 16384,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.rightsuite-demo-backups",
+        "type": "directory",
+        "class": "backup-or-archive",
+        "bytes": 147456,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.rightsuite-dev-cache",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 3720765440,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.rightsuite-install-backups",
+        "type": "directory",
+        "class": "backup-or-archive",
+        "bytes": 130678784,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.rightsuite-local-build-cache",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 6509834240,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.rightsuite-native-probes",
+        "type": "directory",
+        "class": "target-or-stage",
+        "bytes": 737951744,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.rightsuite-release-cache",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 60023754752,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.swift-module-cache",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 67440640,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.tdt-r2-readback.tar.gz",
+        "type": "file",
+        "class": "backup-or-archive",
+        "bytes": 401960960,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.viewright-0134-build.log",
+        "type": "file",
+        "class": "target-or-stage",
+        "bytes": 61440,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.viewright-0134-verify.log",
+        "type": "file",
+        "class": "unmanaged-user-data",
+        "bytes": 73728,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.viewright-0135-build.log",
+        "type": "file",
+        "class": "target-or-stage",
+        "bytes": 61440,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.viewright-ax-test",
+        "type": "directory",
+        "class": "unmanaged-user-data",
+        "bytes": 188416,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.viewright-browser-qa-glass.json",
+        "type": "file",
+        "class": "unmanaged-user-data",
+        "bytes": 4096,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.viewright-install-stage.Byagwu",
+        "type": "directory",
+        "class": "target-or-stage",
+        "bytes": 32669696,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.viewright-mount.Qm7s0h",
+        "type": "directory",
+        "class": "unmanaged-user-data",
+        "bytes": 0,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/.viewright-native-glass-qa.log",
+        "type": "file",
+        "class": "unmanaged-user-data",
+        "bytes": 57344,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/Downloads",
+        "type": "directory",
+        "class": "repository-or-user-data",
+        "bytes": 485576704,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/HeardRight_0.1.63_universal_notarized.dmg",
+        "type": "file",
+        "class": "installer",
+        "bytes": 64315392,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/RightSuite-cache-backup-20260726",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 16060948480,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/ScreenRight",
+        "type": "directory",
+        "class": "repository-or-user-data",
+        "bytes": 0,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/ScreenRight-2026-08-08-060452-Finder.mp4",
+        "type": "file",
+        "class": "media",
+        "bytes": 4239360,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/ScreenRight-2026-08-08-061924-Finder.mp4",
+        "type": "file",
+        "class": "media",
+        "bytes": 3919872,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/ScreenRight-2026-08-08-124531-ViewRight.mp4",
+        "type": "file",
+        "class": "media",
+        "bytes": 32571392,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/ScreenRight-2026-08-08-130051-ChatGPT.mp4",
+        "type": "file",
+        "class": "media",
+        "bytes": 6656000,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/ScreenRight-2026-08-08-130757-ChatGPT.mp4",
+        "type": "file",
+        "class": "media",
+        "bytes": 7868416,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/ScreenRight-2026-08-08-132743-ChatGPT.mp4",
+        "type": "file",
+        "class": "media",
+        "bytes": 43732992,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/ScreenRight-2026-08-08-143456-ViewRight.mp4",
+        "type": "file",
+        "class": "media",
+        "bytes": 209096704,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/ScreenRight-2026-08-12-203003-ChatGPT.mp4",
+        "type": "file",
+        "class": "media",
+        "bytes": 2539520,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/You are.txt",
+        "type": "file",
+        "class": "unmanaged-user-data",
+        "bytes": 4096,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/adrdsouza-cargo-home-20260726",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 7812915200,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/adrdsouza-home-cache-20260726",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 13400764416,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/adrdsouza-npm-cache-20260726",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 3195539456,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/adrdsouza-user-caches-20260726",
+        "type": "directory",
+        "class": "shared-cache",
+        "bytes": 40853405696,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/claude",
+        "type": "directory",
+        "class": "repository-or-user-data",
+        "bytes": null,
+        "measured": false,
+        "diagnostic": ""
+      },
+      {
+        "path": "/Volumes/D/claude-dispatch",
+        "type": "directory",
+        "class": "repository-or-user-data",
+        "bytes": 21154791424,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/kwstest",
+        "type": "directory",
+        "class": "unmanaged-user-data",
+        "bytes": 464621568,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/orthic-target-backup-20260811-0745",
+        "type": "directory",
+        "class": "target-or-stage",
+        "bytes": 4034289664,
+        "measured": true
+      },
+      {
+        "path": "/Volumes/D/tools",
+        "type": "directory",
+        "class": "repository-or-user-data",
+        "bytes": 3788800,
+        "measured": true
+      }
+    ]
+  },
+  "workingSets": {
+    "observed": [
+      {
+        "class": "target-or-stage",
+        "path": "/Volumes/D/.heardright-target-pre-release-20260728-1655",
+        "bytes": 1312247808,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "target-or-stage",
+        "path": "/Volumes/D/.heardright-target-pre-release-20260728-1738",
+        "bytes": 1200537600,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/.pnpm-store",
+        "bytes": 1624592384,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/.pytest_cache",
+        "bytes": 16384,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/.rightsuite-dev-cache",
+        "bytes": 3720765440,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/.rightsuite-local-build-cache",
+        "bytes": 6509834240,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "target-or-stage",
+        "path": "/Volumes/D/.rightsuite-native-probes",
+        "bytes": 737951744,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/.rightsuite-release-cache",
+        "bytes": 60023754752,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/.swift-module-cache",
+        "bytes": 67440640,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "target-or-stage",
+        "path": "/Volumes/D/.viewright-0134-build.log",
+        "bytes": 61440,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "target-or-stage",
+        "path": "/Volumes/D/.viewright-0135-build.log",
+        "bytes": 61440,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "target-or-stage",
+        "path": "/Volumes/D/.viewright-install-stage.Byagwu",
+        "bytes": 32669696,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/RightSuite-cache-backup-20260726",
+        "bytes": 16060948480,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/adrdsouza-cargo-home-20260726",
+        "bytes": 7812915200,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/adrdsouza-home-cache-20260726",
+        "bytes": 13400764416,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/adrdsouza-npm-cache-20260726",
+        "bytes": 3195539456,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "shared-cache",
+        "path": "/Volumes/D/adrdsouza-user-caches-20260726",
+        "bytes": 40853405696,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      },
+      {
+        "class": "target-or-stage",
+        "path": "/Volumes/D/orthic-target-backup-20260811-0745",
+        "bytes": 4034289664,
+        "source": "current top-level occupancy; not a clean/warm build measurement"
+      }
+    ],
+    "complete": false,
+    "missing": [
+      "clean build peak per workspace/class/toolchain",
+      "warm build working set per workspace/class/toolchain",
+      "P50/P95/P99 growth",
+      "stage size"
+    ]
+  },
+  "reservationPeaks": {
+    "observedRequests": 0,
+    "maximumActiveReservationsBytes": 0,
+    "complete": false,
+    "detail": "No broker request or reservation trace exists on this machine; zero is an observed count, not a capacity allowance."
+  },
+  "nativeModules": {
+    "command": "rg --files /Volumes/D/claude -g *.node -g *.dylib -g *.so -g *.bundle",
+    "status": "PASS",
+    "count": 8,
+    "representativePaths": [
+      "/Volumes/D/claude/coderight2/coderight/apps/coderight-tauri/src-tauri/resources/runtime/libonnxruntime.dylib",
+      "/Volumes/D/claude/coderight2/pi/packages/tui/native/win32/prebuilds/win32-x64/win32-console-mode.node",
+      "/Volumes/D/claude/coderight2/pi/packages/tui/native/win32/prebuilds/win32-arm64/win32-console-mode.node",
+      "/Volumes/D/claude/coderight2/pi/packages/tui/native/darwin/prebuilds/darwin-arm64/darwin-modifiers.node",
+      "/Volumes/D/claude/coderight2/pi/packages/tui/native/darwin/prebuilds/darwin-x64/darwin-modifiers.node",
+      "/Volumes/D/claude/vendor/homebrew-x86_64/libsodium/1.0.22/lib/libsodium.26.dylib",
+      "/Volumes/D/claude/cortex2/ast-grep__ast-grep/fixtures/json-linux.so",
+      "/Volumes/D/claude/cortex2/ast-grep__ast-grep/fixtures/json-mac.so"
+    ]
+  },
+  "capacityEquation": {
+    "formula": "Cmax = T - P - A - R - F - X",
+    "totalBytes": 995872473088,
+    "protectedNonCacheBytes": null,
+    "artifactBudgetBytes": null,
+    "recoveryBudgetBytes": null,
+    "reserveFloorBytes": null,
+    "transitionHeadroomBytes": null,
+    "cacheMaximumBytes": null,
+    "measured": false,
+    "unsolvedTerms": [
+      "A",
+      "R",
+      "F",
+      "X"
+    ],
+    "note": "Inventory is incomplete; Cmax is intentionally unsolved."
+  },
+  "detail": "D capacity 995872473088 bytes, free 219802836992 bytes. Inventory is incomplete; no aspirational cache maximum is emitted."
+}

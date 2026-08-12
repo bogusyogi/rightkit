@@ -1,0 +1,27 @@
+{
+  "schema": "rightkit.build-control-phase0.macos.baseline/v1",
+  "generatedAt": "2026-08-12T18:16:30.495Z",
+  "routes": {
+    "cargo": {
+      "ok": true,
+      "stdout": "cargo 1.97.1 (c980f4866 2026-06-30)",
+      "stderr": ""
+    },
+    "rustc": {
+      "ok": true,
+      "stdout": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+      "stderr": ""
+    },
+    "node": {
+      "ok": true,
+      "stdout": "v26.5.0",
+      "stderr": ""
+    },
+    "git": {
+      "ok": true,
+      "stdout": "git version 2.50.1 (Apple Git-155)",
+      "stderr": ""
+    }
+  },
+  "status": "PASS"
+}

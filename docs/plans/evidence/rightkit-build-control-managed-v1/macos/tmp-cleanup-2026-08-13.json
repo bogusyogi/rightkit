@@ -1,0 +1,4124 @@
+{
+  "schema": "rightkit-build-control-cleanup-evidence-v2",
+  "createdAt": "2026-08-13",
+  "root": "/Volumes/D/.build-home/adrdsouza/tmp",
+  "cutoff": "2026-08-10T00:00:00.000Z",
+  "caps": {
+    "maxEntries": 100000,
+    "timeoutMs": 1000,
+    "symlinks": "skipped"
+  },
+  "removed": [
+    {
+      "path": "/Volumes/D/claude/cutright/tools/v2-skill-compiler/target",
+      "classification": "explicit Rust build output",
+      "beforeBytes": 43974656,
+      "afterBytes": 0,
+      "entries": null
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/.tmp58Ay4u",
+      "mtime": "2026-08-01T12:24:30.941Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 93907594,
+      "afterBytes": 0,
+      "entries": 5
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/.tmpKVDR1Z",
+      "mtime": "2026-08-01T12:46:16.012Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 307414266,
+      "afterBytes": 0,
+      "entries": 5
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/.tmpLWphAw",
+      "mtime": "2026-08-01T13:48:55.237Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 307414267,
+      "afterBytes": 0,
+      "entries": 5
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/.tmpTML3sI",
+      "mtime": "2026-08-01T12:17:26.547Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 93907594,
+      "afterBytes": 0,
+      "entries": 5
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/codex-bounded-driver-host-target",
+      "mtime": "2026-08-03T09:02:22.025Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 102593232,
+      "afterBytes": 0,
+      "entries": 997
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/heardright-src-tauri-target-20260805-1257",
+      "mtime": "2026-08-05T12:50:30.667Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 2597619968,
+      "afterBytes": 0,
+      "entries": 7482
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/membrane-compact-target-6W1uar",
+      "mtime": "2026-08-07T23:33:55.821Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 117754130,
+      "afterBytes": 0,
+      "entries": 872
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/membrane-compact-target-7svfkp",
+      "mtime": "2026-08-07T23:42:42.713Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 117841990,
+      "afterBytes": 0,
+      "entries": 876
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/membrane-compact-target-ETMUMI",
+      "mtime": "2026-08-07T23:49:40.115Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 121030908,
+      "afterBytes": 0,
+      "entries": 916
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/membrane-compact-target-F74q62",
+      "mtime": "2026-08-07T23:32:42.305Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 117756224,
+      "afterBytes": 0,
+      "entries": 873
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/membrane-compact-target-Q54NMM",
+      "mtime": "2026-08-07T23:47:41.512Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 121030152,
+      "afterBytes": 0,
+      "entries": 916
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/membrane-compact-target-Uag50i",
+      "mtime": "2026-08-07T23:48:30.118Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 121030909,
+      "afterBytes": 0,
+      "entries": 916
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/membrane-compact-target-mzM6Ns",
+      "mtime": "2026-08-07T23:51:56.678Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 1366567632,
+      "afterBytes": 0,
+      "entries": 5432
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/membrane-compact-target-niUkhF",
+      "mtime": "2026-08-07T23:56:11.154Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 1366567660,
+      "afterBytes": 0,
+      "entries": 5432
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/membrane-compact-target-pNqDHA",
+      "mtime": "2026-08-07T23:44:22.177Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 117841993,
+      "afterBytes": 0,
+      "entries": 876
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/memright-q3-9dc0-ao7weg63",
+      "mtime": "2026-07-29T18:49:57.827Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 210772072,
+      "afterBytes": 0,
+      "entries": 4
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/memright-q3-9dc0-bounded-gweshxf1",
+      "mtime": "2026-07-29T18:53:00.888Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 210759680,
+      "afterBytes": 0,
+      "entries": 4
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/memright-q3-9dc0-diag-7wsyaysz",
+      "mtime": "2026-07-29T18:53:24.763Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 211185664,
+      "afterBytes": 0,
+      "entries": 4
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/memright-q3-9dc0-final-zm4dwdy0",
+      "mtime": "2026-07-29T18:53:44.296Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 211251200,
+      "afterBytes": 0,
+      "entries": 4
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-061h6L",
+      "mtime": "2026-08-08T22:02:48.833Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-0BEPBa",
+      "mtime": "2026-08-08T14:35:09.711Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-0MwQ80",
+      "mtime": "2026-08-07T12:56:50.307Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-0VLamB",
+      "mtime": "2026-08-08T23:22:46.494Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-0YEQGA",
+      "mtime": "2026-08-07T07:20:00.735Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-0f6VKQ",
+      "mtime": "2026-08-08T21:35:00.526Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-0fIeS1",
+      "mtime": "2026-08-08T23:03:06.328Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-0jD6RR",
+      "mtime": "2026-08-07T06:51:21.037Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-0tzYIr",
+      "mtime": "2026-08-08T22:44:02.046Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-0ygWdc",
+      "mtime": "2026-08-07T10:44:09.814Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1AZrZo",
+      "mtime": "2026-08-07T07:18:55.071Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1LKLm3",
+      "mtime": "2026-08-08T21:33:58.642Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1MPdcP",
+      "mtime": "2026-08-08T23:45:58.913Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1Pmm1Q",
+      "mtime": "2026-08-08T21:34:31.501Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1Q5zdI",
+      "mtime": "2026-08-08T23:52:53.326Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1Q8r1g",
+      "mtime": "2026-08-09T00:06:11.752Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1YAX8Q",
+      "mtime": "2026-08-08T22:43:49.510Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1l1SAA",
+      "mtime": "2026-08-07T09:37:17.146Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1mjbgE",
+      "mtime": "2026-08-07T08:16:27.227Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1tWY3n",
+      "mtime": "2026-08-07T13:08:00.110Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1ucJmv",
+      "mtime": "2026-08-07T06:21:23.985Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1wlZeX",
+      "mtime": "2026-08-07T07:18:52.424Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-1xhh8m",
+      "mtime": "2026-08-07T10:40:49.260Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-20Z3DL",
+      "mtime": "2026-08-08T23:40:20.314Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-24ljBj",
+      "mtime": "2026-08-07T10:44:12.886Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-27pPdr",
+      "mtime": "2026-08-09T19:06:37.189Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-29HMCV",
+      "mtime": "2026-08-08T21:20:22.319Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-2D9aCo",
+      "mtime": "2026-08-07T10:40:58.763Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-2Hujiv",
+      "mtime": "2026-08-08T22:03:52.012Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-2I7JdZ",
+      "mtime": "2026-08-07T06:51:10.311Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-2kjbkc",
+      "mtime": "2026-08-07T08:23:57.056Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-36e1nO",
+      "mtime": "2026-08-07T07:05:21.658Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-3EkayZ",
+      "mtime": "2026-08-07T06:22:57.905Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-3PCtfk",
+      "mtime": "2026-08-07T17:29:55.666Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-3cmuXr",
+      "mtime": "2026-08-07T07:05:24.864Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-3gQNTv",
+      "mtime": "2026-08-07T14:23:04.736Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-3jWG4V",
+      "mtime": "2026-08-08T23:01:41.501Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-3oTNQ0",
+      "mtime": "2026-08-07T07:20:15.258Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-40lZC4",
+      "mtime": "2026-08-08T22:43:53.347Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-46Dd1N",
+      "mtime": "2026-08-08T22:27:09.073Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-4AZRqM",
+      "mtime": "2026-08-08T21:51:41.159Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-4HbTA0",
+      "mtime": "2026-08-08T22:56:16.817Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-4NEeaM",
+      "mtime": "2026-08-07T10:40:30.271Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-4YbIM2",
+      "mtime": "2026-08-07T13:07:38.234Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-4Z7y9G",
+      "mtime": "2026-08-08T22:56:26.698Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-4htYS6",
+      "mtime": "2026-08-07T13:07:22.354Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-4n0al8",
+      "mtime": "2026-08-08T23:33:16.169Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-4wBTos",
+      "mtime": "2026-08-08T21:34:52.891Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-59wMbO",
+      "mtime": "2026-08-09T00:03:39.462Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5ATQS8",
+      "mtime": "2026-08-09T00:03:45.230Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5JbXw2",
+      "mtime": "2026-08-08T23:01:47.137Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5KffNG",
+      "mtime": "2026-08-08T22:27:07.579Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5e9Fwf",
+      "mtime": "2026-08-08T23:17:02.635Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5f83l4",
+      "mtime": "2026-08-09T19:06:34.111Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5ioNFF",
+      "mtime": "2026-08-07T08:16:37.403Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5kZUpJ",
+      "mtime": "2026-08-08T23:40:28.106Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5r3GeS",
+      "mtime": "2026-08-07T06:22:51.306Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5sHTCW",
+      "mtime": "2026-08-08T22:03:53.492Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5scpkc",
+      "mtime": "2026-08-07T06:50:13.725Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5vMRdK",
+      "mtime": "2026-08-07T06:24:13.289Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-5znTuc",
+      "mtime": "2026-08-07T14:22:36.422Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-6EXQsM",
+      "mtime": "2026-08-07T17:31:00.308Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-6VYv5i",
+      "mtime": "2026-08-08T22:02:41.081Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-6oB1y8",
+      "mtime": "2026-08-07T06:51:00.531Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-6wb9XU",
+      "mtime": "2026-08-08T23:43:10.287Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-77x9H2",
+      "mtime": "2026-08-07T14:18:31.457Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-7Gbzng",
+      "mtime": "2026-08-07T06:23:43.634Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-7GczYP",
+      "mtime": "2026-08-07T22:41:39.507Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-7QGNoq",
+      "mtime": "2026-08-09T00:06:17.162Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-7YnIJf",
+      "mtime": "2026-08-07T13:08:53.308Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-7ixL4u",
+      "mtime": "2026-08-08T14:35:14.145Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-848rY9",
+      "mtime": "2026-08-07T10:40:15.802Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-8BJrKr",
+      "mtime": "2026-08-07T06:23:59.381Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-8bOflA",
+      "mtime": "2026-08-07T12:58:09.476Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-8iQ0oC",
+      "mtime": "2026-08-09T19:06:32.506Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-8jIi5s",
+      "mtime": "2026-08-08T14:35:21.123Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-8wjSbL",
+      "mtime": "2026-08-07T10:43:02.272Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-9N8FDU",
+      "mtime": "2026-08-06T22:06:50.403Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-9ZbYQs",
+      "mtime": "2026-08-07T06:58:09.188Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-AA1KCG",
+      "mtime": "2026-08-07T06:21:26.489Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ABHpE0",
+      "mtime": "2026-08-07T06:58:12.070Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ADkxLy",
+      "mtime": "2026-08-08T13:55:37.189Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ANYYOf",
+      "mtime": "2026-08-07T10:40:54.309Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-AX8thJ",
+      "mtime": "2026-08-07T06:50:09.691Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-AeBqMQ",
+      "mtime": "2026-08-07T10:40:43.110Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-AjFxUK",
+      "mtime": "2026-08-07T17:31:10.163Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ApKCo4",
+      "mtime": "2026-08-08T22:43:59.628Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-AuwW6q",
+      "mtime": "2026-08-08T23:22:41.243Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-AvlFP0",
+      "mtime": "2026-08-08T23:01:43.600Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-B7BivI",
+      "mtime": "2026-08-09T00:00:58.273Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-BAuXuH",
+      "mtime": "2026-08-08T21:34:25.415Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-BJOLZH",
+      "mtime": "2026-08-07T23:59:08.829Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-BQJa64",
+      "mtime": "2026-08-09T19:03:47.075Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-BQrSeg",
+      "mtime": "2026-08-07T09:34:42.463Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-BS2aKN",
+      "mtime": "2026-08-07T09:34:54.665Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-BVqUpn",
+      "mtime": "2026-08-07T13:08:18.795Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-BYPe2a",
+      "mtime": "2026-08-07T13:07:49.872Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-BwWSBC",
+      "mtime": "2026-08-09T02:31:30.180Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-CFQEUL",
+      "mtime": "2026-08-08T23:03:11.427Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-CY06ko",
+      "mtime": "2026-08-09T00:03:33.827Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Cd3DMA",
+      "mtime": "2026-08-08T23:33:17.547Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-CwJzxq",
+      "mtime": "2026-08-08T22:02:47.458Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-DJaNX5",
+      "mtime": "2026-08-08T22:43:52.437Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-DMSefz",
+      "mtime": "2026-08-07T07:05:14.077Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-DR0VyD",
+      "mtime": "2026-08-07T12:56:33.949Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-DT44wt",
+      "mtime": "2026-08-07T09:37:05.155Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-DT9AB2",
+      "mtime": "2026-08-08T00:20:49.306Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-DXziUe",
+      "mtime": "2026-08-08T23:40:22.115Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-DZIinO",
+      "mtime": "2026-08-07T14:12:58.004Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Df3hbA",
+      "mtime": "2026-08-08T23:33:12.463Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-DxyqwV",
+      "mtime": "2026-08-07T07:19:16.376Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-E7thRw",
+      "mtime": "2026-08-08T23:40:21.205Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-EZZEAn",
+      "mtime": "2026-08-08T22:03:47.964Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-EaA6tS",
+      "mtime": "2026-08-07T10:44:18.498Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Eoj8Mm",
+      "mtime": "2026-08-07T06:21:19.081Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ErFIn1",
+      "mtime": "2026-08-07T10:44:33.855Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ErnZrC",
+      "mtime": "2026-08-07T08:16:34.673Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Es32uq",
+      "mtime": "2026-08-07T07:05:31.065Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-F5R7fU",
+      "mtime": "2026-08-08T23:03:12.834Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-FBz4oV",
+      "mtime": "2026-08-09T19:03:48.663Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-FEls0U",
+      "mtime": "2026-08-08T23:01:38.375Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-FQRqFx",
+      "mtime": "2026-08-07T17:28:53.377Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-FQTKFz",
+      "mtime": "2026-08-07T09:32:31.956Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-FaKS8M",
+      "mtime": "2026-08-07T06:22:48.314Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Fbn71q",
+      "mtime": "2026-08-07T08:16:33.249Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Fjl8h7",
+      "mtime": "2026-08-07T06:23:14.918Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-FnjEU2",
+      "mtime": "2026-08-08T23:40:17.490Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Fw4QTR",
+      "mtime": "2026-08-07T08:24:16.260Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-FzDRpq",
+      "mtime": "2026-08-07T09:34:30.547Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-GMA60s",
+      "mtime": "2026-08-07T07:19:11.108Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-GVAldx",
+      "mtime": "2026-08-07T13:08:32.219Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-GVkaML",
+      "mtime": "2026-08-07T10:40:19.218Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Ga59yF",
+      "mtime": "2026-08-07T08:23:28.392Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-H4d0wy",
+      "mtime": "2026-08-07T09:31:56.383Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-HCpSZP",
+      "mtime": "2026-08-09T00:06:14.221Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-HDXKY4",
+      "mtime": "2026-08-08T22:03:54.900Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-HFXCul",
+      "mtime": "2026-08-06T22:06:36.257Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-HJKIWa",
+      "mtime": "2026-08-07T09:09:40.570Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Ha6Nqg",
+      "mtime": "2026-08-07T09:30:11.495Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-HnonSp",
+      "mtime": "2026-08-08T23:43:04.158Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-HsotfW",
+      "mtime": "2026-08-07T10:40:32.832Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-I8bcoh",
+      "mtime": "2026-08-07T06:58:01.203Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-IC3NEn",
+      "mtime": "2026-08-09T00:06:26.591Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-IDhP3i",
+      "mtime": "2026-08-06T22:06:12.610Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-IT5mxR",
+      "mtime": "2026-08-07T14:17:37.982Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-IdUA3D",
+      "mtime": "2026-08-07T10:40:27.792Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ImgbWj",
+      "mtime": "2026-08-07T09:38:37.391Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Ixhr5G",
+      "mtime": "2026-08-07T06:58:27.827Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-J5J0Oc",
+      "mtime": "2026-08-09T00:00:49.868Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-JXNQpI",
+      "mtime": "2026-08-08T23:52:50.549Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-JfTvtM",
+      "mtime": "2026-08-07T17:28:15.524Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-JmwWKe",
+      "mtime": "2026-08-08T22:03:45.615Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Jnze69",
+      "mtime": "2026-08-07T12:57:52.449Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-JpzRgW",
+      "mtime": "2026-08-08T13:55:49.444Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-JubcbL",
+      "mtime": "2026-08-08T22:27:10.679Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-JwMHdU",
+      "mtime": "2026-08-08T22:38:55.311Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-K6PJNJ",
+      "mtime": "2026-08-08T22:02:51.646Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-KFlQ8Q",
+      "mtime": "2026-08-07T14:12:31.890Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Ka0LtV",
+      "mtime": "2026-08-09T00:06:15.769Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Kh8x4e",
+      "mtime": "2026-08-08T23:01:42.508Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-KsCicK",
+      "mtime": "2026-08-07T14:17:58.622Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-KzCCcJ",
+      "mtime": "2026-08-07T07:05:20.109Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-L2ccxi",
+      "mtime": "2026-08-08T23:22:36.552Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-L3ZCmi",
+      "mtime": "2026-08-08T00:20:42.073Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-LIoEDk",
+      "mtime": "2026-08-08T23:17:05.495Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-LK4vx3",
+      "mtime": "2026-08-07T09:30:46.906Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-LQI4vw",
+      "mtime": "2026-08-08T21:34:27.698Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Lesq4Z",
+      "mtime": "2026-08-07T07:20:31.742Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Lh034l",
+      "mtime": "2026-08-09T02:31:34.262Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-LxfSPk",
+      "mtime": "2026-08-07T17:30:05.985Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-M2ceWV",
+      "mtime": "2026-08-07T06:23:52.778Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-M8lhnz",
+      "mtime": "2026-08-07T17:27:32.023Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-MPiVdC",
+      "mtime": "2026-08-08T23:33:18.868Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-MSxRQs",
+      "mtime": "2026-08-07T07:05:23.216Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-MY5dFH",
+      "mtime": "2026-08-09T19:04:00.992Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-MYRtVM",
+      "mtime": "2026-08-08T23:22:25.366Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Mvn14R",
+      "mtime": "2026-08-07T07:20:36.391Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Mww95D",
+      "mtime": "2026-08-07T08:16:46.837Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-N2nWjq",
+      "mtime": "2026-08-07T06:58:24.270Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-N7VPO6",
+      "mtime": "2026-08-06T22:06:26.585Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-NGcjAf",
+      "mtime": "2026-08-07T22:41:36.093Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-NXeNV1",
+      "mtime": "2026-08-08T22:26:59.415Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-NgMYIF",
+      "mtime": "2026-08-07T14:18:37.913Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-NlQCNw",
+      "mtime": "2026-08-07T14:18:22.929Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-NpnE1y",
+      "mtime": "2026-08-08T23:40:19.363Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-O09Mfq",
+      "mtime": "2026-08-08T22:56:24.390Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-O3nSgr",
+      "mtime": "2026-08-07T22:43:09.523Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-OD8F1T",
+      "mtime": "2026-08-09T19:06:28.386Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ODX4Tu",
+      "mtime": "2026-08-07T07:19:00.637Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-OLDvfk",
+      "mtime": "2026-08-06T22:05:56.158Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ONVmzz",
+      "mtime": "2026-08-07T06:58:07.632Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-OYyyWf",
+      "mtime": "2026-08-09T19:04:06.499Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-OfeSsJ",
+      "mtime": "2026-08-07T07:05:42.560Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Osywiz",
+      "mtime": "2026-08-08T22:43:58.499Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-P1Oe99",
+      "mtime": "2026-08-08T21:34:01.992Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-P1T22M",
+      "mtime": "2026-08-06T22:05:48.853Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-P3SWLJ",
+      "mtime": "2026-08-08T23:52:44.515Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-PRjRYt",
+      "mtime": "2026-08-07T08:24:10.643Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-PtaaPN",
+      "mtime": "2026-08-07T10:44:21.704Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-QLJfof",
+      "mtime": "2026-08-07T14:12:26.055Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-QSNhlX",
+      "mtime": "2026-08-07T08:24:22.032Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-QWR4b7",
+      "mtime": "2026-08-07T06:21:09.183Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-QZ9ZFg",
+      "mtime": "2026-08-08T21:35:02.106Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-QyGWFU",
+      "mtime": "2026-08-08T00:20:53.545Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-R0BfeJ",
+      "mtime": "2026-08-06T22:13:11.563Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-RHp3ji",
+      "mtime": "2026-08-08T13:55:56.122Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-RNUBEg",
+      "mtime": "2026-08-07T22:43:19.566Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-RdRMNt",
+      "mtime": "2026-08-07T13:08:04.634Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ReWlMV",
+      "mtime": "2026-08-07T17:31:05.106Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-RfPfLy",
+      "mtime": "2026-08-08T21:35:03.718Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Ri8JqM",
+      "mtime": "2026-08-07T22:43:12.478Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Ro1NXR",
+      "mtime": "2026-08-09T00:00:54.970Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Rou7J7",
+      "mtime": "2026-08-08T21:32:45.607Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-S6PrOi",
+      "mtime": "2026-08-08T21:34:59.006Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-SM5dOn",
+      "mtime": "2026-08-08T22:38:53.904Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-SPaNCo",
+      "mtime": "2026-08-09T19:03:57.254Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-SamXA7",
+      "mtime": "2026-08-07T06:55:38.712Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ScyOd6",
+      "mtime": "2026-08-07T14:17:55.275Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ShnNwl",
+      "mtime": "2026-08-09T00:03:30.397Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-SoEjJ3",
+      "mtime": "2026-08-09T02:31:23.993Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-StT8nC",
+      "mtime": "2026-08-07T06:55:34.122Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Su9XCB",
+      "mtime": "2026-08-07T13:03:23.742Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Sv16Ks",
+      "mtime": "2026-08-08T23:52:54.717Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Swzn7V",
+      "mtime": "2026-08-07T06:23:51.435Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-SxTGBN",
+      "mtime": "2026-08-08T22:02:43.629Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Sxz8pn",
+      "mtime": "2026-08-08T23:45:36.023Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-T7r34J",
+      "mtime": "2026-08-06T22:06:15.840Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-T876no",
+      "mtime": "2026-08-06T22:06:42.923Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-TCXbca",
+      "mtime": "2026-08-08T21:34:33.116Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-TGV43o",
+      "mtime": "2026-08-07T09:38:29.446Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-TKfodu",
+      "mtime": "2026-08-07T17:29:46.791Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-TWRpf5",
+      "mtime": "2026-08-07T07:20:27.418Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-TZXRrg",
+      "mtime": "2026-08-08T21:20:27.665Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-TnHgUQ",
+      "mtime": "2026-08-07T14:22:38.274Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-U438z3",
+      "mtime": "2026-08-07T06:51:02.814Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-U4fuqi",
+      "mtime": "2026-08-08T23:03:14.228Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-U5uWoY",
+      "mtime": "2026-08-08T23:45:43.485Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-UF1Set",
+      "mtime": "2026-08-08T21:20:43.387Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-USAvml",
+      "mtime": "2026-08-07T06:23:18.646Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-UTEzvE",
+      "mtime": "2026-08-07T22:41:21.838Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-UU9c2v",
+      "mtime": "2026-08-08T21:51:44.423Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Ud5UY8",
+      "mtime": "2026-08-09T19:03:43.105Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-UpGsKL",
+      "mtime": "2026-08-07T06:23:45.912Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-UrsGHv",
+      "mtime": "2026-08-08T23:17:06.904Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-UvWxB1",
+      "mtime": "2026-08-07T14:22:47.829Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Uy1CwB",
+      "mtime": "2026-08-07T14:17:41.355Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-VCjgrt",
+      "mtime": "2026-08-09T19:06:25.306Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-VEagCH",
+      "mtime": "2026-08-07T17:27:54.653Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-VEwU2O",
+      "mtime": "2026-08-08T23:01:48.269Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-VGglRp",
+      "mtime": "2026-08-06T22:13:00.226Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-VN18Ct",
+      "mtime": "2026-08-09T00:06:23.818Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Va9O9S",
+      "mtime": "2026-08-09T00:00:53.533Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-VatOwM",
+      "mtime": "2026-08-07T10:43:04.100Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-VyLrF9",
+      "mtime": "2026-08-07T12:58:17.673Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-W2sfvX",
+      "mtime": "2026-08-06T22:12:54.463Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-W5amlJ",
+      "mtime": "2026-08-07T13:08:42.166Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WCX0Ld",
+      "mtime": "2026-08-08T00:20:50.699Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WGGZ67",
+      "mtime": "2026-08-07T14:12:52.241Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WIjOQ0",
+      "mtime": "2026-08-07T06:51:11.997Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WMXAri",
+      "mtime": "2026-08-07T14:13:04.725Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WQIKBn",
+      "mtime": "2026-08-08T22:56:13.970Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WRllsL",
+      "mtime": "2026-08-07T06:58:15.849Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WoU8rP",
+      "mtime": "2026-08-07T14:12:34.107Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WpiIa4",
+      "mtime": "2026-08-07T17:30:53.812Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WtX1sS",
+      "mtime": "2026-08-07T06:50:18.337Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-WxnaGv",
+      "mtime": "2026-08-08T23:33:20.185Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-X3kIo1",
+      "mtime": "2026-08-07T10:40:25.579Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-XATBOp",
+      "mtime": "2026-08-08T22:27:06.162Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-XI5BSm",
+      "mtime": "2026-08-07T13:04:46.833Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-XRKSA9",
+      "mtime": "2026-08-07T06:21:56.929Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-XcrR9Q",
+      "mtime": "2026-08-09T19:03:50.231Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-XpXrmZ",
+      "mtime": "2026-08-07T06:55:22.815Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-XrQi8A",
+      "mtime": "2026-08-07T13:03:49.500Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-XsWrgK",
+      "mtime": "2026-08-08T21:51:35.340Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Xwcdt0",
+      "mtime": "2026-08-07T14:22:59.581Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Y2XklJ",
+      "mtime": "2026-08-07T09:35:06.205Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-YDidDk",
+      "mtime": "2026-08-07T06:55:20.933Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-YKORzI",
+      "mtime": "2026-08-07T14:12:12.797Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-YWqPti",
+      "mtime": "2026-08-07T06:55:27.583Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-YZUQaw",
+      "mtime": "2026-08-07T06:51:28.690Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-YaCPVW",
+      "mtime": "2026-08-07T06:55:30.456Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Yb5scE",
+      "mtime": "2026-08-08T13:55:45.849Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-YhR2v6",
+      "mtime": "2026-08-08T23:16:58.759Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-YpGVTH",
+      "mtime": "2026-08-09T02:31:33.390Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-YwuX76",
+      "mtime": "2026-08-09T02:31:36.102Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-Yyj0p7",
+      "mtime": "2026-08-07T07:05:35.517Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ZCgqX5",
+      "mtime": "2026-08-07T06:50:35.024Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ZE5AEs",
+      "mtime": "2026-08-08T22:38:44.865Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ZIISWH",
+      "mtime": "2026-08-07T17:30:00.956Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ZOIvtM",
+      "mtime": "2026-08-08T21:33:52.120Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ZZRjQf",
+      "mtime": "2026-08-07T06:22:59.260Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ZckEZl",
+      "mtime": "2026-08-08T23:52:46.850Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-a3rKMN",
+      "mtime": "2026-08-07T06:24:04.697Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-a3v5DT",
+      "mtime": "2026-08-07T06:55:29.121Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-aAZ3Bu",
+      "mtime": "2026-08-07T13:04:05.717Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-aAqj8g",
+      "mtime": "2026-08-08T21:32:43.966Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-aSYmYl",
+      "mtime": "2026-08-08T22:56:21.691Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-aloE35",
+      "mtime": "2026-08-06T22:12:57.415Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-aszMfv",
+      "mtime": "2026-08-08T21:20:37.900Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-b22cNl",
+      "mtime": "2026-08-08T21:34:00.343Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-b5Yzcc",
+      "mtime": "2026-08-07T22:41:28.710Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-b6snqS",
+      "mtime": "2026-08-08T21:20:46.474Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-bKh123",
+      "mtime": "2026-08-07T09:32:09.871Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-bWeq6K",
+      "mtime": "2026-08-07T08:16:29.654Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-bfRUKH",
+      "mtime": "2026-08-07T06:51:24.765Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-bqcoeI",
+      "mtime": "2026-08-07T07:19:02.161Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-bqi6DC",
+      "mtime": "2026-08-07T06:23:54.143Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-c55twP",
+      "mtime": "2026-08-07T06:51:07.454Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ccsLEW",
+      "mtime": "2026-08-07T14:18:12.469Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-cd1MbR",
+      "mtime": "2026-08-08T23:01:40.424Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-cgXeWI",
+      "mtime": "2026-08-07T09:38:22.162Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-cjzpG4",
+      "mtime": "2026-08-07T17:28:38.191Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-cxwquf",
+      "mtime": "2026-08-09T19:06:27.200Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-d04hdd",
+      "mtime": "2026-08-07T22:41:45.551Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-d11Izc",
+      "mtime": "2026-08-07T07:20:13.075Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-dJVhYi",
+      "mtime": "2026-08-07T06:50:16.596Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-dRhHS9",
+      "mtime": "2026-08-07T06:50:31.226Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-dc87W9",
+      "mtime": "2026-08-07T06:21:12.711Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-do6oIm",
+      "mtime": "2026-08-08T22:02:50.256Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-dyBYqj",
+      "mtime": "2026-08-08T23:40:26.171Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-e0JoE7",
+      "mtime": "2026-08-07T09:10:08.525Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-eL80SF",
+      "mtime": "2026-08-07T12:57:06.269Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-eNvWeN",
+      "mtime": "2026-08-07T06:55:26.323Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-eX09fd",
+      "mtime": "2026-08-07T10:42:53.213Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-efNUSQ",
+      "mtime": "2026-08-08T23:16:56.493Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ekMKQ5",
+      "mtime": "2026-08-07T06:24:09.085Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-eo2zdZ",
+      "mtime": "2026-08-08T23:22:22.630Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-eraBLQ",
+      "mtime": "2026-08-08T23:43:08.979Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-exC5fB",
+      "mtime": "2026-08-07T12:57:17.688Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-f7TeFV",
+      "mtime": "2026-08-08T14:35:06.975Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-fDe3rv",
+      "mtime": "2026-08-07T08:16:50.405Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-fHhlHA",
+      "mtime": "2026-08-06T22:12:47.790Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-fMkybC",
+      "mtime": "2026-08-07T13:03:10.302Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-fSxCRl",
+      "mtime": "2026-08-07T10:43:12.133Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-fYIIsR",
+      "mtime": "2026-08-08T21:33:54.578Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-fZSCZr",
+      "mtime": "2026-08-07T23:59:16.633Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-feM9xl",
+      "mtime": "2026-08-07T12:57:29.198Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-fqAxCs",
+      "mtime": "2026-08-08T00:20:52.135Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-frxPmD",
+      "mtime": "2026-08-07T12:58:01.330Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-gA7abo",
+      "mtime": "2026-08-07T08:23:46.984Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-gHYqvD",
+      "mtime": "2026-08-08T00:20:45.301Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-gb3TtT",
+      "mtime": "2026-08-08T13:55:40.801Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-gbCc3e",
+      "mtime": "2026-08-07T23:59:04.527Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-giGXLh",
+      "mtime": "2026-08-07T06:55:42.233Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-goxlGj",
+      "mtime": "2026-08-07T10:43:06.065Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hEmZjL",
+      "mtime": "2026-08-07T06:58:20.564Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hGJUZf",
+      "mtime": "2026-08-08T21:51:39.473Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hIm0FP",
+      "mtime": "2026-08-08T21:34:03.608Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hTiRIm",
+      "mtime": "2026-08-07T07:19:03.643Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hZhoMi",
+      "mtime": "2026-08-07T23:58:56.428Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hdY1Vh",
+      "mtime": "2026-08-07T10:44:41.198Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-heIRo9",
+      "mtime": "2026-08-07T22:41:42.659Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hkzUG2",
+      "mtime": "2026-08-08T21:32:42.250Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hu6fol",
+      "mtime": "2026-08-09T19:03:45.677Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hvsviM",
+      "mtime": "2026-08-07T22:43:16.108Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-hyfDqg",
+      "mtime": "2026-08-09T19:06:23.627Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-i1lKQv",
+      "mtime": "2026-08-07T14:22:22.282Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-iERuNX",
+      "mtime": "2026-08-07T10:43:00.601Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-iQAdrp",
+      "mtime": "2026-08-07T06:21:50.669Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ib0Sgn",
+      "mtime": "2026-08-08T14:35:17.714Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ir9v1e",
+      "mtime": "2026-08-07T07:05:16.115Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-irI72W",
+      "mtime": "2026-08-08T21:32:40.508Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-jKiOG3",
+      "mtime": "2026-08-08T23:03:10.057Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-jO8IJG",
+      "mtime": "2026-08-07T13:03:30.502Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-jXlBsF",
+      "mtime": "2026-08-08T23:40:25.286Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-jfPFuf",
+      "mtime": "2026-08-08T21:51:42.888Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-jzYKYj",
+      "mtime": "2026-08-08T14:35:15.754Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-k4f5XF",
+      "mtime": "2026-08-07T14:22:34.656Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-k6cfGu",
+      "mtime": "2026-08-08T23:33:10.263Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-kE07tR",
+      "mtime": "2026-08-07T14:22:54.192Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-kEYaza",
+      "mtime": "2026-08-07T06:50:07.121Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-kJsi3W",
+      "mtime": "2026-08-07T10:44:23.967Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-kVoC0U",
+      "mtime": "2026-08-07T09:32:20.570Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-kavoRI",
+      "mtime": "2026-08-07T06:51:16.323Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-kbZL8I",
+      "mtime": "2026-08-08T22:43:51.471Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-keM22D",
+      "mtime": "2026-08-07T08:24:05.701Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-kl29uO",
+      "mtime": "2026-08-09T00:06:22.690Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-kmlNsE",
+      "mtime": "2026-08-07T06:50:27.713Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-krUDIX",
+      "mtime": "2026-08-07T07:20:21.678Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-lBfjLe",
+      "mtime": "2026-08-07T06:22:02.317Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-lbGzfu",
+      "mtime": "2026-08-07T07:05:39.193Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-lcJqCJ",
+      "mtime": "2026-08-07T09:37:28.200Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-lgvt1U",
+      "mtime": "2026-08-08T23:45:41.308Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-lsyuSX",
+      "mtime": "2026-08-09T02:31:27.266Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-lvjejJ",
+      "mtime": "2026-08-07T10:42:55.329Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-lyZqOk",
+      "mtime": "2026-08-08T23:01:50.575Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-mDuO3W",
+      "mtime": "2026-08-08T23:17:04.080Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-mQuNSV",
+      "mtime": "2026-08-08T23:43:11.647Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-mRyFfh",
+      "mtime": "2026-08-08T23:52:51.934Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-meNu0A",
+      "mtime": "2026-08-07T09:30:35.999Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-mlCAEg",
+      "mtime": "2026-08-07T10:44:52.195Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-mpEbN4",
+      "mtime": "2026-08-07T08:16:35.962Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-mxToMB",
+      "mtime": "2026-08-07T22:43:00.131Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-n4O5Gs",
+      "mtime": "2026-08-08T21:32:33.187Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-nNFXiz",
+      "mtime": "2026-08-06T22:12:51.874Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-nQ2lHx",
+      "mtime": "2026-08-07T14:17:47.542Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-nppKSJ",
+      "mtime": "2026-08-06T22:13:17.129Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-o3xGjf",
+      "mtime": "2026-08-07T06:50:15.151Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-o7RaNX",
+      "mtime": "2026-08-08T21:51:32.648Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-o8CzxZ",
+      "mtime": "2026-08-07T08:16:42.328Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-oFFbox",
+      "mtime": "2026-08-07T22:43:03.847Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-oZlJb4",
+      "mtime": "2026-08-07T06:55:46.068Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ofLOwj",
+      "mtime": "2026-08-08T22:38:47.479Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-omFJgL",
+      "mtime": "2026-08-07T09:36:52.481Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ozHCJy",
+      "mtime": "2026-08-07T14:12:18.431Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-p0blmq",
+      "mtime": "2026-08-09T00:00:47.619Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-p36CSa",
+      "mtime": "2026-08-08T21:20:40.446Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-p8zw5a",
+      "mtime": "2026-08-06T22:06:09.107Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-p9Rftw",
+      "mtime": "2026-08-09T00:00:56.795Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-pNgfom",
+      "mtime": "2026-08-07T10:43:22.748Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-pf4yKv",
+      "mtime": "2026-08-07T08:16:53.790Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-phiScy",
+      "mtime": "2026-08-07T09:09:51.128Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-pwBzTJ",
+      "mtime": "2026-08-08T23:22:31.906Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-pwzo47",
+      "mtime": "2026-08-08T23:45:51.922Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-q9VfGQ",
+      "mtime": "2026-08-07T07:20:08.803Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-qPOKzJ",
+      "mtime": "2026-08-07T06:21:21.800Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-qQK6dc",
+      "mtime": "2026-08-07T17:28:11.306Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-qa5S4u",
+      "mtime": "2026-08-09T00:03:43.510Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-qdrBJ8",
+      "mtime": "2026-08-09T00:06:18.481Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-qixMJa",
+      "mtime": "2026-08-07T17:28:24.579Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-qwfmI2",
+      "mtime": "2026-08-08T21:32:36.234Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-r8RvID",
+      "mtime": "2026-08-08T22:38:51.313Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-r9yrts",
+      "mtime": "2026-08-07T07:20:03.001Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-rKBJd8",
+      "mtime": "2026-08-08T23:45:45.700Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-rLD2ut",
+      "mtime": "2026-08-08T22:56:28.338Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-rVa9Uy",
+      "mtime": "2026-08-08T23:43:02.287Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-rYBp6C",
+      "mtime": "2026-08-09T02:31:28.416Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-s9wRT5",
+      "mtime": "2026-08-07T07:19:05.249Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-sAyfMf",
+      "mtime": "2026-08-07T17:27:41.503Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-sH1qHp",
+      "mtime": "2026-08-07T14:12:47.147Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-sVtAVC",
+      "mtime": "2026-08-07T09:38:12.370Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-sb6Tl5",
+      "mtime": "2026-08-08T22:03:56.399Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-shR2Do",
+      "mtime": "2026-08-07T09:30:24.279Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-sy4Oru",
+      "mtime": "2026-08-06T22:13:08.426Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-t2f0zs",
+      "mtime": "2026-08-07T07:19:21.827Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-tMPQU7",
+      "mtime": "2026-08-07T14:22:32.805Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-tWEVOE",
+      "mtime": "2026-08-07T13:03:13.799Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-tg7ilb",
+      "mtime": "2026-08-07T14:12:29.286Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-tjJq0J",
+      "mtime": "2026-08-09T19:06:21.351Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-u1NsOZ",
+      "mtime": "2026-08-07T14:17:50.952Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-uGjgoE",
+      "mtime": "2026-08-07T12:56:22.614Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-uHCgKE",
+      "mtime": "2026-08-08T22:27:02.097Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-uPx61n",
+      "mtime": "2026-08-09T02:31:29.320Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-uex8Iz",
+      "mtime": "2026-08-08T23:45:54.063Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-ulJTxY",
+      "mtime": "2026-08-08T23:43:07.682Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-us8iqb",
+      "mtime": "2026-08-07T10:44:46.674Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-uuC3I8",
+      "mtime": "2026-08-08T21:34:34.662Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-v3QwLG",
+      "mtime": "2026-08-07T13:04:26.978Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-vAxYWj",
+      "mtime": "2026-08-08T21:34:36.275Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-vOHKcE",
+      "mtime": "2026-08-08T13:55:53.590Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-vVTNhV",
+      "mtime": "2026-08-07T13:07:54.445Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-vemKRw",
+      "mtime": "2026-08-08T22:43:54.306Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-w5yFvY",
+      "mtime": "2026-08-07T06:23:50.065Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-w7X2Zn",
+      "mtime": "2026-08-07T06:21:42.386Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-wRNOcW",
+      "mtime": "2026-08-07T07:19:26.548Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-wTCJaF",
+      "mtime": "2026-08-07T09:09:59.518Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-wrVt5r",
+      "mtime": "2026-08-07T10:43:27.023Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-x1l9hr",
+      "mtime": "2026-08-08T23:45:39.081Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-xIlK7K",
+      "mtime": "2026-08-06T22:06:05.663Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-xNQtP1",
+      "mtime": "2026-08-09T00:03:41.515Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-xguh8A",
+      "mtime": "2026-08-07T08:23:34.221Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-xneaC8",
+      "mtime": "2026-08-07T10:43:18.257Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-xrvmtH",
+      "mtime": "2026-08-07T14:22:26.643Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-y2Eogn",
+      "mtime": "2026-08-07T08:23:54.123Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-y3Oz99",
+      "mtime": "2026-08-07T13:03:20.621Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-yCTDaS",
+      "mtime": "2026-08-07T08:23:51.934Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-yDXBV4",
+      "mtime": "2026-08-07T06:23:10.455Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-yGniw1",
+      "mtime": "2026-08-07T06:23:05.150Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-yHoHa5",
+      "mtime": "2026-08-08T22:38:52.615Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-yaD2r3",
+      "mtime": "2026-08-07T06:50:22.849Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-yhDGod",
+      "mtime": "2026-08-08T21:34:55.096Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-yjzua1",
+      "mtime": "2026-08-07T23:59:12.704Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-yt8qm1",
+      "mtime": "2026-08-07T06:51:08.814Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-yy4mGk",
+      "mtime": "2026-08-07T06:23:00.816Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-z3Dhiu",
+      "mtime": "2026-08-07T13:03:26.652Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-zK5NqD",
+      "mtime": "2026-08-07T07:20:10.905Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-zPOdrU",
+      "mtime": "2026-08-07T06:58:03.536Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-zTIQ1L",
+      "mtime": "2026-08-07T23:58:51.169Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-zeOGzX",
+      "mtime": "2026-08-07T10:44:26.550Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-zlChuN",
+      "mtime": "2026-08-07T06:22:56.498Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-zlTLKQ",
+      "mtime": "2026-08-08T23:03:04.379Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/remotion-webpack-bundle-zyfTyS",
+      "mtime": "2026-08-07T06:58:10.556Z",
+      "classification": "aged Remotion webpack bundle",
+      "beforeBytes": 21069257,
+      "afterBytes": 0,
+      "entries": 33
+    },
+    {
+      "path": "/Volumes/D/.build-home/adrdsouza/tmp/rhook-bounded-process-target",
+      "mtime": "2026-08-03T09:43:07.764Z",
+      "classification": "aged disposable build/temp output",
+      "beforeBytes": 452713051,
+      "afterBytes": 0,
+      "entries": 4889
+    }
+  ],
+  "retained": [],
+  "bytesReclaimed": 18566316716,
+  "verification": {
+    "cutrightTarget": "absent",
+    "remainingNamedDisposableCandidates": [],
+    "result": "clean"
+  },
+  "workspaceInventory": {
+    "scope": "/Volumes/D/claude top-level non-dependency roots",
+    "method": "bounded per-root traversal; no symlink following; dependency/vendor trees skipped",
+    "limits": {
+      "timeoutMsPerRoot": 500,
+      "maxEntriesPerRoot": 15000,
+      "maxDepth": 12
+    },
+    "rootsScanned": 76,
+    "rootsComplete": 62,
+    "rootsCapped": 14,
+    "findingsObserved": 45,
+    "protectedExceptions": [
+      "/Volumes/D/claude/.cache/memright-qualification/9dc0ed4d-73b6b0b6/macos/target",
+      "/Volumes/D/claude/.cache/memright-qualification/52da41f9-f056a6c/q1-final/a/release/build",
+      "/Volumes/D/claude/.cache/memright-qualification/52da41f9-f056a6c/q1-final/b/release/build",
+      "/Volumes/D/claude/.cache/memright-qualification/31604c71-c1f070d/q1-d5-r3/a/release/build",
+      "/Volumes/D/claude/.cache/memright-qualification/31604c71-c1f070d/q1-d5-r3/a/debug/build",
+      "/Volumes/D/claude/.cache/memright-qualification/31604c71-c1f070d/q1-d5-r3/b/release/build",
+      "/Volumes/D/claude/citadel/tools/citadel/target",
+      "/Volumes/D/claude/coderight/engine/target",
+      "/Volumes/D/claude/coderight/engine/crates/tools/target",
+      "/Volumes/D/claude/coderight/engine/bins/coderight/target",
+      "/Volumes/D/claude/coderight-research/agent-teams-ai/test/main/build",
+      "/Volumes/D/claude/coderight2/omnigent/web/electron/build",
+      "/Volumes/D/claude/cortex2/semgrep__semgrep/src/target",
+      "/Volumes/D/claude/cutright/target",
+      "/Volumes/D/claude/cutright/tools/v2-skill-monitor/target",
+      "/Volumes/D/claude/cutright/tools/v2-gauntlet/target",
+      "/Volumes/D/claude/cutright/tools/import-closure/target",
+      "/Volumes/D/claude/cutright/crates/video-evidence/target",
+      "/Volumes/D/claude/cutright/apps/studio/src-tauri/target",
+      "/Volumes/D/claude/genright/target",
+      "/Volumes/D/claude/heardright/tauri-app-next/parakeet-rs-bench/target",
+      "/Volumes/D/claude/heardright/tauri-app-next/macos-native/HeardRightPillMac/.build",
+      "/Volumes/D/claude/heardright/tauri-app-next/heardright_core/target",
+      "/Volumes/D/claude/heardright/tauri-app-next/heardright_capture/target",
+      "/Volumes/D/claude/heardright/tauri-app-next/heardright-engine/target",
+      "/Volumes/D/claude/heardright/tauri-app-next/.cache/cargo-target",
+      "/Volumes/D/claude/heardright/tauri-app-next/.cache/cargo-target-before-right-release-20260731-0114",
+      "/Volumes/D/claude/heardright/tauri-app-next/.cache/pre-release-src-tauri-target-20260729-0305",
+      "/Volumes/D/claude/heardright/tauri-app-next/.cache/pre-right-release-target-20260730-0034",
+      "/Volumes/D/claude/heardright/tauri-app-next/.cache/pre-right-release-target-20260730-0120",
+      "/Volumes/D/claude/heardright/tauri-app-next/.cache/target-primary-before-0.1.64-20260729/debug/build",
+      "/Volumes/D/claude/heardright/tauri-app-next/.cache/target-pre-rc-0.1.66-20260729-1657/debug/build",
+      "/Volumes/D/claude/membrane/tests/fault-injection/target",
+      "/Volumes/D/claude/membrane/examples/providers/target",
+      "/Volumes/D/claude/orthic/src-tauri/target",
+      "/Volumes/D/claude/orthic/.audit/tauri-target/release/build",
+      "/Volumes/D/claude/tools/screenright/.right-release/build",
+      "/Volumes/D/claude/tools/rightkit/target",
+      "/Volumes/D/claude/tools/rightkit/swift/RightKitSwift/.build",
+      "/Volumes/D/claude/tools/rhook/target",
+      "/Volumes/D/claude/viewright/src-tauri/target",
+      "/Volumes/D/claude/viewright/.right-release/build",
+      "/Volumes/D/claude/viewright/.right-release/legacy-target-before-cache-v2-20260727/debug/build",
+      "/Volumes/D/claude/workright/crates/local-store/target",
+      "/Volumes/D/claude/workright/backend/server/target"
+    ],
+    "capExceptions": [
+      "/Volumes/D/claude/.cache (entry cap; 6 findings recorded)",
+      "/Volumes/D/claude/.venv-tools (depth cap; no findings before cap)",
+      "/Volumes/D/claude/.worktrees (depth cap; no findings before cap)",
+      "/Volumes/D/claude/benchmarks (entry cap; dependency output only)",
+      "/Volumes/D/claude/coderight (entry cap)",
+      "/Volumes/D/claude/coderight-research (entry cap)",
+      "/Volumes/D/claude/coderight2 (depth cap)",
+      "/Volumes/D/claude/cortex2 (entry cap)",
+      "/Volumes/D/claude/cutright (entry cap)",
+      "/Volumes/D/claude/heardright (entry cap)",
+      "/Volumes/D/claude/membrane (depth cap)",
+      "/Volumes/D/claude/membrane2 (entry cap)",
+      "/Volumes/D/claude/tools (entry cap)",
+      "/Volumes/D/claude/viewright (entry cap)"
+    ],
+    "status": "exception: nonzero protected outputs & capped roots retained; no zero-output claim"
+  },
+  "result": {
+    "workspaceUnmanagedRustOutputs": "exception: protected findings & capped boundaries recorded in workspaceInventory",
+    "bytesReclaimed": 18566316716
+  }
+}

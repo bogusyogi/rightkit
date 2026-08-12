@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-covenant-record",
+  "requestId": "req_EMMZACWYP7SH2D6XQSP33EKZYM",
+  "mode": "DECISION_CHALLENGE",
+  "packetDigest": "sha256:0fc2c9d2791d417ae9cdd394edcdca61fadd8ffe741129a57117050f9a92dee0",
+  "sourceRevision": "7f4adfeeb8dec603c9e60ea820a7f21052eef102",
+  "recordId": "CV-2",
+  "seatRecords": [
+    {
+      "seatId": "cargo-semantics",
+      "lens": "Cargo semantics & cache correctness",
+      "isolated": true,
+      "providerId": "gpt-5.6-terra",
+      "reusedModel": true,
+      "position": "REVISE"
+    },
+    {
+      "seatId": "storage-reliability",
+      "lens": "Storage reliability, concurrency & recovery",
+      "isolated": true,
+      "providerId": "gpt-5.6-terra",
+      "reusedModel": true,
+      "position": "REVISE"
+    },
+    {
+      "seatId": "machine-enforcement",
+      "lens": "Machine-wide enforcement & bypass resistance",
+      "isolated": true,
+      "providerId": "gpt-5.6-terra",
+      "reusedModel": true,
+      "position": "REVISE"
+    }
+  ],
+  "synthesis": "Fresh round 2 still requires revision: operational scope, install/alias routing, global capacity, descendant caches, shared-cache maintenance, toolchain selection, & cross-volume migration need explicit contracts.",
+  "findings": [
+    {
+      "findingId": "F-1",
+      "lens": "machine-enforcement",
+      "statement": "Absolute real Cargo with scrubbed environment remains outside policy despite broad machine-wide wording.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-2",
+      "lens": "machine-enforcement",
+      "statement": "cargo install --root can redirect payload internally.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-3",
+      "lens": "machine-enforcement",
+      "statement": "Executable Cargo aliases can shell out, scrub environment, & bypass guard.",
+      "severity": "medium",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-4",
+      "lens": "storage-reliability",
+      "statement": "Concurrent heavy builds lack global capacity reservation & admission control.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-5",
+      "lens": "storage-reliability",
+      "statement": "Cargo descendants can write HOME, XDG, npm/pnpm, native-builder, or arbitrary internal paths.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-6",
+      "lens": "storage-reliability",
+      "statement": "Cross-volume migration cannot use same-volume rename & lacks crash-safe copy protocol.",
+      "severity": "medium",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-7",
+      "lens": "cargo-semantics",
+      "statement": "Shared Cargo-home & sccache GC can race active consumers.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-8",
+      "lens": "cargo-semantics",
+      "statement": "Free-space prediction alone cannot preserve floor under concurrency or underestimated growth.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-9",
+      "lens": "cargo-semantics",
+      "statement": "Guard does not preserve every Cargo/rustup toolchain-selection route.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    }
+  ],
+  "disagreements": [],
+  "missingEvidence": [],
+  "risks": [
+    "Policy bypass",
+    "Quota exhaustion under concurrency",
+    "Shared-cache race",
+    "Cross-volume data loss"
+  ],
+  "outcome": "REVISE",
+  "callerDispositions": [
+    {
+      "findingId": "F-1",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-2",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-3",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-4",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-5",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-6",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-7",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-8",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-9",
+      "disposition": "ACCEPT"
+    }
+  ],
+  "revisionSubjectId": "machine-wide-cargo-cache-v3",
+  "revisionDigest": "sha256:22ec45f702ee682e810b8b810d4318facd04b471690070e4c73837b13c710a4f",
+  "freshVerdictRecordId": null,
+  "lane": "fresh-verdict",
+  "providerMetadata": {
+    "provider": "multi-seat-agent-panel",
+    "degraded": false,
+    "failures": [],
+    "reusedModel": true
+  },
+  "integrity": {
+    "digestVerified": true,
+    "mutationDetected": false
+  }
+}

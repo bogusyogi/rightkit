@@ -1,0 +1,54 @@
+{
+  "schema": "rightkit-managed-agent-policy-rollout-v1",
+  "host": "BOGUS-DELL",
+  "timestamp": "2026-08-13",
+  "scope": "user-scoped Codex/Claude managed Rust tool policy; no WDAC or system PATH changes",
+  "entrypoint": {
+    "path": "D:\\RightKitManagedAgent\\agent-bin\\rightkit.cmd",
+    "node": "C:\\nvm4w\\nodejs\\node.exe",
+    "launcher": "D:\\Claude\\tools\\rightkit\\packages\\build-control-clients\\src\\rightkit.mjs",
+    "status": "PASS"
+  },
+  "codex": {
+    "rules": "C:\\Users\\adrds\\.codex\\rules\\rightkit-managed-agent.rules",
+    "hook": "C:\\Users\\adrds\\.codex\\hooks.json",
+    "directPrefixRules": ["cargo", "rustc", "rustdoc", "C:\\Users\\adrds\\.cargo\\bin\\cargo.exe", "C:\\Users\\adrds\\.cargo\\bin\\rustc.exe", "C:\\Users\\adrds\\.cargo\\bin\\rustdoc.exe"],
+    "allowedEntrypoint": "rightkit",
+    "hookParser": "build-control-policy/src/codex-managed-build-hook.mjs",
+    "status": "PASS"
+  },
+  "claude": {
+    "settings": "C:\\Users\\adrds\\.claude\\settings.json",
+    "directDenies": ["cargo", "rustc", "rustdoc"],
+    "allowedEntrypoint": "Bash(rightkit *)",
+    "preToolUse": ["node D:/Claude/membrane/hooks/membrane-hook-entrypoint.mjs", "build-control-policy/src/claude-managed-build-hook.mjs"],
+    "membranePreserved": true,
+    "status": "PASS"
+  },
+  "matrix": {
+    "blocked": ["cargo metadata", "C:/Users/adrds/.cargo/bin/cargo.exe metadata", "env PATH=/tmp cargo metadata", "cmd /c cargo metadata", "pwsh -Command cargo metadata", "echo ok && rustc x.rs", "$(rustdoc x.rs)"],
+    "allowed": ["pnpm --version", "npm --version", "rustup --version", "rightkit cargo --version"],
+    "sharedParser": "PASS",
+    "codexPrefixCheck": "cargo forbidden; exact rightkit allow; pnpm/rustup no match",
+    "status": "PASS"
+  },
+  "freshProcess": {
+    "userPathResolves": "D:\\RightKitManagedAgent\\agent-bin\\rightkit.cmd",
+    "brokerTask": "RightKitManagedAgentBroker Running",
+    "command": "rightkit cargo --version",
+    "exit": 0,
+    "receipt": "D:\\RightKitManagedAgent\\external\\receipts\\e7421c1d-22ff-43be-914c-88fc0ba74288.json",
+    "localTargetCreated": false,
+    "status": "PASS"
+  },
+  "childCargoInheritance": {
+    "fixture": "C:\\Users\\adrds\\AppData\\Local\\Temp\\rightkit-policy-probe",
+    "userPathCargo": "D:\\RightKitManagedAgent\\agent-bin\\cargo.cmd",
+    "nonRustAgentShimsRemoved": ["pnpm.cmd", "npm.cmd"],
+    "pnpm": { "command": "pnpm run cargo-version", "exit": 0, "receiptCount": "8 -> 9", "receipt": "D:\\RightKitManagedAgent\\external\\receipts\\64fb105f-e567-46b0-9ba0-8ba05e331ee8.json" },
+    "npm": { "command": "npm run cargo-version", "exit": 0, "receiptCount": "9 -> 10", "receipt": "D:\\RightKitManagedAgent\\external\\receipts\\54678ea4-c067-4505-98cd-d7a301a0d7dc.json" },
+    "localTargetCreated": false,
+    "status": "PASS"
+  },
+  "wdac": "optional; not configured"
+}

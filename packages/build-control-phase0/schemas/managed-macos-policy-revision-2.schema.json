@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rightkit.dev/schemas/managed-macos-policy-revision-2.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "generatedAt", "policy", "checks", "runtimeDeployment", "status"],
+  "properties": {
+    "schema": { "const": "rightkit.build-control.macos.managed-policy-revision-2/v1" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "status": { "const": "PASS" },
+    "policy": { "$ref": "#/$defs/policy" },
+    "checks": { "$ref": "#/$defs/checks" },
+    "runtimeDeployment": { "$ref": "#/$defs/runtime" }
+  },
+  "$defs": {
+    "passText": { "type": "string", "pattern": "^PASS:" },
+    "policy": {
+      "type": "object",
+      "required": ["codexRules", "codexHook", "claudeSettings", "parser", "tests"],
+      "properties": {
+        "codexRules": { "type": "string", "minLength": 1 }, "codexHook": { "type": "string", "minLength": 1 }, "claudeSettings": { "type": "string", "minLength": 1 }, "parser": { "type": "string", "minLength": 1 }, "tests": { "$ref": "#/$defs/passText" }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "required": ["directCargo", "knownAbsoluteCargo", "exactRightkit", "envCompoundHook", "rightkitCompoundBypass", "rightkitSubstitutionBypass", "pnpm", "npm", "pnpmChildCargo", "npmChildCargo"],
+      "properties": {
+        "directCargo": { "const": "FORBIDDEN" }, "knownAbsoluteCargo": { "const": "FORBIDDEN" }, "exactRightkit": { "const": "ALLOW" }, "envCompoundHook": { "const": "DENY" }, "rightkitCompoundBypass": { "const": "DENY" }, "rightkitSubstitutionBypass": { "const": "DENY" }, "pnpm": { "type": "string", "pattern": "^ALLOW:" }, "npm": { "type": "string", "pattern": "^ALLOW:" }, "pnpmChildCargo": { "$ref": "#/$defs/passText" }, "npmChildCargo": { "$ref": "#/$defs/passText" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["agentBin", "shims", "managedMetadata", "restart", "receipt", "externalTarget", "localOutput", "status"],
+      "properties": {
+        "agentBin": { "type": "string", "minLength": 1 }, "shims": { "type": "array", "contains": { "const": "rightkit" }, "minItems": 5 }, "managedMetadata": { "$ref": "#/$defs/passText" }, "restart": { "$ref": "#/$defs/passText" }, "receipt": { "type": "string", "minLength": 1 }, "externalTarget": { "type": "string", "minLength": 1 }, "localOutput": { "$ref": "#/$defs/passText" }, "status": { "const": "PASS" }
+      }
+    }
+  }
+}

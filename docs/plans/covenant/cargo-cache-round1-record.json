@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "kind": "legion-covenant-record",
+  "requestId": "req_EMMZACWYP7SH2D6XQSP33EKZYM",
+  "mode": "DECISION_CHALLENGE",
+  "packetDigest": "sha256:e7cb07924584277945f896f7c4de1cd3588460db5e7d7945022df627594e972f",
+  "sourceRevision": "7f4adfeeb8dec603c9e60ea820a7f21052eef102",
+  "recordId": "CV-1",
+  "seatRecords": [
+    {
+      "seatId": "cargo-semantics",
+      "lens": "Cargo semantics & cache correctness",
+      "isolated": true,
+      "providerId": "gpt-5.6-terra",
+      "reusedModel": true,
+      "position": "REVISE"
+    },
+    {
+      "seatId": "storage-reliability",
+      "lens": "Storage reliability, concurrency & recovery",
+      "isolated": true,
+      "providerId": "gpt-5.6-terra",
+      "reusedModel": true,
+      "position": "REVISE"
+    },
+    {
+      "seatId": "machine-enforcement",
+      "lens": "Machine-wide enforcement & bypass resistance",
+      "isolated": true,
+      "providerId": "gpt-5.6-terra",
+      "reusedModel": true,
+      "position": "UNRESOLVED: packet content unavailable to seat"
+    }
+  ],
+  "synthesis": "Round 1 requires revision: bootstrap, routing, leases, GC, migration, & bypass contract are incomplete; third seat lacked packet evidence.",
+  "findings": [
+    {
+      "findingId": "F-1",
+      "lens": "cargo-semantics",
+      "statement": "Absolute Cargo, rustup, or scrubbed-environment invocation can bypass machine policy.",
+      "severity": "critical",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-2",
+      "lens": "cargo-semantics",
+      "statement": "Caller target directory inside managed root can remain unregistered.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-3",
+      "lens": "cargo-semantics",
+      "statement": "Light commands, including fetch, can skip storage policy.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-4",
+      "lens": "cargo-semantics",
+      "statement": "Cargo config precedence is not authoritatively parsed or rejected.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-5",
+      "lens": "storage-reliability",
+      "statement": "Guard omits Cargo/Rustup homes, build-dir, sccache, & temp containment.",
+      "severity": "critical",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-6",
+      "lens": "storage-reliability",
+      "statement": "Targets lack process-safe per-entry leases.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-7",
+      "lens": "storage-reliability",
+      "statement": "Path-first bootstrap can create internal fallback when D is absent.",
+      "severity": "critical",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-8",
+      "lens": "storage-reliability",
+      "statement": "GC is release-only, destructive, & can treat measurement errors as zero.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-9",
+      "lens": "storage-reliability",
+      "statement": "PID-only leases are unsafe under PID reuse.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-10",
+      "lens": "storage-reliability",
+      "statement": "Migration is narrow & can directly activate unvalidated moved state.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-11",
+      "lens": "storage-reliability",
+      "statement": "PATH shim does not cover direct Cargo/rustup routes.",
+      "severity": "high",
+      "classification": "IN_SCOPE_DEFECT",
+      "confidence": 0.95
+    },
+    {
+      "findingId": "F-12",
+      "lens": "machine-enforcement",
+      "statement": "Seat lacked embedded review packet content.",
+      "severity": "high",
+      "classification": "MISSING_EVIDENCE",
+      "confidence": 0.95
+    }
+  ],
+  "disagreements": [],
+  "missingEvidence": [
+    "Machine-enforcement seat could not access packet body in round 1."
+  ],
+  "risks": [
+    "Internal-disk fallback",
+    "Unbounded cache growth",
+    "Concurrent deletion",
+    "Unvalidated migration"
+  ],
+  "outcome": "REVISE",
+  "callerDispositions": [
+    {
+      "findingId": "F-1",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-2",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-3",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-4",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-5",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-6",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-7",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-8",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-9",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-10",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-11",
+      "disposition": "ACCEPT"
+    },
+    {
+      "findingId": "F-12",
+      "disposition": "SUPERSEDED"
+    }
+  ],
+  "revisionSubjectId": "machine-wide-cargo-cache-v3",
+  "revisionDigest": "sha256:2458431879cc8633be26266f7e2193b4992f3eeb9df85998a88723a01faf9e6a",
+  "freshVerdictRecordId": "CV-2",
+  "lane": "decision-challenge",
+  "providerMetadata": {
+    "provider": "multi-seat-agent-panel",
+    "degraded": false,
+    "failures": [],
+    "reusedModel": true
+  },
+  "integrity": {
+    "digestVerified": true,
+    "mutationDetected": false
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rightkit.dev/schemas/build-control-managed-verification-1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "generatedAt", "status", "profile", "strictSystemProfile", "checks", "acceptance"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "kind": { "const": "rightkit-managed-agent-build-control-verification" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["IN_PROGRESS", "PASS", "FAIL"] },
+    "profile": { "const": "MANAGED_AGENT" },
+    "strictSystemProfile": { "enum": ["UNCHANGED_BLOCKED_EXTERNAL", "UNCHANGED_PASS", "UNCHANGED_FAIL"] },
+    "checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } },
+    "acceptance": { "$ref": "#/$defs/acceptance" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "PASS" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "checks": {
+            "items": {
+              "allOf": [
+                { "$ref": "#/$defs/check" },
+                { "properties": { "status": { "const": "PASS" } }, "required": ["status"] }
+              ]
+            }
+          },
+          "acceptance": {
+            "properties": {
+              "requestOnlyShims": { "const": "PASS" },
+              "digestPinnedToolExecution": { "const": "PASS" },
+              "controlledExternalEnvironment": { "const": "PASS" },
+              "deterministicNamespacedTargets": { "const": "PASS" },
+              "durableQuotaAndReceipts": { "const": "PASS" },
+              "recursiveUnmanagedOutputFailure": { "const": "PASS" },
+              "failClosedBrokerTransport": { "const": "PASS" },
+              "clientToBrokerEndToEnd": { "const": "PASS" },
+              "explicitRightkitEntrypoint": { "const": "PASS" },
+              "codexManagedPolicy": { "const": "PASS" },
+              "claudeManagedPolicy": { "const": "PASS" },
+              "macosManagedMatrix": { "const": "PASS" },
+              "windowsManagedMatrix": { "const": "PASS" },
+              "agentOnlyEnforcement": { "const": "PASS" },
+              "selfContainedRuntime": { "const": "PASS" },
+              "restartRecovery": { "const": "PASS" },
+              "releasedNamespaceGc": { "const": "PASS" },
+              "startupDiskReconciliation": { "const": "PASS" },
+              "boundedScanner": { "const": "PASS" },
+              "unmanagedRustCleanup": { "const": "PASS" },
+              "clineManagedPolicy": { "const": "PASS" },
+              "commandCodeManagedPolicy": { "const": "PASS" },
+              "quotaFloorEnforcement": { "const": "PASS" },
+              "serviceHealth": { "const": "PASS" },
+              "canonicalAgentDocs": { "const": "PASS" },
+              "operationsRunbook": { "const": "PASS" },
+              "legacyInventoryClosed": { "const": "PASS" },
+              "remotePublication": { "const": "PASS" },
+              "windowsRuntimeParity": { "const": "PASS" },
+              "windowsFourClientPolicy": { "const": "PASS" },
+              "crossPlatformParity": { "const": "PASS" }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "command", "status", "passed", "failed"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+        "command": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["PASS", "FAIL", "PENDING"] },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "PASS" } } },
+          "then": { "properties": { "failed": { "const": 0 } } }
+        }
+      ]
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestOnlyShims", "digestPinnedToolExecution", "controlledExternalEnvironment", "deterministicNamespacedTargets", "durableQuotaAndReceipts", "recursiveUnmanagedOutputFailure", "failClosedBrokerTransport", "clientToBrokerEndToEnd", "explicitRightkitEntrypoint", "codexManagedPolicy", "claudeManagedPolicy", "macosManagedMatrix", "windowsManagedMatrix", "agentOnlyEnforcement", "selfContainedRuntime", "restartRecovery", "releasedNamespaceGc", "startupDiskReconciliation", "boundedScanner", "unmanagedRustCleanup", "clineManagedPolicy", "commandCodeManagedPolicy", "quotaFloorEnforcement", "serviceHealth", "canonicalAgentDocs", "operationsRunbook", "legacyInventoryClosed", "remotePublication", "windowsRuntimeParity", "windowsFourClientPolicy", "crossPlatformParity"],
+      "properties": {
+        "requestOnlyShims": { "$ref": "#/$defs/disposition" },
+        "digestPinnedToolExecution": { "$ref": "#/$defs/disposition" },
+        "controlledExternalEnvironment": { "$ref": "#/$defs/disposition" },
+        "deterministicNamespacedTargets": { "$ref": "#/$defs/disposition" },
+        "durableQuotaAndReceipts": { "$ref": "#/$defs/disposition" },
+        "recursiveUnmanagedOutputFailure": { "$ref": "#/$defs/disposition" },
+        "failClosedBrokerTransport": { "$ref": "#/$defs/disposition" },
+        "clientToBrokerEndToEnd": { "$ref": "#/$defs/disposition" },
+        "explicitRightkitEntrypoint": { "$ref": "#/$defs/disposition" },
+        "codexManagedPolicy": { "$ref": "#/$defs/disposition" },
+        "claudeManagedPolicy": { "$ref": "#/$defs/disposition" },
+        "macosManagedMatrix": { "$ref": "#/$defs/disposition" },
+        "windowsManagedMatrix": { "$ref": "#/$defs/disposition" },
+        "agentOnlyEnforcement": { "$ref": "#/$defs/disposition" },
+        "selfContainedRuntime": { "$ref": "#/$defs/disposition" },
+        "restartRecovery": { "$ref": "#/$defs/disposition" },
+        "releasedNamespaceGc": { "$ref": "#/$defs/disposition" },
+        "startupDiskReconciliation": { "$ref": "#/$defs/disposition" },
+        "boundedScanner": { "$ref": "#/$defs/disposition" },
+        "unmanagedRustCleanup": { "$ref": "#/$defs/disposition" },
+        "clineManagedPolicy": { "$ref": "#/$defs/disposition" },
+        "commandCodeManagedPolicy": { "$ref": "#/$defs/disposition" },
+        "quotaFloorEnforcement": { "$ref": "#/$defs/disposition" },
+        "serviceHealth": { "$ref": "#/$defs/disposition" },
+        "canonicalAgentDocs": { "$ref": "#/$defs/disposition" },
+        "operationsRunbook": { "$ref": "#/$defs/disposition" },
+        "legacyInventoryClosed": { "$ref": "#/$defs/disposition" },
+        "remotePublication": { "$ref": "#/$defs/disposition" },
+        "windowsRuntimeParity": { "$ref": "#/$defs/disposition" },
+        "windowsFourClientPolicy": { "$ref": "#/$defs/disposition" },
+        "crossPlatformParity": { "$ref": "#/$defs/disposition" }
+      }
+    },
+    "disposition": { "enum": ["PASS", "FAIL", "PENDING"] }
+  }
+}

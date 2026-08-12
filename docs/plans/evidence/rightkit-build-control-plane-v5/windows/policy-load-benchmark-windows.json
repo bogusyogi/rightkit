@@ -1,0 +1,16 @@
+{
+  "schema": "rightkit.build-control.windows.package-benchmark.v1",
+  "samples": 1,
+  "catalogAndPackageMs": 0.37340000000040163,
+  "activationP50Ms": null,
+  "activationP95Ms": null,
+  "activationP99Ms": null,
+  "endToEndAdmissionP99Ms": null,
+  "limits": {
+    "activationP99Ms": 60000,
+    "endToEndAdmissionP99Ms": 300000
+  },
+  "policyRuleCount": 540,
+  "status": "BLOCKED_EXTERNAL",
+  "reason": "No policy activation or admission was attempted on non-sacrificial host."
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@rightkit/build-control-phase0-macos",
+  "private": true,
+  "version": "0.0.0-phase0",
+  "type": "module",
+  "description": "Non-enforcing macOS feasibility harness for RightKit Build Control V5.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "probe": "node src/cli.mjs probe"
+  }
+}

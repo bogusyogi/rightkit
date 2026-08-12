@@ -1,0 +1,15 @@
+{
+  "schema": "rightkit.build-control.windows.app-control-audit.v1",
+  "capturedAt": "2026-08-12",
+  "producer": "CiTool.exe -lp -json via win bridge; read-only",
+  "configCiModule": "ConfigCI",
+  "ciTool": "C:\\WINDOWS\\system32\\CiTool.exe",
+  "relevantObservedPolicies": [
+    { "friendlyName": "VerifiedAndReputableDesktop", "enforced": false, "authorized": false, "scriptEnforcement": "disabled", "trust": ["ISG"] },
+    { "friendlyName": "VerifiedAndReputableDesktopEvaluation", "enforced": false, "authorized": false, "auditMode": true, "scriptEnforcement": "disabled", "trust": ["ISG"] },
+    { "friendlyName": "Microsoft Windows Endpoint Security Policy", "enforced": true, "authorized": true, "umci": true, "supplementalPolicies": true }
+  ],
+  "assessment": "Existing system policy is not RightKit policy attestation. No claim is made that its scope is default-deny, that script enforcement remains enabled, or that ISG/Managed Installer are disabled.",
+  "vhdxGetCommand": null,
+  "outcome": "BLOCKED_EXTERNAL"
+}

@@ -1,0 +1,20 @@
+{
+  "schema": "rightkit.build-control.windows.inventory.v1",
+  "capturedAt": "2026-08-12",
+  "producer": "win bridge read-only PowerShell probe",
+  "machine": { "name": "BOGUS-DELL", "model": "XPS 15 9530", "ramBytes": 68374552576 },
+  "os": { "caption": "Microsoft Windows 11 Pro", "version": "10.0.26200", "build": "26200", "architecture": "64-bit" },
+  "volumes": [
+    { "drive": "C", "filesystem": "NTFS", "sizeBytes": 1996706803712, "freeBytes": 583686348800, "health": "Healthy" },
+    { "drive": "D", "filesystem": "NTFS", "sizeBytes": 4000768323584, "freeBytes": 658331357184, "health": "Healthy" }
+  ],
+  "entrypoints": [
+    { "name": "cargo.cmd", "path": "D:\\Claude\\bin\\cargo.cmd" },
+    { "name": "rustup.exe", "path": "C:\\Users\\adrds\\.cargo\\bin\\rustup.exe" },
+    { "name": "rustc.exe", "path": "C:\\Users\\adrds\\.cargo\\bin\\rustc.exe" },
+    { "name": "node.exe", "path": "C:\\nvm4w\\nodejs\\node.exe" },
+    { "name": "pnpm.ps1", "path": "C:\\nvm4w\\nodejs\\pnpm.ps1" },
+    { "name": "python.exe", "path": "C:\\Users\\adrds\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe" }
+  ],
+  "limitations": ["Native-module recursive inventory was not run before a sacrificial catalog exists; no count is claimed."]
+}

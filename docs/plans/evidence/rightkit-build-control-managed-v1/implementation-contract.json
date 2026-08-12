@@ -1,0 +1,215 @@
+{
+  "$schema": "../../../../packages/build-control-phase0/schemas/implementation-contract.schema.json",
+  "schemaVersion": "1.0.0",
+  "contractId": "EC-251",
+  "version": 4,
+  "taskId": "T-2",
+  "state": "SEALED",
+  "ownedPaths": [
+    "tools/rightkit/packages/build-control-core/**",
+    "tools/rightkit/packages/build-control-broker/**",
+    "tools/rightkit/packages/build-control-clients/**",
+    "tools/rightkit/packages/build-control-policy/**",
+    "tools/rightkit/packages/build-control-staging/**",
+    "tools/rightkit/docs/plans/2026-08-13-rightkit-managed-agent-build-control-v1.md",
+    "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/**",
+    "tools/rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/windows/**",
+    "tools/rightkit/packages/build-control-phase0/**",
+    "tools/rightkit/README.md",
+    "tools/rightkit/docs/MANAGED-BUILD-CONTROL.md",
+    "tools/rightkit/package.json",
+    "tools/rightkit/pnpm-lock.yaml",
+    "docs/agent-rules/workspace.md",
+    "docs/agent-rules/generated-lock.json",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "readPaths": [
+    "tools/rightkit/packages/release/**",
+    "tools/rightkit/packages/build-control-phase0/**",
+    "tools/rightkit/docs/plans/2026-08-12-rightkit-build-control-plane-v5.md",
+    "tools/rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/**"
+    ,"docs/rules/rightkit.md"
+    ,"docs/rules/github-access.md"
+    ,"docs/rules/ssh-server-access.md"
+  ],
+  "forbiddenPaths": [
+    "apps/**",
+    "tools/rightkit/packages/release/**",
+    "tools/rhook/**",
+    "qualification/**"
+  ],
+  "commands": [
+    "pnpm --dir tools/rightkit/packages/build-control-core test",
+    "pnpm --dir tools/rightkit/packages/build-control-broker test",
+    "pnpm --dir tools/rightkit/packages/build-control-clients test",
+    "pnpm --dir tools/rightkit/packages/build-control-policy test",
+    "pnpm --dir tools/rightkit/packages/build-control-staging test",
+    "pnpm --dir tools/rightkit/packages/build-control-phase0 test",
+    "rightkit build <frontend> -- <args> managed-agent conformance matrix",
+    "Codex managed-agent policy matrix",
+    "Claude managed-agent policy matrix",
+    "macOS managed-agent platform matrix",
+    "Windows managed-agent platform matrix",
+    "bounded self-contained runtime deployment and rollback matrix",
+    "restart recovery plus RELEASED namespace GC matrix",
+    "bounded unmanaged Rust-output inventory and cleanup matrix",
+    "Cline CLI and CommandCode Rust policy matrices",
+    "python3 tools/agent-rules/manage.py sync",
+    "python3 tools/agent-rules/manage.py check",
+    "bounded retained-output classification and eligible-cache cleanup matrix",
+    "git fetch/reconcile plus exact-scope commit and origin/main containment proof",
+    "Windows published-commit pull plus Codex/Claude/Cline/CommandCode parity matrix",
+    "git -C tools/rightkit diff --check"
+  ],
+  "checks": [
+    "Rust/Cargo managed policy rejects controlled argv, environment, configuration, rustup-run and direct real-tool bypasses while non-Rust frontends remain usable",
+    "external namespaces are deterministic & dimension-separated",
+    "invoked tools execute only from registered SHA-256 digest-pinned paths; managed Cargo deployment pins cargo, rustc, rustdoc & sccache",
+    "quota, reservation, lease, poison, GC & durable receipt state transitions are bounded",
+    "Rust/Cargo clients remain request-only & fail closed without broker",
+    "explicit rightkit entrypoint accepts registered Rust frontend/shim syntax only and submits no direct tool process",
+    "Codex and Claude managed policy matrices affect configured agent contexts only; Claude native deny/allow is primary and PreToolUse parser covers bypass gaps",
+    "macOS and Windows matrices verify platform-specific Rust managed-agent transport, external roots, receipt/restart, local-output enforcement and pnpm/npm child-Cargo shim inheritance",
+    "managed-agent enforcement remains agent-only and does not claim V5 STRICT_SYSTEM enforcement",
+    "strict V5 profile and evidence remain unchanged",
+    "local NDJSON broker executes only digest-verified registered tools, returns typed terminal results & returns exit 125 on local-output violation",
+    "safe recursive scanner detects unmanaged nested outputs without following symlinks; dependency source trees remain permitted",
+    "broker-owned short external temp paths plus POSIX socket paths never fall back internally; Windows uses native sccache IPC"
+    ,"self-contained versioned runtime publishes atomically, passes bounded health checks and rolls back on failure"
+    ,"startup poisons stale active leases, releases reservations and reconciles used bytes from actual managed-root data"
+    ,"namespace-aware retention/LRU/quota GC reclaims expired released data while preserving active and shared live roots"
+    ,"bounded scanner and before/after inventory prove no unexplained unmanaged Rust build output remains"
+    ,"Codex, Claude, Cline and CommandCode Rust-only policy matrices pass without denying non-Rust build frontends"
+    ,"canonical agent-rule source and generated outputs require RightKit Rust UX, prohibit bypasses and preserve pnpm/npm child-Cargo routing"
+    ,"operations runbook documents health, receipts, cleanup/GC, platform paths and fail-closed troubleshooting"
+    ,"every legacy exception is classified with exact retained reason/size/policy; PASS never implies zero retained artifacts"
+    ,"exact managed scope is committed and pushed to bogusyogi/claude main; private packages are not claimed as npm-published"
+    ,"Windows pulls the published commit, deploys self-contained parity runtime, and proves four-client policy, restart, GC, recovery, external paths and zero active leases"
+    ,"macOS and Windows parity evidence uses one deterministic field set"
+  ],
+  "evidenceProducers": [
+    {
+      "id": "managed-core-tests",
+      "path": "tools/rightkit/packages/build-control-core/src/index.test.mjs",
+      "produces": "managed profile normalization and override evidence"
+    },
+    {
+      "id": "managed-broker-tests",
+      "path": "tools/rightkit/packages/build-control-broker/src/index.test.mjs",
+      "produces": "quota, lease, poison, GC and environment evidence"
+    },
+    {
+      "id": "managed-client-tests",
+      "path": "tools/rightkit/packages/build-control-clients/src/index.test.mjs",
+      "produces": "request-only shim and fail-closed transport evidence"
+    },
+    {
+      "id": "managed-policy-source-tests",
+      "path": "tools/rightkit/packages/build-control-policy/src",
+      "produces": "Rust/Cargo policy parser, native Claude policy and PreToolUse gap coverage evidence"
+    },
+    {
+      "id": "managed-policy-hook",
+      "path": "tools/rightkit/packages/build-control-policy/src/codex-managed-build-hook.mjs",
+      "produces": "Codex absolute-path, wrapper, alias, alternate-name and compound-command gap coverage evidence"
+    },
+    {
+      "id": "managed-claude-policy-hook",
+      "path": "tools/rightkit/packages/build-control-policy/src/claude-managed-build-hook.mjs",
+      "produces": "Claude absolute-path, wrapper, alias, alternate-name and compound-command gap coverage evidence"
+    },
+    {
+      "id": "managed-cline-commandcode-hooks",
+      "path": "tools/rightkit/packages/build-control-policy/src",
+      "produces": "Cline CLI and CommandCode Rust-only policy adapter evidence"
+    },
+    {
+      "id": "managed-rightkit-entrypoint",
+      "path": "tools/rightkit/packages/build-control-clients/src/rightkit.mjs",
+      "produces": "request-only explicit rightkit entrypoint evidence"
+    },
+    {
+      "id": "managed-agent-policy-matrices",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/verification.json",
+      "produces": "Codex, Claude, macOS, Windows and agent-only disposition evidence"
+    },
+    {
+      "id": "managed-verification",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/verification.json",
+      "produces": "typed managed-profile acceptance result"
+    },
+    {
+      "id": "managed-verification-schema",
+      "path": "tools/rightkit/packages/build-control-phase0/schemas/managed-verification-report.schema.json",
+      "produces": "schema validation for canonical managed verification evidence"
+    },
+    {
+      "id": "managed-macos-live",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/macos/managed-agent-verification-macos.json",
+      "produces": "live LaunchAgent, digest-pinned Cargo test, external target and durable receipt evidence"
+    },
+    {
+      "id": "managed-runtime-durability",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/macos",
+      "produces": "self-contained deploy, restart recovery, disk reconciliation, released GC, quota-floor and service health evidence"
+    },
+    {
+      "id": "managed-unmanaged-output-cleanup",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/macos",
+      "produces": "bounded unmanaged Rust-output before/after inventory, deletion and protected-exception evidence"
+    },
+    {
+      "id": "managed-macos-policy",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/macos/managed-agent-verification-macos.json",
+      "produces": "canonical macOS Codex/Claude Rust policy matrix evidence"
+    },
+    {
+      "id": "managed-windows-live",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-plane-v5/windows/managed-agent-verification-windows.json",
+      "produces": "live named-pipe client, digest-pinned Cargo metadata, external target, durable receipt and Windows policy matrix evidence"
+    },
+    {
+      "id": "managed-agent-docs",
+      "path": "docs/agent-rules/workspace.md",
+      "produces": "canonical RightKit Rust UX and no-bypass agent rule evidence"
+    },
+    {
+      "id": "managed-operations-runbook",
+      "path": "tools/rightkit/docs/MANAGED-BUILD-CONTROL.md",
+      "produces": "cross-platform health, receipts, GC, cleanup and troubleshooting operations evidence"
+    },
+    {
+      "id": "managed-legacy-inventory",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/macos/tmp-cleanup-2026-08-13.json",
+      "produces": "bounded per-root classification, deletion and intentional retained-artifact evidence"
+    },
+    {
+      "id": "managed-remote-publication",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/publication.json",
+      "produces": "commit SHA, origin/main containment and private-package publication semantics"
+    },
+    {
+      "id": "managed-platform-parity",
+      "path": "tools/rightkit/docs/plans/evidence/rightkit-build-control-managed-v1/platform-parity.json",
+      "produces": "deterministic macOS and Windows runtime, policy, GC, receipt and output parity"
+    }
+  ],
+  "openQuestions": [],
+  "closedPhase1Slice": {
+    "scope": "Managed-agent Rust/Cargo profile, canonical agent/operations documentation, bounded legacy classification/cleanup, private workspace commit publication, and self-contained macOS/Windows runtime plus Codex/Claude/Cline/CommandCode parity.",
+    "excludes": [
+      "macOS Endpoint Security enforcement",
+      "Windows App Control deployment",
+      "npm package publication",
+      "hostile downloaded or source-built toolchain prevention"
+    ],
+    "entryGate": "Shared Phase-0 report PASS plus owner-approved managed-agent scope; native policy gates are not applicable.",
+    "currentPlatformDisposition": {
+      "shared": "PASS",
+      "macos": "PASS",
+      "windows": "PASS"
+    },
+    "acceptance": "Canonical agent rules and operations docs pass sync/check; all 45 retained paths and 14 capped roots are boundedly classified, eligible reproducible outputs are deleted, and intentional retained artifacts remain exact rather than reported as zero; exact managed scope is committed and contained by bogusyogi/claude main without npm-publication claim; Windows pulls that commit, deploys self-contained parity runtime and proves Codex, Claude, Cline and CommandCode policy plus rightkit/pnpm/npm, restart, recovery, released GC, external-only paths, durable receipt and zero active leases; deterministic cross-platform report and all focused/full/schema/Cortex/diff gates pass."
+  }
+}

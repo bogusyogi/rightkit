@@ -1,0 +1,7 @@
+{
+  "name": "@rightkit/build-control-policy",
+  "private": true,
+  "version": "0.1.0-phase1",
+  "type": "module",
+  "scripts": { "test": "node --test src/*.test.mjs" }
+}

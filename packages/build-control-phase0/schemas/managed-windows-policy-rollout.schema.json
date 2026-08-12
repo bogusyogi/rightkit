@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rightkit.dev/schemas/managed-windows-policy-rollout.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "host", "timestamp", "scope", "entrypoint", "codex", "claude", "matrix", "freshProcess", "childCargoInheritance", "wdac"],
+  "properties": {
+    "schema": { "const": "rightkit-managed-agent-policy-rollout-v1" },
+    "host": { "type": "string", "minLength": 1 }, "timestamp": { "type": "string", "format": "date" },
+    "scope": { "type": "string", "pattern": "user-scoped" }, "wdac": { "type": "string", "pattern": "optional" },
+    "entrypoint": { "$ref": "#/$defs/status" }, "codex": { "$ref": "#/$defs/status" }, "claude": { "$ref": "#/$defs/status" }, "matrix": { "$ref": "#/$defs/status" }, "freshProcess": { "$ref": "#/$defs/status" }, "childCargoInheritance": { "$ref": "#/$defs/status" }
+  },
+  "$defs": {
+    "status": { "type": "object", "required": ["status"], "properties": { "status": { "const": "PASS" } } }
+  }
+}

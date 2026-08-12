@@ -1,0 +1,27 @@
+{
+  "schema": "rightkit.build-control-phase0.macos.endpoint-security/v1",
+  "status": "BLOCKED_EXTERNAL",
+  "mode": "NOT_ACTIVATED",
+  "authExecDefault": "DENY",
+  "authorizationPath": "bounded in-memory lookup only",
+  "installation": {
+    "signedUniversalHost": "NOT_TESTED",
+    "applicationsActivation": "NOT_TESTED",
+    "interactiveApproval": "NOT_TESTED",
+    "fullDiskAccess": "NOT_TESTED",
+    "headlessProvisioningHandoff": "NOT_TESTED"
+  },
+  "stress": {
+    "deadlineMisses": "NOT_MEASURED",
+    "implicitAllows": "NOT_MEASURED",
+    "sequenceGaps": "NOT_MEASURED"
+  },
+  "entitlement": {
+    "state": "UNKNOWN_NOT_AUTHENTICATED",
+    "browserAttempt": "AUTHENTICATION_REQUIRED",
+    "submitted": false,
+    "dispositionRead": false
+  },
+  "dependency": "Verified Apple-granted com.apple.developer.endpoint-security.client entitlement plus isolated interactive system-extension test context",
+  "detail": "No extension has been built, signed, installed, activated, denied, or allowed by this Phase-0 harness."
+}

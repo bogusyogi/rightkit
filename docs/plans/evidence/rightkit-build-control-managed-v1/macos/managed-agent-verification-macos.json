@@ -1,0 +1,47 @@
+{
+  "schema": "rightkit.build-control.macos.managed-agent-verification.v1",
+  "generatedAt": "2026-08-12T19:52:32Z",
+  "outcome": "PASS",
+  "profile": "MANAGED_AGENT",
+  "host": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "strictSystemProfile": "UNCHANGED_BLOCKED_EXTERNAL"
+  },
+  "storage": {
+    "root": "/Volumes/D/.rightkit-managed",
+    "device": "disk5s1",
+    "filesystem": "apfs",
+    "volumeId": "8044ACA5-835C-43FC-8418-AB3AAF16DFF8",
+    "internal": false,
+    "writable": true
+  },
+  "runtime": {
+    "service": "dev.rightkit.build-control-managed",
+    "serviceState": "running",
+    "endpoint": "/Volumes/D/.rightkit-managed/broker.sock",
+    "runtime": "/Volumes/D/.rightkit-managed/runtime-v1.2",
+    "shimDirectory": "/Volumes/D/.rightkit-managed/agent-bin",
+    "shellPathPrecedence": true,
+    "durableState": "/Volumes/D/.rightkit-managed/state/broker.json",
+    "receipts": "/Volumes/D/.rightkit-managed/receipts"
+  },
+  "tools": [
+    { "id": "cargo", "sha256": "7672ead309d505577c018fff2cafb3433601f073e38cbe87359ac1f7b944bbf5" },
+    { "id": "rustc", "sha256": "210df6794001b73ec3d453878707fa1e0bdcb63c427024a6e6574bbe5615a4da" },
+    { "id": "rustdoc", "sha256": "aa94960b6a477441f6d1a797394daf4cafcc889d837550c8fa462b102e3fa5da" },
+    { "id": "sccache", "sha256": "b84f6d611b1d483ce11438b29138c453fbcd9535bfe46a25ad8ef8926f03c944" }
+  ],
+  "verification": {
+    "command": "cargo test --lib --locked",
+    "workspace": "/Volumes/D/claude/tools/rightkit/crates/rightkit-process",
+    "resolvedShim": "/Volumes/D/.rightkit-managed/agent-bin/cargo",
+    "exitCode": 0,
+    "localTargetExistsBefore": false,
+    "localTargetExistsAfter": false,
+    "receipt": "/Volumes/D/.rightkit-managed/receipts/50dc5389-4bce-4f2a-adef-0e425d117bbf.json",
+    "receiptState": "RELEASED",
+    "actualGrowthBytes": 217570237,
+    "externalTarget": "/Volumes/D/.rightkit-managed/rightkit-build-control/workspaces/396a6f7bc5a36fa079bb2bb50baf8a0cfb70da0449877bcb82045b7a2dc11581/targets/aarch64-apple-darwin/9f86d081884c7d659a2feaa0"
+  }
+}

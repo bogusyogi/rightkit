@@ -1,0 +1,66 @@
+{
+  "schema": "rightkit-build-control-legacy-cleanup-followup-v1",
+  "createdAt": "2026-08-13",
+  "sourceEvidence": "tmp-cleanup-2026-08-13.json",
+  "scanPolicy": {
+    "symlinks": "not followed; root symlinks retained",
+    "dependencyVendorTrees": "skipped",
+    "perRootLimits": { "maxEntries": 100000, "maxDepth": 60, "timeoutMs": 2000 }
+  },
+  "protectedInventory": {
+    "listed": 45,
+    "deleted": 10,
+    "deletedPaths": [
+      "/Volumes/D/claude/.cache/memright-qualification/9dc0ed4d-73b6b0b6/macos/target",
+      "/Volumes/D/claude/.cache/memright-qualification/52da41f9-f056a6c/q1-final/a/release/build",
+      "/Volumes/D/claude/.cache/memright-qualification/52da41f9-f056a6c/q1-final/b/release/build",
+      "/Volumes/D/claude/.cache/memright-qualification/31604c71-c1f070d/q1-d5-r3/a/release/build",
+      "/Volumes/D/claude/.cache/memright-qualification/31604c71-c1f070d/q1-d5-r3/a/debug/build",
+      "/Volumes/D/claude/.cache/memright-qualification/31604c71-c1f070d/q1-d5-r3/b/release/build",
+      "/Volumes/D/claude/citadel/tools/citadel/target",
+      "/Volumes/D/claude/coderight/engine/crates/tools/target",
+      "/Volumes/D/claude/coderight/engine/bins/coderight/target",
+      "/Volumes/D/claude/cortex2/semgrep__semgrep/src/target"
+    ],
+    "deletedBytes": null,
+    "deletedBytesReason": "per-root byte walk reached time ceilings before removal; no inferred byte total recorded",
+    "retainedUnknown": [
+      { "path": "/Volumes/D/claude/coderight-research/agent-teams-ai/test/main/build", "bytes": 49152, "entries": 6, "reason": "generic build directory; outside confirmed Rust/Swift/cache classes" },
+      { "path": "/Volumes/D/claude/coderight2/omnigent/web/electron/build", "bytes": 12288, "entries": 4, "reason": "generic Electron build directory; outside confirmed Rust/Swift/cache classes" }
+    ],
+    "quarantinedEligibleCount": 33,
+    "quarantineRoot": "/Volumes/D/.build-home/adrdsouza/tmp/rightkit-cleanup-quarantine-20260813",
+    "quarantinePolicy": "same-volume atomic rename after lstat confirmed a non-symlink directory; resumable leaf deletion remains in progress",
+    "quarantineRootsDrained": 1,
+    "quarantineRootsRemaining": 32,
+    "retainedEligibleCount": 0,
+    "result": "in_progress: 33 confirmed roots quarantined for bounded deletion; two unknown generic builds retained"
+  },
+  "cappedRoots": {
+    "count": 14,
+    "status": "retained from source evidence; follow-up did not complete subroot scans within bounded execution window",
+    "paths": [
+      "/Volumes/D/claude/.cache (entry cap; 6 findings recorded)",
+      "/Volumes/D/claude/.venv-tools (depth cap; no findings before cap)",
+      "/Volumes/D/claude/.worktrees (depth cap; no findings before cap)",
+      "/Volumes/D/claude/benchmarks (entry cap; dependency output only)",
+      "/Volumes/D/claude/coderight (entry cap)",
+      "/Volumes/D/claude/coderight-research (entry cap)",
+      "/Volumes/D/claude/coderight2 (depth cap)",
+      "/Volumes/D/claude/cortex2 (entry cap)",
+      "/Volumes/D/claude/cutright (entry cap)",
+      "/Volumes/D/claude/heardright (entry cap)",
+      "/Volumes/D/claude/membrane (depth cap)",
+      "/Volumes/D/claude/membrane2 (entry cap)",
+      "/Volumes/D/claude/tools (entry cap)",
+      "/Volumes/D/claude/viewright (entry cap)"
+    ]
+  },
+  "verification": {
+    "workspaceRootCacheTarget": "/Volumes/D/claude/.cache/target",
+    "workspaceRootCacheTargetState": "absent",
+    "unexplainedDebugCache": "all 33 listed confirmed debug/cache roots absent from their workspace paths; capped-root follow-up remains in progress",
+    "eligibleUnmanagedOutput": "all 43 listed confirmed eligible roots absent from their workspace paths; quarantined roots await physical drain",
+    "canonicalState": "IN_PROGRESS"
+  }
+}

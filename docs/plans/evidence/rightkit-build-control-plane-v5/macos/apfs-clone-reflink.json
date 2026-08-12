@@ -1,0 +1,18 @@
+{
+  "schema": "rightkit.build-control-phase0.macos.clone/v1",
+  "status": "PASS",
+  "root": "/Volumes/D",
+  "command": {
+    "ok": true,
+    "stderr": ""
+  },
+  "source": {
+    "size": 1048576,
+    "blocks": 2048
+  },
+  "destination": {
+    "size": 1048576,
+    "blocks": 2048
+  },
+  "note": "cp -c success is clonefile capability evidence; block counts alone do not prove shared extents."
+}

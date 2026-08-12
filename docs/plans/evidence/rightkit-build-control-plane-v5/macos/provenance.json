@@ -1,0 +1,9 @@
+{
+  "schema": "rightkit.build-control-phase0.macos.provenance/v1",
+  "workspace": "/Volumes/D/claude",
+  "head": "7f4adfeeb8dec603c9e60ea820a7f21052eef102",
+  "branch": "main",
+  "dirty": 38,
+  "digest": "35de011a46611d9c40a397e9ed2335ab09fc15fbd84bd53c7ecaea741e11c243",
+  "status": "PASS"
+}

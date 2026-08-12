@@ -1,0 +1,45 @@
+{
+  "schema": "rightkit.build-control.windows.policy-validation.v1",
+  "generatedAt": "2026-08-13T02:45:00+05:30",
+  "host": "BOGUS-DELL",
+  "scope": "Rust-only managed-agent policy validation; pnpm, npm, CMake, Make, Swift, & non-Rust tools remain unblocked.",
+  "source": {
+    "package": "@rightkit/build-control-policy",
+    "testCommand": "node --test src/*.test.mjs",
+    "result": "PASS",
+    "tests": 28
+  },
+  "adapters": {
+    "macosLocal": {
+      "codexDesktopAndCli": "PASS: direct Cargo, absolute Rust paths, & rustup run deny; rightkit, pnpm, npm, CMake, Make, & Swift allow.",
+      "claudeCli": "PASS: same policy decision contract.",
+      "clineCli": "PASS: cancel/error contract for Rust only.",
+      "commandCode": "PASS: same PreToolUse decision contract."
+    },
+    "windowsSource": "PASS: copied index.mjs & index.test.mjs; 28 policy tests pass."
+  },
+  "windows": {
+    "codex": "PASS: existing rules & hooks reference managed build policy.",
+    "claude": "PASS: one Bash PreToolUse build-control hook added beside two unchanged Membrane hooks; direct Cargo, absolute rustc, & rustup-run deny while exact rightkit, pnpm, & npm allow.",
+    "broker": {
+      "scheduledTask": "RightKitManagedAgentBroker",
+      "state": "Running",
+      "taskPolicy": "battery-safe, no execution limit, restart-on-failure; S4U user task detaches broker lifetime from bridge console; command launcher retains diagnostics.",
+      "endpoint": "\\\\.\\pipe\\rightkit-managed-agent-bogus-dell-persistent-v1"
+    },
+    "rightkit": {
+      "command": "rightkit cargo build --locked",
+      "result": "PASS",
+      "receipt": "D:\\RightKitManagedAgent\\external\\receipts\\7f8e223f-2e16-456d-bd2f-2e40ce0df831.json",
+      "standaloneFixture": "D:\\RightKitManagedAgent\\standalone-locked-fixture with [workspace]; exit 0; no local target directory."
+    },
+    "childCargo": {
+      "pnpm": "PASS: receipt count 13 -> 14",
+      "npm": "PASS: receipt count 14 -> 15",
+      "localTargetCreated": false
+    }
+  },
+  "residuals": [
+    "Direct-command rejection is hook-level policy evidence; operating-system strict enforcement remains outside MANAGED_AGENT scope."
+  ]
+}

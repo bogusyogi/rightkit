@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rightkit.dev/schemas/build-control-implementation-contract-1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "contractId", "version", "taskId", "state", "ownedPaths", "readPaths", "forbiddenPaths", "commands", "checks", "evidenceProducers", "openQuestions", "closedPhase1Slice"],
+  "properties": {
+    "$schema": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "const": "1.0.0" },
+    "contractId": { "type": "string", "pattern": "^EC-[1-9][0-9]{0,5}$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "taskId": { "type": "string", "pattern": "^T-[1-9][0-9]*(?:\\.[1-9][0-9]*)*$" },
+    "state": { "enum": ["SEALED"] },
+    "ownedPaths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "readPaths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "forbiddenPaths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "commands": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "checks": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "evidenceProducers": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidenceProducer" } },
+    "openQuestions": { "const": [] },
+    "closedPhase1Slice": { "$ref": "#/$defs/closedPhase1Slice" }
+  },
+  "$defs": {
+    "evidenceProducer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "produces"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+        "path": { "type": "string", "minLength": 1 },
+        "produces": { "type": "string", "minLength": 1 }
+      }
+    },
+    "closedPhase1Slice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "excludes", "entryGate", "currentPlatformDisposition", "acceptance"],
+      "properties": {
+        "scope": { "type": "string", "minLength": 1 },
+        "excludes": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "entryGate": { "type": "string", "minLength": 1 },
+        "currentPlatformDisposition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["shared", "macos", "windows"],
+          "properties": {
+            "shared": { "$ref": "#/$defs/platformStatus" },
+            "macos": { "$ref": "#/$defs/platformStatus" },
+            "windows": { "$ref": "#/$defs/platformStatus" }
+          }
+        },
+        "acceptance": { "type": "string", "minLength": 1 }
+      }
+    },
+    "platformStatus": { "enum": ["PASS", "FAIL", "BLOCKED_EXTERNAL"] }
+  }
+}

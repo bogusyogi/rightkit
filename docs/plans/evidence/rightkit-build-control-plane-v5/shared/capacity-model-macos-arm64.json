@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-08-12T18:23:01.625Z",
+  "mountProbe": "/Volumes/D/.build-home/adrdsouza/tmp",
+  "protectedNonCacheClasses": [
+    "broker-state",
+    "receipts",
+    "policy",
+    "toolchains",
+    "staging",
+    "request-targets",
+    "sync-back"
+  ],
+  "filesystem": {
+    "blockSize": 4096,
+    "totalBytes": 995872473088,
+    "freeBytes": 219225034752,
+    "availableBytes": 219225034752
+  },
+  "assumptions": {
+    "requestReservations": 0,
+    "cacheBytes": 0,
+    "reserveFloorBytes": 0
+  },
+  "status": "MEASURED_BASELINE_REQUIRES_PRODUCT_RESERVATIONS"
+}

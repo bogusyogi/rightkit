@@ -1,0 +1,38 @@
+{
+  "schema": "rightkit.build-control.macos.managed-policy-revision-2/v1",
+  "generatedAt": "2026-08-12T20:32:27Z",
+  "policy": {
+    "codexRules": "/Users/adrdsouza/.codex/rules/default.rules",
+    "codexHook": "/Users/adrdsouza/.codex/hooks.json",
+    "claudeSettings": "/Users/adrdsouza/.claude/settings.json",
+    "parser": "tools/rightkit/packages/build-control-policy/src/index.mjs",
+    "tests": "PASS: 16 focused parser tests"
+  },
+  "checks": {
+    "directCargo": "FORBIDDEN",
+    "knownAbsoluteCargo": "FORBIDDEN",
+    "exactRightkit": "ALLOW",
+    "envCompoundHook": "DENY",
+    "rightkitCompoundBypass": "DENY",
+    "rightkitSubstitutionBypass": "DENY",
+    "pnpm": "ALLOW: real /Volumes/D/.build-home/adrdsouza/pnpm/bin/pnpm",
+    "npm": "ALLOW: real /Users/adrdsouza/.nvm/versions/node/v26.5.0/bin/npm",
+    "pnpmChildCargo": "PASS: resolves /Volumes/D/.rightkit-managed/agent-bin/cargo; receipt 3d420880-6620-4e55-a06f-50b78379c086",
+    "npmChildCargo": "PASS: resolves /Volumes/D/.rightkit-managed/agent-bin/cargo; receipt 345ea36f-091c-4ed3-9038-0a210e1fd66e"
+  },
+  "runtimeDeployment": {
+    "runtime": "/Volumes/D/.rightkit-managed/runtime-v1.2",
+    "clientSourcesCopied": true,
+    "brokerRestarted": true,
+    "agentBin": "/Volumes/D/.rightkit-managed/agent-bin",
+    "shims": ["rightkit", "cargo", "rustc", "rustdoc", "rustup"],
+    "managedMetadata": "PASS: rightkit cargo metadata --no-deps --format-version 1 in /Volumes/D/.rightkit-managed/fixture-rust",
+    "restart": "PASS: LaunchAgent bootout/bootstrap then managed metadata exit 0",
+    "receipt": "/Volumes/D/.rightkit-managed/receipts/3545c9ce-d762-4b27-b7dc-53cb734b49c9.json",
+    "externalTarget": "/Volumes/D/.rightkit-managed/rightkit-build-control/workspaces/099cbbf277564619b55d7510c842a03b6034d3bdc0642055d29e9a7ba9c737b7/targets/aarch64-apple-darwin/875b9380866e9d56e7110b0e",
+    "localOutput": "PASS: clean fixture has no target or .cargo directory",
+    "detail": "Self-contained runtime resolves build-control-core. Broker state persisted at /Volumes/D/.rightkit-managed/state/broker.json; terminal receipts persist under /Volumes/D/.rightkit-managed/receipts.",
+    "status": "PASS"
+  },
+  "status": "PASS"
+}
