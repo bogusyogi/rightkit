@@ -1,0 +1,43 @@
+{
+  "schema": "rightkit.build-control.managed-agent.macos-redeploy.v1",
+  "generatedAt": "2026-08-13T04:30:00+05:30",
+  "sourceCommit": "6fdae39f8c5c5d389841ef58e14781dac9cc4f7f",
+  "runtime": {
+    "current": "/Volumes/D/.rightkit-managed/runtime-current",
+    "selected": "runtime-v1.11-6fdae39f8",
+    "activation": "PASS: self-contained atomic installer health probe, atomic runtime-current selection, owned agent-bin shim refresh, LaunchAgent restart, Unix socket reachable",
+    "postRestartProbeReceipt": "/Volumes/D/.rightkit-managed/receipts/850e093a-c93d-434a-b416-28db83b3eb89.json"
+  },
+  "environment": "All live probes scrubbed inherited controlled Rust/Cargo variables; each conflicting override was supplied deliberately.",
+  "admission": {
+    "rightkitCargoVersion": "PASS: exit 0; cargo 1.97.1 (c980f4866 2026-06-30)",
+    "conflictingCargoTargetDir": "PASS: exit 125; conflicting CARGO_TARGET_DIR",
+    "controlledRustcWrapper": "PASS: exit 125; conflicting RUSTC_WRAPPER",
+    "callerTargetDir": "PASS: exit 125",
+    "callerConfigArgument": "PASS: exit 125",
+    "workspaceCargoConfigRedirect": "PASS: exit 125; .cargo/config.toml target-dir",
+    "workspaceCargoAlias": "PASS: exit 125; .cargo/config.toml [alias]",
+    "absoluteCargoArgument": "PASS: exit 125",
+    "toolchainSelector": "PASS: exit 125",
+    "rustupRunCargo": "PASS: exit 125; managed rustup run cannot launch Cargo, rustc, or rustdoc"
+  },
+  "routing": {
+    "pnpmChildCargo": "PASS: pnpm run cargo-version exit 0; durable receipt 2c41428d-58ae-4fcf-84b4-b93ee3c84b1b",
+    "npmChildCargo": "PASS: npm run cargo-version exit 0; durable receipt 5888cdc1-3de1-4ca4-8ae8-3b30c75afd35",
+    "resolvedShim": "/Volumes/D/.rightkit-managed/agent-bin/cargo"
+  },
+  "lockedBuild": {
+    "status": "PASS",
+    "command": "rightkit cargo build --locked",
+    "receipt": "/Volumes/D/.rightkit-managed/receipts/d115d8bf-2b66-4065-92a7-e0ac55c446c6.json",
+    "result": "RELEASED; exit 0; Finished dev profile [unoptimized + debuginfo] target(s) in 0.03s",
+    "actualGrowthBytes": 0
+  },
+  "postconditions": {
+    "durableState": "/Volumes/D/.rightkit-managed/state/broker.json",
+    "active": 0,
+    "reservedBytes": 0,
+    "fixtureLocalTargetCacheDebug": "ABSENT"
+  },
+  "outcome": "PASS"
+}

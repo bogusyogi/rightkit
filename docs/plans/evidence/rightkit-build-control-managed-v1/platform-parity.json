@@ -1,8 +1,11 @@
 {
   "schema": "rightkit.build-control.managed-agent.platform-parity.v1",
-  "sourceCommit": "2e62d3f4e15f11a1091e2cabf8000b35770019ae",
+  "sourceCommit": "6fdae39f8c5c5d389841ef58e14781dac9cc4f7f",
   "invariants": ["MANAGED_AGENT", "external-root", "request-only-shims", "digest-pinned-tools", "durable-receipts", "ACTIVE=0", "reservedBytes=0", "direct-tool-deny", "rightkit-allow", "pnpm-npm-child-routing"],
-  "macos": { "root": "/Volumes/D/.rightkit-managed", "transport": "unix-socket", "status": "recorded-separately" },
-  "windows": { "root": "D:\\.rightkit-managed", "transport": "named-pipe", "runtime": "runtime-current", "status": "live-managed-agent" },
+  "macos": { "root": "/Volumes/D/.rightkit-managed", "transport": "unix-socket", "runtime": "runtime-v1.11-6fdae39f8", "status": "PASS", "evidence": "macos/redeploy-6fdae39f8-2026-08-13.json" },
+  "windows": {
+    "root": "D:\\.rightkit-managed", "transport": "named-pipe", "runtime": "runtime-current", "status": "live-managed-agent",
+    "rows": { "CARGO_TARGET_DIR": "PASS exit=125", "--target-dir": "PASS exit=125", "+toolchain": "PASS exit=125", "absolute-direct": "PASS hook-deny", "rustup-run": "PASS client+broker exit=125", "rightkit-locked-build": "PASS", "pnpm-child-cargo": "PASS", "npm-child-cargo": "PASS", "cline-hook": "PASS live adapter", "commandcode-hook": "PASS live adapter", "claude-hook": "PASS native+hook", "codex-hook": "PASS rules+hook", "cargo-config": "PASS broker exit=125", "alias-wrapper": "PASS broker+adapter deny" }
+  },
   "strictSystemProfile": "independent"
 }

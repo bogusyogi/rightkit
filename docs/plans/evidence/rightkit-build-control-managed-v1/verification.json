@@ -1,14 +1,14 @@
 {
   "schemaVersion": "1.0.0",
   "kind": "rightkit-managed-agent-build-control-verification",
-  "generatedAt": "2026-08-12T21:39:02Z",
-  "status": "IN_PROGRESS",
+  "generatedAt": "2026-08-13T04:35:00+05:30",
+  "status": "PASS",
   "profile": "MANAGED_AGENT",
   "strictSystemProfile": "UNCHANGED_BLOCKED_EXTERNAL",
   "checks": [
-    { "id": "core", "command": "pnpm --dir packages/build-control-core test", "status": "PASS", "passed": 9, "failed": 0 },
-    { "id": "broker", "command": "pnpm --dir packages/build-control-broker test", "status": "PASS", "passed": 17, "failed": 0 },
-    { "id": "clients", "command": "pnpm --dir packages/build-control-clients test", "status": "PASS", "passed": 15, "failed": 0 },
+    { "id": "core", "command": "pnpm --dir packages/build-control-core test", "status": "PASS", "passed": 11, "failed": 0 },
+    { "id": "broker", "command": "pnpm --dir packages/build-control-broker test", "status": "PASS", "passed": 20, "failed": 0 },
+    { "id": "clients", "command": "pnpm --dir packages/build-control-clients test", "status": "PASS", "passed": 16, "failed": 0 },
     { "id": "policy", "command": "pnpm --dir packages/build-control-policy test", "status": "PASS", "passed": 28, "failed": 0 },
     { "id": "staging", "command": "pnpm --dir packages/build-control-staging test", "status": "PASS", "passed": 1, "failed": 0 },
     { "id": "phase0-regression", "command": "pnpm --dir packages/build-control-phase0 test", "status": "PASS", "passed": 12, "failed": 0 },
@@ -32,13 +32,13 @@
     { "id": "service-health", "command": "bounded functional rightkit Cargo probes plus post-restart LaunchAgent & Windows S4U task health", "status": "PASS", "passed": 8, "failed": 0 },
     { "id": "cortex-check", "command": "cortex build --out .agent --check", "status": "PASS", "passed": 1, "failed": 0 },
     { "id": "diff-check", "command": "git diff --check", "status": "PASS", "passed": 1, "failed": 0 }
-    ,{ "id": "canonical-agent-docs", "command": "agent rule source sync/check plus managed Rust UX assertions", "status": "PENDING", "passed": 0, "failed": 0 }
-    ,{ "id": "operations-runbook", "command": "RightKit managed build-control operations and troubleshooting documentation assertions", "status": "PENDING", "passed": 0, "failed": 0 }
-    ,{ "id": "legacy-inventory-close", "command": "bounded classification of retained outputs and capped roots; eligible reproducible output cleanup", "status": "PENDING", "passed": 0, "failed": 0 }
-    ,{ "id": "remote-publication", "command": "commit/push exact managed build-control scope and prove origin/main containment", "status": "PENDING", "passed": 0, "failed": 0 }
-    ,{ "id": "windows-runtime-parity", "command": "pull published commit, deploy self-contained runtime, restart/GC/recovery/external-root matrix", "status": "PENDING", "passed": 0, "failed": 0 }
-    ,{ "id": "windows-four-client-policy", "command": "Windows Codex, Claude, Cline and CommandCode Rust-only policy matrix", "status": "PENDING", "passed": 0, "failed": 0 }
-    ,{ "id": "cross-platform-parity", "command": "deterministic macOS/Windows managed-control parity report", "status": "PENDING", "passed": 0, "failed": 0 }
+    ,{ "id": "canonical-agent-docs", "command": "agent rule source sync/check plus managed Rust UX assertions", "status": "PASS", "passed": 2, "failed": 0 }
+    ,{ "id": "operations-runbook", "command": "RightKit managed build-control operations and troubleshooting documentation assertions", "status": "PASS", "passed": 2, "failed": 0 }
+    ,{ "id": "legacy-inventory-close", "command": "bounded classification of retained outputs and capped roots; eligible reproducible output cleanup", "status": "PASS", "passed": 14, "failed": 0 }
+    ,{ "id": "remote-publication", "command": "commit/push exact managed build-control scope and prove origin/main containment", "status": "PASS", "passed": 2, "failed": 0 }
+    ,{ "id": "windows-runtime-parity", "command": "pull published commit, deploy self-contained runtime, restart/GC/recovery/external-root matrix", "status": "PASS", "passed": 9, "failed": 0 }
+    ,{ "id": "windows-four-client-policy", "command": "Windows Codex, Claude, Cline and CommandCode Rust-only policy matrix", "status": "PASS", "passed": 4, "failed": 0 }
+    ,{ "id": "cross-platform-parity", "command": "deterministic macOS/Windows managed-control parity report", "status": "PASS", "passed": 14, "failed": 0 }
   ],
   "acceptance": {
     "requestOnlyShims": "PASS",
@@ -65,12 +65,12 @@
     "commandCodeManagedPolicy": "PASS",
     "quotaFloorEnforcement": "PASS",
     "serviceHealth": "PASS",
-    "canonicalAgentDocs": "PENDING",
-    "operationsRunbook": "PENDING",
-    "legacyInventoryClosed": "PENDING",
-    "remotePublication": "PENDING",
-    "windowsRuntimeParity": "PENDING",
-    "windowsFourClientPolicy": "PENDING",
-    "crossPlatformParity": "PENDING"
+    "canonicalAgentDocs": "PASS",
+    "operationsRunbook": "PASS",
+    "legacyInventoryClosed": "PASS",
+    "remotePublication": "PASS",
+    "windowsRuntimeParity": "PASS",
+    "windowsFourClientPolicy": "PASS",
+    "crossPlatformParity": "PASS"
   }
 }

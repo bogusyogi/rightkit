@@ -1,7 +1,7 @@
 {
   "schema": "rightkit.build-control.windows.managed-agent-parity.v1",
   "generatedAt": "2026-08-13T00:00:00Z",
-  "sourceCommit": "2e62d3f4e15f11a1091e2cabf8000b35770019ae",
+  "sourceCommit": "6fdae39f8c5c5d389841ef58e14781dac9cc4f7f",
   "runtime": "D:\\.rightkit-managed\\runtime-current",
   "storage": { "root": "D:\\.rightkit-managed", "external": true, "capacityBytes": 53687091200, "reservedBytesAfter": 0, "activeLeasesAfter": 0 },
   "broker": { "transport": "\\\\.\\pipe\\rightkit-managed-agent-bogus-dell-v2", "scheduledTask": "RightKitManagedAgentBroker", "restartVersionProbe": "PASS" },
@@ -10,7 +10,7 @@
   "adapterExecution": {
     "cline": { "cargo": "cancel=true", "absoluteCargo": "cancel=true", "envPathCargo": "cancel=true", "rustupRunCargo": "cancel=true", "rightkit": "cancel=false", "pnpm": "cancel=false", "npm": "cancel=false" },
     "commandcode": { "cargo": "exit=2 deny", "absoluteCargo": "exit=2 deny", "envPathCargo": "exit=2 deny", "rustupRunCargo": "exit=2 deny", "rightkit": "exit=0 allow", "pnpm": "exit=0 allow", "npm": "exit=0 allow" },
-    "controlledRedirects": { "--target-dir": "live exit=125", "+toolchain": "live exit=125", "CARGO_TARGET_DIR": "NOT_TRANSMITTED by current client; live invocation exited 0", ".cargo/config": "not executed", "alias-wrapper": "not executed" },
+    "controlledRedirects": { "--target-dir": "live exit=125", "+toolchain": "live exit=125", "rustup-run-cargo": "live client exit=125", "CARGO_TARGET_DIR": "live exit=125 before admission", ".cargo/config": "live valid target-dir fixture exit=125 before admission", "alias-wrapper": "live valid Cargo alias fixture exit=125 before admission; Cline cancel=true; CommandCode exit=2 deny" },
     "policyParser": "shared committed source rejects redirecting environment, target/config arguments, toolchain aliases & unmanaged absolute tools"
   },
   "gc": { "mode": "deployed BuildControlBroker.gcApply controlled namespace", "reclaimedBytes": 5757042, "deletedEntries": 31, "remainingCandidates": 0, "durableReceipt": "D:\\.rightkit-managed\\external\\receipts\\gc-*.json" },
