@@ -78,6 +78,7 @@ export class LocalNdjsonBrokerService {
     try { enriched = this.#enrich(message); } catch (error) { const value = { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: error.message }; emit(value); return value; }
     const tool = this.#tools.get(enriched.toolId);
     try {
+      await rejectWorkspaceCargoConfiguration(enriched.request.workspace);
       if (!tool) throw new Error('unregistered tool'); const file = await readFile(tool.path); if (digest(file) !== tool.sha256) throw new Error('registered tool digest mismatch');
       const sccache = enriched.sccacheToolId ? this.#tools.get(enriched.sccacheToolId) : null;
       if (enriched.sccacheToolId && !sccache) throw new Error('unregistered sccache tool');
@@ -124,6 +125,16 @@ const baseEnvironment = () => Object.fromEntries(['PATH', 'LANG', 'LC_ALL', 'LC_
 const validExit = (code) => Number.isInteger(code) && code >= 0 && code <= 255 ? code : 125;
 function classifyBuildProfile(argv, fallback = 'development') { const profile = argv.find((value) => value.startsWith('--profile='))?.slice('--profile='.length); if (profile) return profile; const index = argv.indexOf('--profile'); if (index >= 0 && argv[index + 1]) return argv[index + 1]; if (argv.includes('--release')) return 'release'; return ['test', 'bench', 'nextest'].includes(argv.find((value) => !value.startsWith('-'))) ? 'test' : fallback; }
 async function localOutputs(workspace, policy) { return scanWorkspaceForUnmanagedOutputs(workspace, { allowedRelativePaths: policy.allowedSourceDirs }); }
+const cargoConfigurationRedirect = /(?:^|\n)\s*(?:\[alias\]|(?:target-dir|build-dir|rustc|rustdoc|rustc-wrapper|rustc-workspace-wrapper|rustflags|rustdocflags)\s*=)/im;
+export async function rejectWorkspaceCargoConfiguration(workspace, { maxBytes = 64 * 1024 } = {}) {
+  for (const name of ['config', 'config.toml']) {
+    const candidate = join(workspace, '.cargo', name);
+    const metadata = await lstat(candidate).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+    if (!metadata) continue;
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > maxBytes) throw new Error(`managed Cargo configuration is not an admissible bounded file: .cargo/${name}`);
+    if (cargoConfigurationRedirect.test(await readFile(candidate, 'utf8'))) throw new Error(`managed Cargo configuration cannot redirect tools, outputs, flags, or aliases: .cargo/${name}`);
+  }
+}
 const boundedIo = (promise, deadlineMs) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('managed filesystem operation timed out'), { code: 'RK_FS_TIMEOUT' })), deadlineMs))]);
 async function directorySize(root) { const measured = await boundedDirectorySize(root, { maxEntries: 20_000, deadlineMs: 1_000 }); if (!measured.complete) throw new Error('managed filesystem size scan exceeded bounds'); return measured.bytes; }
 export async function boundedDirectorySize(root, { maxEntries, deadlineMs, operations = { stat, readdir } }) { let bytes = 0; let entries = 0; const deadline = Date.now() + deadlineMs; const remaining = () => Math.max(1, deadline - Date.now()); const stack = [root]; while (stack.length) { if (entries >= maxEntries || Date.now() >= deadline) return { bytes, entries, complete: false }; const item = stack.pop(); let metadata; try { metadata = await boundedIo(operations.stat(item), remaining()); } catch (error) { if (error.code === 'ENOENT') continue; if (error.code === 'RK_FS_TIMEOUT') return { bytes, entries, complete: false }; throw error; } entries += 1; if (!metadata.isDirectory()) { bytes += metadata.size; continue; } let children; try { children = await boundedIo(operations.readdir(item), remaining()); } catch (error) { if (error.code === 'RK_FS_TIMEOUT') return { bytes, entries, complete: false }; throw error; } for (const child of children) stack.push(join(item, child)); } return { bytes, entries, complete: true }; }
