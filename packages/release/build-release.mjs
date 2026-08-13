@@ -5,6 +5,7 @@ import {
   closeSync,
   copyFileSync,
   existsSync,
+  mkdtempSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -17,6 +18,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -163,6 +165,9 @@ try {
   if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
   const cargoLock = requiredInputs.find((file) => /Cargo\.lock$/i.test(file));
   const cargoToml = requiredInputs.find((file) => /Cargo\.toml$/i.test(file));
+  const managedCargoTarget = process.env.RIGHTKIT_BUILD_BROKER_SOCKET
+    ? resolveManagedCargoTarget(cargoToml)
+    : null;
   const cacheIdentity = resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });
   const cacheKey = hashFileText(JSON.stringify({ cache: cacheIdentity.fingerprint, signingIdentity })).slice(0, 16);
   const cacheMode = process.env.RIGHT_RELEASE_CACHE_MODE ?? (platform === "mac" || platform === "win" ? "shared" : "legacy");
@@ -197,6 +202,11 @@ try {
     RIGHT_RELEASE_REPO_ROOT: layout.repoRoot,
     RIGHT_RELEASE_APP_ROOT: layout.appRoot,
   };
+  if (managedCargoTarget) {
+    for (const name of ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "SCCACHE_CACHE_SIZE", "RUSTFLAGS"]) {
+      delete env[name];
+    }
+  }
   if (cacheMode === "legacy") delete env.RIGHT_RELEASE_CACHE_OWNER;
   if (cacheMode === "shared" && env.RIGHT_RELEASE_CACHE_OWNER !== "rightkit-v2") fail("shared cache ownership token was not configured");
   if (cacheMode === "legacy" && !commandExists("sccache")) delete env.RUSTC_WRAPPER;
@@ -208,7 +218,7 @@ try {
   throwIfInterrupted();
   const releaseId = `${config.app}-${config.version}-${shortCommit}`;
   const platformDir = platform === "win" ? "windows" : "mac";
-  const buildRoot = path.join(vaultRoot, "build", config.app, config.version, shortCommit, platformDir);
+  const buildRoot = managedCargoTarget ? null : path.join(vaultRoot, "build", config.app, config.version, shortCommit, platformDir);
   const stateRoot = path.join(vaultRoot, "state", releaseId, platformDir);
   const lockPayload = {
     schema: 1,
@@ -229,8 +239,8 @@ try {
   // instead of hard-stopping the build.
   const targetBridge = createTargetBridge({
     link: targetLink,
-    target: env.CARGO_TARGET_DIR,
-    ownedRoot: path.dirname(env.CARGO_TARGET_DIR),
+    target: managedCargoTarget ?? env.CARGO_TARGET_DIR,
+    ownedRoot: path.dirname(managedCargoTarget ?? env.CARGO_TARGET_DIR),
   });
 
   const result = await targetBridge.run(async () => runBuildStateMachine({
@@ -256,15 +266,15 @@ try {
         assertExecutables(["git", config.packageManager ?? "pnpm", "cargo", "rustc", ...(target.preflight?.executables ?? [])]);
         for (const name of target.preflight?.env ?? []) if (!process.env[name]) fail(`missing required environment variable: ${name}`);
         for (const command of target.preflight?.commands ?? []) runChecked(command.cmd, command.args ?? [], path.resolve(appRoot, command.cwd ?? "."), env);
-        mkdirSync(buildRoot, { recursive: true });
+        if (buildRoot) mkdirSync(buildRoot, { recursive: true });
         mkdirSync(stateRoot, { recursive: true });
-        writeJson(path.join(buildRoot, "release-inputs.lock.json"), lockPayload);
+        if (buildRoot) writeJson(path.join(buildRoot, "release-inputs.lock.json"), lockPayload);
         writeJson(path.join(stateRoot, "release-inputs.lock.json"), lockPayload);
         checkpoint(stateRoot, "preflight_complete");
       },
       prepare: async () => {
         throwIfInterrupted();
-        const cacheTarget = env.CARGO_TARGET_DIR;
+        const cacheTarget = managedCargoTarget ?? env.CARGO_TARGET_DIR;
         mkdirSync(cacheTarget, { recursive: true });
         if (cacheMode === "shared") targetBridge.ensure();
         else if (!existsSync(targetLink)) symlinkSync(cacheTarget, targetLink, process.platform === "win32" ? "junction" : "dir");
@@ -280,7 +290,7 @@ try {
           [WORKER, "--config", configPath, "--platform", platform, "--no-upload"],
           appRoot,
           env,
-          [env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
+          [managedCargoTarget ?? env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
         );
         checkpoint(stateRoot, "build_complete");
         checkpoint(stateRoot, "signed");
@@ -391,15 +401,32 @@ function sealRelease({ configRoot, sealedDir, releaseId, config, target, platfor
 }
 
 function collectToolVersions(packageManager) {
-  const rustcVerbose = commandOutput("rustc", ["-vV"]);
-  return {
-    node: process.version,
-    packageManager: `${packageManager} ${commandOutput(packageManager, ["--version"])}`,
-    cargo: commandOutput("cargo", ["--version"]),
-    rustc: rustcVerbose,
-    rustHost: rustcVerbose.match(/^host:\s*(.+)$/m)?.[1] ?? "unknown",
-    sccache: commandExists("sccache") ? commandOutput("sccache", ["--version"]) : null,
-  };
+  const probeDir = mkdtempSync(path.join(tmpdir(), "right-release-tool-probe-"));
+  try {
+    const rustcVerbose = commandOutputAt("rustc", ["-vV"], probeDir);
+    return {
+      node: process.version,
+      packageManager: `${packageManager} ${commandOutput(packageManager, ["--version"])}`,
+      cargo: commandOutputAt("cargo", ["--version"], probeDir),
+      rustc: rustcVerbose,
+      rustHost: rustcVerbose.match(/^host:\s*(.+)$/m)?.[1] ?? "unknown",
+      sccache: commandExists("sccache") ? commandOutput("sccache", ["--version"]) : null,
+    };
+  } finally {
+    rmSync(probeDir, { recursive: true, force: true });
+  }
+}
+
+function resolveManagedCargoTarget(manifestPath) {
+  if (!manifestPath) fail("managed release requires a Cargo.toml build input");
+  const output = commandOutputAt(
+    "cargo",
+    ["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", manifestPath],
+    path.dirname(manifestPath),
+  );
+  const target = JSON.parse(output).target_directory;
+  if (!target || !path.isAbsolute(target)) fail("managed Cargo metadata returned no absolute target directory");
+  return target;
 }
 
 async function runProgress(cmd, runArgs, cwd, env, watchDir) {
