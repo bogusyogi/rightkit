@@ -105,8 +105,12 @@ export async function sendManagedAgentRequest(message, { endpoint = brokerEndpoi
         onEvent(event);
         if (event.type === 'RESULT') {
           terminalResult = event;
-          socket.end();
         }
+      }
+      if (terminalResult && !settled) {
+        settled = true;
+        socket.destroy();
+        resolvePromise(terminalResult);
       }
     });
     socket.once('end', () => {
