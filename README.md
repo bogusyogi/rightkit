@@ -178,6 +178,12 @@ expect(lic.status).toBe("active");
 
 Inject `fetchImpl` only if you need a non-global fetch. The SDK's own suite (`src/index.test.ts`) covers activate/refresh/deactivate + the grace logic.
 
+<!-- cortex:docs:start -->
+## Repository truth docs
+- [Product overview](docs/product.md) — what this is and does (generated, code-grounded)
+- [Architecture](docs/architecture.md) — components, flows, interfaces (generated, code-grounded)
+<!-- cortex:docs:end -->
+
 ## Managed-agent Rust builds
 
 Configured coding agents use RightKit as a request-only broker client:
