@@ -220,7 +220,7 @@ async function linkRuntimePackages(runtime) {
 
 async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspace }) {
   const liveExternal = config.broker?.externalRoot; if (!liveExternal?.path) throw new TypeError('broker external root is required for isolated health probe');
-  const probeRoot = join(liveExternal.path, '.runtime-health', randomUUID()); await mkdir(probeRoot, { recursive: true }); const endpoint = join(probeRoot, 'broker.sock');
+  const probeRoot = join(liveExternal.path, '.runtime-health', randomUUID()); await mkdir(probeRoot, { recursive: true, mode: 0o700 }); await chmod(probeRoot, 0o700); const endpoint = join(probeRoot, 'broker.sock');
   const { activationFencePath, ...probeBroker } = config.broker;
   // Isolated health gets its own absent fence under probeRoot. This satisfies
   // schema-v2 containment without inheriting production PENDING state.
