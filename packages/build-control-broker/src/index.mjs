@@ -31,8 +31,12 @@ export class BuildControlBroker {
   get capacity() { return Object.freeze({ capacityBytes: this.#capacity, usedBytes: this.#used, reservedBytes: this.#reservedBytes(), availableBytes: this.#availableBytes(), volumeId: this.#root.volumeId }); }
   rootsFor({ repositoryIdentity, toolchain, targetTriple, buildProfile }) {
     const repository = dimension(repositoryIdentity, 'repositoryIdentity'); const tool = dimension(toolchain, 'toolchain'); const target = dimension(targetTriple, 'targetTriple'); const profile = dimension(buildProfile, 'buildProfile');
-    const base = externalRoots({ externalRoot: this.#root.path, repositoryIdentity: repository, toolchain: tool, target, buildProfile: profile, policyProfile: 'MANAGED_AGENT' });
-    const toolKey = digest(tool).slice(0, 24); const profileKey = digest(profile).slice(0, 24);
+    // Cargo metadata must report one target directory for every profile. Cargo
+    // keeps debug/release outputs below that root; partitioning the root by
+    // profile makes Tauri compile into one tree then lipo from another.
+    const cargoStorageProfile = 'release';
+    const base = externalRoots({ externalRoot: this.#root.path, repositoryIdentity: repository, toolchain: tool, target, buildProfile: cargoStorageProfile, policyProfile: 'MANAGED_AGENT' });
+    const toolKey = digest(tool).slice(0, 24); const profileKey = digest(cargoStorageProfile).slice(0, 24);
     const roots = { ...base, stage: join(base.build, 'stage'), target: join(base.targets, target, profileKey), cargoHome: base.cargoHome, packageCache: join(base.root, 'package-cache'), rustupHome: join(this.#root.path, 'rightkit-build-control', 'global', 'toolchains', toolKey), sccache: base.compilerCache, sccacheSocket: join(this.#root.path, '.rk-sccache.sock') };
     const pathValues = ['root', 'cargoHome', 'compilerCache', 'targets', 'build', 'temp', 'stage', 'target', 'packageCache', 'rustupHome', 'sccache', 'sccacheSocket'];
     if (!pathValues.every((key) => contained(this.#root.path, roots[key]))) throw new Error('computed root escapes managed external root');
@@ -42,7 +46,7 @@ export class BuildControlBroker {
     const normalized = normalizeManagedAgentRequest(request); const reserve = byteCount(reservationBytes, 'reservationBytes'); const roots = this.rootsFor({ repositoryIdentity, toolchain, targetTriple, buildProfile });
     if (!id || this.#reservations.has(id)) throw new TypeError('unique request id is required');
     const targetName = dimension(target ?? targetTriple, 'target'); if (reserve > this.#availableBytes()) throw new RangeError('hard quota would be exceeded');
-    const leaseKey = `${roots.namespace}:${targetName}:${buildProfile}`; if (writer && this.#leases.has(leaseKey)) throw new Error('exclusive writer lease conflict');
+    const leaseKey = `${roots.namespace}:${targetName}:cargo`; if (writer && this.#leases.has(leaseKey)) throw new Error('exclusive writer lease conflict');
     const entry = Object.freeze({ id, request: normalized, repositoryIdentity, toolchain, targetTriple, buildProfile, target: targetName, writer: Boolean(writer), reservationBytes: reserve, leaseKey, roots, state: 'ACTIVE', admittedAt: new Date().toISOString() });
     this.#reservations.set(id, entry); this.#entries.set(id, entry); if (entry.writer) this.#leases.set(leaseKey, id); this.#queuePersist(entry); return entry;
   }
