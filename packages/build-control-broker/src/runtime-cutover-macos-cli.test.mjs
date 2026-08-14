@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { parseMacOSCutoverArgs, proveV1Drained, runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
+import { parseMacOSCutoverArgs, proveLegacyOwnershipAbsent, proveV1Drained, runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'rk-cutover-cli-'));
@@ -23,6 +23,14 @@ test('argument parser rejects unknown switches & requires exact activation ident
 
 test('v1 drain proof rejects any non-terminal request', async () => {
   await assert.rejects(proveV1Drained('/state', { readFile: async () => JSON.stringify({ entries: [{ state: 'ACTIVE' }] }) }), /non-terminal/);
+});
+
+test('legacy drain accepts only exact missing PID plus process group when identity is unavailable', async () => {
+  const missing = (target, signal) => { assert.equal(signal, 0); throw Object.assign(new Error(`missing ${target}`), { code: 'ESRCH' }); };
+  const proof = await proveLegacyOwnershipAbsent({ pid: 41, processGroupId: 41, platform: 'posix' }, { reapOwnership: async () => ({ reaped: false, reason: 'process-identity-missing' }), processKill: missing });
+  assert.equal(proof.absent, true); assert.equal(proof.fallback, 'pid-pgid-esrch');
+  const live = await proveLegacyOwnershipAbsent({ pid: 41, processGroupId: 41, platform: 'posix' }, { reapOwnership: async () => ({ reaped: false }), processKill: () => {} });
+  assert.equal(live.absent, false);
 });
 
 test('cutover CLI proves exact input selection & rechecks v1 drain at activation', async () => {

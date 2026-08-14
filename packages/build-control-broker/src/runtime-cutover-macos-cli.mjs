@@ -86,12 +86,24 @@ async function stopLegacyLaunchd({ launchdLabel, uid, plistPath, endpoint, execF
 }
 function contained(path, root) { const value = relative(root, path); return value === '' || (!value.startsWith('..') && !isAbsolute(value)); }
 
+function targetAbsent(target, processKill = process.kill) {
+  try { processKill(target, 0); return false; }
+  catch (error) { return error?.code === 'ESRCH'; }
+}
+
+export async function proveLegacyOwnershipAbsent(ownership, { reapOwnership = reapPersistedProcessTree, processKill = process.kill } = {}) {
+  const pgid = ownership?.pgid ?? ownership?.processGroupId ?? ownership?.pid;
+  const reap = await reapOwnership({ ...ownership, platform: 'posix', processGroupId: pgid });
+  const absent = reap.reaped === true || (Number.isSafeInteger(ownership?.pid) && ownership.pid > 0 && Number.isSafeInteger(pgid) && pgid > 0 && targetAbsent(ownership.pid, processKill) && targetAbsent(-pgid, processKill));
+  return Object.freeze({ absent, reap, fallback: absent && reap.reaped !== true ? 'pid-pgid-esrch' : null });
+}
+
 /**
  * Single supported macOS activation boundary. It verifies every immutable
  * selection before allowing runtime.mjs to stage or switch runtime-current.
  */
 export async function runMacOSCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopLegacy = stopLegacyLaunchd, drainLegacy = drainStoppedV1Broker, reapOwnership = reapPersistedProcessTree } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopLegacy = stopLegacyLaunchd, drainLegacy = drainStoppedV1Broker, reapOwnership = reapPersistedProcessTree, processKill = process.kill } = dependencies;
   if (platform !== 'darwin') throw new Error('macOS cutover may only run on darwin');
   const options = typeof input?.configPath === 'string' ? input : parseMacOSCutoverArgs(input);
   const [configPath, externalRoot, sourcePackagesRoot, plistPath, v1StatePath, healthWorkspace] = await Promise.all([
@@ -108,10 +120,7 @@ export async function runMacOSCutover(input, dependencies = {}) {
   if (programArguments.length !== 3 || programArguments.some((value) => !isAbsolute(value) || /\s/.test(value)) || resolve(programArguments[1]) !== runtimeScript || resolve(programArguments[2]) !== configPath) throw new Error('plist ProgramArguments must be exact node, runtime-current broker, & config paths');
   const nodePath = await canonicalize(programArguments[0]); await assertFile(nodePath, 'plist Node executable', statFile);
   const stopProof = await stopLegacy({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
-  const drainResult = await drainLegacy({ statePath: v1StatePath, receiptsDir: config.broker.receiptsDir, assertBrokerStopped: async () => stopProof, assertOwnershipAbsent: async ({ ownership }) => {
-    const reap = await reapOwnership({ ...ownership, platform: 'posix', processGroupId: ownership.pgid ?? ownership.processGroupId });
-    return { absent: reap.reaped === true, reap };
-  } });
+  const drainResult = await drainLegacy({ statePath: v1StatePath, receiptsDir: config.broker.receiptsDir, assertBrokerStopped: async () => stopProof, assertOwnershipAbsent: async ({ ownership }) => proveLegacyOwnershipAbsent(ownership, { reapOwnership, processKill }) });
   const drain = await proveV1Drained(v1StatePath, { readFile: load });
   const result = await install({
     externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
