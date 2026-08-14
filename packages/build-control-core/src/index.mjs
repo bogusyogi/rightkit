@@ -3,6 +3,14 @@ import { lstat as defaultLstat, readdir as defaultReaddir } from 'node:fs/promis
 import { basename, isAbsolute, join, normalize, relative } from 'node:path';
 
 export const FRONTENDS = Object.freeze(['cargo', 'swiftpm', 'node-pnpm', 'node-gyp', 'cmake', 'make', 'raw-compiler']);
+export const BUILD_CONTROL_PROTOCOL = 'rightkit.build-control.client.v2';
+export const RUNTIME_MANIFEST_SCHEMA = 'rightkit.build-control.runtime.v2';
+export const SOURCE_RUNTIME_IDENTITY = Object.freeze({
+  schema: RUNTIME_MANIFEST_SCHEMA,
+  version: 'source',
+  clientDigest: createHash('sha256').update('rightkit-build-control-clients-source-v2').digest('hex'),
+  brokerDigest: createHash('sha256').update('rightkit-build-control-broker-source-v2').digest('hex')
+});
 export const PROFILES = Object.freeze({ MANAGED_AGENT: 'MANAGED_AGENT', STRICT_SYSTEM: 'STRICT_SYSTEM' });
 export const LOCAL_OUTPUT_SCAN_POLICY = Object.freeze({
   forbiddenNames: Object.freeze(['target', '.cargo-target', '.build', 'build', 'build-output', 'CMakeFiles', '.pnpm-store', '.rightkit-build', 'DerivedData']),
@@ -19,6 +27,17 @@ export const MANAGED_RUST_ENVIRONMENT_KEYS = Object.freeze([
   'CARGO_ENCODED_RUSTFLAGS', 'CARGO_INSTALL_ROOT', 'RUSTUP_HOME', 'RUSTC', 'RUSTDOC',
   'RUSTFLAGS', 'RUSTDOCFLAGS', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER'
 ]);
+/**
+ * Request-provided environment is deliberately tiny.  Build locations,
+ * executable selection, dynamic-loader settings, & all other process state
+ * belong to broker injection, never an untrusted client request.
+ */
+export const MANAGED_REQUEST_ENVIRONMENT_KEYS = Object.freeze([
+  'CI', 'CARGO_TERM_COLOR', 'NO_COLOR', 'RUST_BACKTRACE', 'RUST_LOG',
+  'SOURCE_DATE_EPOCH', 'TERM', 'TZ'
+]);
+const managedRequestEnvironment = new Set(MANAGED_REQUEST_ENVIRONMENT_KEYS);
+const forbiddenRequestEnvironment = /^(?:DYLD_(?:INSERT_LIBRARIES|LIBRARY_PATH|FALLBACK_LIBRARY_PATH|FRAMEWORK_PATH|FALLBACK_FRAMEWORK_PATH)|LD_(?:PRELOAD|LIBRARY_PATH|AUDIT|DEBUG)|NODE_OPTIONS|RUSTC|RUSTDOC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTFLAGS|RUSTDOCFLAGS|CARGO_(?:HOME|TARGET_DIR|BUILD_(?:TARGET|TARGET_DIR|BUILD_DIR|RUSTC|RUSTDOC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTFLAGS)|ENCODED_RUSTFLAGS|INSTALL_ROOT)|CARGO_TARGET_.+_(?:LINKER|RUNNER|RUSTFLAGS)|(?:CC|CXX|AR|AS|LD|RANLIB|STRIP|OBJC|OBJCXX|LINK|CL|RC|CMAKE_.+|SWIFTC|SDKROOT|DEVELOPER_DIR))$/i;
 const redirectArgument = /^(?:--(?:target-dir|config|cache-dir|build-dir|toolchain|temp-dir)(?:=|$)|-Z(?:build-std|config)(?:=|$))/;
 const redirectConfig = /(?:^|[._-])(?:target(?:[_-]?dir)?|build(?:[_-]?dir)?|cache(?:[_-]?dir)?|toolchain|rustc|rustdoc|temp(?:[_-]?dir)?|home|cargo_(?:target_dir|build_build_dir|install_root))$/i;
 
@@ -69,6 +88,164 @@ export function normalizeBuildRequest(request) {
 
 export function normalizeManagedAgentRequest(request) {
   return normalizeBuildRequest({ ...request, profile: PROFILES.MANAGED_AGENT });
+}
+
+function environmentObject(environment, label) {
+  if (!environment || typeof environment !== 'object' || Array.isArray(environment)) throw new TypeError(`${label} must be an object`);
+  return environment;
+}
+
+function environmentValue(key, value, label) {
+  if (typeof value !== 'string' || value.includes('\0')) throw new TypeError(`${label} ${key} must be a string without NUL`);
+  return value;
+}
+
+/**
+ * Validate environment supplied over broker protocol.  Unknown keys are an
+ * authority failure, rather than ambient process state waiting to become one.
+ */
+export function normalizeRequestEnvironment(environment = {}) {
+  const input = environmentObject(environment, 'request environment');
+  const normalized = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof key !== 'string' || !key) throw new TypeError('request environment key is required');
+    const canonical = key.toUpperCase();
+    if (forbiddenRequestEnvironment.test(canonical)) throw new TypeError(`request environment cannot set broker-controlled ${canonical}`);
+    if (!managedRequestEnvironment.has(canonical)) throw new TypeError(`request environment key is not allowlisted: ${key}`);
+    if (Object.hasOwn(normalized, canonical)) throw new TypeError(`request environment has duplicate key: ${canonical}`);
+    normalized[canonical] = environmentValue(canonical, value, 'request environment');
+  }
+  return Object.freeze(normalized);
+}
+
+/**
+ * Broker-owned values always win.  Keep this boundary explicit so callers do
+ * not accidentally spread an untrusted request after constructing runtime env.
+ */
+export function injectBrokerEnvironment({ requestEnvironment = {}, runtimeEnvironment = {} } = {}) {
+  const request = normalizeRequestEnvironment(requestEnvironment);
+  const runtime = environmentObject(runtimeEnvironment, 'runtime environment');
+  const injected = { ...request }; const runtimeKeys = new Set();
+  for (const [key, value] of Object.entries(runtime)) {
+    if (typeof key !== 'string' || !key) throw new TypeError('runtime environment key is required');
+    const canonical = key.toUpperCase();
+    if (runtimeKeys.has(canonical)) throw new TypeError(`runtime environment has duplicate key: ${canonical}`);
+    runtimeKeys.add(canonical);
+    for (const existing of Object.keys(injected)) if (existing.toUpperCase() === canonical) delete injected[existing];
+    injected[key] = environmentValue(canonical, value, 'runtime environment');
+  }
+  return Object.freeze(injected);
+}
+
+function compilerOutputPath(value, outputRoot) {
+  if (typeof value !== 'string' || !value || value === '-' || value.includes('\0')) throw new TypeError('compiler output path must name a file');
+  const name = basename(value);
+  if (!name || name === '.' || name === '..') throw new TypeError('compiler output path must remain below broker output root');
+  return join(outputRoot, name);
+}
+
+function normalizeEmitArgument(value, outputRoot) {
+  if (typeof value !== 'string' || !value) throw new TypeError('--emit requires a non-empty value');
+  return value.split(',').map((entry) => {
+    if (!entry) throw new TypeError('--emit cannot contain empty output entries');
+    const separator = entry.indexOf('=');
+    if (separator < 0) return entry;
+    const kind = entry.slice(0, separator); const path = entry.slice(separator + 1);
+    if (!kind) throw new TypeError('--emit output kind is required');
+    return `${kind}=${compilerOutputPath(path, outputRoot)}`;
+  }).join(',');
+}
+
+/**
+ * Rewrite raw rustc/rustdoc output destinations into a broker-owned root.
+ * Adding --out-dir also prevents compiler defaults from writing beside source.
+ */
+export function normalizeCompilerOutputArgv(argv, { compiler, outputRoot, targetTriple } = {}) {
+  if (!['rustc', 'rustdoc'].includes(compiler)) throw new TypeError('compiler must be rustc or rustdoc');
+  if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string' || !value)) throw new TypeError('compiler argv must contain non-empty strings');
+  if (!isAbsolute(outputRoot)) throw new TypeError('broker compiler output root must be absolute');
+  if (typeof targetTriple !== 'string' || !targetTriple || targetTriple.includes('\0')) throw new TypeError('broker compiler target is required');
+  const root = normalize(outputRoot); const values = [];
+  let sawOutDir = false; let sawTarget = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (value === '--target') {
+      const target = argv[++index]; if (!target) throw new TypeError('--target requires a target triple');
+      if (target !== targetTriple) throw new TypeError(`compiler target must match broker target ${targetTriple}`);
+      values.push('--target', targetTriple); sawTarget = true; continue;
+    }
+    if (value.startsWith('--target=')) {
+      if (value.slice(9) !== targetTriple) throw new TypeError(`compiler target must match broker target ${targetTriple}`);
+      values.push(`--target=${targetTriple}`); sawTarget = true; continue;
+    }
+    if (value === '-Z' || value.startsWith('-Z')) throw new TypeError('raw compiler unstable options require an explicit registered capability');
+    if (['--test-builder', '--runtool', '--runtool-arg'].includes(value) || ['--test-builder=', '--runtool=', '--runtool-arg='].some((prefix) => value.startsWith(prefix))) throw new TypeError('raw compiler external tool routing is forbidden');
+    if (value === '-C' || value === '--codegen') {
+      const option = argv[++index]; if (!option) throw new TypeError(`${value} requires a codegen option`);
+      values.push(value, normalizeCodegenOption(option, root)); continue;
+    }
+    if (value.startsWith('-C') && value.length > 2) { values.push(`-C${normalizeCodegenOption(value.slice(2), root)}`); continue; }
+    if (value.startsWith('--codegen=')) { values.push(`--codegen=${normalizeCodegenOption(value.slice(10), root)}`); continue; }
+    if (value === '-o' || value === '--output' || value === '--out-dir') {
+      const output = argv[++index];
+      if (output === undefined) throw new TypeError(`${value} requires an output path`);
+      if (value === '--out-dir') { values.push('--out-dir', root); sawOutDir = true; }
+      else values.push(value, compilerOutputPath(output, root));
+      continue;
+    }
+    if (value.startsWith('-o') && value.length > 2) { values.push('-o', compilerOutputPath(value.slice(2), root)); continue; }
+    if (value.startsWith('--out-dir=')) { values.push(`--out-dir=${root}`); sawOutDir = true; continue; }
+    if (value.startsWith('--output=')) { values.push(`--output=${compilerOutputPath(value.slice('--output='.length), root)}`); continue; }
+    if (value === '--emit') {
+      const emit = argv[++index]; if (emit === undefined) throw new TypeError('--emit requires a value');
+      values.push('--emit', normalizeEmitArgument(emit, root)); continue;
+    }
+    if (value.startsWith('--emit=')) { values.push(`--emit=${normalizeEmitArgument(value.slice('--emit='.length), root)}`); continue; }
+    values.push(value);
+  }
+  if (!sawOutDir) values.push('--out-dir', root);
+  if (!sawTarget) values.push('--target', targetTriple);
+  return Object.freeze(values);
+}
+
+function normalizeCodegenOption(option, outputRoot) {
+  const separator = option.indexOf('='); const key = separator < 0 ? option : option.slice(0, separator);
+  if (!key) throw new TypeError('codegen option name is required');
+  if (['linker', 'link-arg', 'link-args'].includes(key)) throw new TypeError(`raw compiler ${key} authority is forbidden`);
+  if (key === 'incremental') return `incremental=${join(outputRoot, 'incremental')}`;
+  if (key === 'profile-generate') return `profile-generate=${join(outputRoot, 'profile')}`;
+  return option;
+}
+
+/**
+ * Ensure Cargo's output identity is broker-selected even when caller omits it.
+ * Call only after capability classification confirms a target-capable command.
+ */
+export function normalizeCargoTargetArgv(argv, targetTriple) {
+  if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string' || !value)) throw new TypeError('Cargo argv must contain non-empty strings');
+  if (typeof targetTriple !== 'string' || !targetTriple || targetTriple.includes('\0')) throw new TypeError('broker Cargo target is required');
+  const values = []; let suffix = null; let seenTarget = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (value === '--') { suffix = argv.slice(index); break; }
+    if (value === '--target') {
+      const requested = argv[++index];
+      if (!requested) throw new TypeError('--target requires a target triple');
+      if (requested !== targetTriple) throw new TypeError(`managed Cargo target must match broker target ${targetTriple}`);
+      if (!seenTarget) { values.push('--target', targetTriple); seenTarget = true; }
+      continue;
+    }
+    if (value.startsWith('--target=')) {
+      const requested = value.slice('--target='.length);
+      if (!requested || requested !== targetTriple) throw new TypeError(`managed Cargo target must match broker target ${targetTriple}`);
+      if (!seenTarget) { values.push(`--target=${targetTriple}`); seenTarget = true; }
+      continue;
+    }
+    values.push(value);
+  }
+  if (!seenTarget) values.push('--target', targetTriple);
+  if (suffix) values.push(...suffix);
+  return Object.freeze(values);
 }
 
 export function captureManagedRustEnvironment(environment = {}) {
@@ -190,4 +367,9 @@ export function immutableToolRoot(tool) {
   if (!tool || typeof tool !== 'object' || !isAbsolute(tool.path) || !digest.test(tool.sha256 ?? '')) throw new TypeError('immutable tool requires absolute path & sha256');
   if (tool.mutable === true || relative(tool.root ?? tool.path, tool.path).startsWith('..')) throw new TypeError('tool must remain inside immutable root');
   return Object.freeze({ path: normalize(tool.path), root: normalize(tool.root ?? tool.path), sha256: tool.sha256, version: tool.version ?? null });
+}
+
+export function normalizeRuntimeIdentity(identity) {
+  if (!identity || identity.schema !== RUNTIME_MANIFEST_SCHEMA || typeof identity.version !== 'string' || !identity.version || !digest.test(identity.clientDigest ?? '') || !digest.test(identity.brokerDigest ?? '')) throw new TypeError('immutable RightKit runtime v2 identity is required');
+  return Object.freeze({ schema: identity.schema, version: identity.version, clientDigest: identity.clientDigest, brokerDigest: identity.brokerDigest });
 }

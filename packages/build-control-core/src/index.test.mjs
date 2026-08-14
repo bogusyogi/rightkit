@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, captureManagedRustEnvironment, externalRoots, immutableToolRoot, normalizeBuildRequest, normalizeManagedAgentRequest, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
+import { BUILD_CONTROL_PROTOCOL, LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, RUNTIME_MANIFEST_SCHEMA, SOURCE_RUNTIME_IDENTITY, captureManagedRustEnvironment, externalRoots, immutableToolRoot, injectBrokerEnvironment, normalizeBuildRequest, normalizeCargoTargetArgv, normalizeCompilerOutputArgv, normalizeManagedAgentRequest, normalizeRequestEnvironment, normalizeRuntimeIdentity, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
+
+test('v2 runtime identity requires immutable client & broker digests', () => {
+  assert.equal(BUILD_CONTROL_PROTOCOL, 'rightkit.build-control.client.v2'); assert.equal(SOURCE_RUNTIME_IDENTITY.schema, RUNTIME_MANIFEST_SCHEMA);
+  assert.deepEqual(normalizeRuntimeIdentity(SOURCE_RUNTIME_IDENTITY), SOURCE_RUNTIME_IDENTITY);
+  assert.throws(() => normalizeRuntimeIdentity({ ...SOURCE_RUNTIME_IDENTITY, clientDigest: 'mutable' }), /runtime v2 identity/);
+});
 
 test('normalizes registered request without executable authority', () => {
   const request = normalizeBuildRequest({ frontend: 'cargo', argv: ['test'], workspace: '/external/work', environment: { CI: '1' } });
@@ -46,6 +52,44 @@ test('captures every controlled Rust/Cargo override for fail-closed admission', 
   assert.deepEqual(validateManagedRustEnvironment({ CARGO_TARGET_DIR: '/managed/target' }, { CARGO_TARGET_DIR: '/managed/target' }), { CARGO_TARGET_DIR: '/managed/target' });
   assert.throws(() => validateManagedRustEnvironment({ CARGO_TARGET_DIR: '/unsafe' }, { CARGO_TARGET_DIR: '/managed/target' }), /conflicting CARGO_TARGET_DIR/);
   assert.throws(() => validateManagedRustEnvironment({ RUSTFLAGS: '-C target-dir=/unsafe' }, {}), /conflicting RUSTFLAGS/);
+});
+
+test('request environment is allowlisted while broker runtime injection wins', () => {
+  assert.deepEqual(normalizeRequestEnvironment({ ci: '1', RUST_LOG: 'warn', TERM: 'xterm-256color' }), { CI: '1', RUST_LOG: 'warn', TERM: 'xterm-256color' });
+  for (const key of ['DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'LD_PRELOAD', 'LD_AUDIT', 'NODE_OPTIONS', 'RUSTC_WRAPPER', 'RUSTC', 'RUSTFLAGS', 'CARGO_BUILD_RUSTC', 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER', 'CC', 'CXX', 'AR', 'PATH', 'HOME', 'TOKEN_FILE']) {
+    assert.throws(() => normalizeRequestEnvironment({ [key]: '/untrusted' }), /broker-controlled|allowlisted/);
+  }
+  assert.throws(() => normalizeRequestEnvironment({ CI: '1', ci: '0' }), /duplicate/);
+  assert.throws(() => normalizeRequestEnvironment({ CI: 'safe\0unsafe' }), /without NUL/);
+  assert.deepEqual(injectBrokerEnvironment({ requestEnvironment: { CI: 'untrusted', RUST_LOG: 'info' }, runtimeEnvironment: { CI: 'broker', CARGO_TARGET_DIR: '/broker/target', npm_config_cache: '/broker/npm', PATH: '/broker/bin' } }), {
+    CI: 'broker', RUST_LOG: 'info', CARGO_TARGET_DIR: '/broker/target', npm_config_cache: '/broker/npm', PATH: '/broker/bin'
+  });
+});
+
+test('raw rustc & rustdoc outputs are broker-owned regardless of caller paths', () => {
+  const root = '/broker/layout/raw-output'; const targetTriple = 'aarch64-apple-darwin';
+  assert.deepEqual(normalizeCompilerOutputArgv(['src/main.rs', '-o', 'product/bin', '--out-dir=/product/target', '--emit=dep-info=product/main.d,link=/product/main'], { compiler: 'rustc', outputRoot: root, targetTriple }), [
+    'src/main.rs', '-o', join(root, 'bin'), `--out-dir=${root}`, `--emit=dep-info=${join(root, 'main.d')},link=${join(root, 'main')}`, '--target', targetTriple
+  ]);
+  assert.deepEqual(normalizeCompilerOutputArgv(['lib.rs', '-oapp', '--emit', 'metadata,mir=../../product/app.mir'], { compiler: 'rustc', outputRoot: root, targetTriple }), [
+    'lib.rs', '-o', join(root, 'app'), '--emit', `metadata,mir=${join(root, 'app.mir')}`, '--out-dir', root, '--target', targetTriple
+  ]);
+  assert.deepEqual(normalizeCompilerOutputArgv(['doc.rs', '--output', '../site', '--emit=link'], { compiler: 'rustdoc', outputRoot: root, targetTriple }), [
+    'doc.rs', '--output', join(root, 'site'), '--emit=link', '--out-dir', root, '--target', targetTriple
+  ]);
+  assert.deepEqual(normalizeCompilerOutputArgv(['src.rs', '-C', 'incremental=/tmp/escape', '-Cprofile-generate=/tmp/profile'], { compiler: 'rustc', outputRoot: root, targetTriple }), ['src.rs', '-C', `incremental=${join(root, 'incremental')}`, `-Cprofile-generate=${join(root, 'profile')}`, '--out-dir', root, '--target', targetTriple]);
+  assert.throws(() => normalizeCompilerOutputArgv(['src.rs', '-Clinker=/tmp/evil'], { compiler: 'rustc', outputRoot: root, targetTriple }), /authority is forbidden/);
+  assert.throws(() => normalizeCompilerOutputArgv(['src.rs', '-o'], { compiler: 'rustc', outputRoot: root, targetTriple }), /requires an output path/);
+  assert.throws(() => normalizeCompilerOutputArgv(['src.rs', '--emit=dep-info='], { compiler: 'rustc', outputRoot: root, targetTriple }), /must name a file/);
+  assert.throws(() => normalizeCompilerOutputArgv(['src.rs'], { compiler: 'cc', outputRoot: root, targetTriple }), /rustc or rustdoc/);
+});
+
+test('Cargo target normalization injects broker target & rejects caller control', () => {
+  assert.deepEqual(normalizeCargoTargetArgv(['test'], 'aarch64-apple-darwin'), ['test', '--target', 'aarch64-apple-darwin']);
+  assert.deepEqual(normalizeCargoTargetArgv(['build', '--target=aarch64-apple-darwin'], 'aarch64-apple-darwin'), ['build', '--target=aarch64-apple-darwin']);
+  assert.deepEqual(normalizeCargoTargetArgv(['test', '--', '--target', 'passed-to-test'], 'aarch64-apple-darwin'), ['test', '--target', 'aarch64-apple-darwin', '--', '--target', 'passed-to-test']);
+  assert.throws(() => normalizeCargoTargetArgv(['test', '--target', 'x86_64-apple-darwin'], 'aarch64-apple-darwin'), /must match/);
+  assert.throws(() => normalizeCargoTargetArgv(['test', '--target'], 'aarch64-apple-darwin'), /requires a target triple/);
 });
 
 test('rustup administration stays available but rustup-run build tools fail closed', () => {

@@ -1,7 +1,7 @@
-import { FRONTENDS, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, validateManagedRustupInvocation } from '@rightkit/build-control-core';
+import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, normalizeRuntimeIdentity, validateManagedRustupInvocation } from '@rightkit/build-control-core';
 import net from 'node:net';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, resolve, win32 } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const adapterRegistry = Object.freeze(Object.fromEntries(FRONTENDS.map((frontend) => [frontend, Object.freeze({ frontend, mode: 'REQUEST_ONLY' })])));
@@ -19,6 +19,46 @@ export const SHIM_ALIASES = Object.freeze({
 export const FRONTEND_SHIMS = Object.freeze({ cargo: 'cargo', swiftpm: 'swift', 'node-pnpm': 'pnpm', 'node-gyp': 'node-gyp', cmake: 'cmake', make: 'make', 'raw-compiler': 'cc' });
 export const INSTALLED_MANAGED_SHIMS = Object.freeze(['cargo', 'rustc', 'rustdoc', 'rustup']);
 export const MAX_BROKER_LINE_BYTES = 1024 * 1024;
+export const BUILD_PRIORITIES = Object.freeze(['INSTALLER', 'INTERACTIVE', 'BATCH']);
+export const JOB_REQUEST_TYPES = Object.freeze({ SUBMIT: 'SUBMIT', WATCH: 'WATCH', STATUS: 'STATUS', CANCEL: 'CANCEL' });
+export const JOB_RESPONSE_TYPES = Object.freeze({ SUBMITTED: 'SUBMITTED', STATUS: 'STATUS', CANCEL_REQUESTED: 'CANCEL_REQUESTED' });
+
+export class ToolChangedError extends Error {
+  constructor(event) {
+    super(`RightKit tool changed: ${event.toolId ?? '<unknown>'}; ${event.registrationAction ?? 'register the pinned tool before retrying'}`);
+    this.name = 'ToolChangedError'; this.code = 'TOOL_CHANGED'; this.event = Object.freeze({ ...event });
+  }
+}
+
+function jobId(value) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 200) throw new TypeError('non-empty request id is required');
+  return value;
+}
+
+function jobRuntime(value) { return normalizeRuntimeIdentity(value); }
+
+function buildPriority(environment) {
+  const priority = environment.RIGHTKIT_BUILD_PRIORITY;
+  if (priority === undefined) return null;
+  if (!BUILD_PRIORITIES.includes(priority)) throw new TypeError('RIGHTKIT_BUILD_PRIORITY must be INSTALLER, INTERACTIVE, or BATCH');
+  return priority;
+}
+
+export function createNestedManagedAgentRequest({ parentId, capabilityToken, ...input }) {
+  return createManagedAgentRequest({ ...input, environment: { ...(input.environment ?? {}), RIGHTKIT_PARENT_REQUEST_ID: jobId(parentId), ...(capabilityToken === undefined ? {} : { RIGHTKIT_PARENT_CAPABILITY_TOKEN: capabilityToken }) } });
+}
+
+export function createJobCommand(type, { message, id, runtimeIdentity } = {}) {
+  if (!Object.values(JOB_REQUEST_TYPES).includes(type)) throw new TypeError('registered job operation is required');
+  const runtime = jobRuntime(runtimeIdentity ?? message?.runtime ?? SOURCE_RUNTIME_IDENTITY);
+  if (type === JOB_REQUEST_TYPES.SUBMIT) {
+    if (!message || message.type !== 'MANAGED_AGENT' || message.protocol !== BUILD_CONTROL_PROTOCOL) throw new TypeError('managed-agent job payload is required');
+    const normalizedMessage = Object.freeze({ ...message, runtime: jobRuntime(message.runtime) });
+    if (normalizedMessage.runtime.version !== runtime.version || normalizedMessage.runtime.clientDigest !== runtime.clientDigest || normalizedMessage.runtime.brokerDigest !== runtime.brokerDigest) throw new TypeError('job & managed-agent runtime identities must match');
+    return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime, job: normalizedMessage });
+  }
+  return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime, id: jobId(id) });
+}
 
 export function shimName(argv0) {
   const name = basename(argv0 ?? '').replace(/\.(?:cmd|exe|ps1)$/i, '').toLowerCase();
@@ -26,17 +66,21 @@ export function shimName(argv0) {
   return name;
 }
 
-export function createManagedAgentRequest({ argv0, argv = [], workspace = process.cwd(), environment = {} }) {
+export function createManagedAgentRequest({ argv0, argv = [], workspace = process.cwd(), environment = {}, runtimeIdentity = SOURCE_RUNTIME_IDENTITY }) {
   const shim = shimName(argv0);
   const frontend = SHIM_ALIASES[shim];
   const invocation = normalizedInvocation(frontend, argv, resolve(workspace));
   validateManagedRustupInvocation(shim, invocation.argv);
   const observedEnvironment = captureManagedRustEnvironment(environment);
   const request = normalizeManagedAgentRequest({ frontend, argv: invocation.argv, workspace: invocation.workspace, environment: {} });
-  return Object.freeze({ type: 'MANAGED_AGENT', protocol: 'rightkit.build-control.client.v1', shim, observedEnvironment, request });
+  const parentId = environment.RIGHTKIT_PARENT_REQUEST_ID;
+  const capabilityToken = environment.RIGHTKIT_PARENT_CAPABILITY_TOKEN;
+  const priority = buildPriority(environment);
+  const execution = parentId === undefined ? null : Object.freeze({ mode: 'NESTED', parentId: jobId(parentId), ...(capabilityToken === undefined ? {} : { capabilityToken }) });
+  return Object.freeze({ type: 'MANAGED_AGENT', protocol: BUILD_CONTROL_PROTOCOL, runtime: normalizeRuntimeIdentity(runtimeIdentity), shim, observedEnvironment, request, ...(priority ? { priority } : {}), ...(execution ? { execution } : {}) });
 }
 
-export function createRightkitRequest({ argv = [], workspace = process.cwd(), environment = {} }) {
+export function createRightkitRequest({ argv = [], workspace = process.cwd(), environment = {}, runtimeIdentity = SOURCE_RUNTIME_IDENTITY }) {
   if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) throw new TypeError('rightkit arguments must be strings');
   let shim; let toolArgs;
   if (argv[0] === 'build') {
@@ -48,7 +92,12 @@ export function createRightkitRequest({ argv = [], workspace = process.cwd(), en
     if (!argv[0] || argv[0] === '--') throw new TypeError('usage: rightkit <registered-shim> [args]');
     shim = shimName(argv[0]); toolArgs = argv.slice(1);
   }
-  return Object.freeze({ ...createManagedAgentRequest({ argv0: shim, argv: toolArgs, workspace, environment }), entrypoint: 'rightkit' });
+  return Object.freeze({ ...createManagedAgentRequest({ argv0: shim, argv: toolArgs, workspace, environment, runtimeIdentity }), entrypoint: 'rightkit' });
+}
+
+export async function loadRuntimeIdentity({ manifestPath = fileURLToPath(new URL('../../runtime-manifest.json', import.meta.url)) } = {}) {
+  try { return normalizeRuntimeIdentity(JSON.parse(await readFile(manifestPath, 'utf8'))); }
+  catch (error) { if (error.code === 'ENOENT') return SOURCE_RUNTIME_IDENTITY; throw new Error(`invalid RightKit runtime manifest: ${error.message}`); }
 }
 
 function normalizedInvocation(frontend, argv, workspace) {
@@ -93,7 +142,7 @@ export function brokerEndpoint(environment = process.env) {
 export async function sendManagedAgentRequest(message, { endpoint = brokerEndpoint(), connect = net.createConnection, onEvent = () => {} } = {}) {
   return new Promise((resolvePromise, reject) => {
     let settled = false;
-    let terminalResult = null;
+    let terminalResult = null; let handshake = false;
     let buffer = '';
     let socket;
     const fail = (error) => { if (!settled) { settled = true; socket?.destroy(); reject(error); } };
@@ -114,6 +163,15 @@ export async function sendManagedAgentRequest(message, { endpoint = brokerEndpoi
         try { event = JSON.parse(line); } catch { return fail(new Error('RightKit broker returned invalid JSON')); }
         if (!event || typeof event !== 'object' || typeof event.type !== 'string') return fail(new Error('RightKit broker returned untyped response'));
         if (terminalResult) return fail(new Error('RightKit broker sent event after terminal result'));
+        if (event.type === 'TOOL_CHANGED') {
+          if (typeof event.toolId !== 'string' || !event.toolId || typeof event.registrationAction !== 'string' || !event.registrationAction) return fail(new Error('RightKit broker returned malformed TOOL_CHANGED event'));
+          onEvent(event); return fail(new ToolChangedError(event));
+        }
+        if (!handshake && event.type === 'HANDSHAKE') {
+          let identity; try { identity = normalizeRuntimeIdentity(event.runtime); } catch (error) { return fail(error); }
+          if (identity.version !== message.runtime?.version || identity.clientDigest !== message.runtime?.clientDigest || identity.brokerDigest !== message.runtime?.brokerDigest) return fail(new Error('RightKit client/broker runtime digest mismatch'));
+          handshake = true;
+        } else if (!handshake && !(event.type === 'RESULT' && event.status === 'REJECTED')) return fail(new Error('RightKit broker omitted v2 runtime handshake'));
         if (event.type === 'RESULT' && (!Number.isInteger(event.exitCode) || event.exitCode < 0 || event.exitCode > 255)) return fail(new Error('RightKit broker returned invalid exit status'));
         onEvent(event);
         if (event.type === 'RESULT') {
@@ -142,12 +200,62 @@ export async function sendManagedAgentRequest(message, { endpoint = brokerEndpoi
   });
 }
 
-export function shimManifest({ installRoot = '<rightkit-agent-bin>' } = {}) {
-  return Object.freeze({ schema: 'rightkit.build-control.agent-shims.v1', installRoot, executable: 'rightkit', pathPrecedence: 'prepend', links: Object.freeze([...INSTALLED_MANAGED_SHIMS.map((name) => Object.freeze({ name, target: 'rightkit-managed-agent' })), Object.freeze({ name: 'rightkit', target: 'rightkit' })]), guarantee: 'Installed Rust/Cargo shims & rightkit submit MANAGED_AGENT requests only; they never spawn a real toolchain.' });
+export async function sendJobCommand(command, { endpoint = brokerEndpoint(), connect = net.createConnection, onEvent = () => {}, completeOn } = {}) {
+  if (!command || !Object.values(JOB_REQUEST_TYPES).includes(command.type)) throw new TypeError('registered job command is required');
+  if (!(completeOn instanceof Set) || completeOn.size === 0) throw new TypeError('job completion event types are required');
+  return new Promise((resolvePromise, reject) => {
+    let settled = false; let completed = null; let handshake = false; let buffer = ''; let socket;
+    const fail = (error) => { if (!settled) { settled = true; socket?.destroy(); reject(error); } };
+    try { socket = connect(endpoint); } catch (error) { fail(new Error(`RightKit broker unavailable: ${error.message}`)); return; }
+    socket.once('error', (error) => fail(new Error(`RightKit broker unavailable: ${error.message}`)));
+    socket.once('connect', () => socket.write(`${JSON.stringify(command)}\n`));
+    socket.on('data', (chunk) => {
+      if (settled) return;
+      buffer += chunk.toString('utf8');
+      if (Buffer.byteLength(buffer, 'utf8') > MAX_BROKER_LINE_BYTES) return fail(new Error('RightKit broker response exceeds line limit'));
+      for (;;) {
+        const newline = buffer.indexOf('\n'); if (newline < 0) break;
+        const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
+        if (Buffer.byteLength(line, 'utf8') > MAX_BROKER_LINE_BYTES) return fail(new Error('RightKit broker response exceeds line limit'));
+        if (!line) continue;
+        let event; try { event = JSON.parse(line); } catch { return fail(new Error('RightKit broker returned invalid JSON')); }
+        if (!event || typeof event !== 'object' || typeof event.type !== 'string') return fail(new Error('RightKit broker returned untyped response'));
+        if (completed) return fail(new Error('RightKit broker sent event after terminal job response'));
+        if (event.type === 'TOOL_CHANGED') {
+          if (typeof event.toolId !== 'string' || !event.toolId || typeof event.registrationAction !== 'string' || !event.registrationAction) return fail(new Error('RightKit broker returned malformed TOOL_CHANGED event'));
+          onEvent(event); return fail(new ToolChangedError(event));
+        }
+        if (!handshake && event.type === 'HANDSHAKE') {
+          let identity; try { identity = normalizeRuntimeIdentity(event.runtime); } catch (error) { return fail(error); }
+          if (identity.version !== command.runtime.version || identity.clientDigest !== command.runtime.clientDigest || identity.brokerDigest !== command.runtime.brokerDigest) return fail(new Error('RightKit client/broker runtime digest mismatch'));
+          handshake = true;
+        } else if (!handshake && !(event.type === 'RESULT' && event.status === 'REJECTED')) return fail(new Error('RightKit broker omitted v2 runtime handshake'));
+        if (event.type === 'RESULT' && (!Number.isInteger(event.exitCode) || event.exitCode < 0 || event.exitCode > 255)) return fail(new Error('RightKit broker returned invalid exit status'));
+        if (event.type === 'RESULT' && event.status === 'REJECTED') { onEvent(event); return fail(new Error(event.error ?? 'RightKit broker rejected job command')); }
+        onEvent(event);
+        if (completeOn.has(event.type)) completed = event;
+      }
+      if (completed && !settled) { settled = true; socket.destroy(); resolvePromise(completed); }
+    });
+    socket.once('end', () => { if (!settled) fail(new Error('RightKit broker closed before typed job response')); });
+    socket.once('close', (hadError) => { if (!settled) fail(new Error(hadError ? 'RightKit broker connection closed with error' : 'RightKit broker closed before typed job response')); });
+  });
 }
 
-const managedAgentPath = fileURLToPath(new URL('./managed-agent.mjs', import.meta.url));
-const rightkitPath = fileURLToPath(new URL('./rightkit.mjs', import.meta.url));
+export function submitManagedAgentJob(message, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.SUBMIT, { message }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.SUBMITTED, 'RESULT']) }); }
+export function watchManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.WATCH, { id, runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set(['RESULT']) }); }
+export function statusManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.STATUS, { id, runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.STATUS]) }); }
+export function cancelManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id, runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.CANCEL_REQUESTED]) }); }
+export async function submitAndWatchManagedAgentJob(message, options = {}) {
+  const submitted = await submitManagedAgentJob(message, options);
+  if (submitted.type === 'RESULT') return submitted;
+  return watchManagedAgentJob(jobId(submitted?.id), { ...options, runtimeIdentity: message.runtime });
+}
+
+export function shimManifest({ installRoot = '<rightkit-agent-bin>' } = {}) {
+  return Object.freeze({ schema: 'rightkit.build-control.agent-shims.v2', installRoot, executable: 'rightkit', pathPrecedence: 'prepend', links: Object.freeze([...INSTALLED_MANAGED_SHIMS.map((name) => Object.freeze({ name, target: 'rightkit-managed-agent' })), Object.freeze({ name: 'rightkit', target: 'rightkit' })]), guarantee: 'Installed Rust/Cargo shims & rightkit resolve runtime-current, submit digest-bound MANAGED_AGENT v2 requests only, & never spawn a real toolchain.' });
+}
+
 const INSTALL_MARKER = 'rightkit.build-control.agent-shims.install.v1';
 const INSTALL_MANIFEST = '.rightkit-managed-agent-shims.json';
 
@@ -179,11 +287,12 @@ async function existingInstall(directory) {
   return manifest;
 }
 
-export async function installAgentShims({ directory, platform = process.platform, launcher = managedAgentPath, rightkitLauncher = rightkitPath, nodePath = process.execPath } = {}) {
+export async function installAgentShims({ directory, platform = process.platform, runtimeCurrent, nodePath = process.execPath } = {}) {
   if (!directory || !isAbsolute(directory)) throw new TypeError('agent shim directory must be absolute');
   const isPlatformAbsolute = platform === 'win32' ? win32.isAbsolute : isAbsolute;
-  if (![launcher, rightkitLauncher, nodePath].every((value) => typeof value === 'string' && isPlatformAbsolute(value))) throw new TypeError('launcher, rightkit launcher, and node path must be absolute');
   const target = resolve(directory);
+  const selectedRuntime = runtimeCurrent ?? (platform === 'win32' ? win32.resolve(win32.dirname(directory), 'runtime-current') : resolve(target, '..', 'runtime-current'));
+  if (![selectedRuntime, nodePath].every((value) => typeof value === 'string' && isPlatformAbsolute(value))) throw new TypeError('runtime-current & node path must be absolute');
   const defaultBrokerEndpoint = platform === 'win32' ? null : resolve(target, '..', 'broker.sock');
   const manifest = shimManifest({ installRoot: target });
   const names = manifest.links.map(({ name }) => platform === 'win32' ? `${name}.cmd` : name);
@@ -195,14 +304,14 @@ export async function installAgentShims({ directory, platform = process.platform
   if (platform === 'win32') {
     for (const { name } of manifest.links) {
       const destination = resolve(target, `${name}.cmd`);
-      const executable = name === 'rightkit' ? rightkitLauncher : launcher;
+      const executable = win32.join(selectedRuntime, 'build-control-clients', 'src', name === 'rightkit' ? 'rightkit.mjs' : 'managed-agent.mjs');
       const identity = name === 'rightkit' ? '' : `set "RIGHTKIT_MANAGED_AGENT_SHIM=%~n0"\r\n`;
       const wrapper = `@echo off\r\nrem ${INSTALL_MARKER}\r\nsetlocal\r\n${identity}"${nodePath}" "${executable}" %*\r\nexit /b %ERRORLEVEL%\r\n`;
       await writeAtomic(destination, wrapper);
     }
   } else {
     for (const { name } of manifest.links) {
-      const executable = name === 'rightkit' ? rightkitLauncher : launcher;
+      const executable = join(selectedRuntime, 'build-control-clients', 'src', name === 'rightkit' ? 'rightkit.mjs' : 'managed-agent.mjs');
       const endpoint = `if [ -z "$RIGHTKIT_BUILD_BROKER_SOCKET" ]; then export RIGHTKIT_BUILD_BROKER_SOCKET=${shellQuote(defaultBrokerEndpoint)}; fi\n`;
       const identity = name === 'rightkit' ? '' : `export RIGHTKIT_MANAGED_AGENT_SHIM=${shellQuote(name)}\n`;
       const wrapper = `#!/bin/sh\n# ${INSTALL_MARKER}\n${endpoint}${identity}exec ${shellQuote(nodePath)} ${shellQuote(executable)} "$@"\n`;
@@ -211,7 +320,7 @@ export async function installAgentShims({ directory, platform = process.platform
       await chmod(destination, 0o755);
     }
   }
-  const installed = Object.freeze({ ...manifest, marker: INSTALL_MARKER, platform, launcher, rightkitLauncher, nodePath, links: Object.freeze(names) });
+  const installed = Object.freeze({ ...manifest, marker: INSTALL_MARKER, platform, runtimeCurrent: selectedRuntime, nodePath, links: Object.freeze(names) });
   await writeAtomic(resolve(target, INSTALL_MANIFEST), `${JSON.stringify(installed, null, 2)}\n`);
   return installed;
 }

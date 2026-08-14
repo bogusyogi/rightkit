@@ -42,10 +42,15 @@ $env:RIGHTKIT_BUILD_BROKER_SOCKET
 rightkit cargo --version
 ```
 
-Healthy means the endpoint accepts a request & `rightkit cargo --version` returns
-a typed successful result. Runtime activation runs a socket & functional probe
-before switching its current version, then rolls back on failed post-switch
-health.
+Healthy means endpoint accepts v2 client/broker digest handshake & `rightkit
+cargo --version` returns a typed successful result. Installed shims resolve
+`runtime-current` on every invocation. Each candidate carries a read-only
+runtime manifest with client & broker digests. Activation probes candidate,
+using isolated state/storage so live leases remain untouched, switches
+`runtime-current` atomically, probes selected runtime, & restores prior
+symlink on failed post-switch health. Any callback that restarts live service
+must supply matching rollback callback so selected symlink & running broker
+return to same runtime together.
 
 ## Paths & receipts
 
@@ -56,9 +61,18 @@ shared Cargo/toolchain/compiler-cache state, workspace namespace targets/build/
 temp roots, broker state, & durable receipts. Mac uses a Unix socket; Windows
 uses native IPC. Exact external-root configuration wins over these defaults.
 
-Every terminal request produces a durable receipt below that root. It records
-request identity, status, terminal exit, managed namespace, violations, & GC or
-recovery result. Read receipt first when a request exits non-zero or `125`.
+Every request follows `SUBMITTED → CLASSIFIED → QUEUED → ADMITTED → STARTING →
+RUNNING → REAPING → SUCCEEDED | FAILED | CANCELLED | TIMED_OUT`. Exactly one
+durable terminal receipt follows certified process-tree reap. Receipt records
+request identity, lane, terminal exit, managed namespace generation, bounded
+output head/tail/digest, storage diagnostics, & event-log durability. SQLite WAL
+owns lifecycle, receipts, reservations, maintenance leases, & migration state.
+
+BUILD uses one machine-wide lane; INSTALLER becomes next without preemption.
+CONTROL stays available during builds. WORKSPACE_WRITE serializes against BUILD
+for same repository. Socket close detaches observer; only explicit CANCEL,
+deadline, or broker shutdown starts TERM → grace → KILL → reap. Nested work
+inherits root lane, namespace, reservation, environment, & cancellation domain.
 
 ## Diagnose & recover
 
@@ -67,7 +81,10 @@ recovery result. Read receipt first when a request exits non-zero or `125`.
 | `125`, endpoint unavailable, or no typed result | Restore broker service/endpoint & verified external storage; rerun `rightkit cargo --version`. |
 | Denied target/config/environment/alias | Remove controlled redirect & submit unchanged work through RightKit. |
 | Unmanaged local output | Use receipt paths to remove only confirmed disposable output, then retry through RightKit. |
-| Quota, reservation, cancellation, or broker restart | Read terminal/recovery receipt; wait for lease recovery or restore capacity, then retry through RightKit. |
+| Long wait with `QUEUED` heartbeat | Another BUILD owns machine lane; use STATUS/ATTACH & wait for admission. |
+| Quota, reservation, cancellation, or broker restart | Read terminal receipt; wait for lease recovery or restore capacity, then retry through RightKit. |
+| Cache diagnostics marked `DEGRADED` | sccache stays disabled unless broker ownership proof exists; direct rustc remains authoritative. |
+| `REAP_PENDING` | Restart managed broker; startup reaps persisted PID/process-group ownership before writing `CANCELLED` receipt or admitting more heavy work. |
 | Failed runtime update health | Keep restored current runtime; repair candidate & rerun activation health. |
 
 Never retry via direct Rust tooling, a real-binary absolute path, environment
@@ -79,10 +96,24 @@ Cleanup records before/after inventory & deletes only receipt-confirmed disposab
 build/cache/temp roots. Protected artifacts, active leases/reservations, shared
 live roots, signed/release assets, unknown user data, & uncertain paths remain.
 
-Broker GC automatically considers only eligible `RELEASED` & `POISONED`
-namespaces, remeasures storage, & writes a GC receipt. It never removes active or
-shared live data. Treat a retained path as intentional only when its receipt
-records exact path, reason, & measured size or bound.
+Ordinary admission, polling, & terminal handling never recursively walk managed
+trees. Heavy admission uses deadline-bounded `statfs`, free-space floor, durable
+per-request reservation, & lane capacity. Active probe failure is diagnostic &
+blocks only new heavy work.
+
+Maintenance is independent, scheduled, & bounded by scan/delete count, depth, &
+cursor size. GC generation-CAS leases a terminal namespace, journals intent,
+renames it to managed trash, then resumes bounded deletion after crashes. Newer
+namespace generations cannot be deleted by older queue entries. Unknown or live
+paths remain dry-run findings.
+
+sccache is disabled by default. RightKit may enable it only when broker-owned
+server lifecycle & child-process containment are proven through the typed
+ownership contract; otherwise it records `RK_SCCACHE_OWNERSHIP_UNPROVEN` & uses
+direct rustc. Enabled requests take bounded JSON stats snapshots before & after
+execution; terminal receipt stores delta or typed degraded diagnostics. Stats
+probes time out & never terminate a compiler. Quiet compilers are never killed.
+Windows BUILD remains fail-closed until native Job Object containment exists.
 
 ## Publication semantics
 

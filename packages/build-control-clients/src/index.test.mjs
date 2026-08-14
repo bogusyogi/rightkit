@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { MANAGED_RUST_ENVIRONMENT_KEYS } from '@rightkit/build-control-core';
-import { adapterRegistry, brokerEndpoint, createClientRequest, createManagedAgentRequest, createRightkitRequest, installAgentShims, INSTALLED_MANAGED_SHIMS, MAX_BROKER_LINE_BYTES, sendManagedAgentRequest, shimManifest } from './index.mjs';
+import { adapterRegistry, brokerEndpoint, cancelManagedAgentJob, createClientRequest, createJobCommand, createManagedAgentRequest, createNestedManagedAgentRequest, createRightkitRequest, installAgentShims, INSTALLED_MANAGED_SHIMS, JOB_REQUEST_TYPES, MAX_BROKER_LINE_BYTES, loadRuntimeIdentity, sendManagedAgentRequest, shimManifest, statusManagedAgentJob, submitManagedAgentJob, ToolChangedError, watchManagedAgentJob } from './index.mjs';
 
 const cleanProcessEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !MANAGED_RUST_ENVIRONMENT_KEYS.includes(key.toUpperCase()) && key !== 'RIGHTKIT_BUILD_BROKER_SOCKET'));
+const sourcePackagesRoot = fileURLToPath(new URL('../..', import.meta.url));
+const handshake = (message) => `${JSON.stringify({ type: 'HANDSHAKE', runtime: message.runtime })}\n`;
 
 test('every frozen frontend produces a request-only client payload', () => {
   assert.equal(Object.keys(adapterRegistry).length, 7);
@@ -45,6 +47,13 @@ test('ambient Rust/Cargo overrides are captured & rejected instead of silently d
   assert.deepEqual(createRightkitRequest({ argv: ['cargo', 'build'], workspace: '/external/work', environment: { PATH: '/usr/bin', CI: '1' } }).observedEnvironment, {});
 });
 
+test('build priority is explicitly allowlisted instead of forwarded from ambient environment', () => {
+  const installer = createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work', environment: { RIGHTKIT_BUILD_PRIORITY: 'INSTALLER', CI: '1' } });
+  assert.equal(installer.priority, 'INSTALLER'); assert.deepEqual(installer.observedEnvironment, {});
+  assert.equal(createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work', environment: { PATH: '/usr/bin' } }).priority, undefined);
+  for (const priority of ['', 'installer', 'SYSTEM', 'INSTALLER ']) assert.throws(() => createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work', environment: { RIGHTKIT_BUILD_PRIORITY: priority } }), /RIGHTKIT_BUILD_PRIORITY/);
+});
+
 test('rightkit normalizes explicit build & shim invocations into request-only identity', () => {
   const build = createRightkitRequest({ argv: ['build', 'cargo', '--', 'test'], workspace: '/external/work' });
   assert.equal(build.entrypoint, 'rightkit'); assert.equal(build.shim, 'cargo'); assert.deepEqual(build.request.argv, ['test']);
@@ -64,19 +73,24 @@ test('Cargo manifest path selects its workspace for policy and config discovery'
   assert.deepEqual(passthrough.request.argv, ['test', '--', '--manifest-path', 'fixture/Cargo.toml']);
 });
 
+test('runtime loader fails closed on malformed manifest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const manifestPath = join(root, 'runtime-manifest.json'); await writeFile(manifestPath, '{"version":"mutable"}\n');
+  await assert.rejects(loadRuntimeIdentity({ manifestPath }), /invalid RightKit runtime manifest/); await rm(root, { recursive: true, force: true });
+});
+
 test('installs agent-only POSIX wrappers into an empty explicit directory', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-'));
   const directory = join(root, 'agent-bin');
-  const manifest = await installAgentShims({ directory, platform: 'linux', launcher: '/opt/rightkit/managed-agent.mjs', nodePath: '/opt/rightkit/node' });
+  const manifest = await installAgentShims({ directory, platform: 'linux', runtimeCurrent: '/opt/rightkit/runtime-current', nodePath: '/opt/rightkit/node' });
   assert.match(await readFile(join(directory, 'cargo'), 'utf8'), /RIGHTKIT_MANAGED_AGENT_SHIM='cargo'/);
-  assert.match(await readFile(join(directory, 'cargo'), 'utf8'), /'\/opt\/rightkit\/node' '\/opt\/rightkit\/managed-agent\.mjs'/);
+  assert.match(await readFile(join(directory, 'cargo'), 'utf8'), /'\/opt\/rightkit\/node' '\/opt\/rightkit\/runtime-current\/build-control-clients\/src\/managed-agent\.mjs'/);
   assert.match(await readFile(join(directory, 'rightkit'), 'utf8'), /rightkit\.mjs/);
   assert.doesNotMatch(await readFile(join(directory, 'rightkit'), 'utf8'), /RIGHTKIT_MANAGED_AGENT_SHIM/);
   await assert.rejects(readFile(join(directory, 'pnpm')));
   await assert.rejects(readFile(join(directory, 'npm')));
   assert.equal(manifest.installRoot, directory);
-  await installAgentShims({ directory, platform: 'linux', launcher: '/opt/rightkit/managed-agent-v2.mjs', nodePath: '/opt/rightkit/node-v2' });
-  assert.match(await readFile(join(directory, 'cargo'), 'utf8'), /managed-agent-v2/);
+  await installAgentShims({ directory, platform: 'linux', runtimeCurrent: '/opt/rightkit/runtime-current-v2', nodePath: '/opt/rightkit/node-v2' });
+  assert.match(await readFile(join(directory, 'cargo'), 'utf8'), /runtime-current-v2/);
   await writeFile(join(directory, 'foreign'), 'no');
   await assert.rejects(installAgentShims({ directory, platform: 'linux' }), /foreign files/);
   await rm(root, { recursive: true, force: true });
@@ -100,11 +114,11 @@ test('owned upgrade removes only recorded obsolete non-Rust wrappers', async () 
 test('installs Windows wrappers that retain each exact shim name', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-'));
   const directory = join(root, 'agent-bin');
-  await installAgentShims({ directory, platform: 'win32', launcher: 'C:\\RightKit\\managed-agent.mjs', nodePath: 'C:\\RightKit\\node.exe' });
+  await installAgentShims({ directory, platform: 'win32', runtimeCurrent: 'C:\\RightKit\\runtime-current', nodePath: 'C:\\RightKit\\node.exe' });
   const wrapper = await readFile(join(directory, 'rustdoc.cmd'), 'utf8');
   assert.match(wrapper, /RIGHTKIT_MANAGED_AGENT_SHIM=%~n0/);
   assert.match(wrapper, /C:\\RightKit\\node\.exe/);
-  assert.match(wrapper, /C:\\RightKit\\managed-agent\.mjs/);
+  assert.match(wrapper, /C:\\RightKit\\runtime-current\\build-control-clients\\src\\managed-agent\.mjs/);
   const rightkit = await readFile(join(directory, 'rightkit.cmd'), 'utf8');
   assert.match(rightkit, /rightkit\.mjs/); assert.doesNotMatch(rightkit, /RIGHTKIT_MANAGED_AGENT_SHIM/);
   await rm(root, { recursive: true, force: true });
@@ -112,8 +126,12 @@ test('installs Windows wrappers that retain each exact shim name', async () => {
 
 test('rightkit wrapper sends explicit request identity & fails closed without broker', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const directory = join(root, 'agent-bin'); const endpoint = join(root, 'broker.sock');
-  const server = net.createServer((socket) => socket.on('data', (data) => { const message = JSON.parse(data.toString()); assert.equal(message.entrypoint, 'rightkit'); assert.equal(message.shim, 'cargo'); assert.deepEqual(message.request.argv, ['metadata']); socket.end(`${JSON.stringify({ type: 'RESULT', exitCode: 0 })}\n`); }));
-  await new Promise((resolve) => server.listen(endpoint, resolve)); await installAgentShims({ directory, platform: 'linux' });
+  const server = net.createServer((socket) => socket.on('data', (data) => {
+    const command = JSON.parse(data.toString()); socket.write(handshake({ runtime: command.runtime }));
+    if (command.type === 'SUBMIT') { assert.equal(command.job.entrypoint, 'rightkit'); assert.equal(command.job.shim, 'cargo'); assert.deepEqual(command.job.request.argv, ['metadata']); return socket.end(`${JSON.stringify({ type: 'SUBMITTED', id: 'rightkit-job', state: 'QUEUED' })}\n`); }
+    assert.equal(command.type, 'WATCH'); assert.equal(command.id, 'rightkit-job'); socket.end(`${JSON.stringify({ type: 'RESULT', id: command.id, exitCode: 0, status: 'SUCCEEDED' })}\n`);
+  }));
+  await new Promise((resolve) => server.listen(endpoint, resolve)); await installAgentShims({ directory, platform: 'linux', runtimeCurrent: sourcePackagesRoot });
   const child = spawn(join(directory, 'rightkit'), ['build', 'cargo', '--', 'metadata'], { cwd: root, env: cleanProcessEnvironment() });
   assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }), 0);
   await new Promise((resolve) => server.close(resolve));
@@ -129,11 +147,12 @@ test('installed cargo wrapper preserves exact shim identity for broker routing',
   const directory = join(root, 'agent-bin');
   const endpoint = join(root, 'broker.sock');
   const server = net.createServer((socket) => socket.on('data', (data) => {
-    assert.equal(JSON.parse(data.toString()).shim, 'cargo');
-    socket.end(`${JSON.stringify({ type: 'RESULT', exitCode: 0 })}\n`);
+    const command = JSON.parse(data.toString()); socket.write(handshake({ runtime: command.runtime }));
+    if (command.type === 'SUBMIT') { assert.equal(command.job.shim, 'cargo'); return socket.end(`${JSON.stringify({ type: 'SUBMITTED', id: 'cargo-job', state: 'QUEUED' })}\n`); }
+    assert.equal(command.type, 'WATCH'); assert.equal(command.id, 'cargo-job'); socket.end(`${JSON.stringify({ type: 'RESULT', id: command.id, exitCode: 0, status: 'SUCCEEDED' })}\n`);
   }));
   await new Promise((resolve) => server.listen(endpoint, resolve));
-  await installAgentShims({ directory, platform: 'linux' });
+  await installAgentShims({ directory, platform: 'linux', runtimeCurrent: sourcePackagesRoot });
   const child = spawn(join(directory, 'cargo'), ['metadata'], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: endpoint } });
   const exitCode = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
   assert.equal(exitCode, 0);
@@ -147,6 +166,7 @@ test('managed agent streams typed broker events and receives exit status', async
   const server = net.createServer((socket) => socket.on('data', (data) => {
     const message = JSON.parse(data.toString());
     assert.equal(message.type, 'MANAGED_AGENT');
+    socket.write(handshake(message));
     socket.write(`${JSON.stringify({ type: 'STDOUT', data: 'ok\\n' })}\n`);
     socket.end(`${JSON.stringify({ type: 'RESULT', exitCode: 7 })}\n`);
   }));
@@ -154,13 +174,75 @@ test('managed agent streams typed broker events and receives exit status', async
   const events = [];
   const result = await sendManagedAgentRequest(createManagedAgentRequest({ argv0: 'cargo', argv: ['test'], workspace: '/external/work' }), { endpoint, onEvent: (event) => events.push(event) });
   assert.equal(result.exitCode, 7);
-  assert.deepEqual(events.map((event) => event.type), ['STDOUT', 'RESULT']);
+  assert.deepEqual(events.map((event) => event.type), ['HANDSHAKE', 'STDOUT', 'RESULT']);
   await new Promise((resolve) => server.close(resolve));
   await rm(root, { recursive: true, force: true });
 });
 
+test('job API submits, watches, reads status, cancels, & preserves detached work by request id', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const endpoint = join(root, 'broker.sock'); const seen = []; let submitObserverClosed = false; let resolveSubmitObserverClosed; const submitObserverClosedPromise = new Promise((resolve) => { resolveSubmitObserverClosed = resolve; });
+  const message = createManagedAgentRequest({ argv0: 'cargo', argv: ['test'], workspace: '/external/work' });
+  const server = net.createServer((socket) => socket.on('data', async (data) => {
+    const command = JSON.parse(data.toString()); seen.push(command);
+    socket.write(handshake({ runtime: command.runtime }));
+    if (command.type === 'SUBMIT') { socket.once('close', () => { submitObserverClosed = true; resolveSubmitObserverClosed(); }); return socket.end(`${JSON.stringify({ type: 'SUBMITTED', id: 'job-42', state: 'QUEUED' })}\n`); }
+    await submitObserverClosedPromise; assert.equal(submitObserverClosed, true);
+    if (command.type === 'STATUS') return socket.end(`${JSON.stringify({ type: 'STATUS', id: command.id, state: 'RUNNING' })}\n`);
+    if (command.type === 'CANCEL') return socket.end(`${JSON.stringify({ type: 'CANCEL_REQUESTED', id: command.id, state: 'REAPING' })}\n`);
+    socket.write(`${JSON.stringify({ type: 'JOB_EVENT', id: command.id, event: { type: 'STDOUT', data: 'still running\\n' } })}\n`);
+    socket.end(`${JSON.stringify({ type: 'RESULT', id: command.id, exitCode: 0, status: 'SUCCEEDED' })}\n`);
+  }));
+  await new Promise((resolve) => server.listen(endpoint, resolve));
+  assert.deepEqual(await submitManagedAgentJob(message, { endpoint }), { type: 'SUBMITTED', id: 'job-42', state: 'QUEUED' });
+  assert.deepEqual(await statusManagedAgentJob('job-42', { endpoint }), { type: 'STATUS', id: 'job-42', state: 'RUNNING' });
+  const events = []; assert.equal((await watchManagedAgentJob('job-42', { endpoint, onEvent: (event) => events.push(event) })).status, 'SUCCEEDED');
+  assert.deepEqual(seen.map((command) => command.type), ['SUBMIT', 'STATUS', 'WATCH']);
+  assert.deepEqual(await cancelManagedAgentJob('job-42', { endpoint }), { type: 'CANCEL_REQUESTED', id: 'job-42', state: 'REAPING' });
+  assert.deepEqual(seen.map((command) => command.type), ['SUBMIT', 'STATUS', 'WATCH', 'CANCEL']);
+  assert.equal(seen[0].job.type, 'MANAGED_AGENT'); assert.equal(seen[1].id, 'job-42'); assert.equal(events[1].type, 'JOB_EVENT');
+  await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
+});
+
+test('nested job context is explicit while legacy managed requests stay readable', () => {
+  const nested = createNestedManagedAgentRequest({ parentId: 'parent-7', argv0: 'cargo', argv: ['metadata'], workspace: '/external/work' });
+  assert.equal(nested.execution.mode, 'NESTED'); assert.equal(nested.execution.parentId, 'parent-7');
+  const command = createJobCommand(JOB_REQUEST_TYPES.SUBMIT, { message: nested });
+  assert.equal(command.job.execution.parentId, 'parent-7'); assert.equal(createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work' }).execution, undefined);
+  const inherited = createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work', environment: { RIGHTKIT_PARENT_REQUEST_ID: 'parent-env', CARGO_TARGET_DIR: '/tmp/blocked' } });
+  assert.deepEqual(inherited.execution, { mode: 'NESTED', parentId: 'parent-env' }); assert.deepEqual(inherited.observedEnvironment, { CARGO_TARGET_DIR: '/tmp/blocked' });
+  assert.throws(() => createNestedManagedAgentRequest({ parentId: '', argv0: 'cargo', workspace: '/external/work' }), /request id/);
+});
+
+test('job API preserves a typed TOOL_CHANGED rejection', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const endpoint = join(root, 'broker.sock');
+  const server = net.createServer((socket) => socket.on('data', () => socket.end(`${JSON.stringify({ type: 'TOOL_CHANGED', toolId: 'cargo-stable', registrationAction: 'REGISTER_PINNED_TOOL' })}\n`)));
+  await new Promise((resolve) => server.listen(endpoint, resolve));
+  await assert.rejects(submitManagedAgentJob(createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work' }), { endpoint }), (error) => error instanceof ToolChangedError && error.code === 'TOOL_CHANGED' && error.event.registrationAction === 'REGISTER_PINNED_TOOL');
+  await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
+});
+
+test('rightkit CLI exposes status, attach, & cancel by detached request id', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const endpoint = join(root, 'broker.sock');
+  const server = net.createServer((socket) => socket.on('data', (data) => {
+    const command = JSON.parse(data.toString()); assert.equal(command.type, 'STATUS'); assert.equal(command.id, 'job-cli');
+    socket.write(handshake({ runtime: command.runtime })); socket.end(`${JSON.stringify({ type: 'STATUS', id: 'job-cli', state: 'QUEUED' })}\n`);
+  }));
+  await new Promise((resolve) => server.listen(endpoint, resolve));
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./rightkit.mjs', import.meta.url)), 'status', 'job-cli'], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: endpoint } });
+  let stdout = ''; child.stdout.on('data', (chunk) => { stdout += chunk; });
+  assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }), 0);
+  assert.deepEqual(JSON.parse(stdout), { type: 'STATUS', id: 'job-cli', state: 'QUEUED' });
+  await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
+});
+
 test('managed agent fails closed when broker is unavailable', async () => {
   await assert.rejects(sendManagedAgentRequest(createManagedAgentRequest({ argv0: 'make', workspace: '/external/work' }), { endpoint: join(tmpdir(), 'rightkit-missing.sock') }), /broker unavailable/);
+});
+
+test('managed client rejects broker runtime digest mismatch', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const endpoint = join(root, 'broker.sock'); const message = createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work' });
+  const server = net.createServer((socket) => socket.on('data', () => socket.end(`${JSON.stringify({ type: 'HANDSHAKE', runtime: { ...message.runtime, brokerDigest: 'f'.repeat(64) } })}\n`)));
+  await new Promise((resolve) => server.listen(endpoint, resolve)); await assert.rejects(sendManagedAgentRequest(message, { endpoint }), /runtime digest mismatch/); await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
 });
 
 test('managed agent CLI prints typed broker rejection reason', async () => {
@@ -181,7 +263,7 @@ test('managed agent CLI prints typed broker rejection reason', async () => {
 test('managed agent rejects post-result broker protocol data', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-'));
   const endpoint = join(root, 'broker.sock');
-  const server = net.createServer((socket) => socket.on('data', () => socket.end(`${JSON.stringify({ type: 'RESULT', exitCode: 0 })}\n${JSON.stringify({ type: 'STDOUT', data: 'late' })}\n`)));
+  const server = net.createServer((socket) => socket.on('data', (data) => { const message = JSON.parse(data.toString()); socket.end(`${handshake(message)}${JSON.stringify({ type: 'RESULT', exitCode: 0 })}\n${JSON.stringify({ type: 'STDOUT', data: 'late' })}\n`); }));
   await new Promise((resolve) => server.listen(endpoint, resolve));
   await assert.rejects(sendManagedAgentRequest(createManagedAgentRequest({ argv0: 'make', workspace: '/external/work' }), { endpoint }), /after terminal result/);
   await new Promise((resolve) => server.close(resolve));
@@ -195,7 +277,7 @@ test('managed agent rejects oversized lines and out-of-range exit status', async
   ]) await t.test(name, async () => {
     const root = await mkdtemp(join(tmpdir(), 'rightkit-client-'));
     const endpoint = join(root, 'broker.sock');
-    const server = net.createServer((socket) => socket.on('data', () => socket.end(response)));
+    const server = net.createServer((socket) => socket.on('data', (data) => { const message = JSON.parse(data.toString()); socket.end(name === 'oversized' ? response : `${handshake(message)}${response}`); }));
     await new Promise((resolve) => server.listen(endpoint, resolve));
     await assert.rejects(sendManagedAgentRequest(createManagedAgentRequest({ argv0: 'make', workspace: '/external/work' }), { endpoint }), expected);
     await new Promise((resolve) => server.close(resolve));

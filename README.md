@@ -202,11 +202,11 @@ configuration or aliases/wrappers, or write local `target`/`.cache` output.
 `pnpm` & `npm` remain usable; their child Cargo invocation must inherit RightKit
 shim precedence.
 
-Each request is normalized, admitted against quota/reservation/lease state, then
-ends in a durable receipt under managed external storage. Success releases its
-namespace; failure, cancellation, unmanaged local output, or quota overrun
-poisons it. The broker performs bounded automatic GC of eligible `RELEASED` &
-`POISONED` namespaces and never deletes an active lease or shared live root.
+Each request is capability-classified, durably admitted, process-owned, & closed
+with one terminal receipt. Disconnect detaches observer; STATUS, ATTACH, & CANCEL
+operate by request ID. Failed/cancelled namespaces stay warm under retention.
+Independent maintenance generation-CAS moves eligible terminal namespaces to
+managed trash, then deletes them in bounded resumable batches.
 
 ### Operations
 
@@ -224,9 +224,10 @@ pointer, & rolls back if post-switch health fails. To investigate any non-zero o
 reported violation. Restore broker/external-volume availability or remove only
 receipt-identified unmanaged output; never retry through a direct Rust command.
 
-Cleanup records a before/after inventory and removes only confirmed disposable
-build/cache/temp roots. GC is broker-owned: it reconciles disk use, respects
-leases/reservations, emits a receipt, & retains uncertain or protected paths.
+Cleanup is maintenance-owned, never in admission or terminal hot paths. It uses
+bounded inventory, durable leases/intents, generation checks, & resumable trash
+deletion. sccache is disabled unless broker ownership is proven. Windows BUILD
+fails closed until native Job Object containment exists.
 
 ### Publication boundary
 

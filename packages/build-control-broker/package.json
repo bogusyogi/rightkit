@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.mjs",
-  "bin": { "rightkit-build-broker": "src/broker.mjs" },
-  "scripts": { "test": "node --test src/*.test.mjs" },
+  "bin": { "rightkit-build-broker": "src/broker.mjs", "rightkit-build-cutover-macos": "src/runtime-cutover-macos-cli.mjs" },
+  "scripts": { "test": "node --test --test-concurrency=1 src/*.test.mjs legacy-v1/quarantine.test.mjs", "cutover:macos": "node src/runtime-cutover-macos-cli.mjs" },
   "dependencies": { "@rightkit/build-control-core": "workspace:0.1.0-phase1" },
   "devDependencies": { "@rightkit/build-control-clients": "workspace:0.1.0-phase1" },
   "engines": { "node": ">=24" }
