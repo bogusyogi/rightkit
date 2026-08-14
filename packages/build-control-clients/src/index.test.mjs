@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { MANAGED_RUST_ENVIRONMENT_KEYS } from '@rightkit/build-control-core';
 import { adapterRegistry, brokerEndpoint, createClientRequest, createManagedAgentRequest, createRightkitRequest, installAgentShims, INSTALLED_MANAGED_SHIMS, MAX_BROKER_LINE_BYTES, sendManagedAgentRequest, shimManifest } from './index.mjs';
 
-const cleanProcessEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !MANAGED_RUST_ENVIRONMENT_KEYS.includes(key.toUpperCase())));
+const cleanProcessEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !MANAGED_RUST_ENVIRONMENT_KEYS.includes(key.toUpperCase()) && key !== 'RIGHTKIT_BUILD_BROKER_SOCKET'));
 
 test('every frozen frontend produces a request-only client payload', () => {
   assert.equal(Object.keys(adapterRegistry).length, 7);
@@ -37,6 +37,7 @@ test('all named aliases normalize into a managed-agent request', () => {
 test('ambient Rust/Cargo overrides are captured & rejected instead of silently dropped', () => {
   for (const environment of [
     { CARGO_TARGET_DIR: '/tmp/escape' },
+    { CARGO_BUILD_TARGET: 'x86_64-apple-darwin' },
     { cargo_build_build_dir: '/tmp/build' },
     { RUSTC_WRAPPER: '/tmp/wrapper' },
     { RUSTFLAGS: '-C target-dir=/tmp/escape' }
@@ -52,6 +53,15 @@ test('rightkit normalizes explicit build & shim invocations into request-only id
   assert.throws(() => createRightkitRequest({ argv: ['build', 'shell', '--', 'x'] }), /usage/);
   assert.throws(() => createRightkitRequest({ argv: ['build', 'cargo', 'test'] }), /usage/);
   assert.throws(() => createRightkitRequest({ argv: [] }), /usage/);
+});
+
+test('Cargo manifest path selects its workspace for policy and config discovery', () => {
+  const request = createRightkitRequest({ argv: ['cargo', 'test', '--manifest-path', 'engine/Cargo.toml'], workspace: '/external/work' });
+  assert.equal(request.request.workspace, '/external/work/engine');
+  assert.deepEqual(request.request.argv, ['test', '--manifest-path', '/external/work/engine/Cargo.toml']);
+  const passthrough = createRightkitRequest({ argv: ['cargo', 'test', '--', '--manifest-path', 'fixture/Cargo.toml'], workspace: '/external/work' });
+  assert.equal(passthrough.request.workspace, '/external/work');
+  assert.deepEqual(passthrough.request.argv, ['test', '--', '--manifest-path', 'fixture/Cargo.toml']);
 });
 
 test('installs agent-only POSIX wrappers into an empty explicit directory', async () => {
@@ -104,7 +114,7 @@ test('rightkit wrapper sends explicit request identity & fails closed without br
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const directory = join(root, 'agent-bin'); const endpoint = join(root, 'broker.sock');
   const server = net.createServer((socket) => socket.on('data', (data) => { const message = JSON.parse(data.toString()); assert.equal(message.entrypoint, 'rightkit'); assert.equal(message.shim, 'cargo'); assert.deepEqual(message.request.argv, ['metadata']); socket.end(`${JSON.stringify({ type: 'RESULT', exitCode: 0 })}\n`); }));
   await new Promise((resolve) => server.listen(endpoint, resolve)); await installAgentShims({ directory, platform: 'linux' });
-  const child = spawn(join(directory, 'rightkit'), ['build', 'cargo', '--', 'metadata'], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: endpoint } });
+  const child = spawn(join(directory, 'rightkit'), ['build', 'cargo', '--', 'metadata'], { cwd: root, env: cleanProcessEnvironment() });
   assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }), 0);
   await new Promise((resolve) => server.close(resolve));
   const malformed = spawn(join(directory, 'rightkit'), ['build', 'cargo', 'test'], { cwd: root, env: cleanProcessEnvironment() });

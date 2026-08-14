@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
-import { lstat, mkdir, open, readFile, readdir, rename, rm, stat, statfs, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, statfs, unlink } from 'node:fs/promises';
 import net from 'node:net';
 import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
 import { externalRoots, immutableToolRoot, normalizeManagedAgentRequest, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from '@rightkit/build-control-core';
@@ -68,7 +68,7 @@ export class BuildControlBroker {
 
 export class LocalNdjsonBrokerService {
   #broker; #tools = new Map(); #spawn; #defaults; #outputPolicy; #bounds;
-  constructor({ broker, tools = [], shims = {}, defaults = {}, outputPolicy = {}, bounds = {}, spawn = nodeSpawn }) { if (!(broker instanceof BuildControlBroker)) throw new TypeError('broker is required'); this.#broker = broker; this.#spawn = spawn; this.#defaults = Object.freeze({ reservationBytes: 0, writer: true, shims, ...defaults }); this.#outputPolicy = Object.freeze({ mode: outputPolicy.mode ?? 'enforce', allowedSourceDirs: outputPolicy.allowedSourceDirs ?? [] }); this.#bounds = Object.freeze({ pollIntervalMs: bounds.pollIntervalMs ?? 250, freeFloorBytes: bounds.freeFloorBytes ?? 0, quotaWatermarkBytes: bounds.quotaWatermarkBytes ?? null, retentionMs: bounds.retentionMs ?? null }); for (const tool of tools) this.registerTool(tool); }
+  constructor({ broker, tools = [], shims = {}, defaults = {}, outputPolicy = {}, bounds = {}, spawn = nodeSpawn }) { if (!(broker instanceof BuildControlBroker)) throw new TypeError('broker is required'); this.#broker = broker; this.#spawn = spawn; this.#defaults = Object.freeze({ reservationBytes: 0, writer: true, shims, ...defaults }); this.#outputPolicy = Object.freeze({ mode: outputPolicy.mode ?? 'enforce', allowedSourceDirs: outputPolicy.allowedSourceDirs ?? [], scanRoot: outputPolicy.scanRoot ?? 'repository' }); this.#bounds = Object.freeze({ pollIntervalMs: bounds.pollIntervalMs ?? 250, freeFloorBytes: bounds.freeFloorBytes ?? 0, quotaWatermarkBytes: bounds.quotaWatermarkBytes ?? null, retentionMs: bounds.retentionMs ?? null }); for (const tool of tools) this.registerTool(tool); }
   registerTool(tool) { const verified = immutableToolRoot(tool); this.#tools.set(tool.id ?? verified.path, Object.freeze({ id: tool.id ?? verified.path, ...verified })); }
   async handleNdjson(line, write, onDisconnect) {
     if (typeof line !== 'string' || typeof write !== 'function') throw new TypeError('NDJSON line & writer are required');
@@ -79,7 +79,7 @@ export class LocalNdjsonBrokerService {
   async execute(message, emit = () => {}) {
     await this.#broker.ready();
     let enriched;
-    try { enriched = this.#enrich(message); } catch (error) { const value = { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: error.message }; emit(value); return value; }
+    try { enriched = this.#enrich(message, await resolveRequestRoots(message?.request?.workspace, { scanRoot: this.#outputPolicy.scanRoot })); } catch (error) { const value = { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: error.message }; emit(value); return value; }
     const tool = this.#tools.get(enriched.toolId);
     try {
       await rejectWorkspaceCargoConfiguration(enriched.request.workspace);
@@ -89,21 +89,32 @@ export class LocalNdjsonBrokerService {
       if (sccache && digest(await readFile(sccache.path)) !== sccache.sha256) throw new Error('registered sccache digest mismatch');
       const rustc = await this.#verifiedOptionalTool(enriched.rustcToolId, 'rustc');
       const rustdoc = await this.#verifiedOptionalTool(enriched.rustdocToolId, 'rustdoc');
-      const before = await localOutputs(enriched.request.workspace, this.#outputPolicy); if (before.length && this.#outputPolicy.mode === 'enforce') throw new Error(`unmanaged local outputs before execution: ${before.join(',')}`); await this.#broker.reconcileUsedBytes();
+      const before = await localOutputs(enriched.scanRoot, this.#outputPolicy); if (before.length && this.#outputPolicy.mode === 'enforce') throw new Error(`unmanaged local outputs before execution: ${before.join(',')}`); await this.#broker.reconcileUsedBytes();
       const entry = this.#broker.admit(enriched); await this.#broker.flush(); await mkdirMany(directoryRoots(entry.roots)); const env = this.#broker.executionEnvironment(entry.id, { ...(sccache ? { RUSTC_WRAPPER: sccache.path } : {}), ...(rustc ? { RUSTC: rustc.path } : {}), ...(rustdoc ? { RUSTDOC: rustdoc.path } : {}) });
       return await this.#run(entry, tool, env, enriched, emit);
     } catch (error) { const value = { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: error.message }; emit(value); return value; }
   }
-  #enrich(message) {
+  #enrich(message, roots) {
     if (!message || message.type !== 'MANAGED_AGENT' || message.protocol !== 'rightkit.build-control.client.v1') throw new TypeError('MANAGED_AGENT v1 payload is required');
-    const request = normalizeManagedAgentRequest(message.request);
+    const request = normalizeManagedAgentRequest({ ...message.request, workspace: roots.executionCwd });
     validateManagedRustupInvocation(message.shim, request.argv);
     const toolId = this.#defaults.shims[message.shim]; if (!toolId) throw new Error(`no registered tool for shim ${message.shim ?? '<empty>'}`);
-    const enriched = { ...this.#defaults, ...message, toolId, request, repositoryIdentity: message.repositoryIdentity ?? this.#defaults.repositoryIdentity ?? request.workspace, toolchain: message.toolchain ?? this.#defaults.toolchain, targetTriple: message.targetTriple ?? this.#defaults.targetTriple, buildProfile: message.buildProfile ?? classifyBuildProfile(request.argv, this.#defaults.buildProfile), reservationBytes: message.reservationBytes ?? this.#defaults.reservationBytes };
-    const roots = this.#broker.rootsFor(enriched);
+    const requestedTarget = compilationTarget(message.shim, request.argv);
+    if (requestedTarget && requestedTarget !== this.#defaults.targetTriple) throw new Error(`managed Cargo target must match broker target ${this.#defaults.targetTriple}`);
+    // Every admission-control dimension is broker-owned. A client that reaches
+    // the socket may choose its command & cwd, never its identity, namespace,
+    // lease, reservation, request id, or toolchain.
+    const enriched = {
+      ...this.#defaults, toolId, request, onDisconnect: message.onDisconnect, id: undefined,
+      repositoryIdentity: roots.repositoryRoot, scanRoot: roots.scanRoot,
+      toolchain: this.#defaults.toolchain, targetTriple: this.#defaults.targetTriple,
+      buildProfile: classifyBuildProfile(request.argv, this.#defaults.buildProfile),
+      reservationBytes: this.#defaults.reservationBytes, writer: this.#defaults.writer
+    };
+    const storageRoots = this.#broker.rootsFor(enriched);
     validateManagedRustEnvironment(message.observedEnvironment ?? {}, {
-      CARGO_HOME: roots.cargoHome, CARGO_TARGET_DIR: roots.target, CARGO_BUILD_TARGET_DIR: roots.target,
-      CARGO_BUILD_BUILD_DIR: roots.build, CARGO_INSTALL_ROOT: join(roots.build, 'install'), RUSTUP_HOME: roots.rustupHome
+      CARGO_HOME: storageRoots.cargoHome, CARGO_TARGET_DIR: storageRoots.target, CARGO_BUILD_TARGET_DIR: storageRoots.target,
+      CARGO_BUILD_BUILD_DIR: storageRoots.build, CARGO_INSTALL_ROOT: join(storageRoots.build, 'install'), RUSTUP_HOME: storageRoots.rustupHome
     });
     return enriched;
   }
@@ -116,7 +127,7 @@ export class LocalNdjsonBrokerService {
     child.stdout?.on('data', (data) => emit({ type: 'STDOUT', id: entry.id, data: data.toString() })); child.stderr?.on('data', (data) => emit({ type: 'STDERR', id: entry.id, data: data.toString() }));
     try {
       const result = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => resolve({ code, signal })); });
-      clearInterval(poll); const growth = Math.max(0, (await managedSize(entry.roots)) - beforeBytes); const after = await localOutputs(entry.request.workspace, this.#outputPolicy); const failed = boundedOut || growth > entry.reservationBytes || result.code !== 0 || (after.length && this.#outputPolicy.mode === 'enforce');
+      clearInterval(poll); const growth = Math.max(0, (await managedSize(entry.roots)) - beforeBytes); const after = await localOutputs(message.scanRoot, this.#outputPolicy); const failed = boundedOut || growth > entry.reservationBytes || result.code !== 0 || (after.length && this.#outputPolicy.mode === 'enforce');
       if (failed) { const reason = boundedOut || growth > entry.reservationBytes ? 'reservation-overrun' : after.length ? 'unmanaged-output' : 'execution-failure'; const receipt = this.#broker.poison(entry.id, reason); await this.#broker.reconcileUsedBytes(); await this.#autoGc(); await this.#broker.flush(); const value = Object.freeze({ type: 'RESULT', id: entry.id, exitCode: reason === 'execution-failure' ? validExit(result.code) : 125, status: 'POISONED', receipt, violations: after, actualGrowthBytes: growth }); emit(value); return value; }
       const receipt = this.#broker.release(entry.id, { actualGrowthBytes: growth }); await this.#broker.reconcileUsedBytes(); await this.#autoGc(); await this.#broker.flush(); const value = Object.freeze({ type: 'RESULT', id: entry.id, exitCode: 0, status: 'RELEASED', receipt, violations: after }); emit(value); return value;
     } catch (error) { clearInterval(poll); try { this.#broker.poison(entry.id, 'execution-failure'); } catch {} const value = { type: 'RESULT', id: entry.id, exitCode: 125, status: 'POISONED', error: error.message }; emit(value); return value; } finally { if (typeof unsubscribe === 'function') unsubscribe(); }
@@ -130,20 +141,81 @@ const baseEnvironment = () => Object.fromEntries(['PATH', 'LANG', 'LC_ALL', 'LC_
 const validExit = (code) => Number.isInteger(code) && code >= 0 && code <= 255 ? code : 125;
 function classifyBuildProfile(argv, fallback = 'development') { const profile = argv.find((value) => value.startsWith('--profile='))?.slice('--profile='.length); if (profile) return profile; const index = argv.indexOf('--profile'); if (index >= 0 && argv[index + 1]) return argv[index + 1]; if (argv.includes('--release')) return 'release'; return ['test', 'bench', 'nextest'].includes(argv.find((value) => !value.startsWith('-'))) ? 'test' : fallback; }
 async function localOutputs(workspace, policy) { return scanWorkspaceForUnmanagedOutputs(workspace, { allowedRelativePaths: policy.allowedSourceDirs }); }
-const cargoConfigurationRedirect = /(?:^|\n)\s*(?:\[alias\]|(?:target-dir|build-dir|rustc|rustdoc|rustc-wrapper|rustc-workspace-wrapper|rustflags|rustdocflags)\s*=)/im;
+const cargoConfigurationRedirect = /^\s*(?:\[alias\]|(?:target-dir|build-dir|rustc|rustdoc|rustc-wrapper|rustc-workspace-wrapper)\s*=)/i;
+const targetImportLibraryFlags = /^\s*rustflags\s*=\s*\[\s*"-C"\s*,\s*"link-arg=[A-Za-z0-9_.-]+\.lib"\s*\]\s*(?:#.*)?$/i;
+function cargoConfigurationRedirects(source) {
+  let section = '';
+  for (const line of source.split(/\r?\n/)) {
+    const header = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
+    if (header) section = header[1];
+    if (cargoConfigurationRedirect.test(line)) return true;
+    if (section.toLowerCase() === 'build' && /^\s*target\s*=/i.test(line)) return true;
+    if (/^\s*(?:rustflags|rustdocflags)\s*=/i.test(line) && (!section.toLowerCase().startsWith('target.') || !targetImportLibraryFlags.test(line))) return true;
+  }
+  return false;
+}
+/** Cargo reads .cargo/config.toml from the execution cwd & every ancestor, so
+ *  inspecting only the cwd leaves an ancestor free to redirect rustc or the
+ *  wrapper past the digest-verified toolchain. */
 export async function rejectWorkspaceCargoConfiguration(workspace, { maxBytes = 64 * 1024 } = {}) {
-  for (const name of ['config', 'config.toml']) {
-    const candidate = join(workspace, '.cargo', name);
+  for (const directory of ancestorDirectories(workspace)) for (const name of ['config', 'config.toml']) {
+    const candidate = join(directory, '.cargo', name);
     const metadata = await lstat(candidate).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
     if (!metadata) continue;
-    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > maxBytes) throw new Error(`managed Cargo configuration is not an admissible bounded file: .cargo/${name}`);
-    if (cargoConfigurationRedirect.test(await readFile(candidate, 'utf8'))) throw new Error(`managed Cargo configuration cannot redirect tools, outputs, flags, or aliases: .cargo/${name}`);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > maxBytes) throw new Error(`managed Cargo configuration is not an admissible bounded file: ${candidate}`);
+    if (cargoConfigurationRedirects(await readFile(candidate, 'utf8'))) throw new Error(`managed Cargo configuration cannot redirect tools, outputs, flags, or aliases: ${candidate}`);
   }
 }
-const boundedIo = (promise, deadlineMs) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('managed filesystem operation timed out'), { code: 'RK_FS_TIMEOUT' })), deadlineMs))]);
-async function directorySize(root) { const measured = await boundedDirectorySize(root, { maxEntries: 20_000, deadlineMs: 1_000 }); if (!measured.complete) throw new Error('managed filesystem size scan exceeded bounds'); return measured.bytes; }
-export async function boundedDirectorySize(root, { maxEntries, deadlineMs, operations = { stat, readdir } }) { let bytes = 0; let entries = 0; const deadline = Date.now() + deadlineMs; const remaining = () => Math.max(1, deadline - Date.now()); const stack = [root]; while (stack.length) { if (entries >= maxEntries || Date.now() >= deadline) return { bytes, entries, complete: false }; const item = stack.pop(); let metadata; try { metadata = await boundedIo(operations.stat(item), remaining()); } catch (error) { if (error.code === 'ENOENT') continue; if (error.code === 'RK_FS_TIMEOUT') return { bytes, entries, complete: false }; throw error; } entries += 1; if (!metadata.isDirectory()) { bytes += metadata.size; continue; } let children; try { children = await boundedIo(operations.readdir(item), remaining()); } catch (error) { if (error.code === 'RK_FS_TIMEOUT') return { bytes, entries, complete: false }; throw error; } for (const child of children) stack.push(join(item, child)); } return { bytes, entries, complete: true }; }
-async function managedSize(roots) { const measured = await boundedDirectorySize(roots.root, { maxEntries: 20_000, deadlineMs: 1_000 }); if (!measured.complete) throw new Error('managed namespace size scan exceeded bounds'); return measured.bytes; }
+function ancestorDirectories(directory) {
+  if (typeof directory !== 'string' || !isAbsolute(directory)) throw new TypeError('absolute directory is required');
+  const values = []; let current = normalize(directory);
+  for (;;) { values.push(current); const parent = dirname(current); if (parent === current) return values; current = parent; }
+}
+
+/** The three roots the broker previously collapsed into `request.workspace`.
+ *  Repository identity is the canonical Git checkout, never the execution cwd,
+ *  so two workspaces in one repository share namespace, target root & writer
+ *  lease. Resolved from the filesystem so the broker never needs `git` on
+ *  PATH, & through realpath so one checkout reached by a symlinked path cannot
+ *  mint a second identity. */
+export async function resolveRequestRoots(workspace, { scanRoot: scanPolicy = 'repository', operations = { realpath, lstat } } = {}) {
+  if (typeof workspace !== 'string' || !isAbsolute(workspace)) throw new TypeError('absolute workspace is required');
+  if (!['repository', 'execution'].includes(scanPolicy)) throw new TypeError('scan root policy must be repository or execution');
+  if (typeof operations.realpath !== 'function' || typeof operations.lstat !== 'function') throw new TypeError('filesystem operations are required');
+  const executionCwd = await operations.realpath(workspace);
+  const repositoryRoot = await gitCheckoutRoot(executionCwd, operations.lstat) ?? executionCwd;
+  return Object.freeze({ repositoryRoot, executionCwd, scanRoot: scanPolicy === 'repository' ? repositoryRoot : executionCwd });
+}
+async function gitCheckoutRoot(directory, inspect) {
+  for (const candidate of ancestorDirectories(directory)) {
+    // Only a missing marker means "not a checkout". Permission & I/O failures
+    // must not silently degrade identity back to the execution cwd.
+    const marker = await inspect(join(candidate, '.git')).catch((error) => { if (error.code === 'ENOENT') return null; throw error; });
+    if (marker && (marker.isDirectory() || marker.isFile())) return candidate;
+  }
+  return null;
+}
+function compilationTarget(shim, argv) {
+  if (!['cargo', 'rustc', 'rustdoc'].includes(shim)) return null;
+  let target = null;
+  for (let index = 0; index < argv.length && argv[index] !== '--'; index += 1) {
+    let candidate = null;
+    if (argv[index] === '--target') {
+      candidate = argv[index + 1];
+      if (!candidate || candidate === '--') throw new TypeError('--target requires a target triple');
+      index += 1;
+    } else if (argv[index].startsWith('--target=')) candidate = argv[index].slice('--target='.length);
+    if (candidate !== null) {
+      if (!candidate || (target && target !== candidate)) throw new TypeError('one non-empty Cargo target is required');
+      target = candidate;
+    }
+  }
+  return target;
+}
+const boundedIo = async (promise, deadlineMs) => { let timer; try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('managed filesystem operation timed out'), { code: 'RK_FS_TIMEOUT' })), deadlineMs); })]); } finally { clearTimeout(timer); } };
+async function directorySize(root) { const measured = await boundedDirectorySize(root, { maxEntries: 2_000_000, deadlineMs: 120_000 }); if (!measured.complete) throw new Error('managed filesystem size scan exceeded bounds'); return measured.bytes; }
+export async function boundedDirectorySize(root, { maxEntries, deadlineMs, operations = { stat, readdir } }) { let bytes = 0; let entries = 0; const deadline = Date.now() + deadlineMs; const remaining = () => Math.max(1, deadline - Date.now()); const stack = [root]; while (stack.length) { if (entries >= maxEntries || Date.now() >= deadline) return { bytes, entries, complete: false }; const item = stack.pop(); let metadata; try { metadata = await boundedIo(operations.stat(item), remaining()); } catch (error) { if (error.code === 'ENOENT') continue; if (error.code === 'RK_FS_TIMEOUT') return { bytes, entries, complete: false }; throw error; } entries += 1; if (!metadata.isDirectory()) { bytes += metadata.size; continue; } let children; try { children = await boundedIo(operations.readdir(item), remaining()); } catch (error) { if (error.code === 'ENOENT') continue; if (error.code === 'RK_FS_TIMEOUT') return { bytes, entries, complete: false }; throw error; } for (const child of children) stack.push(join(item, child)); } return { bytes, entries, complete: true }; }
+async function managedSize(roots) { const measured = await boundedDirectorySize(roots.root, { maxEntries: 2_000_000, deadlineMs: 120_000 }); if (!measured.complete) throw new Error('managed namespace size scan exceeded bounds'); return measured.bytes; }
 async function durableWrite(path, data) { await mkdir(dirname(path), { recursive: true }); const temporary = `${path}.${randomUUID()}.tmp`; const handle = await open(temporary, 'wx', 0o600); try { await handle.writeFile(data, 'utf8'); await handle.sync(); } finally { await handle.close(); } await rename(temporary, path); const directory = await open(dirname(path), 'r'); try { await directory.sync(); } catch (error) { if (!['EINVAL', 'ENOTSUP', 'EPERM'].includes(error.code)) throw error; } finally { await directory.close(); } }
 export const MAX_REQUEST_BYTES = 1024 * 1024;
 export async function removeStaleUnixSocket(endpoint) { const info = await lstat(endpoint).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error)); if (!info) return false; if (!info.isSocket()) throw new Error('refusing to remove non-socket broker endpoint'); await unlink(endpoint); return true; }

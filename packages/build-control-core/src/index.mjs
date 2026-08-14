@@ -13,7 +13,7 @@ const digest = /^[a-f0-9]{64}$/;
 const managedToolNames = new Set(['cargo', 'rustup', 'rustc', 'rustdoc', 'swift', 'cmake', 'make', 'cc', 'clang', 'gcc', 'node', 'node-gyp', 'pnpm', 'npm']);
 const redirectEnvironment = /^(?:CARGO_(?:HOME|TARGET_DIR|BUILD_TARGET_DIR|BUILD_BUILD_DIR|BUILD_RUSTC|BUILD_RUSTDOC|BUILD_RUSTC_WRAPPER|BUILD_RUSTC_WORKSPACE_WRAPPER|BUILD_RUSTFLAGS|ENCODED_RUSTFLAGS|INSTALL_ROOT)|RUSTUP_HOME|RUSTC|RUSTDOC|RUSTFLAGS|RUSTDOCFLAGS|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|TMPDIR|TMP|TEMP|TEMP_DIR|PNPM_HOME|NPM_CONFIG_(?:CACHE|STORE_DIR|STATE_DIR|VIRTUAL_STORE_DIR|PREFIX|NODE_GYP|TMP|USERCONFIG|GLOBALCONFIG|NODEDIR|DEV_DIR|PYTHON)|NODE_GYP|NODE_PATH|CC|CXX|CMAKE_(?:BUILD|INSTALL|PREFIX)_?PATH|SWIFTPM_(?:CACHE|BUILD|MODULECACHE)_PATH)$/;
 export const MANAGED_RUST_ENVIRONMENT_KEYS = Object.freeze([
-  'CARGO_HOME', 'CARGO_TARGET_DIR', 'CARGO_BUILD_TARGET_DIR', 'CARGO_BUILD_BUILD_DIR',
+  'CARGO_HOME', 'CARGO_TARGET_DIR', 'CARGO_BUILD_TARGET', 'CARGO_BUILD_TARGET_DIR', 'CARGO_BUILD_BUILD_DIR',
   'CARGO_BUILD_RUSTC', 'CARGO_BUILD_RUSTDOC', 'CARGO_BUILD_RUSTC_WRAPPER',
   'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_RUSTFLAGS',
   'CARGO_ENCODED_RUSTFLAGS', 'CARGO_INSTALL_ROOT', 'RUSTUP_HOME', 'RUSTC', 'RUSTDOC',
@@ -140,7 +140,7 @@ function isForbiddenOutput(relativePath) {
   return segments.length >= 2 && segments.at(-2) === '.right-release' && name === 'cache';
 }
 
-export async function scanWorkspaceForUnmanagedOutputReceipt(workspace, { readdir = defaultReaddir, lstat = defaultLstat, maxEntries = 10_000, maxDepth = 32, timeoutMs = 1_000, allowedRelativePaths = [], now = Date.now } = {}) {
+export async function scanWorkspaceForUnmanagedOutputReceipt(workspace, { readdir = defaultReaddir, lstat = defaultLstat, maxEntries = 100_000, maxDepth = 32, timeoutMs = 30_000, allowedRelativePaths = [], now = Date.now } = {}) {
   if (!isAbsolute(workspace) || !Number.isInteger(maxEntries) || maxEntries < 1 || !Number.isInteger(maxDepth) || maxDepth < 0 || !Number.isFinite(timeoutMs) || timeoutMs <= 0 || typeof now !== 'function') throw new TypeError('absolute workspace & positive entry, depth, and time caps are required');
   const root = normalize(workspace); const startedAt = now();
   const assertWithinLimits = () => {
@@ -160,6 +160,7 @@ export async function scanWorkspaceForUnmanagedOutputReceipt(workspace, { readdi
   async function scan(directory, parentRelative = '', depth = 0) {
     assertWithinLimits();
     const names = await withinDeadline(() => readdir(directory));
+    if (parentRelative && names.includes('.git')) return;
     for (const name of names) {
       assertWithinLimits();
       if (LOCAL_OUTPUT_SCAN_POLICY.skippedDirectoryNames.includes(name)) continue;

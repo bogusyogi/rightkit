@@ -111,6 +111,15 @@ test('workspace scanner skips dependency/vendor trees but still scans sibling so
     assert.deepEqual(await scanWorkspaceForUnmanagedOutputs(workspace, { maxEntries: 4 }), ['app/target']);
   } finally { await rm(workspace, { recursive: true, force: true }); }
 });
+test('workspace scanner treats nested Git checkouts as separate workspaces', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'rightkit-core-'));
+  try {
+    await mkdir(join(workspace, 'repos/tool/.git'), { recursive: true });
+    await mkdir(join(workspace, 'repos/tool/target'), { recursive: true });
+    await mkdir(join(workspace, 'app/target'), { recursive: true });
+    assert.deepEqual(await scanWorkspaceForUnmanagedOutputs(workspace), ['app/target']);
+  } finally { await rm(workspace, { recursive: true, force: true }); }
+});
 test('workspace scanner fails closed on depth & elapsed-time caps, including hung filesystem calls', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'rightkit-core-'));
   try {

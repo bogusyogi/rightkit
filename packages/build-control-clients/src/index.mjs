@@ -1,7 +1,7 @@
 import { FRONTENDS, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, validateManagedRustupInvocation } from '@rightkit/build-control-core';
 import net from 'node:net';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, isAbsolute, resolve, win32 } from 'node:path';
+import { basename, dirname, isAbsolute, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const adapterRegistry = Object.freeze(Object.fromEntries(FRONTENDS.map((frontend) => [frontend, Object.freeze({ frontend, mode: 'REQUEST_ONLY' })])));
@@ -52,6 +52,19 @@ export function createRightkitRequest({ argv = [], workspace = process.cwd(), en
 }
 
 function normalizedInvocation(frontend, argv, workspace) {
+  if (frontend === 'cargo') {
+    const separator = argv.indexOf('--');
+    const index = argv.findIndex((value, candidate) => (separator < 0 || candidate < separator) && (value === '--manifest-path' || value.startsWith('--manifest-path=')));
+    if (index >= 0) {
+      const manifest = argv[index] === '--manifest-path' ? argv[index + 1] : argv[index].slice('--manifest-path='.length);
+      if (manifest) {
+        const selected = resolve(workspace, manifest); const values = [...argv];
+        if (values[index] === '--manifest-path') values[index + 1] = selected; else values[index] = `--manifest-path=${selected}`;
+        return { argv: values, workspace: dirname(selected) };
+      }
+    }
+    return { argv, workspace };
+  }
   if (frontend !== 'node-pnpm') return { argv, workspace };
   const values = [...argv];
   for (let index = 0; index < values.length; index += 1) {
@@ -171,6 +184,7 @@ export async function installAgentShims({ directory, platform = process.platform
   const isPlatformAbsolute = platform === 'win32' ? win32.isAbsolute : isAbsolute;
   if (![launcher, rightkitLauncher, nodePath].every((value) => typeof value === 'string' && isPlatformAbsolute(value))) throw new TypeError('launcher, rightkit launcher, and node path must be absolute');
   const target = resolve(directory);
+  const defaultBrokerEndpoint = platform === 'win32' ? null : resolve(target, '..', 'broker.sock');
   const manifest = shimManifest({ installRoot: target });
   const names = manifest.links.map(({ name }) => platform === 'win32' ? `${name}.cmd` : name);
   const previous = await existingInstall(target);
@@ -189,8 +203,9 @@ export async function installAgentShims({ directory, platform = process.platform
   } else {
     for (const { name } of manifest.links) {
       const executable = name === 'rightkit' ? rightkitLauncher : launcher;
+      const endpoint = `if [ -z "$RIGHTKIT_BUILD_BROKER_SOCKET" ]; then export RIGHTKIT_BUILD_BROKER_SOCKET=${shellQuote(defaultBrokerEndpoint)}; fi\n`;
       const identity = name === 'rightkit' ? '' : `export RIGHTKIT_MANAGED_AGENT_SHIM=${shellQuote(name)}\n`;
-      const wrapper = `#!/bin/sh\n# ${INSTALL_MARKER}\n${identity}exec ${shellQuote(nodePath)} ${shellQuote(executable)} "$@"\n`;
+      const wrapper = `#!/bin/sh\n# ${INSTALL_MARKER}\n${endpoint}${identity}exec ${shellQuote(nodePath)} ${shellQuote(executable)} "$@"\n`;
       const destination = resolve(target, name);
       await writeAtomic(destination, wrapper, 0o755);
       await chmod(destination, 0o755);
