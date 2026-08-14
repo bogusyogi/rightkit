@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { createCovenantRecord, digestValue } from '/Volumes/D/claude/tools/skills/covenant/lib/contracts.mjs';
+import { createCovenantRecord, digestValue } from '/Volumes/D/claude/tools/skills/legion/skills/covenant/lib/contracts.mjs';
 
 const req1 = JSON.parse(readFileSync(new URL('./cargo-cache-round1-request.json', import.meta.url), 'utf8'));
 const req2 = JSON.parse(readFileSync(new URL('./cargo-cache-round2-request.json', import.meta.url), 'utf8'));

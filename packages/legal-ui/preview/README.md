@@ -45,6 +45,6 @@ node tools/rightkit/packages/legal-ui/preview/shoot.mjs
 ```
 
 Shoots all five variants via the shared QA headless-Chrome/CDP engine
-(`tools/skills/qa/scripts/qa.mjs --shot`) into `.preview/<appKey>-light.png`,
+(`tools/skills/legion/lib/qa-engine/qa.mjs --shot`) into `.preview/<appKey>-light.png`,
 then writes `.preview/contact-sheet.html` referencing the five PNGs in a
 two-column grid.
