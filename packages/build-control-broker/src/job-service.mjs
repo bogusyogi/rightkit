@@ -568,9 +568,10 @@ export function createManagedJobServer({ service, endpoint, maxRequestBytes = 10
       if (socket.destroyed || detached) return false;
       const line = `${JSON.stringify(event)}\n`;
       if (Buffer.byteLength(line) > maxPendingBytes || socket.writableLength + Buffer.byteLength(line) > maxPendingBytes) { detached = true; return false; }
-      // false means Node accepted this one bounded frame but its high-water mark
-      // is full. Detach now; never queue unbounded future output for this watcher.
-      if (!socket.write(line)) { detached = true; return false; }
+      // `write(false)` means this bounded frame was accepted & callers should
+      // wait for drain; it is not data loss. The explicit writableLength cap
+      // above remains the authority for detaching a slow watcher.
+      socket.write(line);
       return true;
     };
     socket.on('data', async (chunk) => {
