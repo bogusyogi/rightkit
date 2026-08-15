@@ -1,9 +1,14 @@
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { loadWindowsJobAddon } from './windows-job.mjs';
 
 const launcherPath = fileURLToPath(new URL('./managed-launcher.mjs', import.meta.url));
 const closedChildren = new WeakSet();
 const startupPromises = new WeakMap();
+// Job/process handles are process-local & die with this broker process, so
+// they cannot survive a restart — reapPersistedProcessTree therefore never
+// reads this map; see its own doc comment for the cross-restart fallback.
+const windowsJobHandles = new WeakMap();
 
 /** Windows startup stays fail-closed until a native Job Object owner exists. */
 export const WINDOWS_CONTAINMENT_CONTRACT = Object.freeze({
@@ -15,16 +20,30 @@ function windowsContainmentError() { return Object.assign(new Error(WINDOWS_CONT
 
 export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpawn) {
   if (typeof command !== 'string' || !command || !Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) throw new TypeError('managed command & argv are required');
-  const { platform = process.platform, ...spawnOptions } = options;
-  if (platform === 'win32') throw windowsContainmentError();
+  const { platform = process.platform, loadJobAddon = loadWindowsJobAddon, ...spawnOptions } = options;
   const payload = Buffer.from(JSON.stringify({ command, argv }), 'utf8').toString('base64url');
-  const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: ['ignore', spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: platform !== 'win32' });
+  if (platform === 'win32') {
+    const addon = loadJobAddon();
+    if (!addon) throw windowsContainmentError();
+    const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: ['ignore', spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: false });
+    // Immediately, before any await: Node's IPC channel requires spawn() to
+    // own process creation (see windows_job.c's header for why the native
+    // CREATE_SUSPENDED path cannot be used for the IPC-bearing launcher), so
+    // containment is layered on right after — the residual race is documented
+    // in assignRunningProcessToNewJob's own comment.
+    if (!Number.isSafeInteger(child.pid) || child.pid < 1) throw new Error('managed launcher did not report a pid to contain');
+    const handles = addon.assignRunningProcessToNewJob(child.pid);
+    windowsJobHandles.set(child, handles);
+    observeClose(child);
+    child.once('close', () => { try { addon.closeProcessHandle(handles.processHandle); } catch { /* best effort */ } });
+    return child;
+  }
+  const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: ['ignore', spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: true });
   observeClose(child); return child;
 }
 
 /** Send START only after ownership persistence; resolve after payload spawn. */
 export function startManagedProcess(child, { timeoutMs = 30_000, platform = process.platform } = {}) {
-  if (platform === 'win32') throw windowsContainmentError();
   if (!child || typeof child.send !== 'function' || !child.connected) throw new Error('managed launcher IPC is unavailable');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new TypeError('positive launcher start timeout is required');
   const existing = startupPromises.get(child); if (existing) return existing;
@@ -56,7 +75,6 @@ export function startManagedProcess(child, { timeoutMs = 30_000, platform = proc
 export function managedProcessOwnership(child, { platform = process.platform, identity, uid = process.getuid?.(), sessionId = child?.pid } = {}) {
   if (!child || !Number.isSafeInteger(child.pid) || child.pid < 1) throw new TypeError('spawned child with pid is required');
   if (typeof platform !== 'string' || !platform) throw new TypeError('supported process platform is required');
-  if (platform === 'win32') throw windowsContainmentError();
   const observedIdentity = identityValue(identity);
   if (platform !== 'win32' && (!Number.isSafeInteger(uid) || uid < 0 || !Number.isSafeInteger(sessionId) || sessionId < 1)) throw new TypeError('POSIX ownership requires uid & session id');
   return Object.freeze({ pid: child.pid, processGroupId: platform === 'win32' ? null : child.pid, platform: platform === 'win32' ? 'win32' : 'posix', identity: observedIdentity, ...(platform === 'win32' ? {} : { uid, sessionId }) });
@@ -70,7 +88,7 @@ export function managedProcessOwnership(child, { platform = process.platform, id
 export async function readProcessIdentity(pid, ownership = null, { platform = process.platform, readFile, execFile = nodeExecFile, timeoutMs = 250 } = {}) {
   if (!Number.isSafeInteger(pid) || pid < 1) throw new TypeError('positive process pid is required');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new TypeError('positive process identity timeout is required');
-  if (ownership?.platform === 'win32' || platform === 'win32') return unavailable('windows-job-object-unsupported');
+  if (ownership?.platform === 'win32' || platform === 'win32') return readWindowsIdentity(pid, { execFile, timeoutMs });
   if (platform === 'linux') return readLinuxIdentity(pid, { readFile, timeoutMs });
   if (platform === 'darwin') return readMacosIdentity(pid, { execFile, timeoutMs });
   return unavailable('process-identity-platform-unsupported');
@@ -87,14 +105,31 @@ export async function readManagedProcessIdentity(pid, { attempts = 4, timeoutMs 
   return observed;
 }
 
-export async function terminateProcessTree(child, { platform = process.platform, graceMs = 5_000, kill = process.kill, spawn = nodeSpawn, execFile = nodeExecFile, uid = process.getuid?.(), psTimeoutMs = 250 } = {}) {
+export async function terminateProcessTree(child, { platform = process.platform, graceMs = 5_000, kill = process.kill, spawn = nodeSpawn, execFile = nodeExecFile, uid = process.getuid?.(), psTimeoutMs = 250, loadJobAddon = loadWindowsJobAddon } = {}) {
   if (!child || !Number.isSafeInteger(child.pid) || child.pid < 1) throw new TypeError('spawned child with pid is required');
   if (!Number.isSafeInteger(graceMs) || graceMs < 0) throw new TypeError('graceMs must be non-negative');
   if (!Number.isSafeInteger(psTimeoutMs) || psTimeoutMs < 1) throw new TypeError('positive process enumeration timeout is required');
   observeClose(child);
   if (platform === 'win32') {
-    // taskkill is only best-effort. Without a Job Object it cannot certify all
-    // descendants, so callers must treat this as REAP_PENDING.
+    const handles = windowsJobHandles.get(child);
+    const addon = handles ? loadJobAddon() : null;
+    if (handles && addon) {
+      // Certain kill: closing the job (after an explicit TerminateJobObject)
+      // takes every process it contains with it, not just the launcher —
+      // this is the actual "reap the whole tree" guarantee taskkill /T can't
+      // make (it walks a parent-PID snapshot, which a fast-exiting parent
+      // can already have made stale).
+      if (!alreadyExited(child)) { addon.terminateJob(handles.jobHandle); await waitForExit(child, graceMs); }
+      windowsJobHandles.delete(child);
+      // TerminateJobObject is immediate & forceful, unlike the POSIX
+      // SIGTERM-then-SIGKILL escalation path — there is no graceful step to
+      // report, so escalated is unconditionally true here.
+      return alreadyExited(child) ? reaped(true) : reapPending('process-still-live', true);
+    }
+    // No job handle: either the addon was unavailable at spawn time (already
+    // fail-closed then) or this child was never spawned through
+    // spawnManagedProcess. taskkill is best-effort only — REAP_PENDING is
+    // correct here, not REAPED.
     if (!alreadyExited(child)) { await runTaskkill(child.pid, false, spawn); if (!await waitForExit(child, graceMs)) { await runTaskkill(child.pid, true, spawn); await waitForExit(child, graceMs); } }
     return reapPending('windows-job-object-unsupported', !alreadyExited(child));
   }
@@ -118,9 +153,41 @@ export async function terminateProcessTree(child, { platform = process.platform,
  * `readIdentity(pid, ownership)` is deliberately injected. Platform-specific
  * start-time/creation-token readers belong outside this portable module.
  */
-export async function reapPersistedProcessTree(ownership, { graceMs = 5_000, kill = process.kill, spawn = nodeSpawn, readIdentity, platform = process.platform, execFile = nodeExecFile, uid = process.getuid?.(), psTimeoutMs = 250 } = {}) {
+/**
+ * Windows cross-restart reap of a process this broker process did not spawn.
+ * The live job handle from spawnManagedProcess is process-local & gone after
+ * a restart — Win32 has no persisted-group-signalling equivalent to POSIX's
+ * pgid enumeration, so this cannot certify a whole descendant tree the way
+ * the live-process terminateProcessTree path can.
+ *
+ * In the common case this finds nothing to do: an anonymous Job Object with
+ * JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE is torn down by the OS the instant the
+ * owning process's last handle closes — which happens automatically on ANY
+ * process exit, crash or graceful, with no code required to run. So a prior
+ * broker's death should already have killed its whole managed tree before
+ * this ever executes. This function exists for the residual case where that
+ * did not happen (e.g. a handle was duplicated out-of-band): it verifies the
+ * persisted PID via creation-time identity (immune to PID reuse, same as the
+ * POSIX path), then terminates that single verified process if still alive.
+ */
+export async function reapPersistedProcessTree(ownership, { graceMs = 5_000, kill = process.kill, spawn = nodeSpawn, readIdentity = readProcessIdentity, platform = process.platform, execFile = nodeExecFile, uid = process.getuid?.(), psTimeoutMs = 250, loadJobAddon = loadWindowsJobAddon } = {}) {
   if (!ownership || !Number.isSafeInteger(ownership.pid) || ownership.pid < 1 || !['win32', 'posix'].includes(ownership.platform)) throw new TypeError('persisted process ownership is required');
-  if (ownership.platform === 'win32') return reapPending('windows-job-object-unsupported');
+  if (ownership.platform === 'win32') {
+    const addon = loadJobAddon();
+    if (!addon) return reapPending('windows-job-object-unsupported');
+    const identity = await persistedIdentity(ownership, readIdentity);
+    // A missing identity token means we cannot rule out PID reuse; refuse
+    // rather than risk terminating an unrelated process that reused the pid.
+    if (!identity.matches) return reapPending(identity.reason);
+    if (!addon.isPidAlive(ownership.pid)) return reaped(false);
+    try {
+      const handles = addon.assignRunningProcessToNewJob(ownership.pid);
+      addon.terminateJob(handles.jobHandle);
+    } catch (error) { return reapPending(error?.message ?? 'process-termination-failed'); }
+    const deadline = Date.now() + graceMs;
+    while (addon.isPidAlive(ownership.pid)) { if (Date.now() >= deadline) return reapPending('process-still-live', true); await new Promise((resolve) => setTimeout(resolve, Math.min(25, Math.max(1, deadline - Date.now())))); }
+    return reaped(true);
+  }
   const processGroupId = Number.isSafeInteger(ownership.processGroupId) && ownership.processGroupId > 0 ? ownership.processGroupId : ownership.pid;
   const scope = persistedScope(ownership, { uid, processGroupId });
   if (!scope) return reapPending('process-group-scope-missing');
@@ -210,6 +277,21 @@ async function readLinuxIdentity(pid, { readFile = defaultReadFile, timeoutMs })
     const starttime = fields[19];
     return /^\d+$/.test(starttime ?? '') ? available(`linux:${pid}:${starttime}`) : unavailable('process-identity-malformed');
   } catch (error) { return unavailable(error?.code === 'RK_PROCESS_IDENTITY_TIMEOUT' ? 'process-identity-timeout' : 'process-identity-unavailable'); }
+}
+/** CreationDate is a WMI-formatted timestamp string unique enough to detect
+ * PID reuse the same way Linux's proc starttime & macOS's `ps lstart` do —
+ * a reused pid gets a new creation time, so a stale identity never matches. */
+async function readWindowsIdentity(pid, { execFile, timeoutMs }) {
+  if (typeof execFile !== 'function') return unavailable('process-identity-reader-missing');
+  try {
+    const source = String(await bounded(runPowerShellCreationDate(execFile, pid, timeoutMs), timeoutMs)).trim();
+    return source ? available(`win32:${pid}:${source}`) : unavailable('process-identity-unavailable');
+  } catch (error) { return unavailable(error?.code === 'RK_PROCESS_IDENTITY_TIMEOUT' ? 'process-identity-timeout' : 'process-identity-unavailable'); }
+}
+function runPowerShellCreationDate(execFile, pid, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', `Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}" | Select-Object -ExpandProperty CreationDate`], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 1_024, windowsHide: true }, (error, stdout) => error ? reject(error) : resolve(stdout));
+  });
 }
 async function readMacosIdentity(pid, { execFile, timeoutMs }) {
   try {

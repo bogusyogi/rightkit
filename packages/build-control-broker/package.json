@@ -4,8 +4,21 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.mjs",
-  "bin": { "rightkit-build-broker": "src/broker.mjs", "rightkit-build-cutover-macos": "src/runtime-cutover-macos-cli.mjs" },
-  "scripts": { "test": "node --test --test-concurrency=1 src/*.test.mjs legacy-v1/quarantine.test.mjs", "cutover:macos": "node src/runtime-cutover-macos-cli.mjs" },
+  "bin": {
+    "rightkit-build-broker": "src/broker.mjs",
+    "rightkit-build-cutover-macos": "src/runtime-cutover-macos-cli.mjs",
+    "rightkit-build-cutover-windows": "src/runtime-cutover-windows-cli.mjs",
+    "rightkit-build-bootstrap-macos": "src/bootstrap-macos-cli.mjs",
+    "rightkit-build-bootstrap-windows": "src/bootstrap-windows-cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 src/*.test.mjs legacy-v1/quarantine.test.mjs",
+    "cutover:macos": "node src/runtime-cutover-macos-cli.mjs",
+    "cutover:windows": "node src/runtime-cutover-windows-cli.mjs",
+    "bootstrap:macos": "node src/bootstrap-macos-cli.mjs",
+    "bootstrap:windows": "node src/bootstrap-windows-cli.mjs",
+    "build:windows-job": "cd native/windows-job && node-gyp rebuild"
+  },
   "dependencies": { "@rightkit/build-control-core": "workspace:0.1.0-phase1" },
   "devDependencies": { "@rightkit/build-control-clients": "workspace:0.1.0-phase1" },
   "engines": { "node": ">=24" }

@@ -1,25 +1,22 @@
 #!/usr/bin/env node
 import { execFile as childExecFile } from 'node:child_process';
 import net from 'node:net';
-import { existsSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
 import { promisify } from 'node:util';
 import { readFile, realpath, stat } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { loadBrokerConfig, stripBom } from './config.mjs';
+import { isAbsolute, resolve } from 'node:path';
+import { loadBrokerConfig } from './config.mjs';
 import { installManagedRuntimeMacOS } from './runtime-cutover-macos.mjs';
 import { drainStoppedV1Broker } from './v1-drain.mjs';
 import { reapPersistedProcessTree } from './process-tree.mjs';
+import { absoluteHostPath as absolute, assertDirectory, assertFile, contained, managedDatabasePath, proveManagedRequestsDrained, proveV1Drained, targetAbsent } from './cutover-shared.mjs';
 
 const execDefault = promisify(childExecFile);
 
-const terminalV1States = new Set(['RELEASED', 'FAILED', 'CANCELLED']);
 const required = new Set(['config', 'external-root', 'source-packages', 'source-revision', 'source-tree-digest', 'version', 'label', 'uid', 'endpoint', 'plist', 'v1-state', 'health-workspace']);
 
-function absolute(value, name) {
-  if (typeof value !== 'string' || !isAbsolute(value)) throw new TypeError(`--${name} must be an absolute path`);
-  return resolve(value);
-}
+// Re-exported: these now live in cutover-shared.mjs, shared with the Windows
+// cutover CLI, but kept importable from here for existing callers & tests.
+export { managedDatabasePath, proveManagedRequestsDrained, proveV1Drained };
 
 export function parseMacOSCutoverArgs(argv) {
   const values = {};
@@ -45,62 +42,6 @@ export function parseMacOSCutoverArgs(argv) {
   });
 }
 
-export async function proveV1Drained(statePath, { readFile: load = readFile } = {}) {
-  let state;
-  try { state = JSON.parse(stripBom(await load(statePath, 'utf8'))); }
-  catch (cause) { throw new Error(`cannot prove v1 drain: ${cause.message}`, { cause }); }
-  if (!state || typeof state !== 'object' || Array.isArray(state) || !Array.isArray(state.entries)) throw new Error('cannot prove v1 drain: state lacks entries array');
-  const open = state.entries.filter((entry) => !entry || !terminalV1States.has(entry.state));
-  if (open.length) throw new Error(`cannot prove v1 drain: ${open.length} non-terminal request(s) remain`);
-  return Object.freeze({ statePath, entries: state.entries.length, open: 0 });
-}
-
-// Every request state that still owns a process or a queue slot.
-const managedOpenStates = Object.freeze(['SUBMITTED', 'CLASSIFIED', 'QUEUED', 'ADMITTED', 'STARTING', 'RUNNING', 'REAPING']);
-
-export function managedDatabasePath(config) {
-  const configured = config?.broker?.databasePath;
-  if (typeof configured === 'string' && configured) return resolve(configured);
-  const stateFile = config?.broker?.stateFile;
-  if (typeof stateFile !== 'string' || !stateFile) throw new TypeError('broker databasePath or stateFile is required to prove drain');
-  return resolve(join(dirname(stateFile), `${stateFile.split('/').pop()}.sqlite`));
-}
-
-/**
- * Live v2 admission drain.
- *
- * `proveV1Drained` reads only the legacy state file, so on its own an
- * activation will stop launchd while a managed build is mid-compile, kill it,
- * and still report a clean drain. This inspects the durable v2 store that
- * actually owns running requests, and must run before the service is stopped.
- */
-export function proveManagedRequestsDrained(databasePath, { openDatabase = (path) => new DatabaseSync(path, { readOnly: true, allowExtension: false }), exists = existsSync } = {}) {
-  // A host that has never run the v2 broker has nothing in flight.
-  if (!exists(databasePath)) return Object.freeze({ databasePath, open: 0, present: false, inFlight: Object.freeze([]) });
-  let database;
-  try { database = openDatabase(databasePath); }
-  catch (cause) { throw new Error(`cannot prove managed request drain: ${cause.message}`, { cause }); }
-  try {
-    const placeholders = managedOpenStates.map(() => '?').join(',');
-    const rows = database.prepare(`select id, state from requests where state in (${placeholders})`).all(...managedOpenStates);
-    if (rows.length) throw new Error(`cannot activate while ${rows.length} managed request(s) are in flight: ${rows.map((row) => `${row.id}=${row.state}`).join(', ')}`);
-    return Object.freeze({ databasePath, open: 0, present: true, inFlight: Object.freeze([]) });
-  } catch (error) {
-    // A store predating the requests table cannot be holding a v2 build.
-    if (/no such table/i.test(error.message)) return Object.freeze({ databasePath, open: 0, present: true, inFlight: Object.freeze([]) });
-    throw error;
-  } finally { try { database.close(); } catch { /* closing a read-only handle cannot lose state */ } }
-}
-
-async function assertFile(path, label, statFile = stat) {
-  const metadata = await statFile(path);
-  if (!metadata.isFile()) throw new TypeError(`${label} must be a regular file`);
-}
-async function assertDirectory(path, label, statFile = stat) {
-  const metadata = await statFile(path);
-  if (!metadata.isDirectory()) throw new TypeError(`${label} must be a directory`);
-}
-
 function exactPlistLabel(contents, label) {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`<key>\\s*Label\\s*</key>\\s*<string>\\s*${escaped}\\s*</string>`, 's').test(contents);
@@ -122,12 +63,6 @@ async function stopLegacyLaunchd({ launchdLabel, uid, plistPath, endpoint, execF
   });
   if (listener) throw new Error('v1 broker listener remains reachable after stop');
   return Object.freeze({ stopped: true, target, listener: false });
-}
-function contained(path, root) { const value = relative(root, path); return value === '' || (!value.startsWith('..') && !isAbsolute(value)); }
-
-function targetAbsent(target, processKill = process.kill) {
-  try { processKill(target, 0); return false; }
-  catch (error) { return error?.code === 'ESRCH'; }
 }
 
 export async function proveLegacyOwnershipAbsent(ownership, { reapOwnership = reapPersistedProcessTree, processKill = process.kill } = {}) {

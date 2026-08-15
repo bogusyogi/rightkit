@@ -1,0 +1,237 @@
+#!/usr/bin/env node
+// Recreates the managed broker from nothing but this checkout: config.json, the
+// launchd agent, and the first activation. Everything it writes was previously
+// only ever hand-typed once per machine and never committed anywhere, so a
+// reset machine had no path back except reconstructing this file from memory.
+import { createHash } from 'node:crypto';
+import { execFile as childExecFile, spawnSync } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFile, realpath } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
+
+const execFile = promisify(childExecFile);
+const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
+const REPO_ROOT = resolve(PACKAGE_ROOT, '..', '..', '..', '..');
+const LABEL = 'dev.rightkit.build-control-managed';
+
+// One id per tool the broker may pin. `probe` resolves it on PATH; missing
+// tools are simply omitted; nothing here requires every tool to exist.
+const KNOWN_TOOLS = ['cargo', 'rustc', 'rustdoc', 'rustup', 'sccache', 'pnpm', 'npm', 'swift', 'swiftc', 'cmake', 'make', 'clang', 'gcc'];
+
+export function parseArgs(argv) {
+  const values = { force: false };
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === '--force') { values.force = true; continue; }
+    if (flag === '--external-root') { values.externalRoot = argv[++index]; continue; }
+    if (flag === '--node') { values.nodePath = argv[++index]; continue; }
+    throw new TypeError(`unknown bootstrap argument: ${flag}`);
+  }
+  return values;
+}
+
+export async function sha256File(path) { return createHash('sha256').update(await readFile(path)).digest('hex'); }
+
+export async function which(name) {
+  try { return (await execFile('which', [name])).stdout.trim() || null; }
+  catch { return null; }
+}
+
+/** Probe every known tool on PATH & hash what is actually installed. Never
+ * invents a path: a tool absent from PATH is simply absent from the config. */
+export async function discoverTools() {
+  const tools = [];
+  for (const id of KNOWN_TOOLS) {
+    const path = await which(id);
+    if (!path) continue;
+    const real = await realpath(path);
+    tools.push({ id, path: real, root: dirname(real), sha256: await sha256File(real) });
+  }
+  const cargoAbout = await which('cargo-about');
+  if (cargoAbout) {
+    const real = await realpath(cargoAbout);
+    tools.push({ id: 'cargo-about', path: real, root: dirname(real), sha256: await sha256File(real) });
+  }
+  return tools;
+}
+
+export async function resolveVolumeId(path) {
+  try {
+    const { stdout } = await execFile('diskutil', ['info', '-plist', path]);
+    const match = stdout.match(/<key>VolumeUUID<\/key>\s*<string>([^<]+)<\/string>/);
+    return match?.[1] ?? null;
+  } catch { return null; }
+}
+
+export async function rustcVersionTriple() {
+  try {
+    const { stdout } = await execFile('rustc', ['-vV']);
+    const version = stdout.match(/^release:\s*(\S+)/m)?.[1];
+    const host = stdout.match(/^host:\s*(\S+)/m)?.[1];
+    return version && host ? `stable-${version}-${host}` : null;
+  } catch { return null; }
+}
+
+export function shimTable(tools) {
+  const present = new Set(tools.map((tool) => tool.id));
+  const table = {};
+  for (const id of ['cargo', 'rustc', 'rustdoc', 'rustup', 'pnpm', 'npm', 'swift', 'swiftc', 'cmake', 'make']) if (present.has(id)) table[id] = id;
+  if (present.has('clang')) { table.cc = 'clang'; table['c++'] = 'clang'; table.clang = 'clang'; }
+  if (present.has('gcc')) table.gcc = 'gcc';
+  return table;
+}
+
+/** Doc section 3.3: one fixed heavy-build permit "initially"; raise only after
+ * a measured safe run. These are the same bounds this checkout has actually run
+ * under, not fresh guesses. */
+export function defaultBounds() {
+  return {
+    heartbeatIntervalMs: 5_000, diskSampleIntervalMs: 5_000, processGraceMs: 5_000,
+    retentionMs: 604_800_000, gcIntervalMs: 300_000, statfsTimeoutMs: 1_000, jobDeadlineMs: 0,
+    outputBufferBytes: 8 * 1024 * 1024, outputHeadBytes: 16_384, outputTailBytes: 16_384,
+    eventHistoryEntries: 4_096, eventHistoryBytes: 8 * 1024 * 1024, eventLogMaxBytes: 8 * 1024 * 1024,
+    maintenanceBatchEntries: 128, controlConcurrency: 4, buildConcurrency: 2, workspaceWriteConcurrency: 4,
+    maintenanceConcurrency: 1, priorityAgingMs: 30_000, targetCacheCapBytes: 32 * 1024 ** 3,
+  };
+}
+
+export async function buildConfig({ externalRoot }) {
+  const tools = await discoverTools();
+  const toolchain = (await rustcVersionTriple()) ?? 'stable-aarch64-apple-darwin';
+  const targetTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
+  const otherTriple = targetTriple === 'aarch64-apple-darwin' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwin';
+  return {
+    schemaVersion: 2,
+    broker: {
+      externalRoot: { path: externalRoot, volumeId: (await resolveVolumeId(externalRoot)) ?? 'unknown', mounted: true, writable: true, internal: false },
+      capacityBytes: 200 * 1024 ** 3,
+      stateFile: join(externalRoot, 'state', 'broker.json'),
+      databasePath: join(externalRoot, 'state', 'broker.sqlite'),
+      eventLogPath: join(externalRoot, 'state', 'events.ndjson'),
+      activationFencePath: join(externalRoot, 'state', 'runtime-activation.json'),
+      receiptsDir: join(externalRoot, 'receipts'),
+    },
+    unixSocket: join(externalRoot, 'broker.sock'),
+    windowsPipe: '\\\\.\\pipe\\rightkit-build-control',
+    tools,
+    shims: shimTable(tools),
+    externalCommands: tools.some((tool) => tool.id === 'cargo-about')
+      ? [{ shim: 'cargo', command: 'about', toolId: 'cargo-about', lane: 'CONTROL', digest: tools.find((tool) => tool.id === 'cargo-about').sha256 }]
+      : [],
+    defaults: {
+      toolchain, targetTriple, targetTriples: [targetTriple, otherTriple],
+      buildProfile: 'development', reservationBytes: 16 * 1024 ** 3,
+      // Only referenced when actually discovered: the field is schema-optional,
+      // & pointing it at an unregistered tool id rejects the whole config.
+      ...(tools.some((tool) => tool.id === 'rustc') ? { rustcToolId: 'rustc' } : {}),
+      ...(tools.some((tool) => tool.id === 'rustdoc') ? { rustdocToolId: 'rustdoc' } : {}),
+      cacheMode: 'disabled', cargoBuildJobs: 2,
+    },
+    // Doc section 3.1: never enable during an in-flight release; a deliberate,
+    // separately-decided activation, not a bootstrap default.
+    sccache: { mode: 'disabled', lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 },
+    outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
+    bounds: defaultBounds(),
+  };
+}
+
+export function renderPlist({ nodePath, brokerScript, configPath, home }) {
+  const logs = join(home, 'Library', 'Logs', 'RightKit');
+  const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>EnvironmentVariables</key>
+\t<dict>
+\t\t<key>PATH</key>
+\t\t<string>${escape(process.env.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin')}</string>
+\t\t<key>RIGHTKIT_BUILD_BROKER_SOCKET</key>
+\t\t<string>${escape(join(dirname(configPath), 'broker.sock'))}</string>
+\t</dict>
+\t<key>KeepAlive</key>
+\t<true/>
+\t<key>Label</key>
+\t<string>${escape(LABEL)}</string>
+\t<key>ProcessType</key>
+\t<string>Background</string>
+\t<key>ProgramArguments</key>
+\t<array>
+\t\t<string>${escape(nodePath)}</string>
+\t\t<string>${escape(brokerScript)}</string>
+\t\t<string>${escape(configPath)}</string>
+\t</array>
+\t<key>RunAtLoad</key>
+\t<true/>
+\t<key>StandardErrorPath</key>
+\t<string>${escape(join(logs, 'build-control.stderr.log'))}</string>
+\t<key>StandardOutPath</key>
+\t<string>${escape(join(logs, 'build-control.stdout.log'))}</string>
+</dict>
+</plist>
+`;
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  const externalRoot = resolve(options.externalRoot ?? '/Volumes/D/.rightkit-managed');
+  const home = homedir();
+  const configPath = join(externalRoot, 'config.json');
+  const plistPath = join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`);
+  const v1StatePath = join(externalRoot, 'state', 'broker.json');
+  const nodePath = await realpath(options.nodePath ?? process.execPath);
+
+  mkdirSync(externalRoot, { recursive: true });
+  mkdirSync(join(externalRoot, 'state'), { recursive: true });
+  mkdirSync(join(home, 'Library', 'LaunchAgents'), { recursive: true });
+  mkdirSync(join(home, 'Library', 'Logs', 'RightKit'), { recursive: true });
+
+  if (!existsSync(configPath) || options.force) {
+    const config = await buildConfig({ externalRoot });
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    console.log(`bootstrap-macos: wrote ${configPath} (${config.tools.length} tools discovered)`);
+  } else {
+    console.log(`bootstrap-macos: ${configPath} already exists; pass --force to regenerate`);
+  }
+
+  if (!existsSync(v1StatePath)) {
+    writeFileSync(v1StatePath, `${JSON.stringify({ entries: [] }, null, 2)}\n`);
+    console.log(`bootstrap-macos: wrote empty v1 drain state at ${v1StatePath}`);
+  }
+
+  const brokerScript = join(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
+  writeFileSync(plistPath, renderPlist({ nodePath, brokerScript, configPath, home }));
+  console.log(`bootstrap-macos: wrote ${plistPath}`);
+
+  const uid = Number((await execFile('id', ['-u'])).stdout.trim());
+  const sourceRevision = (await execFile('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'])).stdout.trim();
+  const sourcePackagesRoot = join(REPO_ROOT, 'tools', 'rightkit', 'packages');
+  const sourceTreeDigest = (await execFile('git', ['-C', REPO_ROOT, 'rev-parse', `HEAD:${resolveRelative(REPO_ROOT, sourcePackagesRoot)}`])).stdout.trim();
+
+  const healthWorkspace = join(externalRoot, 'fixture-rust');
+  if (!existsSync(healthWorkspace)) {
+    console.log(`bootstrap-macos: ${healthWorkspace} is missing; the cutover health probe requires a tiny cargo workspace there — see docs/rules/rightkit-broker-recovery.md`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const receipt = await runMacOSCutover({
+    configPath, externalRoot, sourcePackagesRoot, sourceRevision, sourceTreeDigest,
+    version: `bootstrap-${sourceRevision.slice(0, 8)}-${Date.now()}`,
+    launchdLabel: LABEL, uid, endpoint: join(externalRoot, 'broker.sock'),
+    plistPath, v1StatePath, healthWorkspace, timeoutMs: 20_000,
+  });
+  console.log(JSON.stringify(receipt, null, 2));
+  console.log('bootstrap-macos: broker activated');
+}
+
+export function resolveRelative(root, target) {
+  const rel = target.startsWith(`${root}/`) ? target.slice(root.length + 1) : target;
+  return rel.replaceAll('\\', '/');
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });

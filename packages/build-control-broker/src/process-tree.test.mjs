@@ -56,13 +56,20 @@ test('Windows heavy-job startup fails closed before launcher spawn', () => {
   assert.equal(spawned, false);
 });
 
-test('Windows ownership persistence rejects records without native Job Object owner', () => {
-  assert.throws(() => managedProcessOwnership(child(), { platform: 'win32', identity: 'creation-time' }), WINDOWS_CONTAINMENT_CONTRACT);
+test('Windows ownership persistence builds a record with no process-group id, matching win32 having no pgid concept', () => {
+  // Fail-closed containment is enforced once, at spawnManagedProcess — job
+  // assignment already happened by the time ownership is ever recorded, so
+  // this function has nothing left to reject.
+  const record = managedProcessOwnership(child(), { platform: 'win32', identity: 'creation-time' });
+  assert.deepEqual(record, { pid: 41, processGroupId: null, platform: 'win32', identity: 'creation-time' });
 });
 
-test('Windows START gate rejects before payload execution', () => {
-  const launcher = Object.assign(new EventEmitter(), { pid: 61, connected: true, send() { throw new Error('payload must not start'); } });
-  assert.throws(() => startManagedProcess(launcher, { platform: 'win32' }), WINDOWS_CONTAINMENT_CONTRACT);
+test('Windows START gate proceeds: IPC is Node’s own spawn() machinery, not native Job Object surface', () => {
+  let started = false;
+  const launcher = Object.assign(new EventEmitter(), { pid: 61, connected: true, send: (message, callback) => { started = message?.type === 'START'; callback?.(); } });
+  const startup = startManagedProcess(launcher, { platform: 'win32', timeoutMs: 50 });
+  launcher.emit('message', { type: 'STARTED', pid: 62 });
+  return startup.then((result) => { assert.equal(started, true); assert.deepEqual(result, { pid: 62 }); });
 });
 
 test('restart recovery reaps persisted POSIX process group before closure', async () => {
@@ -179,4 +186,75 @@ test('managed launcher identity retries transient bounded probe failures', async
 test('persisted Windows tree is REAP_PENDING because Job Object recovery is unsupported', async () => {
   const result = await reapPersistedProcessTree({ pid: 54, platform: 'win32', identity: 'creation-time' });
   assert.deepEqual(result, { status: 'REAP_PENDING', reaped: false, escalated: false, reason: 'windows-job-object-unsupported' });
+});
+
+test('Windows spawn assigns the launcher to a new job immediately, before any await, when the addon is present', () => {
+  const calls = [];
+  const fakeAddon = {
+    assignRunningProcessToNewJob: (pid) => { calls.push(['assign', pid]); return { processHandle: 'ph', jobHandle: 'jh' }; },
+    closeProcessHandle: (handle) => { calls.push(['closeProcessHandle', handle]); },
+  };
+  const spawnedChild = Object.assign(new EventEmitter(), { pid: 777, exitCode: null, signalCode: null });
+  const spawn = () => spawnedChild;
+  const result = spawnManagedProcess('binary', ['build'], { platform: 'win32', loadJobAddon: () => fakeAddon }, spawn);
+  assert.equal(result, spawnedChild);
+  assert.deepEqual(calls, [['assign', 777]]);
+  // The processHandle is released once the child actually closes, not before.
+  spawnedChild.emit('close', 0, null);
+  assert.deepEqual(calls, [['assign', 777], ['closeProcessHandle', 'ph']]);
+});
+
+test('Windows terminate uses the job handle for a certain whole-tree kill when the addon assigned one at spawn', async () => {
+  const calls = [];
+  const fakeAddon = { assignRunningProcessToNewJob: (pid) => ({ processHandle: 'ph', jobHandle: `jh-${pid}` }), closeProcessHandle: () => {}, terminateJob: (handle) => { calls.push(['terminateJob', handle]); } };
+  const target = Object.assign(new EventEmitter(), { pid: 888, exitCode: null, signalCode: null });
+  const spawned = spawnManagedProcess('binary', ['build'], { platform: 'win32', loadJobAddon: () => fakeAddon }, () => target);
+  queueMicrotask(() => { spawned.exitCode = 0; spawned.emit('close', 0, null); });
+  const result = await terminateProcessTree(spawned, { platform: 'win32', graceMs: 50, loadJobAddon: () => fakeAddon });
+  assert.deepEqual(calls, [['terminateJob', 'jh-888']]);
+  assert.equal(result.status, 'REAPED');
+});
+
+test('Windows terminate falls back to taskkill for a child never spawned through spawnManagedProcess, even with the addon present', async () => {
+  const target = child();
+  const calls = [];
+  const spawn = (_command, argv) => { calls.push(argv); const taskkill = new EventEmitter(); queueMicrotask(() => taskkill.emit('close', 0)); if (argv.includes('/F')) { target.exitCode = 1; queueMicrotask(() => target.emit('close', 1)); } return taskkill; };
+  const fakeAddon = { terminateJob: () => { throw new Error('must not be called: this child has no recorded job handle'); } };
+  const result = await terminateProcessTree(target, { platform: 'win32', graceMs: 1, spawn, loadJobAddon: () => fakeAddon });
+  assert.equal(result.status, 'REAP_PENDING'); assert.equal(result.reason, 'windows-job-object-unsupported');
+});
+
+test('Windows persisted reap verifies creation-time identity before touching an unrelated reused pid', async () => {
+  const fakeAddon = { isPidAlive: () => true, assignRunningProcessToNewJob: () => { throw new Error('must not terminate: identity does not match'); } };
+  const result = await reapPersistedProcessTree(
+    { pid: 999, platform: 'win32', identity: 'win32:999:20260101000000.000000' },
+    { platform: 'win32', loadJobAddon: () => fakeAddon, readIdentity: async () => ({ status: 'OK', identity: 'win32:999:20260102000000.000000' }) },
+  );
+  assert.equal(result.status, 'REAP_PENDING'); assert.equal(result.reason, 'process-identity-mismatch');
+});
+
+test('Windows persisted reap is a no-op when the OS already tore the job down on the prior broker’s exit', async () => {
+  const fakeAddon = { isPidAlive: () => false, assignRunningProcessToNewJob: () => { throw new Error('must not be called: already dead'); } };
+  const result = await reapPersistedProcessTree(
+    { pid: 1000, platform: 'win32', identity: 'win32:1000:t' },
+    { platform: 'win32', loadJobAddon: () => fakeAddon, readIdentity: async () => ({ status: 'OK', identity: 'win32:1000:t' }) },
+  );
+  assert.deepEqual(result, { status: 'REAPED', reaped: true, escalated: false });
+});
+
+test('Windows persisted reap terminates the verified survivor via a fresh job assignment', async () => {
+  const calls = []; let alive = true;
+  const fakeAddon = {
+    isPidAlive: (pid) => { calls.push(['isPidAlive', pid]); return alive; },
+    assignRunningProcessToNewJob: (pid) => { calls.push(['assign', pid]); return { jobHandle: 'jh' }; },
+    terminateJob: (handle) => { calls.push(['terminateJob', handle]); alive = false; },
+  };
+  const result = await reapPersistedProcessTree(
+    { pid: 1001, platform: 'win32', identity: 'win32:1001:t' },
+    { platform: 'win32', graceMs: 100, loadJobAddon: () => fakeAddon, readIdentity: async () => ({ status: 'OK', identity: 'win32:1001:t' }) },
+  );
+  assert.deepEqual(result, { status: 'REAPED', reaped: true, escalated: true });
+  assert.deepEqual(calls[0], ['isPidAlive', 1001]);
+  assert.deepEqual(calls[1], ['assign', 1001]);
+  assert.deepEqual(calls[2], ['terminateJob', 'jh']);
 });
