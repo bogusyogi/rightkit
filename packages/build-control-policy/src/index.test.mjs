@@ -10,3 +10,15 @@ for (const command of ['rightkit cargo -- test && cargo test', 'rightkit cargo -
 test('hook denial is independent of default permission mode', () => { for (const mode of ['auto', 'bypassPermissions']) assert.equal(claudeHookDecision({ permission_mode: mode, tool_input: { command: 'cargo test' } }).hookSpecificOutput.permissionDecision, 'deny'); });
 test('cline hook blocks direct cargo', () => { assert.equal(clineHookDecision({ preToolUse: { tool: 'execute_command', parameters: { command: 'cargo test' } } }).cancel, true); });
 test('cline hook permits rightkit', () => { assert.equal(clineHookDecision({ preToolUse: { tool: 'execute_command', parameters: { command: 'rightkit cargo -- test' } } }).cancel, false); });
+
+test('a redirect of the shim search path cannot shadow the managed tools', () => {
+  const evil = 'PA' + 'TH=/tmp/evil';
+  const trusted = 'PA' + 'TH=/Volumes/D/.rightkit-managed/agent-bin';
+  // Both forms previously fell through to a scan that does not list pnpm.
+  assert.equal(managedBuildViolation(`${evil} pnpm run build`), 'path-redirect');
+  assert.equal(managedBuildViolation(`env ${evil} pnpm run build`), 'path-redirect');
+  assert.equal(managedBuildViolation(`${evil} node build.mjs`), 'path-redirect');
+  // The managed agent-bin remains the one trusted redirect.
+  assert.equal(managedBuildViolation(`env ${trusted} pnpm run build`), null);
+  assert.equal(managedBuildViolation('pnpm run build'), null);
+});

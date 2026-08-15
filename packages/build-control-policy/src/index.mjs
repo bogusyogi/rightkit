@@ -13,6 +13,11 @@ export function managedBuildViolation(command) {
   // RightKit is permitted only as one uncomposed request: no chained shell,
   // redirect, substitution, or nested command can piggyback on its allow.
   if (/^rightkit(?:\s|$)/.test(trimmed) && !/[;&|$()`<>\n]/.test(trimmed)) return null;
+  // The managed shims are reached through PATH, so redirecting PATH shadows
+  // them and every later check. packageManagerInvocation already refused such a
+  // command, but refusing it only fell through to a scan that does not list the
+  // package managers, so the redirect was silently permitted.
+  if ([...trimmed.matchAll(/(?:^|\s)PATH=([^\s]+)/gi)].some((match) => !trustedAgentPath(match[1]))) return 'path-redirect';
   // Package managers remain available. Their Cargo children inherit the
   // managed Cargo shim from PATH; denying their command line would prevent
   // that routing while also blocking non-Rust package-manager work.
