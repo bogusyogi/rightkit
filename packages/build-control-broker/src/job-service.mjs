@@ -222,6 +222,10 @@ export class ManagedJobService {
       // Own exit before publishing STARTING/RUNNING. Cancellation may arrive as
       // soon as durable state becomes visible; attaching later can lose close.
       job.exit = new Promise((resolve, reject) => { job.child.once('error', reject); job.child.once('close', (code, signal) => resolve({ code, signal })); });
+      // Capture launcher output before START. Fast probes can write & exit before
+      // ownership transitions finish; attaching after RUNNING loses valid data.
+      job.child.stdout?.on('data', (chunk) => this.#output(job, 'STDOUT', chunk));
+      job.child.stderr?.on('data', (chunk) => this.#output(job, 'STDERR', chunk));
       const observed = await readManagedProcessIdentity(job.child.pid);
       if (observed.status !== 'OK') throw Object.assign(new Error(`process identity unavailable: ${observed.reason}`), { code: 'RK_PROCESS_IDENTITY_UNAVAILABLE' });
       const ownership = managedProcessOwnership(job.child, { identity: observed });
@@ -229,8 +233,6 @@ export class ManagedJobService {
       await startManagedProcess(job.child);
       await this.#transition(job, 'STARTING', 'RUNNING', { startedAt: nowIso() });
       if (HEAVY.has(job.capability.lane)) this.#startStorageSampling(job);
-      job.child.stdout?.on('data', (chunk) => this.#output(job, 'STDOUT', chunk));
-      job.child.stderr?.on('data', (chunk) => this.#output(job, 'STDERR', chunk));
       if (job.cancelReason) this.#terminate(job);
       const result = await job.exit;
       await this.#transition(job, 'RUNNING', 'REAPING', { exitCode: result.code, signal: result.signal });
