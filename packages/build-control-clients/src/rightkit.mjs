@@ -13,7 +13,24 @@ try {
     process.stdout.write(`${JSON.stringify(result)}\n`); process.exitCode = result.exitCode ?? 0;
   } else {
     const message = createRightkitRequest({ argv, workspace: process.cwd(), environment: process.env, runtimeIdentity });
-    const result = await submitAndWatchManagedAgentJob(message, { onEvent: streamJobEvent });
+    let requestId; let cancelling;
+    const cancel = (signal) => {
+      if (!requestId || cancelling) return;
+      process.stderr.write(`rightkit: ${signal} cancelling request ${requestId}\n`);
+      cancelling = cancelManagedAgentJob(requestId, { runtimeIdentity })
+        .then((receipt) => process.stderr.write(`rightkit: cancel ${JSON.stringify(receipt)}\n`))
+        .catch((error) => process.stderr.write(`rightkit: cancel failed for ${requestId}: ${error.message}\n`));
+    };
+    const result = await submitAndWatchManagedAgentJob(message, {
+      onEvent: streamJobEvent,
+      onSubmitted(submitted) {
+        requestId = submitted.id;
+        process.stderr.write(`rightkit: request ${requestId}\n`);
+        process.once('SIGINT', () => cancel('SIGINT'));
+        process.once('SIGTERM', () => cancel('SIGTERM'));
+      }
+    });
+    await cancelling;
     if (result.exitCode !== 0 && result.error) process.stderr.write(`rightkit: ${result.error}\n`);
     process.exitCode = result.exitCode;
   }

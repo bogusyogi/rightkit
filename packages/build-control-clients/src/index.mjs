@@ -249,7 +249,9 @@ export function cancelManagedAgentJob(id, options = {}) { return sendJobCommand(
 export async function submitAndWatchManagedAgentJob(message, options = {}) {
   const submitted = await submitManagedAgentJob(message, options);
   if (submitted.type === 'RESULT') return submitted;
-  return watchManagedAgentJob(jobId(submitted?.id), { ...options, runtimeIdentity: message.runtime });
+  const id = jobId(submitted?.id);
+  options.onSubmitted?.(Object.freeze({ id, state: submitted.state }));
+  return watchManagedAgentJob(id, { ...options, runtimeIdentity: message.runtime });
 }
 
 export function shimManifest({ installRoot = '<rightkit-agent-bin>' } = {}) {
