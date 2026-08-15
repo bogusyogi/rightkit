@@ -86,7 +86,7 @@ export class MaintenanceWorker {
    * A walk that exhausts its entry budget reports `complete: false` and
    * undercounts, which can only make cap enforcement more conservative.
    */
-  async measureNamespace({ namespace, generation = null, cacheable = false, maxEntries = 4096 } = {}) {
+  async measureNamespace({ namespace, generation = null, cacheable = false, maxEntries = 1_000_000 } = {}) {
     assertNamespace(namespace); assertLimit(maxEntries, 'maxEntries');
     const key = generation === null ? null : `${namespace}:${generation}`;
     if (key && cacheable && this.#sizeCache.has(key)) return this.#sizeCache.get(key);
@@ -119,7 +119,10 @@ export class MaintenanceWorker {
    * so a cap below the live working set under-reclaims rather than breaking a
    * running build.
    */
-  async capBatch({ capBytes, maxNamespaces = this.#maxBatchEntries, maxNamespacesScanned = 4096, scanEntries = 4096 } = {}) {
+  // A truncated walk undercounts, which would silently stop the cap from ever
+  // triggering, so the per-root budget is sized to complete real target trees;
+  // terminal roots are measured once and cached.
+  async capBatch({ capBytes, maxNamespaces = this.#maxBatchEntries, maxNamespacesScanned = 4096, scanEntries = 1_000_000 } = {}) {
     assertLimit(capBytes, 'capBytes'); assertLimit(maxNamespaces, 'maxNamespaces'); assertLimit(maxNamespacesScanned, 'maxNamespacesScanned');
     const candidates = []; let total = 0;
     for (const name of await this.#listAllNamespaces(maxNamespacesScanned)) {
