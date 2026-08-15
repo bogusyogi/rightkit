@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { execFile as childExecFile } from 'node:child_process';
 import net from 'node:net';
+import { existsSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { promisify } from 'node:util';
 import { readFile, realpath, stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { loadBrokerConfig } from './config.mjs';
 import { installManagedRuntimeMacOS } from './runtime-cutover-macos.mjs';
 import { drainStoppedV1Broker } from './v1-drain.mjs';
@@ -51,6 +53,43 @@ export async function proveV1Drained(statePath, { readFile: load = readFile } = 
   const open = state.entries.filter((entry) => !entry || !terminalV1States.has(entry.state));
   if (open.length) throw new Error(`cannot prove v1 drain: ${open.length} non-terminal request(s) remain`);
   return Object.freeze({ statePath, entries: state.entries.length, open: 0 });
+}
+
+// Every request state that still owns a process or a queue slot.
+const managedOpenStates = Object.freeze(['SUBMITTED', 'CLASSIFIED', 'QUEUED', 'ADMITTED', 'STARTING', 'RUNNING', 'REAPING']);
+
+export function managedDatabasePath(config) {
+  const configured = config?.broker?.databasePath;
+  if (typeof configured === 'string' && configured) return resolve(configured);
+  const stateFile = config?.broker?.stateFile;
+  if (typeof stateFile !== 'string' || !stateFile) throw new TypeError('broker databasePath or stateFile is required to prove drain');
+  return resolve(join(dirname(stateFile), `${stateFile.split('/').pop()}.sqlite`));
+}
+
+/**
+ * Live v2 admission drain.
+ *
+ * `proveV1Drained` reads only the legacy state file, so on its own an
+ * activation will stop launchd while a managed build is mid-compile, kill it,
+ * and still report a clean drain. This inspects the durable v2 store that
+ * actually owns running requests, and must run before the service is stopped.
+ */
+export function proveManagedRequestsDrained(databasePath, { openDatabase = (path) => new DatabaseSync(path, { readOnly: true, allowExtension: false }), exists = existsSync } = {}) {
+  // A host that has never run the v2 broker has nothing in flight.
+  if (!exists(databasePath)) return Object.freeze({ databasePath, open: 0, present: false, inFlight: Object.freeze([]) });
+  let database;
+  try { database = openDatabase(databasePath); }
+  catch (cause) { throw new Error(`cannot prove managed request drain: ${cause.message}`, { cause }); }
+  try {
+    const placeholders = managedOpenStates.map(() => '?').join(',');
+    const rows = database.prepare(`select id, state from requests where state in (${placeholders})`).all(...managedOpenStates);
+    if (rows.length) throw new Error(`cannot activate while ${rows.length} managed request(s) are in flight: ${rows.map((row) => `${row.id}=${row.state}`).join(', ')}`);
+    return Object.freeze({ databasePath, open: 0, present: true, inFlight: Object.freeze([]) });
+  } catch (error) {
+    // A store predating the requests table cannot be holding a v2 build.
+    if (/no such table/i.test(error.message)) return Object.freeze({ databasePath, open: 0, present: true, inFlight: Object.freeze([]) });
+    throw error;
+  } finally { try { database.close(); } catch { /* closing a read-only handle cannot lose state */ } }
 }
 
 async function assertFile(path, label, statFile = stat) {
@@ -103,7 +142,7 @@ export async function proveLegacyOwnershipAbsent(ownership, { reapOwnership = re
  * selection before allowing runtime.mjs to stage or switch runtime-current.
  */
 export async function runMacOSCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopLegacy = stopLegacyLaunchd, drainLegacy = drainStoppedV1Broker, reapOwnership = reapPersistedProcessTree, processKill = process.kill } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopLegacy = stopLegacyLaunchd, drainLegacy = drainStoppedV1Broker, reapOwnership = reapPersistedProcessTree, processKill = process.kill, proveManagedDrain = proveManagedRequestsDrained } = dependencies;
   if (platform !== 'darwin') throw new Error('macOS cutover may only run on darwin');
   const options = typeof input?.configPath === 'string' ? input : parseMacOSCutoverArgs(input);
   const [configPath, externalRoot, sourcePackagesRoot, plistPath, v1StatePath, healthWorkspace] = await Promise.all([
@@ -119,6 +158,9 @@ export async function runMacOSCutover(input, dependencies = {}) {
   const programArguments = plistProgramArguments(plist); const runtimeScript = resolve(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   if (programArguments.length !== 3 || programArguments.some((value) => !isAbsolute(value) || /\s/.test(value)) || resolve(programArguments[1]) !== runtimeScript || resolve(programArguments[2]) !== configPath) throw new Error('plist ProgramArguments must be exact node, runtime-current broker, & config paths');
   const nodePath = await canonicalize(programArguments[0]); await assertFile(nodePath, 'plist Node executable', statFile);
+  // Ordered before stopLegacy on purpose: proving the drain after the service
+  // is stopped would only confirm the build this activation just killed.
+  const managedDrain = proveManagedDrain(managedDatabasePath(config));
   const stopProof = await stopLegacy({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
   const drainResult = await drainLegacy({ statePath: v1StatePath, receiptsDir: config.broker.receiptsDir, assertBrokerStopped: async () => stopProof, assertOwnershipAbsent: async ({ ownership }) => proveLegacyOwnershipAbsent(ownership, { reapOwnership, processKill }) });
   const drain = await proveV1Drained(v1StatePath, { readFile: load });
@@ -127,7 +169,7 @@ export async function runMacOSCutover(input, dependencies = {}) {
     plistPath, configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs,
     drainProbe: async () => ({ open: (await proveV1Drained(v1StatePath, { readFile: load })).open }),
   });
-  return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, plistPath, v1Drain: { ...drain, drainResult, stopProof }, result });
+  return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, plistPath, managedDrain, v1Drain: { ...drain, drainResult, stopProof }, result });
 }
 
 async function main() {
