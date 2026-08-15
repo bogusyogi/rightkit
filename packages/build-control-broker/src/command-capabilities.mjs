@@ -21,8 +21,8 @@ export const DEFAULT_COMMAND_CAPABILITIES = Object.freeze({
   rustup: Object.freeze({
     '--version': control('--version'), '-V': control('-V'), show: control('show')
   }),
-  rustc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), '*': build('rustc') }),
-  rustdoc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), '*': build('rustdoc') })
+  rustc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), probe: control('probe'), '*': build('rustc') }),
+  rustdoc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), probe: control('probe'), '*': build('rustdoc') })
 });
 
 /** Explicit broker-only maintenance operations; no Cargo command maps here. */
@@ -76,7 +76,10 @@ export const classifyBrokerOperation = (operation) => {
 };
 
 function commandFor(shim, argv) {
-  if (shim === 'rustc' || shim === 'rustdoc') return argv.length === 1 && ['--version', '-V', '-vV'].includes(argv[0]) ? argv[0] : '*';
+  if (shim === 'rustc' || shim === 'rustdoc') {
+    if (argv.length === 1 && ['--version', '-V', '-vV'].includes(argv[0])) return argv[0];
+    return isCompilerPrintProbe(argv) ? 'probe' : '*';
+  }
   if (shim === 'rustup') return rustupCommand(argv);
   if (shim !== 'cargo') return null;
   for (let index = 0; index < argv.length; index += 1) {
@@ -90,6 +93,26 @@ function commandFor(shim, argv) {
     return value;
   }
   return null;
+}
+
+const compilerPrints = new Set(['file-names', 'sysroot', 'target-libdir', 'crate-name', 'cfg', 'calling-conventions', 'split-debuginfo', 'deployment-target', 'target-spec-json']);
+const compilerCrateTypes = new Set(['bin', 'rlib', 'dylib', 'cdylib', 'staticlib', 'proc-macro']);
+
+function isCompilerPrintProbe(argv) {
+  let hasPrint = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (value === '-') continue;
+    if (value === '--crate-name' || value === '--target') { if (!argv[++index]) return false; continue; }
+    if (value.startsWith('--crate-name=') || value.startsWith('--target=')) continue;
+    if (value === '--print') { const print = argv[++index]; if (!compilerPrints.has(print)) return false; hasPrint = true; continue; }
+    if (value.startsWith('--print=')) { if (!compilerPrints.has(value.slice(8))) return false; hasPrint = true; continue; }
+    if (value === '--crate-type') { if (!compilerCrateTypes.has(argv[++index])) return false; continue; }
+    if (value.startsWith('--crate-type=')) { if (!value.slice(13).split(',').every((type) => compilerCrateTypes.has(type))) return false; continue; }
+    if (/^-[WAFD][A-Za-z0-9_-]+$/.test(value)) continue;
+    return false;
+  }
+  return hasPrint;
 }
 
 function rustupCommand(argv) {

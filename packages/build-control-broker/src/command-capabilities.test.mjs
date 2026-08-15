@@ -17,6 +17,9 @@ test('compiler version probes are CONTROL while compiler work is BUILD', () => {
   assert.equal(classifyManagedCommand('rustc', ['src/main.rs']).lane, 'BUILD');
   assert.equal(classifyManagedCommand('rustdoc', ['src/lib.rs']).buildCapable, true);
   assert.equal(classifyManagedCommand('rustc', ['-vV', 'src/main.rs']).lane, 'BUILD');
+  const cargoAboutProbe = ['-', '--crate-name', '___', '--print=file-names', '--crate-type', 'bin', '--crate-type', 'rlib', '--print=sysroot', '--print=cfg', '-Wwarnings'];
+  assert.equal(classifyManagedCommand('rustc', cargoAboutProbe).lane, 'CONTROL');
+  assert.equal(classifyManagedCommand('rustc', [...cargoAboutProbe, '-o', '/tmp/escape']).lane, 'BUILD');
 });
 
 test('Cargo commands use explicit CONTROL, BUILD, or WORKSPACE_WRITE lanes', () => {

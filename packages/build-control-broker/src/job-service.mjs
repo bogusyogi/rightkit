@@ -175,7 +175,7 @@ export class ManagedJobService {
     const parentCapabilityToken = randomBytes(32).toString('base64url');
     const suppliedCapabilityToken = message.execution?.capabilityToken ?? null;
     const directArgv = capability.external ? request.argv.filter((value, index) => index !== request.argv.indexOf(capability.command)) : request.argv;
-    const invokeArgv = ['rustc', 'rustdoc'].includes(message.shim) ? normalizeCompilerOutputArgv(directArgv, { compiler: message.shim, outputRoot: join(layout.build, 'raw-compiler'), targetTriple }) : directArgv;
+    const invokeArgv = ['rustc', 'rustdoc'].includes(message.shim) && capability.lane === 'BUILD' ? normalizeCompilerOutputArgv(directArgv, { compiler: message.shim, outputRoot: join(layout.build, 'raw-compiler'), targetTriple }) : directArgv;
     const diagnostics = message.shim === 'rustc' && this.#config.sccache?.mode === 'disabled' ? Object.freeze(['direct-rustc-with-sccache-disabled']) : Object.freeze([]);
     const data = Object.freeze({ id, request, invokeArgv, shim: message.shim, toolId, repositoryIdentity: roots.repositoryRoot, capability, priority, parentId, layout, diagnostics, submittedAt });
     let resolveDone; const done = new Promise((resolve) => { resolveDone = resolve; });
