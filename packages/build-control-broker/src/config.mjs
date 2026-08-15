@@ -11,7 +11,7 @@ const outputPolicyFields = new Set(['mode', 'allowedSourceDirs', 'scanRoot']);
 const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'digest']);
 const sccacheFields = new Set(['mode', 'lifecycleOwner', 'requireOwnershipProof', 'maxSizeBytes']);
 const defaultSccacheMaxSizeBytes = 20 * 1024 ** 3;
-const boundFields = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'processGraceMs', 'freeFloorBytes', 'quotaWatermarkBytes', 'retentionMs', 'gcIntervalMs', 'statfsTimeoutMs', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'eventHistoryEntries', 'eventHistoryBytes', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs', 'targetCacheCapBytes']);
+const boundFields = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'processGraceMs', 'freeFloorBytes', 'quotaWatermarkBytes', 'retentionMs', 'gcIntervalMs', 'statfsTimeoutMs', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'eventHistoryEntries', 'eventHistoryBytes', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs', 'targetCacheCapBytes', 'targetCacheFloorMs']);
 const HEX_256 = /^[a-f0-9]{64}$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -137,7 +137,7 @@ function validateBounds(value, { schemaVersion, capacity }) {
   if (bounds.pollIntervalMs !== undefined && schemaVersion === 2) throw new TypeError('bounds.pollIntervalMs is only accepted by schemaVersion 1');
   const normalized = {};
   // A null target-cache cap means uncapped: age retention alone governs.
-  const nullable = new Set(['quotaWatermarkBytes', 'retentionMs', 'targetCacheCapBytes']);
+  const nullable = new Set(['quotaWatermarkBytes', 'retentionMs', 'targetCacheCapBytes', 'targetCacheFloorMs']);
   const positive = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'gcIntervalMs', 'statfsTimeoutMs', 'eventHistoryEntries', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs']);
   const minimums = new Map([['eventHistoryEntries', 16], ['eventLogMaxBytes', 1024], ['maintenanceBatchEntries', 1], ['controlConcurrency', 1], ['buildConcurrency', 1], ['workspaceWriteConcurrency', 1], ['maintenanceConcurrency', 1], ['outputBufferBytes', 1024]]);
   for (const key of boundFields) if (bounds[key] !== undefined) normalized[key] = nonnegative(bounds[key], `bounds.${key}`, { nullable: nullable.has(key), minimum: minimums.get(key) ?? (positive.has(key) ? 1 : 0) });

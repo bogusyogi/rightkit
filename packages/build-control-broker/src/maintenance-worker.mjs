@@ -6,6 +6,7 @@ const namespaceName = /^[a-f0-9]{64}$/;
 const trashName = /^[a-f0-9-]{37,160}$/;
 const terminalStates = new Set(['RELEASED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 const maxCursorBytes = 4096;
+const maxSizeCacheEntries = 4096;
 
 /**
  * Minimal durable-state seam. Each read returns an immutable namespace snapshot:
@@ -107,7 +108,12 @@ export class MaintenanceWorker {
       } finally { await handle.close().catch(() => {}); }
     }
     const measurement = Object.freeze({ namespace, bytes, complete, scanned });
-    if (key && cacheable && complete) this.#sizeCache.set(key, measurement);
+    // Bounded so a long-lived broker cannot accumulate one entry per retired
+    // namespace generation for its whole lifetime.
+    if (key && cacheable && complete) {
+      if (this.#sizeCache.size >= maxSizeCacheEntries) this.#sizeCache.delete(this.#sizeCache.keys().next().value);
+      this.#sizeCache.set(key, measurement);
+    }
     return measurement;
   }
 
@@ -122,8 +128,12 @@ export class MaintenanceWorker {
   // A truncated walk undercounts, which would silently stop the cap from ever
   // triggering, so the per-root budget is sized to complete real target trees;
   // terminal roots are measured once and cached.
-  async capBatch({ capBytes, maxNamespaces = this.#maxBatchEntries, maxNamespacesScanned = 4096, scanEntries = 1_000_000 } = {}) {
+  async capBatch({ capBytes, evictableBefore = null, maxNamespaces = this.#maxBatchEntries, maxNamespacesScanned = 4096, scanEntries = 1_000_000 } = {}) {
     assertLimit(capBytes, 'capBytes'); assertLimit(maxNamespaces, 'maxNamespaces'); assertLimit(maxNamespacesScanned, 'maxNamespacesScanned');
+    // Without a floor the least-recently-used terminal root is the one just
+    // built, so a workspace permanently over cap would evict its own warm
+    // output every tick and defeat the point of a stable target root.
+    const floor = evictableBefore === null ? null : validTimestamp(evictableBefore, 'evictableBefore');
     const candidates = []; let total = 0;
     for (const name of await this.#listAllNamespaces(maxNamespacesScanned)) {
       if (!namespaceName.test(name)) continue;
@@ -131,7 +141,7 @@ export class MaintenanceWorker {
       if (!metadata || !metadata.isDirectory() || metadata.isSymbolicLink()) continue;
       const stored = await this.#stateStore.getNamespace({ namespace: name });
       const record = stored ? normalizeRecord(stored, name) : null;
-      const eligible = record !== null && eligibleForRetention(record, null);
+      const eligible = record !== null && eligibleForRetention(record, floor);
       const measurement = await this.measureNamespace({ namespace: name, generation: record?.generation ?? null, cacheable: eligible, maxEntries: scanEntries });
       total += measurement.bytes;
       if (eligible) candidates.push({ namespace: name, generation: record.generation, bytes: measurement.bytes, lruAt: record.lruAt ?? record.terminalAt });

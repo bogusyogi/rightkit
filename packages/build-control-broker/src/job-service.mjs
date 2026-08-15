@@ -520,7 +520,11 @@ export class ManagedJobService {
           // Age retention frees nothing while entries are young, so the size cap
           // runs after it and reclaims least-recently-used roots on its own.
           const capBytes = this.#config.bounds?.targetCacheCapBytes;
-          const capped = Number.isSafeInteger(capBytes) && capBytes > 0 ? await this.#maintenance.capBatch({ capBytes }) : null;
+          // Roots used inside the floor stay protected, so a workspace that sits
+          // permanently over cap cannot evict the output it just built.
+          const floorMs = this.#config.bounds?.targetCacheFloorMs ?? 3_600_000;
+          const evictableBefore = new Date(Date.now() - floorMs).toISOString();
+          const capped = Number.isSafeInteger(capBytes) && capBytes > 0 ? await this.#maintenance.capBatch({ capBytes, evictableBefore }) : null;
           if (typeof this.#maintenance.reconcileTrashIntent === 'function') {
             for (const intent of this.#store.pendingTrashIntents?.() ?? []) await this.#maintenance.reconcileTrashIntent(intent);
           }

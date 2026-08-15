@@ -302,3 +302,19 @@ test('cap eviction tolerates a root removed between measurement and rename', asy
     assert.equal(result.skipped.some((entry) => entry.status === 'SKIPPED_ALREADY_ABSENT'), true);
   } finally { await rm(value.root, { recursive: true, force: true }); }
 });
+
+test('size cap never evicts a root used inside the protection floor', async () => {
+  const value = await capFixture();
+  try {
+    const worker = new MaintenanceWorker({ ...value, stateStore: value.store });
+    // Both terminal roots were used after this floor, so nothing may be evicted
+    // even though the total is far above the cap.
+    const protectedPass = await worker.capBatch({ capBytes: 1, evictableBefore: '2025-01-01T00:00:00.000Z' });
+    assert.equal(protectedPass.withinCap, false);
+    assert.deepEqual(protectedPass.moved, []);
+    assert.equal((await lstat(path.join(value.workspacesRoot, older))).isDirectory(), true);
+    // Moving the floor past their last use makes them candidates again.
+    const agedPass = await worker.capBatch({ capBytes: 1, evictableBefore: '2026-06-01T00:00:00.000Z', maxNamespaces: 1 });
+    assert.equal(agedPass.moved[0].namespace, older);
+  } finally { await rm(value.root, { recursive: true, force: true }); }
+});
