@@ -76,6 +76,17 @@ export async function readProcessIdentity(pid, ownership = null, { platform = pr
   return unavailable('process-identity-platform-unsupported');
 }
 
+/** Retry bounded launcher identity reads while its 30-second start gate holds it alive. */
+export async function readManagedProcessIdentity(pid, { attempts = 4, timeoutMs = 1_000, readIdentity = readProcessIdentity } = {}) {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) throw new TypeError('positive process identity attempts are required');
+  let observed = unavailable('process-identity-unavailable');
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    observed = await readIdentity(pid, null, { timeoutMs });
+    if (observed?.status === 'OK') return observed;
+  }
+  return observed;
+}
+
 export async function terminateProcessTree(child, { platform = process.platform, graceMs = 5_000, kill = process.kill, spawn = nodeSpawn, execFile = nodeExecFile, uid = process.getuid?.(), psTimeoutMs = 250 } = {}) {
   if (!child || !Number.isSafeInteger(child.pid) || child.pid < 1) throw new TypeError('spawned child with pid is required');
   if (!Number.isSafeInteger(graceMs) || graceMs < 0) throw new TypeError('graceMs must be non-negative');

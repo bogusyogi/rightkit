@@ -22,7 +22,7 @@ import { rejectWorkspaceCargoConfiguration } from './utilities.mjs';
 import { MaintenanceWorker } from './maintenance-worker.mjs';
 import {
   managedProcessOwnership,
-  readProcessIdentity,
+  readManagedProcessIdentity,
   reapPersistedProcessTree,
   spawnManagedProcess,
   startManagedProcess,
@@ -222,7 +222,7 @@ export class ManagedJobService {
       // Own exit before publishing STARTING/RUNNING. Cancellation may arrive as
       // soon as durable state becomes visible; attaching later can lose close.
       job.exit = new Promise((resolve, reject) => { job.child.once('error', reject); job.child.once('close', (code, signal) => resolve({ code, signal })); });
-      const observed = await readProcessIdentity(job.child.pid);
+      const observed = await readManagedProcessIdentity(job.child.pid);
       if (observed.status !== 'OK') throw Object.assign(new Error(`process identity unavailable: ${observed.reason}`), { code: 'RK_PROCESS_IDENTITY_UNAVAILABLE' });
       const ownership = managedProcessOwnership(job.child, { identity: observed });
       await this.#transition(job, 'ADMITTED', 'STARTING', { ownership, launcherStartedAt: nowIso() });

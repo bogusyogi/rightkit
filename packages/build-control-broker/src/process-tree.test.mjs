@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { WINDOWS_CONTAINMENT_CONTRACT, managedProcessOwnership, readProcessIdentity, reapPersistedProcessTree, spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
+import { WINDOWS_CONTAINMENT_CONTRACT, managedProcessOwnership, readManagedProcessIdentity, readProcessIdentity, reapPersistedProcessTree, spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
 
 const child = () => Object.assign(new EventEmitter(), { pid: 41, exitCode: null, signalCode: null });
 
@@ -160,6 +160,20 @@ test('macOS process identity uses bounded ps lstart through an injected seam', a
 test('identity probe timeout is typed unavailable & requires no live process', async () => {
   const result = await readProcessIdentity(53, null, { platform: 'linux', timeoutMs: 5, readFile: () => new Promise(() => {}) });
   assert.deepEqual(result, { status: 'UNAVAILABLE', reason: 'process-identity-timeout' });
+});
+
+test('managed launcher identity retries transient bounded probe failures', async () => {
+  const timeouts = [];
+  const result = await readManagedProcessIdentity(53, {
+    attempts: 3,
+    timeoutMs: 1_000,
+    readIdentity: async (_pid, _ownership, options) => {
+      timeouts.push(options.timeoutMs);
+      return timeouts.length < 3 ? { status: 'UNAVAILABLE', reason: 'process-identity-timeout' } : { status: 'OK', identity: 'darwin:53:start' };
+    },
+  });
+  assert.deepEqual(result, { status: 'OK', identity: 'darwin:53:start' });
+  assert.deepEqual(timeouts, [1_000, 1_000, 1_000]);
 });
 
 test('persisted Windows tree is REAP_PENDING because Job Object recovery is unsupported', async () => {
