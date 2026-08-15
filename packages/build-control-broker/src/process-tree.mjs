@@ -23,7 +23,7 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
 }
 
 /** Send START only after ownership persistence; resolve after payload spawn. */
-export function startManagedProcess(child, { timeoutMs = 5_000, platform = process.platform } = {}) {
+export function startManagedProcess(child, { timeoutMs = 30_000, platform = process.platform } = {}) {
   if (platform === 'win32') throw windowsContainmentError();
   if (!child || typeof child.send !== 'function' || !child.connected) throw new Error('managed launcher IPC is unavailable');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new TypeError('positive launcher start timeout is required');
