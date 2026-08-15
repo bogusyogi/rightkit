@@ -19,7 +19,7 @@ export const DEFAULT_COMMAND_CAPABILITIES = Object.freeze({
     build: build('build'), check: build('check'), test: build('test'), bench: build('bench'), clippy: build('clippy'), doc: build('doc'), install: build('install'), nextest: external('nextest', 'BUILD', true), run: build('run')
   }),
   rustup: Object.freeze({
-    '--version': control('--version'), '-V': control('-V'), show: control('show')
+    '--version': control('--version'), '-V': control('-V'), show: control('show'), 'target-list-installed': control('target-list-installed')
   }),
   rustc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), probe: control('probe'), '*': build('rustc') }),
   rustdoc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), probe: control('probe'), '*': build('rustdoc') })
@@ -116,6 +116,7 @@ function isCompilerPrintProbe(argv) {
 }
 
 function rustupCommand(argv) {
+  if (isRustupInstalledTargetProbe(argv)) return 'target-list-installed';
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === '--') break;
@@ -126,6 +127,11 @@ function rustupCommand(argv) {
     return value;
   }
   return null;
+}
+
+function isRustupInstalledTargetProbe(argv) {
+  const values = argv.filter((value) => !['--verbose', '-v', '--quiet', '-q'].includes(value));
+  return values.length === 3 && values[0] === 'target' && values[1] === 'list' && values[2] === '--installed';
 }
 
 function isDigestPinned(capability) {
