@@ -101,8 +101,14 @@ test('external roots are deterministic & output scan policy identifies local pay
   const input = { externalRoot: '/Volumes/builds', repositoryIdentity: 'git:abc123', toolchain: 'rust-1.97.1', target: 'aarch64-apple-darwin', buildProfile: 'release', policyProfile: PROFILES.MANAGED_AGENT };
   const first = externalRoots(input); const second = externalRoots(input);
   const debug = externalRoots({ ...input, buildProfile: 'debug', policyProfile: PROFILES.STRICT_SYSTEM });
+  const otherArch = externalRoots({ ...input, target: 'x86_64-apple-darwin' });
+  const otherRepo = externalRoots({ ...input, repositoryIdentity: 'git:def456' });
+  const otherToolchain = externalRoots({ ...input, toolchain: 'rust-1.98.0' });
   assert.deepEqual(first, second); assert.match(first.root, /^\/Volumes\/builds\/rightkit-build-control\/workspaces\/[a-f0-9]{64}$/);
-  assert.equal(first.policyProfile, PROFILES.MANAGED_AGENT); assert.notEqual(first.namespace, debug.namespace);
+  assert.equal(first.policyProfile, PROFILES.MANAGED_AGENT);
+  // Cargo profile & target triple must not split the namespace; Cargo separates them internally.
+  assert.equal(first.namespace, debug.namespace); assert.equal(first.namespace, otherArch.namespace);
+  assert.notEqual(first.namespace, otherRepo.namespace); assert.notEqual(first.namespace, otherToolchain.namespace);
   for (const value of Object.values(first).filter((value) => typeof value === 'string' && value.startsWith('/'))) assert.ok(value.startsWith('/Volumes/builds/rightkit-build-control/'));
   assert.equal(first.cargoHome, '/Volumes/builds/rightkit-build-control/global/cargo-home');
   assert.equal(first.compilerCache, '/Volumes/builds/rightkit-build-control/global/compiler-cache');

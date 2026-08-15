@@ -604,9 +604,9 @@ function storageLayout(config, { repositoryIdentity, buildProfile, targetTriple 
   if (![toolchain, targetTriple].every((value) => typeof value === 'string' && value)) throw new TypeError('broker toolchain & targetTriple are required');
   const base = externalRoots({ externalRoot: root, repositoryIdentity, toolchain, target: targetTriple, buildProfile: 'release', policyProfile: 'MANAGED_AGENT' });
   const global = join(root, 'rightkit-build-control', 'global');
-  const releaseKey = createHash('sha256').update('release').digest('hex').slice(0, 24);
   const toolKey = createHash('sha256').update(toolchain).digest('hex').slice(0, 24);
-  return Object.freeze({ ...base, buildProfile, target: join(base.targets, targetTriple, releaseKey), cargoHome: join(global, 'cargo-home'), rustupHome: join(global, 'toolchains', toolKey), sccache: join(global, 'compiler-cache'), packageCache: join(base.root, 'package-cache'), temp: base.temp });
+  // CARGO_TARGET_DIR is the namespace target root; Cargo creates <triple>/<profile> beneath it.
+  return Object.freeze({ ...base, buildProfile, target: base.targets, cargoHome: join(global, 'cargo-home'), rustupHome: join(global, 'toolchains', toolKey), sccache: join(global, 'compiler-cache'), packageCache: join(base.root, 'package-cache'), temp: base.temp });
 }
 
 function managedRustEnvironment(layout) { return { CARGO_HOME: layout.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, CARGO_BUILD_BUILD_DIR: layout.build, CARGO_INSTALL_ROOT: join(layout.build, 'install'), RUSTUP_HOME: layout.rustupHome }; }

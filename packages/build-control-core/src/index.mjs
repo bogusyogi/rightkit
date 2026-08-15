@@ -278,7 +278,9 @@ export function externalRoots({ externalRoot, repositoryIdentity, toolchain, tar
   if (![repositoryIdentity, toolchain, target, buildProfile].every((value) => typeof value === 'string' && value.length > 0)) throw new TypeError('repository identity, toolchain, target, & build profile are required');
   requireProfile(policyProfile);
   const base = join(normalize(externalRoot), 'rightkit-build-control');
-  const namespace = createHash('sha256').update(JSON.stringify([repositoryIdentity, toolchain, target, buildProfile])).digest('hex');
+  // Target triple & Cargo profile stay out of namespace identity: Cargo owns that separation
+  // inside one CARGO_TARGET_DIR. Including them splits reusable Cargo state per architecture.
+  const namespace = createHash('sha256').update(JSON.stringify([repositoryIdentity, toolchain])).digest('hex');
   const globalRoot = join(base, 'global'); const root = join(base, 'workspaces', namespace);
   const contained = (path) => {
     if (relative(base, path).startsWith('..')) throw new TypeError('external roots must remain contained');
