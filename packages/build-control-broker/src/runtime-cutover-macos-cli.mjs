@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { promisify } from 'node:util';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { loadBrokerConfig } from './config.mjs';
+import { loadBrokerConfig, stripBom } from './config.mjs';
 import { installManagedRuntimeMacOS } from './runtime-cutover-macos.mjs';
 import { drainStoppedV1Broker } from './v1-drain.mjs';
 import { reapPersistedProcessTree } from './process-tree.mjs';
@@ -47,7 +47,7 @@ export function parseMacOSCutoverArgs(argv) {
 
 export async function proveV1Drained(statePath, { readFile: load = readFile } = {}) {
   let state;
-  try { state = JSON.parse(await load(statePath, 'utf8')); }
+  try { state = JSON.parse(stripBom(await load(statePath, 'utf8'))); }
   catch (cause) { throw new Error(`cannot prove v1 drain: ${cause.message}`, { cause }); }
   if (!state || typeof state !== 'object' || Array.isArray(state) || !Array.isArray(state.entries)) throw new Error('cannot prove v1 drain: state lacks entries array');
   const open = state.entries.filter((entry) => !entry || !terminalV1States.has(entry.state));

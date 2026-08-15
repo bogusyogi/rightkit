@@ -229,9 +229,15 @@ export function validateBrokerConfig(value) {
   return freezeConfig(normalized);
 }
 
+// Node's JSON.parse does not strip a leading UTF-8 BOM, and Windows editors
+// (PowerShell's Set-Content/Out-File, Notepad) write one by default. A BOM'd
+// config previously failed as an opaque "Unexpected token" with no hint that
+// the file's own bytes, not its content, were the problem.
+export function stripBom(text) { return typeof text === 'string' && text.charCodeAt(0) === 0xfeff ? text.slice(1) : text; }
+
 export async function loadBrokerConfig(path, { readFile = defaultReadFile } = {}) {
   if (typeof path !== 'string' || !path) throw new TypeError('config path is required');
   let parsed;
-  try { parsed = JSON.parse(await readFile(path, 'utf8')); } catch (error) { throw new TypeError(`invalid broker config: ${error.message}`); }
+  try { parsed = JSON.parse(stripBom(await readFile(path, 'utf8'))); } catch (error) { throw new TypeError(`invalid broker config: ${error.message}`); }
   return validateBrokerConfig(parsed);
 }

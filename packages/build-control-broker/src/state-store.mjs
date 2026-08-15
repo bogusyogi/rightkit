@@ -3,6 +3,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { dirname, isAbsolute, normalize } from 'node:path';
 import { mkdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+// Windows editors write a leading UTF-8 BOM by default; JSON.parse does not
+// strip it. The provenance hash below is intentionally over the RAW bytes, not
+// this stripped view — sourceSha256 must represent the file exactly as found.
+function stripBom(text) { return typeof text === 'string' && text.charCodeAt(0) === 0xfeff ? text.slice(1) : text; }
 
 const TERMINAL_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 const OPEN_STATES = new Set(['SUBMITTED', 'CLASSIFIED', 'QUEUED', 'ADMITTED', 'STARTING', 'RUNNING', 'REAPING']);
@@ -86,7 +90,7 @@ export class DurableStateStore {
     await mkdir(dirname(path), { recursive: true });
     let legacy = null;
     if (legacyStatePath && normalize(legacyStatePath) !== path) {
-      try { const raw = await readFile(normalize(legacyStatePath), 'utf8'); legacy = { value: JSON.parse(raw), sourceSha256: createHash('sha256').update(raw).digest('hex') }; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      try { const raw = await readFile(normalize(legacyStatePath), 'utf8'); legacy = { value: JSON.parse(stripBom(raw)), sourceSha256: createHash('sha256').update(raw).digest('hex') }; } catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
     return new DurableStateStore(path, legacy);
   }

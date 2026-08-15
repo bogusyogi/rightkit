@@ -105,6 +105,9 @@ test("shared release environment is isolated from the app vault", () => {
   assert.match(env.CARGO_HOME, /RightSuite[\\/]release[\\/]cargo-home$/);
   assert.equal(env.RIGHT_RELEASE_CACHE_OWNER, "rightkit-v2");
   assert.equal(env.SCCACHE_CACHE_SIZE, "32G");
+  // A dropped sccache server connection must fall through to plain rustc
+  // instead of failing the build; seen on Windows as a bare error 10054.
+  assert.equal(env.SCCACHE_IGNORE_SERVER_IO_ERROR, "1");
 });
 
 test("shared release environment honors the cache policy override", () => {

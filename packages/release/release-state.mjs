@@ -94,6 +94,11 @@ export function releaseEnvironment({ root, cacheRoot, platform, architecture, ap
       SCCACHE_CACHE_SIZE: `${policy.sccacheMaxBytes / 1024 ** 3}G`,
       SCCACHE_BASEDIRS: [path.resolve(root), path.resolve(appRoot)].join(path.delimiter),
       RUSTC_WRAPPER: "sccache",
+      // Doc-mandated (architecture section 5): a dropped sccache connection must
+      // fall through to plain rustc, not fail the build. Without this, a single
+      // transient server disconnect (seen on Windows as error 10054) kills a
+      // build that would otherwise have compiled fine uncached.
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1",
       RIGHT_RELEASE_CACHE_OWNER: "rightkit-v2",
     };
   }

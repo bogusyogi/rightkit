@@ -8,6 +8,10 @@ import { promisify } from 'node:util';
 import { BUILD_CONTROL_PROTOCOL, RUNTIME_MANIFEST_SCHEMA, normalizeRuntimeIdentity } from '@rightkit/build-control-core';
 import { spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
 
+// Windows editors (PowerShell Set-Content/Out-File, Notepad) write a leading
+// UTF-8 BOM by default; JSON.parse does not strip it & fails opaquely.
+function stripBom(text) { return typeof text === 'string' && text.charCodeAt(0) === 0xfeff ? text.slice(1) : text; }
+
 const packageNames = ['build-control-broker', 'build-control-core', 'build-control-clients'];
 const execFile = promisify(nodeExecFile);
 export const RUNTIME_ACTIVATION_FENCE_SCHEMA = 'rightkit.build-control.runtime-activation.v1';
@@ -30,7 +34,7 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
     if (afterCopy.sourceRevision !== provenance.sourceRevision || afterCopy.sourceTreeDigest !== provenance.sourceTreeDigest) throw new Error('source provenance changed while staging runtime');
     const immutableRuntime = join(root, `runtime-${contentDigest}`);
     if (await lstat(immutableRuntime).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error))) {
-      const existing = normalizeRuntimeManifest(JSON.parse(await readFile(join(immutableRuntime, 'runtime-manifest.json'), 'utf8')));
+      const existing = normalizeRuntimeManifest(JSON.parse(stripBom(await readFile(join(immutableRuntime, 'runtime-manifest.json'), 'utf8'))));
       if (existing.schema !== manifest.schema || existing.clientDigest !== manifest.clientDigest || existing.brokerDigest !== manifest.brokerDigest || existing.sourceRevision !== manifest.sourceRevision || existing.sourceTreeDigest !== manifest.sourceTreeDigest) throw new Error(`runtime content-address conflict: ${immutableRuntime}`);
       await rm(staging, { recursive: true, force: true });
       return Object.freeze({ runtime: immutableRuntime, version: existing.version, contentDigest, manifest: existing });
@@ -160,19 +164,19 @@ export async function prepareRuntimeActivationFence({ path, manifest }) {
 export async function commitRuntimeActivationFence(activation) {
   if (!activation?.path || !activation?.token || !activation?.tokenDigest || !activation?.runtime) throw new TypeError('prepared runtime activation fence is required');
   if (hash(activation.token) !== activation.tokenDigest) throw new Error('runtime activation token digest mismatch');
-  const pending = JSON.parse(await readFile(activation.path, 'utf8'));
+  const pending = JSON.parse(stripBom(await readFile(activation.path, 'utf8')));
   if (pending.schema !== RUNTIME_ACTIVATION_FENCE_SCHEMA || pending.state !== 'PENDING' || pending.tokenDigest !== activation.tokenDigest || !sameRuntimeIdentity(pending.runtime, activation.runtime)) throw new Error('runtime activation fence changed before commit');
   await atomicWrite(activation.path, { ...pending, state: 'COMMITTED' });
 }
 
 async function removeRuntimeActivationFence(activation) {
   if (!activation?.path) return;
-  const current = await readFile(activation.path, 'utf8').then((value) => JSON.parse(value)).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+  const current = await readFile(activation.path, 'utf8').then((value) => JSON.parse(stripBom(value))).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
   if (current?.state === 'PENDING' && current.tokenDigest === activation.tokenDigest) { await rm(activation.path, { force: true }); await syncDirectory(dirname(activation.path)); }
 }
 
 async function verifyRuntimeBundle(runtime, manifest, contentDigest) {
-  const expected = normalizeRuntimeManifest(manifest); const onDisk = normalizeRuntimeManifest(JSON.parse(await readFile(join(runtime, 'runtime-manifest.json'), 'utf8')));
+  const expected = normalizeRuntimeManifest(manifest); const onDisk = normalizeRuntimeManifest(JSON.parse(stripBom(await readFile(join(runtime, 'runtime-manifest.json'), 'utf8'))));
   if (!sameRuntimeManifest(onDisk, expected)) throw new Error('runtime manifest mismatch');
   if (contentDigest && await digestTree(runtime, { excludeManifest: true }) !== contentDigest) throw new Error('runtime content digest mismatch');
 }
@@ -230,7 +234,7 @@ async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspa
   child.stderr.on('data', (data) => { stderr += data; });
   await startManagedProcess(child, { timeoutMs });
   try {
-    await waitForSocket(endpoint, child, timeoutMs, () => stderr); if (healthWorkspace) await functionalProbe(endpoint, healthWorkspace, timeoutMs, normalizeRuntimeIdentity(JSON.parse(await readFile(join(runtime, 'runtime-manifest.json'), 'utf8'))));
+    await waitForSocket(endpoint, child, timeoutMs, () => stderr); if (healthWorkspace) await functionalProbe(endpoint, healthWorkspace, timeoutMs, normalizeRuntimeIdentity(JSON.parse(stripBom(await readFile(join(runtime, 'runtime-manifest.json'), 'utf8')))));
   } finally {
     if (child.exitCode === null) await terminateProcessTree(child, { graceMs: Math.min(1_000, timeoutMs) });
     await rm(endpoint, { force: true }); await rm(configPath, { force: true }); await rm(probeRoot, { recursive: true, force: true });

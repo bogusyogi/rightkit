@@ -45,6 +45,12 @@ test('config loader wraps invalid JSON & validates parsed values', async () => {
   await assert.rejects(loadBrokerConfig('/config.json', { readFile: async () => JSON.stringify({ ...fixture(), unixSocket: 'relative.sock' }) }), /absolute path/);
 });
 
+test('config loader strips a leading UTF-8 BOM instead of failing opaquely', async () => {
+  // PowerShell's Set-Content/Out-File write this by default on Windows.
+  const config = await loadBrokerConfig('/config.json', { readFile: async () => `﻿${JSON.stringify(fixture())}` });
+  assert.equal(config.broker.externalRoot.path, '/managed');
+});
+
 test('config validates digest-pinned external command registrations', () => {
   const value = addCargoTool(fixture()); value.externalCommands = [{ shim: 'cargo', command: 'about', toolId: 'cargo-pinned', lane: 'CONTROL', digest: 'a'.repeat(64) }];
   const config = validateBrokerConfig(value); assert.equal(config.externalCommands[0].toolId, 'cargo-pinned'); assert.ok(Object.isFrozen(config.externalCommands));

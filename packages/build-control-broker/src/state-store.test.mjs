@@ -120,6 +120,17 @@ test('v1 migration drains, maps terminals, detects unknowns & drift', async () =
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
+test('v1 migration strips a leading UTF-8 BOM instead of failing opaquely', async () => {
+  // PowerShell's Set-Content/Out-File write this by default on Windows.
+  const f = await database(); const legacy = path.join(f.root, 'legacy-bom.json');
+  try {
+    await (await import('node:fs/promises')).writeFile(legacy, `﻿${JSON.stringify({ entries: [{ id: 'r', state: 'RELEASED' }] })}`);
+    const s = await DurableStateStore.open({ databasePath: f.databasePath, legacyStatePath: legacy });
+    assert.equal(s.entry('r').state, 'SUCCEEDED');
+    s.close();
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
 test('request reservations are idempotent, bounded, durable & reconciled', async () => {
   const f = await database(); try { let s = await DurableStateStore.open(f); assert.equal(s.reserve('q', 'disk', 10, 4).idempotent, false); assert.equal(s.reserve('q', 'disk', 10, 4).idempotent, true); assert.throws(() => s.reserve('z', 'disk', 10, 7), /overcommit/); s.create({ id: 'q' }); s.releaseReservation({ requestId: 'q' }); assert.equal(s.releaseReservation({ requestId: 'q' }).idempotent, true); s.close(); s = await DurableStateStore.open(f); assert.deepEqual(s.reservationTotals(), []); s.close(); } finally { await rm(f.root, { recursive: true, force: true }); }
 });
