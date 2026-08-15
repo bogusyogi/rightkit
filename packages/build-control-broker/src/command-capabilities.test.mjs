@@ -11,10 +11,12 @@ test('external Cargo tools fail closed without pinned registration', () => {
   assert.equal(registry.classify('cargo', ['about']).externalToolId, 'cargo-about');
 });
 
-test('registered compiler work is BUILD', () => {
+test('compiler version probes are CONTROL while compiler work is BUILD', () => {
   assert.equal(classifyManagedCommand('cargo', ['--locked', 'build']).lane, 'BUILD');
-  assert.equal(classifyManagedCommand('rustc', ['--version']).lane, 'BUILD');
-  assert.equal(classifyManagedCommand('rustdoc', ['--version']).buildCapable, true);
+  for (const shim of ['rustc', 'rustdoc']) for (const flag of ['--version', '-V', '-vV']) assert.equal(classifyManagedCommand(shim, [flag]).lane, 'CONTROL');
+  assert.equal(classifyManagedCommand('rustc', ['src/main.rs']).lane, 'BUILD');
+  assert.equal(classifyManagedCommand('rustdoc', ['src/lib.rs']).buildCapable, true);
+  assert.equal(classifyManagedCommand('rustc', ['-vV', 'src/main.rs']).lane, 'BUILD');
 });
 
 test('Cargo commands use explicit CONTROL, BUILD, or WORKSPACE_WRITE lanes', () => {

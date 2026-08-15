@@ -21,8 +21,8 @@ export const DEFAULT_COMMAND_CAPABILITIES = Object.freeze({
   rustup: Object.freeze({
     '--version': control('--version'), '-V': control('-V'), show: control('show')
   }),
-  rustc: Object.freeze({ '*': build('rustc') }),
-  rustdoc: Object.freeze({ '*': build('rustdoc') })
+  rustc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), '*': build('rustc') }),
+  rustdoc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), '*': build('rustdoc') })
 });
 
 /** Explicit broker-only maintenance operations; no Cargo command maps here. */
@@ -76,7 +76,7 @@ export const classifyBrokerOperation = (operation) => {
 };
 
 function commandFor(shim, argv) {
-  if (shim === 'rustc' || shim === 'rustdoc') return '*';
+  if (shim === 'rustc' || shim === 'rustdoc') return argv.length === 1 && ['--version', '-V', '-vV'].includes(argv[0]) ? argv[0] : '*';
   if (shim === 'rustup') return rustupCommand(argv);
   if (shim !== 'cargo') return null;
   for (let index = 0; index < argv.length; index += 1) {

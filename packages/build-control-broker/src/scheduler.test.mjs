@@ -20,7 +20,8 @@ test('queued cancellation removes ticket without disturbing active build', async
 });
 
 test('only build-capable Rust enters heavy lane', () => {
-  assert.equal(isBuildCapableRust('cargo', ['test']), true); assert.equal(isBuildCapableRust('rustc', ['--version']), true);
+  assert.equal(isBuildCapableRust('cargo', ['test']), true); assert.equal(isBuildCapableRust('rustc', ['src/main.rs']), true);
+  assert.equal(isBuildCapableRust('rustc', ['--version']), false);
   assert.equal(isBuildCapableRust('cargo', ['metadata']), false); assert.equal(isBuildCapableRust('cargo', ['--version']), false); assert.equal(isBuildCapableRust('pnpm', ['test']), false);
 });
 
