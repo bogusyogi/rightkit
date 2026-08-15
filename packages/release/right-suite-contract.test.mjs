@@ -8,7 +8,9 @@ import test, { after } from "node:test";
 import {
   assertNoRightKitCargoOverrides,
   assertPublishedRightKitCargoDependencies,
+  cargoArguments,
   cargoExecutable,
+  isolatedCargoMetadataEnv,
   validateRightKitCargoContract,
 } from "./cargo-contract.mjs";
 import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
@@ -125,7 +127,7 @@ function readCargoManifestContract(manifestPath, label) {
     {
       cwd: path.dirname(manifestPath),
       encoding: "utf8",
-      env: { ...process.env, CARGO_HOME: isolatedCargoHome },
+      env: isolatedCargoMetadataEnv(isolatedCargoHome),
       windowsHide: true,
     },
   );
@@ -461,15 +463,16 @@ test("RightKit exposes one current version manifest", () => {
   assert.deepEqual(versions.stagedNpm, {
     "@rightkit/ax": "0.2.0",
     "@rightkit/git": "0.2.0",
+    "@rightkit/hooks": "0.1.0",
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.60",
+    "@rightkit/release": "0.2.62",
     "@rightkit/qa": "0.2.0",
   });
   assert.deepEqual(versions.legacyNpm, {
     "@rightkit/legal-ui": ["0.1.0"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61"],
     "@rightkit/qa": ["0.1.0"],
   });
   assert.ok(
@@ -495,9 +498,24 @@ test("RightKit exposes one current version manifest", () => {
   getCurrentCargoVersionContract();
 });
 
-test("Cargo metadata uses the native Windows executable", () => {
-  assert.equal(cargoExecutable("win32"), "cargo.exe");
+test("Cargo metadata uses native rustup on Windows", () => {
+  assert.equal(cargoExecutable("win32"), "rustup");
+  assert.deepEqual(cargoArguments(["metadata"], "win32"), ["run", "stable", "cargo", "metadata"]);
   assert.equal(cargoExecutable("darwin"), "cargo");
+});
+
+test("Cargo metadata delegates controlled storage to managed RightKit", () => {
+  const ambient = {
+    CARGO_HOME: "/ambient/cargo",
+    CARGO_TARGET_DIR: "/ambient/target",
+    RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock",
+  };
+  assert.deepEqual(isolatedCargoMetadataEnv("/isolated/cargo", ambient), {
+    RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock",
+  });
+  assert.deepEqual(isolatedCargoMetadataEnv("/isolated/cargo", { CARGO_HOME: "/ambient/cargo" }), {
+    CARGO_HOME: "/isolated/cargo",
+  });
 });
 
 test("license v2 public vector is identical at every portable consumer boundary", () => {

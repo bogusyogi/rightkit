@@ -19,7 +19,7 @@
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.61",
+    "@rightkit/release": "0.2.62",
     "@rightkit/qa": "0.2.0"
   },
   "legacyNpm": {
@@ -43,7 +43,8 @@
       "0.2.53",
       "0.2.54",
       "0.2.55",
-      "0.2.56"
+      "0.2.56",
+      "0.2.61"
     ],
     "@rightkit/qa": [
       "0.1.0"

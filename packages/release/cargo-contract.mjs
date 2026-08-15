@@ -13,11 +13,16 @@ const CACHE_V2_ENVIRONMENT = ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER",
 export function isolatedCargoMetadataEnv(cargoHome, env = process.env) {
   const metadataEnv = { ...env };
   for (const name of CACHE_V2_ENVIRONMENT) delete metadataEnv[name];
+  if (metadataEnv.RIGHTKIT_BUILD_BROKER_SOCKET) return metadataEnv;
   return { ...metadataEnv, CARGO_HOME: cargoHome };
 }
 
 export function cargoExecutable(platform = process.platform) {
-  return platform === "win32" ? "cargo.exe" : "cargo";
+  return platform === "win32" ? "rustup" : "cargo";
+}
+
+export function cargoArguments(args, platform = process.platform) {
+  return platform === "win32" ? ["run", "stable", "cargo", ...args] : args;
 }
 
 export function validateRightKitCargoContract(root, publishedVersions, label = path.basename(root)) {
@@ -77,7 +82,7 @@ export function assertNoRightKitCargoOverrides(manifestPath, repoRoot, label) {
 function readCargoManifestDependencies(manifestPath, cargoHome, label) {
   const result = spawnSync(
     cargoExecutable(),
-    ["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", manifestPath],
+    cargoArguments(["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", manifestPath]),
     {
       cwd: path.dirname(manifestPath),
       encoding: "utf8",
