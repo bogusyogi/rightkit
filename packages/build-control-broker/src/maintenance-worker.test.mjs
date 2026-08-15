@@ -276,3 +276,29 @@ test('cap measurement reports an exhausted entry budget instead of overcounting'
     assert.ok(full.bytes >= bounded.bytes);
   } finally { await rm(value.root, { recursive: true, force: true }); }
 });
+
+test('inventory skips a namespace that vanishes mid-sweep instead of failing the tick', async () => {
+  const value = await capFixture();
+  try {
+    const worker = new MaintenanceWorker({ ...value, stateStore: value.store });
+    // Model the exact race: a cap pass trashes a root while the cursor is open.
+    await rm(path.join(value.workspacesRoot, older), { recursive: true, force: true });
+    const inventory = await worker.inventory();
+    assert.equal(inventory.entries.some((entry) => entry.namespace === older), false);
+    assert.equal(inventory.entries.some((entry) => entry.namespace === namespace), true);
+  } finally { await rm(value.root, { recursive: true, force: true }); }
+});
+
+test('cap eviction tolerates a root removed between measurement and rename', async () => {
+  const value = await capFixture();
+  try {
+    const worker = new MaintenanceWorker({ ...value, stateStore: value.store });
+    const original = worker.moveToTrash.bind(worker);
+    worker.moveToTrash = async (input) => {
+      await rm(path.join(value.workspacesRoot, input.namespace), { recursive: true, force: true });
+      return original(input);
+    };
+    const result = await worker.capBatch({ capBytes: 1 });
+    assert.equal(result.skipped.some((entry) => entry.status === 'SKIPPED_ALREADY_ABSENT'), true);
+  } finally { await rm(value.root, { recursive: true, force: true }); }
+});

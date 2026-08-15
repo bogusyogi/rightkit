@@ -531,7 +531,13 @@ export class ManagedJobService {
           }
           await this.#log({ type: 'MAINTENANCE', moved: outcome.moved.length, skipped: outcome.skipped.length, inventoryTruncated: outcome.inventoryTruncated, cap: capped ? { totalBytes: capped.totalBytes, capBytes: capped.capBytes, withinCap: capped.withinCap, moved: capped.moved.length, reclaimedBytes: capped.reclaimedBytes } : null });
         } finally { permit.release(); }
-      }).catch((error) => this.#log({ type: 'MAINTENANCE_DEGRADED', error: error.message }));
+      }).catch((error) => {
+        // A failed tick leaves its inventory cursor unconsumed. Keeping the
+        // stale token would make every later tick fail as expired, wedging
+        // maintenance until the broker restarts; restart the sweep instead.
+        this.#maintenanceCursor = null;
+        return this.#log({ type: 'MAINTENANCE_DEGRADED', error: error.message });
+      });
     };
     this.#maintenanceTimer = setInterval(run, interval); this.#maintenanceTimer.unref?.(); run();
   }

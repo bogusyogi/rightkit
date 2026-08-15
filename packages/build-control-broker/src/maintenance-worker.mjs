@@ -141,7 +141,10 @@ export class MaintenanceWorker {
     const moved = []; const skipped = []; let projected = total; let reclaimed = 0;
     for (const candidate of candidates) {
       if (projected <= capBytes || moved.length >= maxNamespaces) break;
-      const outcome = await this.moveToTrash({ namespace: candidate.namespace, generation: candidate.generation });
+      // The root can vanish between measurement and eviction; that is the
+      // outcome this pass wanted, not a reason to abort the tick.
+      const outcome = await this.moveToTrash({ namespace: candidate.namespace, generation: candidate.generation })
+        .catch((error) => error.code === 'ENOENT' ? Object.freeze({ status: 'SKIPPED_ALREADY_ABSENT', namespace: candidate.namespace, generation: candidate.generation }) : Promise.reject(error));
       if (outcome.status !== 'TRASHED') { skipped.push(outcome); continue; }
       this.#sizeCache.delete(`${candidate.namespace}:${candidate.generation}`);
       moved.push(Object.freeze({ ...outcome, bytes: candidate.bytes })); projected -= candidate.bytes; reclaimed += candidate.bytes;
@@ -258,7 +261,12 @@ export class MaintenanceWorker {
       while (entries.length < limit) {
         const item = state.pending ?? (await state.handle.read()); state.pending = null;
         if (!item) { complete = true; break; }
-        const path = join(root, item.name); const metadata = await this.#operations.lstat(path);
+        const path = join(root, item.name);
+        // A namespace trashed by a concurrent cap or retention pass is already
+        // gone by the time this cursor reaches its name; skip it rather than
+        // failing the whole tick.
+        const metadata = await this.#operations.lstat(path).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+        if (!metadata) continue;
         entries.push({ name: item.name, path, directory: metadata.isDirectory(), symbolicLink: metadata.isSymbolicLink() });
       }
       if (!complete) { state.pending = await state.handle.read(); complete = state.pending === null; }
