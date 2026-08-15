@@ -84,6 +84,7 @@ test("Cargo guard routes heavy and light commands without recursion", async () =
     env: { TEST: "1", ...cacheEnv() },
     policyOptions: { exists: () => false },
     resolveCargo: () => "/real/cargo",
+    resolveRustc: () => "/real/rustc",
     runHeavy: async (args, config) => { calls.push(["heavy", args, config.env]); return 0; },
     runLight: async (command, args, env) => { calls.push(["light", command, args, env]); return 0; },
   };
