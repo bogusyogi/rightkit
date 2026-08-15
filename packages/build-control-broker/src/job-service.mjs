@@ -555,7 +555,7 @@ export class ManagedJobService {
   }
 }
 
-export function createManagedJobServer({ service, endpoint, maxRequestBytes = 1024 * 1024, maxPendingBytes = 1024 * 1024, netModule } = {}) {
+export function createManagedJobServer({ service, endpoint, maxRequestBytes = 1024 * 1024, maxPendingBytes = DEFAULT_OUTPUT_BYTES, netModule } = {}) {
   if (!(service instanceof ManagedJobService) || typeof endpoint !== 'string' || !endpoint) throw new TypeError('managed job service & endpoint are required');
   if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes < 1) throw new TypeError('positive request cap is required');
   if (!Number.isSafeInteger(maxPendingBytes) || maxPendingBytes < 1) throw new TypeError('positive response pending cap is required');
