@@ -46,12 +46,14 @@ test('rustup registers only CONTROL inspection commands with global options', ()
   assert.equal(classifyManagedCommand('rustup', ['--profile', 'minimal', 'show']).command, 'show');
   assert.equal(classifyManagedCommand('rustup', ['target', 'list', '--installed']).lane, 'CONTROL');
   assert.equal(classifyManagedCommand('rustup', ['--quiet', 'target', 'list', '--installed']).command, 'target-list-installed');
+  assert.equal(classifyManagedCommand('rustup', ['target', 'list']).lane, 'CONTROL');
+  assert.equal(classifyManagedCommand('rustup', ['--quiet', 'target', 'list']).command, 'target-list');
 });
 
 test('rustup provisioning, run, & unknown commands reject', () => {
   for (const command of ['default', 'toolchain', 'target', 'component', 'run', 'unregistered']) assert.throws(() => classifyManagedCommand('rustup', [command]), UnknownManagedCommandError);
   assert.throws(() => classifyManagedCommand('rustup', ['target', 'add', 'aarch64-apple-darwin']), UnknownManagedCommandError);
-  assert.throws(() => classifyManagedCommand('rustup', ['target', 'list']), UnknownManagedCommandError);
+  assert.throws(() => classifyManagedCommand('rustup', ['target', 'list', '--unknown']), UnknownManagedCommandError);
 });
 
 test('unknown command & unknown shim reject without capability guessing', () => {
