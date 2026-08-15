@@ -8,7 +8,8 @@ const addCargoTool = (value) => { value.tools = [{ id: 'cargo-pinned', path: '/o
 test('config accepts explicit known settings & freezes its outer object', () => {
   const config = validateBrokerConfig(fixture());
   assert.equal(config.broker.externalRoot.path, '/managed');
-  assert.deepEqual(config.sccache, { mode: 'disabled', lifecycleOwner: null, requireOwnershipProof: false });
+  // The compiler cache carries a default size bound even while sccache is disabled.
+  assert.deepEqual(config.sccache, { mode: 'disabled', lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 });
   assert.ok(Object.isFrozen(config)); assert.ok(Object.isFrozen(config.broker)); assert.ok(Object.isFrozen(config.broker.externalRoot));
 });
 

@@ -31,7 +31,7 @@ export const MAINTENANCE_STATE_STORE_CONTRACT = Object.freeze({
 /** Background-only namespace inventory, retention, & trash deletion.
  * It intentionally has no broker, scheduler, or admission dependency. */
 export class MaintenanceWorker {
-  #workspacesRoot; #trashRoot; #stateStore; #operations; #now; #maxBatchEntries; #maxDepth; #inventoryCursor = null;
+  #workspacesRoot; #trashRoot; #stateStore; #operations; #now; #maxBatchEntries; #maxDepth; #inventoryCursor = null; #sizeCache = new Map();
 
   constructor({ workspacesRoot, trashRoot, stateStore, operations = {}, now = Date.now, maxBatchEntries = 128, maxDepth = 64 } = {}) {
     if (!isAbsolute(workspacesRoot) || !isAbsolute(trashRoot)) throw new TypeError('absolute workspacesRoot & trashRoot are required');
@@ -76,6 +76,74 @@ export class MaintenanceWorker {
       if (outcome.status === 'TRASHED') moved.push(outcome); else skipped.push(outcome);
     }
     return Object.freeze({ moved: Object.freeze(moved), skipped: Object.freeze(skipped), inventoryTruncated: inventory.truncated, inventoryCursor: inventory.nextCursor, nextCursor: inventory.nextCursor });
+  }
+
+  /**
+   * Bounded on-disk measurement of one namespace root.
+   *
+   * A terminal namespace is immutable for its generation, so its measurement is
+   * cached under `namespace:generation` and dropped when the root is trashed.
+   * A walk that exhausts its entry budget reports `complete: false` and
+   * undercounts, which can only make cap enforcement more conservative.
+   */
+  async measureNamespace({ namespace, generation = null, cacheable = false, maxEntries = 4096 } = {}) {
+    assertNamespace(namespace); assertLimit(maxEntries, 'maxEntries');
+    const key = generation === null ? null : `${namespace}:${generation}`;
+    if (key && cacheable && this.#sizeCache.has(key)) return this.#sizeCache.get(key);
+    let bytes = 0; let scanned = 0; let complete = true; const stack = [join(this.#workspacesRoot, namespace)];
+    while (stack.length && complete) {
+      const current = stack.pop();
+      const handle = await this.#operations.opendir(current, { bufferSize: 1 }).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+      if (!handle) continue;
+      try {
+        for await (const item of handle) {
+          if (scanned >= maxEntries) { complete = false; break; }
+          scanned += 1;
+          const path = join(current, item.name);
+          const metadata = await this.#operations.lstat(path).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+          if (!metadata || metadata.isSymbolicLink()) continue;
+          if (metadata.isDirectory()) stack.push(path); else bytes += occupiedBytes(metadata);
+        }
+      } finally { await handle.close().catch(() => {}); }
+    }
+    const measurement = Object.freeze({ namespace, bytes, complete, scanned });
+    if (key && cacheable && complete) this.#sizeCache.set(key, measurement);
+    return measurement;
+  }
+
+  /**
+   * Size-driven LRU. Doc section 7 caps total target-cache bytes; age retention
+   * alone leaves a full disk full until entries expire. Measures every root,
+   * and while the total exceeds `capBytes` moves the least-recently-used
+   * retention-eligible roots to trash. Non-terminal roots are never selected,
+   * so a cap below the live working set under-reclaims rather than breaking a
+   * running build.
+   */
+  async capBatch({ capBytes, maxNamespaces = this.#maxBatchEntries, maxNamespacesScanned = 4096, scanEntries = 4096 } = {}) {
+    assertLimit(capBytes, 'capBytes'); assertLimit(maxNamespaces, 'maxNamespaces'); assertLimit(maxNamespacesScanned, 'maxNamespacesScanned');
+    const candidates = []; let total = 0;
+    for (const name of await this.#listAllNamespaces(maxNamespacesScanned)) {
+      if (!namespaceName.test(name)) continue;
+      const metadata = await this.#operations.lstat(join(this.#workspacesRoot, name)).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+      if (!metadata || !metadata.isDirectory() || metadata.isSymbolicLink()) continue;
+      const stored = await this.#stateStore.getNamespace({ namespace: name });
+      const record = stored ? normalizeRecord(stored, name) : null;
+      const eligible = record !== null && eligibleForRetention(record, null);
+      const measurement = await this.measureNamespace({ namespace: name, generation: record?.generation ?? null, cacheable: eligible, maxEntries: scanEntries });
+      total += measurement.bytes;
+      if (eligible) candidates.push({ namespace: name, generation: record.generation, bytes: measurement.bytes, lruAt: record.lruAt ?? record.terminalAt });
+    }
+    if (total <= capBytes) return Object.freeze({ withinCap: true, totalBytes: total, projectedBytes: total, capBytes, reclaimedBytes: 0, moved: Object.freeze([]), skipped: Object.freeze([]) });
+    candidates.sort((left, right) => left.lruAt.localeCompare(right.lruAt));
+    const moved = []; const skipped = []; let projected = total; let reclaimed = 0;
+    for (const candidate of candidates) {
+      if (projected <= capBytes || moved.length >= maxNamespaces) break;
+      const outcome = await this.moveToTrash({ namespace: candidate.namespace, generation: candidate.generation });
+      if (outcome.status !== 'TRASHED') { skipped.push(outcome); continue; }
+      this.#sizeCache.delete(`${candidate.namespace}:${candidate.generation}`);
+      moved.push(Object.freeze({ ...outcome, bytes: candidate.bytes })); projected -= candidate.bytes; reclaimed += candidate.bytes;
+    }
+    return Object.freeze({ withinCap: false, totalBytes: total, projectedBytes: projected, capBytes, reclaimedBytes: reclaimed, moved: Object.freeze(moved), skipped: Object.freeze(skipped) });
   }
 
   /** Acquire, revalidate generation, then atomically rename a namespace into managed trash. */
@@ -158,6 +226,17 @@ export class MaintenanceWorker {
     if (!exists) await this.#stateStore.markTrashDeleted({ namespace, generation, trashId, deletedAt: new Date(this.#now()).toISOString() });
     const nextCursor = exists ? encodeTraversalCursor(traversal) : null;
     return Object.freeze({ deletedEntries, scannedEntries, complete: !exists, cursor: nextCursor, nextCursor });
+  }
+
+  /** Full bounded listing that owns its handle, so cap passes never disturb the
+   * paginated inventory cursor shared by retention. */
+  async #listAllNamespaces(limit) {
+    const handle = await this.#operations.opendir(this.#workspacesRoot, { bufferSize: 1 }).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+    if (!handle) return [];
+    const names = [];
+    try { for await (const item of handle) { if (names.length >= limit) break; names.push(item.name); } }
+    finally { await handle.close().catch(() => {}); }
+    return names;
   }
 
   async #listDirectories(root, limit, cursor = null) {
@@ -255,6 +334,9 @@ const encodeTraversalCursor = (traversal) => {
 };
 const validPathSegment = (value) => typeof value === 'string' && value.length > 0 && value.length <= 255 && value !== '.' && value !== '..' && !value.includes('/') && !value.includes('\\');
 
+// Allocated blocks match what the volume actually reclaims; apparent size is
+// the fallback for stat implementations that omit block counts.
+const occupiedBytes = (metadata) => Number.isSafeInteger(metadata.blocks) && metadata.blocks >= 0 ? metadata.blocks * 512 : (Number.isSafeInteger(metadata.size) ? metadata.size : 0);
 const contained = (root, value) => { const diff = relative(normalize(root), normalize(value)); return diff === '' || (!diff.startsWith('..') && !isAbsolute(diff)); };
 const assertLimit = (value, label) => { if (!Number.isSafeInteger(value) || value < 1) throw new TypeError(`${label} must be a positive safe integer`); };
 const assertCursor = (value) => { if (value !== null && (typeof value !== 'string' || value.length > maxCursorBytes)) throw new TypeError('cursor must be null or a bounded string'); };

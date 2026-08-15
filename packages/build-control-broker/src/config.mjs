@@ -9,8 +9,9 @@ const shimNames = new Set(['cargo', 'rustc', 'rustdoc', 'rustup', 'pnpm', 'npm',
 const defaultFields = new Set(['repositoryIdentity', 'toolchain', 'targetTriple', 'targetTriples', 'buildProfile', 'reservationBytes', 'rustcToolId', 'rustdocToolId', 'sccacheToolId', 'cacheMode', 'cargoBuildJobs']);
 const outputPolicyFields = new Set(['mode', 'allowedSourceDirs', 'scanRoot']);
 const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'digest']);
-const sccacheFields = new Set(['mode', 'lifecycleOwner', 'requireOwnershipProof']);
-const boundFields = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'processGraceMs', 'freeFloorBytes', 'quotaWatermarkBytes', 'retentionMs', 'gcIntervalMs', 'statfsTimeoutMs', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'eventHistoryEntries', 'eventHistoryBytes', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs']);
+const sccacheFields = new Set(['mode', 'lifecycleOwner', 'requireOwnershipProof', 'maxSizeBytes']);
+const defaultSccacheMaxSizeBytes = 20 * 1024 ** 3;
+const boundFields = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'processGraceMs', 'freeFloorBytes', 'quotaWatermarkBytes', 'retentionMs', 'gcIntervalMs', 'statfsTimeoutMs', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'eventHistoryEntries', 'eventHistoryBytes', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs', 'targetCacheCapBytes']);
 const HEX_256 = /^[a-f0-9]{64}$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -135,12 +136,14 @@ function validateBounds(value, { schemaVersion, capacity }) {
   const bounds = object(value, 'bounds'); only(bounds, boundFields, 'bounds');
   if (bounds.pollIntervalMs !== undefined && schemaVersion === 2) throw new TypeError('bounds.pollIntervalMs is only accepted by schemaVersion 1');
   const normalized = {};
-  const nullable = new Set(['quotaWatermarkBytes', 'retentionMs']);
+  // A null target-cache cap means uncapped: age retention alone governs.
+  const nullable = new Set(['quotaWatermarkBytes', 'retentionMs', 'targetCacheCapBytes']);
   const positive = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'gcIntervalMs', 'statfsTimeoutMs', 'eventHistoryEntries', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs']);
   const minimums = new Map([['eventHistoryEntries', 16], ['eventLogMaxBytes', 1024], ['maintenanceBatchEntries', 1], ['controlConcurrency', 1], ['buildConcurrency', 1], ['workspaceWriteConcurrency', 1], ['maintenanceConcurrency', 1], ['outputBufferBytes', 1024]]);
   for (const key of boundFields) if (bounds[key] !== undefined) normalized[key] = nonnegative(bounds[key], `bounds.${key}`, { nullable: nullable.has(key), minimum: minimums.get(key) ?? (positive.has(key) ? 1 : 0) });
   if (bounds.diskSampleIntervalMs === undefined && bounds.pollIntervalMs !== undefined) normalized.diskSampleIntervalMs = normalized.pollIntervalMs;
   if (normalized.quotaWatermarkBytes !== undefined && normalized.quotaWatermarkBytes !== null && normalized.quotaWatermarkBytes > capacity) throw new TypeError('bounds.quotaWatermarkBytes cannot exceed broker.capacityBytes');
+  if (normalized.targetCacheCapBytes !== undefined && normalized.targetCacheCapBytes !== null && normalized.targetCacheCapBytes > capacity) throw new TypeError('bounds.targetCacheCapBytes cannot exceed broker.capacityBytes');
   const outputBuffer = normalized.outputBufferBytes ?? 8 * 1024 * 1024;
   const durableOutput = (normalized.outputHeadBytes ?? 16 * 1024) + (normalized.outputTailBytes ?? 16 * 1024);
   if (durableOutput > outputBuffer) throw new TypeError('bounds.outputHeadBytes + bounds.outputTailBytes cannot exceed bounds.outputBufferBytes');
@@ -217,7 +220,12 @@ export function validateBrokerConfig(value) {
   if (typeof requireOwnershipProof !== 'boolean') throw new TypeError('sccache.requireOwnershipProof must be boolean');
   if (mode === 'managed' && (lifecycleOwner !== 'broker' || requireOwnershipProof !== true || !normalized.defaults.sccacheToolId || normalized.defaults.cacheMode !== 'managed')) throw new TypeError('managed sccache requires registered broker lifecycle ownership proof');
   if (mode === 'disabled' && (lifecycleOwner !== null || requireOwnershipProof !== false || normalized.defaults.cacheMode === 'managed')) throw new TypeError('disabled sccache cannot carry managed ownership settings');
-  normalized.sccache = { mode, lifecycleOwner, requireOwnershipProof };
+  // The compiler cache outlives any single mode: its directory persists while
+  // sccache is disabled, so the size bound is configured independently of mode
+  // and upstream sccache's own LRU enforces it.
+  const maxSizeBytes = sccache.maxSizeBytes ?? defaultSccacheMaxSizeBytes;
+  if (!Number.isSafeInteger(maxSizeBytes) || maxSizeBytes < 1) throw new TypeError('sccache.maxSizeBytes must be a positive safe integer');
+  normalized.sccache = { mode, lifecycleOwner, requireOwnershipProof, maxSizeBytes };
   return freezeConfig(normalized);
 }
 

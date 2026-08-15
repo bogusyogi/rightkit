@@ -517,15 +517,19 @@ export class ManagedJobService {
         try {
           const expiredBefore = new Date(Date.now() - retention).toISOString();
           const outcome = await this.#maintenance.retentionBatch({ expiredBefore, inventoryCursor: this.#maintenanceCursor }); this.#maintenanceCursor = outcome.nextCursor ?? null;
+          // Age retention frees nothing while entries are young, so the size cap
+          // runs after it and reclaims least-recently-used roots on its own.
+          const capBytes = this.#config.bounds?.targetCacheCapBytes;
+          const capped = Number.isSafeInteger(capBytes) && capBytes > 0 ? await this.#maintenance.capBatch({ capBytes }) : null;
           if (typeof this.#maintenance.reconcileTrashIntent === 'function') {
             for (const intent of this.#store.pendingTrashIntents?.() ?? []) await this.#maintenance.reconcileTrashIntent(intent);
           }
-          for (const moved of outcome.moved) await this.#maintenance.deleteTrashBatch({ namespace: moved.namespace, generation: moved.generation, trashId: moved.trashId });
+          for (const moved of [...outcome.moved, ...(capped?.moved ?? [])]) await this.#maintenance.deleteTrashBatch({ namespace: moved.namespace, generation: moved.generation, trashId: moved.trashId });
           for (const pending of this.#store.pendingMaintenance?.() ?? []) {
             const result = await this.#maintenance.deleteTrashBatch({ namespace: pending.namespace, generation: pending.generation, trashId: pending.trashId, cursor: pending.cursor });
             if (!result.complete) this.#store.updateMaintenanceCursor({ namespace: pending.namespace, generation: pending.generation, trashId: pending.trashId, cursor: result.nextCursor });
           }
-          await this.#log({ type: 'MAINTENANCE', moved: outcome.moved.length, skipped: outcome.skipped.length, inventoryTruncated: outcome.inventoryTruncated });
+          await this.#log({ type: 'MAINTENANCE', moved: outcome.moved.length, skipped: outcome.skipped.length, inventoryTruncated: outcome.inventoryTruncated, cap: capped ? { totalBytes: capped.totalBytes, capBytes: capped.capBytes, withinCap: capped.withinCap, moved: capped.moved.length, reclaimedBytes: capped.reclaimedBytes } : null });
         } finally { permit.release(); }
       }).catch((error) => this.#log({ type: 'MAINTENANCE_DEGRADED', error: error.message }));
     };
@@ -618,7 +622,11 @@ function executionEnvironment(config, job) {
   const common = { ...base, RIGHTKIT_PARENT_REQUEST_ID: root.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: root.parentCapabilityToken };
   if (job.capability.lane === 'CONTROL') return injectBrokerEnvironment({ requestEnvironment, runtimeEnvironment: { ...common, CARGO_HOME: job.layout.cargoHome, RUSTUP_HOME: job.layout.rustupHome } });
   const home = join(job.layout.temp, 'home');
-  return injectBrokerEnvironment({ requestEnvironment, runtimeEnvironment: { ...common, ...managedRustEnvironment(job.layout), SCCACHE_DIR: job.layout.sccache, npm_config_cache: job.layout.packageCache, HOME: home, XDG_CACHE_HOME: join(job.layout.packageCache, 'xdg'), XDG_CONFIG_HOME: join(home, '.config'), TMPDIR: job.layout.temp, TMP: job.layout.temp, TEMP: job.layout.temp } });
+  // Normalized config always carries a cache bound; an unnormalized one simply
+  // leaves sccache on its own default rather than failing the build.
+  const cacheSize = config.sccache?.maxSizeBytes;
+  const sccacheBound = Number.isSafeInteger(cacheSize) && cacheSize > 0 ? { SCCACHE_CACHE_SIZE: String(cacheSize) } : {};
+  return injectBrokerEnvironment({ requestEnvironment, runtimeEnvironment: { ...common, ...managedRustEnvironment(job.layout), SCCACHE_DIR: job.layout.sccache, ...sccacheBound, npm_config_cache: job.layout.packageCache, HOME: home, XDG_CACHE_HOME: join(job.layout.packageCache, 'xdg'), XDG_CONFIG_HOME: join(home, '.config'), TMPDIR: job.layout.temp, TMP: job.layout.temp, TEMP: job.layout.temp } });
 }
 function directoryRoots(layout) { return [...new Set([layout.root, layout.cargoHome, layout.rustupHome, layout.sccache, layout.packageCache, layout.targets, layout.build, layout.target, layout.temp])]; }
 function compilationTarget(shim, argv) { if (!['cargo', 'rustc', 'rustdoc'].includes(shim)) return null; let target = null; for (let index = 0; index < argv.length && argv[index] !== '--'; index += 1) { const value = argv[index]; let found = null; if (value === '--target') found = argv[++index]; else if (value.startsWith('--target=')) found = value.slice(9); if (found !== null) { if (!found || (target && target !== found)) throw new TypeError('one non-empty Cargo target is required'); target = found; } } return target; }

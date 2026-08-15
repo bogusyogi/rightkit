@@ -218,3 +218,61 @@ test('trash intent reconciliation handles crash boundary states safely', async (
     await symlink(value.workspacesRoot, pending.targetPath); await assert.rejects(() => worker.reconcileTrashIntent(pending), { code: 'RK_TRASH_AMBIGUOUS' });
   } finally { await rm(value.root, { recursive: true, force: true }); }
 });
+
+const older = 'b'.repeat(64);
+const active = 'c'.repeat(64);
+
+async function capFixture() {
+  const root = await mkdtemp(path.join(tmpdir(), 'maintenance-cap-'));
+  const workspacesRoot = path.join(root, 'workspaces'); const trashRoot = path.join(root, 'trash');
+  for (const name of [namespace, older, active]) {
+    await mkdir(path.join(workspacesRoot, name, 'targets'), { recursive: true });
+    await writeFile(path.join(workspacesRoot, name, 'targets', 'artifact'), 'x'.repeat(4096));
+  }
+  const store = stateStore(new Map([
+    [namespace, { namespace, generation: 1, state: 'RELEASED', lruAt: '2026-01-02T00:00:00.000Z' }],
+    [older, { namespace: older, generation: 1, state: 'RELEASED', lruAt: '2026-01-01T00:00:00.000Z' }],
+    [active, { namespace: active, generation: 1, state: 'ACTIVE', lruAt: '2020-01-01T00:00:00.000Z' }]
+  ]));
+  return { root, workspacesRoot, trashRoot, store };
+}
+
+test('size cap leaves the cache alone while total fits', async () => {
+  const value = await capFixture();
+  try {
+    const worker = new MaintenanceWorker({ ...value, stateStore: value.store });
+    const result = await worker.capBatch({ capBytes: 1024 ** 3 });
+    assert.equal(result.withinCap, true); assert.deepEqual(result.moved, []);
+    assert.ok(result.totalBytes > 0, 'measurement must account for on-disk bytes');
+    assert.equal((await lstat(path.join(value.workspacesRoot, namespace))).isDirectory(), true);
+  } finally { await rm(value.root, { recursive: true, force: true }); }
+});
+
+test('exceeding the size cap evicts least-recently-used roots first & never a live one', async () => {
+  const value = await capFixture();
+  try {
+    const worker = new MaintenanceWorker({ ...value, stateStore: value.store });
+    const first = await worker.capBatch({ capBytes: 1, maxNamespaces: 1 });
+    assert.equal(first.withinCap, false);
+    assert.equal(first.moved.length, 1);
+    // Oldest lruAt is evicted before the newer root, regardless of size.
+    assert.equal(first.moved[0].namespace, older);
+    assert.ok(first.reclaimedBytes > 0);
+    const second = await worker.capBatch({ capBytes: 1 });
+    assert.deepEqual(second.moved.map((entry) => entry.namespace), [namespace]);
+    // A non-terminal namespace is never a cap candidate.
+    assert.equal((await lstat(path.join(value.workspacesRoot, active))).isDirectory(), true);
+  } finally { await rm(value.root, { recursive: true, force: true }); }
+});
+
+test('cap measurement reports an exhausted entry budget instead of overcounting', async () => {
+  const value = await capFixture();
+  try {
+    const worker = new MaintenanceWorker({ ...value, stateStore: value.store });
+    const bounded = await worker.measureNamespace({ namespace, maxEntries: 1 });
+    assert.equal(bounded.complete, false);
+    const full = await worker.measureNamespace({ namespace });
+    assert.equal(full.complete, true);
+    assert.ok(full.bytes >= bounded.bytes);
+  } finally { await rm(value.root, { recursive: true, force: true }); }
+});
