@@ -7,7 +7,7 @@ import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
 import { ManagedJobService } from './job-service.mjs';
 
-async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null } = {}) {
+async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null, targetTriples = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'rightkit-job-service-')); const tokenFile = path.join(root, 'parent-token');
   const workspace = path.join(root, 'workspace'); const managed = path.join(root, 'managed'); const bin = path.join(root, 'fake-cargo');
   await mkdir(path.join(workspace, '.git'), { recursive: true }); await mkdir(managed, { recursive: true });
@@ -17,7 +17,7 @@ async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = n
     broker: { externalRoot: { path: managed, volumeId: 'test-volume', mounted: true, writable: true, internal: false }, capacityBytes: 1_000_000_000, stateFile: path.join(managed, 'state', 'legacy.json'), receiptsDir: path.join(managed, 'receipts'), ...(activationFence ? { activationFencePath: path.join(managed, 'activation-fence.json') } : {}) },
     unixSocket: path.join(managed, 'broker.sock'),
     tools: [{ id: 'cargo', path: bin, root, sha256 }], shims: { cargo: 'cargo' },
-    defaults: { toolchain: 'stable', targetTriple: 'x86_64-apple-darwin', buildProfile: 'development' },
+    defaults: { toolchain: 'stable', targetTriple: 'x86_64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development' },
     bounds: { heartbeatIntervalMs: 20, diskSampleIntervalMs: 20, processGraceMs: 300, statfsTimeoutMs: 50, freeFloorBytes: 1, eventLogMaxBytes: 64 * 1024, outputBufferBytes: 64 * 1024, ...bounds }
   };
   if (activationFence) await writeFile(config.broker.activationFencePath, `${JSON.stringify(activationFence)}\n`);
@@ -57,6 +57,18 @@ test('CONTROL completes while BUILD lane is active & creates no workspace namesp
     assert.equal(controlResult.result.status, 'SUCCEEDED', JSON.stringify(controlResult.result)); assert.equal(controlResult.result.receipt.namespace, null); assert.ok(Date.now() - started < 2_000);
     const heavyStatus = await call(item.service, command('STATUS', heavy.result.id)); assert.equal(heavyStatus.result.state, 'RUNNING');
     await call(item.service, command('WATCH', heavy.result.id));
+  } finally { await item.cleanup(); }
+});
+
+test('registered universal release targets admit while unknown targets reject', async () => {
+  const item = await fixture({ targetTriples: ['x86_64-apple-darwin', 'aarch64-apple-darwin'] });
+  try {
+    const submitted = await call(item.service, submit(managed(item.workspace, ['build', '--target', 'aarch64-apple-darwin'])));
+    const result = await call(item.service, command('WATCH', submitted.result.id));
+    assert.equal(result.result.status, 'SUCCEEDED');
+    const rejected = await call(item.service, submit(managed(item.workspace, ['build', '--target', 'wasm32-unknown-unknown'])));
+    assert.equal(rejected.result.status, 'REJECTED');
+    assert.match(rejected.result.error, /must be registered/);
   } finally { await item.cleanup(); }
 });
 

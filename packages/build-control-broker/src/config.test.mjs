@@ -69,10 +69,12 @@ test('config rejects malformed tool registrations & unregistered references', ()
 });
 
 test('config validates every defaults field & sccache cross-field contract', () => {
-  const valid = addCargoTool(fixture()); valid.defaults = { repositoryIdentity: 'repo-1', toolchain: 'stable', targetTriple: 'x86_64-apple-darwin', buildProfile: 'development', reservationBytes: 100, rustcToolId: 'cargo-pinned', rustdocToolId: 'cargo-pinned', sccacheToolId: 'cargo-pinned', cacheMode: 'managed', cargoBuildJobs: 4 }; valid.sccache = { mode: 'managed', lifecycleOwner: 'broker', requireOwnershipProof: true };
+  const valid = addCargoTool(fixture()); valid.defaults = { repositoryIdentity: 'repo-1', toolchain: 'stable', targetTriple: 'x86_64-apple-darwin', targetTriples: ['x86_64-apple-darwin', 'aarch64-apple-darwin'], buildProfile: 'development', reservationBytes: 100, rustcToolId: 'cargo-pinned', rustdocToolId: 'cargo-pinned', sccacheToolId: 'cargo-pinned', cacheMode: 'managed', cargoBuildJobs: 4 }; valid.sccache = { mode: 'managed', lifecycleOwner: 'broker', requireOwnershipProof: true };
   assert.equal(validateBrokerConfig(valid).defaults.cargoBuildJobs, 4);
   for (const mutate of [
     (v) => { addCargoTool(v); v.defaults = { unknown: true }; },
+    (v) => { addCargoTool(v); v.defaults = { targetTriple: 'x86_64-apple-darwin', targetTriples: ['aarch64-apple-darwin'] }; },
+    (v) => { addCargoTool(v); v.defaults = { targetTriples: ['x86_64-apple-darwin', 'x86_64-apple-darwin'] }; },
     (v) => { addCargoTool(v); v.defaults = { cargoBuildJobs: 0 }; },
     (v) => { addCargoTool(v); v.defaults = { reservationBytes: 101 }; },
     (v) => { addCargoTool(v); v.defaults = { cacheMode: 'automatic' }; },

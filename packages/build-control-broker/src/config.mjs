@@ -6,7 +6,7 @@ const brokerFields = new Set(['externalRoot', 'volumeId', 'capacityBytes', 'used
 const externalRootFields = new Set(['path', 'volumeId', 'mounted', 'writable', 'internal']);
 const toolFields = new Set(['id', 'path', 'root', 'sha256']);
 const shimNames = new Set(['cargo', 'rustc', 'rustdoc', 'rustup', 'pnpm', 'npm', 'swift', 'swiftc', 'cmake', 'make', 'cc', 'c++', 'clang', 'gcc']);
-const defaultFields = new Set(['repositoryIdentity', 'toolchain', 'targetTriple', 'buildProfile', 'reservationBytes', 'rustcToolId', 'rustdocToolId', 'sccacheToolId', 'cacheMode', 'cargoBuildJobs']);
+const defaultFields = new Set(['repositoryIdentity', 'toolchain', 'targetTriple', 'targetTriples', 'buildProfile', 'reservationBytes', 'rustcToolId', 'rustdocToolId', 'sccacheToolId', 'cacheMode', 'cargoBuildJobs']);
 const outputPolicyFields = new Set(['mode', 'allowedSourceDirs', 'scanRoot']);
 const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'digest']);
 const sccacheFields = new Set(['mode', 'lifecycleOwner', 'requireOwnershipProof']);
@@ -93,6 +93,12 @@ function validateDefaults(value, ids, capacity) {
   const defaults = object(value, 'defaults'); only(defaults, defaultFields, 'defaults');
   const normalized = {};
   for (const field of ['repositoryIdentity', 'toolchain', 'targetTriple', 'buildProfile']) if (defaults[field] !== undefined) normalized[field] = requiredString(defaults[field], `defaults.${field}`, SAFE_TOKEN);
+  if (defaults.targetTriples !== undefined) {
+    if (!Array.isArray(defaults.targetTriples) || defaults.targetTriples.length < 1 || defaults.targetTriples.length > 8) throw new TypeError('defaults.targetTriples must contain 1-8 target triples');
+    normalized.targetTriples = defaults.targetTriples.map((value, index) => requiredString(value, `defaults.targetTriples[${index}]`, SAFE_TOKEN));
+    if (new Set(normalized.targetTriples).size !== normalized.targetTriples.length) throw new TypeError('defaults.targetTriples must be unique');
+    if (normalized.targetTriple && !normalized.targetTriples.includes(normalized.targetTriple)) throw new TypeError('defaults.targetTriples must include defaults.targetTriple');
+  }
   if (defaults.reservationBytes !== undefined) {
     normalized.reservationBytes = nonnegative(defaults.reservationBytes, 'defaults.reservationBytes');
     if (normalized.reservationBytes > capacity) throw new TypeError('defaults.reservationBytes cannot exceed broker.capacityBytes');

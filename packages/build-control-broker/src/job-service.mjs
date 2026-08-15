@@ -154,7 +154,11 @@ export class ManagedJobService {
     const rawRequest = normalizeManagedAgentRequest({ ...message.request, workspace: roots.executionCwd });
     validateManagedRustupInvocation(message.shim, rawRequest.argv);
     const capability = this.#commands.classify(message.shim, rawRequest.argv);
-    const targetTriple = this.#config.defaults?.targetTriple;
+    const defaultTargetTriple = this.#config.defaults?.targetTriple;
+    const allowedTargetTriples = this.#config.defaults?.targetTriples ?? [defaultTargetTriple];
+    const explicitTargetTriple = ['cargo', 'rustc', 'rustdoc'].includes(message.shim) ? compilationTarget(message.shim, rawRequest.argv) : null;
+    const targetTriple = explicitTargetTriple ?? defaultTargetTriple;
+    if (!allowedTargetTriples.includes(targetTriple)) throw new TypeError(`managed Rust target must be registered by broker: ${targetTriple}`);
     const argv = message.shim === 'cargo' && capability.lane === 'BUILD' ? normalizeCargoTargetArgv(rawRequest.argv, targetTriple) : rawRequest.argv;
     const request = Object.freeze({ ...rawRequest, argv, environment: normalizeRequestEnvironment(rawRequest.environment) });
     if (['cargo', 'rustc', 'rustdoc'].includes(message.shim)) await rejectWorkspaceCargoConfiguration(request.workspace);
@@ -164,8 +168,6 @@ export class ManagedJobService {
       throw new ToolChangedError({ toolId, path: registeredTool.path, expectedSha256: capability.externalDigest, observedSha256: registeredTool.sha256, reason: 'capability-digest-mismatch' });
     }
     const priority = message.priority ?? 'BATCH'; if (!PRIORITIES.has(priority)) throw new TypeError('priority must be BATCH, INTERACTIVE, or INSTALLER');
-    const requestedTarget = message.shim === 'cargo' ? targetTriple : compilationTarget(message.shim, request.argv);
-    if (requestedTarget && requestedTarget !== targetTriple) throw new TypeError(`managed Cargo target must match broker target ${targetTriple}`);
     const layout = storageLayout(this.#config, { repositoryIdentity: roots.repositoryRoot, buildProfile: classifyBuildProfile(request.argv, this.#config.defaults?.buildProfile), targetTriple });
     validateManagedRustEnvironment(message.observedEnvironment ?? {}, managedRustEnvironment(layout));
     const parentId = message.execution?.mode === 'NESTED' ? message.execution.parentId : null;
