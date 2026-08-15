@@ -5,6 +5,7 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs";
 
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8");
 const build = path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs");
@@ -84,4 +85,32 @@ test("Windows seal and cache identity bind the signing contract, config, and rec
   assert.match(source, /cache: cacheIdentity\.fingerprint, signingIdentity/);
   assert.match(source, /receipts: signingIdentity\.receiptInputs\.map/);
   assert.match(readFileSync(new URL("./release.mjs", import.meta.url), "utf8"), /item\.after\?\.sha256 !== currentHashes/);
+});
+
+test("CPU sampling separates a silent working step from a hang", () => {
+  // Real `ps -o cputime=` shapes, including a multi-process group.
+  assert.equal(parseCpuSeconds("        0:03.21\n"), 3.21);
+  assert.equal(parseCpuSeconds("  1:02:03\n"), 3723);
+  assert.equal(parseCpuSeconds("  2-01:00:00\n"), 176400);
+  // A process group sums every member, which is how a linker under cargo shows up.
+  assert.equal(parseCpuSeconds("  0:10.00\n  0:05.00\n"), 15);
+  // A vanished process yields no rows: null, not zero, so the caller falls back
+  // to output and mtime rather than treating it as "no CPU used".
+  assert.equal(parseCpuSeconds(""), null);
+  assert.equal(parseCpuSeconds("   \n"), null);
+  assert.equal(parseCpuSeconds("garbage"), null);
+  assert.equal(parseCpuSeconds(undefined), null);
+});
+
+test("CPU sampling degrades to the old behaviour rather than inventing a verdict", () => {
+  const ok = (stdout) => () => ({ status: 0, stdout });
+  // A working process group reports advancing CPU.
+  assert.equal(processGroupCpuSeconds(123, { platform: "darwin", run: ok("  0:42.50\n") }), 42.5);
+  // Windows has no `ps`; sampling is skipped, not guessed.
+  assert.equal(processGroupCpuSeconds(123, { platform: "win32", run: ok("  0:42.50\n") }), null);
+  // No pid, a failed probe, or an empty result must all be "cannot measure",
+  // never 0 — 0 would look like a hang and kill a healthy build.
+  assert.equal(processGroupCpuSeconds(0, { platform: "darwin", run: ok("  0:42.50\n") }), null);
+  assert.equal(processGroupCpuSeconds(123, { platform: "darwin", run: () => ({ status: 1, stdout: "" }) }), null);
+  assert.equal(processGroupCpuSeconds(123, { platform: "darwin", run: ok("") }), null);
 });

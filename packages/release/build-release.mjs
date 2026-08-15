@@ -30,12 +30,14 @@ import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { acquireHeavyWorkSlot, heavyCommandEnvironment, terminateProcessTree } from "./heavy-command.mjs";
+import { processGroupCpuSeconds } from "./process-liveness.mjs";
 
 // Fingerprint of the pipeline code that can change the bytes we ship or the way
 // they are signed — deliberately NOT the package version, which moves for docs
 // and test-only edits and would force a cold Rust rebuild of every app each time.
 // These four files are the ones whose behaviour the cached target directory can
 // outlive.
+
 const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
 const PIPELINE_FINGERPRINT = createHash("sha256")
   .update(PIPELINE_FINGERPRINT_SOURCES.map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
@@ -281,7 +283,7 @@ try {
         else if (realpathSync(targetLink) !== realpathSync(cacheTarget)) {
           fail(`primary checkout target exists and is not the release cache link: ${targetLink}`);
         }
-        await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget);
+        await runProgress(config.packageManager ?? "pnpm", ["install", "--frozen-lockfile"], appRoot, env, cacheTarget, path.join(stateRoot, "stall-install.log"));
       },
       build: async () => {
         throwIfInterrupted();
@@ -291,6 +293,7 @@ try {
           appRoot,
           env,
           [managedCargoTarget ?? env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
+          path.join(stateRoot, "stall-build.log"),
         );
         checkpoint(stateRoot, "build_complete");
         checkpoint(stateRoot, "signed");
@@ -429,7 +432,7 @@ function resolveManagedCargoTarget(manifestPath) {
   return target;
 }
 
-async function runProgress(cmd, runArgs, cwd, env, watchDir) {
+async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = null) {
   const inactivityMs = Number(process.env.RIGHT_RELEASE_STALL_MS ?? 10 * 60 * 1000);
   const absoluteMs = Number(process.env.RIGHT_RELEASE_ABSOLUTE_MS ?? 90 * 60 * 1000);
   let lastProgress = Date.now();
@@ -448,17 +451,51 @@ async function runProgress(cmd, runArgs, cwd, env, watchDir) {
       return;
     }
     const closeWatchers = watchProgress(watchDirs, () => { lastProgress = Date.now(); });
+    // A killed step used to leave no trace of what it was doing, so every stall
+    // cost a forensic dig. Keep a bounded tail to write out if we do kill it.
+    let tail = "";
     for (const [stream, output] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
-      stream.on("data", (chunk) => { lastProgress = Date.now(); output.write(chunk); });
+      stream.on("data", (chunk) => {
+        lastProgress = Date.now();
+        tail = `${tail}${chunk}`.slice(-64 * 1024);
+        output.write(chunk);
+      });
     }
+    let lastCpu = processGroupCpuSeconds(child.pid);
     const monitor = setInterval(() => {
       const mtime = Math.max(...watchDirs.map(newestMtime));
       if (mtime > lastMtime) { lastMtime = mtime; lastProgress = Date.now(); }
-      if (Date.now() - started > absoluteMs) stop(`absolute limit exceeded (${Math.round(absoluteMs / 60000)}m)`);
-      else if (Date.now() - lastProgress > inactivityMs) stop(`no output or file progress for ${Math.round(inactivityMs / 60000)}m`);
+      const cpu = processGroupCpuSeconds(child.pid);
+      if (cpu !== null && lastCpu !== null && cpu > lastCpu) lastProgress = Date.now();
+      if (cpu !== null) lastCpu = cpu;
+      if (Date.now() - started > absoluteMs) stop(`absolute limit exceeded (${Math.round(absoluteMs / 60000)}m)`, cpu);
+      else if (Date.now() - lastProgress > inactivityMs) stop(`no output, file, or CPU progress for ${Math.round(inactivityMs / 60000)}m`, cpu);
     }, Math.min(30_000, Math.max(250, Math.floor(inactivityMs / 4))));
     const cleanup = () => { clearInterval(monitor); closeWatchers(); };
-    const stop = (reason) => { cleanup(); killTree(child.pid); reject(new Error(`release step stalled: ${reason}`)); };
+    const stop = (reason, cpu = null) => {
+      cleanup();
+      if (diagnosticPath) {
+        try {
+          mkdirSync(path.dirname(diagnosticPath), { recursive: true });
+          writeFileSync(diagnosticPath, [
+            `reason: ${reason}`,
+            `command: ${cmd} ${runArgs.join(" ")}`,
+            `cwd: ${cwd}`,
+            `watched: ${watchDirs.join(path.delimiter)}`,
+            `elapsedMs: ${Date.now() - started}`,
+            `cpuSeconds: ${cpu ?? "unavailable"}`,
+            `killedAt: ${new Date().toISOString()}`,
+            "",
+            "--- last output ---",
+            tail || "(the step produced no output at all)",
+            "",
+          ].join("\n"));
+          console.error(`right-release: stall diagnostic written to ${diagnosticPath}`);
+        } catch { /* diagnostics are best effort; never mask the stall itself */ }
+      }
+      killTree(child.pid);
+      reject(new Error(`release step stalled: ${reason}`));
+    };
     child.once("error", (error) => { cleanup(); reject(error); });
     child.once("exit", (code) => { cleanup(); child = null; code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`)); });
   });
