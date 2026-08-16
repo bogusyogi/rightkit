@@ -24,7 +24,23 @@ export function managedBuildViolation(command) {
   if (packageManagerInvocation(trimmed)) return null;
   if (/\brustup\s+run\b[^;&|()\n]*\b(cargo|rustc|rustdoc)\b/i.test(command)) return 'rustup-run';
   if (/\balias\s+[A-Za-z_][A-Za-z0-9_]*=.?[^\s;&|()]*\b(?:cargo|rustc|rustdoc)\b/i.test(command)) return 'alias';
-  for (const word of command.matchAll(/(?:^|[\s;&|()$`"'])(\/?[^\s;&|()$`"']+)/g)) { const name = basename(word[1]); if (tools.has(name)) return name; }
+  // A quote character is not a command boundary the way `;`/`|` is — it
+  // delimits a string argument, and text inside one is normally never
+  // executed. The previous tokenizer treated every quote as a delimiter,
+  // which tore open quoted text and re-scanned its contents; a single-word
+  // quote broke on the open quote, but a multi-word one still leaked,
+  // since ordinary spaces *inside* the quotes still looked like ordinary
+  // token boundaries. `echo "the cargo team"` blocked on the bare word
+  // "cargo" appearing inside a quoted, non-executed sentence.
+  //
+  // The one case where quoted text IS executed: a shell/interpreter flag
+  // (`-c`, `-lc`, `/c`, `-Command`, ...) that hands its quoted argument to
+  // a nested interpreter as a script, e.g. `zsh -lc "cargo build"`. Those
+  // spans are left untouched so the scan still reaches inside them; every
+  // other quoted span is stripped before the token scan ever sees it.
+  const shellScriptFlag = /(?:^|[\s;&|()`])(?:-c|-lc|\/c|-command|-encodedcommand)\s*$/i;
+  const withoutInertQuotedSpans = command.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (match, offset, full) => shellScriptFlag.test(full.slice(0, offset)) ? match : '""');
+  for (const word of withoutInertQuotedSpans.matchAll(/(?:^|[\s;&|()$`"'])(\/?[^\s;&|()$`"']+)/g)) { const name = basename(word[1]); if (tools.has(name)) return name; }
   return null;
 }
 

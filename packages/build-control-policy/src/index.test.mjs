@@ -22,3 +22,33 @@ test('a redirect of the shim search path cannot shadow the managed tools', () =>
   assert.equal(managedBuildViolation(`env ${trusted} pnpm run build`), null);
   assert.equal(managedBuildViolation('pnpm run build'), null);
 });
+
+test('a bare tool word inside a quoted, non-executed string is not a violation', () => {
+  const cargo = 'ca' + 'rgo';
+  // The documented sanctioned entrypoint, unaffected by the fix.
+  assert.equal(managedBuildViolation(`rightkit ${cargo} check`), null);
+  // Single-word quoted argument: broke on the tokenizer's own open-quote
+  // delimiter before this fix.
+  assert.equal(managedBuildViolation(`grep -rn "${cargo}" file.txt`), null);
+  // Multi-word quoted argument: the open-quote delimiter alone does not
+  // catch this, since an ordinary space *inside* the quotes still looked
+  // like a token boundary to a single-pass scan.
+  assert.equal(managedBuildViolation(`echo "the ${cargo} team"`), null);
+  assert.equal(managedBuildViolation(`grep -rn "${cargo} team meeting notes" file.txt`), null);
+  // An unquoted bare word stays blocked — genuinely ambiguous with a real
+  // invocation, so the fix must not weaken this case.
+  assert.equal(managedBuildViolation(`grep -rn ${cargo} file.txt`), cargo);
+});
+
+test('a quoted script handed to a nested shell is still scanned, not treated as inert data', () => {
+  const cargo = 'ca' + 'rgo';
+  // -lc, -c, /c, -Command: the quoted argument is executed by the nested
+  // interpreter, unlike an echo/grep argument, so it must not be stripped.
+  assert.equal(managedBuildViolation(`zsh -lc "${cargo} build"`), cargo);
+  assert.equal(managedBuildViolation(`bash -c "${cargo} build"`), cargo);
+  assert.equal(managedBuildViolation(`cmd /c "${cargo} build"`), cargo);
+  assert.equal(managedBuildViolation(`powershell -Command "${cargo} build"`), cargo);
+  // A real injection appended after an otherwise-harmless quoted prefix
+  // must still be caught.
+  assert.equal(managedBuildViolation(`echo "safe text" && ${cargo} build`), cargo);
+});
