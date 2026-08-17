@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   managedDatabasePath, parseWindowsCutoverArgs, proveLegacyOwnershipAbsent, proveManagedRequestsDrained, proveV1Drained, runWindowsCutover,
 } from './runtime-cutover-windows-cli.mjs';
-import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition } from './runtime-cutover-windows.mjs';
+import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
 
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-win-cutover-cli-')));
@@ -133,6 +133,13 @@ test('renderTaskDefinition escapes reserved XML characters', () => {
   const xml = renderTaskDefinition({ taskName: 'x', nodePath: 'C:\\a & b\\node.exe', brokerScript: 'C:\\x<y', configPath: 'C:\\c.json' });
   assert.ok(!xml.includes('C:\\a & b\\node.exe'));
   assert.match(xml, /C:\\a &amp; b\\node\.exe/);
+});
+
+test('Task Scheduler XML is written as BOM-prefixed UTF-16LE', async () => {
+  let bytes;
+  await withTaskDefinitionFile('<Task/>', async (file) => { bytes = await readFile(file); });
+  assert.deepEqual(bytes.subarray(0, 2), Buffer.from([0xff, 0xfe]));
+  assert.equal(bytes.subarray(2).toString('utf16le'), '<Task/>');
 });
 
 test('fresh Windows cutover registers task before use & rollback handles absent or registered candidate', async () => {

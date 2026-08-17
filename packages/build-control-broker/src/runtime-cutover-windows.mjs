@@ -249,6 +249,10 @@ export function createWindowsRuntimeCallbacks(options = {}) {
 export async function withTaskDefinitionFile(definition, run) {
   const dir = await mkdtemp(join(tmpdir(), 'rk-task-'));
   const file = join(dir, 'task.xml');
-  try { await writeFile(file, definition, 'utf16le'); return await run(file); }
+  try {
+    const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(definition, 'utf16le')]);
+    await writeFile(file, bytes);
+    return await run(file);
+  }
   finally { await rm(dir, { recursive: true, force: true }); }
 }
