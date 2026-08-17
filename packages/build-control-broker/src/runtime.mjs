@@ -13,20 +13,22 @@ import { spawnManagedProcess, startManagedProcess, terminateProcessTree } from '
 function stripBom(text) { return typeof text === 'string' && text.charCodeAt(0) === 0xfeff ? text.slice(1) : text; }
 
 const packageNames = ['build-control-broker', 'build-control-core', 'build-control-clients'];
+export const WINDOWS_JOB_ADDON_RELATIVE_PATH = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node';
 const execFile = promisify(nodeExecFile);
 export const RUNTIME_ACTIVATION_FENCE_SCHEMA = 'rightkit.build-control.runtime-activation.v1';
 
 /** Materialize an immutable runtime bundle. This function never changes runtime-current or a service. */
-export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest }) {
+export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform = process.platform, windowsJobAddon }) {
   if (!externalRoot || !sourcePackagesRoot || !version) throw new TypeError('externalRoot, sourcePackagesRoot & version are required');
   if (!/^[A-Za-z0-9._-]+$/.test(version)) throw new TypeError('runtime version must be a safe immutable identifier');
   const root = resolve(externalRoot); const source = resolve(sourcePackagesRoot); const provenance = await verifySourceProvenance(source, { sourceRevision, sourceTreeDigest }); const staging = join(root, `.runtime-${randomUUID()}.staging`);
   await mkdir(root, { recursive: true }); await mkdir(staging, { recursive: false });
   try {
     for (const name of packageNames) { const target = join(staging, name); await mkdir(target, { recursive: true }); await Promise.all([cp(join(source, name, 'src'), join(target, 'src'), { recursive: true }), cp(join(source, name, 'package.json'), join(target, 'package.json'))]); }
+    const addon = platform === 'win32' ? await stageWindowsJobAddon(staging, source, windowsJobAddon) : undefined;
     await linkRuntimePackages(staging);
     const contentDigest = await digestTree(staging, { excludeManifest: true });
-    const manifest = await writeRuntimeManifest(staging, version, provenance);
+    const manifest = await writeRuntimeManifest(staging, version, provenance, addon);
     // Directory identity is derived from package content, never from a mutable
     // release label.  The manifest is written before the rename, so a visible
     // runtime is complete and immutable from the first observation.
@@ -47,14 +49,14 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
 }
 
 /** Compatibility activation wrapper. Bundle construction itself remains isolated in stageManagedRuntime. */
-export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, config, version, sourceRevision, sourceTreeDigest, nodePath = process.execPath, healthTimeoutMs = 8_000, healthWorkspace, postSwitchHealth, rollbackSwitch, restartService, probeService, rollbackService, processProbe, stage = stageManagedRuntime, health = healthProbe }) {
+export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, config, version, sourceRevision, sourceTreeDigest, nodePath = process.execPath, healthTimeoutMs = 8_000, healthWorkspace, postSwitchHealth, rollbackSwitch, restartService, probeService, rollbackService, processProbe, stage = stageManagedRuntime, health = healthProbe, platform = process.platform, windowsJobAddon }) {
   if (!externalRoot || !sourcePackagesRoot || !config || !version) throw new TypeError('externalRoot, sourcePackagesRoot, config & version are required');
   if (!Number.isSafeInteger(healthTimeoutMs) || healthTimeoutMs < 100) throw new TypeError('healthTimeoutMs must be at least 100');
   if (typeof healthWorkspace !== 'string' || !isAbsolute(healthWorkspace)) throw new TypeError('absolute healthWorkspace is required for functional runtime activation proof');
   const healthManifest = await lstat(join(healthWorkspace, 'Cargo.toml')).catch(() => null);
   if (!healthManifest?.isFile()) throw new TypeError('healthWorkspace must contain a regular Cargo.toml');
   if (typeof restartService !== 'function' || typeof probeService !== 'function' || typeof rollbackService !== 'function' || typeof processProbe !== 'function') throw new TypeError('restartService, probeService, rollbackService & processProbe are required for activation');
-  const root = resolve(externalRoot); const staged = await stage({ externalRoot: root, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest }); const { runtime, manifest, contentDigest } = staged;
+  const root = resolve(externalRoot); const staged = await stage({ externalRoot: root, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform, windowsJobAddon }); const { runtime, manifest, contentDigest } = staged;
   await verifyRuntimeBundle(runtime, manifest, contentDigest);
   const activationFencePath = activationFencePathFor(config, root);
   const activation = await prepareRuntimeActivationFence({ path: activationFencePath, manifest });
@@ -89,10 +91,10 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
   }
 }
 
-export async function writeRuntimeManifest(runtime, version, provenance) {
+export async function writeRuntimeManifest(runtime, version, provenance, windowsJobAddon) {
   const coreDigest = await digestTree(join(runtime, 'build-control-core')); const clientPackageDigest = await digestTree(join(runtime, 'build-control-clients')); const brokerPackageDigest = await digestTree(join(runtime, 'build-control-broker'));
   const identity = normalizeRuntimeIdentity({ schema: RUNTIME_MANIFEST_SCHEMA, version, clientDigest: hash(`${coreDigest}:${clientPackageDigest}`), brokerDigest: hash(`${coreDigest}:${brokerPackageDigest}`) });
-  const manifest = normalizeRuntimeManifest({ ...identity, ...provenance });
+  const manifest = normalizeRuntimeManifest({ ...identity, ...provenance, ...(windowsJobAddon ? { windowsJobAddon } : {}) });
   const path = join(runtime, 'runtime-manifest.json'); const handle = await open(path, 'wx', 0o444);
   try { await handle.writeFile(`${JSON.stringify(manifest)}\n`, 'utf8'); await handle.sync(); await handle.chmod(0o444); }
   finally { await handle.close(); }
@@ -102,10 +104,34 @@ export async function writeRuntimeManifest(runtime, version, provenance) {
 async function digestTree(root, { excludeManifest = false } = {}) { const files = []; const walk = async (directory, prefix = '') => { for (const name of (await readdir(directory)).sort()) { if (excludeManifest && !prefix && name === 'runtime-manifest.json') continue; const path = join(directory, name); const metadata = await lstat(path); if (metadata.isSymbolicLink()) continue; if (metadata.isDirectory()) await walk(path, prefix ? `${prefix}/${name}` : name); else files.push([prefix ? `${prefix}/${name}` : name, await readFile(path)]); } }; await walk(root); const value = createHash('sha256'); for (const [path, contents] of files) value.update(path).update('\0').update(contents).update('\0'); return value.digest('hex'); }
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 
+async function stageWindowsJobAddon(staging, sourcePackagesRoot, descriptor) {
+  if (!descriptor || resolve(descriptor.path ?? '') !== resolve(sourcePackagesRoot, WINDOWS_JOB_ADDON_RELATIVE_PATH) || !/^[0-9a-f]{64}$/i.test(descriptor.sha256 ?? '') || !Number.isSafeInteger(descriptor.sizeBytes) || descriptor.sizeBytes < 1) throw new TypeError('Windows Job Object addon path, digest & size are required');
+  const sourceStat = await lstat(descriptor.path).catch(() => null);
+  if (!sourceStat?.isFile()) throw new Error('Windows Job Object addon must be a regular file');
+  const bytes = await readFile(descriptor.path);
+  if (bytes.length !== descriptor.sizeBytes) throw new Error('Windows Job Object addon size mismatch');
+  const actual = hash(bytes);
+  if (actual !== descriptor.sha256.toLowerCase()) throw new Error('Windows Job Object addon digest mismatch');
+  const target = join(staging, WINDOWS_JOB_ADDON_RELATIVE_PATH);
+  await mkdir(dirname(target), { recursive: true }); await writeFile(target, bytes, { mode: 0o444 });
+  return Object.freeze({ path: WINDOWS_JOB_ADDON_RELATIVE_PATH, sha256: actual, sizeBytes: bytes.length });
+}
+
+export async function describeWindowsJobAddon(sourcePackagesRoot) {
+  const path = resolve(sourcePackagesRoot, WINDOWS_JOB_ADDON_RELATIVE_PATH);
+  const metadata = await lstat(path).catch(() => null);
+  if (!metadata?.isFile()) throw new Error(`Windows Job Object addon must be a regular file: ${path}`);
+  const bytes = await readFile(path).catch(() => null);
+  if (!bytes) throw new Error(`Windows Job Object addon is missing: ${path}`);
+  return Object.freeze({ path, sha256: hash(bytes), sizeBytes: bytes.length });
+}
+
 function normalizeRuntimeManifest(manifest) {
   const identity = normalizeRuntimeIdentity(manifest);
   if (!/^[0-9a-f]{40,64}$/.test(manifest?.sourceRevision ?? '') || !/^[0-9a-f]{40,64}$/.test(manifest?.sourceTreeDigest ?? '')) throw new TypeError('runtime manifest requires immutable source revision & tree digest');
-  return Object.freeze({ ...identity, sourceRevision: manifest.sourceRevision, sourceTreeDigest: manifest.sourceTreeDigest });
+  const addon = manifest?.windowsJobAddon;
+  if (addon !== undefined && (addon.path !== WINDOWS_JOB_ADDON_RELATIVE_PATH || !/^[0-9a-f]{64}$/i.test(addon.sha256 ?? '') || !Number.isSafeInteger(addon.sizeBytes) || addon.sizeBytes < 1)) throw new TypeError('runtime manifest has malformed Windows Job Object addon descriptor');
+  return Object.freeze({ ...identity, sourceRevision: manifest.sourceRevision, sourceTreeDigest: manifest.sourceTreeDigest, ...(addon ? { windowsJobAddon: Object.freeze({ path: addon.path, sha256: addon.sha256.toLowerCase(), sizeBytes: addon.sizeBytes }) } : {}) });
 }
 
 function sameRuntimeIdentity(left, right) {
@@ -115,7 +141,7 @@ function sameRuntimeIdentity(left, right) {
 
 function sameRuntimeManifest(left, right) {
   const expected = normalizeRuntimeManifest(right); const observed = normalizeRuntimeManifest(left);
-  return sameRuntimeIdentity(observed, expected) && observed.sourceRevision === expected.sourceRevision && observed.sourceTreeDigest === expected.sourceTreeDigest;
+  return sameRuntimeIdentity(observed, expected) && observed.sourceRevision === expected.sourceRevision && observed.sourceTreeDigest === expected.sourceTreeDigest && JSON.stringify(observed.windowsJobAddon ?? null) === JSON.stringify(expected.windowsJobAddon ?? null);
 }
 
 async function gitAt(cwd, args) {
@@ -178,6 +204,10 @@ async function removeRuntimeActivationFence(activation) {
 async function verifyRuntimeBundle(runtime, manifest, contentDigest) {
   const expected = normalizeRuntimeManifest(manifest); const onDisk = normalizeRuntimeManifest(JSON.parse(stripBom(await readFile(join(runtime, 'runtime-manifest.json'), 'utf8'))));
   if (!sameRuntimeManifest(onDisk, expected)) throw new Error('runtime manifest mismatch');
+  if (expected.windowsJobAddon) {
+    const addonPath = join(runtime, expected.windowsJobAddon.path); const metadata = await lstat(addonPath).catch(() => null); const bytes = metadata?.isFile() ? await readFile(addonPath).catch(() => null) : null;
+    if (!bytes || bytes.length !== expected.windowsJobAddon.sizeBytes || hash(bytes) !== expected.windowsJobAddon.sha256) throw new Error('Windows Job Object addon missing or digest mismatch');
+  }
   if (contentDigest && await digestTree(runtime, { excludeManifest: true }) !== contentDigest) throw new Error('runtime content digest mismatch');
 }
 

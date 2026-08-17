@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { BUILD_CONTROL_PROTOCOL } from '@rightkit/build-control-core';
-import { installManagedRuntime } from './runtime.mjs';
+import { describeWindowsJobAddon, installManagedRuntime } from './runtime.mjs';
 
 const execDefault = promisify(childExecFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -20,7 +20,8 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 export async function installManagedRuntimeWindows(options = {}) {
   const callbacks = createWindowsRuntimeCallbacks(options);
   const installer = options.installManagedRuntime ?? installManagedRuntime;
-  return installer({ ...options, ...callbacks });
+  const windowsJobAddon = options.windowsJobAddon ?? await describeWindowsJobAddon(options.sourcePackagesRoot);
+  return installer({ ...options, ...callbacks, platform: 'win32', windowsJobAddon });
 }
 
 /** One scheduled task, `/RestartOnFailure`, ONSTART + logon triggers so a
