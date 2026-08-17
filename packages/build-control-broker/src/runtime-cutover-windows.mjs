@@ -3,7 +3,7 @@ import { execFile as childExecFile } from 'node:child_process';
 import net from 'node:net';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, resolve, win32 } from 'node:path';
 import { BUILD_CONTROL_PROTOCOL } from '@rightkit/build-control-core';
 import { describeWindowsJobAddon, installManagedRuntime } from './runtime.mjs';
 
@@ -78,6 +78,21 @@ export function renderTaskDefinition({ taskName, nodePath, brokerScript, configP
 `;
 }
 
+function executableBasename(value) {
+  return String(value ?? '').split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, '');
+}
+
+export function selectWindowsNodePid(processes, nodePath) {
+  const expected = executableBasename(nodePath);
+  const expectedPath = win32.normalize(String(nodePath).replaceAll('/', '\\')).toLowerCase();
+  const rows = Array.isArray(processes) ? processes : processes ? [processes] : [];
+  const match = rows.find((row) => executableBasename(row?.Name) === expected
+    && typeof row?.ExecutablePath === 'string'
+    && win32.normalize(row.ExecutablePath.replaceAll('/', '\\')).toLowerCase() === expectedPath);
+  const pid = Number(match?.ProcessId);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+
 export async function ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile = execDefault }) {
   const query = await execFile('schtasks', ['/Query', '/TN', taskName]).then(() => true).catch(() => false);
   if (query) return;
@@ -110,10 +125,13 @@ export function createWindowsRuntimeCallbacks(options = {}) {
    * live PID is cross-checked the same way the mac probe does — by matching
    * the exact node+script+config command line, not trusting a bare number. */
   const livePid = async () => {
+    const nodeName = String(nodePath).split(/[\\/]/).pop();
+    const quotePowerShell = (value) => String(value).replace(/'/g, "''");
     const { stdout } = await execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command',
-      `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${configPath.replace(/'/g, "''")}*' } | Select-Object -ExpandProperty ProcessId`]);
-    const pid = Number(String(stdout).trim().split(/\r?\n/)[0]);
-    return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+      `Get-CimInstance Win32_Process | Where-Object { $_.Name -ieq '${quotePowerShell(nodeName)}' -and $_.CommandLine -like '*${quotePowerShell(configPath)}*' } | Select-Object ProcessId,Name,ExecutablePath | ConvertTo-Json -Compress`]);
+    let processes;
+    try { processes = JSON.parse(String(stdout).trim() || '[]'); } catch { return null; }
+    return selectWindowsNodePid(processes, nodePath);
   };
   const ensureRegistered = async ({ taskXmlPath }) => ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile });
   const ensureDrained = async () => {

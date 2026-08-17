@@ -6,7 +6,7 @@ import test from 'node:test';
 import {
   managedDatabasePath, parseWindowsCutoverArgs, proveLegacyOwnershipAbsent, proveManagedRequestsDrained, proveV1Drained, runWindowsCutover,
 } from './runtime-cutover-windows-cli.mjs';
-import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
+import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition, selectWindowsNodePid, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
 
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-win-cutover-cli-')));
@@ -140,6 +140,17 @@ test('Task Scheduler XML is written as BOM-prefixed UTF-16LE', async () => {
   await withTaskDefinitionFile('<Task/>', async (file) => { bytes = await readFile(file); });
   assert.deepEqual(bytes.subarray(0, 2), Buffer.from([0xff, 0xfe]));
   assert.equal(bytes.subarray(2).toString('utf16le'), '<Task/>');
+});
+
+test('Windows PID selection ignores PowerShell self-match & accepts canonical node candidate', () => {
+  const processes = [
+    { ProcessId: 712, Name: 'powershell.exe', CommandLine: 'powershell -Command ... config.json' },
+    { ProcessId: 411, Name: 'node.exe', ExecutablePath: 'C:\\Other\\node.exe', CommandLine: 'node broker.mjs config.json' },
+    { ProcessId: 913, Name: 'NODE.EXE', ExecutablePath: 'c:/PROGRAM FILES/nodejs/NODE.EXE', CommandLine: 'node broker.mjs config.json' },
+  ];
+  assert.equal(selectWindowsNodePid(processes, 'C:\\Program Files\\nodejs\\node.exe'), 913);
+  assert.equal(selectWindowsNodePid(processes[0], 'C:\\Program Files\\nodejs\\node.exe'), null);
+  assert.equal(selectWindowsNodePid({ ProcessId: 914, Name: 'node.exe' }, 'C:\\Program Files\\nodejs\\node.exe'), null);
 });
 
 test('fresh Windows cutover registers task before use & rollback handles absent or registered candidate', async () => {
