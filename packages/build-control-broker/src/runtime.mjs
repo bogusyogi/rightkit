@@ -51,7 +51,7 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
 }
 
 /** Compatibility activation wrapper. Bundle construction itself remains isolated in stageManagedRuntime. */
-export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, config, version, sourceRevision, sourceTreeDigest, nodePath = process.execPath, healthTimeoutMs = 8_000, healthWorkspace, postSwitchHealth, rollbackSwitch, restartService, probeService, rollbackService, processProbe, stage = stageManagedRuntime, health = healthProbe, platform = process.platform, windowsJobAddon }) {
+export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, config, version, sourceRevision, sourceTreeDigest, nodePath = process.execPath, healthTimeoutMs = 8_000, healthWorkspace, taskXmlPath, postSwitchHealth, rollbackSwitch, restartService, probeService, rollbackService, processProbe, stage = stageManagedRuntime, health = healthProbe, platform = process.platform, windowsJobAddon }) {
   if (!externalRoot || !sourcePackagesRoot || !config || !version) throw new TypeError('externalRoot, sourcePackagesRoot, config & version are required');
   if (!Number.isSafeInteger(healthTimeoutMs) || healthTimeoutMs < 100) throw new TypeError('healthTimeoutMs must be at least 100');
   if (typeof healthWorkspace !== 'string' || !isAbsolute(healthWorkspace)) throw new TypeError('absolute healthWorkspace is required for functional runtime activation proof');
@@ -70,7 +70,7 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
     selected = true;
     try {
       await verifyRuntimeBundle(runtime, manifest, contentDigest);
-      service = await restartService({ runtime, current, prior, manifest, activation, timeoutMs: healthTimeoutMs });
+      service = await restartService({ runtime, current, prior, manifest, activation, taskXmlPath, timeoutMs: healthTimeoutMs });
       service = await probeService({ runtime, current, prior, manifest, activation, restart: service, timeoutMs: healthTimeoutMs });
       await assertServiceIdentity(service, runtime, manifest, processProbe);
       await verifyRuntimeBundle(runtime, manifest, contentDigest);
@@ -81,7 +81,7 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
       const rollback = join(root, `.runtime-current-${randomUUID()}`); if (prior === null) await rm(current, { force: true }); else { await symlink(prior, rollback); await rename(rollback, current); } await syncDirectory(root);
       selected = false;
       await removeRuntimeActivationFence(activation);
-      try { await rollbackService({ prior, current, failedRuntime: runtime, manifest, service, timeoutMs: healthTimeoutMs }); }
+      try { await rollbackService({ prior, current, failedRuntime: runtime, manifest, service, taskXmlPath, timeoutMs: healthTimeoutMs }); }
       catch (rollbackError) { throw new Error(`runtime activation rollback failed: ${rollbackError.message}; activation failure: ${error.message}`); }
       throw new Error(`runtime activation rolled back: ${error.message}`);
     }

@@ -6,7 +6,7 @@ import test from 'node:test';
 import {
   managedDatabasePath, parseWindowsCutoverArgs, proveLegacyOwnershipAbsent, proveManagedRequestsDrained, proveV1Drained, runWindowsCutover,
 } from './runtime-cutover-windows-cli.mjs';
-import { renderTaskDefinition } from './runtime-cutover-windows.mjs';
+import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition } from './runtime-cutover-windows.mjs';
 
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-win-cutover-cli-')));
@@ -133,4 +133,23 @@ test('renderTaskDefinition escapes reserved XML characters', () => {
   const xml = renderTaskDefinition({ taskName: 'x', nodePath: 'C:\\a & b\\node.exe', brokerScript: 'C:\\x<y', configPath: 'C:\\c.json' });
   assert.ok(!xml.includes('C:\\a & b\\node.exe'));
   assert.match(xml, /C:\\a &amp; b\\node\.exe/);
+});
+
+test('fresh Windows cutover registers task before use & rollback handles absent or registered candidate', async () => {
+  const calls = [];
+  const execFile = async (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === '/Query') throw new Error('missing task');
+    return { stdout: '' };
+  };
+  await ensureWindowsTaskRegistered({ taskName: 'RightKitTest', taskXmlPath: '/tmp/task.xml', execFile });
+  assert.deepEqual(calls.map(([, args]) => args[0]), ['/Query', '/Create']);
+  const callbacks = createWindowsRuntimeCallbacks({ taskName: 'RightKitTest', endpoint: '\\\\.\\pipe\\rightkit-test', drainProbe: async () => ({ open: 0 }), execFile });
+  await callbacks.rollbackService({ prior: null });
+  assert.equal(calls.at(-1)[1][0], '/Query');
+  const registeredCalls = [];
+  const registeredExec = async (command, args) => { registeredCalls.push([command, args]); return { stdout: '' }; };
+  const registeredCallbacks = createWindowsRuntimeCallbacks({ taskName: 'RightKitTest', endpoint: '\\\\.\\pipe\\rightkit-test', drainProbe: async () => ({ open: 0 }), execFile: registeredExec });
+  await registeredCallbacks.rollbackService({ prior: null });
+  assert.equal(registeredCalls.at(-1)[1][0], '/End');
 });

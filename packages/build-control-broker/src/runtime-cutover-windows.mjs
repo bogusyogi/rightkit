@@ -78,6 +78,13 @@ export function renderTaskDefinition({ taskName, nodePath, brokerScript, configP
 `;
 }
 
+export async function ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile = execDefault }) {
+  const query = await execFile('schtasks', ['/Query', '/TN', taskName]).then(() => true).catch(() => false);
+  if (query) return;
+  if (typeof taskXmlPath !== 'string' || !isAbsolute(taskXmlPath)) throw new TypeError('absolute taskXmlPath is required when the scheduled task is unregistered');
+  await execFile('schtasks', ['/Create', '/TN', taskName, '/XML', taskXmlPath, '/F']);
+}
+
 export function createWindowsRuntimeCallbacks(options = {}) {
   const {
     taskName,
@@ -108,12 +115,7 @@ export function createWindowsRuntimeCallbacks(options = {}) {
     const pid = Number(String(stdout).trim().split(/\r?\n/)[0]);
     return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
   };
-  const ensureRegistered = async ({ taskXmlPath }) => {
-    const query = await execFile('schtasks', ['/Query', '/TN', taskName]).then(() => true).catch(() => false);
-    if (query) return;
-    if (typeof taskXmlPath !== 'string' || !isAbsolute(taskXmlPath)) throw new TypeError('absolute taskXmlPath is required when the scheduled task is unregistered');
-    await execFile('schtasks', ['/Create', '/TN', taskName, '/XML', taskXmlPath, '/F']);
-  };
+  const ensureRegistered = async ({ taskXmlPath }) => ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile });
   const ensureDrained = async () => {
     const state = await drainProbe();
     const open = typeof state === 'number' ? state : state?.open ?? state?.count ?? (state === true ? 1 : 0);
@@ -195,8 +197,9 @@ export function createWindowsRuntimeCallbacks(options = {}) {
   };
 
   return {
-    restartService: async ({ manifest, timeoutMs: callTimeoutMs = timeoutMs }) => {
+    restartService: async ({ manifest, taskXmlPath, timeoutMs: callTimeoutMs = timeoutMs }) => {
       await ensureDrained();
+      await ensureRegistered({ taskXmlPath });
       const oldPid = await livePid().catch(() => null);
       await execFile('schtasks', ['/End', '/TN', taskName]).catch(() => {});
       await execFile('schtasks', ['/Run', '/TN', taskName]);
@@ -214,7 +217,12 @@ export function createWindowsRuntimeCallbacks(options = {}) {
     },
     processProbe: probe,
     rollbackService: async ({ prior, manifest, timeoutMs: callTimeoutMs = timeoutMs }) => {
-      if (!prior) throw new Error('cannot rollback windows runtime without prior selection');
+      if (!prior) {
+        const registered = await execFile('schtasks', ['/Query', '/TN', taskName]).then(() => true).catch(() => false);
+        if (!registered) return { pid: null, runtimeIdentity: null };
+        await execFile('schtasks', ['/End', '/TN', taskName]);
+        return { pid: null, runtimeIdentity: null };
+      }
       let priorManifest = manifest; let v2Prior = true;
       if (externalRoot && prior) {
         try {
