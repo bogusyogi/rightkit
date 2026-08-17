@@ -114,7 +114,7 @@ test('owned upgrade removes only recorded obsolete non-Rust wrappers', async () 
 test('installs Windows wrappers that retain each exact shim name', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-'));
   const directory = join(root, 'agent-bin');
-  await installAgentShims({ directory, platform: 'win32', runtimeCurrent: 'C:\\RightKit\\runtime-current', nodePath: 'C:\\RightKit\\node.exe' });
+  await installAgentShims({ directory, platform: 'win32', runtimeCurrent: 'C:\\RightKit\\runtime-current', nodePath: 'C:\\RightKit\\node.exe', nativeLauncherBytes: Buffer.from([0x4d, 0x5a]) });
   const wrapper = await readFile(join(directory, 'rustdoc.cmd'), 'utf8');
   assert.match(wrapper, /RIGHTKIT_MANAGED_AGENT_SHIM=%~n0/);
   assert.match(wrapper, /C:\\RightKit\\node\.exe/);
@@ -122,6 +122,35 @@ test('installs Windows wrappers that retain each exact shim name', async () => {
   const rightkit = await readFile(join(directory, 'rightkit.cmd'), 'utf8');
   assert.match(rightkit, /rightkit\.mjs/); assert.doesNotMatch(rightkit, /RIGHTKIT_MANAGED_AGENT_SHIM/);
   await rm(root, { recursive: true, force: true });
+});
+
+test('installs native Rust launchers atomically beside Windows wrappers', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-client-'));
+  const directory = join(root, 'agent-bin');
+  const fakePe = Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00]);
+  const manifest = await installAgentShims({
+    directory,
+    platform: 'win32',
+    runtimeCurrent: 'C:\\RightKit\\runtime-current',
+    nodePath: 'C:\\RightKit\\node.exe',
+    nativeLauncherBytes: fakePe,
+  });
+  for (const name of ['cargo', 'rustc', 'rustdoc', 'rustup']) {
+    assert.deepEqual(await readFile(join(directory, `${name}.exe`)), fakePe);
+    assert.ok(manifest.links.includes(`${name}.exe`));
+  }
+  assert.ok(manifest.links.includes('rightkit.cmd'));
+  await assert.rejects(
+    installAgentShims({ directory, platform: 'win32', nativeLauncherBytes: Buffer.from('not-pe') }),
+    /PE image/,
+  );
+  await rm(root, { recursive: true, force: true });
+});
+
+test('native Windows launcher quotes every forwarded argument', async () => {
+  const source = await readFile(new URL('./native-windows-launcher/ManagedRustLauncher.cs', import.meta.url), 'utf8');
+  assert.match(source, /result\[index - 1\] = Quote\(args\[index\]\)/);
+  assert.match(source, /string\.Join\(" ", Tail\(Environment\.GetCommandLineArgs\(\)\)\)/);
 });
 
 test('rightkit wrapper sends explicit request identity & fails closed without broker', async () => {

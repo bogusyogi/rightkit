@@ -1,5 +1,6 @@
 import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, normalizeRuntimeIdentity, validateManagedRustupInvocation } from '@rightkit/build-control-core';
 import net from 'node:net';
+import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -260,6 +261,7 @@ export function shimManifest({ installRoot = '<rightkit-agent-bin>' } = {}) {
 
 const INSTALL_MARKER = 'rightkit.build-control.agent-shims.install.v1';
 const INSTALL_MANIFEST = '.rightkit-managed-agent-shims.json';
+const NATIVE_WINDOWS_SHIMS = Object.freeze(['cargo', 'rustc', 'rustdoc', 'rustup']);
 
 function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\\"'\\\"'")}'`; }
 async function writeAtomic(path, data, mode) {
@@ -289,7 +291,25 @@ async function existingInstall(directory) {
   return manifest;
 }
 
-export async function installAgentShims({ directory, platform = process.platform, runtimeCurrent, nodePath = process.execPath } = {}) {
+export function compileNativeWindowsLauncher({ outputPath, cscPath = process.env.RIGHTKIT_CSC_PATH, sourcePath = fileURLToPath(new URL('./native-windows-launcher/ManagedRustLauncher.cs', import.meta.url)) } = {}) {
+  if (!outputPath || !isAbsolute(outputPath)) throw new TypeError('native launcher output path must be absolute');
+  const compiler = cscPath || (process.env.WINDIR ? join(process.env.WINDIR, 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe') : null);
+  if (!compiler) throw new Error('Windows .NET Framework csc.exe is required for native agent shims');
+  const result = spawnSync(compiler, ['/nologo', '/target:exe', '/optimize+', `/out:${outputPath}`, sourcePath], { encoding: 'utf8', windowsHide: true });
+  if (result.error || result.status !== 0) throw new Error(`native Windows launcher compilation failed: ${result.stderr || result.error?.message || `exit ${result.status}`}`);
+  return outputPath;
+}
+
+async function nativeLauncherBytes({ outputPath, injected, cscPath }) {
+  if (injected !== undefined) {
+    if (!Buffer.isBuffer(injected) || injected.length < 2 || injected[0] !== 0x4d || injected[1] !== 0x5a) throw new TypeError('native Windows launcher bytes must be a PE image');
+    return injected;
+  }
+  compileNativeWindowsLauncher({ outputPath, cscPath });
+  return readFile(outputPath);
+}
+
+export async function installAgentShims({ directory, platform = process.platform, runtimeCurrent, nodePath = process.execPath, nativeLauncherBytes: injectedNativeLauncherBytes, cscPath } = {}) {
   if (!directory || !isAbsolute(directory)) throw new TypeError('agent shim directory must be absolute');
   const isPlatformAbsolute = platform === 'win32' ? win32.isAbsolute : isAbsolute;
   const target = resolve(directory);
@@ -297,13 +317,20 @@ export async function installAgentShims({ directory, platform = process.platform
   if (![selectedRuntime, nodePath].every((value) => typeof value === 'string' && isPlatformAbsolute(value))) throw new TypeError('runtime-current & node path must be absolute');
   const defaultBrokerEndpoint = platform === 'win32' ? null : resolve(target, '..', 'broker.sock');
   const manifest = shimManifest({ installRoot: target });
-  const names = manifest.links.map(({ name }) => platform === 'win32' ? `${name}.cmd` : name);
+  const names = manifest.links.flatMap(({ name }) => platform === 'win32' ? [`${name}.cmd`, ...(NATIVE_WINDOWS_SHIMS.includes(name) ? [`${name}.exe`] : [])] : [name]);
   const previous = await existingInstall(target);
   if (previous) {
     const priorNames = ownedLinkNames(previous);
     for (const name of priorNames) if (!names.includes(name)) await rm(resolve(target, name), { force: false });
   }
   if (platform === 'win32') {
+    const temporaryLauncher = join(dirname(target), `.rightkit-native-launcher-${process.pid}-${Math.random().toString(16).slice(2)}.exe`);
+    let compiledLauncher;
+    try {
+      compiledLauncher = await nativeLauncherBytes({ outputPath: temporaryLauncher, injected: injectedNativeLauncherBytes, cscPath });
+    } finally {
+      await rm(temporaryLauncher, { force: true });
+    }
     for (const { name } of manifest.links) {
       const destination = resolve(target, `${name}.cmd`);
       const executable = win32.join(selectedRuntime, 'build-control-clients', 'src', name === 'rightkit' ? 'rightkit.mjs' : 'managed-agent.mjs');
@@ -311,6 +338,7 @@ export async function installAgentShims({ directory, platform = process.platform
       const wrapper = `@echo off\r\nrem ${INSTALL_MARKER}\r\nsetlocal\r\n${identity}"${nodePath}" "${executable}" %*\r\nexit /b %ERRORLEVEL%\r\n`;
       await writeAtomic(destination, wrapper);
     }
+    for (const name of NATIVE_WINDOWS_SHIMS) await writeAtomic(resolve(target, `${name}.exe`), compiledLauncher);
   } else {
     for (const { name } of manifest.links) {
       const executable = join(selectedRuntime, 'build-control-clients', 'src', name === 'rightkit' ? 'rightkit.mjs' : 'managed-agent.mjs');

@@ -52,6 +52,13 @@ symlink on failed post-switch health. Any callback that restarts live service
 must supply matching rollback callback so selected symlink & running broker
 return to same runtime together.
 
+Windows installs retain `.cmd` wrappers for compatibility & install native PE
+`cargo.exe`, `rustc.exe`, `rustdoc.exe`, & `rustup.exe` launchers beside them.
+Install compiles launcher from checked-in source with Windows .NET Framework
+`csc.exe`; launcher reads only adjacent owned manifest, resolves
+`runtimeCurrent` & `nodePath`, derives its shim basename, then invokes existing
+`managed-agent.mjs`. Missing or malformed ownership state exits `125`.
+
 ## Paths & receipts
 
 Mac stores managed data under
