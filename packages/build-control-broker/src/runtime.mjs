@@ -97,7 +97,7 @@ export async function writeRuntimeManifest(runtime, version, provenance, windows
   const identity = normalizeRuntimeIdentity({ schema: RUNTIME_MANIFEST_SCHEMA, version, clientDigest: hash(`${coreDigest}:${clientPackageDigest}`), brokerDigest: hash(`${coreDigest}:${brokerPackageDigest}`) });
   const manifest = normalizeRuntimeManifest({ ...identity, ...provenance, ...(windowsJobAddon ? { windowsJobAddon } : {}) });
   const path = join(runtime, 'runtime-manifest.json'); const handle = await open(path, 'wx', 0o444);
-  try { await handle.writeFile(`${JSON.stringify(manifest)}\n`, 'utf8'); await handle.sync(); await handle.chmod(0o444); }
+  try { await handle.writeFile(`${JSON.stringify(manifest)}\n`, 'utf8'); await handle.sync(); await handle.chmod(platform === 'win32' ? 0o644 : 0o444); }
   finally { await handle.close(); }
   await syncDirectory(runtime, { platform }); return manifest;
 }
@@ -114,7 +114,7 @@ async function stageWindowsJobAddon(staging, sourcePackagesRoot, descriptor) {
   const actual = hash(bytes);
   if (actual !== descriptor.sha256.toLowerCase()) throw new Error('Windows Job Object addon digest mismatch');
   const target = join(staging, WINDOWS_JOB_ADDON_RELATIVE_PATH);
-  await mkdir(dirname(target), { recursive: true }); await writeFile(target, bytes, { mode: 0o444 });
+  await mkdir(dirname(target), { recursive: true }); await writeFile(target, bytes);
   return Object.freeze({ path: WINDOWS_JOB_ADDON_RELATIVE_PATH, sha256: actual, sizeBytes: bytes.length });
 }
 
@@ -239,7 +239,7 @@ async function makeImmutable(root, { platform = process.platform } = {}) {
     for (const name of await readdir(directory)) {
       const path = join(directory, name); const metadata = await lstat(path);
       if (metadata.isSymbolicLink()) continue;
-      if (metadata.isDirectory()) await walk(path); else { const handle = await open(path, 'r'); try { await handle.sync(); } finally { await handle.close(); } await chmod(path, 0o444); }
+      if (metadata.isDirectory()) await walk(path); else { const handle = await open(path, platform === 'win32' ? 'r+' : 'r'); try { await handle.sync(); } finally { await handle.close(); } await chmod(path, 0o444); }
     }
     // Keep directory metadata traversable/reclaimable while making every
     // materialized file immutable; content cannot be changed in place.
