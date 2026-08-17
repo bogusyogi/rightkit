@@ -498,9 +498,9 @@ test("RightKit exposes one current version manifest", () => {
   getCurrentCargoVersionContract();
 });
 
-test("Cargo metadata uses native rustup on Windows", () => {
-  assert.equal(cargoExecutable("win32"), "rustup");
-  assert.deepEqual(cargoArguments(["metadata"], "win32"), ["run", "stable", "cargo", "metadata"]);
+test("Cargo metadata uses managed Cargo directly on Windows", () => {
+  assert.equal(cargoExecutable("win32"), "cargo");
+  assert.deepEqual(cargoArguments(["metadata"], "win32"), ["metadata"]);
   assert.equal(cargoExecutable("darwin"), "cargo");
 });
 

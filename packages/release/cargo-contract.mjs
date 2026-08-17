@@ -18,11 +18,11 @@ export function isolatedCargoMetadataEnv(cargoHome, env = process.env) {
 }
 
 export function cargoExecutable(platform = process.platform) {
-  return platform === "win32" ? "rustup" : "cargo";
+  return "cargo";
 }
 
 export function cargoArguments(args, platform = process.platform) {
-  return platform === "win32" ? ["run", "stable", "cargo", ...args] : args;
+  return args;
 }
 
 export function validateRightKitCargoContract(root, publishedVersions, label = path.basename(root)) {
