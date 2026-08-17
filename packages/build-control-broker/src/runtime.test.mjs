@@ -7,11 +7,16 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, installManagedRuntime, prepareRuntimeActivationFence, stageManagedRuntime } from './runtime.mjs';
+import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, installManagedRuntime, normalizeGitScopedPath, prepareRuntimeActivationFence, stageManagedRuntime } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
 const git = async (cwd, args) => (await execFile('git', ['-C', cwd, ...args], { encoding: 'utf8' })).stdout.trim();
+
+test('Git provenance scopes use forward slashes even from Windows paths', () => {
+  assert.equal(normalizeGitScopedPath('tools\\rightkit\\packages'), 'tools/rightkit/packages');
+  assert.equal(normalizeGitScopedPath('packages/build-control-broker'), 'packages/build-control-broker');
+});
 
 async function sourceFixture() {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-source-')); const packages = join(root, 'packages'); const healthWorkspace = join(root, 'health');

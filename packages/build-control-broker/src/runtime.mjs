@@ -16,6 +16,7 @@ const packageNames = ['build-control-broker', 'build-control-core', 'build-contr
 export const WINDOWS_JOB_ADDON_RELATIVE_PATH = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node';
 const execFile = promisify(nodeExecFile);
 export const RUNTIME_ACTIVATION_FENCE_SCHEMA = 'rightkit.build-control.runtime-activation.v1';
+export const normalizeGitScopedPath = (path) => path.replaceAll('\\', '/');
 
 /** Materialize an immutable runtime bundle. This function never changes runtime-current or a service. */
 export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform = process.platform, windowsJobAddon }) {
@@ -150,8 +151,9 @@ async function gitAt(cwd, args) {
 }
 
 async function verifySourceProvenance(sourcePackagesRoot, { sourceRevision, sourceTreeDigest } = {}) {
-  const repository = resolve(await gitAt(sourcePackagesRoot, ['rev-parse', '--show-toplevel'])); const packages = resolve(sourcePackagesRoot); const scopedPath = relative(repository, packages);
-  if (!scopedPath || scopedPath === '.' || scopedPath.startsWith('..')) throw new Error('runtime source packages root must be a committed repository subdirectory');
+  const repository = resolve(await gitAt(sourcePackagesRoot, ['rev-parse', '--show-toplevel'])); const packages = resolve(sourcePackagesRoot); const filesystemScopedPath = relative(repository, packages);
+  if (!filesystemScopedPath || filesystemScopedPath === '.' || filesystemScopedPath.startsWith('..')) throw new Error('runtime source packages root must be a committed repository subdirectory');
+  const scopedPath = normalizeGitScopedPath(filesystemScopedPath);
   const status = await gitAt(repository, ['status', '--porcelain=v1', '--untracked-files=all', '--', scopedPath]);
   if (status) throw new Error(`runtime source packages root is dirty or contains untracked files: ${scopedPath}`);
   const actualRevision = await gitAt(repository, ['rev-parse', 'HEAD']); const actualTree = await gitAt(repository, ['rev-parse', `HEAD:${scopedPath}`]);
