@@ -52,7 +52,7 @@ test('Windows taskkill is best-effort & remains REAP_PENDING without a Job Objec
 
 test('Windows heavy-job startup fails closed before launcher spawn', () => {
   let spawned = false;
-  assert.throws(() => spawnManagedProcess('cargo', ['build'], { platform: 'win32' }, () => { spawned = true; }), WINDOWS_CONTAINMENT_CONTRACT);
+  assert.throws(() => spawnManagedProcess('cargo', ['build'], { platform: 'win32', loadJobAddon: () => null }, () => { spawned = true; }), WINDOWS_CONTAINMENT_CONTRACT);
   assert.equal(spawned, false);
 });
 
@@ -81,7 +81,7 @@ test('restart recovery reaps persisted POSIX process group before closure', asyn
 
 test('PID identity mismatch becomes REAP_PENDING without signalling a reused pid', async () => {
   const calls = [];
-  const result = await reapPersistedProcessTree({ pid: 51, processGroupId: 51, platform: 'posix', identity: 'start-51' }, { graceMs: 1, kill: (...args) => calls.push(args), readIdentity: () => 'replacement-51' });
+  const result = await reapPersistedProcessTree({ pid: 51, processGroupId: 51, platform: 'posix', identity: 'start-51', uid: 501, sessionId: 51 }, { platform: 'darwin', graceMs: 1, kill: (...args) => calls.push(args), readIdentity: () => 'replacement-51' });
   assert.deepEqual(result, { status: 'REAP_PENDING', reaped: false, escalated: false, reason: 'process-identity-mismatch' }); assert.deepEqual(calls, []);
 });
 
@@ -141,7 +141,7 @@ test('restart recovery fails closed when exact descendant signalling is denied',
 
 test('managed launcher resolves STARTED only after durable ownership is captured', async () => {
   const messages = []; const launched = Object.assign(new EventEmitter(), { pid: 61, connected: true, send: (message) => messages.push(message) });
-  const childProcess = spawnManagedProcess('/managed/cargo', ['build'], {}, (command, argv, options) => { assert.equal(command, process.execPath); assert.equal(options.stdio.at(-1), 'ipc'); assert.equal(typeof argv.at(-1), 'string'); return launched; });
+  const childProcess = spawnManagedProcess('/managed/cargo', ['build'], { platform: 'darwin' }, (command, argv, options) => { assert.equal(command, process.execPath); assert.equal(options.stdio.at(-1), 'ipc'); assert.equal(typeof argv.at(-1), 'string'); return launched; });
   assert.deepEqual(messages, []); const ownership = managedProcessOwnership(childProcess, { identity: { status: 'OK', identity: 'test-start-token' } });
   assert.equal(ownership.pid, childProcess.pid); const started = startManagedProcess(childProcess, { timeoutMs: 20 }); assert.deepEqual(messages, [{ type: 'START' }]); launched.emit('message', { type: 'STARTED', pid: 62 }); assert.deepEqual(await started, { pid: 62 });
 });
@@ -184,7 +184,7 @@ test('managed launcher identity retries transient bounded probe failures', async
 });
 
 test('persisted Windows tree is REAP_PENDING because Job Object recovery is unsupported', async () => {
-  const result = await reapPersistedProcessTree({ pid: 54, platform: 'win32', identity: 'creation-time' });
+  const result = await reapPersistedProcessTree({ pid: 54, platform: 'win32', identity: 'creation-time' }, { loadJobAddon: () => null });
   assert.deepEqual(result, { status: 'REAP_PENDING', reaped: false, escalated: false, reason: 'windows-job-object-unsupported' });
 });
 
