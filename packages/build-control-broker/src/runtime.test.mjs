@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, installManagedRuntime, normalizeGitScopedPath, prepareRuntimeActivationFence, stageManagedRuntime } from './runtime.mjs';
+import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, installManagedRuntime, normalizeGitScopedPath, prepareRuntimeActivationFence, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -16,6 +16,12 @@ const git = async (cwd, args) => (await execFile('git', ['-C', cwd, ...args], { 
 test('Git provenance scopes use forward slashes even from Windows paths', () => {
   assert.equal(normalizeGitScopedPath('tools\\rightkit\\packages'), 'tools/rightkit/packages');
   assert.equal(normalizeGitScopedPath('packages/build-control-broker'), 'packages/build-control-broker');
+});
+
+test('Windows directory fsync EPERM degrades while POSIX remains strict', async () => {
+  const denied = async () => ({ sync: async () => { const error = new Error('directory fsync unsupported'); error.code = 'EPERM'; throw error; }, close: async () => {} });
+  await syncDirectoryForPlatform('C:\\runtime', { platform: 'win32', openDirectory: denied });
+  await assert.rejects(syncDirectoryForPlatform('/runtime', { platform: 'darwin', openDirectory: denied }), /directory fsync unsupported/);
 });
 
 async function sourceFixture() {

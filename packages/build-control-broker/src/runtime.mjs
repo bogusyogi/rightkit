@@ -29,7 +29,7 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
     const addon = platform === 'win32' ? await stageWindowsJobAddon(staging, source, windowsJobAddon) : undefined;
     await linkRuntimePackages(staging);
     const contentDigest = await digestTree(staging, { excludeManifest: true });
-    const manifest = await writeRuntimeManifest(staging, version, provenance, addon);
+    const manifest = await writeRuntimeManifest(staging, version, provenance, addon, { platform });
     // Directory identity is derived from package content, never from a mutable
     // release label.  The manifest is written before the rename, so a visible
     // runtime is complete and immutable from the first observation.
@@ -42,9 +42,9 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
       await rm(staging, { recursive: true, force: true });
       return Object.freeze({ runtime: immutableRuntime, version: existing.version, contentDigest, manifest: existing });
     }
-    await makeImmutable(staging);
+    await makeImmutable(staging, { platform });
     await rename(staging, immutableRuntime);
-    await syncDirectory(root);
+    await syncDirectory(root, { platform });
     return Object.freeze({ runtime: immutableRuntime, version, contentDigest, manifest });
   } catch (error) { await rm(staging, { recursive: true, force: true }); throw error; }
 }
@@ -92,14 +92,14 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
   }
 }
 
-export async function writeRuntimeManifest(runtime, version, provenance, windowsJobAddon) {
+export async function writeRuntimeManifest(runtime, version, provenance, windowsJobAddon, { platform = process.platform } = {}) {
   const coreDigest = await digestTree(join(runtime, 'build-control-core')); const clientPackageDigest = await digestTree(join(runtime, 'build-control-clients')); const brokerPackageDigest = await digestTree(join(runtime, 'build-control-broker'));
   const identity = normalizeRuntimeIdentity({ schema: RUNTIME_MANIFEST_SCHEMA, version, clientDigest: hash(`${coreDigest}:${clientPackageDigest}`), brokerDigest: hash(`${coreDigest}:${brokerPackageDigest}`) });
   const manifest = normalizeRuntimeManifest({ ...identity, ...provenance, ...(windowsJobAddon ? { windowsJobAddon } : {}) });
   const path = join(runtime, 'runtime-manifest.json'); const handle = await open(path, 'wx', 0o444);
   try { await handle.writeFile(`${JSON.stringify(manifest)}\n`, 'utf8'); await handle.sync(); await handle.chmod(0o444); }
   finally { await handle.close(); }
-  await syncDirectory(runtime); return manifest;
+  await syncDirectory(runtime, { platform }); return manifest;
 }
 
 async function digestTree(root, { excludeManifest = false } = {}) { const files = []; const walk = async (directory, prefix = '') => { for (const name of (await readdir(directory)).sort()) { if (excludeManifest && !prefix && name === 'runtime-manifest.json') continue; const path = join(directory, name); const metadata = await lstat(path); if (metadata.isSymbolicLink()) continue; if (metadata.isDirectory()) await walk(path, prefix ? `${prefix}/${name}` : name); else files.push([prefix ? `${prefix}/${name}` : name, await readFile(path)]); } }; await walk(root); const value = createHash('sha256'); for (const [path, contents] of files) value.update(path).update('\0').update(contents).update('\0'); return value.digest('hex'); }
@@ -234,7 +234,7 @@ async function assertServiceIdentity(service, runtime, manifest, processProbe) {
   if (resolvedRuntime !== expectedRuntime && resolvedRuntime !== resolvedScript) throw new Error('service process runtime path mismatch');
 }
 
-async function makeImmutable(root) {
+async function makeImmutable(root, { platform = process.platform } = {}) {
   const walk = async (directory) => {
     for (const name of await readdir(directory)) {
       const path = join(directory, name); const metadata = await lstat(path);
@@ -243,12 +243,18 @@ async function makeImmutable(root) {
     }
     // Keep directory metadata traversable/reclaimable while making every
     // materialized file immutable; content cannot be changed in place.
-    await chmod(directory, 0o755); await syncDirectory(directory);
+    await chmod(directory, 0o755); await syncDirectory(directory, { platform });
   };
   await walk(root);
 }
 
-async function syncDirectory(path) { const handle = await open(path, 'r'); try { await handle.sync(); } finally { await handle.close(); } }
+export async function syncDirectoryForPlatform(path, { platform = process.platform, openDirectory = open } = {}) {
+  let handle;
+  try { handle = await openDirectory(path, 'r'); await handle.sync(); }
+  catch (error) { if (platform === 'win32' && error?.code === 'EPERM') return; throw error; }
+  finally { await handle?.close(); }
+}
+const syncDirectory = syncDirectoryForPlatform;
 
 async function linkRuntimePackages(runtime) {
   for (const consumer of ['build-control-broker', 'build-control-clients']) { const directory = join(runtime, consumer, 'node_modules', '@rightkit'); await mkdir(directory, { recursive: true }); await symlink('../../../build-control-core', join(directory, 'build-control-core')); }
