@@ -7,7 +7,7 @@ import { execFile as childExecFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runWindowsCutover } from './runtime-cutover-windows-cli.mjs';
 
@@ -27,6 +27,16 @@ export function parseArgs(argv) {
     throw new TypeError(`unknown bootstrap argument: ${flag}`);
   }
   return values;
+}
+
+export function isDirectMain({ moduleUrl = import.meta.url, argv1 = process.argv[1], platform = process.platform } = {}) {
+  if (typeof argv1 !== 'string' || !argv1) return false;
+  const modulePath = fileURLToPath(moduleUrl);
+  if (platform === 'win32') {
+    const normalize = (value) => win32.normalize(value.replace(/^\/(?=[A-Za-z]:)/, '')).toLowerCase();
+    return normalize(modulePath) === normalize(win32.resolve(argv1));
+  }
+  return resolve(modulePath) === resolve(argv1);
 }
 
 export async function sha256File(path) { return createHash('sha256').update(await readFile(path)).digest('hex'); }
@@ -167,4 +177,4 @@ async function main() {
   console.log('bootstrap-windows: broker activated');
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });
+if (isDirectMain()) main().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });

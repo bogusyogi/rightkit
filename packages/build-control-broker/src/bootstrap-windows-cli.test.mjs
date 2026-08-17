@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
-import { defaultBounds, parseArgs, shimTable } from './bootstrap-windows-cli.mjs';
+import { defaultBounds, isDirectMain, parseArgs, shimTable } from './bootstrap-windows-cli.mjs';
 
 // discoverTools/where/buildConfig shell out to `where.exe`, which does not
 // exist on this Mac — those three are exercised only by a real Windows run.
@@ -18,6 +18,13 @@ test('parseArgs accepts the documented flags & rejects anything else', () => {
   assert.deepEqual(parseArgs(['--force']), { force: true });
   assert.deepEqual(parseArgs(['--external-root', 'D:\\x']), { force: false, externalRoot: 'D:\\x' });
   assert.throws(() => parseArgs(['--bogus']), /unknown bootstrap argument/);
+});
+
+test('direct-main detection is portable across Windows and POSIX path forms', () => {
+  assert.equal(isDirectMain({ moduleUrl: 'file:///C:/RightKit/bootstrap-windows-cli.mjs', argv1: 'C:\\RightKit\\bootstrap-windows-cli.mjs', platform: 'win32' }), true);
+  assert.equal(isDirectMain({ moduleUrl: 'file:///C:/RightKit/bootstrap-windows-cli.mjs', argv1: 'C:\\Other\\bootstrap-windows-cli.mjs', platform: 'win32' }), false);
+  assert.equal(isDirectMain({ moduleUrl: 'file:///tmp/bootstrap-windows-cli.mjs', argv1: '/tmp/bootstrap-windows-cli.mjs', platform: 'linux' }), true);
+  assert.equal(isDirectMain({ moduleUrl: 'file:///tmp/bootstrap-windows-cli.mjs', argv1: '', platform: 'linux' }), false);
 });
 
 test('shimTable only maps shims for tools actually discovered, mirroring the macOS table', () => {

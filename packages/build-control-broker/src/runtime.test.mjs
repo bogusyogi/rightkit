@@ -54,7 +54,7 @@ test('Windows staging requires and verifies the native Job Object addon descript
     const relative = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node';
     const addonPath = join(fixture.packages, relative); const bytes = Buffer.from('MZ-fake-rightkit-job-addon');
     await mkdir(join(fixture.packages, 'build-control-broker/native/windows-job/build/Release'), { recursive: true }); await writeFile(addonPath, bytes);
-    await git(fixture.root, ['add', 'packages']); await git(fixture.root, ['commit', '-m', 'native Windows addon']);
+    await git(fixture.root, ['add', '-f', 'packages']); await git(fixture.root, ['commit', '-m', 'native Windows addon']);
     const descriptor = { path: addonPath, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length };
     const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'windows-addon', platform: 'win32', windowsJobAddon: descriptor });
     assert.deepEqual(staged.manifest.windowsJobAddon, { path: relative, sha256: descriptor.sha256, sizeBytes: bytes.length });
@@ -62,7 +62,7 @@ test('Windows staging requires and verifies the native Job Object addon descript
     await assert.rejects(stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'windows-size-mismatch', platform: 'win32', windowsJobAddon: { ...descriptor, sizeBytes: bytes.length + 1 } }), /size mismatch/);
     await assert.rejects(stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'windows-mismatch', platform: 'win32', windowsJobAddon: { ...descriptor, sha256: '0'.repeat(64) } }), /digest mismatch/);
     const outside = join(fixture.root, 'outside-addon.node'); await writeFile(outside, bytes); await rm(addonPath); await symlink(outside, addonPath);
-    await git(fixture.root, ['add', 'packages']); await git(fixture.root, ['commit', '-m', 'native Windows addon symlink']);
+    await git(fixture.root, ['add', '-f', 'packages']); await git(fixture.root, ['commit', '-m', 'native Windows addon symlink']);
     await assert.rejects(stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'windows-symlink', platform: 'win32', windowsJobAddon: descriptor }), /regular file/);
     await assert.rejects(stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'windows-missing', platform: 'win32' }), /path, digest & size are required/);
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
