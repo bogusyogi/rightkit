@@ -161,7 +161,10 @@ test('fresh Windows cutover registers task before use & rollback handles absent 
     return { stdout: '' };
   };
   await ensureWindowsTaskRegistered({ taskName: 'RightKitTest', taskXmlPath: '/tmp/task.xml', execFile });
-  assert.deepEqual(calls.map(([, args]) => args[0]), ['/Query', '/Create']);
+  assert.deepEqual(calls.map(([, args]) => args[0]), ['/Create']);
+  const staleCalls = [];
+  await ensureWindowsTaskRegistered({ taskName: 'RightKitTest', taskXmlPath: '/tmp/task.xml', execFile: async (command, args) => { staleCalls.push([command, args]); } });
+  assert.deepEqual(staleCalls[0][1], ['/Create', '/TN', 'RightKitTest', '/XML', '/tmp/task.xml', '/F']);
   const callbacks = createWindowsRuntimeCallbacks({ taskName: 'RightKitTest', endpoint: '\\\\.\\pipe\\rightkit-test', drainProbe: async () => ({ open: 0 }), execFile });
   await callbacks.rollbackService({ prior: null });
   assert.equal(calls.at(-1)[1][0], '/Query');

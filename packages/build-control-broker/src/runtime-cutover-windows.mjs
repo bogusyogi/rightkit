@@ -94,8 +94,6 @@ export function selectWindowsNodePid(processes, nodePath) {
 }
 
 export async function ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile = execDefault }) {
-  const query = await execFile('schtasks', ['/Query', '/TN', taskName]).then(() => true).catch(() => false);
-  if (query) return;
   if (typeof taskXmlPath !== 'string' || !isAbsolute(taskXmlPath)) throw new TypeError('absolute taskXmlPath is required when the scheduled task is unregistered');
   await execFile('schtasks', ['/Create', '/TN', taskName, '/XML', taskXmlPath, '/F']);
 }
@@ -217,9 +215,9 @@ export function createWindowsRuntimeCallbacks(options = {}) {
   return {
     restartService: async ({ manifest, taskXmlPath, timeoutMs: callTimeoutMs = timeoutMs }) => {
       await ensureDrained();
-      await ensureRegistered({ taskXmlPath });
       const oldPid = await livePid().catch(() => null);
       await execFile('schtasks', ['/End', '/TN', taskName]).catch(() => {});
+      await ensureRegistered({ taskXmlPath });
       await execFile('schtasks', ['/Run', '/TN', taskName]);
       const deadline = Date.now() + callTimeoutMs;
       const pid = await waitForPid(oldPid, deadline);
