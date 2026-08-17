@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { chmod, cp, lstat, mkdir, open, readFile, readdir, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFile as nodeExecFile, spawn } from 'node:child_process';
 import net from 'node:net';
@@ -63,7 +64,7 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
   const activation = await prepareRuntimeActivationFence({ path: activationFencePath, manifest });
   let selected = false; let committed = false; let prior = null; let service;
   try {
-    await health({ runtime, config, nodePath, timeoutMs: healthTimeoutMs, healthWorkspace });
+    await health({ runtime, config, nodePath, timeoutMs: healthTimeoutMs, healthWorkspace, platform });
     const current = join(root, 'runtime-current'); prior = await readlink(current).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
     const next = join(root, `.runtime-current-${randomUUID()}`); await symlink(basename(runtime), next); await rename(next, current); await syncDirectory(root);
     selected = true;
@@ -260,7 +261,12 @@ async function linkRuntimePackages(runtime) {
   for (const consumer of ['build-control-broker', 'build-control-clients']) { const directory = join(runtime, consumer, 'node_modules', '@rightkit'); await mkdir(directory, { recursive: true }); await symlink('../../../build-control-core', join(directory, 'build-control-core')); }
 }
 
-async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspace }) {
+export function loadRuntimeWindowsJobAddon(runtime, { loadAddon = createRequire(import.meta.url) } = {}) {
+  const addonPath = join(runtime, 'build-control-broker', 'native', 'windows-job', 'build', 'Release', 'rightkit_windows_job.node');
+  try { return loadAddon(addonPath); } catch { return null; }
+}
+
+async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspace, platform = process.platform }) {
   const liveExternal = config.broker?.externalRoot; if (!liveExternal?.path) throw new TypeError('broker external root is required for isolated health probe');
   const probeRoot = join(liveExternal.path, '.runtime-health', randomUUID()); await mkdir(probeRoot, { recursive: true, mode: 0o700 }); await chmod(probeRoot, 0o700); const endpoint = join(probeRoot, 'broker.sock');
   const { activationFencePath, ...probeBroker } = config.broker;
@@ -268,7 +274,8 @@ async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspa
   // schema-v2 containment without inheriting production PENDING state.
   const probeConfig = { ...config, unixSocket: endpoint, broker: { ...probeBroker, activationFencePath: join(probeRoot, 'activation-fence.json'), externalRoot: { ...liveExternal, path: probeRoot }, stateFile: join(probeRoot, 'state.json'), databasePath: join(probeRoot, 'state.sqlite'), eventLogPath: join(probeRoot, 'events.ndjson'), receiptsDir: join(probeRoot, 'receipts') } };
   const configPath = join(tmpdir(), `rk-${randomUUID()}.health-config.json`); await writeFile(configPath, `${JSON.stringify(probeConfig)}\n`, { mode: 0o600 });
-  const child = spawnManagedProcess(nodePath, [join(runtime, 'build-control-broker', 'src', 'broker.mjs'), configPath], { stdio: ['ignore', 'ignore', 'pipe'] }, spawn); let stderr = '';
+  const spawnOptions = { stdio: ['ignore', 'ignore', 'pipe'], ...(platform === 'win32' ? { platform, loadJobAddon: () => loadRuntimeWindowsJobAddon(runtime) } : {}) };
+  const child = spawnManagedProcess(nodePath, [join(runtime, 'build-control-broker', 'src', 'broker.mjs'), configPath], spawnOptions, spawn); let stderr = '';
   child.stderr.on('data', (data) => { stderr += data; });
   await startManagedProcess(child, { timeoutMs });
   try {

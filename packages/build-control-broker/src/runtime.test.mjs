@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, installManagedRuntime, normalizeGitScopedPath, prepareRuntimeActivationFence, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
+import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -22,6 +22,14 @@ test('Windows directory fsync EPERM degrades while POSIX remains strict', async 
   const denied = async () => ({ sync: async () => { const error = new Error('directory fsync unsupported'); error.code = 'EPERM'; throw error; }, close: async () => {} });
   await syncDirectoryForPlatform('C:\\runtime', { platform: 'win32', openDirectory: denied });
   await assert.rejects(syncDirectoryForPlatform('/runtime', { platform: 'darwin', openDirectory: denied }), /directory fsync unsupported/);
+});
+
+test('Windows health synchronously loads Job Object addon from candidate runtime', () => {
+  let addonPath;
+  const addon = { assignRunningProcessToNewJob: () => {} };
+  const loaded = loadRuntimeWindowsJobAddon('/managed/runtime-candidate', { loadAddon: (value) => { addonPath = value; return addon; } });
+  assert.equal(loaded, addon);
+  assert.match(addonPath, /runtime-candidate[\\/]build-control-broker[\\/]native[\\/]windows-job[\\/]build[\\/]Release[\\/]rightkit_windows_job\.node$/);
 });
 
 async function sourceFixture() {
