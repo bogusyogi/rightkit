@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
+import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -30,6 +30,15 @@ test('Windows health synchronously loads Job Object addon from candidate runtime
   const loaded = loadRuntimeWindowsJobAddon('/managed/runtime-candidate', { loadAddon: (value) => { addonPath = value; return addon; } });
   assert.equal(loaded, addon);
   assert.match(addonPath, /runtime-candidate[\\/]build-control-broker[\\/]native[\\/]windows-job[\\/]build[\\/]Release[\\/]rightkit_windows_job\.node$/);
+});
+
+test('Windows health cleanup uses bounded retry only for probe root', async () => {
+  let observed;
+  await removeHealthProbeRoot('C:\\probe-root', { platform: 'win32', remove: async (path, options) => { observed = { path, options }; } });
+  assert.deepEqual(observed, { path: 'C:\\probe-root', options: { recursive: true, force: true, maxRetries: 3, retryDelay: 100 } });
+  observed = null;
+  await removeHealthProbeRoot('/probe-root', { platform: 'darwin', remove: async (path, options) => { observed = { path, options }; } });
+  assert.deepEqual(observed, { path: '/probe-root', options: { recursive: true, force: true } });
 });
 
 async function sourceFixture() {

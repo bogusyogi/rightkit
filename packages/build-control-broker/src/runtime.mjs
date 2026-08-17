@@ -266,6 +266,11 @@ export function loadRuntimeWindowsJobAddon(runtime, { loadAddon = createRequire(
   try { return loadAddon(addonPath); } catch { return null; }
 }
 
+export async function removeHealthProbeRoot(path, { platform = process.platform, remove = rm } = {}) {
+  const options = { recursive: true, force: true, ...(platform === 'win32' ? { maxRetries: 3, retryDelay: 100 } : {}) };
+  await remove(path, options);
+}
+
 async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspace, platform = process.platform }) {
   const liveExternal = config.broker?.externalRoot; if (!liveExternal?.path) throw new TypeError('broker external root is required for isolated health probe');
   const probeRoot = join(liveExternal.path, '.runtime-health', randomUUID()); await mkdir(probeRoot, { recursive: true, mode: 0o700 }); await chmod(probeRoot, 0o700); const endpoint = join(probeRoot, 'broker.sock');
@@ -282,7 +287,7 @@ async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspa
     await waitForSocket(endpoint, child, timeoutMs, () => stderr); if (healthWorkspace) await functionalProbe(endpoint, healthWorkspace, timeoutMs, normalizeRuntimeIdentity(JSON.parse(stripBom(await readFile(join(runtime, 'runtime-manifest.json'), 'utf8')))));
   } finally {
     if (child.exitCode === null) await terminateProcessTree(child, { graceMs: Math.min(1_000, timeoutMs) });
-    await rm(endpoint, { force: true }); await rm(configPath, { force: true }); await rm(probeRoot, { recursive: true, force: true });
+    await rm(endpoint, { force: true }); await rm(configPath, { force: true }); await removeHealthProbeRoot(probeRoot, { platform });
   }
 }
 
