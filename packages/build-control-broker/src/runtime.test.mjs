@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
+import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -44,6 +44,11 @@ test('Windows health cleanup uses bounded retry only for probe root', async () =
 test('Windows health probes use unique named pipes while POSIX keeps socket paths', () => {
   assert.match(healthProbeEndpoint('win32', 'probe-1'), /^\\\\\.\\pipe\\rightkit-health-probe-1$/);
   assert.equal(healthProbeEndpoint('darwin', 'probe-1'), join(tmpdir(), 'rk-probe-1.health.sock'));
+});
+
+test('functional health surfaces FAILED receipt error and reason details', () => {
+  assert.equal(functionalFailureDetail({ type: 'RESULT', exitCode: 1, status: 'FAILED', receipt: { error: 'addon rejected' } }), 'addon rejected');
+  assert.equal(functionalFailureDetail({ type: 'RESULT', exitCode: 1, status: 'FAILED', receipt: { reason: 'digest mismatch' } }), 'digest mismatch');
 });
 
 async function sourceFixture() {
