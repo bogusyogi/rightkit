@@ -27,6 +27,23 @@ test("removes an invocation-created bridge after success without touching the sh
   assert.equal(readFileSync(path.join(fx.target, "keep.txt"), "utf8"), "shared-cache\n");
 });
 
+test("Windows creates a directory symlink instead of an untrusted junction", () => {
+  const fx = fixture();
+  let requestedType;
+  const bridge = createTargetBridge({
+    ...fx,
+    platform: "win32",
+    symlink(target, link, type) {
+      requestedType = type;
+      symlinkSync(target, link, type);
+    },
+  });
+  bridge.ensure();
+  assert.equal(requestedType, "dir");
+  assert.equal(realpathSync(fx.link), realpathSync(fx.target));
+  bridge.release();
+});
+
 test("removes an invocation-created bridge after the build throws", async () => {
   const fx = fixture();
   const bridge = createTargetBridge(fx);

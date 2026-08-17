@@ -51,7 +51,7 @@ export function createTargetBridge({
       }
       mkdir(target, { recursive: true });
       if (!entry) {
-        symlink(target, link, platform === "win32" ? "junction" : "dir");
+        symlink(target, link, "dir");
         entry = lstat(link);
         if (!entry.isSymbolicLink()) throw new Error(`RightKit target bridge was not created as a symbolic link: ${link}`);
         if (!sameRealPath(link, target, realpath, platform)) {
@@ -64,7 +64,7 @@ export function createTargetBridge({
           // Stale link from an earlier fingerprint, or one whose cache entry a
           // prune already removed. Both are ours to repoint.
           unlink(link);
-          symlink(target, link, platform === "win32" ? "junction" : "dir");
+          symlink(target, link, "dir");
           entry = lstat(link);
           if (!sameRealPath(link, target, realpath, platform)) {
             throw new Error(`RightKit target bridge did not repoint to the owned shared cache target: ${link}`);
