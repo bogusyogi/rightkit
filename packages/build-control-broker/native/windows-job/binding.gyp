@@ -13,9 +13,14 @@
           "libraries": ["kernel32.lib"],
           "msvs_settings": {
             "VCCLCompilerTool": {
+              "AdditionalOptions!": ["-flto=thin", "-flto=full"],
               "WholeProgramOptimization": "false"
             },
+            "VCLibrarianTool": {
+              "AdditionalOptions!": ["-flto=thin", "-flto=full"]
+            },
             "VCLinkerTool": {
+              "AdditionalOptions!": ["-flto=thin", "-flto=full", "/opt:lldltojobs=<(lto_jobs)"],
               "LinkTimeCodeGeneration": 0
             }
           }
