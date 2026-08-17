@@ -271,13 +271,18 @@ export async function removeHealthProbeRoot(path, { platform = process.platform,
   await remove(path, options);
 }
 
+export function healthProbeEndpoint(platform, id) {
+  if (typeof id !== 'string' || !id) throw new TypeError('health probe id is required');
+  return platform === 'win32' ? String.raw`\\.\pipe\rightkit-health-${id}` : join(tmpdir(), `rk-${id}.health.sock`);
+}
+
 async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspace, platform = process.platform }) {
   const liveExternal = config.broker?.externalRoot; if (!liveExternal?.path) throw new TypeError('broker external root is required for isolated health probe');
-  const probeRoot = join(liveExternal.path, '.runtime-health', randomUUID()); await mkdir(probeRoot, { recursive: true, mode: 0o700 }); await chmod(probeRoot, 0o700); const endpoint = join(probeRoot, 'broker.sock');
+  const probeId = randomUUID(); const probeRoot = join(liveExternal.path, '.runtime-health', probeId); await mkdir(probeRoot, { recursive: true, mode: 0o700 }); await chmod(probeRoot, 0o700); const endpoint = platform === 'win32' ? healthProbeEndpoint(platform, probeId) : join(probeRoot, 'broker.sock');
   const { activationFencePath, ...probeBroker } = config.broker;
   // Isolated health gets its own absent fence under probeRoot. This satisfies
   // schema-v2 containment without inheriting production PENDING state.
-  const probeConfig = { ...config, unixSocket: endpoint, broker: { ...probeBroker, activationFencePath: join(probeRoot, 'activation-fence.json'), externalRoot: { ...liveExternal, path: probeRoot }, stateFile: join(probeRoot, 'state.json'), databasePath: join(probeRoot, 'state.sqlite'), eventLogPath: join(probeRoot, 'events.ndjson'), receiptsDir: join(probeRoot, 'receipts') } };
+  const probeConfig = { ...config, ...(platform === 'win32' ? { windowsPipe: endpoint } : { unixSocket: endpoint }), broker: { ...probeBroker, activationFencePath: join(probeRoot, 'activation-fence.json'), externalRoot: { ...liveExternal, path: probeRoot }, stateFile: join(probeRoot, 'state.json'), databasePath: join(probeRoot, 'state.sqlite'), eventLogPath: join(probeRoot, 'events.ndjson'), receiptsDir: join(probeRoot, 'receipts') } };
   const configPath = join(tmpdir(), `rk-${randomUUID()}.health-config.json`); await writeFile(configPath, `${JSON.stringify(probeConfig)}\n`, { mode: 0o600 });
   const spawnOptions = { stdio: ['ignore', 'ignore', 'pipe'], ...(platform === 'win32' ? { platform, loadJobAddon: () => loadRuntimeWindowsJobAddon(runtime) } : {}) };
   const child = spawnManagedProcess(nodePath, [join(runtime, 'build-control-broker', 'src', 'broker.mjs'), configPath], spawnOptions, spawn); let stderr = '';

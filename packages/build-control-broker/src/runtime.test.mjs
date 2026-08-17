@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
+import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -39,6 +39,11 @@ test('Windows health cleanup uses bounded retry only for probe root', async () =
   observed = null;
   await removeHealthProbeRoot('/probe-root', { platform: 'darwin', remove: async (path, options) => { observed = { path, options }; } });
   assert.deepEqual(observed, { path: '/probe-root', options: { recursive: true, force: true } });
+});
+
+test('Windows health probes use unique named pipes while POSIX keeps socket paths', () => {
+  assert.match(healthProbeEndpoint('win32', 'probe-1'), /^\\\\\.\\pipe\\rightkit-health-probe-1$/);
+  assert.equal(healthProbeEndpoint('darwin', 'probe-1'), join(tmpdir(), 'rk-probe-1.health.sock'));
 });
 
 async function sourceFixture() {
