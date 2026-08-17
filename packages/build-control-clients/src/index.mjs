@@ -262,6 +262,7 @@ export function shimManifest({ installRoot = '<rightkit-agent-bin>' } = {}) {
 const INSTALL_MARKER = 'rightkit.build-control.agent-shims.install.v1';
 const INSTALL_MANIFEST = '.rightkit-managed-agent-shims.json';
 const NATIVE_WINDOWS_SHIMS = Object.freeze(['cargo', 'rustc', 'rustdoc', 'rustup']);
+const stripBom = (value) => typeof value === 'string' && value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
 
 function shellQuote(value) { return `'${String(value).replaceAll("'", "'\\\"'\\\"'")}'`; }
 async function writeAtomic(path, data, mode) {
@@ -285,7 +286,7 @@ async function existingInstall(directory) {
   if (entries.length === 0) return null;
   if (!entries.includes(INSTALL_MANIFEST)) throw new Error('agent shim directory is not an owned RightKit install');
   let manifest;
-  try { manifest = JSON.parse(await readFile(resolve(directory, INSTALL_MANIFEST), 'utf8')); } catch { throw new Error('agent shim directory has invalid ownership manifest'); }
+  try { manifest = JSON.parse(stripBom(await readFile(resolve(directory, INSTALL_MANIFEST), 'utf8'))); } catch { throw new Error('agent shim directory has invalid ownership manifest'); }
   const owned = ownedLinkNames(manifest); owned.add(INSTALL_MANIFEST);
   if (!entries.every((entry) => owned.has(entry))) throw new Error('agent shim directory contains foreign files');
   return manifest;

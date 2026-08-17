@@ -147,6 +147,19 @@ test('installs native Rust launchers atomically beside Windows wrappers', async 
   await rm(root, { recursive: true, force: true });
 });
 
+test('upgrades a PowerShell-written Windows ownership manifest with a UTF-8 BOM', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-client-'));
+  const directory = join(root, 'agent-bin');
+  const fakePe = Buffer.from([0x4d, 0x5a]);
+  await installAgentShims({ directory, platform: 'win32', runtimeCurrent: 'C:\\RightKit\\runtime-current', nodePath: 'C:\\RightKit\\node.exe', nativeLauncherBytes: fakePe });
+  const manifestPath = join(directory, '.rightkit-managed-agent-shims.json');
+  const manifest = await readFile(manifestPath, 'utf8');
+  await writeFile(manifestPath, `\ufeff${manifest}`);
+  await installAgentShims({ directory, platform: 'win32', runtimeCurrent: 'C:\\RightKit\\runtime-current', nodePath: 'C:\\RightKit\\node.exe', nativeLauncherBytes: fakePe });
+  assert.equal(JSON.parse(await readFile(manifestPath, 'utf8')).platform, 'win32');
+  await rm(root, { recursive: true, force: true });
+});
+
 test('native Windows launcher quotes every forwarded argument', async () => {
   const source = await readFile(new URL('./native-windows-launcher/ManagedRustLauncher.cs', import.meta.url), 'utf8');
   assert.match(source, /result\[index - 1\] = Quote\(args\[index\]\)/);
