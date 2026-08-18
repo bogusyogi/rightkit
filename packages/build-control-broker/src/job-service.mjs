@@ -28,7 +28,7 @@ import {
   startManagedProcess,
   terminateProcessTree
 } from './process-tree.mjs';
-import { brokerOwnedSccacheProof, directRustcFallback, prepareBrokerSccacheSocket, SccacheSupervisor } from './sccache-supervisor.mjs';
+import { brokerOwnedSccacheProof, brokerSccacheNotifyPath, brokerSccacheSocketPath, directRustcFallback, prepareBrokerSccacheSocket, sccacheSocketPathsWithinLimit, SccacheSupervisor } from './sccache-supervisor.mjs';
 import { CapabilityScheduler, QueueCancelledError } from './scheduler.mjs';
 import { DurableStateStore } from './state-store.mjs';
 import { ImmutableToolRegistry, ToolChangedError } from './tool-registry.mjs';
@@ -37,6 +37,8 @@ const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 const HEAVY = new Set(['BUILD', 'WORKSPACE_WRITE']);
 const PRIORITIES = new Set(['BATCH', 'INTERACTIVE', 'INSTALLER']);
 const DEFAULT_OUTPUT_BYTES = 8 * 1024 * 1024;
+/** Broker-owned sccache server ownership; survives restarts for orphan reclamation. */
+const SCCACHE_OWNERSHIP_SETTING = 'sccache-server-ownership';
 
 const integer = (value, field, fallback, minimum = 0) => {
   const selected = value ?? fallback;
@@ -53,7 +55,7 @@ const nowIso = () => new Date().toISOString();
 export class ManagedJobService {
   #config; #runtime; #store; #registry; #commands; #toolErrors; #events; #scheduler; #maintenance; #spawn; #statfs; #sccache = null; #sccacheSocket = null; #jobs = new Map(); #stopping = false; #maintenanceTimer = null; #maintenanceRun = Promise.resolve(); #maintenanceCursor = null;
 
-  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, spawn = nodeSpawn, statfs = nodeStatfs, scheduler = null, registry = null, eventLog = null, sccacheSupervisor = null } = {}) {
+  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, spawn = nodeSpawn, statfs = nodeStatfs, scheduler = null, registry = null, eventLog = null, sccacheSupervisor = null, sccacheReaper = reapPersistedProcessTree, prepareSccacheSocket = prepareBrokerSccacheSocket } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
     const root = normalize(config.broker.externalRoot.path);
     const databasePath = normalize(config.broker.databasePath ?? `${config.broker.stateFile}.sqlite`);
@@ -65,7 +67,7 @@ export class ManagedJobService {
     for (const tool of config.tools ?? []) if (selectedToolIds.has(tool.id)) {
       try { await toolRegistry.register(tool); } catch (error) { if (error instanceof ToolChangedError || error.code === 'TOOL_CHANGED') toolErrors.set(tool.id, error); else throw error; }
     }
-    let sccache = null; let sccacheSocket = null;
+    let sccache = null; let sccacheSocket = null; let sccacheDegraded = null; let sccacheOrphanReap = null;
     if (config.sccache?.mode === 'managed') {
       const sccacheToolId = config.defaults?.sccacheToolId;
       if (!sccacheToolId) throw Object.assign(new Error('managed sccache requires a registered sccache tool'), { code: 'RK_SCCACHE_TOOL_MISSING' });
@@ -73,8 +75,34 @@ export class ManagedJobService {
       // The sccache tool is pinned through selectedManagedToolIds, so this
       // verify is the same hash-verified path every other managed tool takes.
       const sccacheTool = await toolRegistry.verify(sccacheToolId);
-      sccacheSocket = await prepareBrokerSccacheSocket({ externalRoot: root });
-      sccache = sccacheSupervisor ?? new SccacheSupervisor({ tool: sccacheTool, mode: config.sccache.mode, ownershipProof: brokerOwnedSccacheProof({ externalRoot: root, socketPath: sccacheSocket }) });
+      const graceMs = integer(config.bounds?.processGraceMs, 'processGraceMs', 5_000);
+      // Reclaim a prior broker's server BEFORE its socket is unlinked: an
+      // unreaped orphan still holding that path would otherwise answer probes
+      // this broker cannot account for. A pending reap degrades the cache for
+      // this broker lifetime; it never blocks boot.
+      const persisted = store.readSetting?.(SCCACHE_OWNERSHIP_SETTING) ?? null;
+      if (persisted) {
+        sccacheOrphanReap = await Promise.resolve().then(() => sccacheReaper(persisted, { graceMs })).catch((error) => ({ reaped: false, reason: error.message }));
+        store.clearSetting?.(SCCACHE_OWNERSHIP_SETTING);
+        if (!sccacheOrphanReap.reaped) sccacheDegraded = 'sccache-orphan-unreaped';
+      }
+      const notifyPath = brokerSccacheNotifyPath(root);
+      if (!sccacheDegraded && !sccacheSocketPathsWithinLimit(brokerSccacheSocketPath(root), notifyPath)) sccacheDegraded = 'sccache-socket-path-too-long';
+      sccacheSocket = await prepareSccacheSocket({ externalRoot: root });
+      sccache = sccacheSupervisor ?? new SccacheSupervisor({
+        tool: sccacheTool,
+        mode: config.sccache.mode,
+        ownershipProof: brokerOwnedSccacheProof({ externalRoot: root, socketPath: sccacheSocket, serverPid: () => sccache?.serverPid ?? null }),
+        externalRoot: root,
+        socketPath: sccacheSocket,
+        notifyPath,
+        cacheDir: join(root, 'rightkit-build-control', 'global', 'compiler-cache'),
+        maxSizeBytes: config.sccache.maxSizeBytes,
+        errorLogPath: join(dirname(config.broker.stateFile), 'sccache-server.log'),
+        graceMs,
+        degradedReason: sccacheDegraded,
+        onOwnership: (ownership) => { store.writeSetting?.(SCCACHE_OWNERSHIP_SETTING, ownership); }
+      });
     }
     const events = eventLog ?? new BoundedEventLog({ path: logPath, maxBytes: integer(config.bounds?.eventLogMaxBytes, 'eventLogMaxBytes', 8 * 1024 * 1024, 1024) });
     const laneScheduler = scheduler ?? new CapabilityScheduler({
@@ -93,6 +121,7 @@ export class ManagedJobService {
       maxBatchEntries: integer(config.bounds?.maintenanceBatchEntries, 'maintenanceBatchEntries', 128, 1)
     });
     const service = new ManagedJobService({ config, runtimeIdentity, store, registry: toolRegistry, toolErrors, events, scheduler: laneScheduler, maintenance, spawn, statfs, sccache, sccacheSocket });
+    if (sccacheDegraded) await service.#log({ type: 'SCCACHE_DEGRADED', reason: sccacheDegraded, reap: sccacheOrphanReap });
     await service.#recover();
     service.#startMaintenance();
     return service;
@@ -135,11 +164,26 @@ export class ManagedJobService {
     const open = [...this.#jobs.values()].filter((job) => !job.terminal);
     for (const job of open) this.#requestCancel(job, 'broker-shutdown');
     await Promise.allSettled(open.map((job) => job.done));
+    // Before the unreaped-trees gate, never after: an sccache server this
+    // broker cannot reap must be reported by that gate, not skipped past it.
+    await this.#shutdownSccache();
     const unreaped = this.#store.entries({ states: ['STARTING', 'RUNNING', 'REAPING'] });
     if (unreaped.length) throw new Error(`RightKit shutdown blocked by ${unreaped.length} unreaped process tree(s)`);
     await this.#maintenanceRun;
     await this.#events.flush();
     this.#store.close();
+  }
+
+  /** Terminate the broker-owned sccache tree & remove both of its sockets. */
+  async #shutdownSccache() {
+    if (typeof this.#sccache?.shutdown !== 'function') return null;
+    try {
+      const outcome = await this.#sccache.shutdown();
+      // Keep the ownership row when the tree survived: the next broker reaps it.
+      if (!outcome?.reap || outcome.reap.reaped) this.#store.clearSetting?.(SCCACHE_OWNERSHIP_SETTING);
+      else await this.#log({ type: 'SCCACHE_SHUTDOWN_DEGRADED', reason: outcome.reap.reason });
+      return outcome;
+    } catch (error) { await this.#log({ type: 'SCCACHE_SHUTDOWN_DEGRADED', reason: error.message }); return null; }
   }
 
   async #submit(message, emit) {
@@ -672,6 +716,10 @@ function executionEnvironment(config, job) {
   const home = join(job.layout.temp, 'home');
   // Normalized config always carries a cache bound; an unnormalized one simply
   // leaves sccache on its own default rather than failing the build.
+  // Under a broker-owned persistent server these two are INERT: a client cannot
+  // reconfigure a running server's storage, which the server-start environment
+  // owns. They stay because they still bind a client that runs without one, and
+  // a test asserts both environments agree on cache dir & size.
   const cacheSize = config.sccache?.maxSizeBytes;
   const sccacheBound = Number.isSafeInteger(cacheSize) && cacheSize > 0 ? { SCCACHE_CACHE_SIZE: String(cacheSize) } : {};
   return injectBrokerEnvironment({ requestEnvironment, runtimeEnvironment: { ...common, ...managedRustEnvironment(job.layout), SCCACHE_DIR: job.layout.sccache, ...sccacheBound, npm_config_cache: job.layout.packageCache, HOME: home, XDG_CACHE_HOME: join(job.layout.packageCache, 'xdg'), XDG_CONFIG_HOME: join(home, '.config'), TMPDIR: job.layout.temp, TMP: job.layout.temp, TEMP: job.layout.temp } });

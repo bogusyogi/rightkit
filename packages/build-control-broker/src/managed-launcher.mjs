@@ -13,6 +13,7 @@ process.once('message', (message) => {
   if (started || message?.type !== 'START') return;
   started = true;
   clearTimeout(startupDeadline);
+  if (Number.isSafeInteger(payload.umask)) process.umask(payload.umask);
   const child = spawn(payload.command, payload.argv, { stdio: ['ignore', 'inherit', 'inherit'], env: process.env, cwd: process.cwd() });
   child.once('spawn', () => { process.send?.({ type: 'STARTED', pid: child.pid }); });
   child.once('error', (error) => { process.send?.({ type: 'START_FAILED', error: error.message }); process.stderr.write(`${error.message}\n`); process.exit(125); });

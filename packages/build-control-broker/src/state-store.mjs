@@ -147,6 +147,7 @@ export class DurableStateStore {
       CREATE INDEX IF NOT EXISTS reservations_domain ON reservations(domain);
       CREATE TABLE IF NOT EXISTS pending_trash_intents (namespace TEXT NOT NULL, generation INTEGER NOT NULL, trash_id TEXT NOT NULL, lease_id TEXT NOT NULL, source_path TEXT NOT NULL, target_path TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(namespace,generation,trash_id)) STRICT;
       CREATE TABLE IF NOT EXISTS maintenance_queue (namespace TEXT NOT NULL, generation INTEGER NOT NULL, trash_id TEXT NOT NULL, cursor TEXT, state TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(namespace, generation, trash_id)) STRICT;
+      CREATE TABLE IF NOT EXISTS broker_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL) STRICT;
     `);
     this.#migrateNamespaceRepositoryIdentity();
     this.#reconcileReservations();
@@ -192,6 +193,12 @@ export class DurableStateStore {
       this.#database.prepare("INSERT INTO migration_markers (name,completed_at,details) VALUES ('v1-json-to-v2',?,?)").run(new Date().toISOString(), encode({ entries: entries.length, cutover: 'v2-admission', sourceSha256, rollbackForbiddenAfterV2Admission: true }));
     });
   }
+
+  /** Durable key/value settings row. Used for cross-restart broker-owned
+   * process ownership (the sccache server) that belongs to no single request. */
+  readSetting(key) { requiredString(key, 'key'); const row = this.#database.prepare('SELECT value FROM broker_settings WHERE key = ?').get(key); return row ? decode(row.value) : null; }
+  writeSetting(key, value, occurredAt = new Date().toISOString()) { requiredString(key, 'key'); timestamp(occurredAt); this.#database.prepare('INSERT OR REPLACE INTO broker_settings (key,value,updated_at) VALUES (?,?,?)').run(key, encode(value), occurredAt); return true; }
+  clearSetting(key) { requiredString(key, 'key'); this.#database.prepare('DELETE FROM broker_settings WHERE key = ?').run(key); return true; }
 
   close() { this.#database.close(); }
 

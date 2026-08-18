@@ -20,8 +20,12 @@ function windowsContainmentError() { return Object.assign(new Error(WINDOWS_CONT
 
 export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpawn) {
   if (typeof command !== 'string' || !command || !Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) throw new TypeError('managed command & argv are required');
-  const { platform = process.platform, loadJobAddon = loadWindowsJobAddon, ...spawnOptions } = options;
-  const payload = Buffer.from(JSON.stringify({ command, argv }), 'utf8').toString('base64url');
+  // `umask` travels in the payload, never in spawnOptions: it is applied by the
+  // launcher immediately before exec so the payload's own file creations (an
+  // sccache server socket, for example) get a private mode without inserting a
+  // shell between the hash-verified tool and its exec.
+  const { platform = process.platform, loadJobAddon = loadWindowsJobAddon, umask, ...spawnOptions } = options;
+  const payload = Buffer.from(JSON.stringify(Number.isSafeInteger(umask) ? { command, argv, umask } : { command, argv }), 'utf8').toString('base64url');
   if (platform === 'win32') {
     const addon = loadJobAddon();
     if (!addon) throw windowsContainmentError();

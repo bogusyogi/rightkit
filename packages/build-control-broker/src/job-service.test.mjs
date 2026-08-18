@@ -6,8 +6,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
 import { ManagedJobService } from './job-service.mjs';
+import { brokerSccacheServerEnvironment } from './sccache-supervisor.mjs';
+import { DurableStateStore } from './state-store.mjs';
 
-async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null, targetTriples = null, sccacheMode = null, sccacheSupervisor = null } = {}) {
+async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null, targetTriples = null, sccacheMode = null, sccacheSupervisor = null, sccacheOwnershipRecord = null, sccacheReaper = null, prepareSccacheSocket = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'rightkit-job-service-')); const tokenFile = path.join(root, 'parent-token');
   const workspace = path.join(root, 'workspace'); const managed = path.join(root, 'managed'); const bin = path.join(root, 'fake-cargo');
   await mkdir(path.join(workspace, '.git'), { recursive: true }); await mkdir(managed, { recursive: true });
@@ -23,8 +25,10 @@ async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = n
   };
   if (activationFence) await writeFile(config.broker.activationFencePath, `${JSON.stringify(activationFence)}\n`);
   const statfs = statfsOperation ?? (async () => { if (statfsError) throw statfsError; return { bavail: freeBytes, bsize: 1 }; });
-  const service = await ManagedJobService.create({ config, statfs, eventLog, sccacheSupervisor });
-  return { root, workspace, managed, bin, tokenFile, config, service, cleanup: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
+  const databasePath = `${config.broker.stateFile}.sqlite`;
+  if (sccacheOwnershipRecord) { const seed = await DurableStateStore.open({ databasePath }); seed.writeSetting('sccache-server-ownership', sccacheOwnershipRecord); seed.close(); }
+  const service = await ManagedJobService.create({ config, statfs, eventLog, sccacheSupervisor, ...(sccacheReaper ? { sccacheReaper } : {}), ...(prepareSccacheSocket ? { prepareSccacheSocket } : {}) });
+  return { root, workspace, managed, bin, tokenFile, config, databasePath, service, cleanup: async () => { await service.shutdown().catch(() => null); await rm(root, { recursive: true, force: true }); } };
 }
 
 function managed(workspace, argv, extra = {}) {
@@ -255,5 +259,68 @@ test('disabled sccache never injects cache routing into a managed build', async 
     assert.equal(environment.wrapper, null); assert.equal(environment.uds, null);
     assert.match(environment.dir, /compiler-cache$/);
     assert.deepEqual(receipt.diagnostics, []);
+  } finally { await item.cleanup(); }
+});
+
+const ORPHAN_RECORD = Object.freeze({ pid: 999_999, processGroupId: 999_999, platform: 'posix', identity: 'darwin:999999:stale', uid: 501, sessionId: 999_999 });
+
+test('a persisted sccache server is reclaimed before its socket path is prepared', async () => {
+  const order = [];
+  const item = await fixture({
+    sccacheMode: 'managed', sccacheOwnershipRecord: ORPHAN_RECORD,
+    sccacheReaper: async () => { order.push('reap'); return { status: 'REAPED', reaped: true, escalated: false }; },
+    prepareSccacheSocket: async ({ externalRoot }) => { order.push('prepare'); return path.join(externalRoot, '.rk-sccache.sock'); }
+  });
+  try {
+    assert.deepEqual(order, ['reap', 'prepare']);
+    const store = await DurableStateStore.open({ databasePath: item.databasePath });
+    try { assert.equal(store.readSetting('sccache-server-ownership'), null); } finally { store.close(); }
+  } finally { await item.cleanup(); }
+});
+
+test('an unreclaimable sccache orphan degrades the cache instead of blocking broker boot', async () => {
+  const item = await fixture({
+    sccacheMode: 'managed', sccacheOwnershipRecord: ORPHAN_RECORD,
+    sccacheReaper: async () => ({ status: 'REAP_PENDING', reaped: false, escalated: false, reason: 'process-group-still-live' })
+  });
+  try {
+    assert.ok(item.service instanceof ManagedJobService);
+    const { environment, receipt } = await buildEnvironment(item);
+    assert.equal(environment.wrapper, null); assert.equal(environment.uds, null);
+    assert.deepEqual(receipt.diagnostics, ['sccache-fallback:sccache-orphan-unreaped']);
+  } finally { await item.cleanup(); }
+});
+
+test('shutdown stops the sccache server before the unreaped-trees gate reports', async () => {
+  const stopped = [];
+  const supervisor = { async sample() { return Object.freeze({ status: 'OK', stats: {} }); }, delta: () => ({ status: 'OK' }), async shutdown() { stopped.push('sccache'); return { status: 'SHUTDOWN', reap: { reaped: true } }; } };
+  const item = await fixture({ sccacheMode: 'managed', sccacheSupervisor: supervisor });
+  try {
+    const store = await DurableStateStore.open({ databasePath: item.databasePath });
+    const id = 'aaaaaaaa-0000-4000-8000-000000000001'; const at = new Date().toISOString();
+    store.create({ id, data: { id }, occurredAt: at });
+    store.transition({ id, from: 'SUBMITTED', to: 'CLASSIFIED', data: {}, occurredAt: at });
+    store.transition({ id, from: 'CLASSIFIED', to: 'QUEUED', data: {}, occurredAt: at });
+    store.transition({ id, from: 'QUEUED', to: 'ADMITTED', data: {}, occurredAt: at });
+    store.transition({ id, from: 'ADMITTED', to: 'STARTING', data: {}, occurredAt: at });
+    store.close();
+    await assert.rejects(item.service.shutdown(), /unreaped process tree/);
+    assert.deepEqual(stopped, ['sccache']);
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
+test('the job environment and the server-start environment agree on cache dir & size', async () => {
+  const item = await fixture({ sccacheMode: 'managed', sccacheSupervisor: okSupervisor });
+  try {
+    const { environment } = await buildEnvironment(item);
+    const serverEnvironment = brokerSccacheServerEnvironment({
+      socketPath: path.join(item.managed, '.rk-sccache.sock'),
+      notifyPath: path.join(item.managed, '.rk-sccache-notify.sock'),
+      cacheDir: path.join(item.managed, 'rightkit-build-control', 'global', 'compiler-cache'),
+      maxSizeBytes: item.config.sccache.maxSizeBytes
+    });
+    assert.equal(environment.dir, serverEnvironment.SCCACHE_DIR);
+    assert.equal(environment.size, serverEnvironment.SCCACHE_CACHE_SIZE);
+    for (const key of ['SCCACHE_START_SERVER', 'SCCACHE_NO_DAEMON', 'SCCACHE_STARTUP_NOTIFY', 'SCCACHE_IDLE_TIMEOUT']) assert.ok(serverEnvironment[key] !== undefined, key);
   } finally { await item.cleanup(); }
 });

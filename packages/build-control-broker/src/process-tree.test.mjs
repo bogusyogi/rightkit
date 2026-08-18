@@ -258,3 +258,26 @@ test('Windows persisted reap terminates the verified survivor via a fresh job as
   assert.deepEqual(calls[1], ['assign', 1001]);
   assert.deepEqual(calls[2], ['terminateJob', 'jh']);
 });
+
+const capturePayload = (options) => {
+  let captured = null;
+  spawnManagedProcess('/managed/sccache', [], options, (_command, argv) => { captured = JSON.parse(Buffer.from(argv.at(-1), 'base64url').toString('utf8')); return Object.assign(new EventEmitter(), { pid: 41, once() { return this; } }); });
+  return captured;
+};
+
+test('an explicit umask reaches the launcher payload & stays out of spawn options', () => {
+  let spawnOptions = null;
+  spawnManagedProcess('/managed/sccache', [], { platform: 'darwin', umask: 0o177, env: { A: '1' } }, (_command, argv, options) => {
+    spawnOptions = options;
+    assert.equal(JSON.parse(Buffer.from(argv.at(-1), 'base64url').toString('utf8')).umask, 0o177);
+    return Object.assign(new EventEmitter(), { pid: 41, once() { return this; } });
+  });
+  assert.equal(spawnOptions.umask, undefined);
+  assert.deepEqual(spawnOptions.env, { A: '1' });
+});
+
+test('an absent umask leaves the launcher payload byte-identical to today', () => {
+  assert.deepEqual(capturePayload({ platform: 'darwin' }), { command: '/managed/sccache', argv: [] });
+  assert.deepEqual(capturePayload({ platform: 'darwin', umask: undefined }), { command: '/managed/sccache', argv: [] });
+  assert.deepEqual(capturePayload({ platform: 'darwin', umask: 'not-an-integer' }), { command: '/managed/sccache', argv: [] });
+});
