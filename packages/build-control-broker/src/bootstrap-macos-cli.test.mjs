@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
 import {
-  buildConfig, defaultBounds, discoverTools, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable,
+  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable,
 } from './bootstrap-macos-cli.mjs';
 
 test('parseArgs accepts the documented flags & rejects anything else', () => {
@@ -69,4 +69,12 @@ test('defaultBounds matches the doc-mandated shape (one field per bound, no drif
   assert.equal(bounds.jobDeadlineMs, 0, 'the broker itself has no build timeout; right-release owns that');
   assert.ok(bounds.targetCacheCapBytes > 0);
   assert.ok(bounds.retentionMs > 0);
+});
+
+test('cargo build jobs are clamped by memory before performance cores', () => {
+  // 8 logical / 4 performance cores with 8 GiB: memory binds first at 4, so
+  // parallel links cannot push this host into swap.
+  assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
+  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 8);
+  assert.equal(defaultCargoBuildJobs({ cpus: 2, totalMemoryBytes: 1 * 1024 ** 3 }), 1);
 });

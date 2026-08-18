@@ -7,10 +7,16 @@ const trashName = /^[a-f0-9-]{37,160}$/;
 const terminalStates = new Set(['RELEASED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 const maxCursorBytes = 4096;
 const maxSizeCacheEntries = 4096;
+// One shared bucket for records written before namespaces carried an app
+// identity: exactly one of them is pinned, the rest stay reclaimable.
+const unidentifiedAppKey = '__unidentified__';
 
 /**
  * Minimal durable-state seam. Each read returns an immutable namespace snapshot:
- * `{ namespace, generation, state, terminalAt?, lruAt?, trashId? }`.
+ * `{ namespace, generation, state, terminalAt?, lruAt?, trashId?, repositoryIdentity? }`.
+ * `repositoryIdentity` is the owning application root; the size cap groups by
+ * it so each app keeps its newest target tree. It may be null on records
+ * written before the column existed.
  * Claims are compare-and-swap operations and return `{ leaseId }` or `null`.
  * A successful claim must block activation of that namespace generation until release.
  * The implementation must make `markNamespaceTrashed` and `markTrashDeleted`
@@ -144,13 +150,31 @@ export class MaintenanceWorker {
       const eligible = record !== null && eligibleForRetention(record, floor);
       const measurement = await this.measureNamespace({ namespace: name, generation: record?.generation ?? null, cacheable: eligible, maxEntries: scanEntries });
       total += measurement.bytes;
-      if (eligible) candidates.push({ namespace: name, generation: record.generation, bytes: measurement.bytes, lruAt: record.lruAt ?? record.terminalAt });
+      if (eligible) candidates.push({ namespace: name, generation: record.generation, bytes: measurement.bytes, lruAt: record.lruAt ?? record.terminalAt, appKey: record.repositoryIdentity ?? unidentifiedAppKey });
     }
     if (total <= capBytes) return Object.freeze({ withinCap: true, totalBytes: total, projectedBytes: total, capBytes, reclaimedBytes: 0, moved: Object.freeze([]), skipped: Object.freeze([]) });
-    candidates.sort((left, right) => left.lruAt.localeCompare(right.lruAt));
-    const moved = []; const skipped = []; let projected = total; let reclaimed = 0;
+    // Every app keeps its newest terminal tree so the next build for that app
+    // is still warm; the cap is satisfied out of older generations & other
+    // apps instead. Legacy records with no identity share one bucket on
+    // purpose: pinning each of them would pin everything and the cap could
+    // never be enforced.
+    const newestByApp = new Map();
     for (const candidate of candidates) {
+      const incumbent = newestByApp.get(candidate.appKey);
+      if (!incumbent || candidate.lruAt.localeCompare(incumbent.lruAt) > 0) newestByApp.set(candidate.appKey, candidate);
+    }
+    const pinned = new Set(newestByApp.values());
+    let pinnedBytes = 0; for (const entry of pinned) pinnedBytes += entry.bytes;
+    // Bytes the cap can never reclaim this pass: pinned trees plus everything
+    // outside the eligible candidate set (running roots, orphan directories).
+    const candidateBytes = candidates.reduce((sum, candidate) => sum + candidate.bytes, 0);
+    const orphanBytes = total - candidateBytes;
+    const evictable = candidates.filter((candidate) => !pinned.has(candidate));
+    evictable.sort((left, right) => left.lruAt.localeCompare(right.lruAt));
+    const moved = []; const skipped = []; let projected = total; let reclaimed = 0; let attempted = 0;
+    for (const candidate of evictable) {
       if (projected <= capBytes || moved.length >= maxNamespaces) break;
+      attempted += 1;
       // The root can vanish between measurement and eviction; that is the
       // outcome this pass wanted, not a reason to abort the tick.
       const outcome = await this.moveToTrash({ namespace: candidate.namespace, generation: candidate.generation })
@@ -159,7 +183,11 @@ export class MaintenanceWorker {
       this.#sizeCache.delete(`${candidate.namespace}:${candidate.generation}`);
       moved.push(Object.freeze({ ...outcome, bytes: candidate.bytes })); projected -= candidate.bytes; reclaimed += candidate.bytes;
     }
-    return Object.freeze({ withinCap: false, totalBytes: total, projectedBytes: projected, capBytes, reclaimedBytes: reclaimed, moved: Object.freeze(moved), skipped: Object.freeze(skipped) });
+    // Exhausting the unpinned set while still over cap is a real condition, not
+    // a failure: the remaining bytes are pinned or unreclaimable, and evicting
+    // a pinned tree would cost more than the cap saves. Report it & stop.
+    const capUnsatisfiable = projected > capBytes && attempted === evictable.length;
+    return Object.freeze({ withinCap: false, totalBytes: total, projectedBytes: projected, capBytes, reclaimedBytes: reclaimed, moved: Object.freeze(moved), skipped: Object.freeze(skipped), capUnsatisfiable, pinnedCount: pinned.size, pinnedBytes, orphanBytes });
   }
 
   /** Acquire, revalidate generation, then atomically rename a namespace into managed trash. */

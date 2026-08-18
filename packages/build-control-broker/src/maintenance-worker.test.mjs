@@ -221,18 +221,22 @@ test('trash intent reconciliation handles crash boundary states safely', async (
 
 const older = 'b'.repeat(64);
 const active = 'c'.repeat(64);
+const pinnedRoot = 'd'.repeat(64);
 
 async function capFixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'maintenance-cap-'));
   const workspacesRoot = path.join(root, 'workspaces'); const trashRoot = path.join(root, 'trash');
-  for (const name of [namespace, older, active]) {
+  for (const name of [namespace, older, active, pinnedRoot]) {
     await mkdir(path.join(workspacesRoot, name, 'targets'), { recursive: true });
     await writeFile(path.join(workspacesRoot, name, 'targets', 'artifact'), 'x'.repeat(4096));
   }
+  // All terminal roots belong to one app, so `pinnedRoot` — the newest — takes
+  // the per-app pin and the other two stay evictable in LRU order.
   const store = stateStore(new Map([
-    [namespace, { namespace, generation: 1, state: 'RELEASED', lruAt: '2026-01-02T00:00:00.000Z' }],
-    [older, { namespace: older, generation: 1, state: 'RELEASED', lruAt: '2026-01-01T00:00:00.000Z' }],
-    [active, { namespace: active, generation: 1, state: 'ACTIVE', lruAt: '2020-01-01T00:00:00.000Z' }]
+    [pinnedRoot, { namespace: pinnedRoot, generation: 1, state: 'RELEASED', lruAt: '2026-02-01T00:00:00.000Z', repositoryIdentity: '/repo/one' }],
+    [namespace, { namespace, generation: 1, state: 'RELEASED', lruAt: '2026-01-02T00:00:00.000Z', repositoryIdentity: '/repo/one' }],
+    [older, { namespace: older, generation: 1, state: 'RELEASED', lruAt: '2026-01-01T00:00:00.000Z', repositoryIdentity: '/repo/one' }],
+    [active, { namespace: active, generation: 1, state: 'ACTIVE', lruAt: '2020-01-01T00:00:00.000Z', repositoryIdentity: '/repo/one' }]
   ]));
   return { root, workspacesRoot, trashRoot, store };
 }
@@ -316,5 +320,76 @@ test('size cap never evicts a root used inside the protection floor', async () =
     // Moving the floor past their last use makes them candidates again.
     const agedPass = await worker.capBatch({ capBytes: 1, evictableBefore: '2026-06-01T00:00:00.000Z', maxNamespaces: 1 });
     assert.equal(agedPass.moved[0].namespace, older);
+  } finally { await rm(value.root, { recursive: true, force: true }); }
+});
+
+// The cap keeps one warm tree per application. A stale generation of the same
+// app is what pays for the cap, not the tree the next build would reuse.
+async function appFixture(records) {
+  const root = await mkdtemp(path.join(tmpdir(), 'maintenance-app-'));
+  const workspacesRoot = path.join(root, 'workspaces'); const trashRoot = path.join(root, 'trash');
+  for (const record of records) {
+    await mkdir(path.join(workspacesRoot, record.namespace, 'targets'), { recursive: true });
+    await writeFile(path.join(workspacesRoot, record.namespace, 'targets', 'artifact'), 'x'.repeat(4096));
+  }
+  const store = stateStore(new Map(records.map((record) => [record.namespace, record])));
+  return { root, workspacesRoot, trashRoot, store };
+}
+
+test('size cap pins each app newest tree & evicts a stale same-app generation instead', async () => {
+  const appOneNew = 'a'.repeat(64); const appOneStale = 'b'.repeat(64);
+  const appTwoNew = 'c'.repeat(64); const appTwoStale = 'd'.repeat(64);
+  const value = await appFixture([
+    { namespace: appOneNew, generation: 1, state: 'RELEASED', lruAt: '2026-03-01T00:00:00.000Z', repositoryIdentity: '/repo/one' },
+    { namespace: appOneStale, generation: 1, state: 'RELEASED', lruAt: '2026-01-01T00:00:00.000Z', repositoryIdentity: '/repo/one' },
+    { namespace: appTwoNew, generation: 1, state: 'RELEASED', lruAt: '2026-03-02T00:00:00.000Z', repositoryIdentity: '/repo/two' },
+    { namespace: appTwoStale, generation: 1, state: 'RELEASED', lruAt: '2026-01-02T00:00:00.000Z', repositoryIdentity: '/repo/two' },
+  ]);
+  try {
+    const worker = new MaintenanceWorker({ ...value, stateStore: value.store });
+    const result = await worker.capBatch({ capBytes: 1 });
+    assert.equal(result.pinnedCount, 2);
+    // Both stale generations go; neither app loses the tree it just built.
+    assert.deepEqual(result.moved.map((entry) => entry.namespace).sort(), [appOneStale, appTwoStale].sort());
+    assert.equal((await lstat(path.join(value.workspacesRoot, appOneNew))).isDirectory(), true);
+    assert.equal((await lstat(path.join(value.workspacesRoot, appTwoNew))).isDirectory(), true);
+    assert.equal(result.capUnsatisfiable, true);
+  } finally { await rm(value.root, { recursive: true, force: true }); }
+});
+
+test('size cap reports an unsatisfiable cap rather than evicting a pinned tree', async () => {
+  const appOne = 'a'.repeat(64); const appTwo = 'c'.repeat(64);
+  const value = await appFixture([
+    { namespace: appOne, generation: 1, state: 'RELEASED', lruAt: '2026-03-01T00:00:00.000Z', repositoryIdentity: '/repo/one' },
+    { namespace: appTwo, generation: 1, state: 'RELEASED', lruAt: '2026-03-02T00:00:00.000Z', repositoryIdentity: '/repo/two' },
+  ]);
+  try {
+    const worker = new MaintenanceWorker({ ...value, stateStore: value.store });
+    const result = await worker.capBatch({ capBytes: 1 });
+    assert.equal(result.withinCap, false);
+    assert.equal(result.capUnsatisfiable, true);
+    assert.deepEqual(result.moved, []);
+    assert.equal(result.pinnedCount, 2);
+    assert.ok(result.pinnedBytes > 0);
+    assert.equal(result.orphanBytes, 0);
+    assert.equal((await lstat(path.join(value.workspacesRoot, appOne))).isDirectory(), true);
+    assert.equal((await lstat(path.join(value.workspacesRoot, appTwo))).isDirectory(), true);
+  } finally { await rm(value.root, { recursive: true, force: true }); }
+});
+
+test('legacy records without a repository identity share one bucket so the cap stays enforceable', async () => {
+  const first = 'a'.repeat(64); const second = 'b'.repeat(64); const third = 'c'.repeat(64);
+  const value = await appFixture([
+    { namespace: first, generation: 1, state: 'RELEASED', lruAt: '2026-03-01T00:00:00.000Z' },
+    { namespace: second, generation: 1, state: 'RELEASED', lruAt: '2026-01-01T00:00:00.000Z' },
+    { namespace: third, generation: 1, state: 'RELEASED', lruAt: '2026-02-01T00:00:00.000Z' },
+  ]);
+  try {
+    const worker = new MaintenanceWorker({ ...value, stateStore: value.store });
+    const result = await worker.capBatch({ capBytes: 1 });
+    // Exactly one null-identity root is pinned; the rest remain reclaimable.
+    assert.equal(result.pinnedCount, 1);
+    assert.deepEqual(result.moved.map((entry) => entry.namespace), [second, third]);
+    assert.equal((await lstat(path.join(value.workspacesRoot, first))).isDirectory(), true);
   } finally { await rm(value.root, { recursive: true, force: true }); }
 });

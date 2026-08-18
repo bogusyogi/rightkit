@@ -7,6 +7,7 @@ import { execFile as childExecFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
+import { availableParallelism as cpuCount, totalmem } from 'node:os';
 import { dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runWindowsCutover } from './runtime-cutover-windows-cli.mjs';
@@ -91,8 +92,18 @@ export function defaultBounds() {
     outputBufferBytes: 8 * 1024 * 1024, outputHeadBytes: 16_384, outputTailBytes: 16_384,
     eventHistoryEntries: 4_096, eventHistoryBytes: 8 * 1024 * 1024, eventLogMaxBytes: 8 * 1024 * 1024,
     maintenanceBatchEntries: 128, controlConcurrency: 4, buildConcurrency: 2, workspaceWriteConcurrency: 4,
-    maintenanceConcurrency: 1, priorityAgingMs: 30_000, targetCacheCapBytes: 32 * 1024 ** 3,
+    maintenanceConcurrency: 1, priorityAgingMs: 30_000, targetCacheCapBytes: 150 * 1024 ** 3,
+    targetCacheFloorMs: 86_400_000,
   };
+}
+
+// Same derivation as bootstrap-macos-cli.mjs's defaultCargoBuildJobs; each host
+// derives its own value rather than inheriting a literal from the other.
+export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = totalmem() } = {}) {
+  const logical = Number.isSafeInteger(cpus) && cpus > 0 ? cpus : 1;
+  const performanceCores = Math.max(1, Math.floor(logical / 2));
+  const memoryGiB = Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 2;
+  return Math.max(1, Math.min(performanceCores, Math.floor(memoryGiB / 2)));
 }
 
 export async function buildConfig({ externalRoot }) {
@@ -123,7 +134,7 @@ export async function buildConfig({ externalRoot }) {
       // & pointing it at an unregistered tool id rejects the whole config.
       ...(tools.some((tool) => tool.id === 'rustc') ? { rustcToolId: 'rustc' } : {}),
       ...(tools.some((tool) => tool.id === 'rustdoc') ? { rustdocToolId: 'rustdoc' } : {}),
-      cacheMode: 'disabled', cargoBuildJobs: 2,
+      cacheMode: 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
     },
     // Doc section 3.1: never enable during an in-flight release; a deliberate,
     // separately-decided activation, not a bootstrap default.

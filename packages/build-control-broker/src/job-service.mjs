@@ -28,6 +28,7 @@ import {
   startManagedProcess,
   terminateProcessTree
 } from './process-tree.mjs';
+import { brokerOwnedSccacheProof, directRustcFallback, prepareBrokerSccacheSocket, SccacheSupervisor } from './sccache-supervisor.mjs';
 import { CapabilityScheduler, QueueCancelledError } from './scheduler.mjs';
 import { DurableStateStore } from './state-store.mjs';
 import { ImmutableToolRegistry, ToolChangedError } from './tool-registry.mjs';
@@ -50,9 +51,9 @@ const nowIso = () => new Date().toISOString();
  * jobs; only an explicit CANCEL command or configured deadline cancels one.
  */
 export class ManagedJobService {
-  #config; #runtime; #store; #registry; #commands; #toolErrors; #events; #scheduler; #maintenance; #spawn; #statfs; #jobs = new Map(); #stopping = false; #maintenanceTimer = null; #maintenanceRun = Promise.resolve(); #maintenanceCursor = null;
+  #config; #runtime; #store; #registry; #commands; #toolErrors; #events; #scheduler; #maintenance; #spawn; #statfs; #sccache = null; #sccacheSocket = null; #jobs = new Map(); #stopping = false; #maintenanceTimer = null; #maintenanceRun = Promise.resolve(); #maintenanceCursor = null;
 
-  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, spawn = nodeSpawn, statfs = nodeStatfs, scheduler = null, registry = null, eventLog = null } = {}) {
+  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, spawn = nodeSpawn, statfs = nodeStatfs, scheduler = null, registry = null, eventLog = null, sccacheSupervisor = null } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
     const root = normalize(config.broker.externalRoot.path);
     const databasePath = normalize(config.broker.databasePath ?? `${config.broker.stateFile}.sqlite`);
@@ -60,12 +61,20 @@ export class ManagedJobService {
     if (![databasePath, logPath].every((path) => contained(root, path))) throw new TypeError('broker database & event log must remain below external root');
     const store = await DurableStateStore.open({ databasePath, legacyStatePath: config.broker.stateFile });
     const toolRegistry = registry ?? new ImmutableToolRegistry();
-    if (config.sccache?.mode === 'managed') {
-      throw Object.assign(new Error('managed sccache ownership proof is required'), { code: 'RK_SCCACHE_OWNERSHIP_UNPROVEN' });
-    }
     const selectedToolIds = selectedManagedToolIds(config); const toolErrors = new Map();
     for (const tool of config.tools ?? []) if (selectedToolIds.has(tool.id)) {
       try { await toolRegistry.register(tool); } catch (error) { if (error instanceof ToolChangedError || error.code === 'TOOL_CHANGED') toolErrors.set(tool.id, error); else throw error; }
+    }
+    let sccache = null; let sccacheSocket = null;
+    if (config.sccache?.mode === 'managed') {
+      const sccacheToolId = config.defaults?.sccacheToolId;
+      if (!sccacheToolId) throw Object.assign(new Error('managed sccache requires a registered sccache tool'), { code: 'RK_SCCACHE_TOOL_MISSING' });
+      const startupError = toolErrors.get(sccacheToolId); if (startupError) throw startupError;
+      // The sccache tool is pinned through selectedManagedToolIds, so this
+      // verify is the same hash-verified path every other managed tool takes.
+      const sccacheTool = await toolRegistry.verify(sccacheToolId);
+      sccacheSocket = await prepareBrokerSccacheSocket({ externalRoot: root });
+      sccache = sccacheSupervisor ?? new SccacheSupervisor({ tool: sccacheTool, mode: config.sccache.mode, ownershipProof: brokerOwnedSccacheProof({ externalRoot: root, socketPath: sccacheSocket }) });
     }
     const events = eventLog ?? new BoundedEventLog({ path: logPath, maxBytes: integer(config.bounds?.eventLogMaxBytes, 'eventLogMaxBytes', 8 * 1024 * 1024, 1024) });
     const laneScheduler = scheduler ?? new CapabilityScheduler({
@@ -83,14 +92,14 @@ export class ManagedJobService {
       stateStore: store,
       maxBatchEntries: integer(config.bounds?.maintenanceBatchEntries, 'maintenanceBatchEntries', 128, 1)
     });
-    const service = new ManagedJobService({ config, runtimeIdentity, store, registry: toolRegistry, toolErrors, events, scheduler: laneScheduler, maintenance, spawn, statfs });
+    const service = new ManagedJobService({ config, runtimeIdentity, store, registry: toolRegistry, toolErrors, events, scheduler: laneScheduler, maintenance, spawn, statfs, sccache, sccacheSocket });
     await service.#recover();
     service.#startMaintenance();
     return service;
   }
 
-  constructor({ config, runtimeIdentity, store, registry, toolErrors, events, scheduler, maintenance, spawn, statfs }) {
-    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#store = store; this.#registry = registry; this.#commands = createCommandCapabilityRegistry({ externalCommands: config.externalCommands }); this.#toolErrors = toolErrors; this.#events = events; this.#scheduler = scheduler; this.#maintenance = maintenance; this.#spawn = spawn; this.#statfs = statfs;
+  constructor({ config, runtimeIdentity, store, registry, toolErrors, events, scheduler, maintenance, spawn, statfs, sccache = null, sccacheSocket = null }) {
+    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#store = store; this.#registry = registry; this.#commands = createCommandCapabilityRegistry({ externalCommands: config.externalCommands }); this.#toolErrors = toolErrors; this.#events = events; this.#scheduler = scheduler; this.#maintenance = maintenance; this.#spawn = spawn; this.#statfs = statfs; this.#sccache = sccache; this.#sccacheSocket = sccacheSocket;
   }
 
   get runtimeIdentity() { return this.#runtime; }
@@ -220,6 +229,7 @@ export class ManagedJobService {
       const tool = await this.#verifyInvocationTool(job);
       if (job.diagnostics.length) await this.#log({ type: 'DIRECT_RUSTC_DIAGNOSTIC', id: job.id, diagnostics: job.diagnostics });
       const env = await this.#executionEnvironment(job);
+      await this.#reportCacheMode(job);
       job.child = spawnManagedProcess(tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: ['ignore', 'pipe', 'pipe'] }, this.#spawn);
       // Own exit before publishing STARTING/RUNNING. Cancellation may arrive as
       // soon as durable state becomes visible; attaching later can lose close.
@@ -283,7 +293,7 @@ export class ManagedJobService {
   async #prepareNamespace(job) {
     // Durable activation linearizes before mkdir. GC may only claim terminal
     // generations, so source can never be recreated between lease & rename.
-    const claimed = this.#store.activateNamespace({ namespace: job.layout.namespace });
+    const claimed = this.#store.activateNamespace({ namespace: job.layout.namespace, repositoryIdentity: job.repositoryIdentity });
     job.generation = claimed.generation;
     await Promise.all(directoryRoots(job.layout).map((path) => mkdir(path, { recursive: true })));
   }
@@ -310,7 +320,7 @@ export class ManagedJobService {
     const outcome = this.#store.recoverOpenRequest({ id: job.id, state, data: { ...details, terminalAt: receipt.terminalAt }, receipt, occurredAt: receipt.terminalAt });
     if (job.capability.lane !== 'CONTROL' && job.generation !== undefined) {
       const namespaceState = this.#namespaceHasLiveDescendants(job) ? 'ACTIVE' : state;
-      this.#store.upsertNamespace({ namespace: job.layout.namespace, generation: job.generation, state: namespaceState, ...(namespaceState === state ? { terminalAt: receipt.terminalAt, lruAt: receipt.terminalAt } : {}) });
+      this.#store.upsertNamespace({ namespace: job.layout.namespace, generation: job.generation, state: namespaceState, repositoryIdentity: job.repositoryIdentity, ...(namespaceState === state ? { terminalAt: receipt.terminalAt, lruAt: receipt.terminalAt } : {}) });
     }
     job.terminal = Object.freeze({ type: 'RESULT', id: job.id, exitCode: receipt.exitCode, status: state, receipt: outcome.receipt });
     this.#publish(job, job.terminal); job.resolveDone(job.terminal); queueMicrotask(() => { if (job.watchers.size === 0) this.#jobs.delete(job.id); }); return job.terminal;
@@ -525,6 +535,10 @@ export class ManagedJobService {
           const floorMs = this.#config.bounds?.targetCacheFloorMs ?? 3_600_000;
           const evictableBefore = new Date(Date.now() - floorMs).toISOString();
           const capped = Number.isSafeInteger(capBytes) && capBytes > 0 ? await this.#maintenance.capBatch({ capBytes, evictableBefore }) : null;
+          // Pinned trees plus unreclaimable bytes exceed the cap. Logging keeps
+          // the tick intact; throwing here would land in the catch below and
+          // null the inventory cursor every tick.
+          if (capped?.capUnsatisfiable) await this.#log({ type: 'MAINTENANCE_CAP_UNSATISFIABLE', capBytes: capped.capBytes, totalBytes: capped.totalBytes, projectedBytes: capped.projectedBytes, pinnedCount: capped.pinnedCount, pinnedBytes: capped.pinnedBytes, orphanBytes: capped.orphanBytes });
           if (typeof this.#maintenance.reconcileTrashIntent === 'function') {
             for (const intent of this.#store.pendingTrashIntents?.() ?? []) await this.#maintenance.reconcileTrashIntent(intent);
           }
@@ -569,7 +583,31 @@ export class ManagedJobService {
       if (this.#config.defaults?.rustdocToolId) extra.RUSTDOC = (await this.#verifyTool(this.#config.defaults.rustdocToolId)).path;
       if (Number.isSafeInteger(this.#config.defaults?.cargoBuildJobs) && this.#config.defaults.cargoBuildJobs > 0) extra.CARGO_BUILD_JOBS = String(this.#config.defaults.cargoBuildJobs);
     }
-    return Object.freeze({ ...executionEnvironment(this.#config, job), ...extra });
+    const environment = { ...executionEnvironment(this.#config, job), ...extra };
+    if (!this.#sccache || job.capability.lane === 'CONTROL') return Object.freeze(environment);
+    // Cache routing is broker-injected only. `RUSTC_WRAPPER` &
+    // `SCCACHE_SERVER_UDS` stay in forbiddenRequestEnvironment so no client can
+    // supply them, and they are added only once this broker can prove it owns
+    // the server they point at.
+    const tool = await this.#verifyTool(this.#config.defaults.sccacheToolId);
+    const candidate = { ...environment, RUSTC_WRAPPER: tool.path, SCCACHE_SERVER_UDS: this.#sccacheSocket };
+    const sample = await this.#sccache.sample(candidate);
+    if (sample.status === 'OK') { job.cacheSample = sample; return Object.freeze(candidate); }
+    job.cacheFallback = directRustcFallback(candidate, sample);
+    return job.cacheFallback.environment;
+  }
+
+  /**
+   * Silent degradation is the original incident: a build that quietly loses
+   * caching looks identical to one that kept it. Report the mode before the
+   * process starts so the receipt & event log always name it.
+   */
+  async #reportCacheMode(job) {
+    if (!job.cacheFallback) return;
+    const { status, reason } = job.cacheFallback;
+    job.diagnostics = Object.freeze([...job.diagnostics, `sccache-fallback:${reason}`]);
+    await this.#requiredLog(job, { type: 'SCCACHE_FALLBACK', id: job.id, mode: status, reason });
+    this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'SCCACHE_FALLBACK', mode: status, reason, at: nowIso() } });
   }
 }
 

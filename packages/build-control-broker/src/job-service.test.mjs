@@ -7,22 +7,23 @@ import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
 import { ManagedJobService } from './job-service.mjs';
 
-async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null, targetTriples = null } = {}) {
+async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null, targetTriples = null, sccacheMode = null, sccacheSupervisor = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'rightkit-job-service-')); const tokenFile = path.join(root, 'parent-token');
   const workspace = path.join(root, 'workspace'); const managed = path.join(root, 'managed'); const bin = path.join(root, 'fake-cargo');
   await mkdir(path.join(workspace, '.git'), { recursive: true }); await mkdir(managed, { recursive: true });
-  await writeFile(bin, `#!/usr/bin/env node\nconst fs=require('node:fs'); const command=process.argv[2]; const ci=String(process.env.CI||''); if(process.env.RUST_LOG) try{fs.writeFileSync(process.env.RUST_LOG, process.env.RIGHTKIT_PARENT_CAPABILITY_TOKEN||'')}catch{}; if(ci.startsWith('out:')) process.stdout.write('x'.repeat(Number(ci.slice(4))||0)); if(command==='--version'||command==='metadata'||command==='show'){ console.log('fake cargo 1.0'); process.exit(0); } setTimeout(()=>process.exit(0), Number(ci)||${delayMs});\n`);
+  await writeFile(bin, `#!/usr/bin/env node\nconst fs=require('node:fs'); const command=process.argv[2]; const ci=String(process.env.CI||''); if(process.env.RUST_LOG) try{fs.writeFileSync(process.env.RUST_LOG, ci==='env'?JSON.stringify({wrapper:process.env.RUSTC_WRAPPER??null,uds:process.env.SCCACHE_SERVER_UDS??null,dir:process.env.SCCACHE_DIR??null,size:process.env.SCCACHE_CACHE_SIZE??null}):(process.env.RIGHTKIT_PARENT_CAPABILITY_TOKEN||''))}catch{}; if(ci.startsWith('out:')) process.stdout.write('x'.repeat(Number(ci.slice(4))||0)); if(command==='--version'||command==='metadata'||command==='show'){ console.log('fake cargo 1.0'); process.exit(0); } setTimeout(()=>process.exit(0), Number(ci)||${delayMs});\n`);
   await chmod(bin, 0o755); const sha256 = createHash('sha256').update(await readFile(bin)).digest('hex');
   const config = {
     broker: { externalRoot: { path: managed, volumeId: 'test-volume', mounted: true, writable: true, internal: false }, capacityBytes: 1_000_000_000, stateFile: path.join(managed, 'state', 'legacy.json'), receiptsDir: path.join(managed, 'receipts'), ...(activationFence ? { activationFencePath: path.join(managed, 'activation-fence.json') } : {}) },
     unixSocket: path.join(managed, 'broker.sock'),
-    tools: [{ id: 'cargo', path: bin, root, sha256 }], shims: { cargo: 'cargo' },
-    defaults: { toolchain: 'stable', targetTriple: 'x86_64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development' },
+    tools: [{ id: 'cargo', path: bin, root, sha256 }, { id: 'sccache', path: bin, root, sha256 }], shims: { cargo: 'cargo' },
+    defaults: { toolchain: 'stable', targetTriple: 'x86_64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', ...(sccacheMode === 'managed' ? { sccacheToolId: 'sccache', cacheMode: 'managed' } : {}) },
+    ...(sccacheMode ? { sccache: { mode: sccacheMode, lifecycleOwner: sccacheMode === 'managed' ? 'broker' : null, requireOwnershipProof: sccacheMode === 'managed', maxSizeBytes: 21_474_836_480 } } : {}),
     bounds: { heartbeatIntervalMs: 20, diskSampleIntervalMs: 20, processGraceMs: 300, statfsTimeoutMs: 50, freeFloorBytes: 1, eventLogMaxBytes: 64 * 1024, outputBufferBytes: 64 * 1024, ...bounds }
   };
   if (activationFence) await writeFile(config.broker.activationFencePath, `${JSON.stringify(activationFence)}\n`);
   const statfs = statfsOperation ?? (async () => { if (statfsError) throw statfsError; return { bavail: freeBytes, bsize: 1 }; });
-  const service = await ManagedJobService.create({ config, statfs, eventLog });
+  const service = await ManagedJobService.create({ config, statfs, eventLog, sccacheSupervisor });
   return { root, workspace, managed, bin, tokenFile, config, service, cleanup: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -208,5 +209,51 @@ test('root remains REAPING while detached child runs & queued BUILD starts after
     assert.equal((await call(item.service, command('WATCH', child.result.id))).result.status, 'SUCCEEDED');
     assert.equal((await call(item.service, command('WATCH', root.result.id))).result.status, 'SUCCEEDED');
     assert.equal((await call(item.service, command('WATCH', queued.result.id))).result.status, 'SUCCEEDED');
+  } finally { await item.cleanup(); }
+});
+
+const okSupervisor = { async sample() { return Object.freeze({ status: 'OK', stats: {} }); }, delta: () => ({ status: 'OK' }) };
+const degradedSupervisor = (reason) => ({ async sample() { return Object.freeze({ status: 'DEGRADED', reason, fallback: 'DIRECT_RUSTC_AVAILABLE' }); }, delta: () => ({ status: 'DEGRADED' }) });
+async function buildEnvironment(item) {
+  const submitted = await call(item.service, submit(managed(item.workspace, ['test'], { request: { environment: { RUST_LOG: item.tokenFile, CI: 'env' } } })));
+  const result = await call(item.service, command('WATCH', submitted.result.id));
+  assert.equal(result.result.status, 'SUCCEEDED', JSON.stringify(result.result));
+  return { environment: JSON.parse(await readFile(item.tokenFile, 'utf8')), receipt: result.result.receipt };
+}
+
+test('managed sccache constructs a supervised cache instead of refusing to boot', async () => {
+  const item = await fixture({ sccacheMode: 'managed', sccacheSupervisor: okSupervisor });
+  try { assert.ok(item.service instanceof ManagedJobService); assert.equal(item.config.sccache.mode, 'managed'); }
+  finally { await item.cleanup(); }
+});
+
+test('managed sccache injects broker-owned RUSTC_WRAPPER & SCCACHE_SERVER_UDS once ownership samples OK', async () => {
+  const item = await fixture({ sccacheMode: 'managed', sccacheSupervisor: okSupervisor });
+  try {
+    const { environment, receipt } = await buildEnvironment(item);
+    assert.equal(environment.wrapper, item.bin);
+    assert.equal(environment.uds, path.join(item.managed, '.rk-sccache.sock'));
+    assert.match(environment.dir, /compiler-cache$/); assert.equal(environment.size, '21474836480');
+    assert.deepEqual(receipt.diagnostics, []);
+  } finally { await item.cleanup(); }
+});
+
+test('a DEGRADED sample falls back to direct rustc with its reason persisted before execution', async () => {
+  const item = await fixture({ sccacheMode: 'managed', sccacheSupervisor: degradedSupervisor('RK_SCCACHE_OWNERSHIP_UNPROVEN') });
+  try {
+    const { environment, receipt } = await buildEnvironment(item);
+    assert.equal(environment.wrapper, null); assert.equal(environment.uds, null);
+    assert.match(environment.dir, /compiler-cache$/); assert.equal(environment.size, '21474836480');
+    assert.deepEqual(receipt.diagnostics, ['sccache-fallback:RK_SCCACHE_OWNERSHIP_UNPROVEN']);
+  } finally { await item.cleanup(); }
+});
+
+test('disabled sccache never injects cache routing into a managed build', async () => {
+  const item = await fixture();
+  try {
+    const { environment, receipt } = await buildEnvironment(item);
+    assert.equal(environment.wrapper, null); assert.equal(environment.uds, null);
+    assert.match(environment.dir, /compiler-cache$/);
+    assert.deepEqual(receipt.diagnostics, []);
   } finally { await item.cleanup(); }
 });

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
-import { defaultBounds, isDirectMain, parseArgs, shimTable } from './bootstrap-windows-cli.mjs';
+import { defaultBounds, defaultCargoBuildJobs, isDirectMain, parseArgs, shimTable } from './bootstrap-windows-cli.mjs';
 
 // discoverTools/where/buildConfig shell out to `where.exe`, which does not
 // exist on this Mac — those three are exercised only by a real Windows run.
@@ -64,7 +64,7 @@ test('the Windows-shaped config buildConfig() constructs is accepted by the brok
     externalCommands: [],
     defaults: {
       toolchain: 'stable-x86_64-pc-windows-msvc', targetTriple: 'x86_64-pc-windows-msvc', targetTriples: ['x86_64-pc-windows-msvc'],
-      buildProfile: 'development', reservationBytes: 16 * 1024 ** 3, rustcToolId: 'rustc', rustdocToolId: 'rustdoc', cacheMode: 'disabled', cargoBuildJobs: 2,
+      buildProfile: 'development', reservationBytes: 16 * 1024 ** 3, rustcToolId: 'rustc', rustdocToolId: 'rustdoc', cacheMode: 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
     },
     sccache: { mode: 'disabled', lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
@@ -99,7 +99,7 @@ test('a config with no rustc/rustdoc discovered omits rustcToolId/rustdocToolId 
     tools: [{ id: 'pnpm', path: join(scratch, 'pnpm.exe'), root: scratch, sha256: 'a'.repeat(64) }],
     shims: { pnpm: 'pnpm' },
     externalCommands: [],
-    defaults: { toolchain: 'stable-x86_64-pc-windows-msvc', targetTriple: 'x86_64-pc-windows-msvc', targetTriples: ['x86_64-pc-windows-msvc'], buildProfile: 'development', reservationBytes: 16 * 1024 ** 3, cacheMode: 'disabled', cargoBuildJobs: 2 },
+    defaults: { toolchain: 'stable-x86_64-pc-windows-msvc', targetTriple: 'x86_64-pc-windows-msvc', targetTriples: ['x86_64-pc-windows-msvc'], buildProfile: 'development', reservationBytes: 16 * 1024 ** 3, cacheMode: 'disabled', cargoBuildJobs: defaultCargoBuildJobs() },
     sccache: { mode: 'disabled', lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
     bounds: defaultBounds(),
@@ -109,4 +109,13 @@ test('a config with no rustc/rustdoc discovered omits rustcToolId/rustdocToolId 
   const loaded = await loadBrokerConfig(configPath);
   assert.equal(loaded.defaults.rustcToolId, undefined);
   assert.equal(loaded.defaults.rustdocToolId, undefined);
+});
+
+test('cargo build jobs are clamped by memory before performance cores', () => {
+  // 8 logical / 4 performance cores with 8 GiB: memory binds first at 4.
+  assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
+  // Plenty of RAM: the performance-core share is the limit.
+  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 8);
+  // Small host: never below one job.
+  assert.equal(defaultCargoBuildJobs({ cpus: 2, totalMemoryBytes: 1 * 1024 ** 3 }), 1);
 });

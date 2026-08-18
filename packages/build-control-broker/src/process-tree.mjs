@@ -105,6 +105,44 @@ export async function readManagedProcessIdentity(pid, { attempts = 4, timeoutMs 
   return observed;
 }
 
+/**
+ * Enumerate the live descendants of one pid as `Map<pid, { pid, command }>`.
+ * This module owns every `ps`-based process-relationship read; ownership proofs
+ * elsewhere consume this rather than shelling out on their own.
+ */
+export async function enumerateLiveDescendants(rootPid, { execFile = nodeExecFile, timeoutMs = 250 } = {}) {
+  if (!Number.isSafeInteger(rootPid) || rootPid < 1) throw new TypeError('positive root process pid is required');
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new TypeError('positive process enumeration timeout is required');
+  if (typeof execFile !== 'function') throw groupEnumerationError('process-descendant-enumeration-unavailable');
+  let source;
+  try { source = String(await boundedProcessGroup(runDescendantList(execFile, timeoutMs), timeoutMs)); }
+  catch (error) { if (error?.code === 'RK_PROCESS_GROUP_ENUMERATION') throw error; throw groupEnumerationError('process-descendant-enumeration-unavailable'); }
+  const children = new Map(); const commands = new Map(); let parsedRows = 0;
+  for (const line of source.split(/\r?\n/)) {
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/); if (!match) continue;
+    const pid = Number(match[1]); const parentPid = Number(match[2]);
+    if (!Number.isSafeInteger(pid) || pid < 1 || !Number.isSafeInteger(parentPid) || parentPid < 0) continue;
+    parsedRows += 1; commands.set(pid, match[3].trim());
+    if (!children.has(parentPid)) children.set(parentPid, []); children.get(parentPid).push(pid);
+  }
+  if (parsedRows === 0) throw groupEnumerationError('process-descendant-enumeration-malformed');
+  const descendants = new Map(); const queue = [rootPid]; const seen = new Set([rootPid]);
+  while (queue.length) {
+    const current = queue.shift();
+    for (const pid of children.get(current) ?? []) {
+      if (seen.has(pid)) continue;
+      seen.add(pid); queue.push(pid);
+      descendants.set(pid, Object.freeze({ pid, command: commands.get(pid) ?? '' }));
+    }
+  }
+  return descendants;
+}
+function runDescendantList(execFile, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    execFile('ps', ['-axo', 'pid=,ppid=,comm='], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (error, stdout) => error ? reject(error) : resolve(stdout));
+  });
+}
+
 export async function terminateProcessTree(child, { platform = process.platform, graceMs = 5_000, kill = process.kill, spawn = nodeSpawn, execFile = nodeExecFile, uid = process.getuid?.(), psTimeoutMs = 250, loadJobAddon = loadWindowsJobAddon } = {}) {
   if (!child || !Number.isSafeInteger(child.pid) || child.pid < 1) throw new TypeError('spawned child with pid is required');
   if (!Number.isSafeInteger(graceMs) || graceMs < 0) throw new TypeError('graceMs must be non-negative');

@@ -8,7 +8,7 @@ import { execFile as childExecFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { availableParallelism as cpuCount, homedir, totalmem } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
@@ -95,8 +95,22 @@ export function defaultBounds() {
     outputBufferBytes: 8 * 1024 * 1024, outputHeadBytes: 16_384, outputTailBytes: 16_384,
     eventHistoryEntries: 4_096, eventHistoryBytes: 8 * 1024 * 1024, eventLogMaxBytes: 8 * 1024 * 1024,
     maintenanceBatchEntries: 128, controlConcurrency: 4, buildConcurrency: 2, workspaceWriteConcurrency: 4,
-    maintenanceConcurrency: 1, priorityAgingMs: 30_000, targetCacheCapBytes: 32 * 1024 ** 3,
+    maintenanceConcurrency: 1, priorityAgingMs: 30_000, targetCacheCapBytes: 150 * 1024 ** 3,
+    // Roots touched inside this window stay protected from cap eviction, so a
+    // day's warm target trees survive a workspace that sits over cap.
+    targetCacheFloorMs: 86_400_000,
   };
+}
+
+/** Parallel cargo jobs this host can link without swapping: memory binds before
+ * CPU, so the performance-core count is clamped by ~2 GiB of RAM per job. */
+export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = totalmem() } = {}) {
+  const logical = Number.isSafeInteger(cpus) && cpus > 0 ? cpus : 1;
+  // Apple silicon reports performance + efficiency cores as one logical count;
+  // half is the performance share on every shipping configuration here.
+  const performanceCores = Math.max(1, Math.floor(logical / 2));
+  const memoryGiB = Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 2;
+  return Math.max(1, Math.min(performanceCores, Math.floor(memoryGiB / 2)));
 }
 
 export async function buildConfig({ externalRoot }) {
@@ -129,7 +143,7 @@ export async function buildConfig({ externalRoot }) {
       // & pointing it at an unregistered tool id rejects the whole config.
       ...(tools.some((tool) => tool.id === 'rustc') ? { rustcToolId: 'rustc' } : {}),
       ...(tools.some((tool) => tool.id === 'rustdoc') ? { rustdocToolId: 'rustdoc' } : {}),
-      cacheMode: 'disabled', cargoBuildJobs: 2,
+      cacheMode: 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
     },
     // Doc section 3.1: never enable during an in-flight release; a deliberate,
     // separately-decided activation, not a bootstrap default.

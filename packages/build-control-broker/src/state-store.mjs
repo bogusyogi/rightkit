@@ -73,6 +73,7 @@ const rowToNamespace = (row) => Object.freeze({
   trashId: row.trash_id ?? null,
   trashedAt: row.trashed_at ?? null,
   deletedAt: row.deleted_at ?? null,
+  repositoryIdentity: row.repository_identity ?? null,
 });
 
 /**
@@ -135,7 +136,8 @@ export class DurableStateStore {
         trashed_at TEXT,
         deleted_at TEXT,
         maintenance_lease_id TEXT,
-        maintenance_lease_at TEXT
+        maintenance_lease_at TEXT,
+        repository_identity TEXT
       ) STRICT;
       CREATE INDEX IF NOT EXISTS namespaces_retention
         ON namespaces(state, lru_at, terminal_at);
@@ -146,10 +148,25 @@ export class DurableStateStore {
       CREATE TABLE IF NOT EXISTS pending_trash_intents (namespace TEXT NOT NULL, generation INTEGER NOT NULL, trash_id TEXT NOT NULL, lease_id TEXT NOT NULL, source_path TEXT NOT NULL, target_path TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(namespace,generation,trash_id)) STRICT;
       CREATE TABLE IF NOT EXISTS maintenance_queue (namespace TEXT NOT NULL, generation INTEGER NOT NULL, trash_id TEXT NOT NULL, cursor TEXT, state TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(namespace, generation, trash_id)) STRICT;
     `);
+    this.#migrateNamespaceRepositoryIdentity();
     this.#reconcileReservations();
     const marker = this.#database.prepare("SELECT details FROM migration_markers WHERE name = 'v1-json-to-v2'").get();
     if (legacy && marker) { const details = decode(marker.details); if (details.sourceSha256 !== legacy.sourceSha256) throw Object.assign(new Error('legacy state changed after v2 admission'), { code: 'RK_V1_LEGACY_DRIFT' }); }
     if (legacy && !marker) this.#migrateLegacy(legacy);
+  }
+
+  /** Adds the nullable app-identity column that cap eviction groups by. Fresh
+   * databases already carry it from the CREATE TABLE above, so the ALTER runs
+   * only when an older file lacks it; the marker records either outcome and
+   * makes a second open a no-op. */
+  #migrateNamespaceRepositoryIdentity() {
+    const name = 'namespaces-repository-identity';
+    if (this.#database.prepare('SELECT 1 AS present FROM migration_markers WHERE name = ?').get(name)?.present === 1) return;
+    const present = this.#database.prepare("SELECT 1 AS present FROM pragma_table_info('namespaces') WHERE name = 'repository_identity'").get()?.present === 1;
+    this.#transaction(() => {
+      if (!present) this.#database.exec('ALTER TABLE namespaces ADD COLUMN repository_identity TEXT');
+      this.#database.prepare('INSERT INTO migration_markers (name,completed_at,details) VALUES (?,?,?)').run(name, new Date().toISOString(), encode({ altered: !present, column: 'repository_identity' }));
+    });
   }
 
   #migrateLegacy(input) {
@@ -209,20 +226,24 @@ export class DurableStateStore {
   }
 
   /** Persists a namespace generation. A newer generation clears stale trash & leases. */
-  upsertNamespace({ namespace, generation: nextGeneration, state: nextState, terminalAt = null, lruAt = null }) {
+  upsertNamespace({ namespace, generation: nextGeneration, state: nextState, terminalAt = null, lruAt = null, repositoryIdentity = null }) {
     namespaceName(namespace); generation(nextGeneration); namespaceState(nextState); optionalTimestamp(terminalAt, 'terminalAt'); optionalTimestamp(lruAt, 'lruAt');
+    if (repositoryIdentity !== null && typeof repositoryIdentity !== 'string') throw new TypeError('repositoryIdentity must be a string or null');
+    // Last writer wins: the owning app of a namespace only changes when the
+    // repository behind it changes, and the newest job knows it best.
+    const identity = repositoryIdentity;
     return this.#transaction(() => {
       const current = this.getNamespace({ namespace });
       if (!current) {
-        this.#database.prepare('INSERT INTO namespaces (namespace, generation, state, terminal_at, lru_at) VALUES (?, ?, ?, ?, ?)').run(namespace, nextGeneration, nextState, terminalAt, lruAt);
+        this.#database.prepare('INSERT INTO namespaces (namespace, generation, state, terminal_at, lru_at, repository_identity) VALUES (?, ?, ?, ?, ?, ?)').run(namespace, nextGeneration, nextState, terminalAt, lruAt, identity);
       } else if (nextGeneration < current.generation) {
         throw new Error('stale namespace generation');
       } else if (nextGeneration > current.generation) {
-        this.#database.prepare('UPDATE namespaces SET generation = ?, state = ?, terminal_at = ?, lru_at = ?, trash_id = NULL, trashed_at = NULL, deleted_at = NULL, maintenance_lease_id = NULL, maintenance_lease_at = NULL WHERE namespace = ?').run(nextGeneration, nextState, terminalAt, lruAt, namespace);
+        this.#database.prepare('UPDATE namespaces SET generation = ?, state = ?, terminal_at = ?, lru_at = ?, repository_identity = ?, trash_id = NULL, trashed_at = NULL, deleted_at = NULL, maintenance_lease_id = NULL, maintenance_lease_at = NULL WHERE namespace = ?').run(nextGeneration, nextState, terminalAt, lruAt, identity ?? current.repositoryIdentity, namespace);
       } else {
         if (['TRASHED', 'DELETED'].includes(current.state)) throw new Error('trashed namespace requires a newer generation');
         if (!MAINTENANCE_TERMINAL_STATES.has(nextState) && this.#namespaceHasMaintenanceLease(namespace, nextGeneration)) throw new Error('active namespace cannot replace a maintenance lease without a newer generation');
-        this.#database.prepare('UPDATE namespaces SET state = ?, terminal_at = ?, lru_at = ? WHERE namespace = ?').run(nextState, terminalAt, lruAt, namespace);
+        this.#database.prepare('UPDATE namespaces SET state = ?, terminal_at = ?, lru_at = ?, repository_identity = ? WHERE namespace = ?').run(nextState, terminalAt, lruAt, identity ?? current.repositoryIdentity, namespace);
       }
       return this.getNamespace({ namespace });
     });
@@ -230,7 +251,7 @@ export class DurableStateStore {
 
   getNamespace({ namespace }) {
     namespaceName(namespace);
-    const row = this.#database.prepare('SELECT namespace, generation, state, terminal_at, lru_at, trash_id, trashed_at, deleted_at FROM namespaces WHERE namespace = ?').get(namespace);
+    const row = this.#database.prepare('SELECT namespace, generation, state, terminal_at, lru_at, trash_id, trashed_at, deleted_at, repository_identity FROM namespaces WHERE namespace = ?').get(namespace);
     return row ? rowToNamespace(row) : null;
   }
 
@@ -240,23 +261,24 @@ export class DurableStateStore {
    * source while maintenance may still rename it. Committed old-generation
    * trash is independent, so deletion may complete after its successor starts.
    */
-  activateNamespace({ namespace, occurredAt = new Date().toISOString() }) {
+  activateNamespace({ namespace, occurredAt = new Date().toISOString(), repositoryIdentity = null }) {
     namespaceName(namespace); timestamp(occurredAt);
+    if (repositoryIdentity !== null && typeof repositoryIdentity !== 'string') throw new TypeError('repositoryIdentity must be a string or null');
     return this.#transaction(() => {
       const unresolved = this.#database.prepare("SELECT 1 AS present FROM pending_trash_intents WHERE namespace = ? AND state = 'PENDING' LIMIT 1").get(namespace);
       if (unresolved?.present === 1) throw Object.assign(new Error('namespace activation waits for pending trash reconciliation'), { code: 'RK_NAMESPACE_GC_PENDING' });
       const current = this.getNamespace({ namespace });
       if (!current) {
-        this.#database.prepare("INSERT INTO namespaces (namespace, generation, state) VALUES (?, 0, 'ACTIVE')").run(namespace);
+        this.#database.prepare("INSERT INTO namespaces (namespace, generation, state, repository_identity) VALUES (?, 0, 'ACTIVE', ?)").run(namespace, repositoryIdentity);
         return this.getNamespace({ namespace });
       }
       if (this.#namespaceHasMaintenanceLease(namespace, current.generation)) {
         throw Object.assign(new Error('namespace activation waits for maintenance lease'), { code: 'RK_NAMESPACE_GC_LEASED' });
       }
       if (['TRASHED', 'DELETED'].includes(current.state)) {
-        this.#database.prepare("UPDATE namespaces SET generation = ?, state = 'ACTIVE', terminal_at = NULL, lru_at = NULL, trash_id = NULL, trashed_at = NULL, deleted_at = NULL WHERE namespace = ? AND generation = ?").run(current.generation + 1, namespace, current.generation);
+        this.#database.prepare("UPDATE namespaces SET generation = ?, state = 'ACTIVE', terminal_at = NULL, lru_at = NULL, repository_identity = ?, trash_id = NULL, trashed_at = NULL, deleted_at = NULL WHERE namespace = ? AND generation = ?").run(current.generation + 1, repositoryIdentity ?? current.repositoryIdentity, namespace, current.generation);
       } else {
-        this.#database.prepare("UPDATE namespaces SET state = 'ACTIVE', terminal_at = NULL, lru_at = NULL WHERE namespace = ? AND generation = ?").run(namespace, current.generation);
+        this.#database.prepare("UPDATE namespaces SET state = 'ACTIVE', terminal_at = NULL, lru_at = NULL, repository_identity = ? WHERE namespace = ? AND generation = ?").run(repositoryIdentity ?? current.repositoryIdentity, namespace, current.generation);
       }
       return this.getNamespace({ namespace });
     });

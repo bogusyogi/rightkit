@@ -72,7 +72,7 @@ test('namespace maintenance lease is generation-CAS, trash transitions are idemp
   try {
     const store = await DurableStateStore.open(fixture);
     store.upsertNamespace({ namespace, generation: 1, state: 'RELEASED', terminalAt: '2026-08-14T00:00:00.000Z', lruAt: '2026-08-14T00:00:00.000Z' });
-    assert.deepEqual(store.getNamespace({ namespace }), { namespace, generation: 1, state: 'RELEASED', terminalAt: '2026-08-14T00:00:00.000Z', lruAt: '2026-08-14T00:00:00.000Z', trashId: null, trashedAt: null, deletedAt: null });
+    assert.deepEqual(store.getNamespace({ namespace }), { namespace, generation: 1, state: 'RELEASED', terminalAt: '2026-08-14T00:00:00.000Z', lruAt: '2026-08-14T00:00:00.000Z', trashId: null, trashedAt: null, deletedAt: null, repositoryIdentity: null });
     const lease = store.claimMaintenanceLease({ namespace, generation: 1 });
     assert.ok(lease?.leaseId);
     assert.equal(store.claimMaintenanceLease({ namespace, generation: 1 }), null);
@@ -88,7 +88,7 @@ test('namespace maintenance lease is generation-CAS, trash transitions are idemp
     assert.equal(store.getNamespace({ namespace }).state, 'DELETED');
     assert.throws(() => store.upsertNamespace({ namespace, generation: 1, state: 'ACTIVE' }), /trashed namespace requires a newer generation/);
     store.upsertNamespace({ namespace, generation: 2, state: 'ACTIVE' });
-    assert.deepEqual(store.getNamespace({ namespace }), { namespace, generation: 2, state: 'ACTIVE', terminalAt: null, lruAt: null, trashId: null, trashedAt: null, deletedAt: null });
+    assert.deepEqual(store.getNamespace({ namespace }), { namespace, generation: 2, state: 'ACTIVE', terminalAt: null, lruAt: null, trashId: null, trashedAt: null, deletedAt: null, repositoryIdentity: null });
     assert.equal(store.claimMaintenanceLease({ namespace, generation: 1 }), null);
     assert.throws(() => store.upsertNamespace({ namespace, generation: 1, state: 'RELEASED' }), /stale namespace generation/);
     store.close();
@@ -180,4 +180,35 @@ test('old-generation trash deletion completes after successor activation', async
     assert.equal(s.maintenanceEntry({ namespace: ns, generation: 7, trashId }).state, 'DONE');
     s.close();
   } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('namespace repository identity round-trips & its column migration is idempotent', async () => {
+  const fixture = await database(); const namespace = 'e'.repeat(64);
+  try {
+    // A pre-migration database: the namespaces table without the identity
+    // column, exactly what an existing broker file looks like.
+    const legacy = await DurableStateStore.open(fixture);
+    legacy.close();
+    const { DatabaseSync } = await import('node:sqlite');
+    const raw = new DatabaseSync(fixture.databasePath);
+    raw.exec("DELETE FROM migration_markers WHERE name = 'namespaces-repository-identity'");
+    raw.exec('ALTER TABLE namespaces DROP COLUMN repository_identity');
+    raw.close();
+
+    const store = await DurableStateStore.open(fixture);
+    store.upsertNamespace({ namespace, generation: 1, state: 'RELEASED', terminalAt: '2026-08-14T00:00:00.000Z', lruAt: '2026-08-14T00:00:00.000Z', repositoryIdentity: '/repo/one' });
+    assert.equal(store.getNamespace({ namespace }).repositoryIdentity, '/repo/one');
+    // Last writer wins for a namespace that changes hands.
+    store.upsertNamespace({ namespace, generation: 2, state: 'RELEASED', terminalAt: '2026-08-15T00:00:00.000Z', lruAt: '2026-08-15T00:00:00.000Z', repositoryIdentity: '/repo/two' });
+    assert.equal(store.getNamespace({ namespace }).repositoryIdentity, '/repo/two');
+    store.close();
+
+    // Reopening runs the migration path again & must neither throw nor alter
+    // the column twice.
+    const reopened = await DurableStateStore.open(fixture);
+    assert.equal(reopened.getNamespace({ namespace }).repositoryIdentity, '/repo/two');
+    const activated = reopened.activateNamespace({ namespace, repositoryIdentity: '/repo/three' });
+    assert.equal(activated.repositoryIdentity, '/repo/three');
+    reopened.close();
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
