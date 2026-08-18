@@ -10,10 +10,27 @@ const CRATES_IO_SOURCES = new Set([
 ]);
 const CACHE_V2_ENVIRONMENT = ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "RIGHT_RELEASE_CACHE_OWNER"];
 
-export function isolatedCargoMetadataEnv(cargoHome, env = process.env) {
+export function managedCargoShimOnPath(env = process.env, platform = process.platform, exists = existsSync) {
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
+  const delimiter = platform === "win32" ? ";" : ":";
+  const extensions = platform === "win32"
+    ? String(env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    : [""];
+  for (const directory of String(env.PATH ?? "").split(delimiter).filter(Boolean)) {
+    for (const extension of extensions) {
+      const candidate = pathApi.join(directory, `cargo${extension.toLowerCase()}`);
+      if (!exists(candidate)) continue;
+      return /(?:^|\/)(?:\.rightkit-managed|rightkitmanagedagent)\/agent-bin\/cargo(?:\.[^/]*)?$/i
+        .test(candidate.replaceAll("\\", "/"));
+    }
+  }
+  return false;
+}
+
+export function isolatedCargoMetadataEnv(cargoHome, env = process.env, platform = process.platform, exists = existsSync) {
   const metadataEnv = { ...env };
   for (const name of CACHE_V2_ENVIRONMENT) delete metadataEnv[name];
-  if (metadataEnv.RIGHTKIT_BUILD_BROKER_SOCKET) return metadataEnv;
+  if (metadataEnv.RIGHTKIT_BUILD_BROKER_SOCKET || managedCargoShimOnPath(metadataEnv, platform, exists)) return metadataEnv;
   return { ...metadataEnv, CARGO_HOME: cargoHome };
 }
 
