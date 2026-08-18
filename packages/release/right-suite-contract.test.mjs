@@ -11,7 +11,6 @@ import {
   cargoArguments,
   cargoExecutable,
   isolatedCargoMetadataEnv,
-  managedCargoShimOnPath,
   validateRightKitCargoContract,
 } from "./cargo-contract.mjs";
 import { assertAsrAdapterPair } from "./asr-artifact-adoption.mjs";
@@ -468,12 +467,12 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.64",
+    "@rightkit/release": "0.2.63",
     "@rightkit/qa": "0.2.0",
   });
   assert.deepEqual(versions.legacyNpm, {
     "@rightkit/legal-ui": ["0.1.0"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62"],
     "@rightkit/qa": ["0.1.0"],
   });
   assert.ok(
@@ -515,36 +514,6 @@ test("Cargo metadata delegates controlled storage to managed RightKit", () => {
     RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock",
   });
   assert.deepEqual(isolatedCargoMetadataEnv("/isolated/cargo", { CARGO_HOME: "/ambient/cargo" }), {
-    CARGO_HOME: "/isolated/cargo",
-  });
-});
-
-test("Cargo metadata recognizes managed Cargo from PATH without inherited broker environment", () => {
-  const macShim = "/Volumes/D/.rightkit-managed/agent-bin/cargo";
-  const macEnv = { PATH: `/usr/bin:${path.dirname(macShim)}`, CARGO_HOME: "" };
-  assert.equal(managedCargoShimOnPath(macEnv, "darwin", (candidate) => candidate === macShim), true);
-  assert.deepEqual(isolatedCargoMetadataEnv("/isolated/cargo", macEnv, "darwin", (candidate) => candidate === macShim), {
-    PATH: macEnv.PATH,
-  });
-
-  const windowsShim = "D:\\RightKitManagedAgent\\agent-bin\\cargo.cmd";
-  const windowsEnv = {
-    PATH: "C:\\Windows\\System32;D:\\RightKitManagedAgent\\agent-bin",
-    PATHEXT: ".EXE;.CMD",
-  };
-  assert.equal(managedCargoShimOnPath(windowsEnv, "win32", (candidate) => candidate.toLowerCase() === windowsShim.toLowerCase()), true);
-  assert.deepEqual(isolatedCargoMetadataEnv("D:\\isolated\\cargo", windowsEnv, "win32", (candidate) => candidate.toLowerCase() === windowsShim.toLowerCase()), windowsEnv);
-});
-
-test("Cargo metadata respects PATH precedence when unmanaged Cargo resolves first", () => {
-  const env = { PATH: "/usr/local/bin:/Volumes/D/.rightkit-managed/agent-bin" };
-  const existing = new Set([
-    "/usr/local/bin/cargo",
-    "/Volumes/D/.rightkit-managed/agent-bin/cargo",
-  ]);
-  assert.equal(managedCargoShimOnPath(env, "darwin", (candidate) => existing.has(candidate)), false);
-  assert.deepEqual(isolatedCargoMetadataEnv("/isolated/cargo", env, "darwin", (candidate) => existing.has(candidate)), {
-    PATH: env.PATH,
     CARGO_HOME: "/isolated/cargo",
   });
 });
