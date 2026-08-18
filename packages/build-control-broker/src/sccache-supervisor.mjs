@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import { lstat as nodeLstat, unlink as nodeUnlink } from 'node:fs/promises';
+import { chmod as nodeChmod, lstat as nodeLstat, unlink as nodeUnlink } from 'node:fs/promises';
 import net from 'node:net';
 import { basename, join } from 'node:path';
 import {
@@ -200,15 +200,29 @@ export function brokerSccacheServerEnvironment({ socketPath, notifyPath, cacheDi
 
 /**
  * Start one broker-owned sccache server as a live descendant: launcher →
- * sccache, in the foreground (`SCCACHE_NO_DAEMON`), with umask 0o177 so its
- * own socket is created 0600 rather than the default 0755.
+ * sccache, in the foreground (`SCCACHE_NO_DAEMON`), with umask 0o077 so every
+ * inode it creates is private to this uid.
+ *
+ * The umask is deliberately NOT 0o177. A process-wide umask cannot satisfy both
+ * "0600 server socket" and "usable per-compile temp directories": 0o177 strips
+ * the owner execute bit, so the server's own `mkdir` of its temp directory
+ * yields mode 0600, a directory nothing can traverse, and the very first
+ * cacheable compile fails with EACCES writing `deps.d` inside it. 0o077 gives
+ * 0700 directories (private AND usable) at the cost of a 0755 socket, so the
+ * socket is tightened explicitly with chmod once the server has bound it.
+ *
+ * Accepted race: between the server's bind and this chmod the socket is
+ * briefly 0755. It cannot be pre-created — sccache binds the path itself — and
+ * it lives inside the broker-owned external root, so the window is bounded to a
+ * directory no other uid can enter. A chmod failure is a start failure: never
+ * proceed to the ownership proof with a world-accessible socket.
  */
 export async function startBrokerOwnedSccacheServer({
   tool, socketPath, notifyPath, cacheDir, maxSizeBytes, errorLogPath = null,
   spawn = nodeSpawn, timeoutMs = 30_000, env = process.env,
   spawnManaged = spawnManagedProcess, startManaged = startManagedProcess,
   readIdentity = readManagedProcessIdentity, ownershipOf = managedProcessOwnership,
-  createServer = net.createServer, unlink = nodeUnlink
+  createServer = net.createServer, unlink = nodeUnlink, chmod = nodeChmod
 } = {}) {
   if (typeof tool?.path !== 'string' || !tool.path) throw new TypeError('verified sccache tool is required');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 10) throw new TypeError('bounded sccache start timeout is required');
@@ -225,9 +239,13 @@ export async function startBrokerOwnedSccacheServer({
   } catch (error) { await close(); throw new SccacheOwnershipError('RK_SCCACHE_START_FAILED', error?.message ?? 'sccache notify socket unavailable'); }
   let child;
   try {
-    child = spawnManaged(tool.path, [], { env: serverEnvironment, umask: 0o177, stdio: ['ignore', 'inherit', 'inherit'] }, spawn);
+    child = spawnManaged(tool.path, [], { env: serverEnvironment, umask: 0o077, stdio: ['ignore', 'inherit', 'inherit'] }, spawn);
     const { pid } = await startManaged(child, { timeoutMs });
     await boundedNotify(notified, timeoutMs);
+    // The handshake means the socket is bound; tighten it before anything —
+    // the ownership proof included — is allowed to look at or use it.
+    try { await chmod(socketPath, 0o600); }
+    catch (error) { throw new SccacheOwnershipError('RK_SCCACHE_SOCKET_CHMOD_FAILED', `sccache server socket could not be restricted to 0600: ${error?.message ?? error?.code ?? 'unknown'}`); }
     const identity = await readIdentity(child.pid);
     if (identity?.status !== 'OK') throw new SccacheOwnershipError('RK_SCCACHE_START_FAILED', `sccache launcher identity unavailable: ${identity?.reason ?? 'unknown'}`);
     const ownership = ownershipOf(child, { identity });

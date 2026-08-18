@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -75,24 +76,69 @@ test('the server-start environment names the foreground, never-idle, notifying s
   assert.equal(environment.RUSTC_WRAPPER, undefined);
 });
 
-test('the server is spawned with umask 0o177 so its own socket is created 0600', async () => {
-  const options = [];
+const notifyingListener = () => {
   const listener = Object.assign(new EventEmitter(), { listen(_path, done) { done(); queueMicrotask(() => listener.emit('connection', Object.assign(new EventEmitter(), { on() { return this; } }))); }, close(done) { done?.(); } });
-  const started = await startBrokerOwnedSccacheServer({
-    tool: { path: '/managed/sccache' }, socketPath: '/managed/.rk-sccache.sock', notifyPath: '/managed/.rk-sccache-notify.sock',
-    cacheDir: '/managed/compiler-cache', maxSizeBytes: 1_024, timeoutMs: 1_000,
-    spawnManaged: (command, argv, spawnOptions) => { options.push({ command, argv, spawnOptions }); return fakeChild(41); },
-    startManaged: async () => ({ pid: 4242 }),
-    readIdentity: async () => ({ status: 'OK', identity: 'darwin:41:now' }),
-    ownershipOf: (child, { identity }) => ({ pid: child.pid, platform: 'posix', identity: identity.identity }),
-    createServer: () => listener,
-    unlink: async () => {}
-  });
+  return listener;
+};
+const startFixture = (overrides = {}) => startBrokerOwnedSccacheServer({
+  tool: { path: '/managed/sccache' }, socketPath: '/managed/.rk-sccache.sock', notifyPath: '/managed/.rk-sccache-notify.sock',
+  cacheDir: '/managed/compiler-cache', maxSizeBytes: 1_024, timeoutMs: 1_000,
+  spawnManaged: () => fakeChild(41),
+  startManaged: async () => ({ pid: 4242 }),
+  readIdentity: async () => ({ status: 'OK', identity: 'darwin:41:now' }),
+  ownershipOf: (child, { identity }) => ({ pid: child.pid, platform: 'posix', identity: identity.identity }),
+  createServer: notifyingListener,
+  unlink: async () => {}, chmod: async () => {},
+  ...overrides
+});
+
+// Regression: 0o177 also strips the owner execute bit from every directory the
+// server creates, so its per-compile temp dir lands at 0600 and the first
+// cacheable compile dies with EACCES writing deps.d. Never reintroduce it.
+test('the server is spawned with umask 0o077 so its temp directories stay usable', async () => {
+  const options = [];
+  const started = await startFixture({ spawnManaged: (command, argv, spawnOptions) => { options.push({ command, argv, spawnOptions }); return fakeChild(41); } });
   assert.equal(started.pid, 4242);
-  assert.equal(options[0].spawnOptions.umask, 0o177);
+  assert.equal(options[0].spawnOptions.umask, 0o077);
+  assert.notEqual(options[0].spawnOptions.umask, 0o177);
   assert.equal(options[0].spawnOptions.env.SCCACHE_NO_DAEMON, '1');
   assert.deepEqual(options[0].argv, []);
   assert.equal(started.ownership.identity, 'darwin:41:now');
+});
+
+test('the socket is chmod 0600 after the notify handshake & before ownership is read', async () => {
+  const order = []; const chmods = [];
+  const started = await startFixture({
+    createServer: () => {
+      const listener = Object.assign(new EventEmitter(), { listen(_path, done) { done(); queueMicrotask(() => { order.push('notify'); listener.emit('connection', Object.assign(new EventEmitter(), { on() { return this; } })); }); }, close(done) { done?.(); } });
+      return listener;
+    },
+    chmod: async (target, mode) => { order.push('chmod'); chmods.push({ target, mode }); },
+    readIdentity: async () => { order.push('identity'); return { status: 'OK', identity: 'darwin:41:now' }; }
+  });
+  assert.equal(started.pid, 4242);
+  assert.deepEqual(chmods, [{ target: '/managed/.rk-sccache.sock', mode: 0o600 }]);
+  assert.deepEqual(order, ['notify', 'chmod', 'identity']);
+});
+
+test('a socket that cannot be restricted to 0600 fails the start instead of proceeding', async () => {
+  const reached = [];
+  await assert.rejects(
+    startFixture({
+      chmod: async () => { throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' }); },
+      readIdentity: async () => { reached.push('identity'); return { status: 'OK', identity: 'darwin:41:now' }; }
+    }),
+    (error) => error.code === 'RK_SCCACHE_SOCKET_CHMOD_FAILED' && /operation not permitted/.test(error.message)
+  );
+  assert.deepEqual(reached, []);
+  const supervisor = managedSupervisor({
+    spawn: fakeSpawn([], []), cacheDir: '/managed/compiler-cache', maxSizeBytes: 1_024,
+    startServer: (options) => startFixture({ ...options, chmod: async () => { throw Object.assign(new Error('nope'), { code: 'EPERM' }); } })
+  });
+  const sample = await supervisor.sample({});
+  assert.equal(sample.status, 'DEGRADED');
+  assert.equal(sample.reason, 'RK_SCCACHE_SOCKET_CHMOD_FAILED');
+  assert.equal(sample.fallback, 'DIRECT_RUSTC_AVAILABLE');
 });
 
 test('concurrent samples share one single-flight server start', async () => {
@@ -277,5 +323,86 @@ test('a real broker-owned sccache server is provable, 0600 & fully reclaimed', {
     assert.throws(() => process.kill(serverPid, 0), (error) => error.code === 'ESRCH');
     assert.equal(existsSync(socketPath), false);
     assert.equal(existsSync(notifyPath), false);
+  } finally { await supervisor?.shutdown().catch(() => null); await rm(root, { recursive: true, force: true }); }
+});
+
+const CARGO_BINARY = process.env.RK_CARGO_PATH ?? process.env.CARGO ?? '/Volumes/D/.build-home/adrdsouza/rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo';
+/** Sum every numeric leaf: sccache reports some counters as nested objects. */
+function counter(stats, key) {
+  const walk = (value) => typeof value === 'number' ? value : (value && typeof value === 'object' ? Object.values(value).reduce((sum, child) => sum + walk(child), 0) : 0);
+  return walk(stats?.[key]);
+}
+function runCommand(command, argv, environment, cwd, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let stdout = ''; let stderr = '';
+    const child = spawn(command, argv, { cwd, env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (chunk) => { stdout += chunk; }); child.stderr.on('data', (chunk) => { stderr += chunk; });
+    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`${command} timed out`)); }, timeoutMs);
+    child.once('error', (error) => { clearTimeout(timer); reject(error); });
+    child.once('close', (code) => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+  });
+}
+
+// The end-to-end test Phase C lacked: nothing there was cacheable, so the
+// server never created a per-compile temp directory and the 0o177 umask defect
+// stayed invisible until a real release build hit EACCES writing deps.d.
+test('a broker-owned server writes its own temp dirs & really caches a release build', {
+  skip: existsSync(SCCACHE_BINARY) && existsSync(CARGO_BINARY) ? false : `sccache or cargo is absent (${SCCACHE_BINARY}, ${CARGO_BINARY})`,
+  timeout: 600_000
+}, async () => {
+  // Short on purpose: the session scratchpad exceeds sun_path (103 bytes).
+  const root = await mkdtemp('/tmp/rk-phased-');
+  const crate = path.join(root, 'crate');
+  const targetDir = path.join(root, 'target');
+  const socketPath = brokerSccacheSocketPath(root);
+  let supervisor = null;
+  try {
+    await mkdir(path.join(crate, 'src'), { recursive: true });
+    await writeFile(path.join(crate, 'Cargo.toml'), '[package]\nname = "rk_phase_d"\nversion = "0.0.0"\nedition = "2021"\n\n[lib]\npath = "src/lib.rs"\n\n[dependencies]\n\n[profile.release]\nincremental = false\n');
+    await writeFile(path.join(crate, 'src', 'lib.rs'), 'pub fn phase_d(value: u64) -> u64 { value.wrapping_mul(2_654_435_761) }\n');
+
+    supervisor = new SccacheSupervisor({
+      tool: { path: SCCACHE_BINARY }, mode: 'managed', externalRoot: root,
+      cacheDir: path.join(root, 'compiler-cache'), maxSizeBytes: 1_073_741_824,
+      errorLogPath: path.join(root, 'sccache-server.log'),
+      timeoutMs: 60_000, startTimeoutMs: 60_000,
+      ownershipProof: brokerOwnedSccacheProof({ externalRoot: root, socketPath, serverPid: () => supervisor.serverPid, timeoutMs: 60_000 })
+    });
+    const jobEnvironment = {
+      // A bare toolchain PATH on purpose: the ambient PATH carries the RightKit
+      // managed shims, whose own RUSTC_WRAPPER conflicts with this direct probe.
+      PATH: `${path.dirname(CARGO_BINARY)}:/usr/bin:/bin`, HOME: process.env.HOME,
+      RUSTC: path.join(path.dirname(CARGO_BINARY), 'rustc'),
+      CARGO_TARGET_DIR: targetDir,
+      RUSTC_WRAPPER: SCCACHE_BINARY, SCCACHE_SERVER_UDS: socketPath
+    };
+
+    const start = await supervisor.sample(jobEnvironment);
+    assert.equal(start.status, 'OK', JSON.stringify(start));
+    assert.equal((await lstat(socketPath)).mode & 0o777, 0o600, 'server socket must be 0600 for the ownership proof');
+
+    // The defect-1 mechanism, asserted directly: a child under the server's own
+    // umask must be able to create a directory AND write inside it.
+    const probeDir = path.join(root, 'umask-probe');
+    const probe = await runCommand(process.execPath, ['-e', `process.umask(0o077); const fs=require('node:fs'); fs.mkdirSync(${JSON.stringify(probeDir)}); fs.writeFileSync(${JSON.stringify(path.join(probeDir, 'deps.d'))}, 'ok'); process.stdout.write(String(fs.statSync(${JSON.stringify(probeDir)}).mode & 0o777));`], { PATH: process.env.PATH }, root, 30_000);
+    assert.equal(probe.code, 0, `server umask must allow temp-dir writes: ${probe.stderr}`);
+    assert.equal(probe.stdout, String(0o700));
+
+    const first = await runCommand(CARGO_BINARY, ['build', '--release'], jobEnvironment, crate, 540_000);
+    assert.equal(first.code, 0, `first release build failed: ${first.stderr}`);
+    const afterFirst = await supervisor.sample(jobEnvironment);
+    assert.equal(afterFirst.status, 'OK', JSON.stringify(afterFirst));
+    const firstStats = afterFirst.stats.stats;
+    assert.equal(counter(firstStats, 'cache_errors') - counter(start.stats.stats, 'cache_errors'), 0, `cache errors during first build: ${JSON.stringify(firstStats.cache_errors)}`);
+    assert.ok(counter(firstStats, 'cache_writes') - counter(start.stats.stats, 'cache_writes') > 0, `expected cache writes, got ${JSON.stringify(firstStats)}`);
+
+    await rm(targetDir, { recursive: true, force: true });
+    const second = await runCommand(CARGO_BINARY, ['build', '--release'], jobEnvironment, crate, 540_000);
+    assert.equal(second.code, 0, `second release build failed: ${second.stderr}`);
+    const afterSecond = await supervisor.sample(jobEnvironment);
+    assert.equal(afterSecond.status, 'OK', JSON.stringify(afterSecond));
+    const secondStats = afterSecond.stats.stats;
+    assert.equal(counter(secondStats, 'cache_errors') - counter(firstStats, 'cache_errors'), 0, `cache errors during second build: ${JSON.stringify(secondStats.cache_errors)}`);
+    assert.ok(counter(secondStats, 'cache_hits') - counter(firstStats, 'cache_hits') > 0, `expected cache hits on rebuild, got ${JSON.stringify(secondStats)}`);
   } finally { await supervisor?.shutdown().catch(() => null); await rm(root, { recursive: true, force: true }); }
 });

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -29,6 +30,35 @@ test('discoverTools finds real, hashed tools on this machine’s PATH', async ()
   assert.match(cargo.sha256, /^[a-f0-9]{64}$/);
   assert.ok(cargo.path.startsWith('/'));
   for (const tool of tools) assert.equal(tool.root, tool.path.split('/').slice(0, -1).join('/'));
+});
+
+// ImmutableToolRegistry rejects symlinks outright (a security property that
+// stays), so discovery must never record one: Homebrew ships sccache as
+// bin/sccache -> ../Cellar/…, and registering that path makes the broker refuse
+// to start with ToolChangedError(unavailable). bootstrap-windows-cli.mjs
+// resolves identically; `where.exe` cannot run here, so only macOS is asserted.
+test('discoverTools records a symlinked tool as its realpath, not the link', async (t) => {
+  const originalPath = process.env.PATH;
+  const scratch = mkdtempSync(join(tmpdir(), 'rk-symlink-tool-'));
+  t.after(() => { rmSync(scratch, { recursive: true, force: true }); process.env.PATH = originalPath; });
+  const cellar = join(scratch, 'Cellar', 'bin');
+  const bin = join(scratch, 'bin');
+  mkdirSync(cellar, { recursive: true }); mkdirSync(bin, { recursive: true });
+  // macOS resolves /var itself to /private/var, so compare fully-resolved paths.
+  const target = join(realpathSync(cellar), 'sccache');
+  writeFileSync(target, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  symlinkSync(join('..', 'Cellar', 'bin', 'sccache'), join(bin, 'sccache'));
+
+  process.env.PATH = `${bin}:${originalPath}`;
+  const tools = await discoverTools();
+  const sccache = tools.find((tool) => tool.id === 'sccache');
+  assert.ok(sccache, 'the shadowing symlink must be the discovered sccache');
+  assert.equal(sccache.path, target);
+  assert.equal(sccache.root, realpathSync(cellar));
+  assert.notEqual(sccache.path, join(bin, 'sccache'));
+  assert.equal(lstatSync(sccache.path).isSymbolicLink(), false, 'a recorded tool path must never be a symlink');
+  // Same inode, so resolving must not perturb the recorded digest.
+  assert.equal(sccache.sha256, createHash('sha256').update(readFileSync(join(bin, 'sccache'))).digest('hex'));
 });
 
 test('buildConfig produces a config the broker’s own schema accepts', async (t) => {
