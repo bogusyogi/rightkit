@@ -26,6 +26,7 @@ import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInpu
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
+import { managedCargoShimOnPath } from "./cargo-contract.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
@@ -167,7 +168,13 @@ try {
   if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
   const cargoLock = requiredInputs.find((file) => /Cargo\.lock$/i.test(file));
   const cargoToml = requiredInputs.find((file) => /Cargo\.toml$/i.test(file));
-  const managedCargoTarget = process.env.RIGHTKIT_BUILD_BROKER_SOCKET
+  // A broker-managed host is not identified by RIGHTKIT_BUILD_BROKER_SOCKET alone:
+  // that variable is exported by login shells only, while the managed cargo shim is
+  // on PATH for every shell. Detecting on the variable alone made agent (non-login)
+  // shells take the Cache V2 branch, bridge src-tauri/target into the release cache,
+  // and then lose CARGO_TARGET_DIR to the broker's unconditional override — so the
+  // app bundle landed in the broker workspace and packaging failed on an empty cache.
+  const managedCargoTarget = (process.env.RIGHTKIT_BUILD_BROKER_SOCKET || managedCargoShimOnPath(process.env))
     ? resolveManagedCargoTarget(cargoToml)
     : null;
   const cacheIdentity = resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });

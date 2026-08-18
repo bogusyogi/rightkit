@@ -6,6 +6,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs";
+import { managedCargoShimOnPath } from "./cargo-contract.mjs";
 
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8");
 const build = path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs");
@@ -113,4 +114,57 @@ test("CPU sampling degrades to the old behaviour rather than inventing a verdict
   assert.equal(processGroupCpuSeconds(0, { platform: "darwin", run: ok("  0:42.50\n") }), null);
   assert.equal(processGroupCpuSeconds(123, { platform: "darwin", run: () => ({ status: 1, stdout: "" }) }), null);
   assert.equal(processGroupCpuSeconds(123, { platform: "darwin", run: ok("") }), null);
+});
+
+// Regression: the managed-host gate must not depend on RIGHTKIT_BUILD_BROKER_SOCKET
+// alone. That variable is exported by login shells only, while the managed cargo
+// shim is on PATH in every shell — so an agent shell took the Cache V2 branch,
+// bridged src-tauri/target into the release cache, and then lost CARGO_TARGET_DIR
+// to the broker's unconditional override. The app built into the broker workspace
+// and packaging failed on an empty cache before notarize/staple.
+const managedHostDetected = (env, platform, exists) =>
+  Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET || managedCargoShimOnPath(env, platform, exists));
+
+test("managed-host gate fires from the managed shim on PATH when no broker socket is exported", () => {
+  // The build gate is exactly the dual detection cargo-contract.mjs already uses.
+  assert.match(
+    source,
+    /const managedCargoTarget = \(process\.env\.RIGHTKIT_BUILD_BROKER_SOCKET \|\| managedCargoShimOnPath\(process\.env\)\)\n\s*\? resolveManagedCargoTarget\(cargoToml\)\n\s*: null;/,
+  );
+  assert.match(source, /import \{ managedCargoShimOnPath \} from "\.\/cargo-contract\.mjs";/);
+
+  const shim = "/Volumes/D/.rightkit-managed/agent-bin/cargo";
+  const exists = (candidate) => candidate === shim;
+
+  // Agent (non-login) shell: no socket variable, managed shim first on PATH.
+  assert.equal(managedHostDetected({ PATH: `${path.dirname(shim)}:/usr/bin` }, "darwin", exists), true);
+  // Login shell: unchanged behaviour, with or without the shim resolvable.
+  assert.equal(
+    managedHostDetected({ PATH: `${path.dirname(shim)}:/usr/bin`, RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock" }, "darwin", exists),
+    true,
+  );
+  assert.equal(managedHostDetected({ PATH: "/usr/bin", RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock" }, "darwin", () => false), true);
+  // Unmanaged host: neither signal, so the Cache V2 branch still owns the build.
+  assert.equal(managedHostDetected({ PATH: "/usr/bin:/usr/local/bin" }, "darwin", () => false), false);
+  // PATH precedence still decides: an unmanaged toolchain ahead of the shim is unmanaged.
+  const both = new Set(["/usr/local/bin/cargo", shim]);
+  assert.equal(managedHostDetected({ PATH: `/usr/local/bin:${path.dirname(shim)}` }, "darwin", (c) => both.has(c)), false);
+});
+
+test("the managed branch hands the Rust target directory to the broker while the unmanaged branch keeps Cache V2", () => {
+  // Managed: CARGO_TARGET_DIR (and the rest of the Cache V2 environment) is deleted
+  // from the child environment, so the broker's own override is the only one.
+  assert.match(
+    source,
+    /if \(managedCargoTarget\) \{\n\s*for \(const name of \["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "SCCACHE_CACHE_SIZE", "RUSTFLAGS"\]\) \{\n\s*delete env\[name\];/,
+  );
+  // Managed: no vault build root, and the bridge points at the metadata-reported target.
+  assert.match(source, /const buildRoot = managedCargoTarget \? null :/);
+  assert.match(source, /target: managedCargoTarget \?\? env\.CARGO_TARGET_DIR,/);
+  assert.match(source, /ownedRoot: path\.dirname\(managedCargoTarget \?\? env\.CARGO_TARGET_DIR\),/);
+  // The managed target is read from crate metadata through the shim, which is what
+  // makes the bridge target equal to the directory the broker actually builds into.
+  assert.match(source, /function resolveManagedCargoTarget\(manifestPath\)[\s\S]*?JSON\.parse\(output\)\.target_directory/);
+  // Unmanaged (managedCargoTarget === null): Cache V2 still supplies CARGO_TARGET_DIR.
+  assert.match(source, /\.\.\.releaseEnvironment\(\{ root: vaultRoot, cacheRoot: sharedCacheRoot,/);
 });
