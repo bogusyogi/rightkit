@@ -82,7 +82,7 @@ function watchDirectoryTree(root, onProgress, watchers, fallback, { watchFactory
 
 export function releaseEnvironment({ root, cacheRoot, platform, architecture, app, cacheKey, kind = "release", appRoot, mode = "legacy", env = process.env }) {
   if (kind !== "release" && kind !== "test") throw new Error(`invalid target kind: ${kind}`);
-  if (mode !== "legacy" && mode !== "shared") throw new Error(`invalid cache mode: ${mode}`);
+  if (mode !== "legacy" && mode !== "shared" && mode !== "broker") throw new Error(`invalid cache mode: ${mode}`);
   if (mode === "shared") {
     if (!cacheRoot || !platform || !architecture || !app || !cacheKey || !appRoot) throw new Error("shared release environment requires cacheRoot, platform, architecture, app, cacheKey, and appRoot");
     const layout = resolveCacheLayout({ cacheRoot, platform, architecture, app, fingerprint: cacheKey, kind });

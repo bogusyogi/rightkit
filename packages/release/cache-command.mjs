@@ -13,12 +13,28 @@ import {
   resolveSharedCacheRoot,
 } from "./cache-policy.mjs";
 import { resolveReleaseLayout } from "./release-state.mjs";
+import { brokerManagedHost } from "./cargo-contract.mjs";
+
+// On a broker-managed host, CARGO_TARGET_DIR is not Cache V2's to own: the build
+// broker unconditionally overrides it to its own per-namespace workspace, so the
+// Cache V2 target layout under cacheRoot is legitimately empty (marker files only)
+// while the real ~18 GB of build output lives in the broker's workspace. Inspecting,
+// migrating, or pruning against that layout on a broker host reads real output as
+// missing/corrupt and can recommend destroying it — never phrase this as a problem.
+const BROKER_MANAGED_MESSAGE = "broker-managed host: the build broker owns CARGO_TARGET_DIR; Cache V2 target checks skipped";
+const BROKER_GATED_COMMANDS = new Set(["status", "prune", "migrate"]);
 
 export async function runCacheCommand(args = process.argv.slice(2), { env = process.env, stdout = console.log, stderr = console.error } = {}) {
   const [command, ...rest] = args;
   const json = rest.includes("--json");
   const platform = platformFrom(env);
   const cacheRoot = resolveSharedCacheRoot({ platform, env });
+  if (BROKER_GATED_COMMANDS.has(command) && brokerManagedHost(env)) {
+    const result = { schema: 1, command, cacheRoot, brokerManaged: true, skipped: true, message: BROKER_MANAGED_MESSAGE };
+    if (json) stdout(JSON.stringify(result));
+    else stdout(BROKER_MANAGED_MESSAGE);
+    return result;
+  }
   if (command === "status") {
     rejectUnknown(rest, new Set(["--json"]));
     const snapshot = inspectCache({ cacheRoot });

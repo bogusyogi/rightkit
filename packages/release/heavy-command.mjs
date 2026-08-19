@@ -6,17 +6,23 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
+import { resolveStableRoot } from "./cache-policy.mjs";
+
 const GB = 1024 ** 3;
 const SELF = fileURLToPath(import.meta.url);
 
 export function heavyWorkRoot({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
-  if (env.RIGHTSUITE_HEAVY_WORK_ROOT) return path.resolve(env.RIGHTSUITE_HEAVY_WORK_ROOT);
-  if (platform === "win32" || platform === "win") {
-    if (!env.LOCALAPPDATA) throw new Error("LOCALAPPDATA is required for the RightSuite heavy-work guard");
-    return path.win32.resolve(env.LOCALAPPDATA, "RightSuite", "heavy-work");
-  }
-  if (platform === "darwin" || platform === "mac") return path.posix.join(home, "Library", "Caches", "RightSuite", "heavy-work");
-  return path.posix.resolve(env.XDG_CACHE_HOME || path.posix.join(home, ".cache"), "rightsuite", "heavy-work");
+  return resolveStableRoot({
+    platform,
+    env,
+    home,
+    explicitOverride: env.RIGHTSUITE_HEAVY_WORK_ROOT,
+    overrideName: "RIGHTSUITE_HEAVY_WORK_ROOT",
+    darwinSegments: ["Library", "Caches", "RightSuite", "heavy-work"],
+    win32EnvVar: "LOCALAPPDATA",
+    win32Segments: ["RightSuite", "heavy-work"],
+    otherSegments: ["rightsuite", "heavy-work"],
+  });
 }
 
 export function heavyCommandEnvironment(env = process.env) {

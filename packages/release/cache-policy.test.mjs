@@ -27,6 +27,7 @@ import {
   resolveCacheLayout,
   resolveSharedCacheIdentity,
   resolveSharedCacheRoot,
+  resolveStableRoot,
 } from "./cache-policy.mjs";
 
 function root() { return path.join(os.tmpdir(), `rightkit-cache-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`); }
@@ -61,9 +62,50 @@ function migrationFixture() {
 test("cache roots are platform-native and overrides must be absolute", () => {
   assert.throws(() => resolveSharedCacheRoot({ platform: "mac", home: "/Users/test", env: {} }), /RIGHT_RELEASE_CACHE_ROOT is required/);
   assert.equal(resolveSharedCacheRoot({ platform: "win", env: { LOCALAPPDATA: "C:/Users/test/AppData/Local" } }), "C:\\Users\\test\\AppData\\Local\\RightSuite\\Cache\\release");
-  assert.equal(resolveSharedCacheRoot({ platform: "linux", home: "/home/test", xdgCacheHome: "/tmp/xdg", env: {} }), "/tmp/xdg/rightsuite/release");
+  assert.equal(resolveSharedCacheRoot({ platform: "linux", home: "/home/test", env: {} }), "/home/test/.cache/rightsuite/release");
   assert.equal(resolveSharedCacheRoot({ platform: "mac", env: { RIGHT_RELEASE_CACHE_ROOT: "/tmp/cache" } }), "/tmp/cache");
   assert.throws(() => resolveSharedCacheRoot({ platform: "mac", env: { RIGHT_RELEASE_CACHE_ROOT: "relative" } }), /absolute/i);
+});
+
+test("shared cache root ignores XDG_CACHE_HOME regardless of value", () => {
+  assert.equal(
+    resolveSharedCacheRoot({ platform: "linux", env: { XDG_CACHE_HOME: "/one/path" }, home: "/home/u" }),
+    resolveSharedCacheRoot({ platform: "linux", env: {}, home: "/home/u" }),
+  );
+  assert.equal(resolveSharedCacheRoot({ platform: "linux", env: { XDG_CACHE_HOME: "/one/path" }, home: "/home/u" }), "/home/u/.cache/rightsuite/release");
+  // resolveSharedCacheRoot no longer accepts an xdgCacheHome option; passing one has no effect.
+  assert.equal(
+    resolveSharedCacheRoot({ platform: "linux", env: {}, home: "/home/u", xdgCacheHome: "/should/be/ignored" }),
+    "/home/u/.cache/rightsuite/release",
+  );
+});
+
+test("resolveStableRoot: explicit override wins, win32 requires the env var, other platforms ignore arbitrary env", () => {
+  const opts = {
+    darwinSegments: ["Library", "Caches", "Example"],
+    win32Segments: ["Example"],
+    otherSegments: ["example"],
+  };
+  assert.equal(
+    resolveStableRoot({ ...opts, platform: "linux", explicitOverride: "/explicit/path", overrideName: "EXAMPLE_ROOT", env: { EXAMPLE_ROOT: "ignored-by-caller-arg" } }),
+    "/explicit/path",
+  );
+  assert.throws(
+    () => resolveStableRoot({ ...opts, platform: "linux", explicitOverride: "relative/path", overrideName: "EXAMPLE_ROOT" }),
+    /EXAMPLE_ROOT must be an absolute path/,
+  );
+  assert.throws(
+    () => resolveStableRoot({ ...opts, platform: "win32", env: {} }),
+    /LOCALAPPDATA must be an absolute path for RightSuite/,
+  );
+  assert.equal(
+    resolveStableRoot({ ...opts, platform: "win32", env: { LOCALAPPDATA: "C:/Users/test/AppData/Local" } }),
+    "C:\\Users\\test\\AppData\\Local\\Example",
+  );
+  assert.equal(
+    resolveStableRoot({ ...opts, platform: "linux", env: { XDG_CACHE_HOME: "/ignored", npm_config_cache: "/ignored" }, home: "/home/u" }),
+    "/home/u/.cache/example",
+  );
 });
 
 test("layout isolates app, platform, kind, and fingerprint", () => {

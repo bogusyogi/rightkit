@@ -30,21 +30,59 @@ export const CACHE_LOCK_ORDER = ["release", "suite-build-slot", "gc", "entry-lea
 
 const MARKER = ".rightkit-cache-entry.json";
 
-export function resolveSharedCacheRoot({ platform = process.platform, env = process.env, home = os.homedir(), xdgCacheHome } = {}) {
-  const override = env.RIGHT_RELEASE_CACHE_ROOT;
-  if (override) {
-    if (!isAbsoluteForPlatform(override, platform)) throw new Error("RIGHT_RELEASE_CACHE_ROOT must be an absolute path");
-    return resolveForPlatform(override, platform);
-  }
+export function resolveSharedCacheRoot({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   if (platform === "darwin" || platform === "mac") {
+    const override = env.RIGHT_RELEASE_CACHE_ROOT;
+    if (override) {
+      if (!isAbsoluteForPlatform(override, platform)) throw new Error("RIGHT_RELEASE_CACHE_ROOT must be an absolute path");
+      return resolveForPlatform(override, platform);
+    }
     throw new Error("RIGHT_RELEASE_CACHE_ROOT is required on macOS; set it to external storage");
   }
-  if (platform === "win32" || platform === "win") {
-    const local = env.LOCALAPPDATA;
-    if (!local || !isAbsoluteForPlatform(local, platform)) throw new Error("LOCALAPPDATA must be an absolute path for the RightSuite cache");
-    return path.win32.resolve(local, "RightSuite", "Cache", "release");
+  return resolveStableRoot({
+    platform,
+    env,
+    home,
+    explicitOverride: env.RIGHT_RELEASE_CACHE_ROOT,
+    overrideName: "RIGHT_RELEASE_CACHE_ROOT",
+    win32EnvVar: "LOCALAPPDATA",
+    win32Segments: ["RightSuite", "Cache", "release"],
+    otherSegments: ["rightsuite", "release"],
+  });
+}
+
+// resolveStableRoot centralizes platform-native root derivation for both cache roots
+// (waste-tolerant, may split) and lock roots (must never split, or mutual exclusion
+// silently breaks). Route every such root through this one primitive.
+export function resolveStableRoot({
+  platform = process.platform,
+  env = process.env,
+  home = os.homedir(),
+  explicitOverride,
+  overrideName,
+  darwinSegments,
+  win32EnvVar = "LOCALAPPDATA",
+  win32Segments,
+  otherSegments,
+  otherBaseSegments = [".cache"],
+} = {}) {
+  if (explicitOverride) {
+    if (!isAbsoluteForPlatform(explicitOverride, platform)) throw new Error(`${overrideName} must be an absolute path`);
+    return resolveForPlatform(explicitOverride, platform);
   }
-  return path.posix.resolve(xdgCacheHome || env.XDG_CACHE_HOME || path.posix.join(home, ".cache"), "rightsuite", "release");
+  if (platform === "win32" || platform === "win") {
+    const local = env[win32EnvVar];
+    if (!local || !isAbsoluteForPlatform(local, platform)) throw new Error(`${win32EnvVar} must be an absolute path for RightSuite`);
+    return path.win32.resolve(local, ...win32Segments);
+  }
+  if (platform === "darwin" || platform === "mac") {
+    return path.posix.join(home, ...darwinSegments);
+  }
+  // Never read a shell-profile-scoped variable (XDG_CACHE_HOME, XDG_CONFIG_HOME,
+  // npm_config_cache, etc.) as an implicit default here: those differ between login
+  // and non-login shells, so the same process can resolve to two different roots
+  // depending on how it was launched. Always derive from the OS home directory instead.
+  return path.posix.resolve(path.posix.join(home, ...otherBaseSegments), ...otherSegments);
 }
 
 export function resolveCacheLayout({ cacheRoot, platform, architecture, app, fingerprint, kind = "release" } = {}) {

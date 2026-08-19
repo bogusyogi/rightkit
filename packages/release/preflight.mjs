@@ -21,6 +21,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { brokerManagedHost } from "./cargo-contract.mjs";
 
 export const PREFLIGHT_OK = "ok";
 export const PREFLIGHT_WARN = "warn";
@@ -186,11 +187,18 @@ export function collectPreflight({
     checks.push(
       !entry || entry.isSymbolicLink()
         ? ok("target-bridge", entry ? "src-tauri/target is a symbolic link" : "src-tauri/target is ready for the shared cache bridge")
-        : fail(
-            "target-bridge",
-            `${target} is a real directory; bridge setup will refuse it`,
-            `run right-release cache migrate --config ${JSON.stringify(configPath ?? path.join(appRoot, "right-release.config.mjs"))} --dry-run, then repeat with --apply before building`,
-          ),
+        // A real directory here is not corruption on a broker-managed host: the
+        // build broker owns CARGO_TARGET_DIR and this is its own output (or a
+        // leftover from before it took ownership), not Cache V2's bridge target.
+        // Recommending `cache migrate` here is how an agent nearly renamed ~5.9 GB
+        // of warm broker intermediates out from under it.
+        : brokerManagedHost(env)
+          ? ok("target-bridge", `${target} is a real directory; broker-managed host, left untouched`)
+          : fail(
+              "target-bridge",
+              `${target} is a real directory; bridge setup will refuse it`,
+              `run right-release cache migrate --config ${JSON.stringify(configPath ?? path.join(appRoot, "right-release.config.mjs"))} --dry-run, then repeat with --apply before building`,
+            ),
     );
   }
 

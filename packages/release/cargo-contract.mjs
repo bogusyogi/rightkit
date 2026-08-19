@@ -27,10 +27,14 @@ export function managedCargoShimOnPath(env = process.env, platform = process.pla
   return false;
 }
 
+export function brokerManagedHost(env = process.env, platform = process.platform, exists = existsSync) {
+  return Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET) || managedCargoShimOnPath(env, platform, exists);
+}
+
 export function isolatedCargoMetadataEnv(cargoHome, env = process.env, platform = process.platform, exists = existsSync) {
   const metadataEnv = { ...env };
   for (const name of CACHE_V2_ENVIRONMENT) delete metadataEnv[name];
-  if (metadataEnv.RIGHTKIT_BUILD_BROKER_SOCKET || managedCargoShimOnPath(metadataEnv, platform, exists)) return metadataEnv;
+  if (brokerManagedHost(metadataEnv, platform, exists)) return metadataEnv;
   return { ...metadataEnv, CARGO_HOME: cargoHome };
 }
 

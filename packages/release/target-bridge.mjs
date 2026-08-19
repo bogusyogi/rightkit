@@ -9,12 +9,21 @@ import path from "node:path";
  *   fingerprint change — i.e. every Cargo.lock or version bump — left a stale
  *   link that hard-stopped the next build until someone deleted it by hand.
  *   Omit it to keep the strict refuse-everything behavior.
+ * @param brokerManaged True when a build broker owns CARGO_TARGET_DIR on this
+ *   host. A real (non-symlink) directory at `link` is then not corruption to
+ *   repair — it is the broker's own build output, or a leftover from before the
+ *   broker took ownership, and either way is not this bridge's to touch. The
+ *   non-broker path used to name that same directory "corrupt" and point at
+ *   `cache migrate`, which renames it away; on a broker host that came within
+ *   one step of moving ~5.9 GB of warm intermediates the broker still expects
+ *   to find in place. Leave it untouched instead.
  */
 export function createTargetBridge({
   link,
   target,
   ownedRoot,
   platform = process.platform,
+  brokerManaged = false,
   lstat = lstatSync,
   mkdir = mkdirSync,
   realpath = realpathSync,
@@ -29,6 +38,7 @@ export function createTargetBridge({
     ensure() {
       let entry = readEntry(link, lstat);
       if (entry && !entry.isSymbolicLink()) {
+        if (brokerManaged) return { created: false, link, target, brokerManaged: true };
         throw new Error(
           `primary checkout target is not a symbolic link; refusing to replace it: ${link}\n` +
             `  It is a real directory holding build output. Run right-release cache migrate before building.`,

@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 
-import { assertComputePolicyAllowsCargo, cargoCacheEnvironment, cargoProjectRoot, cargoSubcommand, checkHookInput, resolveRealCargo, resolveRealRustc, runCargoGuard, shellRunsCargoTest, shouldGuardCargo } from "./cargo-guard.mjs";
+import { assertComputePolicyAllowsCargo, cargoCacheEnvironment, cargoProjectRoot, cargoSubcommand, checkHookInput, computePolicyPath, resolveRealCargo, resolveRealRustc, runCargoGuard, shellRunsCargoTest, shouldGuardCargo } from "./cargo-guard.mjs";
+
+test("compute policy path ignores XDG_CONFIG_HOME regardless of value", () => {
+  assert.equal(
+    computePolicyPath({ platform: "linux", env: { XDG_CONFIG_HOME: "/one/path" }, home: "/home/u" }),
+    computePolicyPath({ platform: "linux", env: {}, home: "/home/u" }),
+  );
+  assert.equal(computePolicyPath({ platform: "linux", env: {}, home: "/home/u" }), path.join("/home/u/.config/rightsuite", "compute-policy.json"));
+});
 
 test("Cargo guard serializes compiling commands but bypasses inspection and formatting", () => {
   for (const args of [["build"], ["test"], ["check"], ["clippy"], ["nextest", "run"], ["clean"], ["+stable", "bench"]]) {
@@ -120,6 +128,30 @@ test("Cargo guard rejects cache bypasses and permits RightKit-owned cache paths"
     env: { RIGHT_RELEASE_CACHE_ROOT: "/cache", CARGO_TARGET_DIR: "/cache/test-targets/app", SCCACHE_DIR: "/cache/sccache", RUSTC_WRAPPER: "/usr/bin/sccache" },
   });
   assert.equal(env.CARGO_TARGET_DIR, "/cache/test-targets/app");
+});
+
+test("Cargo guard passes a broker-owned CARGO_TARGET_DIR through instead of rejecting it", () => {
+  const base = { cwd: "/repo", platform: "mac", exists: () => false };
+  // Outside the shared cache root, which would be rejected on a non-broker host
+  // (see the previous test) — but the broker owns this value, not Cache V2.
+  const env = cargoCacheEnvironment(["test"], {
+    ...base,
+    env: { RIGHT_RELEASE_CACHE_ROOT: "/cache", RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock", CARGO_TARGET_DIR: "/broker/workspace/target" },
+  });
+  assert.equal(env.CARGO_TARGET_DIR, "/broker/workspace/target");
+
+  // Same for an explicit --target-dir outside the cache root.
+  const explicit = cargoCacheEnvironment(["test", "--target-dir", "/broker/workspace/target"], {
+    ...base,
+    env: { RIGHT_RELEASE_CACHE_ROOT: "/cache", RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock" },
+  });
+  assert.doesNotThrow(() => explicit);
+
+  // Non-broker host: unchanged, still rejects the cache bypass.
+  assert.throws(
+    () => cargoCacheEnvironment(["test"], { ...base, env: { RIGHT_RELEASE_CACHE_ROOT: "/cache", CARGO_TARGET_DIR: "/tmp/target" } }),
+    /CARGO_TARGET_DIR must stay inside/,
+  );
 });
 
 test("Cargo guard derives native Windows cache paths", () => {

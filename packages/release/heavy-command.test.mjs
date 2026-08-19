@@ -26,6 +26,14 @@ test("heavy-work root is machine-wide rather than repository-local", () => {
   assert.equal(heavyWorkRoot({ platform: "win", env: { LOCALAPPDATA: "C:\\Users\\test\\AppData\\Local" } }), "C:\\Users\\test\\AppData\\Local\\RightSuite\\heavy-work");
 });
 
+test("heavy-work root ignores XDG_CACHE_HOME regardless of value", () => {
+  assert.equal(
+    heavyWorkRoot({ platform: "linux", env: { XDG_CACHE_HOME: "/one/path" }, home: "/home/u" }),
+    heavyWorkRoot({ platform: "linux", env: {}, home: "/home/u" }),
+  );
+  assert.equal(heavyWorkRoot({ platform: "linux", env: {}, home: "/home/u" }), "/home/u/.cache/rightsuite/heavy-work");
+});
+
 test("heavy commands default compiler and test concurrency to two", () => {
   const env = heavyCommandEnvironment({});
   assert.equal(env.CARGO_BUILD_JOBS, "2");

@@ -26,7 +26,8 @@ import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInpu
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
-import { managedCargoShimOnPath } from "./cargo-contract.mjs";
+import { brokerManagedHost } from "./cargo-contract.mjs";
+import { resolveTargetRoot } from "./cargo-target.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
@@ -174,13 +175,23 @@ try {
   // shells take the Cache V2 branch, bridge src-tauri/target into the release cache,
   // and then lose CARGO_TARGET_DIR to the broker's unconditional override — so the
   // app bundle landed in the broker workspace and packaging failed on an empty cache.
-  const managedCargoTarget = (process.env.RIGHTKIT_BUILD_BROKER_SOCKET || managedCargoShimOnPath(process.env))
-    ? resolveManagedCargoTarget(cargoToml)
-    : null;
+  const managedCargoTarget = brokerManagedHost(process.env) ? resolveTargetRoot(cargoToml) : null;
   const cacheIdentity = resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });
   const cacheKey = hashFileText(JSON.stringify({ cache: cacheIdentity.fingerprint, signingIdentity })).slice(0, 16);
-  const cacheMode = process.env.RIGHT_RELEASE_CACHE_MODE ?? (platform === "mac" || platform === "win" ? "shared" : "legacy");
-  if (cacheMode !== "legacy" && cacheMode !== "shared") fail("RIGHT_RELEASE_CACHE_MODE must be legacy or shared");
+  const cacheModeRequested = process.env.RIGHT_RELEASE_CACHE_MODE ?? (platform === "mac" || platform === "win" ? "shared" : "legacy");
+  if (cacheModeRequested !== "legacy" && cacheModeRequested !== "shared") fail("RIGHT_RELEASE_CACHE_MODE must be legacy or shared");
+  // On a broker-managed host, Cache V2's lease/slot/prune/floor/mark chain is not
+  // running against the directory that will actually hold build output — the
+  // broker owns CARGO_TARGET_DIR unconditionally (see managedCargoTarget above).
+  // Leaving cacheMode at "shared" there ran that whole chain against an
+  // essentially unrelated cache root: acquireSuiteBuildSlot/acquireCacheLease
+  // guarded a lock nothing else respects, and assertWriteVolumeFloors could
+  // fail() the build outright on a volume that isn't where the real ~18 GB of
+  // output lives. Force broker so none of that machinery runs.
+  const cacheMode = managedCargoTarget ? "broker" : cacheModeRequested;
+  if (managedCargoTarget && cacheModeRequested === "shared") {
+    console.error("[right-release] broker-managed host: the build broker owns CARGO_TARGET_DIR; Cache V2 shared-cache lease/prune/floor checks skipped");
+  }
   const sharedCacheRoot = cacheMode === "shared" ? resolveSharedCacheRoot({ platform, env: process.env }) : undefined;
   const sharedLayout = cacheMode === "shared"
     ? resolveCacheLayout({ cacheRoot: sharedCacheRoot, platform, architecture: cacheIdentity.architecture, app: config.app, fingerprint: cacheKey, kind: "release" })
@@ -216,9 +227,9 @@ try {
       delete env[name];
     }
   }
-  if (cacheMode === "legacy") delete env.RIGHT_RELEASE_CACHE_OWNER;
+  if (cacheMode !== "shared") delete env.RIGHT_RELEASE_CACHE_OWNER;
   if (cacheMode === "shared" && env.RIGHT_RELEASE_CACHE_OWNER !== "rightkit-v2") fail("shared cache ownership token was not configured");
-  if (cacheMode === "legacy" && !commandExists("sccache")) delete env.RUSTC_WRAPPER;
+  if (cacheMode !== "shared" && !commandExists("sccache")) delete env.RUSTC_WRAPPER;
   if (process.env.RIGHTSUITE_HEAVY_WORK_OWNER !== "1") heavySlot = acquireHeavyWorkSlot();
   if (cacheMode === "shared") {
     suiteSlot = acquireSuiteBuildSlot({ layout: sharedLayout, pid: process.pid, argv: process.argv, waitMs: Number(process.env.BUILD_GUARD_WAIT_SECS ?? 900) * 1000 });
@@ -250,6 +261,7 @@ try {
     link: targetLink,
     target: managedCargoTarget ?? env.CARGO_TARGET_DIR,
     ownedRoot: path.dirname(managedCargoTarget ?? env.CARGO_TARGET_DIR),
+    brokerManaged: Boolean(managedCargoTarget),
   });
 
   const result = await targetBridge.run(async () => runBuildStateMachine({
@@ -285,7 +297,13 @@ try {
         throwIfInterrupted();
         const cacheTarget = managedCargoTarget ?? env.CARGO_TARGET_DIR;
         mkdirSync(cacheTarget, { recursive: true });
-        if (cacheMode === "shared") targetBridge.ensure();
+        // Broker-managed hosts route through the same target bridge as shared
+        // mode even though cacheMode is forced to "broker" above: the naive
+        // else-branch below fail()s outright when targetLink is a real
+        // directory, which is exactly the "corruption" misreading that nearly
+        // cost ~5.9 GB of warm broker intermediates. The bridge's brokerManaged
+        // flag already knows to leave a real directory untouched instead.
+        if (cacheMode === "shared" || managedCargoTarget) targetBridge.ensure();
         else if (!existsSync(targetLink)) symlinkSync(cacheTarget, targetLink, process.platform === "win32" ? "junction" : "dir");
         else if (realpathSync(targetLink) !== realpathSync(cacheTarget)) {
           fail(`primary checkout target exists and is not the release cache link: ${targetLink}`);
@@ -425,18 +443,6 @@ function collectToolVersions(packageManager) {
   } finally {
     rmSync(probeDir, { recursive: true, force: true });
   }
-}
-
-function resolveManagedCargoTarget(manifestPath) {
-  if (!manifestPath) fail("managed release requires a Cargo.toml build input");
-  const output = commandOutputAt(
-    "cargo",
-    ["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", manifestPath],
-    path.dirname(manifestPath),
-  );
-  const target = JSON.parse(output).target_directory;
-  if (!target || !path.isAbsolute(target)) fail("managed Cargo metadata returned no absolute target directory");
-  return target;
 }
 
 async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = null) {

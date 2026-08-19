@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveSharedCacheRoot } from "./cache-policy.mjs";
+import { resolveSharedCacheRoot, resolveStableRoot } from "./cache-policy.mjs";
+import { brokerManagedHost } from "./cargo-contract.mjs";
 import { runHeavyCommand } from "./heavy-command.mjs";
 
 const LIGHT_COMMANDS = new Set(["fmt", "metadata", "tree", "fetch", "search", "locate-project", "read-manifest", "help", "version", "--version", "-V"]);
@@ -34,7 +35,14 @@ export function computePolicyPath({ env = process.env, platform = process.platfo
     return path.win32.join(env.LOCALAPPDATA || path.win32.join(home, "AppData", "Local"), "RightSuite", "compute-policy.json");
   }
   if (platform === "darwin" || platform === "mac") return path.join(home, "Library", "Application Support", "RightSuite", "compute-policy.json");
-  return path.join(env.XDG_CONFIG_HOME || path.join(home, ".config"), "rightsuite", "compute-policy.json");
+  const base = resolveStableRoot({
+    platform,
+    env,
+    home,
+    otherBaseSegments: [".config"],
+    otherSegments: ["rightsuite"],
+  });
+  return path.join(base, "compute-policy.json");
 }
 
 export function loadComputePolicy(options = {}) {
@@ -164,10 +172,18 @@ export function cargoCacheEnvironment(args, {
   const targetOption = args.find((value) => value.startsWith("--target-dir="));
   const targetIndex = args.findIndex((value) => value === "--target-dir");
   const explicitTarget = targetOption?.slice("--target-dir=".length) ?? (targetIndex >= 0 ? args[targetIndex + 1] : null);
-  if (explicitTarget) assertInsideCache(explicitTarget, cacheRoot, "--target-dir", { cwd, platform });
-  const targetDir = env.CARGO_TARGET_DIR
-    ? assertInsideCache(env.CARGO_TARGET_DIR, cacheRoot, "CARGO_TARGET_DIR", { cwd, platform })
-    : defaultTarget;
+  // On a broker-managed host, CARGO_TARGET_DIR is not this cache's to police: the
+  // build broker unconditionally overrides it to its own per-namespace workspace
+  // outside the shared cache root, so asserting it stays inside cacheRoot is a
+  // spurious failure, not a real violation. Pass the broker's own value through
+  // untouched instead of rejecting it.
+  const broker = brokerManagedHost(env, platform, exists);
+  if (explicitTarget && !broker) assertInsideCache(explicitTarget, cacheRoot, "--target-dir", { cwd, platform });
+  const targetDir = broker
+    ? (env.CARGO_TARGET_DIR ?? explicitTarget ?? defaultTarget)
+    : env.CARGO_TARGET_DIR
+      ? assertInsideCache(env.CARGO_TARGET_DIR, cacheRoot, "CARGO_TARGET_DIR", { cwd, platform })
+      : defaultTarget;
   const sccacheDir = env.SCCACHE_DIR
     ? assertInsideCache(env.SCCACHE_DIR, cacheRoot, "SCCACHE_DIR", { cwd, platform })
     : defaultSccache;

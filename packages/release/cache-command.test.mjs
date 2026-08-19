@@ -9,8 +9,24 @@ import { fileURLToPath } from "node:url";
 const root = path.dirname(fileURLToPath(import.meta.url));
 const cli = path.join(root, "cli", "right-release.mjs");
 
+// This suite must exercise the non-broker cache-command path deterministically,
+// regardless of whether the machine running the tests is itself broker-managed
+// (this workspace's own agent shells are: the managed cargo shim sits on PATH).
+// Strip both broker signals from the inherited environment so "unmanaged host"
+// tests stay unmanaged; individual tests opt back into broker signals explicitly.
+function unmanagedEnv(base = process.env) {
+  const sanitized = { ...base };
+  delete sanitized.RIGHTKIT_BUILD_BROKER_SOCKET;
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  sanitized.PATH = String(base.PATH ?? "")
+    .split(delimiter)
+    .filter((entry) => !/(?:^|[/\\])(?:\.rightkit-managed|rightkitmanagedagent)[/\\]agent-bin$/i.test(entry))
+    .join(delimiter);
+  return sanitized;
+}
+
 function run(args, cacheRoot, env = {}) {
-  return spawnSync(process.execPath, [cli, "cache", ...args], { encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_CACHE_ROOT: cacheRoot, ...env } });
+  return spawnSync(process.execPath, [cli, "cache", ...args], { encoding: "utf8", env: { ...unmanagedEnv(), RIGHT_RELEASE_CACHE_ROOT: cacheRoot, ...env } });
 }
 
 test("cache status has human and schema-stable JSON output", () => {
@@ -72,4 +88,31 @@ test("cache migrate uses the repository vault Cargo home, not an app-local looka
   assert.equal(JSON.parse(result.stdout).cargoHomeMoved, true);
   assert.equal(readFileSync(path.join(cacheRoot, "cargo-home", "registry"), "utf8"), "vault");
   assert.equal(readFileSync(path.join(appCargoHome, "registry"), "utf8"), "app-local");
+});
+
+test("status, prune, and migrate short-circuit cleanly on a broker-managed host without proposing a repair", () => {
+  const cacheRoot = mkdtempSync(path.join(os.tmpdir(), "rightkit-cache-command-"));
+  const brokerEnv = { RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock" };
+
+  const status = run(["status", "--json"], cacheRoot, brokerEnv);
+  assert.equal(status.status, 0, status.stderr);
+  const statusBody = JSON.parse(status.stdout);
+  assert.equal(statusBody.brokerManaged, true);
+  assert.match(statusBody.message, /broker-managed host/);
+  assert.doesNotMatch(status.stdout + status.stderr, /warn|repair|corrupt/i);
+
+  const prune = run(["prune", "--dry-run", "--json"], cacheRoot, brokerEnv);
+  assert.equal(prune.status, 0, prune.stderr);
+  assert.equal(JSON.parse(prune.stdout).brokerManaged, true);
+
+  // migrate short-circuits before even requiring --config, since a broker host has
+  // nothing under Cache V2's target layout for it to migrate into.
+  const migrate = run(["migrate", "--json"], cacheRoot, brokerEnv);
+  assert.equal(migrate.status, 0, migrate.stderr);
+  assert.equal(JSON.parse(migrate.stdout).brokerManaged, true);
+
+  // Non-broker host: unchanged behaviour.
+  const unmanaged = run(["status", "--json"], cacheRoot);
+  assert.equal(unmanaged.status, 0, unmanaged.stderr);
+  assert.equal(JSON.parse(unmanaged.stdout).brokerManaged, undefined);
 });

@@ -160,6 +160,41 @@ test("rejecting a real target does not create the shared cache destination", () 
   assert.equal(existsSync(target), false);
 });
 
+test("broker-managed: a real target directory is left untouched instead of treated as corruption", async () => {
+  const fx = fixture();
+  mkdirSync(fx.link);
+  writeFileSync(path.join(fx.link, "user.txt"), "keep\n");
+  const result = await createTargetBridge({ ...fx, brokerManaged: true }).run(async (bridge) => bridge.ensure());
+  assert.equal(result.brokerManaged, true);
+  assert.equal(result.created, false);
+  // Nothing was removed, replaced, or relinked: the real directory and its
+  // content are exactly as they were, and no shared-cache destination was
+  // fabricated in its place.
+  assert.equal(readFileSync(path.join(fx.link, "user.txt"), "utf8"), "keep\n");
+  assert.equal(lstatSync(fx.link).isSymbolicLink(), false);
+});
+
+test("broker-managed: release() is a safe no-op after leaving a real target untouched", () => {
+  const fx = fixture();
+  mkdirSync(fx.link);
+  writeFileSync(path.join(fx.link, "user.txt"), "keep\n");
+  const bridge = createTargetBridge({ ...fx, brokerManaged: true });
+  bridge.ensure();
+  assert.equal(bridge.release(), false);
+  assert.equal(readFileSync(path.join(fx.link, "user.txt"), "utf8"), "keep\n");
+});
+
+test("broker-managed has no effect on the non-broker path: a symlink bridge still behaves exactly as before", async () => {
+  const fx = fixture();
+  const result = await createTargetBridge({ ...fx, brokerManaged: true }).run(async (bridge) => {
+    const ensured = bridge.ensure();
+    assert.equal(lstatSync(fx.link).isSymbolicLink(), true);
+    return ensured;
+  });
+  assert.equal(result.created, true);
+  assert.equal(result.brokerManaged, undefined);
+});
+
 test("cleanup is idempotent and reports process errors without masking a build failure", async () => {
   const fx = fixture();
   const bridge = createTargetBridge(fx);

@@ -47,6 +47,24 @@ const macOnlyApps = [
   { key: "screenright", root: "tools/screenright", releaseFiles: ["scripts/release-package.mjs"] },
 ];
 
+// Consuming suite apps whose packaging/build scripts must resolve Cargo build
+// output from `cargo metadata`'s `target_directory`, never by reading
+// CARGO_TARGET_DIR (or a shell/PowerShell equivalent) directly to locate it.
+// This defect recurred three times across the suite (broker-managed hosts own
+// CARGO_TARGET_DIR, so a stale/wrong value silently reads the wrong tree).
+// rightsites and tools/screenright are intentionally out of scope here.
+const cargoTargetDirGuardApps = [
+  "coderight/apps/coderight-tauri",
+  "cutright/apps/studio",
+  "genright",
+  "heardright/tauri-app-next",
+  "mailright",
+  "membrane/apps/membrane-hub",
+  "orthic",
+  "scraperight",
+  "viewright",
+];
+
 function assertReleasePackageScripts(scripts, label) {
   for (const platform of ["mac", "win"]) {
     assert.equal(scripts[`release:build:${platform}`], `right-release build --platform ${platform}`, `${label} must use the tier-neutral ${platform} build entry point`);
@@ -468,12 +486,12 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.65",
+    "@rightkit/release": "0.2.66",
     "@rightkit/qa": "0.2.0",
   });
   assert.deepEqual(versions.legacyNpm, {
     "@rightkit/legal-ui": ["0.1.0"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65"],
     "@rightkit/qa": ["0.1.0"],
   });
   assert.ok(
@@ -768,6 +786,113 @@ function readCanonicalCrateVersions() {
       }),
   );
 }
+
+const CARGO_TARGET_DIR_GUARD_EXTENSIONS = new Set([".mjs", ".js", ".ts", ".sh", ".ps1"]);
+const CARGO_TARGET_DIR_GUARD_ALLOW_MARKER = /rightkit-allow-cargo-target-dir:\s*\S/;
+// Test/contract files assert *about* the CARGO_TARGET_DIR pattern (e.g. inside
+// a regex literal passed to assert.match/assert.doesNotMatch) rather than
+// locating build output with it; they are not packaging/build scripts.
+const CARGO_TARGET_DIR_GUARD_SKIP_BASENAME = /(?:^test-.*|\.test)\.(?:mjs|js|ts)$/;
+
+function cargoTargetDirGuardPatternFor(extension) {
+  if (extension === ".ps1") return /\$env:CARGO_TARGET_DIR\b/;
+  if (extension === ".sh") return /\$\{?CARGO_TARGET_DIR\b/;
+  return /process\.env(?:\.CARGO_TARGET_DIR\b|\[["']CARGO_TARGET_DIR["']\])/;
+}
+
+function findCargoTargetDirGuardFiles(root) {
+  const found = [];
+  const visit = (dir) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory() && ["node_modules", "target", "vendor", ".git", ".cache", ".right-release"].includes(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) visit(full);
+      else if (entry.isFile() && CARGO_TARGET_DIR_GUARD_EXTENSIONS.has(path.extname(entry.name))) found.push(full);
+    }
+  };
+  const scriptsDir = path.join(root, "scripts");
+  if (existsSync(scriptsDir)) visit(scriptsDir);
+  for (const topLevel of ["package.sh", "package.ps1"]) {
+    const candidate = path.join(root, topLevel);
+    if (existsSync(candidate)) found.push(candidate);
+  }
+  return found;
+}
+
+test("consuming suite apps resolve Cargo build output from cargo metadata, never CARGO_TARGET_DIR directly", () => {
+  for (const appRoot of cargoTargetDirGuardApps) {
+    const root = path.join(workspace, appRoot);
+    if (!existsSync(root)) continue;
+    for (const filePath of findCargoTargetDirGuardFiles(root)) {
+      const basename = path.basename(filePath);
+      if (CARGO_TARGET_DIR_GUARD_SKIP_BASENAME.test(basename)) continue;
+      const extension = path.extname(filePath);
+      const pattern = cargoTargetDirGuardPatternFor(extension);
+      const lines = readFileSync(filePath, "utf8").split("\n");
+      const relativePath = path.relative(workspace, filePath);
+      lines.forEach((line, index) => {
+        if (!pattern.test(line)) return;
+        if (/^\s*(?:\/\/|#)/.test(line)) return; // prose describing the pattern, not code reading it
+        const previousLine = index > 0 ? lines[index - 1] : "";
+        const allowed = CARGO_TARGET_DIR_GUARD_ALLOW_MARKER.test(line) || CARGO_TARGET_DIR_GUARD_ALLOW_MARKER.test(previousLine);
+        assert.ok(
+          allowed,
+          `${relativePath}:${index + 1} reads CARGO_TARGET_DIR directly to locate Cargo build output: \`${line.trim()}\`\n`
+          + "resolve build output from `cargo metadata`'s `target_directory`; the environment is never authoritative for locating output.\n"
+          + "add a `rightkit-allow-cargo-target-dir: <reason>` marker on this line (or the line above) only if this use is not locating output.",
+        );
+      });
+    }
+  }
+});
+
+// The shared resolver helpers themselves must keep asking cargo metadata for
+// target_directory. Guarding only the wrong pattern's reintroduction is not
+// enough — gutting/deleting the correct implementation must also fail here.
+const cargoTargetRootHelpers = [
+  "coderight/apps/coderight-tauri/scripts/lib/target-root.mjs",
+  "heardright/tauri-app-next/scripts/lib/target-root.mjs",
+  "mailright/scripts/lib/target-root.mjs",
+  "orthic/scripts/lib/target-root.mjs",
+  "viewright/scripts/lib/target-root.mjs",
+  "membrane/apps/membrane-hub/scripts/lib/target-root.mjs",
+];
+
+test("shared target-root helpers still resolve build output via cargo metadata's target_directory", () => {
+  for (const helperPath of cargoTargetRootHelpers) {
+    const appRoot = path.join(workspace, helperPath.split("/scripts/lib/target-root.mjs")[0]);
+    if (!existsSync(appRoot)) continue;
+    const fullPath = path.join(workspace, helperPath);
+    assert.ok(existsSync(fullPath), `${helperPath} is missing; the app must keep its shared cargo-metadata target resolver`);
+    const source = readFileSync(fullPath, "utf8");
+    assert.match(source, /cargo/, `${helperPath} must invoke cargo`);
+    assert.match(source, /metadata/, `${helperPath} must call cargo metadata`);
+    assert.match(source, /target_directory/, `${helperPath} must read target_directory from cargo metadata's output`);
+  }
+});
+
+// After the app migration lands, every consuming app's target-root helper must
+// become a thin re-export of the shared tools/rightkit resolveTargetRoot
+// (cargo-target.mjs) rather than its own copy of the cargo-metadata call. Until
+// that migration lands, cargoTargetRootHelpers above still point at full local
+// implementations, so this stays skipped to avoid failing the still-unmigrated
+// app repos. Enable it once every app's target-root.mjs is a re-export shim.
+test("consuming app target-root helpers are thin re-export shims, not local resolver re-implementations", { skip: true }, () => {
+  const LOCAL_RESOLVER_PATTERN = /function\s+(?:cargoTargetRoot|resolveManagedCargoTarget)\s*\([^)]*\)\s*\{[^}]*cargo[^}]*metadata/s;
+  for (const helperPath of cargoTargetRootHelpers) {
+    const appRoot = path.join(workspace, helperPath.split("/scripts/lib/target-root.mjs")[0]);
+    if (!existsSync(appRoot)) continue;
+    const fullPath = path.join(workspace, helperPath);
+    if (!existsSync(fullPath)) continue;
+    const source = readFileSync(fullPath, "utf8");
+    assert.doesNotMatch(
+      source,
+      LOCAL_RESOLVER_PATTERN,
+      `${helperPath} must re-export @rightkit/release's resolveTargetRoot instead of reimplementing the cargo metadata call locally`,
+    );
+  }
+});
 
 test("Right Suite has no hosted workflow files", () => {
   for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "tools/rightkit"]) {

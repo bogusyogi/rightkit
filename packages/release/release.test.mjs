@@ -134,21 +134,39 @@ function lockFixture() {
   return { dir, config };
 }
 
+// This suite must exercise the non-broker path deterministically regardless of
+// whether the machine running the tests is itself broker-managed (this
+// workspace's own agent shells are: the managed cargo shim sits on PATH).
+// Strip both broker signals from the inherited environment before spawning.
+function unmanagedEnv() {
+  const sanitized = { ...process.env };
+  delete sanitized.RIGHTKIT_BUILD_BROKER_SOCKET;
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  sanitized.PATH = String(process.env.PATH ?? "")
+    .split(delimiter)
+    .filter((entry) => !/(?:^|[/\\])(?:\.rightkit-managed|rightkitmanagedagent)[/\\]agent-bin$/i.test(entry))
+    .join(delimiter);
+  return sanitized;
+}
+
 function run(config, ...args) {
   return spawnSync(process.execPath, [release, "--config", config, "--platform", "win", "--dry-run", ...args], {
     encoding: "utf8",
+    env: unmanagedEnv(),
   });
 }
 
 function runRaw(config, ...args) {
   return spawnSync(process.execPath, [release, "--config", config, ...args], {
     encoding: "utf8",
+    env: unmanagedEnv(),
   });
 }
 
 function runDoctor(config, ...args) {
   return spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", hostPlatform, ...args], {
     encoding: "utf8",
+    env: unmanagedEnv(),
   });
 }
 
@@ -282,6 +300,18 @@ test("doctor rejects a real src-tauri target before release work", () => {
   const result = runDoctor(config);
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}\n${result.stderr}`, /target-bridge[\s\S]*real directory[\s\S]*cache migrate/i);
+});
+
+test("doctor accepts a real src-tauri target on a broker-managed host instead of proposing cache migrate", () => {
+  const config = fixture({ platform: hostPlatform });
+  mkdirSync(path.join(path.dirname(config), "src-tauri", "target"));
+  const result = spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", hostPlatform], {
+    encoding: "utf8",
+    env: { ...unmanagedEnv(), RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /cache migrate/i);
+  assert.match(result.stdout, /target-bridge[\s\S]*broker-managed host, left untouched/i);
 });
 
 test("doctor permits unrelated dirt", () => {
