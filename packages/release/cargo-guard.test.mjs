@@ -86,6 +86,37 @@ test("Cargo guard rejects cache escapes and alternate compiler wrappers", async 
   await assert.rejects(run(["build"], { RUSTC_WRAPPER: "rustc-wrapper" }), /RUSTC_WRAPPER/);
 });
 
+test("Cargo guard hands the whole invocation to the broker on a managed host", async () => {
+  const calls = [];
+  let resolvedReal = false;
+  const options = {
+    env: { TEST: "1" },
+    policyOptions: { exists: () => false },
+    isBrokerHost: () => true,
+    resolveShim: () => "/managed/agent-bin/cargo",
+    resolveCargo: () => { resolvedReal = true; return "/real/cargo"; },
+    resolveRustc: () => { resolvedReal = true; return "/real/rustc"; },
+    runHeavy: async () => { throw new Error("must not run heavy on a broker host"); },
+    runLight: async (command, args) => { calls.push([command, args]); return 0; },
+  };
+  // A guarded command (build) and a light command (--version) both delegate to
+  // the broker shim verbatim, and the real-toolchain resolver is never touched.
+  assert.equal(await runCargoGuard(["build", "--release"], options), 0);
+  assert.equal(await runCargoGuard(["--version"], options), 0);
+  assert.deepEqual(calls, [["/managed/agent-bin/cargo", ["build", "--release"]], ["/managed/agent-bin/cargo", ["--version"]]]);
+  assert.equal(resolvedReal, false);
+});
+
+test("Cargo guard falls back to real resolution when a broker signal has no shim", async () => {
+  const calls = [];
+  await runCargoGuard(["build"], {
+    env: cacheEnv(), isBrokerHost: () => true, resolveShim: () => null,
+    resolveCargo: () => "/real/cargo", resolveRustc: () => "/real/rustc",
+    runHeavy: async (args) => { calls.push(args); return 0; },
+  });
+  assert.deepEqual(calls[0].slice(0, 2), ["--", "/real/cargo"]);
+});
+
 test("Cargo guard routes heavy and light commands without recursion", async () => {
   const calls = [];
   const options = {
