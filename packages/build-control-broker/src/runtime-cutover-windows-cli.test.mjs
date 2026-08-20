@@ -4,8 +4,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  managedDatabasePath, parseWindowsCutoverArgs, proveLegacyOwnershipAbsent, proveManagedRequestsDrained, proveV1Drained, runWindowsCutover,
+  managedDatabasePath, parseWindowsCutoverArgs, proveLegacyOwnershipAbsent, proveManagedRequestsDrained, proveV1Drained, runWindowsCutover, stopLegacyTask,
 } from './runtime-cutover-windows-cli.mjs';
+
+test('stopLegacyTask polls for the pipe handle to release after /End instead of failing the first probe', async () => {
+  let probes = 0;
+  // The broker holds the pipe for the first two probes after /End, then frees it.
+  const netModule = { createConnection: () => { const open = probes++ < 2; const handlers = {}; queueMicrotask(() => (open ? handlers.connect?.() : handlers.error?.())); return { once: (event, fn) => { handlers[event] = fn; }, destroy() {} }; } };
+  const result = await stopLegacyTask({ legacyTaskName: 'T', endpoint: '\\\\.\\pipe\\x', execFile: async () => {}, netModule, pipeReleaseTimeoutMs: 5000, pipePollIntervalMs: 1, sleep: async () => {} });
+  assert.deepEqual(result, { stopped: true, target: 'T', listener: false });
+  assert.ok(probes >= 3);
+});
+
+test('stopLegacyTask still fails closed if the listener never releases within the window', async () => {
+  const netModule = { createConnection: () => { const handlers = {}; queueMicrotask(() => handlers.connect?.()); return { once: (event, fn) => { handlers[event] = fn; }, destroy() {} }; } };
+  const ends = [];
+  await assert.rejects(
+    stopLegacyTask({ legacyTaskName: 'T', endpoint: '\\\\.\\pipe\\x', execFile: async (_cmd, args) => { ends.push(args.join(' ')); }, netModule, pipeReleaseTimeoutMs: 30, pipePollIntervalMs: 1, sleep: async () => {} }),
+    /remains reachable after stop/,
+  );
+  // /End is re-issued once mid-window as insurance against a missed first call.
+  assert.equal(ends.filter((a) => a.includes('/End')).length, 2);
+});
 import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition, selectWindowsNodePid, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
 
 async function fixture() {
