@@ -104,7 +104,7 @@ test('external roots are deterministic & output scan policy identifies local pay
   const otherArch = externalRoots({ ...input, target: 'x86_64-apple-darwin' });
   const otherRepo = externalRoots({ ...input, repositoryIdentity: 'git:def456' });
   const otherToolchain = externalRoots({ ...input, toolchain: 'rust-1.98.0' });
-  assert.deepEqual(first, second); assert.match(first.root, /^\/Volumes\/builds\/rightkit-build-control\/workspaces\/[a-f0-9]{64}$/);
+  assert.deepEqual(first, second); assert.match(first.root, /^\/Volumes\/builds\/rightkit-build-control\/workspaces\/[a-f0-9]{16}$/);
   assert.equal(first.policyProfile, PROFILES.MANAGED_AGENT);
   // Cargo profile & target triple must not split the namespace; Cargo separates them internally.
   assert.equal(first.namespace, debug.namespace); assert.equal(first.namespace, otherArch.namespace);

@@ -47,13 +47,30 @@ Re-run with `--force` to regenerate `config.json` from a fresh tool probe
 
 ### Windows
 
+Run from an **elevated** PowerShell. `schtasks /Create /TN ... /XML /F`
+against an existing broker task fails `Access is denied` unelevated — `/End`
+and `/Run` don't need it, but re-registration does, so bootstrap's service
+step fails unelevated even when everything before it passed.
+
+Strip both managed `agent-bin` directories from `PATH` first:
+
 ```powershell
+$env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*\.rightkit-managed\agent-bin*' -and $_ -notlike '*RightKitManagedAgent\agent-bin*' }) -join ';'
 node tools/rightkit/packages/build-control-broker/src/bootstrap-windows-cli.mjs --external-root D:\.rightkit-managed
 ```
 
-Same shape, `where.exe` instead of `which`, a Task Scheduler XML definition
-instead of a plist. Two things this fixes that were previously silent
-failure modes on Windows specifically:
+If either `agent-bin` dir leads `PATH`, the bootstrap tool probe's first
+`where` match for `cargo`/`rustc` is the RightKit **shim itself**, not the
+real toolchain — it hashes the shim as the tool. The broker then spawns the
+shim as if it were the tool it's supposed to invoke, and every job exits 125
+with `broker endpoint is not configured` (a misleading message; the real
+cause is a shim-hashed-as-tool config, not a missing socket). Cleansing PATH
+before bootstrap makes the probe find the real toolchain under
+`~/.rustup/toolchains/.../bin` instead.
+
+Same shape otherwise, `where.exe` instead of `which`, a Task Scheduler XML
+definition instead of a plist. Two things this fixes that were previously
+silent failure modes on Windows specifically:
 
 1. **The task runs as `S4U`, not `InteractiveToken`.** `node.exe` is a
    console-subsystem binary; a task that logs into the interactive desktop
@@ -73,6 +90,51 @@ install). If a managed build is in flight, bootstrapping refuses rather than
 killing it — this is not a special case; it is the same guard added after an
 earlier session actually did kill a mid-compile build by stopping the
 service before checking for one.
+
+## Windows failure modes seen in the wild
+
+A single 2026-08-18 recovery on a live machine hit five distinct defects in
+one chain — pipe access, legacy state migration, the runtime swap, the tool
+probe, and elevation — each masking the next until the previous one was
+fixed. Full account in `docs/GOTCHAS.md` ("RightKit Windows broker recovery:
+five defects in one chain"); summary here so this doc, not just GOTCHAS,
+tells the next person what to expect:
+
+1. **S4U ⇒ pipe `EPERM`.** S4U runs the broker outside the interactive
+   session; Node's default named-pipe DACL denies that cross-session client,
+   so every managed `cargo`/`rustc` call from a normal terminal fails with
+   `connect EPERM`. **Fixed** engine-wide: `readableAll`/`writableAll` passed
+   on the Windows `listen()` call (commit `678b89cc`) — already covered by
+   the `S4U`/`Hidden` note above, this is what makes S4U actually usable
+   rather than just quiet.
+2. **`POISONED` legacy state kills startup.** A `state.json` carrying legacy
+   v1 `POISONED` job entries crashes the v1→v2 migration
+   (`RK_V1_UNKNOWN_STATE`) — migration and drain proofs only accept
+   RELEASED/FAILED/CANCELLED. Repair: remap POISONED→FAILED, keep the
+   original under `legacyV1State`, and back up
+   `external/state-repair-backup-<date>/` before touching anything. **Open**:
+   the engine should do this remap itself; any machine migrated with
+   poisoned history hits the same crash today.
+3. **Runtime swap fails on Windows specifically.** `installManagedRuntime`
+   used to rename the new `runtime-current` symlink directly over the
+   existing one; Windows refuses that rename (`EPERM`), so historically only
+   a machine's *first* cutover ever succeeded — every re-bootstrap after
+   that failed here. **Fixed**: remove the existing link before rename on
+   win32, on both the swap and the rollback path (commit `a91125ac`).
+4. **Tool probe hashes the shim as the tool.** Covered above under PATH
+   cleansing — `agent-bin` leading `PATH` makes `config.json` describe the
+   RightKit shim as `cargo`/`rustc`, and every job then exits 125.
+5. **The Windows cutover CLI can silently no-op.**
+   `runtime-cutover-windows-cli.mjs`'s direct-execution guard
+   (`import.meta.url === \`file://${process.argv[1]}\``) never matches a
+   backslashed Windows argv path, so invoking it directly can do nothing
+   with no error. **Open**: port the same `isDirectMain()` helper
+   `bootstrap-windows-cli.mjs` already uses.
+
+None of the still-open items (2, 4's root cause, 5) block recovery — the
+workarounds above (PATH cleansing, the POISONED repair) get a broker running
+today. They're tracked here so the next person hits a documented detour
+instead of an opaque crash.
 
 ## Windows process containment — the one piece not yet provable here
 

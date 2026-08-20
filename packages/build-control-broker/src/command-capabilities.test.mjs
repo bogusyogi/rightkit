@@ -48,6 +48,11 @@ test('rustup registers only CONTROL inspection commands with global options', ()
   assert.equal(classifyManagedCommand('rustup', ['--quiet', 'target', 'list', '--installed']).command, 'target-list-installed');
   assert.equal(classifyManagedCommand('rustup', ['target', 'list']).lane, 'CONTROL');
   assert.equal(classifyManagedCommand('rustup', ['--quiet', 'target', 'list']).command, 'target-list');
+  // cargo-guard resolves the real toolchain through `rustup which cargo|rustc`;
+  // a read-only lookup the broker must admit or every guarded Cargo build fails.
+  assert.equal(classifyManagedCommand('rustup', ['which', 'cargo']).command, 'which');
+  assert.equal(classifyManagedCommand('rustup', ['which', 'cargo']).lane, 'CONTROL');
+  assert.equal(classifyManagedCommand('rustup', ['which', 'rustc']).lane, 'CONTROL');
 });
 
 test('rustup provisioning, run, & unknown commands reject', () => {

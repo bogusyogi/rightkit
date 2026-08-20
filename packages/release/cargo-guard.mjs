@@ -129,6 +129,24 @@ export function resolveRealRustc({ env = process.env, run = spawnSync } = {}) {
   return path.resolve(rustc);
 }
 
+// Locate the broker's own managed cargo shim on PATH (the agent-bin launcher
+// that routes into the build broker). Used to hand a whole invocation to the
+// broker on a managed host instead of resolving & running the real toolchain
+// ourselves — which would bypass managed build control entirely.
+export function resolveManagedCargoShim({ env = process.env, platform = process.platform, exists = existsSync } = {}) {
+  const win = platform === "win32" || platform === "win";
+  const delimiter = win ? ";" : ":";
+  const agentBin = /(?:^|[\\/])(?:\.rightkit-managed|rightkitmanagedagent)[\\/]agent-bin[\\/]?$/i;
+  for (const directory of String(env.PATH ?? "").split(delimiter).filter(Boolean)) {
+    if (!agentBin.test(directory)) continue;
+    for (const name of win ? ["cargo.exe", "cargo.cmd"] : ["cargo"]) {
+      const candidate = path.join(directory, name);
+      if (exists(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 function pathApi(platform) {
   return platform === "win32" || platform === "win" ? path.win32 : path.posix;
 }
@@ -209,8 +227,20 @@ function spawnCargo(command, args, env) {
   });
 }
 
-export async function runCargoGuard(args, { env = process.env, policyOptions = {}, resolveCargo = resolveRealCargo, resolveRustc = resolveRealRustc, runHeavy = runHeavyCommand, runLight = spawnCargo } = {}) {
+export async function runCargoGuard(args, { env = process.env, policyOptions = {}, resolveCargo = resolveRealCargo, resolveRustc = resolveRealRustc, runHeavy = runHeavyCommand, runLight = spawnCargo, resolveShim = resolveManagedCargoShim, isBrokerHost = brokerManagedHost } = {}) {
   assertComputePolicyAllowsCargo(args, { ...policyOptions, env });
+  // On a broker-managed host the build broker owns the toolchain, cache, and
+  // quotas. Resolving the real Cargo here and running it via runHeavy would
+  // bypass the broker (and, on Windows, resolveReal* itself fails: `rustup
+  // which` routes through the managed shim into the broker's isolated
+  // RUSTUP_HOME, which has no default toolchain). Hand the whole invocation to
+  // the broker's own cargo shim instead — everything through the broker.
+  if (isBrokerHost(env)) {
+    const shim = resolveShim({ env });
+    if (shim) return runLight(shim, args, env);
+    // No shim found despite a broker signal: fall through to legacy resolution
+    // rather than silently dropping the guard.
+  }
   const cargo = resolveCargo({ env });
   if (shouldGuardCargo(args)) {
     const guarded = cargoCacheEnvironment(args, { env });

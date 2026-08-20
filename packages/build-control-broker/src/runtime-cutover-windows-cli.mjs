@@ -39,15 +39,28 @@ export function parseWindowsCutoverArgs(argv) {
   });
 }
 
-async function stopLegacyTask({ legacyTaskName, endpoint, execFile = execDefault, netModule = net }) {
-  await execFile('schtasks', ['/End', '/TN', legacyTaskName]).catch(() => {});
+export async function stopLegacyTask({ legacyTaskName, endpoint, execFile = execDefault, netModule = net, pipeReleaseTimeoutMs = 20_000, pipePollIntervalMs = 250, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
+  const end = () => execFile('schtasks', ['/End', '/TN', legacyTaskName]).catch(() => {});
+  await end();
   await execFile('schtasks', ['/Change', '/TN', legacyTaskName, '/DISABLE']).catch(() => {});
-  const listener = await new Promise((resolveListener) => {
+  const reachable = () => new Promise((resolveListener) => {
     const socket = netModule.createConnection(endpoint); const done = (open) => { socket.destroy(); resolveListener(open); };
     socket.once('connect', () => done(true)); socket.once('error', () => done(false));
   });
-  if (listener) throw new Error('v1 broker listener remains reachable after stop');
-  return Object.freeze({ stopped: true, target: legacyTaskName, listener: false });
+  // `schtasks /End` terminates the task asynchronously: the broker process can
+  // still hold the named-pipe handle for a moment after the call returns.
+  // Probing once immediately therefore reports a false "still reachable" and
+  // fails the whole cutover, even though the pipe frees a beat later — the
+  // exact race that made re-running bootstrap "work" every time. Poll for the
+  // handle to release instead, and re-issue /End once mid-window in case the
+  // first call did not take.
+  const deadline = Date.now() + pipeReleaseTimeoutMs; let reEnded = false;
+  for (;;) {
+    if (!(await reachable())) return Object.freeze({ stopped: true, target: legacyTaskName, listener: false });
+    if (Date.now() >= deadline) throw new Error('v1 broker listener remains reachable after stop');
+    if (!reEnded && Date.now() > deadline - Math.floor((pipeReleaseTimeoutMs * 2) / 3)) { await end(); reEnded = true; }
+    await sleep(pipePollIntervalMs);
+  }
 }
 
 /** Windows has no process-group signalling; ownership absence is proven by
