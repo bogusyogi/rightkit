@@ -280,7 +280,14 @@ export function externalRoots({ externalRoot, repositoryIdentity, toolchain, tar
   const base = join(normalize(externalRoot), 'rightkit-build-control');
   // Target triple & Cargo profile stay out of namespace identity: Cargo owns that separation
   // inside one CARGO_TARGET_DIR. Including them splits reusable Cargo state per architecture.
-  const namespace = createHash('sha256').update(JSON.stringify([repositoryIdentity, toolchain])).digest('hex');
+  // 16 hex (64 bits) is the on-disk namespace segment, not the full digest:
+  // Windows caps a path at 260 chars (MAX_PATH), and a fresh vendored-OpenSSL
+  // compile nests ~145 chars of Cargo/openssl-src tree under this directory —
+  // a 64-char segment pushed `.../digests/build.info` to 264 and every such
+  // build failed. 64 bits is collision-proof across one host's app/toolchain
+  // set, and `temp` below already slices to 16. Validators accept {16,64} so
+  // pre-existing 64-char workspaces stay recognized and evictable.
+  const namespace = createHash('sha256').update(JSON.stringify([repositoryIdentity, toolchain])).digest('hex').slice(0, 16);
   const globalRoot = join(base, 'global'); const root = join(base, 'workspaces', namespace);
   const contained = (path) => {
     if (relative(base, path).startsWith('..')) throw new TypeError('external roots must remain contained');

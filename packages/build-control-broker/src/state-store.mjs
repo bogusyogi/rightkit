@@ -20,7 +20,8 @@ const NEXT_OPEN_STATE = new Map([
   ['RUNNING', 'REAPING'],
 ]);
 const RECOVERABLE_QUEUED_STATES = new Set(['SUBMITTED', 'CLASSIFIED', 'QUEUED']);
-const NAMESPACE_NAME = /^[a-f0-9]{64}$/;
+// 16-hex current namespace segment, 64-hex legacy (see externalRoots).
+const NAMESPACE_NAME = /^[a-f0-9]{16}(?:[a-f0-9]{48})?$/;
 const MAINTENANCE_TERMINAL_STATES = new Set(['RELEASED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 
 const requiredString = (value, name) => {
@@ -42,7 +43,7 @@ const timestamp = (value) => {
   return value;
 };
 const namespaceName = (value) => {
-  if (typeof value !== 'string' || !NAMESPACE_NAME.test(value)) throw new TypeError('64-character hexadecimal namespace is required');
+  if (typeof value !== 'string' || !NAMESPACE_NAME.test(value)) throw new TypeError('16- or 64-character hexadecimal namespace is required');
   return value;
 };
 const generation = (value) => {

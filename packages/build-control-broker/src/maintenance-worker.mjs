@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { lstat as nodeLstat, mkdir as nodeMkdir, opendir as nodeOpendir, rename as nodeRename, rmdir as nodeRmdir, unlink as nodeUnlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
 
-const namespaceName = /^[a-f0-9]{64}$/;
+// Accepts both the current 16-hex namespace segment and legacy 64-hex ones so
+// pre-shortening workspaces stay recognized and evictable (see externalRoots).
+const namespaceName = /^[a-f0-9]{16}(?:[a-f0-9]{48})?$/;
 const trashName = /^[a-f0-9-]{37,160}$/;
 const terminalStates = new Set(['RELEASED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 const maxCursorBytes = 4096;
