@@ -3,7 +3,7 @@
 Neutral lifecycle runtime shared by independently installable systems.
 
 - Legion supplies Arcane engineering modules.
-- Membrane supplies Crypt memory modules.
+- Membrane supplies Cortex memory modules.
 - HookHost normalizes events, orders modules, applies deadlines, and reports typed results.
 - HookHost grants no authority and contains no engineering, research, or memory policy.
 
