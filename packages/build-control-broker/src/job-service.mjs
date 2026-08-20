@@ -662,6 +662,12 @@ export function createManagedJobServer({ service, endpoint, maxRequestBytes = 10
   const networking = netModule ?? net;
   return networking.createServer((socket) => {
     let buffer = ''; let handled = false; let detached = false;
+    // A peer that closes mid-write makes the socket emit 'error' (EPIPE /
+    // ECONNRESET). With no listener Node raises an unhandled 'error' event and
+    // takes the whole broker down, which then refuses to restart because the
+    // build it was serving is still running and its process group reads as
+    // ambiguous. Absorb it and stop emitting to this peer instead.
+    socket.on('error', () => { detached = true; });
     const disconnect = (handler) => { if (socket.destroyed) { queueMicrotask(handler); return () => {}; } socket.once('close', handler); return () => socket.off('close', handler); };
     const reject = (error) => { if (!socket.destroyed) socket.end(`${JSON.stringify({ type: 'RESULT', exitCode: 125, status: 'REJECTED', error })}\n`); };
     const emit = (event) => {
