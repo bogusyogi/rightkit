@@ -12,6 +12,7 @@ const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'dig
 const sccacheFields = new Set(['mode', 'lifecycleOwner', 'requireOwnershipProof', 'maxSizeBytes']);
 const defaultSccacheMaxSizeBytes = 20 * 1024 ** 3;
 const boundFields = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'processGraceMs', 'freeFloorBytes', 'quotaWatermarkBytes', 'retentionMs', 'gcIntervalMs', 'statfsTimeoutMs', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'eventHistoryEntries', 'eventHistoryBytes', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs', 'targetCacheCapBytes', 'targetCacheFloorMs']);
+const EXTERNAL_COMMAND = /^[a-z][a-z0-9-]*$/;
 const HEX_256 = /^[a-f0-9]{64}$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -203,7 +204,11 @@ export function validateBrokerConfig(value) {
     const seen = new Set();
     normalized.externalCommands = config.externalCommands.map((entry, index) => {
       const item = object(entry, `externalCommands[${index}]`); only(item, externalCommandFields, `externalCommands[${index}]`);
-      if (item.shim !== 'cargo' || !['about', 'nextest'].includes(item.command) || !['CONTROL', 'BUILD', 'WORKSPACE_WRITE'].includes(item.lane)) throw new TypeError('invalid external command registration');
+      // The command name is validated by the capability registry, which owns the
+      // rule (a bounded token that may not shadow a built-in). Duplicating a
+      // literal allowlist here is what let the registry be opened while config
+      // load still rejected the very same entry, crash-looping the broker.
+      if (item.shim !== 'cargo' || typeof item.command !== 'string' || !EXTERNAL_COMMAND.test(item.command) || !['CONTROL', 'BUILD', 'WORKSPACE_WRITE'].includes(item.lane)) throw new TypeError('invalid external command registration');
       const toolId = referenceTool(item.toolId, `externalCommands[${index}].toolId`, toolIds);
       if (typeof item.digest !== 'string' || !HEX_256.test(item.digest)) throw new TypeError(`externalCommands[${index}].digest must be a SHA-256 digest`);
       const key = `${item.shim}:${item.command}`; if (seen.has(key)) throw new TypeError(`duplicate external command: ${key}`); seen.add(key);

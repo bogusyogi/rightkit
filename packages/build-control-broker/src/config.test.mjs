@@ -122,3 +122,19 @@ test('schema v2 requires a contained activation fence while v1 remains migration
   const escaped = fixture(); escaped.schemaVersion = 2; escaped.broker.activationFencePath = '/outside/fence.json';
   assert.throws(() => validateBrokerConfig(escaped), /below broker\.externalRoot/);
 });
+
+test('config validation accepts any bounded external command name, not a hardcoded pair', () => {
+  // config.mjs and command-capabilities.mjs both validate this entry. When only
+  // the registry was opened, config load still rejected the same row and the
+  // broker crash-looped on every start, so the two must agree.
+  for (const command of ['outdated', 'machete', 'audit', 'deny']) {
+    const value = addCargoTool(fixture());
+    value.externalCommands = [{ shim: 'cargo', command, toolId: 'cargo-pinned', lane: 'CONTROL', digest: 'a'.repeat(64) }];
+    assert.equal(validateBrokerConfig(value).externalCommands[0].command, command);
+  }
+  for (const command of ['--version', 'Outdated', '../evil', 'a b', '']) {
+    const value = addCargoTool(fixture());
+    value.externalCommands = [{ shim: 'cargo', command, toolId: 'cargo-pinned', lane: 'CONTROL', digest: 'a'.repeat(64) }];
+    assert.throws(() => validateBrokerConfig(value), `${command} was accepted`);
+  }
+});
