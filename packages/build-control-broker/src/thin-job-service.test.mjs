@@ -80,6 +80,31 @@ test('nested heavy work rejects under active analysis root', async () => {
   } finally { await item.close(); }
 });
 
+test('external workspace writer delegates only same-workspace nested writes', async () => {
+  const item = await fixture({ externalCommands: [{ shim: 'cargo', command: 'upgrade', toolId: 'cargo-outdated', digest, lane: 'WORKSPACE_WRITE' }] });
+  try {
+    const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['upgrade'])))).result; await waitFor(item.service, root.id, ['RUNNING']);
+    const rootChild = item.children.at(-1); const token = rootChild.environment.RIGHTKIT_PARENT_CAPABILITY_TOKEN;
+    const delegated = (await call(item.service, command('SUBMIT', message(item.workspace, ['update'], { observedEnvironment: { CARGO_HOME: rootChild.environment.CARGO_HOME, CARGO_TARGET_DIR: rootChild.environment.CARGO_TARGET_DIR, RUSTUP_HOME: rootChild.environment.RUSTUP_HOME }, execution: { mode: 'NESTED', parentId: root.id, capabilityToken: token } })))).result;
+    await waitFor(item.service, delegated.id, ['RUNNING']); item.children.at(-1).emit('close', 0, null);
+    assert.equal((await call(item.service, command('WATCH', delegated.id))).result.status, 'SUCCEEDED');
+    const escaped = await call(item.service, command('SUBMIT', message(item.other, ['update'], { execution: { mode: 'NESTED', parentId: root.id, capabilityToken: token } })));
+    assert.equal(escaped.result.code, 'RK_NESTED_WORKSPACE_ESCAPE');
+    rootChild.emit('close', 0, null); await call(item.service, command('WATCH', root.id));
+  } finally { await item.close(); }
+});
+
+test('root cancellation reaches delegated workspace writer', async () => {
+  const item = await fixture({ externalCommands: [{ shim: 'cargo', command: 'upgrade', toolId: 'cargo-outdated', digest, lane: 'WORKSPACE_WRITE' }] });
+  try {
+    const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['upgrade'])))).result; await waitFor(item.service, root.id, ['RUNNING']);
+    const rootChild = item.children.at(-1); const nested = (await call(item.service, command('SUBMIT', message(item.workspace, ['update'], { observedEnvironment: { CARGO_HOME: rootChild.environment.CARGO_HOME, CARGO_TARGET_DIR: rootChild.environment.CARGO_TARGET_DIR, RUSTUP_HOME: rootChild.environment.RUSTUP_HOME }, execution: { mode: 'NESTED', parentId: root.id, capabilityToken: rootChild.environment.RIGHTKIT_PARENT_CAPABILITY_TOKEN } })))).result;
+    await waitFor(item.service, nested.id, ['RUNNING']); await call(item.service, command('CANCEL', root.id));
+    assert.equal((await call(item.service, command('WATCH', nested.id))).result.status, 'CANCELLED');
+    assert.equal((await call(item.service, command('WATCH', root.id))).result.status, 'CANCELLED');
+  } finally { await item.close(); }
+});
+
 test('narrow nested metadata re-enters broker & accepts inherited cache environment', async () => {
   const item = await fixture({ externalCommands: [{ shim: 'cargo', command: 'nextest', toolId: 'cargo-outdated', digest, lane: 'BUILD' }] });
   try {

@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
 import { readFile, realpath, statfs as nodeStatfs } from 'node:fs/promises';
 import net from 'node:net';
-import { basename, delimiter, dirname, isAbsolute, join, normalize } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, normalize, relative } from 'node:path';
 import { promisify } from 'node:util';
 import {
   BUILD_CONTROL_PROTOCOL,
@@ -164,17 +164,23 @@ export class ThinJobService {
     const parent = parentId ? this.#jobs.get(parentId) : null;
     if (parentId && (!parent || parent.terminal)) throw Object.assign(new Error('nested parent request is not active'), { code: 'RK_PARENT_NOT_ACTIVE' });
     const capability = parent ? this.#policy.classifyNested(parent.capability, message.shim, request.argv) : this.#policy.classify(message.shim, request.argv);
-    if (parent && !['CONTROL', 'ANALYSIS'].includes(capability.lane)) throw Object.assign(new Error('nested non-control work is rejected'), { code: 'RK_NESTED_HEAVY_REJECTED' });
+    const delegatedWorkspaceWrite = parent?.capability.external === true && parent.capability.lane === 'WORKSPACE_WRITE' && capability.lane === 'WORKSPACE_WRITE';
+    if (parent && !['CONTROL', 'ANALYSIS'].includes(capability.lane) && !delegatedWorkspaceWrite) throw Object.assign(new Error('nested non-control work is rejected'), { code: 'RK_NESTED_HEAVY_REJECTED' });
     if (parent) {
       const supplied = Buffer.from(message.execution?.capabilityToken ?? ''); const expected = Buffer.from(parent.rootToken);
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw Object.assign(new Error('nested capability token is invalid'), { code: 'RK_PARENT_CAPABILITY_INVALID' });
     }
     const cargoTool = await this.#registry.verify(this.#config.shims?.cargo);
     if (message.shim === 'cargo' && capability.workspaceAccess !== 'none') await rejectWorkspaceCargoConfiguration(request.workspace);
+    const executionCwd = await realpath(request.workspace);
+    if (parent && capability.workspaceAccess !== 'none') {
+      const childPath = relative(parent.workspaceRoot, executionCwd);
+      if (childPath === '..' || childPath.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(childPath)) throw Object.assign(new Error('nested workspace must remain inside parent Cargo workspace'), { code: 'RK_NESTED_WORKSPACE_ESCAPE' });
+    }
     const roots = capability.workspaceAccess === 'none'
-      ? { executionCwd: await realpath(request.workspace), workspaceRoot: null }
-      : parent ? { executionCwd: await realpath(request.workspace), workspaceRoot: parent.workspaceRoot }
-        : await this.#workspaceResolver(request.workspace, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } });
+      ? { executionCwd, workspaceRoot: null }
+      : parent ? { executionCwd, workspaceRoot: parent.workspaceRoot }
+        : await this.#workspaceResolver(executionCwd, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } });
     const workspace = roots.workspaceRoot ? await this.#state.workspace(roots.workspaceRoot) : null;
     const targetTriple = this.#config.defaults?.targetTriple;
     let argv = request.argv;
@@ -313,6 +319,7 @@ export class ThinJobService {
 
   #requestCancel(job, reason) {
     if (job.terminal || job.cancelReason) return false; job.cancelReason = reason;
+    for (const child of this.#jobs.values()) if (child.parentId === job.id && !child.terminal) this.#requestCancel(child, `parent-${reason}`);
     if (job.ticket?.cancel()) return true; if (job.child) this.#terminateJob(job); return true;
   }
 
