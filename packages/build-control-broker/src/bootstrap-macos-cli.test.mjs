@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
 import {
-  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable,
+  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, supportsClientSideSccache,
 } from './bootstrap-macos-cli.mjs';
 
 test('parseArgs accepts the documented flags & rejects anything else', () => {
@@ -71,8 +71,9 @@ test('buildConfig produces a config the broker’s own schema accepts', async (t
   // passes, a bootstrapped config is not just shaped right, it is accepted.
   const loaded = await loadBrokerConfig(configPath);
   assert.equal(loaded.broker.externalRoot.path, scratch);
-  assert.equal(loaded.sccache.mode, 'disabled');
-  assert.equal(loaded.bounds.buildConcurrency, 2);
+  assert.equal(loaded.sccache.mode, loaded.sccache.clientSide ? 'managed' : 'disabled');
+  assert.equal(loaded.bounds.buildConcurrency, 1);
+  assert.equal(loaded.bounds.analysisConcurrency, 2);
   assert.ok(loaded.tools.length > 0, 'a real machine must discover at least one tool');
 });
 
@@ -101,10 +102,15 @@ test('defaultBounds matches the doc-mandated shape (one field per bound, no drif
   assert.ok(bounds.retentionMs > 0);
 });
 
-test('cargo build jobs are clamped by memory before performance cores', () => {
+test('cargo build jobs are clamped at canonical workstation maximum', () => {
   // 8 logical / 4 performance cores with 8 GiB: memory binds first at 4, so
   // parallel links cannot push this host into swap.
   assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
-  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 8);
+  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 4);
   assert.equal(defaultCargoBuildJobs({ cpus: 2, totalMemoryBytes: 1 * 1024 ** 3 }), 1);
+});
+
+test('client-side sccache requires version 0.17 or newer', async () => {
+  assert.equal(await supportsClientSideSccache('/sccache', async () => ({ stdout: 'sccache 0.16.0\n' })), false);
+  assert.equal(await supportsClientSideSccache('/sccache', async () => ({ stdout: 'sccache 0.17.0\n' })), true);
 });

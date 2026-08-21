@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
-import { defaultBounds, defaultCargoBuildJobs, isDirectMain, parseArgs, shimTable } from './bootstrap-windows-cli.mjs';
+import { defaultBounds, defaultCargoBuildJobs, isDirectMain, parseArgs, shimTable, supportsClientSideSccache } from './bootstrap-windows-cli.mjs';
 
 // discoverTools/where/buildConfig shell out to `where.exe`, which does not
 // exist on this Mac — those three are exercised only by a real Windows run.
@@ -75,7 +75,8 @@ test('the Windows-shaped config buildConfig() constructs is accepted by the brok
   const loaded = await loadBrokerConfig(configPath);
   assert.equal(loaded.windowsPipe, '\\\\.\\pipe\\rightkit-build-control');
   assert.equal(loaded.sccache.mode, 'disabled');
-  assert.equal(loaded.bounds.buildConcurrency, 2);
+  assert.equal(loaded.bounds.buildConcurrency, 1);
+  assert.equal(loaded.bounds.analysisConcurrency, 2);
 });
 
 test('a config with no rustc/rustdoc discovered omits rustcToolId/rustdocToolId rather than pointing at an unregistered tool', async (t) => {
@@ -111,11 +112,16 @@ test('a config with no rustc/rustdoc discovered omits rustcToolId/rustdocToolId 
   assert.equal(loaded.defaults.rustdocToolId, undefined);
 });
 
-test('cargo build jobs are clamped by memory before performance cores', () => {
+test('cargo build jobs are clamped at canonical workstation maximum', () => {
   // 8 logical / 4 performance cores with 8 GiB: memory binds first at 4.
   assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
   // Plenty of RAM: the performance-core share is the limit.
-  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 8);
+  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 4);
   // Small host: never below one job.
   assert.equal(defaultCargoBuildJobs({ cpus: 2, totalMemoryBytes: 1 * 1024 ** 3 }), 1);
+});
+
+test('client-side sccache requires version 0.17 or newer', async () => {
+  assert.equal(await supportsClientSideSccache('C:\\sccache.exe', async () => ({ stdout: 'sccache 0.16.0\r\n' })), false);
+  assert.equal(await supportsClientSideSccache('C:\\sccache.exe', async () => ({ stdout: 'sccache 0.17.1\r\n' })), true);
 });

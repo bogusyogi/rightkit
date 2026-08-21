@@ -62,7 +62,6 @@ function cargoCapability(command, argv) {
   if (command === 'fetch') return hasFlag(argv, '--locked') || hasFlag(argv, '--frozen') ? ANALYSIS : WORKSPACE_WRITE;
   if (command === 'fix') return BUILD;
   if (command === 'fmt') return hasFlag(argv, '--check') ? ANALYSIS : WORKSPACE_WRITE;
-  if (command === 'machete') return hasFlag(argv, '--fix') ? WORKSPACE_WRITE : ANALYSIS;
   if (['update', 'vendor', 'generate-lockfile', 'add', 'remove'].includes(command)) return WORKSPACE_WRITE;
   if (command === 'clean') return ARTIFACT_WRITE;
   if (['build', 'check', 'test', 'bench', 'clippy', 'doc', 'run', 'install', 'rustc', 'rustdoc'].includes(command)) return BUILD;
@@ -72,8 +71,11 @@ function cargoCapability(command, argv) {
 function rustupCapability(argv) {
   const values = argv.filter((value) => !['--quiet', '-q', '--verbose', '-v'].includes(value));
   if (values.length === 3 && values[0] === 'target' && values[1] === 'add') return TOOLCHAIN_WRITE;
+  if (['target', 'component', 'toolchain'].includes(values[0]) && ['add', 'remove', 'install', 'uninstall', 'update'].includes(values[1])) return TOOLCHAIN_WRITE;
+  if (['update', 'install', 'uninstall', 'default', 'override', 'set'].includes(values[0])) return TOOLCHAIN_WRITE;
   if (values[0] === 'target' && values[1] === 'list') return CONTROL;
-  if (['--version', '-V', 'show', 'which', 'toolchain'].includes(values[0])) return CONTROL;
+  if (['--version', '-V', 'show', 'which'].includes(values[0])) return CONTROL;
+  if (values[0] === 'toolchain' && ['list', 'link'].includes(values[1])) return values[1] === 'list' ? CONTROL : TOOLCHAIN_WRITE;
   return null;
 }
 
@@ -90,8 +92,8 @@ function externalRegistrations(entries = []) {
     if (!entry || entry.shim !== 'cargo' || typeof entry.command !== 'string' || !entry.command || typeof entry.toolId !== 'string' || !entry.toolId || !/^[a-f0-9]{64}$/i.test(entry.digest ?? '')) {
       throw new TypeError('invalid external command registration');
     }
-    if (!Object.hasOwn(CARGO_EXTERNAL_POLICY, entry.command)) throw new TypeError(`external command has no thin policy: ${entry.command}`);
     if (CARGO_BUILTINS.has(entry.command)) throw new TypeError(`external registration cannot shadow Cargo built-in: ${entry.command}`);
+    if (!Object.hasOwn(CARGO_EXTERNAL_POLICY, entry.command)) throw new TypeError(`external command has no thin policy: ${entry.command}`);
     if (map.has(entry.command)) throw new TypeError(`duplicate external command: cargo:${entry.command}`);
     map.set(entry.command, Object.freeze({ ...CARGO_EXTERNAL_POLICY[entry.command], external: true, externalToolId: entry.toolId, externalDigest: entry.digest.toLowerCase() }));
   }
@@ -109,6 +111,7 @@ export class ThinCommandPolicy {
     if (shim === 'cargo') {
       command = commandForCargo(argv);
       selected = cargoCapability(command, argv) ?? this.#external.get(command) ?? null;
+      if (command === 'machete' && selected?.external) selected = hasFlag(argv, '--fix') ? { ...selected, ...WORKSPACE_WRITE } : selected;
     } else if (shim === 'rustup') {
       command = argv[0] ?? null;
       selected = rustupCapability(argv);
@@ -118,5 +121,12 @@ export class ThinCommandPolicy {
     }
     if (!selected) throw new UnknownThinCommandError(shim, argv);
     return Object.freeze({ ...selected, shim, command, argv: Object.freeze([...argv]) });
+  }
+
+  classifyNested(parentCapability, shim, argv = []) {
+    const selected = this.classify(shim, argv);
+    if (!parentCapability) return selected;
+    if (shim === 'cargo' && ['metadata', 'tree'].includes(selected.command)) return Object.freeze({ ...ANALYSIS, shim, command: selected.command, argv: Object.freeze([...argv]), nestedOverride: true });
+    return selected;
   }
 }

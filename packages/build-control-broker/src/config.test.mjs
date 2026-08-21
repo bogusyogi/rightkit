@@ -9,7 +9,7 @@ test('config accepts explicit known settings & freezes its outer object', () => 
   const config = validateBrokerConfig(fixture());
   assert.equal(config.broker.externalRoot.path, '/managed');
   // The compiler cache carries a default size bound even while sccache is disabled.
-  assert.deepEqual(config.sccache, { mode: 'disabled', lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 });
+  assert.deepEqual(config.sccache, { mode: 'disabled', clientSide: false, lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 });
   assert.ok(Object.isFrozen(config)); assert.ok(Object.isFrozen(config.broker)); assert.ok(Object.isFrozen(config.broker.externalRoot));
 });
 
@@ -18,6 +18,13 @@ test('config refuses managed sccache without broker ownership proof contract', (
   assert.throws(() => validateBrokerConfig(value), /ownership proof/);
   value.sccache.requireOwnershipProof = true;
   assert.equal(validateBrokerConfig(value).sccache.mode, 'managed');
+});
+
+test('config accepts pinned client-side sccache without broker server ownership', () => {
+  const value = addCargoTool(fixture()); value.defaults = { sccacheToolId: 'cargo-pinned', cacheMode: 'managed' };
+  value.sccache = { mode: 'managed', clientSide: true, lifecycleOwner: null, requireOwnershipProof: false };
+  const config = validateBrokerConfig(value);
+  assert.equal(config.sccache.clientSide, true); assert.equal(config.sccache.lifecycleOwner, null);
 });
 
 test('config accepts a Windows managed-root path on any coordinator host', () => {

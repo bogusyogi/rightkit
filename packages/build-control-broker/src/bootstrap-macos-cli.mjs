@@ -6,8 +6,8 @@
 import { createHash } from 'node:crypto';
 import { execFile as childExecFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { readFile, realpath } from 'node:fs/promises';
+import { constants, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { chmod, copyFile, mkdir, readFile, realpath } from 'node:fs/promises';
 import { availableParallelism as cpuCount, homedir, totalmem } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,11 @@ const LABEL = 'dev.rightkit.build-control-managed';
 // One id per tool the broker may pin. `probe` resolves it on PATH; missing
 // tools are simply omitted; nothing here requires every tool to exist.
 const KNOWN_TOOLS = ['cargo', 'rustc', 'rustdoc', 'rustup', 'sccache', 'pnpm', 'npm', 'swift', 'swiftc', 'cmake', 'make', 'clang', 'gcc'];
+const EXTERNAL_CARGO_TOOLS = Object.freeze([
+  ['about', 'cargo-about', 'ANALYSIS'], ['outdated', 'cargo-outdated', 'ANALYSIS'], ['audit', 'cargo-audit', 'ANALYSIS'],
+  ['deny', 'cargo-deny', 'ANALYSIS'], ['machete', 'cargo-machete', 'ANALYSIS'], ['upgrade', 'cargo-upgrade', 'WORKSPACE_WRITE'],
+  ['set-version', 'cargo-set-version', 'WORKSPACE_WRITE'], ['nextest', 'cargo-nextest', 'BUILD']
+]);
 
 export function parseArgs(argv) {
   const values = { force: false };
@@ -51,12 +56,28 @@ export async function discoverTools() {
     const real = await realpath(path);
     tools.push({ id, path: real, root: dirname(real), sha256: await sha256File(real) });
   }
-  const cargoAbout = await which('cargo-about');
-  if (cargoAbout) {
-    const real = await realpath(cargoAbout);
-    tools.push({ id: 'cargo-about', path: real, root: dirname(real), sha256: await sha256File(real) });
+  for (const [, id] of EXTERNAL_CARGO_TOOLS) {
+    const found = await which(id); if (!found) continue;
+    const real = await realpath(found); tools.push({ id, path: real, root: dirname(real), sha256: await sha256File(real) });
   }
   return tools;
+}
+
+export async function stageManagedTools(tools, externalRoot) {
+  const staged = [];
+  for (const tool of tools) {
+    const directory = join(externalRoot, 'rightkit-build-control', 'global', 'tools', tool.id, tool.sha256);
+    const target = join(directory, tool.id); await mkdir(directory, { recursive: true });
+    try { await copyFile(tool.path, target, constants.COPYFILE_EXCL); await chmod(target, 0o755); }
+    catch (error) { if (error.code !== 'EEXIST' || await sha256File(target) !== tool.sha256) throw error; }
+    staged.push({ ...tool, path: target, root: directory });
+  }
+  return staged;
+}
+
+function externalCommands(tools) {
+  const byId = new Map(tools.map((tool) => [tool.id, tool]));
+  return EXTERNAL_CARGO_TOOLS.flatMap(([command, toolId, lane]) => byId.has(toolId) ? [{ shim: 'cargo', command, toolId, lane, digest: byId.get(toolId).sha256 }] : []);
 }
 
 export async function resolveVolumeId(path) {
@@ -74,6 +95,14 @@ export async function rustcVersionTriple() {
     const host = stdout.match(/^host:\s*(\S+)/m)?.[1];
     return version && host ? `stable-${version}-${host}` : null;
   } catch { return null; }
+}
+
+export async function supportsClientSideSccache(path, run = execFile) {
+  if (typeof path !== 'string' || !path) return false;
+  try {
+    const { stdout } = await run(path, ['--version']); const match = String(stdout).match(/sccache\s+(\d+)\.(\d+)\.(\d+)/i);
+    return Boolean(match) && (Number(match[1]) > 0 || Number(match[2]) >= 17);
+  } catch { return false; }
 }
 
 export function shimTable(tools) {
@@ -94,7 +123,7 @@ export function defaultBounds() {
     retentionMs: 604_800_000, gcIntervalMs: 300_000, statfsTimeoutMs: 1_000, jobDeadlineMs: 0,
     outputBufferBytes: 8 * 1024 * 1024, outputHeadBytes: 16_384, outputTailBytes: 16_384,
     eventHistoryEntries: 4_096, eventHistoryBytes: 8 * 1024 * 1024, eventLogMaxBytes: 8 * 1024 * 1024,
-    maintenanceBatchEntries: 128, controlConcurrency: 4, buildConcurrency: 2, workspaceWriteConcurrency: 4,
+    maintenanceBatchEntries: 128, controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 1, workspaceWriteConcurrency: 4,
     maintenanceConcurrency: 1, priorityAgingMs: 30_000, targetCacheCapBytes: 150 * 1024 ** 3,
     // Roots touched inside this window stay protected from cap eviction, so a
     // day's warm target trees survive a workspace that sits over cap.
@@ -110,11 +139,13 @@ export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = to
   // half is the performance share on every shipping configuration here.
   const performanceCores = Math.max(1, Math.floor(logical / 2));
   const memoryGiB = Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 2;
-  return Math.max(1, Math.min(performanceCores, Math.floor(memoryGiB / 2)));
+  return Math.max(1, Math.min(4, performanceCores, Math.floor(memoryGiB / 2)));
 }
 
 export async function buildConfig({ externalRoot }) {
-  const tools = await discoverTools();
+  const tools = await stageManagedTools(await discoverTools(), externalRoot);
+  const sccacheTool = tools.find((tool) => tool.id === 'sccache');
+  const clientSideSccache = await supportsClientSideSccache(sccacheTool?.path);
   const toolchain = (await rustcVersionTriple()) ?? 'stable-aarch64-apple-darwin';
   const targetTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
   const otherTriple = targetTriple === 'aarch64-apple-darwin' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwin';
@@ -133,9 +164,7 @@ export async function buildConfig({ externalRoot }) {
     windowsPipe: '\\\\.\\pipe\\rightkit-build-control',
     tools,
     shims: shimTable(tools),
-    externalCommands: tools.some((tool) => tool.id === 'cargo-about')
-      ? [{ shim: 'cargo', command: 'about', toolId: 'cargo-about', lane: 'CONTROL', digest: tools.find((tool) => tool.id === 'cargo-about').sha256 }]
-      : [],
+    externalCommands: externalCommands(tools),
     defaults: {
       toolchain, targetTriple, targetTriples: [targetTriple, otherTriple],
       buildProfile: 'development', reservationBytes: 16 * 1024 ** 3,
@@ -143,11 +172,12 @@ export async function buildConfig({ externalRoot }) {
       // & pointing it at an unregistered tool id rejects the whole config.
       ...(tools.some((tool) => tool.id === 'rustc') ? { rustcToolId: 'rustc' } : {}),
       ...(tools.some((tool) => tool.id === 'rustdoc') ? { rustdocToolId: 'rustdoc' } : {}),
-      cacheMode: 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
+      ...(clientSideSccache ? { sccacheToolId: 'sccache' } : {}),
+      cacheMode: clientSideSccache ? 'managed' : 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
     },
     // Doc section 3.1: never enable during an in-flight release; a deliberate,
     // separately-decided activation, not a bootstrap default.
-    sccache: { mode: 'disabled', lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 },
+    sccache: { mode: clientSideSccache ? 'managed' : 'disabled', clientSide: clientSideSccache, lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
     bounds: defaultBounds(),
   };
