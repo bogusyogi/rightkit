@@ -203,7 +203,19 @@ export class ThinJobService {
     const priority = message.priority ?? 'BATCH'; if (!PRIORITIES.has(priority)) throw new TypeError('priority must be BATCH, INTERACTIVE, or INSTALLER');
     const id = randomUUID(); const rootToken = parent?.rootToken ?? randomBytes(32).toString('base64url');
     const expectedEnvironment = parent?.executionEnvironment ?? (workspace ? this.#managedEnvironment(workspace.layout, rootToken, parent?.id ?? id) : { CARGO_HOME: this.#state.paths.cargoHome });
-    validateManagedRustEnvironment(message.observedEnvironment ?? {}, expectedEnvironment);
+    const observedEnvironment = { ...(message.observedEnvironment ?? {}) };
+    if (delegatedCompiler) {
+      const agentBin = join(this.#config.broker.externalRoot.path, 'agent-bin');
+      for (const [key, shim] of [['RUSTC', 'rustc'], ['RUSTDOC', 'rustdoc']]) {
+        const entry = Object.entries(observedEnvironment).find(([candidate]) => candidate.toUpperCase() === key);
+        if (!entry) continue;
+        const toolIdForCompiler = this.#config.shims?.[shim]; const registered = toolIdForCompiler ? await this.#registry.verify(toolIdForCompiler) : null;
+        const allowedPaths = [registered?.path, join(agentBin, shim)].filter(Boolean).map((value) => normalize(value));
+        if (!allowedPaths.includes(normalize(entry[1]))) throw new TypeError(`managed agent request has conflicting ${entry[0]}`);
+        delete observedEnvironment[entry[0]];
+      }
+    }
+    validateManagedRustEnvironment(observedEnvironment, expectedEnvironment);
     let resolveDone; const done = new Promise((resolve) => { resolveDone = resolve; });
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, DEFAULT_OUTPUT_BYTES, 1024);
     const effectiveCapability = delegatedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true }) : capability;
