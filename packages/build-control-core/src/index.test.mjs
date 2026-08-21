@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BUILD_CONTROL_PROTOCOL, LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, RUNTIME_MANIFEST_SCHEMA, SOURCE_RUNTIME_IDENTITY, captureManagedRustEnvironment, externalRoots, immutableToolRoot, injectBrokerEnvironment, normalizeBuildRequest, normalizeCargoTargetArgv, normalizeCompilerOutputArgv, normalizeManagedAgentRequest, normalizeRequestEnvironment, normalizeRuntimeIdentity, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
+import { BUILD_CONTROL_PROTOCOL, LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, RUNTIME_MANIFEST_SCHEMA, SOURCE_RUNTIME_IDENTITY, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, externalRoots, immutableToolRoot, injectBrokerEnvironment, normalizeBuildRequest, normalizeCargoTargetArgv, normalizeCompilerOutputArgv, normalizeDelegatedCompilerEnvironment, normalizeManagedAgentRequest, normalizeRequestEnvironment, normalizeRuntimeIdentity, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
 
 test('v2 runtime identity requires immutable client & broker digests', () => {
   assert.equal(BUILD_CONTROL_PROTOCOL, 'rightkit.build-control.client.v2'); assert.equal(SOURCE_RUNTIME_IDENTITY.schema, RUNTIME_MANIFEST_SCHEMA);
@@ -64,6 +64,14 @@ test('request environment is allowlisted while broker runtime injection wins', (
   assert.deepEqual(injectBrokerEnvironment({ requestEnvironment: { CI: 'untrusted', RUST_LOG: 'info' }, runtimeEnvironment: { CI: 'broker', CARGO_TARGET_DIR: '/broker/target', npm_config_cache: '/broker/npm', PATH: '/broker/bin' } }), {
     CI: 'broker', RUST_LOG: 'info', CARGO_TARGET_DIR: '/broker/target', npm_config_cache: '/broker/npm', PATH: '/broker/bin'
   });
+});
+
+test('delegated compiler environment preserves Cargo semantics without process authority', () => {
+  const captured = captureDelegatedCompilerEnvironment({ CARGO_PKG_VERSION: '1.2.3', OUT_DIR: '/managed/target/out', CUSTOM_BUILD_VALUE: 'yes', PATH: '/untrusted', RUSTDOC: '/untrusted/rustdoc', RUSTC_BOOTSTRAP: '1', CARGO_MAKEFLAGS: '-j --jobserver-fds=4,6', RIGHTKIT_PARENT_REQUEST_ID: 'parent' });
+  assert.deepEqual(captured, { CARGO_PKG_VERSION: '1.2.3', OUT_DIR: '/managed/target/out', CUSTOM_BUILD_VALUE: 'yes' });
+  assert.deepEqual(normalizeDelegatedCompilerEnvironment(captured), captured);
+  assert.deepEqual(injectBrokerEnvironment({ requestEnvironment: captured, runtimeEnvironment: { PATH: '/broker/bin' }, normalizeEnvironment: normalizeDelegatedCompilerEnvironment }), { ...captured, PATH: '/broker/bin' });
+  for (const key of ['PATH', 'RUSTDOC', 'RUSTC_BOOTSTRAP', 'CARGO_MAKEFLAGS', 'DYLD_LIBRARY_PATH', 'RIGHTKIT_PARENT_REQUEST_ID', 'SCCACHE_SERVER_UDS']) assert.throws(() => normalizeDelegatedCompilerEnvironment({ [key]: '/untrusted' }), /broker-controlled/);
 });
 
 test('raw rustc & rustdoc outputs are broker-owned regardless of caller paths', () => {

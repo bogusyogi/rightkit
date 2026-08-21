@@ -39,9 +39,11 @@ Implemented and live:
 - recursive Cargo-plugin calls through the managed shim;
 - Cargo-owned nested `rustc`/`rustdoc` delegation without a second BUILD permit
   or broker output-path rewriting, including authenticated compiler cwd under
-  parent Cargo home or target generation while rejecting unrelated roots, plus
-  Cargo-provided `RUSTC`/`RUSTDOC` values limited to registered tools, managed
-  toolchain paths, or broker-first shim names;
+  parent repository, Cargo home, or target generation while rejecting unrelated
+  roots; this admits Cargo path dependencies elsewhere in the same repository;
+- Cargo compiler environment forwarding preserves package/build-script inputs
+  while broker-owned tool, path, cache, loader, and unstable-feature authority
+  remains stripped and broker-injected;
 - same-workspace nested `cargo update` delegation for workspace-writing Cargo
   plugins, with token validation, workspace-containment checks, and root-cancel
   propagation;

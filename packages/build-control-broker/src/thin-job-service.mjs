@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
-import { readFile, realpath, statfs as nodeStatfs } from 'node:fs/promises';
+import { lstat, readFile, realpath, statfs as nodeStatfs } from 'node:fs/promises';
 import net from 'node:net';
 import { basename, delimiter, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
@@ -10,6 +10,7 @@ import {
   injectBrokerEnvironment,
   normalizeCargoTargetArgv,
   normalizeCompilerOutputArgv,
+  normalizeDelegatedCompilerEnvironment,
   normalizeManagedAgentRequest,
   normalizeRequestEnvironment,
   normalizeRuntimeIdentity,
@@ -61,6 +62,15 @@ export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFi
   return Object.freeze({ executionCwd, workspaceRoot: await realpath(dirname(manifest)) });
 }
 
+export async function resolveRepositoryRoot(workspace, { inspect = lstat } = {}) {
+  const fallback = await realpath(workspace); let candidate = fallback;
+  while (true) {
+    try { await inspect(join(candidate, '.git')); return candidate; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const parent = dirname(candidate); if (parent === candidate) return fallback; candidate = parent;
+  }
+}
+
 function selectedToolIds(config) {
   const ids = new Set(Object.values(config.shims ?? {}).filter(Boolean));
   for (const entry of config.externalCommands ?? []) ids.add(entry.toolId);
@@ -73,9 +83,9 @@ function runtimeBase() {
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #spawn; #workspaceResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #jobs = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #jobs = new Map(); #stopping = false;
 
-  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now } = {}) {
+  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
     const externalRoot = normalize(config.broker.externalRoot.path);
     let ownedSingleton = singleton;
@@ -101,7 +111,7 @@ export class ThinJobService {
         workspaceWriteConcurrency: integer(config.bounds?.workspaceWriteConcurrency, 4, 1),
         buildConcurrency: integer(config.bounds?.buildConcurrency, 1, 1), now
       });
-      const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, spawn, workspaceResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now });
+      const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1) }) });
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
       return service;
@@ -112,8 +122,8 @@ export class ThinJobService {
     }
   }
 
-  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, spawn, workspaceResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now }) {
-    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now;
+  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now }) {
+    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now;
   }
 
   get runtimeIdentity() { return this.#runtime; }
@@ -170,7 +180,7 @@ export class ThinJobService {
     if (parentId && (!parent || parent.terminal)) throw Object.assign(new Error('nested parent request is not active'), { code: 'RK_PARENT_NOT_ACTIVE' });
     const capability = parent ? this.#policy.classifyNested(parent.capability, message.shim, request.argv) : this.#policy.classify(message.shim, request.argv);
     const delegatedWorkspaceWrite = parent?.capability.external === true && parent.capability.lane === 'WORKSPACE_WRITE' && capability.lane === 'WORKSPACE_WRITE';
-    const delegatedCompiler = parent?.capability.lane === 'BUILD' && parent.capability.compile === true && ['rustc', 'rustdoc'].includes(message.shim) && capability.lane === 'BUILD';
+    const delegatedCompiler = parent?.capability.lane === 'BUILD' && parent.capability.compile === true && ['rustc', 'rustdoc'].includes(message.shim);
     if (parent && !['CONTROL', 'ANALYSIS'].includes(capability.lane) && !delegatedWorkspaceWrite && !delegatedCompiler) throw Object.assign(new Error('nested non-control work is rejected'), { code: 'RK_NESTED_HEAVY_REJECTED' });
     if (parent) {
       const supplied = Buffer.from(message.execution?.capabilityToken ?? ''); const expected = Buffer.from(parent.rootToken);
@@ -180,16 +190,16 @@ export class ThinJobService {
     if (message.shim === 'cargo' && capability.workspaceAccess !== 'none') await rejectWorkspaceCargoConfiguration(request.workspace);
     const executionCwd = await realpath(request.workspace);
     if (parent && capability.workspaceAccess !== 'none') {
-      const allowedRoots = delegatedCompiler
-        ? [parent.workspaceRoot, parent.executionEnvironment?.CARGO_HOME, parent.executionEnvironment?.CARGO_TARGET_DIR]
-        : [parent.workspaceRoot];
-      if (!allowedRoots.some((root) => pathIsWithin(root, executionCwd))) throw Object.assign(new Error('nested workspace must remain inside parent Cargo or managed build roots'), { code: 'RK_NESTED_WORKSPACE_ESCAPE' });
+      const managedCompilerRoot = delegatedCompiler && [parent.workspaceRoot, parent.executionEnvironment?.CARGO_HOME, parent.executionEnvironment?.CARGO_TARGET_DIR].some((root) => pathIsWithin(root, executionCwd));
+      const sameRepository = delegatedCompiler && parent.repositoryRoot && pathIsWithin(parent.repositoryRoot, executionCwd) && await this.#repositoryResolver(executionCwd) === parent.repositoryRoot;
+      if (!(managedCompilerRoot || sameRepository || (!delegatedCompiler && pathIsWithin(parent.workspaceRoot, executionCwd)))) throw Object.assign(new Error('nested workspace must remain inside parent repository, Cargo, or managed build roots'), { code: 'RK_NESTED_WORKSPACE_ESCAPE' });
     }
     const roots = capability.workspaceAccess === 'none'
       ? { executionCwd, workspaceRoot: null }
       : parent ? { executionCwd, workspaceRoot: parent.workspaceRoot }
         : await this.#workspaceResolver(executionCwd, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } });
     const workspace = roots.workspaceRoot ? await this.#state.workspace(roots.workspaceRoot) : null;
+    const repositoryRoot = parent?.repositoryRoot ?? (roots.workspaceRoot ? await this.#repositoryResolver(roots.workspaceRoot) : null);
     const targetTriple = this.#config.defaults?.targetTriple;
     let argv = request.argv;
     if (message.shim === 'cargo' && capability.compile && targetTriple) argv = normalizeCargoTargetArgv(argv, targetTriple);
@@ -203,25 +213,17 @@ export class ThinJobService {
     const priority = message.priority ?? 'BATCH'; if (!PRIORITIES.has(priority)) throw new TypeError('priority must be BATCH, INTERACTIVE, or INSTALLER');
     const id = randomUUID(); const rootToken = parent?.rootToken ?? randomBytes(32).toString('base64url');
     const expectedEnvironment = parent?.executionEnvironment ?? (workspace ? this.#managedEnvironment(workspace.layout, rootToken, parent?.id ?? id) : { CARGO_HOME: this.#state.paths.cargoHome });
-    const observedEnvironment = { ...(message.observedEnvironment ?? {}) };
-    if (delegatedCompiler) {
-      const agentBin = join(this.#config.broker.externalRoot.path, 'agent-bin');
-      for (const [key, shim] of [['RUSTC', 'rustc'], ['RUSTDOC', 'rustdoc']]) {
-        const entry = Object.entries(observedEnvironment).find(([candidate]) => candidate.toUpperCase() === key);
-        if (!entry) continue;
-        const toolIdForCompiler = this.#config.shims?.[shim]; const registered = toolIdForCompiler ? await this.#registry.verify(toolIdForCompiler) : null;
-        const observedPath = normalize(entry[1]); const managedRustupHome = expectedEnvironment.RUSTUP_HOME;
-        const allowedPaths = [registered?.path, join(agentBin, shim), shim, process.platform === 'win32' ? `${shim}.exe` : null].filter(Boolean).map((value) => normalize(value));
-        const managedToolchainPath = isAbsolute(observedPath) && pathIsWithin(managedRustupHome, observedPath) && basename(observedPath).toLowerCase() === `${shim}${process.platform === 'win32' ? '.exe' : ''}`;
-        if (!allowedPaths.includes(observedPath) && !managedToolchainPath) throw new TypeError(`managed agent request has conflicting ${entry[0]}`);
-        delete observedEnvironment[entry[0]];
-      }
-    }
+    // Delegated compiler requests cannot select their process environment:
+    // broker reuses parent runtime & injects it after stripping request control.
+    // Cargo may synthesize controlled-looking values such as encoded rustflags,
+    // so validating compiler observations against root Cargo input is incorrect.
+    const observedEnvironment = delegatedCompiler ? {} : { ...(message.observedEnvironment ?? {}) };
     validateManagedRustEnvironment(observedEnvironment, expectedEnvironment);
     let resolveDone; const done = new Promise((resolve) => { resolveDone = resolve; });
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, DEFAULT_OUTPUT_BYTES, 1024);
     const effectiveCapability = delegatedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true }) : capability;
-    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: normalizeRequestEnvironment(request.environment) }), invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, workspaceRoot: roots.workspaceRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
+    const requestEnvironment = delegatedCompiler ? normalizeDelegatedCompilerEnvironment(request.environment) : normalizeRequestEnvironment(request.environment);
+    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, workspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
   }
 
   async #execute(job) {
@@ -238,7 +240,11 @@ export class ThinJobService {
       const runtimeEnvironment = { ...runtimeBase(), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken };
       if (job.capability.external) runtimeEnvironment.CARGO = join(this.#config.broker.externalRoot.path, 'agent-bin', 'cargo');
       job.executionEnvironment = Object.freeze({ ...runtimeEnvironment });
-      const env = injectBrokerEnvironment({ requestEnvironment: job.request.environment, runtimeEnvironment });
+      const env = injectBrokerEnvironment({
+        requestEnvironment: job.request.environment,
+        runtimeEnvironment,
+        normalizeEnvironment: job.capability.nestedOverride ? normalizeDelegatedCompilerEnvironment : normalizeRequestEnvironment
+      });
       job.child = spawnManagedProcess(job.tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: ['ignore', 'pipe', 'pipe'] }, this.#spawn);
       job.exit = new Promise((resolve, reject) => { job.child.once('error', reject); job.child.once('close', (code, signal) => resolve({ code, signal })); });
       job.child.stdout?.on('data', (chunk) => this.#output(job, 'STDOUT', chunk));

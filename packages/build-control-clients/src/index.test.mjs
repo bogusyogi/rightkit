@@ -54,6 +54,12 @@ test('build priority is explicitly allowlisted instead of forwarded from ambient
   for (const priority of ['', 'installer', 'SYSTEM', 'INSTALLER ']) assert.throws(() => createManagedAgentRequest({ argv0: 'cargo', workspace: '/external/work', environment: { RIGHTKIT_BUILD_PRIORITY: priority } }), /RIGHTKIT_BUILD_PRIORITY/);
 });
 
+test('nested compiler forwards Cargo semantic environment but not broker controls', () => {
+  const request = createManagedAgentRequest({ argv0: 'rustc', workspace: '/external/work', environment: { RIGHTKIT_PARENT_REQUEST_ID: 'parent', RIGHTKIT_PARENT_CAPABILITY_TOKEN: 'token', CARGO_PKG_VERSION: '1.2.3', OUT_DIR: '/managed/target/out', CUSTOM_BUILD_VALUE: 'yes', PATH: '/untrusted', RUSTDOC: '/untrusted/rustdoc' } });
+  assert.deepEqual(request.request.environment, { CARGO_PKG_VERSION: '1.2.3', OUT_DIR: '/managed/target/out', CUSTOM_BUILD_VALUE: 'yes' });
+  assert.deepEqual(request.execution, { mode: 'NESTED', parentId: 'parent', capabilityToken: 'token' });
+});
+
 test('rightkit normalizes explicit build & shim invocations into request-only identity', () => {
   const build = createRightkitRequest({ argv: ['build', 'cargo', '--', 'test'], workspace: '/external/work' });
   assert.equal(build.entrypoint, 'rightkit'); assert.equal(build.shim, 'cargo'); assert.deepEqual(build.request.argv, ['test']);
