@@ -385,6 +385,9 @@ export function createThinJobServer({ service, endpoint, maxRequestBytes = 1024 
   if (!service || typeof service.dispatch !== 'function' || typeof endpoint !== 'string' || !endpoint) throw new TypeError('service & endpoint are required');
   return netModule.createServer((socket) => {
     let buffer = ''; let handled = false; let detached = false; const disconnects = new Set();
+    // Clients can disconnect between a bounded write being accepted & flushed.
+    // EPIPE/ECONNRESET must detach only that watcher, never crash broker.
+    socket.on('error', () => { detached = true; });
     const onDisconnect = (callback) => { disconnects.add(callback); return () => disconnects.delete(callback); };
     socket.once('close', () => { for (const callback of disconnects) callback(); disconnects.clear(); });
     const reject = (error) => { if (!socket.destroyed) socket.end(`${JSON.stringify({ type: 'RESULT', exitCode: 125, status: 'REJECTED', error })}\n`); };

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
-import { ThinJobService } from './thin-job-service.mjs';
+import { ThinJobService, createThinJobServer } from './thin-job-service.mjs';
 import { ThinState } from './thin-state.mjs';
 
 const digest = 'a'.repeat(64);
@@ -33,6 +33,30 @@ async function fixture({ externalCommands = [], cache = null } = {}) {
 
 async function call(service, value) { const events = []; const result = await service.dispatch(value, (event) => { events.push(event); return true; }); return { result, events }; }
 async function waitFor(service, id, states) { for (let attempt = 0; attempt < 100; attempt += 1) { const { result } = await call(service, command('STATUS', id)); if (states.includes(result.state)) return result; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error(`job ${id} did not reach ${states}`); }
+
+test('disconnected watcher EPIPE detaches without crashing broker', async () => {
+  let connect; let finish;
+  const completed = new Promise((resolve) => { finish = resolve; });
+  const service = {
+    async dispatch(_message, emit) {
+      assert.equal(emit({ type: 'HANDSHAKE' }), true);
+      assert.equal(emit({ type: 'RESULT', exitCode: 0 }), false);
+      finish();
+    }
+  };
+  createThinJobServer({
+    service,
+    endpoint: '/test/rightkit.sock',
+    netModule: { createServer(handler) { connect = handler; return {}; } }
+  });
+  const socket = new EventEmitter();
+  socket.destroyed = false; socket.writableLength = 0;
+  socket.write = () => { socket.emit('error', Object.assign(new Error('broken pipe'), { code: 'EPIPE' })); return false; };
+  socket.end = () => {};
+  connect(socket);
+  socket.emit('data', Buffer.from('{}\n'));
+  await completed;
+});
 
 test('two BUILD roots serialize globally while CONTROL completes', async () => {
   const item = await fixture();
