@@ -65,6 +65,149 @@ must not be.
 
 ---
 
+## Pending — open review findings not yet fixed
+
+Raised by two independent validation passes over the consolidated docs on 2026-08-22. None
+are shipping blockers; all are open. Findings that did not survive verification are recorded
+at the bottom so they are not re-raised.
+
+### P1. The sizing rule contradicts its own arithmetic — **doc defect, confirmed**
+
+`RIGHTKIT-BUILD-CONTROL-ARCHITECTURE.md` §9 budgets "roughly 2 GB of RAM each" per
+concurrent compiler, then calls 4 compilers "the honest ceiling" on an 8.6 GB host. 4 x 2 GB
+is 8 GB, leaving 0.6 GB for the OS — still oversubscribed by the document's own rule. Either
+the per-compiler budget or the stated ceiling is wrong. Resolve by measuring actual peak
+rustc RSS on this workspace rather than adjusting the prose to match.
+
+### P2. The `processMayBeLive` / namespace-gate relationship is ambiguous — **doc defect, confirmed**
+
+§4 states `processMayBeLive` is read by no runtime path, then describes `#prepareNamespace`
+refusing "any unproven reap", without saying what actually drives the gate. It is a broker
+setting (`namespace-quarantine:<namespace>`, `job-service.mjs:360`), not the namespace row
+and not the flag. The ambiguity has already caused harm: an independent reviewer read this
+passage and concluded the namespace row's `state` field drives the gate, which is false.
+
+### P3. Enabling sccache while proof 9 is open needs an explicit risk statement — **clarity gap**
+
+`requireOwnershipProof: true` is a per-request runtime gate that degrades to direct rustc
+when the proof fails; proof 9 is the unrun operational proof that the failure path behaves
+under real failure. Both are simultaneously true, so this is **not** the contradiction it was
+reported as. What is missing is a plain statement that macOS now depends on an unproven
+failure path. Say so where sccache is enabled.
+
+### P4. No CLI to clear a namespace quarantine
+
+A quarantined namespace refuses heavy work until the `namespace-quarantine:<namespace>`
+setting is removed by hand. For an agent operator this is a stuck state with no recovery
+path. Wanted: a command that proves the process group is dead, clears the setting, and logs
+the clearance; plus a diagnostic that reports directory, state entry, live processes, disk
+usage against reservation, and quarantine status for one namespace.
+
+### P5. GC never reconciles the filesystem side
+
+GC walks state entries and checks whether directories exist; it never walks directories and
+checks whether entries exist. Section 2 already measures the consequence: 54 tmp directories
+against 41 namespaces, 13 already leaked. Wanted: a reconcile pass that lists both sides,
+reports orphans in both directions, and removes a directory only after proving no compiler
+owns it.
+
+### P6. Validation rules are still single-sourced nowhere
+
+The three defects in section 12 were one root cause: a rule enforced in more than one place
+with one copy updated. Section 12.5 names the pattern but nothing prevents its recurrence.
+Wanted: a rules registry the enforcement layers read from, starting with the tool allowlist,
+the environment blocklist, and the redirect-argument list — each of which has been wrong
+independently — plus a standing requirement that any rule change enumerate every layer that
+enforces it.
+
+### P7. `processMayBeLive` is dead metadata
+
+Written into quarantine receipts and the event log, read by nothing. Either surface it where
+a quarantine is encountered, or remove it. Carrying an unread field that looks load-bearing
+is worse than either.
+
+### P8. The architecture document does not mention the adversarial reviews
+
+The reviews that corrected material errors in this document are recorded here and not there.
+A reader of the architecture document alone does not learn that its claims were challenged.
+Minor, but it is the kind of omission this pair of documents exists to prevent.
+
+### P9. No job deadline is configured, so a slow tool runs until a human notices
+
+`bounds.jobDeadlineMs` is `0` on macOS — no deadline at all. Measured consequence, request
+`cda53b70` on 2026-08-21:
+
+| Transition | Time |
+|---|---|
+| SUBMITTED | 18:41:01.935 |
+| RUNNING | 18:41:02.334 |
+| REAPING | 19:05:23.849 |
+| CANCELLED | 19:05:23.917 |
+
+`outdated` against HeardRight's `src-tauri` ran **24m 21s** and never completed: the receipt
+records `reason: explicit-cancel`, `signal: SIGTERM`, `exitCode: 125`. Broker overhead was
+399 ms, so the queue is not implicated. Nothing bounded the run; it ended when a person
+killed it.
+
+Two things follow. First, a deadline should exist, and the lane it applies to matters more
+than the number. Second, `outdated` is registered `WORKSPACE_WRITE`, which serializes
+against BUILD for that repository — so a 24-minute dependency query holds that repository's
+build lane for its whole duration. The lane is defensible on its own terms (cargo-outdated
+writes temp manifests and runs `update` internally), but combining a write lane with no
+deadline is not.
+
+### P10. Output is stored without timestamps, so a slow phase cannot be attributed
+
+The receipt for `cda53b70` holds 1 234 bytes of bounded head/tail and a digest. The tail
+proves the results table had already printed before cancellation, but nothing records *when*
+any chunk arrived, and no child CPU or RSS is sampled. A specific claim — that the run spent
+its final minutes tearing down an internal hash table rather than resolving the graph —
+therefore **cannot be confirmed or refuted from our telemetry**. It remains an unproven
+hypothesis about `cargo-outdated`, not a measurement.
+
+The event log is no help either. Filtering `events.ndjson` for that request returns **seven
+events total**: five lifecycle transitions in the first 400 ms, then a single gap of
+**1 461.5 s**, then the terminal record. `bounds.heartbeatIntervalMs` is 5 000, so heartbeats
+are being taken, but they never reach the durable log — a job is completely dark between
+STARTING and REAPING no matter how long it runs. Any question of the form "was it still
+making progress at minute 12?" is unanswerable today.
+
+What exists today: `lifecycle_transitions` (per-state, millisecond), `terminal_receipts`
+(exit, signal, reason, reap, namespace, capability, bounded output plus digest), and a
+bounded `events.ndjson`. What is missing to answer "why was this slow": per-chunk output
+timestamps, periodic child resource sampling, and `durationMs`/`queueWaitMs` carried on the
+receipt itself rather than derived from transitions — the last of which is already open as
+F6.2.
+
+### P11. Dependency-upgrade tooling is only half reachable
+
+`update`, `add`, and `remove` are Cargo built-ins and now route to `WORKSPACE_WRITE`. The
+cargo-edit commands `upgrade` and `set-version` are declared and registerable but stay
+unreachable until an operator pins a digest, and **cargo-edit is not installed on the macOS
+host** — only Windows carries `cargo-upgrade`, `cargo-add`, `cargo-rm`, and
+`cargo-set-version`. Registering them therefore needs the binaries present first.
+
+Note for whoever runs the upgrade sweep: `cargo upgrade` rewrites manifest *requirements*,
+which is a different and more invasive operation than `cargo update` rewriting the lockfile.
+It must run per independent workspace, and path, Git, and vendored dependencies need
+separate handling. Treat a `--dry-run` pass as mandatory before the applying pass, and
+expect the applying pass to be followed by a full check and test run in the same lane.
+
+### Findings raised and rejected
+
+- **"sccache enablement contradicts `requireOwnershipProof`"** — rejected; see P3. The runtime
+  gate and the operational proof are different things.
+- **"The quarantine gate reads the namespace row's `state` field"** — rejected; it reads a
+  broker setting. See P2.
+- **"Typo `powershe` at architecture line 279"** — rejected; that line is a complete
+  ` ```powershell ` fence. No such string exists in the file.
+- **"Prototype-chain keys were a designed protection that a refactor removed"** — rejected as
+  stated. The protection was accidental, an adversarial review judged the attack
+  unexploitable, the accidental behaviour was then removed by an own-property lookup, and a
+  test caught it. The current explicit check is stronger than what preceded it.
+
+---
+
 ## 12. Repairs landed 2026-08-21
 
 Three defects in the same area, found in sequence. The second and third were caused by

@@ -150,3 +150,35 @@ test('a prototype-chain key cannot be registered as an external command', () => 
     assert.throws(() => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command, toolId: 'x', lane: 'CONTROL', digest: 'a'.repeat(64) }] }));
   }
 });
+
+test('manifest and lockfile mutation routes to WORKSPACE_WRITE', () => {
+  // add/remove are Cargo built-ins since 1.62; update/generate-lockfile always were.
+  for (const argv of [['add', 'serde'], ['remove', 'serde'], ['update'], ['generate-lockfile']]) {
+    assert.equal(classifyManagedCommand('cargo', argv).lane, 'WORKSPACE_WRITE', `${argv[0]} lane`);
+    assert.equal(classifyManagedCommand('cargo', argv).external ?? false, false, `${argv[0]} must not be external`);
+  }
+});
+
+test('cargo-edit commands are declared but stay unreachable until pinned', () => {
+  for (const command of ['upgrade', 'set-version']) {
+    assert.throws(() => classifyManagedCommand('cargo', [command]), UnknownManagedCommandError, `${command} was reachable unpinned`);
+  }
+  const registry = createCommandCapabilityRegistry({ externalCommands: [
+    { shim: 'cargo', command: 'upgrade', toolId: 'cargo-upgrade', lane: 'WORKSPACE_WRITE', digest: 'a'.repeat(64) },
+    { shim: 'cargo', command: 'set-version', toolId: 'cargo-set-version', lane: 'WORKSPACE_WRITE', digest: 'b'.repeat(64) }
+  ] });
+  const upgrade = registry.classify('cargo', ['upgrade', '--dry-run', '--incompatible', 'allow', '--pinned', 'allow']);
+  assert.equal(upgrade.lane, 'WORKSPACE_WRITE');
+  assert.equal(upgrade.externalToolId, 'cargo-upgrade');
+  assert.equal(registry.classify('cargo', ['set-version', '1.2.3']).externalToolId, 'cargo-set-version');
+});
+
+test('an external registration still cannot claim add or remove now that they are routed', () => {
+  for (const command of ['add', 'remove', 'update']) {
+    assert.throws(
+      () => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command, toolId: 'x', lane: 'WORKSPACE_WRITE', digest: 'a'.repeat(64) }] }),
+      /cannot shadow built-in/,
+      `${command} was shadowable`
+    );
+  }
+});

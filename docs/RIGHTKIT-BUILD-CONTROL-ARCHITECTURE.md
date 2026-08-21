@@ -65,7 +65,7 @@ SUBMITTED → CLASSIFIED → QUEUED → ADMITTED → STARTING → RUNNING
 |---|---|---|
 | `CONTROL` | version/metadata/tree probes — must stay responsive during builds | `controlConcurrency` |
 | `BUILD` | compilation; one machine-wide lane | `buildConcurrency` |
-| `WORKSPACE_WRITE` | lockfile/manifest mutation; serializes against BUILD per repository | `workspaceWriteConcurrency` |
+| `WORKSPACE_WRITE` | lockfile/manifest mutation (`update`, `add`, `remove`, `generate-lockfile`, `vendor`, and the pinned cargo-edit `upgrade`/`set-version`); serializes against BUILD per repository | `workspaceWriteConcurrency` |
 | `TOOLCHAIN_WRITE` | target-std provisioning; drains every lane and runs alone | exclusive |
 | `MAINTENANCE` | GC, retention, inventory; broker-internal only | `maintenanceConcurrency` |
 
@@ -191,6 +191,10 @@ safety mechanism. Two rules bound registration:
 
 A plugin is invoked by Cargo's convention, `cargo-<cmd> <cmd> …`; the subcommand is
 forwarded, not stripped.
+
+Note which commands are Cargo's own and which are plugins: `update`, `add`, and `remove` are
+built-ins and route directly, so they are never registered as external tools. `upgrade` and
+`set-version` belong to cargo-edit and stay unreachable until their digests are pinned.
 
 > **Two real defects here, both fixed 2026-08-21.** The command name was gated by a
 > hardcoded `about`/`nextest` literal in **two** validators — the capability registry and

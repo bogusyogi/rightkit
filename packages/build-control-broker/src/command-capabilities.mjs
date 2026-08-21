@@ -17,6 +17,13 @@ export const DEFAULT_COMMAND_CAPABILITIES = Object.freeze({
   cargo: Object.freeze({
     '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), version: control('version'), help: control('help'), metadata: workspaceWrite('metadata'), 'locate-project': control('locate-project'), 'read-manifest': control('read-manifest'), search: control('search'), about: external('about', 'CONTROL', false), fmt: workspaceWrite('fmt'), tree: control('tree'),
     clean: workspaceWrite('clean'), update: workspaceWrite('update'), vendor: workspaceWrite('vendor'), 'generate-lockfile': workspaceWrite('generate-lockfile'),
+    // `add` and `remove` are Cargo built-ins as of 1.62 — not cargo-edit plugins.
+    // They rewrite the manifest, so they belong in the same lane as `update`.
+    add: workspaceWrite('add'), remove: workspaceWrite('remove'),
+    // cargo-edit still owns `upgrade` (manifest requirement rewriting) and
+    // `set-version`. Declared here so they are registerable; each stays
+    // unreachable until an operator pins its digest in externalCommands.
+    upgrade: external('upgrade', 'WORKSPACE_WRITE', false), 'set-version': external('set-version', 'WORKSPACE_WRITE', false),
     build: build('build'), check: build('check'), test: build('test'), bench: build('bench'), clippy: build('clippy'), doc: build('doc'), install: build('install'), nextest: external('nextest', 'BUILD', true), run: build('run'),
     outdated: external('outdated', 'WORKSPACE_WRITE', false), machete: external('machete', 'WORKSPACE_WRITE', false), audit: external('audit', 'CONTROL', false), deny: external('deny', 'CONTROL', false)
   }),
@@ -38,7 +45,7 @@ export const DEFAULT_INTERNAL_CAPABILITIES = Object.freeze({
  * claim one of these names.
  */
 const CARGO_BUILTIN_COMMANDS = new Set([
-  'add', 'remove', 'fix', 'publish', 'package', 'login', 'logout', 'owner', 'yank',
+  'fix', 'publish', 'package', 'login', 'logout', 'owner', 'yank',
   'uninstall', 'init', 'new', 'info', 'config', 'report', 'pkgid', 'verify-project', 'rustc', 'rustdoc'
 ]);
 
