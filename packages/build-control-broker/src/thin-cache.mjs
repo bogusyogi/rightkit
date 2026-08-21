@@ -59,6 +59,7 @@ export class ThinCache {
       RUSTC_WRAPPER: this.#tool,
       SCCACHE_DIR: this.#paths.compilerCache,
       SCCACHE_CACHE_SIZE: String(this.#maxSize),
+      SCCACHE_LOG: 'trace',
       ...(this.#clientSide ? { SCCACHE_CLIENT_SIDE: '1' } : {})
     });
     return Object.freeze({ mode: 'sccache', status: 'OK', environment, before: sample.stats });
