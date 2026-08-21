@@ -87,8 +87,9 @@ test('Cargo BUILD delegates nested rustc without a second permit or output rewri
     const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
     await waitFor(item.service, root.id, ['RUNNING']);
     const rootChild = item.children.at(-1); const token = rootChild.environment.RIGHTKIT_PARENT_CAPABILITY_TOKEN;
+    const registryCwd = join(rootChild.environment.CARGO_HOME, 'registry', 'src', 'crate'); await mkdir(registryCwd, { recursive: true });
     const output = join(rootChild.environment.CARGO_TARGET_DIR, 'release', 'deps', 'crate.rlib');
-    const nested = (await call(item.service, command('SUBMIT', compilerMessage(item.workspace, ['src/lib.rs', '-o', output], {
+    const nested = (await call(item.service, command('SUBMIT', compilerMessage(registryCwd, ['src/lib.rs', '-o', output], {
       observedEnvironment: { CARGO_HOME: rootChild.environment.CARGO_HOME, CARGO_TARGET_DIR: rootChild.environment.CARGO_TARGET_DIR, RUSTUP_HOME: rootChild.environment.RUSTUP_HOME, RUSTC_WRAPPER: rootChild.environment.RUSTC_WRAPPER },
       execution: { mode: 'NESTED', parentId: root.id, capabilityToken: token }
     })))).result;
@@ -98,6 +99,21 @@ test('Cargo BUILD delegates nested rustc without a second permit or output rewri
     assert.deepEqual(compiler.payload.argv, ['src/lib.rs', '-o', output]);
     compiler.emit('close', 0, null);
     assert.equal((await call(item.service, command('WATCH', nested.id))).result.status, 'SUCCEEDED');
+    rootChild.emit('close', 0, null); await call(item.service, command('WATCH', root.id));
+  } finally { await item.close(); }
+});
+
+test('delegated rustc still rejects a cwd outside parent Cargo & managed build roots', async () => {
+  const item = await fixture();
+  try {
+    const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, root.id, ['RUNNING']);
+    const rootChild = item.children.at(-1); const token = rootChild.environment.RIGHTKIT_PARENT_CAPABILITY_TOKEN;
+    const escaped = await call(item.service, command('SUBMIT', compilerMessage(item.other, ['src/lib.rs'], {
+      observedEnvironment: { CARGO_HOME: rootChild.environment.CARGO_HOME, CARGO_TARGET_DIR: rootChild.environment.CARGO_TARGET_DIR, RUSTUP_HOME: rootChild.environment.RUSTUP_HOME, RUSTC_WRAPPER: rootChild.environment.RUSTC_WRAPPER },
+      execution: { mode: 'NESTED', parentId: root.id, capabilityToken: token }
+    })));
+    assert.equal(escaped.result.code, 'RK_NESTED_WORKSPACE_ESCAPE');
     rootChild.emit('close', 0, null); await call(item.service, command('WATCH', root.id));
   } finally { await item.close(); }
 });

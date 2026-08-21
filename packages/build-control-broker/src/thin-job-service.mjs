@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
 import { readFile, realpath, statfs as nodeStatfs } from 'node:fs/promises';
 import net from 'node:net';
-import { basename, delimiter, dirname, isAbsolute, join, normalize, relative } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import {
   BUILD_CONTROL_PROTOCOL,
@@ -46,6 +46,11 @@ const integer = (value, fallback, minimum = 0) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const safeExit = (code, status) => status === 'SUCCEEDED' ? 0 : Number.isInteger(code) && code >= 1 && code <= 255 ? code : 125;
 const appendTail = (current, chunk, limit) => chunk.length >= limit ? Buffer.from(chunk.subarray(chunk.length - limit)) : Buffer.concat([current, chunk]).subarray(Math.max(0, current.length + chunk.length - limit));
+const pathIsWithin = (root, candidate) => {
+  if (typeof root !== 'string' || !root) return false;
+  const childPath = relative(normalize(root), candidate);
+  return childPath === '' || (childPath !== '..' && !childPath.startsWith(`..${sep}`) && !isAbsolute(childPath));
+};
 
 export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env } = {}) {
   if (typeof workspace !== 'string' || !isAbsolute(workspace) || typeof cargoPath !== 'string' || !cargoPath) throw new TypeError('absolute workspace & cargoPath are required');
@@ -175,8 +180,10 @@ export class ThinJobService {
     if (message.shim === 'cargo' && capability.workspaceAccess !== 'none') await rejectWorkspaceCargoConfiguration(request.workspace);
     const executionCwd = await realpath(request.workspace);
     if (parent && capability.workspaceAccess !== 'none') {
-      const childPath = relative(parent.workspaceRoot, executionCwd);
-      if (childPath === '..' || childPath.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(childPath)) throw Object.assign(new Error('nested workspace must remain inside parent Cargo workspace'), { code: 'RK_NESTED_WORKSPACE_ESCAPE' });
+      const allowedRoots = delegatedCompiler
+        ? [parent.workspaceRoot, parent.executionEnvironment?.CARGO_HOME, parent.executionEnvironment?.CARGO_TARGET_DIR]
+        : [parent.workspaceRoot];
+      if (!allowedRoots.some((root) => pathIsWithin(root, executionCwd))) throw Object.assign(new Error('nested workspace must remain inside parent Cargo or managed build roots'), { code: 'RK_NESTED_WORKSPACE_ESCAPE' });
     }
     const roots = capability.workspaceAccess === 'none'
       ? { executionCwd, workspaceRoot: null }
