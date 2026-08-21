@@ -17,7 +17,8 @@ export const DEFAULT_COMMAND_CAPABILITIES = Object.freeze({
   cargo: Object.freeze({
     '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), version: control('version'), help: control('help'), metadata: workspaceWrite('metadata'), 'locate-project': control('locate-project'), 'read-manifest': control('read-manifest'), search: control('search'), about: external('about', 'CONTROL', false), fmt: workspaceWrite('fmt'), tree: control('tree'),
     clean: workspaceWrite('clean'), update: workspaceWrite('update'), vendor: workspaceWrite('vendor'), 'generate-lockfile': workspaceWrite('generate-lockfile'),
-    build: build('build'), check: build('check'), test: build('test'), bench: build('bench'), clippy: build('clippy'), doc: build('doc'), install: build('install'), nextest: external('nextest', 'BUILD', true), run: build('run')
+    build: build('build'), check: build('check'), test: build('test'), bench: build('bench'), clippy: build('clippy'), doc: build('doc'), install: build('install'), nextest: external('nextest', 'BUILD', true), run: build('run'),
+    outdated: external('outdated', 'WORKSPACE_WRITE', false), machete: external('machete', 'WORKSPACE_WRITE', false), audit: external('audit', 'CONTROL', false), deny: external('deny', 'CONTROL', false)
   }),
   rustup: Object.freeze({
     '--version': control('--version'), '-V': control('-V'), show: control('show'), 'target-list': control('target-list'), 'target-list-installed': control('target-list-installed'), 'target-add': toolchainWrite('target-add'), which: control('which')
@@ -61,7 +62,14 @@ export function createCommandCapabilityRegistry({ externalCommands = [] } = {}) 
     if (seen.has(key)) throw new TypeError(`duplicate external command: ${key}`);
     seen.add(key);
     if (entry?.shim !== 'cargo' || typeof entry.command !== 'string' || !entry.command || !['CONTROL', 'BUILD', 'WORKSPACE_WRITE'].includes(entry.lane) || typeof entry.toolId !== 'string' || !entry.toolId || !/^[a-f0-9]{64}$/i.test(entry.digest)) throw new TypeError('invalid external command registration');
-    if (entry.command !== 'about' && entry.command !== 'nextest') throw new TypeError(`unsupported external Cargo command: ${entry.command}`);
+    // A literal allowlist of two commands used to gate this, so no new external
+    // tool could ever be registered from config — the digest pin, the explicit
+    // lane, and the tool id are the actual safety mechanism, not the literal.
+    // What must stay impossible is shadowing a built-in: registering `build` or
+    // `clean` as an external tool would silently redirect managed compilation.
+    if (!/^[a-z][a-z0-9-]*$/.test(entry.command)) throw new TypeError(`invalid external Cargo command: ${entry.command}`);
+    const builtin = DEFAULT_COMMAND_CAPABILITIES.cargo[entry.command];
+    if (builtin && !builtin.external) throw new TypeError(`external registration cannot shadow built-in Cargo command: ${entry.command}`);
     cargo[entry.command] = Object.freeze({ command: entry.command, lane: entry.lane, buildCapable: entry.lane === 'BUILD', external: true, externalToolId: entry.toolId, externalDigest: entry.digest, digest: entry.digest });
   }
   return new CommandCapabilityRegistry({ ...DEFAULT_COMMAND_CAPABILITIES, cargo: Object.freeze(cargo) });

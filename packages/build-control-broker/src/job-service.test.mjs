@@ -4,12 +4,13 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { spawn } from 'node:child_process';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
 import { ManagedJobService } from './job-service.mjs';
 import { brokerSccacheServerEnvironment } from './sccache-supervisor.mjs';
 import { DurableStateStore } from './state-store.mjs';
 
-async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null, targetTriples = null, targetInspector = async ({ rustupHome, pinnedToolchain, target }) => ({ rustupHome, pinnedToolchain, toolchain: pinnedToolchain, target, compiler: { release: null, host: null }, available: true }), sccacheMode = null, sccacheSupervisor = null, sccacheOwnershipRecord = null, sccacheReaper = null, prepareSccacheSocket = null } = {}) {
+async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null, targetTriples = null, targetInspector = async ({ rustupHome, pinnedToolchain, target }) => ({ rustupHome, pinnedToolchain, toolchain: pinnedToolchain, target, compiler: { release: null, host: null }, available: true }), sccacheMode = null, sccacheSupervisor = null, sccacheOwnershipRecord = null, sccacheReaper = null, prepareSccacheSocket = null, seedOpenRequests = [] } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'rightkit-job-service-')); const tokenFile = path.join(root, 'parent-token');
   const workspace = path.join(root, 'workspace'); const managed = path.join(root, 'managed'); const bin = path.join(root, 'fake-cargo');
   await mkdir(path.join(workspace, '.git'), { recursive: true }); await mkdir(managed, { recursive: true });
@@ -27,6 +28,7 @@ async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = n
   const statfs = statfsOperation ?? (async () => { if (statfsError) throw statfsError; return { bavail: freeBytes, bsize: 1 }; });
   const databasePath = `${config.broker.stateFile}.sqlite`;
   if (sccacheOwnershipRecord) { const seed = await DurableStateStore.open({ databasePath }); seed.writeSetting('sccache-server-ownership', sccacheOwnershipRecord); seed.close(); }
+  if (seedOpenRequests.length) { const seed = await DurableStateStore.open({ databasePath }); try { for (const request of seedOpenRequests) seedOpenRequest(seed, request); } finally { seed.close(); } }
   const service = await ManagedJobService.create({ config, statfs, eventLog, targetInspector, sccacheSupervisor, ...(sccacheReaper ? { sccacheReaper } : {}), ...(prepareSccacheSocket ? { prepareSccacheSocket } : {}) });
   return { root, workspace, managed, bin, tokenFile, config, databasePath, service, cleanup: async () => { await service.shutdown().catch(() => null); await rm(root, { recursive: true, force: true }); } };
 }
@@ -351,5 +353,119 @@ test('the job environment and the server-start environment agree on cache dir & 
     assert.equal(environment.dir, serverEnvironment.SCCACHE_DIR);
     assert.equal(environment.size, serverEnvironment.SCCACHE_CACHE_SIZE);
     for (const key of ['SCCACHE_START_SERVER', 'SCCACHE_NO_DAEMON', 'SCCACHE_STARTUP_NOTIFY', 'SCCACHE_IDLE_TIMEOUT']) assert.ok(serverEnvironment[key] !== undefined, key);
+  } finally { await item.cleanup(); }
+});
+
+
+// Drive one seeded request up the open lifecycle so recovery sees it exactly as
+// a crash at that boundary would have left it.
+function seedOpenRequest(store, { id, state, data = {} }) {
+  const payload = { ...data };
+  store.create({ id, data: payload });
+  let from = 'SUBMITTED';
+  for (const to of ['CLASSIFIED', 'QUEUED', 'ADMITTED', 'STARTING', 'RUNNING', 'REAPING']) {
+    store.transition({ id, from, to, data: payload });
+    from = to;
+    if (to === state) return store.entry(id);
+  }
+  return store.entry(id);
+}
+
+async function readStoredRecoveryReceipt(databasePath, id) {
+  const store = await DurableStateStore.open({ databasePath });
+  try { return { entry: store.entry(id), receipt: store.receipt(id)?.receipt ?? null }; } finally { store.close(); }
+}
+
+// Recovery must always finish. Both of these rows previously threw inside
+// #recover(), which runs before the socket binds — one unrecoverable row kept
+// the broker from ever starting again, with no exit but manual SQLite surgery.
+test('recovery quarantines an open request with no durable ownership & the broker still starts', async () => {
+  const item = await fixture({ seedOpenRequests: [{ id: 'orphan-no-ownership', state: 'RUNNING' }] });
+  try {
+    const status = await call(item.service, command('STATUS', 'orphan-no-ownership'));
+    assert.equal(status.result.state, 'CANCELLED');
+    assert.equal(status.result.receipt.reason, 'broker-restart-quarantined');
+    assert.equal(status.result.receipt.quarantine.code, 'RK_RECOVERY_OWNERSHIP_AMBIGUOUS');
+    assert.equal(status.result.receipt.quarantine.recoveredFrom, 'RUNNING');
+    assert.equal(status.result.receipt.quarantine.processMayBeLive, false);
+    // The service is live, not merely constructed: it still accepts new work.
+    const submitted = await call(item.service, submit(managed(item.workspace, ['--version'])));
+    assert.equal(submitted.result.type, 'SUBMITTED');
+  } finally { await item.cleanup(); }
+});
+
+test('recovery quarantines an owned tree whose identity no longer matches', async () => {
+  // A live pid whose persisted creation-time token no longer matches is PID
+  // reuse: the reap must refuse rather than signal an unrelated process, and
+  // that refusal must quarantine the row instead of bricking startup.
+  const stranger = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: true, stdio: 'ignore' });
+  stranger.unref();
+  const ownership = { pid: stranger.pid, platform: process.platform === 'win32' ? 'win32' : 'posix', processGroupId: stranger.pid, sessionId: stranger.pid, uid: process.getuid?.() ?? 0, identity: 'never-matches' };
+  const item = await fixture({ seedOpenRequests: [{ id: 'reused-pid', state: 'RUNNING', data: { ownership } }] });
+  try {
+    const status = await call(item.service, command('STATUS', 'reused-pid'));
+    assert.equal(status.result.state, 'CANCELLED');
+    assert.equal(status.result.receipt.reason, 'broker-restart-quarantined');
+    assert.equal(status.result.receipt.quarantine.code, 'RK_RECOVERY_REAP_INCOMPLETE');
+    assert.equal(status.result.receipt.quarantine.ownership.pid, stranger.pid);
+    assert.equal(typeof status.result.receipt.quarantine.reason, 'string');
+    // Refusing means refusing: the unrelated process is still running.
+    assert.equal(isAlive(stranger.pid), true);
+    const submitted = await call(item.service, submit(managed(item.workspace, ['--version'])));
+    assert.equal(submitted.result.type, 'SUBMITTED');
+  } finally { try { process.kill(stranger.pid, 'SIGKILL'); } catch {} await item.cleanup(); }
+});
+
+test('recovery quarantine is per-row: one poisoned request never strands the others', async () => {
+  const item = await fixture({ seedOpenRequests: [
+    { id: 'poisoned-a', state: 'RUNNING' },
+    { id: 'clean-admitted', state: 'ADMITTED' },
+    { id: 'poisoned-b', state: 'REAPING' }
+  ] });
+  try {
+    for (const id of ['poisoned-a', 'clean-admitted', 'poisoned-b']) {
+      const status = await call(item.service, command('STATUS', id));
+      assert.equal(status.result.state, 'CANCELLED', `${id} was not terminalized`);
+    }
+    // ADMITTED without ownership never launched, so it keeps the clean reason.
+    const admitted = await call(item.service, command('STATUS', 'clean-admitted'));
+    assert.equal(admitted.result.receipt.reason, 'broker-restart-before-launch');
+  } finally { await item.cleanup(); }
+});
+
+// A crash at every open boundary must terminalize with exactly one receipt and
+// must never leave the row replayable as duplicate execution.
+test('recovery yields exactly one receipt at every open lifecycle boundary', async () => {
+  for (const state of ['ADMITTED', 'STARTING', 'RUNNING', 'REAPING']) {
+    const item = await fixture({ seedOpenRequests: [{ id: `boundary-${state}`, state }] });
+    try {
+      const first = await readStoredRecoveryReceipt(item.databasePath, `boundary-${state}`);
+      assert.equal(first.entry.state, 'CANCELLED', `${state} did not terminalize`);
+      assert.ok(first.receipt, `${state} produced no receipt`);
+      assert.equal(first.receipt.exitCode, 125);
+      await item.service.shutdown();
+      // Re-open over the same database: a second recovery pass must be a no-op.
+      const again = await ManagedJobService.create({ config: item.config, statfs: async () => ({ bavail: 100000000, bsize: 1 }), targetInspector: async (input) => ({ ...input, toolchain: input.pinnedToolchain, compiler: { release: null, host: null }, available: true }) });
+      try {
+        const second = await readStoredRecoveryReceipt(item.databasePath, `boundary-${state}`);
+        assert.deepEqual(second.receipt, first.receipt, `${state} receipt changed on second recovery`);
+      } finally { await again.shutdown().catch(() => null); }
+    } finally { await item.cleanup(); }
+  }
+});
+
+function isAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+
+test('a failing event log cannot make recovery quarantine throw and brick startup', async () => {
+  // The event log is best-effort. If awaiting it inside quarantine could reject,
+  // the rejection would propagate out of #recover() and stop the broker binding.
+  const eventLog = { append: async () => { throw new Error('event log is unwritable'); }, close: async () => {} };
+  const item = await fixture({ eventLog, seedOpenRequests: [{ id: 'log-fails', state: 'RUNNING' }] });
+  try {
+    const status = await call(item.service, command('STATUS', 'log-fails'));
+    assert.equal(status.result.state, 'CANCELLED');
+    assert.equal(status.result.receipt.quarantine.code, 'RK_RECOVERY_OWNERSHIP_AMBIGUOUS');
+    const submitted = await call(item.service, submit(managed(item.workspace, ['--version'])));
+    assert.equal(submitted.result.type, 'SUBMITTED');
   } finally { await item.cleanup(); }
 });

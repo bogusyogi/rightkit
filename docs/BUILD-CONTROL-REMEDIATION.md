@@ -1,6 +1,6 @@
 # RightKit Build Control — Remediation Plan
 
-**Status:** **evidence appendix.** Superseded as an implementation contract by [RIGHTKIT-RECOVERY-SUMMARY.md](RIGHTKIT-RECOVERY-SUMMARY.md), which chooses the safer architecture. Read this document for measurements, incident history, and defect inventory; read the recovery summary for design boundaries. Where the two disagree on a *fix*, the recovery summary wins — see §12 for the itemised adjudication.
+**Status:** **evidence appendix.** Superseded as an implementation contract by [RIGHTKIT-RECOVERY-SUMMARY.md](RIGHTKIT-RECOVERY-SUMMARY.md), which chooses the safer architecture. Read this document for measurements, incident history, and defect inventory; read the recovery summary for design boundaries. Where the two disagree on a *fix*, the recovery summary wins; this document carries no itemised adjudication section.
 **Evidence basis:** live inspection of `/Volumes/D/.rightkit-managed` on 2026-08-14 — `state/broker.json` (407 entries), 1 187 receipt files, on-disk namespace measurement, live process table, and runtime `v1.14-statfs-safe-20260814` sources.
 **Scope:** `@rightkit/build-control-{core,broker,clients,policy,staging}` and the workspace rules that govern them.
 

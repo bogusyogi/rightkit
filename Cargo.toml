@@ -1,3 +1,37 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+
+# Build-time profile tuning. The managed broker forbids `.cargo/config.toml`
+# (it rejects any workspace config that redirects tools, outputs, or flags), so
+# manifest profiles are the only place workspace-wide build cost can be shaped.
+#
+# This host is 8 cores / 8.6 GB, and the broker admits 2 concurrent builds at 4
+# jobs each — so peak memory, not core count, is the binding constraint. Every
+# setting below reduces per-compile memory and link time rather than adding
+# parallelism, which is what actually makes builds finish here.
+
+[profile.dev]
+# Line tables keep file/line in backtraces and panics; they drop the type,
+# variable, and scope DWARF that dominates both object size and link time.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+# Dependencies are not debugged from source, so they need no debug info at all.
+# With 275 crates in the lock this is the single largest dev-build saving.
+debug = false
+
+[profile.dev.build-override]
+# Build scripts and proc macros run on the host and are never stepped through.
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

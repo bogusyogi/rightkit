@@ -94,3 +94,39 @@ test('factory installs only explicit external tool pins', () => {
   assert.throws(() => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command: 'nextest', toolId: 'x', lane: 'BUILD', digest: 'bad' }] }));
   assert.throws(() => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command: 'nextest', toolId: 'x', lane: 'BUILD', digest: 'b'.repeat(64) }, { shim: 'cargo', command: 'nextest', toolId: 'y', lane: 'BUILD', digest: 'c'.repeat(64) }] }));
 });
+
+test('any digest-pinned external Cargo tool registers, not just a hardcoded pair', () => {
+  const registry = createCommandCapabilityRegistry({ externalCommands: [
+    { shim: 'cargo', command: 'outdated', toolId: 'cargo-outdated', lane: 'WORKSPACE_WRITE', digest: 'd'.repeat(64) },
+    { shim: 'cargo', command: 'machete', toolId: 'cargo-machete', lane: 'WORKSPACE_WRITE', digest: 'e'.repeat(64) },
+    { shim: 'cargo', command: 'audit', toolId: 'cargo-audit', lane: 'CONTROL', digest: 'f'.repeat(64) },
+    { shim: 'cargo', command: 'deny', toolId: 'cargo-deny', lane: 'CONTROL', digest: '0'.repeat(64) }
+  ] });
+  assert.equal(registry.classify('cargo', ['outdated']).lane, 'WORKSPACE_WRITE');
+  assert.equal(registry.classify('cargo', ['machete']).externalToolId, 'cargo-machete');
+  assert.equal(registry.classify('cargo', ['audit']).lane, 'CONTROL');
+  assert.equal(registry.classify('cargo', ['deny', 'check']).externalDigest, '0'.repeat(64));
+});
+
+test('unpinned external Cargo tools still fail closed', () => {
+  // Declaring the placeholder must not make the command reachable on its own.
+  for (const command of ['outdated', 'machete', 'audit', 'deny']) {
+    assert.throws(() => classifyManagedCommand('cargo', [command]), UnknownManagedCommandError);
+  }
+});
+
+test('an external registration can never shadow a built-in Cargo command', () => {
+  for (const command of ['build', 'test', 'clean', 'metadata', 'install']) {
+    assert.throws(
+      () => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command, toolId: 'evil', lane: 'BUILD', digest: 'a'.repeat(64) }] }),
+      /cannot shadow built-in/,
+      `${command} was shadowable`
+    );
+  }
+});
+
+test('external Cargo command names are bounded tokens', () => {
+  for (const command of ['--version', '../evil', 'Outdated', 'a b', '-x']) {
+    assert.throws(() => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command, toolId: 'x', lane: 'CONTROL', digest: 'a'.repeat(64) }] }));
+  }
+});

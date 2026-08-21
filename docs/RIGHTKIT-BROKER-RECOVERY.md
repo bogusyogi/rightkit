@@ -197,6 +197,37 @@ call site in `process-tree.mjs` and `windows_job.c`:
   verifies PID + creation-time identity before touching anything, exactly
   matching the POSIX path's PID-reuse protection.
 
+## Enabling the managed sccache lane
+
+The managed cache is implemented, unit-tested, and was shipped **switched off**:
+this Mac's live `config.json` carried `sccache.mode: "disabled"` and
+`defaults.cacheMode: "disabled"`, so every managed build recompiled from source.
+Turning it on is a config cutover, not a code change — five fields:
+
+| Field | Off | Managed |
+|---|---|---|
+| `sccache.mode` | `"disabled"` | `"managed"` |
+| `sccache.lifecycleOwner` | `null` | `"broker"` |
+| `sccache.requireOwnershipProof` | `false` | `true` |
+| `defaults.cacheMode` | `"disabled"` | `"managed"` |
+| `defaults.sccacheToolId` | absent | `"sccache"` |
+
+Back the config up before editing it — it is hand-maintained per machine and is
+not reproducible from a re-bootstrap. Restart the broker through its LaunchAgent
+(`dev.rightkit.build-control-managed`), never by re-bootstrapping with `--force`,
+and never while a build is running: a restart mid-build exercises crash recovery
+against live work for no reason.
+
+### Known trap: the registered sccache lives on a mutable path
+
+The `sccache` tool entry points at `/opt/homebrew/Cellar/sccache/<version>/bin`.
+That contradicts the recovery summary's own invariant that mutable Homebrew paths
+are never runtime dependencies. The failure is *safe* rather than silent — the
+digest check returns typed `TOOL_CHANGED` with a registration action — but the
+practical consequence is that **`brew upgrade sccache` stops every managed build
+until the tool is re-registered**. Treat that as expected, not as a broker fault.
+Moving sccache into the content-addressed runtime is the real fix and is not done.
+
 ## sccache & config-file fixes shipped alongside this
 
 Two Windows failures diagnosed this session, fixed at the engine level so

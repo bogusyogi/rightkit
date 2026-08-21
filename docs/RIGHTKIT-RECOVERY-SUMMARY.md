@@ -1,6 +1,14 @@
 # RightKit Recovery Summary
 
-**Status:** implemented in source; macOS deployment requires green cutover proof.
+**Status:** **source complete, operationally unaccepted.** The architecture below is
+implemented and unit-covered, but 11 of the 13 live proofs in *Required proof* are still
+open. Source-level tests are not acceptance: process doubles cannot reproduce daemon
+crashes, orphaned compilers, lane stalls, or disk pressure — the original remediation plan
+said so, and calling this "implemented" anyway is what let EC-902 read as an isolated
+urgent fix instead of unfinished remediation.
+
+Do not report RightKit build control as done until every proof below is struck through
+with the evidence that closed it.
 
 ## Confirmed failure
 
@@ -22,6 +30,13 @@ fail closed. Windows BUILD fails closed pending native Job Object containment.
 - Cache supervisor separately owns versioned sccache binary, daemon, socket, limits, health, & fallback.
 - Maintenance worker separately owns inventory, orphan cleanup, retention, & GC.
 - SQLite WAL replaces full JSON rewrites & atomically records transitions plus terminal receipt.
+- Recovery is total: a row it cannot prove clean is quarantined with a typed
+  receipt (`RK_RECOVERY_OWNERSHIP_AMBIGUOUS`, `RK_RECOVERY_REAP_INCOMPLETE`) and
+  startup continues. Recovery never throws — a throw there runs before the socket
+  binds, so one unrecoverable row used to leave the broker unable to start at all,
+  with no exit but manual SQLite surgery.
+- A quarantine receipt whose reap escalated sets `processMayBeLive`, which is an
+  operator signal that a descendant may have survived — not a clean cancellation.
 
 Lifecycle:
 
@@ -57,7 +72,7 @@ Socket disconnect detaches an observer; it does not cancel work. Explicit cancel
 4. Nested Cargo cannot deadlock behind parent permit.
 5. Hung `statfs` or GC cannot hold build lane.
 6. GC racing same-namespace admission cannot delete live/warm target.
-7. Broker crash at every lifecycle boundary yields no duplicate execution & exactly one receipt.
+7. ~~Broker crash at every lifecycle boundary yields no duplicate execution & exactly one receipt.~~ **Closed 2026-08-21** by `recovery yields exactly one receipt at every open lifecycle boundary` in `packages/build-control-broker/src/job-service.test.mjs`, which seeds a real durable row at each of ADMITTED/STARTING/RUNNING/REAPING, recovers twice over the same SQLite database, and asserts the receipt is byte-identical across both passes. This is the one proof a process double *can* carry, because the durable store — not the process — is the thing under test. Proofs 1–6 and 8–13 cannot be closed this way.
 8. Failed/cancelled build preserves target; warm rerun proves reuse.
 9. sccache failure performs bounded restart or direct-rustc fallback.
 10. Tool/runtime digest change gives typed rejection & atomic rollback.

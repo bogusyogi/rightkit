@@ -565,13 +565,43 @@ export class ManagedJobService {
         await this.#log({ type: 'RECOVERED', id: entry.id, from: entry.state, to: 'CANCELLED' });
         continue;
       }
-      if (!ownership) throw new Error(`open request lacks durable process ownership: ${entry.id}`);
-      const reap = await reapPersistedProcessTree(ownership, { graceMs: integer(this.#config.bounds?.processGraceMs, 'processGraceMs', 5_000) });
-      if (!reap.reaped) throw new Error(`cannot safely recover owned process tree ${entry.id}: ${reap.reason}`);
+      // Ambiguous ownership used to throw here, which bricked every subsequent
+      // start: one unrecoverable row kept the broker from ever binding again.
+      // Recovery now quarantines the row instead, so startup always completes
+      // and the unresolved tree is surfaced as evidence rather than a crash.
+      if (!ownership) { await this.#quarantineRecovery(entry, { code: 'RK_RECOVERY_OWNERSHIP_AMBIGUOUS', reason: 'ownership-missing' }); continue; }
+      let reap;
+      try { reap = await reapPersistedProcessTree(ownership, { graceMs: integer(this.#config.bounds?.processGraceMs, 'processGraceMs', 5_000) }); }
+      catch (error) { reap = Object.freeze({ status: 'REAP_FAILED', reaped: false, escalated: false, reason: error?.message ?? 'reap-failed' }); }
+      if (!reap.reaped) { await this.#quarantineRecovery(entry, { code: 'RK_RECOVERY_REAP_INCOMPLETE', reason: reap.reason ?? 'reap-incomplete', reap, ownership }); continue; }
       const receipt = { id: entry.id, state: 'CANCELLED', exitCode: 125, reason: 'broker-restart', recoveredFrom: entry.state, reap, terminalAt: nowIso() };
       this.#store.recoverOpenRequest({ id: entry.id, state: 'CANCELLED', data: { reason: 'broker-restart', reap }, receipt, occurredAt: receipt.terminalAt }); this.#store.releaseReservation?.({ requestId: entry.id });
       await this.#log({ type: 'RECOVERED', id: entry.id, from: entry.state, to: 'CANCELLED', reap });
     }
+  }
+
+  /**
+   * Terminalize one open request that recovery could not prove clean.
+   *
+   * The receipt records the typed cause and, when the reap escalated, that a
+   * descendant may still be live — an operator signal, not a clean cancel.
+   * Quarantine never rethrows: a failure to record one row must not stop the
+   * broker from recovering every other row and starting.
+   */
+  async #quarantineRecovery(entry, { code, reason, reap = null, ownership = null }) {
+    const quarantine = { code, reason, recoveredFrom: entry.state, processMayBeLive: reap?.escalated === true, ownership: ownership ? { pid: ownership.pid, platform: ownership.platform, processGroupId: ownership.processGroupId ?? null } : null };
+    const receipt = { id: entry.id, state: 'CANCELLED', exitCode: 125, reason: 'broker-restart-quarantined', recoveredFrom: entry.state, quarantine, reap, terminalAt: nowIso() };
+    try {
+      this.#store.recoverOpenRequest({ id: entry.id, state: 'CANCELLED', data: { reason: receipt.reason, quarantine, reap }, receipt, occurredAt: receipt.terminalAt });
+      this.#store.releaseReservation?.({ requestId: entry.id });
+    } catch (error) {
+      // The row stays open and is retried on the next start; that is recoverable,
+      // whereas refusing to start is not. #log already swallows its own failures.
+      await this.#log({ type: 'RECOVERY_QUARANTINE_FAILED', id: entry.id, code, reason, error: error?.message ?? String(error) });
+      return null;
+    }
+    await this.#log({ type: 'RECOVERY_QUARANTINED', id: entry.id, from: entry.state, to: 'CANCELLED', code, reason, processMayBeLive: quarantine.processMayBeLive, reap });
+    return receipt;
   }
 
   #startMaintenance() {
