@@ -222,7 +222,7 @@ export class ThinJobService {
       job.ownership = this.#ownership(job.child, { identity: observed });
       if (job.capability.artifactWrite) job.workspace = await this.#state.markRunning(job.workspaceRoot, { id: job.id, ownership: job.ownership, command: job.command });
       job.state = 'RUNNING'; job.startedAt = this.#now();
-      await this.#log({ type: 'STARTED', id: job.id, pid: job.ownership.pid, pgid: job.ownership.processGroupId, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cacheMode: job.cachePrepared.mode });
+      await this.#log({ type: 'STARTED', id: job.id, pid: job.ownership.pid, pgid: job.ownership.processGroupId, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cacheMode: job.cachePrepared.mode, tempDir: job.cachePrepared.environment.TMPDIR ?? null });
       await this.#start(job.child);
       this.#startSampling(job);
       if (job.cancelReason) this.#terminateJob(job);
