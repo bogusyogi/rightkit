@@ -71,6 +71,37 @@ must not be.
 
 ---
 
+## Implementation order
+
+Seven independent external audits between 2026-08-21 and 2026-08-22 converge on this
+sequence. Each row names the finding that justifies it, so the reasoning is recoverable
+without re-reading the audits.
+
+| # | Do this | Why now | Size |
+|---|---|---|---|
+| 1 | Land every live config fix in `bootstrap-macos-cli.mjs` defaults (P31) | Until this lands, a re-bootstrap silently restores the exact settings that caused the 2026-08-14 incident. Everything below can be undone by one `--force`. | text |
+| 2 | Move `outdated` to a read-only dependency-analysis lane; make `tree` lock-aware (P29, P23) | A read-only query is holding a repository's build lane for its whole run. Cheapest correctness win available. | small |
+| 3 | RUNNING-phase heartbeat with resource samples; receipt timing fields (P27, P30) | Nothing can be diagnosed mid-run today — 7 events across 24 minutes. Every later proof that cites log evidence is unprovable without this. | medium |
+| 4 | Run-phase deadline, measured from RUNNING not submission (P28) | A submission-clock deadline would kill queued builds, so this must follow the lane fix, not precede it. | small |
+| 5 | Transactional quarantine; explicit liveness state (P13) | Corruption-class, and a defect introduced by the 2026-08-21 fix itself: a failed gate write still reports success. | small |
+| 6 | OS-enforced broker singleton before the state store opens (P14) | Corruption-class if confirmed — two schedulers over one database. Verify the claim first. | medium |
+| 7 | Release scheduler permits on every path; durable circuit breakers instead (P15) | A held permit wedges every build on the machine at `buildConcurrency: 1`. | small |
+| 8 | Refuse nested BUILD / WORKSPACE_WRITE / TOOLCHAIN_WRITE (P16) | `TOOLCHAIN_WRITE` is absent from `HEAVY`, so nested toolchain mutation escapes its exclusive lane today. | small |
+| 9 | Decide sccache: run the containment proof, evaluating client-side mode first (P26, P17, P33) | Enabled while its condition is unproven, and the risky topology has now been observed live. Do not answer this by disabling caching permanently. | medium |
+| 10 | Generation in the physical namespace path, including temp (P12) | Removes the orphan-reuse hazard structurally; the quarantine gate becomes defence-in-depth rather than the only defence. | structural |
+| 11 | Namespace inspect/clear CLI with audit trail (P4) | An unattended agent that trips a quarantine is stuck with no self-service exit. | small |
+| 12 | One declarative policy model generating validation, classification, and resource acquisition (P22, P6) | Four defects to date were one rule enforced in several places with one copy updated. | structural |
+| 13 | Storage ledger, reconcile, and the reservation-undercount fix together (P5, section 2) | Pressure GC cannot fire while `usedBytes` is frozen; doing the ledger without the undercount fix makes the ledger inherit the lie. | structural |
+| 14 | Windows: compile and prove the Job Object addon, fix the cutover guard, then resize | The largest idle capacity in the fleet — 20 threads and 63.7 GB running four compilers — but sizing is worthless until containment is proven. | platform |
+| 15 | Split proofs 7b/7c and close proofs 1 and 8 (P20) | Proofs 1 and 8 need only live runs and no new code. | tests |
+| 16 | Benchmark incremental against sccache per profile (P26) | Do not blanket-disable incremental; the two are strong at different workloads. | measurement |
+
+Two decisions are Adrian's and block their rows: **which doctrine rule to displace so F0 can
+land** (the core is at 6 137 of 6 144 bytes), and **whether to run the sccache containment
+proof or accept the risk while it stays enabled**.
+
+---
+
 ## Pending — open review findings not yet fixed
 
 Raised by two independent validation passes over the consolidated docs on 2026-08-22. None
@@ -547,6 +578,72 @@ counts, and the resource samples from P27. Today every one of these must be reco
 from `lifecycle_transitions`, and the output-timing fields must survive bounded head/tail
 retention — the retention policy discards exactly the evidence a slow run needs.
 
+### P31. Live config and bootstrap source have diverged — **confirmed, and it silently reverts every fix**
+
+*Verified in `bootstrap-macos-cli.mjs`.*
+
+Every configuration fix recorded in this document was applied to the **live** `config.json`.
+None of them were applied to the bootstrap that generates it. A fresh bootstrap, a
+`--force` regeneration, or a rebuilt machine therefore restores exactly the settings the
+incidents were caused by:
+
+| Setting | Live (fixed) | Bootstrap source | Consequence of re-bootstrap |
+|---|---|---|---|
+| `bounds.buildConcurrency` | 1 | **2** | 2 x 4 = 8 compilers on 8.6 GB — the swap/OOM condition of 2026-08-14 |
+| `defaults.cacheMode` | `managed` | **`disabled`** | every build recompiles from source |
+| `sccache.mode` | `managed` | **`disabled`** | as above |
+| `bounds.jobDeadlineMs` | 0 | **0** | matches, and both are wrong (P28) |
+| `externalCommands` | 5 | **1** | the four registered plugins disappear |
+
+This is the same defect class as section 12.5 — a rule held in two places with one copy
+updated — applied to configuration rather than code, and it is arguably worse, because
+nothing fails loudly. The machine simply returns to its pre-remediation behaviour and the
+next incident looks new. **Any config change recorded here must land in the bootstrap
+defaults in the same change**, and the bootstrap defaults are the authoritative statement of
+intent, not the live file.
+
+Note the bootstrap's sccache comment is a deliberate policy — "a separately-decided
+activation, not a bootstrap default" — which is defensible. The concurrency and external
+command drift is not.
+
+### P32. F3.6 is already closed in source — this document is stale
+
+*Verified in `tool-registry.mjs`: identity is `(path, size, mtimeNs, ctimeNs)` and `sameIdentity`
+short-circuits re-hashing.*
+
+Section 3.5 / F3.6 describes ~45 MiB read and SHA-256'd on every request as a live cost, and
+several later summaries repeat it. The memoisation the fix proposed has already landed. The
+finding should be struck through rather than carried, and it is a reminder that this document
+mixes current implementation with future remediation (P25) — a reader planning work off it
+would have re-implemented a fix that exists.
+
+The same audit reports `--target` injection live and one target tree rather than two, which
+would close F1.2. **Not independently verified here** — record as reported, and confirm before
+striking F1.2.
+
+### P33. sccache containment risk observed live, not merely inferred
+
+An audit watching the running system reported the sccache server spawning `rustc` children
+inside the *server's* process group rather than the requesting job's — the exact topology P17
+describes. If that observation holds, compilers started on a cache miss are structurally
+unreachable by the broker's process-group kill, so cancelling a build cannot certify its
+compilers ended. That moves proof 9 from theoretical to observed and makes P26's client-side
+evaluation the deciding experiment. Independent confirmation is still required before this is
+treated as measured.
+
+### P34. Two more open items worth naming
+
+- **The `cargo install` that provisioned cargo-edit held the machine's only BUILD slot for
+  its whole compile**, because a toolchain-provisioning install is classified as ordinary
+  BUILD at `buildConcurrency: 1`. Tool provisioning and product compilation should not
+  contend for the same single slot. This is P15's wedge shape appearing through normal
+  operation rather than through failure.
+- **Plugins installed through the broker land inside a GC-reclaimable workspace namespace**
+  (`workspaces/<ns>/build/install/bin`), so pinning a tool digest at that path pins it to a
+  path maintenance may delete. Managed tool binaries need a stable location outside any
+  workspace namespace. This compounds the mutable-path trap in architecture section 7 rather
+  than replacing it.
+
 ### Findings raised and rejected
 
 - **"sccache enablement contradicts `requireOwnershipProof`"** — rejected; see P3. The runtime
@@ -688,6 +785,15 @@ Add to `docs/agent-rules/workspace.md`:
 > Instrumentation is not "separate proof". Any long-running service, queue, scheduler, or process supervisor must emit a structured lifecycle event log as part of its first delivery. A service whose failures cannot be diagnosed from its own output is incomplete, not minimal.
 
 Without F0, the next system built here repeats this exactly. **F0 is the highest-priority item in this document** and it is a text edit.
+
+**Attempted and blocked 2026-08-22.** `docs/agent-rules/workspace.md` is at **6 137 of its
+6 144-byte cap and 60 of its 60-line cap — seven bytes of headroom**. The rule cannot be added
+without displacing an existing one, and which rule to drop is Adrian's decision, not an
+agent's. The attempt was reverted and `manage.py check` is clean. The finding is sharper than
+the fix: **the doctrine's own size budget is what prevents the doctrine fix**, so F0 is not a
+text edit as this document claimed — it is a trade. The wording drafted, for whoever makes the trade: *ship a lifecycle event log with every
+long-running service as delivery, never as separate proof.* The broker's own missing RUNNING
+heartbeat (P27) is the code half and is open regardless.
 
 ---
 
