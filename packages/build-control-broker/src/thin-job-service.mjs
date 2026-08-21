@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
-import { readFile, realpath, stat, statfs as nodeStatfs } from 'node:fs/promises';
+import { readFile, realpath, statfs as nodeStatfs } from 'node:fs/promises';
 import net from 'node:net';
 import { basename, delimiter, dirname, isAbsolute, join, normalize } from 'node:path';
 import { promisify } from 'node:util';
@@ -23,6 +23,7 @@ import { ThinScheduler } from './thin-scheduler.mjs';
 import { acquireThinBrokerSingleton } from './thin-singleton.mjs';
 import { ThinState } from './thin-state.mjs';
 import { ImmutableToolRegistry, ToolChangedError } from './tool-registry.mjs';
+import { rejectWorkspaceCargoConfiguration } from './utilities.mjs';
 import {
   managedProcessOwnership,
   readManagedProcessIdentity,
@@ -45,16 +46,6 @@ const integer = (value, fallback, minimum = 0) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const safeExit = (code, status) => status === 'SUCCEEDED' ? 0 : Number.isInteger(code) && code >= 1 && code <= 255 ? code : 125;
 const appendTail = (current, chunk, limit) => chunk.length >= limit ? Buffer.from(chunk.subarray(chunk.length - limit)) : Buffer.concat([current, chunk]).subarray(Math.max(0, current.length + chunk.length - limit));
-
-async function rejectCargoConfig(workspace) {
-  for (let current = workspace;; current = dirname(current)) {
-    for (const name of ['config', 'config.toml']) {
-      try { await stat(join(current, '.cargo', name)); throw Object.assign(new Error(`managed Cargo rejects ${join(current, '.cargo', name)}; workspace Cargo configuration is unsupported`), { code: 'RK_CARGO_CONFIG_REJECTED' }); }
-      catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error; }
-    }
-    const parent = dirname(current); if (parent === current) break; current = parent;
-  }
-}
 
 export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env } = {}) {
   if (typeof workspace !== 'string' || !isAbsolute(workspace) || typeof cargoPath !== 'string' || !cargoPath) throw new TypeError('absolute workspace & cargoPath are required');
@@ -179,7 +170,7 @@ export class ThinJobService {
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw Object.assign(new Error('nested capability token is invalid'), { code: 'RK_PARENT_CAPABILITY_INVALID' });
     }
     const cargoTool = await this.#registry.verify(this.#config.shims?.cargo);
-    if (message.shim === 'cargo' && capability.workspaceAccess !== 'none') await rejectCargoConfig(request.workspace);
+    if (message.shim === 'cargo' && capability.workspaceAccess !== 'none') await rejectWorkspaceCargoConfiguration(request.workspace);
     const roots = capability.workspaceAccess === 'none'
       ? { executionCwd: await realpath(request.workspace), workspaceRoot: null }
       : parent ? { executionCwd: await realpath(request.workspace), workspaceRoot: parent.workspaceRoot }

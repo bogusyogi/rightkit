@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -18,7 +18,8 @@ class Child extends EventEmitter {
 
 async function fixture({ externalCommands = [], cache = null } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const workspace = join(root, 'workspace'); const other = join(root, 'other');
-  await Promise.all([mkdir(workspace), mkdir(other)]);
+  await Promise.all([mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
+  await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
   const state = await ThinState.open({ externalRoot: root }); const children = []; let pid = 300;
   const tools = new Map([['cargo', { id: 'cargo', path: '/managed/cargo', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
   const registry = { verify: async (id) => { const tool = tools.get(id); if (!tool) throw new Error(`missing ${id}`); return tool; } };
@@ -45,6 +46,16 @@ test('two BUILD roots serialize globally while CONTROL completes', async () => {
     await waitFor(item.service, second.id, ['RUNNING']);
     item.children.find((child) => child.payload.argv.includes('test')).emit('close', 0, null);
     assert.equal((await call(item.service, command('WATCH', second.id))).result.status, 'SUCCEEDED');
+  } finally { await item.close(); }
+});
+
+test('allows harmless Cargo config but rejects managed output redirection', async () => {
+  const item = await fixture();
+  try {
+    assert.equal((await call(item.service, command('SUBMIT', message(item.workspace, ['--version'])))).result.type, 'SUBMITTED');
+    await writeFile(join(item.workspace, '.cargo', 'config.toml'), '[build]\ntarget-dir = "local-target"\n');
+    const rejected = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+    assert.equal(rejected.status, 'REJECTED'); assert.match(rejected.error, /cannot redirect/);
   } finally { await item.close(); }
 });
 
