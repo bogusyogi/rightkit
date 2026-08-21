@@ -34,7 +34,7 @@ export const MANAGED_RUST_ENVIRONMENT_KEYS = Object.freeze([
  */
 export const MANAGED_REQUEST_ENVIRONMENT_KEYS = Object.freeze([
   'CI', 'CARGO_TERM_COLOR', 'NO_COLOR', 'RUST_BACKTRACE', 'RUST_LOG',
-  'SOURCE_DATE_EPOCH', 'TERM', 'TZ'
+  'SOURCE_DATE_EPOCH', 'TERM', 'TZ', '__CF_USER_TEXT_ENCODING'
 ]);
 const managedRequestEnvironment = new Set(MANAGED_REQUEST_ENVIRONMENT_KEYS);
 const delegatedCompilerAmbientEnvironment = /^__CF_USER_TEXT_ENCODING$/i;

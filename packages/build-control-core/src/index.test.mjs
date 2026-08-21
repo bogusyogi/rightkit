@@ -55,7 +55,7 @@ test('captures every controlled Rust/Cargo override for fail-closed admission', 
 });
 
 test('request environment is allowlisted while broker runtime injection wins', () => {
-  assert.deepEqual(normalizeRequestEnvironment({ ci: '1', RUST_LOG: 'warn', TERM: 'xterm-256color' }), { CI: '1', RUST_LOG: 'warn', TERM: 'xterm-256color' });
+  assert.deepEqual(normalizeRequestEnvironment({ ci: '1', RUST_LOG: 'warn', TERM: 'xterm-256color', __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0' }), { CI: '1', RUST_LOG: 'warn', TERM: 'xterm-256color', __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0' });
   for (const key of ['DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'LD_PRELOAD', 'LD_AUDIT', 'NODE_OPTIONS', 'RUSTC_WRAPPER', 'RUSTC', 'RUSTFLAGS', 'CARGO_BUILD_RUSTC', 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER', 'CC', 'CXX', 'AR', 'PATH', 'HOME', 'TOKEN_FILE']) {
     assert.throws(() => normalizeRequestEnvironment({ [key]: '/untrusted' }), /broker-controlled|allowlisted/);
   }
