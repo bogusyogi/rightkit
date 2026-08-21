@@ -1,10 +1,150 @@
-# RightKit Build Control — Remediation Plan
+# RightKit Build Control — Remediation & Proof Status
 
-**Status:** **evidence appendix.** Superseded as an implementation contract by [RIGHTKIT-RECOVERY-SUMMARY.md](RIGHTKIT-RECOVERY-SUMMARY.md), which chooses the safer architecture. Read this document for measurements, incident history, and defect inventory; read the recovery summary for design boundaries. Where the two disagree on a *fix*, the recovery summary wins; this document carries no itemised adjudication section.
-**Evidence basis:** live inspection of `/Volumes/D/.rightkit-managed` on 2026-08-14 — `state/broker.json` (407 entries), 1 187 receipt files, on-disk namespace measurement, live process table, and runtime `v1.14-statfs-safe-20260814` sources.
-**Scope:** `@rightkit/build-control-{core,broker,clients,policy,staging}` and the workspace rules that govern them.
+**Status:** open. Source-complete, **operationally unaccepted**.
 
-Every claim below is followed by the observation that produces it. Where a claim is inference rather than measurement, it says so.
+**Companion document:** [RIGHTKIT-BUILD-CONTROL-ARCHITECTURE.md](RIGHTKIT-BUILD-CONTROL-ARCHITECTURE.md)
+describes what the system *is* and how to operate it. This document tracks what has been
+*proven* about it, what has not, and the incidents that produced the design. Where the two
+disagree about a design boundary, the architecture document wins; where they disagree about
+whether something is finished, **this one wins**.
+
+**Scope:** `@rightkit/build-control-{core,broker,clients,policy,staging}` and the workspace
+rules that govern them.
+
+**Evidence basis:** live inspection of `/Volumes/D/.rightkit-managed` on 2026-08-14 —
+`state/broker.json` (407 entries), 1 187 receipt files, on-disk namespace measurement, the
+live process table, and runtime `v1.14-statfs-safe-20260814` sources; plus the 2026-08-21
+broker crash-loop incident and the repairs recorded in §12.
+
+Every claim below is followed by the observation that produces it. Where a claim is
+inference rather than measurement, it says so.
+
+---
+
+## The standing rule this document exists to enforce
+
+> **Source-level tests are not operational acceptance.**
+
+The original remediation plan said plainly that unit-test process doubles cannot reproduce
+daemon crashes, orphaned compilers, lane stalls, or disk pressure. Source-level tests were
+nonetheless recorded as completion evidence, and the recovery summary was marked
+"implemented in source" while thirteen live proofs stood open. That is why failures kept
+arriving as surprises: the remediation was never closed, so each new failure looked like an
+isolated incident instead of the unfinished work it was.
+
+**Do not report build control as done until every proof in the table below is struck
+through with the evidence that closed it.**
+
+---
+
+## Proof status
+
+| # | Required proof | State |
+|---|---|---|
+| 1 | CONTROL probe finishes within two seconds during an active build | **open** |
+| 2 | Installer becomes the next heavy request under background load | **open** |
+| 3 | Client death does not kill a detached installer; explicit cancel reaps every descendant | **open** |
+| 4 | Nested Cargo cannot deadlock behind a parent permit | **open** |
+| 5 | A hung `statfs` or GC cannot hold the build lane | **open** |
+| 6 | GC racing same-namespace admission cannot delete a live/warm target | **open** |
+| 7 | ~~Broker crash at every lifecycle boundary yields no duplicate execution and exactly one receipt~~ | **closed 2026-08-21** — see below |
+| 8 | A failed/cancelled build preserves its target; a warm rerun proves reuse | **open** |
+| 9 | sccache failure performs a bounded restart or direct-rustc fallback | **open** — and newly load-bearing, since sccache was enabled on macOS on 2026-08-21 |
+| 10 | Tool/runtime digest change gives a typed rejection and atomic rollback | **partially observed** — a real digest mismatch was seen on 2026-08-21 and behaved as designed, but rollback was not exercised |
+| 11 | Real multi-repository contention passes on macOS | **open** |
+| 12 | Windows Job Object plus a live Windows contention fixture pass | **open** — the C addon has never been compiled on a Windows host |
+| 13 | HeardRight installer builds, installs, launches, and passes installed-runtime acceptance | **open** |
+
+**Proof 7 closed by:** `recovery yields exactly one receipt at every open lifecycle
+boundary` in `packages/build-control-broker/src/job-service.test.mjs`. It seeds a real
+durable row at each of `ADMITTED`/`STARTING`/`RUNNING`/`REAPING`, recovers twice over the
+same SQLite database, and asserts the receipt is byte-identical across both passes. This is
+the one proof a process double legitimately *can* carry, because the durable store — not
+the process — is the thing under test. Proofs 1–6 and 8–13 cannot be closed this way and
+must not be.
+
+---
+
+## 12. Repairs landed 2026-08-21
+
+Three defects in the same area, found in sequence. The second and third were caused by
+incomplete fixes to the first, which is itself the lesson: this area has more than one
+validator for the same rule.
+
+### 12.1 Recovery could not finish (startup-fatal)
+
+`#recover()` threw on an open request with no durable process ownership, and again on a
+process tree it could not prove reaped. Both run **before the socket binds**, so one
+unrecoverable row left the broker unable to start at all, with no exit but manual SQLite
+surgery. Recovery now quarantines such a row with a typed receipt
+(`RK_RECOVERY_OWNERSHIP_AMBIGUOUS`, `RK_RECOVERY_REAP_INCOMPLETE`) and continues, recording
+`processMayBeLive` when the reap escalated.
+
+An adversarial review on 2026-08-21 found the first version of this fix **unsafe** and it
+was corrected before shipping. A namespace is one directory per repository/target and its
+generation is not part of the path, so terminalizing the row without gating the namespace
+would have let a later job reuse the very directory a surviving compiler was writing into —
+trading a broker that cannot start for silent concurrent writers. Quarantine now records a
+durable namespace gate and `#prepareNamespace` refuses heavy work there with typed
+`RK_NAMESPACE_QUARANTINED`. The gate applies to **any** unproven reap, not only an
+escalated one: "could not prove the tree is gone" is as unsafe for directory reuse as
+"proved it is still alive". CONTROL work is unaffected.
+
+**Residual risk, not yet closed:**
+
+- The gate must be cleared by an operator; nothing clears it automatically, and no CLI
+  exists for it yet. A machine that quarantines a namespace will refuse heavy work there
+  until the setting is removed by hand.
+- `releaseReservation` still frees byte accounting at quarantine time, so the free-space
+  floor undercounts a still-growing orphan's output. Successor to proof 6.
+- `processMayBeLive` is recorded in the receipt and log but is **not read by any runtime
+  code path**. It is an operator signal only.
+
+### 12.2 External command registration was gated twice (crash loop)
+
+A hardcoded `about`/`nextest` literal gated plugin registration in **two** validators —
+the capability registry and config validation. Opening only the registry left config load
+rejecting the same row; because the broker exits non-zero before binding while launchd
+`KeepAlive` restarts it, the result was a crash loop, not a clean refusal. Both validators
+now apply the same bounded-token rule, and the registry additionally refuses to shadow a
+non-external built-in.
+
+### 12.3 The plugin subcommand was stripped (silent misinvocation)
+
+The broker removed the external subcommand from argv before spawning the plugin binary, so
+`cargo-outdated` was invoked without `outdated` and failed parsing its own invocation. This
+was masked because `cargo-about` — the only registered plugin — tolerates the missing
+subcommand; `nextest` would have failed identically. The old filter also removed the first
+matching token anywhere in the line, so an argument whose value equalled the command name
+was stripped instead.
+
+### 12.4 External registration could claim un-routed Cargo built-ins
+
+The shadowing guard checked only the ~20 subcommands enumerated in
+`DEFAULT_COMMAND_CAPABILITIES`. Every real Cargo built-in absent from that map — `fix`,
+`add`, `remove`, `publish`, `package`, `login`, `owner`, `yank`, `uninstall` — was
+registerable as an external tool, silently defeating the "unknown commands reject"
+invariant for exactly the commands most worth protecting. An explicit built-in set now
+rejects them, and prototype-chain keys are refused explicitly rather than by accident.
+
+### 12.5 What these have in common
+
+Each was a **duplicated rule with one copy updated**. Any future change in this area should
+first enumerate every place the rule is enforced. §E of the standing review checklist
+exists for this reason.
+
+---
+
+## Configuration changes landed 2026-08-21 (macOS)
+
+| Field | Before | After | Rationale |
+|---|---|---|---|
+| `sccache.mode` / `defaults.cacheMode` | `disabled` | `managed` | Implemented and unit-tested but shipped off; every managed build recompiled from source. Makes proof 9 load-bearing. |
+| `bounds.buildConcurrency` | 2 | 1 | 2 × 4 jobs = 8 compilers on an 8.6 GB host, ~1 GB each. rustc exceeds that routinely; the result is swap, kernel-killed compilers, and `exitCode: null` receipts — the 2026-08-14 signature. |
+| `externalCommands` | 1 (`about`) | 5 | `outdated`, `machete`, `audit`, `deny` were installed but unreachable. |
+
+Windows remains unresized at the time of writing: 20 threads and 63.7 GB running 2 × 2 = 4
+compilers, with `targetCacheCapBytes` at 32 GiB against 610 GB free.
 
 ---
 

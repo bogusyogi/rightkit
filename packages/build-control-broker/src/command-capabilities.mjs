@@ -32,6 +32,16 @@ export const DEFAULT_INTERNAL_CAPABILITIES = Object.freeze({
   gc: maintenance('gc'), inventory: maintenance('inventory'), 'orphan-cleanup': maintenance('orphan-cleanup')
 });
 
+/**
+ * Cargo's own subcommands that this broker deliberately does not route. They
+ * must keep rejecting as unknown commands; an external registration may never
+ * claim one of these names.
+ */
+const CARGO_BUILTIN_COMMANDS = new Set([
+  'add', 'remove', 'fix', 'publish', 'package', 'login', 'logout', 'owner', 'yank',
+  'uninstall', 'init', 'new', 'info', 'config', 'report', 'pkgid', 'verify-project', 'rustc', 'rustdoc'
+]);
+
 export class CommandCapabilityRegistry {
   #capabilities;
   constructor(capabilities = DEFAULT_COMMAND_CAPABILITIES) {
@@ -68,8 +78,16 @@ export function createCommandCapabilityRegistry({ externalCommands = [] } = {}) 
     // What must stay impossible is shadowing a built-in: registering `build` or
     // `clean` as an external tool would silently redirect managed compilation.
     if (!/^[a-z][a-z0-9-]*$/.test(entry.command)) throw new TypeError(`invalid external Cargo command: ${entry.command}`);
-    const builtin = DEFAULT_COMMAND_CAPABILITIES.cargo[entry.command];
+    // Checking only DEFAULT_COMMAND_CAPABILITIES would leave every Cargo built-in
+    // this broker does not route (fix, add, publish, login, ...) registerable as
+    // an external tool. Those used to reject as unknown commands; letting config
+    // claim the name would silently redirect them to a chosen binary.
+    const builtin = Object.hasOwn(DEFAULT_COMMAND_CAPABILITIES.cargo, entry.command) ? DEFAULT_COMMAND_CAPABILITIES.cargo[entry.command] : undefined;
     if (builtin && !builtin.external) throw new TypeError(`external registration cannot shadow built-in Cargo command: ${entry.command}`);
+    if (!builtin && CARGO_BUILTIN_COMMANDS.has(entry.command)) throw new TypeError(`external registration cannot shadow built-in Cargo command: ${entry.command}`);
+    // Own-property lookup is deliberate above, so a prototype key no longer
+    // throws by accident the way an inherited member used to. Reject it here.
+    if (Object.hasOwn(Object.prototype, entry.command)) throw new TypeError(`invalid external Cargo command: ${entry.command}`);
     cargo[entry.command] = Object.freeze({ command: entry.command, lane: entry.lane, buildCapable: entry.lane === 'BUILD', external: true, externalToolId: entry.toolId, externalDigest: entry.digest, digest: entry.digest });
   }
   return new CommandCapabilityRegistry({ ...DEFAULT_COMMAND_CAPABILITIES, cargo: Object.freeze(cargo) });

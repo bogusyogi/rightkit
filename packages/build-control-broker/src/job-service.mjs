@@ -237,7 +237,14 @@ export class ManagedJobService {
     const id = randomUUID(); const submittedAt = nowIso();
     const parentCapabilityToken = randomBytes(32).toString('base64url');
     const suppliedCapabilityToken = message.execution?.capabilityToken ?? null;
-    const directArgv = capability.external ? request.argv.filter((value, index) => index !== request.argv.indexOf(capability.command)) : request.argv;
+    // Cargo's plugin convention invokes `cargo-<cmd>` with `<cmd>` as its first
+    // argument, so the subcommand must be forwarded, not stripped. Stripping it
+    // left strict clap plugins (outdated, nextest) parsing their own name as
+    // missing and failing with cargo's own "Usage: cargo <COMMAND>"; it only
+    // appeared to work because cargo-about tolerates the absent subcommand. The
+    // old filter also removed the first argv occurrence anywhere in the line, so
+    // `outdated --package outdated` dropped the wrong token.
+    const directArgv = request.argv;
     const invokeArgv = capability.lane === 'TOOLCHAIN_WRITE' ? [...directArgv, '--toolchain', rustupToolchainSelector(this.#config.defaults.toolchain)] : ['rustc', 'rustdoc'].includes(message.shim) && capability.lane === 'BUILD' ? normalizeCompilerOutputArgv(directArgv, { compiler: message.shim, outputRoot: join(layout.build, 'raw-compiler'), targetTriple }) : directArgv;
     const diagnostics = message.shim === 'rustc' && this.#config.sccache?.mode === 'disabled' ? Object.freeze(['direct-rustc-with-sccache-disabled']) : Object.freeze([]);
     const data = Object.freeze({ id, request, invokeArgv, shim: message.shim, toolId, repositoryIdentity: roots.repositoryRoot, capability, priority, parentId, layout, diagnostics, toolchainEvidence, submittedAt });
@@ -348,6 +355,10 @@ export class ManagedJobService {
   }
 
   async #prepareNamespace(job) {
+    // A namespace gated by recovery may still hold a live orphaned compiler.
+    // Refuse the job rather than hand a second writer the same directory.
+    const gate = this.#store.readSetting(namespaceQuarantineKey(job.layout.namespace));
+    if (gate) throw Object.assign(new Error(`namespace is quarantined by recovery: ${gate.reason ?? gate.code ?? 'unproven reap'}`), { code: 'RK_NAMESPACE_QUARANTINED', quarantine: gate });
     // Durable activation linearizes before mkdir. GC may only claim terminal
     // generations, so source can never be recreated between lease & rename.
     const claimed = this.#store.activateNamespace({ namespace: job.layout.namespace, repositoryIdentity: job.repositoryIdentity });
@@ -590,6 +601,21 @@ export class ManagedJobService {
    */
   async #quarantineRecovery(entry, { code, reason, reap = null, ownership = null }) {
     const quarantine = { code, reason, recoveredFrom: entry.state, processMayBeLive: reap?.escalated === true, ownership: ownership ? { pid: ownership.pid, platform: ownership.platform, processGroupId: ownership.processGroupId ?? null } : null };
+    // A namespace is one directory per repository/target; its generation is not
+    // part of the path, so a later job hashing to it would reuse the very
+    // directory a surviving compiler may still be writing into. Terminalizing
+    // the row without gating the namespace would trade a broker that cannot
+    // start for silent concurrent writers, which is worse. Gate heavy work on
+    // that namespace until an operator proves the tree is gone.
+    const namespace = entry.data?.layout?.namespace ?? null;
+    // Gate on ANY unproven reap, not only an escalated one: "could not prove
+    // the tree is gone" is exactly as unsafe for directory reuse as "proved it
+    // is still alive". processMayBeLive stays the stronger operator signal.
+    if (typeof namespace === 'string' && namespace) {
+      try { this.#store.writeSetting(namespaceQuarantineKey(namespace), { namespace, requestId: entry.id, code, reason, ownership: quarantine.ownership, at: nowIso() }); }
+      catch (error) { await this.#log({ type: 'RECOVERY_NAMESPACE_GATE_FAILED', id: entry.id, namespace, error: error?.message ?? String(error) }); }
+      quarantine.namespaceGated = namespace;
+    }
     const receipt = { id: entry.id, state: 'CANCELLED', exitCode: 125, reason: 'broker-restart-quarantined', recoveredFrom: entry.state, quarantine, reap, terminalAt: nowIso() };
     try {
       this.#store.recoverOpenRequest({ id: entry.id, state: 'CANCELLED', data: { reason: receipt.reason, quarantine, reap }, receipt, occurredAt: receipt.terminalAt });
@@ -784,6 +810,7 @@ function appendBoundedTail(current, chunk, limit) {
   return Buffer.concat([current, chunk]).subarray(start);
 }
 function serializedBytes(value) { return Buffer.byteLength(JSON.stringify(value)); }
+const namespaceQuarantineKey = (namespace) => `namespace-quarantine:${namespace}`;
 function eventLogStatus(failures) { return failures.length ? Object.freeze({ durable: false, code: 'RK_EVENT_LOG_DURABILITY_UNCONFIRMED', failures: Object.freeze([...failures]) }) : Object.freeze({ durable: true }); }
 async function boundedStatfs(root, operation, timeoutMs) { let timer; try { const value = await Promise.race([operation(root), new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('statfs timed out'), { code: 'RK_STATFS_TIMEOUT' })), timeoutMs); timer.unref?.(); })]); const bytes = Number(value.bavail) * Number(value.bsize); if (!Number.isSafeInteger(bytes) || bytes < 0) throw new TypeError('statfs returned invalid free bytes'); return bytes; } finally { clearTimeout(timer); } }
 function selectedManagedToolIds(config) {

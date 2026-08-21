@@ -469,3 +469,37 @@ test('a failing event log cannot make recovery quarantine throw and brick startu
     assert.equal(submitted.result.type, 'SUBMITTED');
   } finally { await item.cleanup(); }
 });
+
+test('a quarantined namespace refuses heavy work while its tree may still be live', async () => {
+  // Terminalizing the row is not enough: the namespace directory is one path per
+  // repository/target, so a later job would reuse the directory a surviving
+  // compiler is still writing into.
+  const stranger = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: true, stdio: 'ignore' });
+  stranger.unref();
+  const ownership = { pid: stranger.pid, platform: process.platform === 'win32' ? 'win32' : 'posix', processGroupId: stranger.pid, sessionId: stranger.pid, uid: process.getuid?.() ?? 0, identity: 'never-matches' };
+  const item = await fixture();
+  try {
+    // Learn the namespace this workspace maps to by running one heavy job.
+    const first = await call(item.service, submit(managed(item.workspace, ['test'])));
+    await waitForState(item.service, first.result.id, ['SUCCEEDED', 'FAILED', 'CANCELLED']);
+    const namespace = (await call(item.service, command('STATUS', first.result.id))).result.receipt.namespace;
+    assert.ok(namespace, 'heavy job reported no namespace');
+    await item.service.shutdown();
+
+    const store = await DurableStateStore.open({ databasePath: item.databasePath });
+    try { seedOpenRequest(store, { id: 'live-orphan', state: 'RUNNING', data: { ownership, layout: { namespace } } }); } finally { store.close(); }
+
+    const revived = await ManagedJobService.create({ config: item.config, statfs: async () => ({ bavail: 100000000, bsize: 1 }), targetInspector: async (input) => ({ ...input, toolchain: input.pinnedToolchain, compiler: { release: null, host: null }, available: true }) });
+    try {
+      const quarantined = await call(revived, command('STATUS', 'live-orphan'));
+      assert.equal(quarantined.result.receipt.quarantine.namespaceGated, namespace);
+      // A fresh heavy job for the same workspace must refuse, not share the dir.
+      const blocked = await call(revived, submit(managed(item.workspace, ['test'])));
+      const settled = await waitForState(revived, blocked.result.id, ['FAILED', 'CANCELLED', 'SUCCEEDED']);
+      assert.notEqual(settled.state, 'SUCCEEDED', 'heavy work ran inside a quarantined namespace');
+      // CONTROL stays available: only the affected namespace is gated.
+      const probe = await call(revived, submit(managed(item.workspace, ['--version'])));
+      assert.equal(probe.result.type, 'SUBMITTED');
+    } finally { await revived.shutdown().catch(() => null); }
+  } finally { try { process.kill(stranger.pid, 'SIGKILL'); } catch {} await item.cleanup(); }
+});

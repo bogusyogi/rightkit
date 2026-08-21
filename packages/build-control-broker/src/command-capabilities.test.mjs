@@ -130,3 +130,23 @@ test('external Cargo command names are bounded tokens', () => {
     assert.throws(() => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command, toolId: 'x', lane: 'CONTROL', digest: 'a'.repeat(64) }] }));
   }
 });
+
+test('an external registration cannot claim a Cargo built-in this broker does not route', () => {
+  // These used to reject as unknown commands. Opening config-driven registration
+  // must not let one of them be redirected to a chosen binary instead.
+  for (const command of ['fix', 'add', 'remove', 'publish', 'package', 'login', 'owner', 'yank', 'uninstall']) {
+    assert.throws(
+      () => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command, toolId: 'x', lane: 'CONTROL', digest: 'a'.repeat(64) }] }),
+      /cannot shadow built-in/,
+      `${command} was registerable`
+    );
+  }
+});
+
+test('a prototype-chain key cannot be registered as an external command', () => {
+  // Only `constructor` is a lowercase own-property of Object.prototype; the
+  // camelCase members and `__proto__` are already refused by the token regex.
+  for (const command of ['constructor', '__proto__', 'toString', 'valueOf']) {
+    assert.throws(() => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command, toolId: 'x', lane: 'CONTROL', digest: 'a'.repeat(64) }] }));
+  }
+});
