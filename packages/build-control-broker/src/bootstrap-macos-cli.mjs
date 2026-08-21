@@ -26,6 +26,7 @@ const EXTERNAL_CARGO_TOOLS = Object.freeze([
   ['deny', 'cargo-deny', 'ANALYSIS'], ['machete', 'cargo-machete', 'ANALYSIS'], ['upgrade', 'cargo-upgrade', 'WORKSPACE_WRITE'],
   ['set-version', 'cargo-set-version', 'WORKSPACE_WRITE'], ['nextest', 'cargo-nextest', 'BUILD']
 ]);
+const STANDALONE_MANAGED_TOOLS = new Set(['sccache', ...EXTERNAL_CARGO_TOOLS.map(([, id]) => id)]);
 
 export function parseArgs(argv) {
   const values = { force: false };
@@ -93,6 +94,11 @@ export async function discoverTools() {
 export async function stageManagedTools(tools, externalRoot) {
   const staged = [];
   for (const tool of tools) {
+    // Rust toolchain binaries depend on sibling libraries, while package-manager
+    // shims may resolve modules relative to their install tree. Keep those
+    // bundle-relative paths intact; their digests remain pinned by the registry.
+    // Only standalone sccache & Cargo extensions move into the managed root.
+    if (!STANDALONE_MANAGED_TOOLS.has(tool.id)) { staged.push(tool); continue; }
     const directory = join(externalRoot, 'rightkit-build-control', 'global', 'tools', tool.id, tool.sha256);
     const target = join(directory, tool.id); await mkdir(directory, { recursive: true });
     try { await copyFile(tool.path, target, constants.COPYFILE_EXCL); await chmod(target, 0o755); }

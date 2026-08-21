@@ -23,6 +23,7 @@ const EXTERNAL_CARGO_TOOLS = Object.freeze([
   ['deny', 'cargo-deny', 'ANALYSIS'], ['machete', 'cargo-machete', 'ANALYSIS'], ['upgrade', 'cargo-upgrade', 'WORKSPACE_WRITE'],
   ['set-version', 'cargo-set-version', 'WORKSPACE_WRITE'], ['nextest', 'cargo-nextest', 'BUILD']
 ]);
+const STANDALONE_MANAGED_TOOLS = new Set(['sccache', ...EXTERNAL_CARGO_TOOLS.map(([, id]) => id)]);
 
 export function parseArgs(argv) {
   const values = { force: false };
@@ -72,6 +73,10 @@ export async function discoverTools() {
 export async function stageManagedTools(tools, externalRoot) {
   const staged = [];
   for (const tool of tools) {
+    // rustc/rustdoc require sibling DLLs; package-manager shims may require
+    // their install trees. Preserve bundle-relative paths while digest-pinning
+    // them. Stage only standalone sccache & Cargo extension executables.
+    if (!STANDALONE_MANAGED_TOOLS.has(tool.id)) { staged.push(tool); continue; }
     const directory = join(externalRoot, 'rightkit-build-control', 'global', 'tools', tool.id, tool.sha256);
     const target = join(directory, `${tool.id}.exe`); await mkdir(directory, { recursive: true });
     try { await copyFile(tool.path, target, constants.COPYFILE_EXCL); }

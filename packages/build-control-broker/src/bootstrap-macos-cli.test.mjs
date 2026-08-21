@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
 import {
-  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, supportsClientSideSccache, whichUnmanaged,
+  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, stageManagedTools, supportsClientSideSccache, whichUnmanaged,
 } from './bootstrap-macos-cli.mjs';
 
 test('parseArgs accepts the documented flags & rejects anything else', () => {
@@ -70,6 +70,25 @@ test('discoverTools records a symlinked tool as its realpath, not the link', asy
   assert.equal(lstatSync(sccache.path).isSymbolicLink(), false, 'a recorded tool path must never be a symlink');
   // Same inode, so resolving must not perturb the recorded digest.
   assert.equal(sccache.sha256, createHash('sha256').update(readFileSync(join(bin, 'sccache'))).digest('hex'));
+});
+
+test('staging preserves bundled tools & copies standalone Cargo tools', async (t) => {
+  const scratch = mkdtempSync(join(tmpdir(), 'rk-stage-tools-'));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const rustcPath = join(scratch, 'toolchain', 'bin', 'rustc');
+  const upgradePath = join(scratch, 'cargo-upgrade');
+  mkdirSync(join(scratch, 'toolchain', 'bin'), { recursive: true });
+  writeFileSync(rustcPath, '#!/bin/sh\n', { mode: 0o755 });
+  writeFileSync(upgradePath, '#!/bin/sh\n', { mode: 0o755 });
+  const tools = [
+    { id: 'rustc', path: rustcPath, root: join(scratch, 'toolchain', 'bin'), sha256: createHash('sha256').update(readFileSync(rustcPath)).digest('hex') },
+    { id: 'cargo-upgrade', path: upgradePath, root: scratch, sha256: createHash('sha256').update(readFileSync(upgradePath)).digest('hex') },
+  ];
+  const [rustc, upgrade] = await stageManagedTools(tools, join(scratch, 'external'));
+  assert.equal(rustc.path, rustcPath);
+  assert.equal(rustc.root, join(scratch, 'toolchain', 'bin'));
+  assert.notEqual(upgrade.path, upgradePath);
+  assert.equal(existsSync(upgrade.path), true);
 });
 
 test('buildConfig produces a config the broker’s own schema accepts', async (t) => {
