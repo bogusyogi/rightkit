@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { execFile as childExecFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { constants, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, readFile, realpath } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, open, readFile, realpath } from 'node:fs/promises';
 import { availableParallelism as cpuCount, homedir, totalmem } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,18 +46,45 @@ export async function which(name) {
   catch { return null; }
 }
 
+async function executablePrefix(path, bytes = 1_024) {
+  const handle = await open(path, 'r');
+  try { const buffer = Buffer.alloc(bytes); const { bytesRead } = await handle.read(buffer, 0, bytes, 0); return buffer.subarray(0, bytesRead).toString('utf8'); }
+  finally { await handle.close(); }
+}
+
+/** Bootstrap may itself run under RightKit, so PATH begins with agent shims.
+ * Selecting one as its own managed tool creates recursive broker calls. */
+export async function whichUnmanaged(name) {
+  let candidates;
+  try { candidates = (await execFile('which', ['-a', name])).stdout.trim().split(/\r?\n/).filter(Boolean); }
+  catch { return null; }
+  for (const candidate of candidates) {
+    const prefix = await executablePrefix(candidate).catch(() => '');
+    if (prefix.includes('rightkit.build-control.agent-shims.install.v1') || prefix.includes('/packages/release/cargo-guard.mjs')) continue;
+    return realpath(candidate);
+  }
+  return null;
+}
+
+async function rustupTool(rustupPath, id) {
+  if (!rustupPath) return null;
+  try { const path = (await execFile(rustupPath, ['which', id])).stdout.trim(); return path ? realpath(path) : null; }
+  catch { return null; }
+}
+
 /** Probe every known tool on PATH & hash what is actually installed. Never
  * invents a path: a tool absent from PATH is simply absent from the config. */
 export async function discoverTools() {
   const tools = [];
+  const rustupPath = await whichUnmanaged('rustup');
   for (const id of KNOWN_TOOLS) {
-    const path = await which(id);
+    const path = ['cargo', 'rustc', 'rustdoc'].includes(id) ? await rustupTool(rustupPath, id) : await whichUnmanaged(id);
     if (!path) continue;
     const real = await realpath(path);
     tools.push({ id, path: real, root: dirname(real), sha256: await sha256File(real) });
   }
   for (const [, id] of EXTERNAL_CARGO_TOOLS) {
-    const found = await which(id); if (!found) continue;
+    const found = await whichUnmanaged(id); if (!found) continue;
     const real = await realpath(found); tools.push({ id, path: real, root: dirname(real), sha256: await sha256File(real) });
   }
   return tools;
@@ -88,9 +115,9 @@ export async function resolveVolumeId(path) {
   } catch { return null; }
 }
 
-export async function rustcVersionTriple() {
+export async function rustcVersionTriple(path = 'rustc') {
   try {
-    const { stdout } = await execFile('rustc', ['-vV']);
+    const { stdout } = await execFile(path, ['-vV']);
     const version = stdout.match(/^release:\s*(\S+)/m)?.[1];
     const host = stdout.match(/^host:\s*(\S+)/m)?.[1];
     return version && host ? `stable-${version}-${host}` : null;
@@ -146,7 +173,7 @@ export async function buildConfig({ externalRoot }) {
   const tools = await stageManagedTools(await discoverTools(), externalRoot);
   const sccacheTool = tools.find((tool) => tool.id === 'sccache');
   const clientSideSccache = await supportsClientSideSccache(sccacheTool?.path);
-  const toolchain = (await rustcVersionTriple()) ?? 'stable-aarch64-apple-darwin';
+  const toolchain = (await rustcVersionTriple(tools.find((tool) => tool.id === 'rustc')?.path)) ?? 'stable-aarch64-apple-darwin';
   const targetTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
   const otherTriple = targetTriple === 'aarch64-apple-darwin' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwin';
   return {

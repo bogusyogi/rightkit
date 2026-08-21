@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
 import {
-  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, supportsClientSideSccache,
+  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, supportsClientSideSccache, whichUnmanaged,
 } from './bootstrap-macos-cli.mjs';
 
 test('parseArgs accepts the documented flags & rejects anything else', () => {
@@ -30,6 +30,17 @@ test('discoverTools finds real, hashed tools on this machine’s PATH', async ()
   assert.match(cargo.sha256, /^[a-f0-9]{64}$/);
   assert.ok(cargo.path.startsWith('/'));
   for (const tool of tools) assert.equal(tool.root, tool.path.split('/').slice(0, -1).join('/'));
+});
+
+test('tool discovery skips RightKit agent shims & Cargo guard wrappers', async (t) => {
+  const originalPath = process.env.PATH;
+  const scratch = mkdtempSync(join(tmpdir(), 'rk-bootstrap-recursion-'));
+  t.after(() => { rmSync(scratch, { recursive: true, force: true }); process.env.PATH = originalPath; });
+  const shim = join(scratch, 'shim'); const real = join(scratch, 'real'); mkdirSync(shim); mkdirSync(real);
+  writeFileSync(join(shim, 'sccache'), '#!/bin/sh\n# rightkit.build-control.agent-shims.install.v1\nexit 1\n', { mode: 0o755 });
+  writeFileSync(join(real, 'sccache'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  process.env.PATH = `${shim}:${real}:${originalPath}`;
+  assert.equal(await whichUnmanaged('sccache'), realpathSync(join(real, 'sccache')));
 });
 
 // ImmutableToolRegistry rejects symlinks outright (a security property that
