@@ -59,6 +59,9 @@ export class ThinState {
       global: join(this.#base, 'global'),
       cargoHome: join(this.#base, 'global', 'cargo-home'),
       compilerCache: join(this.#base, 'global', 'compiler-cache'),
+      // Keep process temporary paths shallow. sccache creates a startup socket
+      // below TMPDIR, and macOS rejects Unix socket paths over 103 bytes.
+      temporary: join(dirname(this.#base), 'tmp'),
       tools: join(this.#base, 'global', 'tools'),
       active: join(this.#base, 'global', 'active'),
       workspaces: join(this.#base, 'workspaces'),
@@ -175,7 +178,7 @@ export class ThinState {
 
   #layout(workspace, generation) {
     const root = join(workspace.directory, 'generations', generationName(generation));
-    return Object.freeze({ generation, root, target: join(root, 'target'), temp: join(root, 'tmp') });
+    return Object.freeze({ generation, root, target: join(root, 'target'), temp: this.paths.temporary });
   }
 
   async #ensureGeneration(workspace, generation) {

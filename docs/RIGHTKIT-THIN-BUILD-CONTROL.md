@@ -40,7 +40,7 @@ Implemented and live:
   plugins, with token validation, workspace-containment checks, and root-cancel
   propagation;
 - one global `CARGO_HOME`, one global sccache directory, client-side sccache,
-  and per-workspace target/TMP generations;
+  one shallow managed temp directory, and per-workspace target generations;
 - source bootstrap and immutable runtime cutover.
 
 Evidence:
@@ -56,6 +56,10 @@ Bootstrap originally copied `rustc` and `rustdoc` as isolated executables. That
 breaks their required sibling toolchain libraries on macOS and Windows. Live
 configuration now preserves bundle-relative tool paths while retaining digest
 validation; managed copying is limited to standalone tools.
+
+Managed `TMPDIR` is intentionally shallow under the external root. sccache
+creates a transient startup socket below `TMPDIR`; putting that directory inside
+the full workspace-generation path exceeds macOS's 103-byte Unix socket limit.
 
 Superseded architecture/remediation/handoff documents were deleted. Old core
 modules remain dormant beside the live thin core because sections 20–21 allow

@@ -19,6 +19,7 @@ test('creates required global & persistent workspace generation layout', async (
     const workspace = await item.state.workspace(item.workspace);
     assert.equal(workspace.state.currentGeneration, 1);
     for (const path of [item.state.paths.state, item.state.paths.cargoHome, item.state.paths.compilerCache, item.state.paths.tools, item.state.paths.active, item.state.paths.logs, item.state.paths.receipts, workspace.layout.target, workspace.layout.temp]) await assert.doesNotReject((await import('node:fs/promises')).stat(path));
+    assert.equal(workspace.layout.temp, join(item.root, 'tmp'));
     assert.equal(workspace.layout.build, undefined);
     assert.equal(JSON.parse(await readFile(workspace.identityPath, 'utf8')).canonicalRoot, item.workspace);
   } finally { await item.close(); }
