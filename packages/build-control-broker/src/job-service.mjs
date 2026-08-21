@@ -287,12 +287,15 @@ export class ManagedJobService {
       if (HEAVY.has(job.capability.lane)) await this.#prepareNamespace(job);
       const tool = await this.#verifyInvocationTool(job);
       if (job.diagnostics.length) await this.#log({ type: 'DIRECT_RUSTC_DIAGNOSTIC', id: job.id, diagnostics: job.diagnostics });
-      const env = await this.#executionEnvironment(job);
+      const baseEnv = await this.#executionEnvironment(job);
       // Cargo exposes its own path to a plugin through CARGO so the plugin can
       // call Cargo again. Without it a plugin resolves `cargo` from PATH, which
       // escapes the broker; with the managed shim, the recursive call is
-      // classified, lane-checked, and receipted like any other request.
-      if (job.capability.external) env.CARGO = this.#managedCargoShimPath() ?? env.CARGO;
+      // classified, lane-checked, and receipted like any other request. The
+      // execution environment is frozen, so derive a new object rather than
+      // assigning into it.
+      const shim = job.capability.external ? this.#managedCargoShimPath() : null;
+      const env = shim ? Object.freeze({ ...baseEnv, CARGO: shim }) : baseEnv;
       await this.#reportCacheMode(job);
       job.child = spawnManagedProcess(tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: ['ignore', 'pipe', 'pipe'] }, this.#spawn);
       // Own exit before publishing STARTING/RUNNING. Cancellation may arrive as

@@ -503,3 +503,20 @@ test('a quarantined namespace refuses heavy work while its tree may still be liv
     } finally { await revived.shutdown().catch(() => null); }
   } finally { try { process.kill(stranger.pid, 'SIGKILL'); } catch {} await item.cleanup(); }
 });
+
+test('an external command receives a brokered tool-path variable without mutating a frozen environment', async () => {
+  // The execution environment is frozen; assigning into it threw at spawn time
+  // and every external command failed with exit 125 before it ever ran.
+  const item = await fixture();
+  try {
+    const config = { ...item.config, externalCommands: [{ shim: 'cargo', command: 'about', toolId: 'cargo', lane: 'CONTROL', digest: item.config.tools[0].sha256 }] };
+    const service = await ManagedJobService.create({ config, statfs: async () => ({ bavail: 100000000, bsize: 1 }), targetInspector: async (input) => ({ ...input, toolchain: input.pinnedToolchain, compiler: { release: null, host: null }, available: true }) });
+    try {
+      const submitted = await call(service, submit(managed(item.workspace, ['about', '--version'])));
+      assert.equal(submitted.result.type, 'SUBMITTED');
+      const settled = await waitForState(service, submitted.result.id, ['SUCCEEDED', 'FAILED', 'CANCELLED']);
+      assert.notEqual(settled.receipt.error, 'Cannot add property CARGO, object is not extensible');
+      assert.equal(settled.state, 'SUCCEEDED', `external command failed: ${settled.receipt.error ?? settled.receipt.reason}`);
+    } finally { await service.shutdown().catch(() => null); }
+  } finally { await item.cleanup(); }
+});
