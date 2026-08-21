@@ -1,6 +1,10 @@
 # RightKit Build Control — Remediation & Proof Status
 
-**Status:** open. Source-complete, **operationally unaccepted**.
+**Status:** open. Source-complete, **operationally unaccepted**. As of 2026-08-22 the honest
+headline is not "1 of 13 proofs closed" but **no end-to-end operational guarantee is fully
+proven** — the one closed proof has been split into a narrow durable-state property that is
+closed and two real crash properties that are not (P20). Five defects in the P-list are
+blocking-class: P13, P14, P15, P16, P17.
 
 **Companion document:** [RIGHTKIT-BUILD-CONTROL-ARCHITECTURE.md](RIGHTKIT-BUILD-CONTROL-ARCHITECTURE.md)
 describes what the system *is* and how to operate it. This document tracks what has been
@@ -47,7 +51,9 @@ through with the evidence that closed it.**
 | 4 | Nested Cargo cannot deadlock behind a parent permit | **open** |
 | 5 | A hung `statfs` or GC cannot hold the build lane | **open** |
 | 6 | GC racing same-namespace admission cannot delete a live/warm target | **open** |
-| 7 | ~~Broker crash at every lifecycle boundary yields no duplicate execution and exactly one receipt~~ | **closed 2026-08-21** — see below |
+| 7a | ~~A pre-seeded open durable row recovers idempotently into one stable terminal receipt~~ | **closed 2026-08-21** |
+| 7b | Payload launch is at-most-once across real broker crashes | **open** — see P20 |
+| 7c | The terminal receipt is exactly-once across real crash boundaries | **open** — see P20 |
 | 8 | A failed/cancelled build preserves its target; a warm rerun proves reuse | **open** |
 | 9 | sccache failure performs a bounded restart or direct-rustc fallback | **open** — and newly load-bearing, since sccache was enabled on macOS on 2026-08-21 |
 | 10 | Tool/runtime digest change gives a typed rejection and atomic rollback | **partially observed** — a real digest mismatch was seen on 2026-08-21 and behaved as designed, but rollback was not exercised |
@@ -192,6 +198,234 @@ which is a different and more invasive operation than `cargo update` rewriting t
 It must run per independent workspace, and path, Git, and vendored dependencies need
 separate handling. Treat a `--dry-run` pass as mandatory before the applying pass, and
 expect the applying pass to be followed by a full check and test run in the same lane.
+
+### P12. Namespace generation is not in the physical path — **the root cause the gate compensates for**
+
+*Verified: generation lives only in SQLite; `workspaces/<namespace>` has no generation segment.*
+
+The quarantine gate (§12.1) converts silent corruption into refusal, which is the right
+trade, but it is a compensating control. Directory identity and directory path are the same
+thing, so every orphan scenario re-exposes the same hazard forever. Putting the generation
+into the physical path makes reuse structurally impossible and demotes the gate to
+defence-in-depth:
+
+```text
+workspaces/<logical-namespace>/
+  identity.json
+  current -> generations/000042
+  generations/000041/   # retired or quarantined
+  generations/000042/   # current warm generation
+```
+
+`target/`, `build/`, `tmp/`, and install roots all move beneath the generation. Note that
+temp currently sits *outside* `workspaces/`, and GC only moves workspace roots — which is
+why section 2 measures leaked temp directories. Moving temp under the generation fixes both.
+
+The safety half of this is independent of F1.3's cache-stranding question and should be
+pulled forward. Related correction: the architecture's "one directory per repository/target"
+wording is inaccurate — the namespace hash covers repository identity and toolchain; target
+triple and profile are separated inside Cargo's own hierarchy.
+
+### P13. Quarantine is not atomic, and a failed gate write still reports success — **confirmed defect**
+
+*Verified in `job-service.mjs#quarantineRecovery`.*
+
+`quarantine.namespaceGated = namespace` is assigned unconditionally after the `writeSetting`
+try/catch. A failed gate write is logged and swallowed, then the receipt is written claiming
+the namespace was gated, the request is terminalized, and its reservation is released. The
+resulting sequence recreates exactly the corruption the gate exists to prevent, while
+leaving evidence that says it did not happen:
+
+```text
+write namespace gate    -> fails (logged, ignored)
+write CANCELLED receipt -> succeeds, claims namespaceGated
+release reservation     -> succeeds
+next job checks gate    -> absent
+next job activates the namespace
+```
+
+The gate write, the outcome change, the receipt, and the reservation disposition must be one
+transaction that commits all or none. `#prepareNamespace` should likewise perform a guarded
+activation rather than a check followed by a separate activation.
+
+**The state model is also wrong.** A request is stored `CANCELLED` while its process may be
+alive, and the architecture's own rule is that a terminal receipt follows a *certified* reap
+— but quarantine writes one precisely when the reap could not be certified. Request outcome,
+process liveness, and namespace state are three orthogonal facts and should be stored as
+three fields, so an unresolved recovery reads `ABANDONED` / `LIVENESS_UNKNOWN` /
+`QUARANTINED`. Relatedly, `processMayBeLive: false` currently encodes *unknown* as *false*
+whenever ownership is missing. Unknown is not false; the field needs three values or it
+should go (see P7).
+
+### P14. No enforced single-broker invariant — **reported, not yet verified by me**
+
+The claim: `ManagedJobService` is constructed — opening the database, reaping prior sccache
+ownership, running recovery, starting maintenance — *before* the socket is inspected and
+bound, and the stale-socket helper unlinks any socket owned by the same uid without first
+attempting a connection to establish that it is actually stale. A second broker could then
+open the same database, read the first broker's live requests as crash residue, quarantine
+them, unlink the live socket, and run a second independent scheduler. SQLite serializes
+writes; it does not serialize two schedulers.
+
+If true this is corruption-class and outranks everything else here. Fix shape: an
+OS-enforced singleton (POSIX file lock, Windows named mutex) acquired **before** the state
+store is opened, a broker instance id and epoch in the database and in the handshake, an
+authenticated handshake attempted against any existing socket before it is removed, and
+recovery/maintenance started only after singleton ownership is established. A launchd label
+is not enforcement.
+
+### P15. A scheduler permit is used as a durable safety lock, wedging the machine — **confirmed**
+
+*Verified: `job-service.mjs` sets `job.holdPermit = true` on the reap-pending, reservation-release-failure, and REAPING-invariant paths, and the release is guarded by `if (!job.holdPermit)`.*
+
+This is the startup wedge relocated into the running broker. An unreapable process found
+while the broker is live, or three failed reservation releases, deliberately retains the
+scheduler permit. At `buildConcurrency: 1` that blocks every other BUILD on the machine —
+including builds in unrelated repositories — until someone restarts the broker.
+
+Permits must always be released in `finally`. Safety belongs in durable state: quarantine
+the namespace for an unreaped tree; set a machine-level heavy-admission circuit breaker for
+an untrustworthy reservation ledger; fall back to a control-only mode for corrupted global
+state. Section 12.1's residual-risk note describes the namespace-local behaviour that was
+intended; the live path does not implement it.
+
+### P16. Nested execution bypasses the scheduler, including exclusive toolchain mutation — **partly confirmed**
+
+*Verified: `HEAVY = new Set(['BUILD', 'WORKSPACE_WRITE'])` — `TOOLCHAIN_WRITE` is absent.*
+
+Nested requests take no scheduler permit and inherit the root's layout and execution domain.
+Because `TOOLCHAIN_WRITE` is not in `HEAVY`, a nested `rustup target add` can run beneath a
+CONTROL or BUILD root and bypass the exclusive toolchain lane entirely — mutating the
+toolchain while compilers are using it. Two nested builds under one root likewise share one
+target/build/temp directory with no second writer permit. The parent capability token is
+injected into every descendant's environment, so any build script inherits that authority.
+
+Together this defeats `buildConcurrency`, per-repository exclusion, toolchain exclusivity,
+disk reservations, and the one-writer namespace guarantee. Until a real nested-execution
+design exists, nested work should be restricted to an explicit read-only allowlist
+(`metadata --locked`, `locate-project`, compiler `--print` probes, `rustup which`,
+`rustup target list --installed`) and nested BUILD / WORKSPACE_WRITE / TOOLCHAIN_WRITE
+refused outright. The existing test proves only that a CONTROL root cannot mint a nested
+BUILD; it must also cover nested WORKSPACE_WRITE and TOOLCHAIN_WRITE.
+
+### P17. sccache enablement fails the architecture's own containment condition — supersedes P3
+
+The architecture requires broker-owned lifecycle **and child-process containment** before
+sccache is enabled. What is implemented proves server *ownership*: the server is a broker
+descendant, its socket has the expected owner and permissions, and it answers a stats probe.
+It does not prove per-request compiler containment — the Cargo job and the persistent
+sccache server are in different process groups, and in server-side compilation the compiler
+children belong to the server's tree, so cancelling the job's group cannot certify that the
+compiler attributed to that request ended.
+
+There is also a durable-recovery inconsistency: when a persisted sccache server cannot be
+reaped at startup the ownership setting is cleared anyway and sccache is degraded for that
+broker lifetime, so a second restart has no record with which to retry the reap. The
+shutdown path correctly retains ownership in the equivalent case.
+
+P3 framed this as a wording gap. That was too soft. **Set `sccache.mode` back to `disabled`
+until a live cancellation proof passes** — hotfix forward, do not roll the runtime back.
+Acceptance must record pid/ppid/pgid (or Job Object membership) for every compiler and show:
+every compiler attributable to one request; cancellation leaving zero attributed compilers;
+cancelling one request not killing another's compiler; a broker crash leaving no untracked
+server or compiler; a failed server reap retaining its ownership record; and a bounded,
+recorded fallback to direct rustc. `SCCACHE_CLIENT_SIDE` is worth evaluating against the
+pinned version, since it keeps the compiler in the requesting job's tree.
+
+### P18. Cargo configuration enforcement is regex-based, not the rejection the docs claim — **confirmed**
+
+*Verified: `utilities.mjs` scans the file line-by-line for a small set of patterns.*
+
+The architecture says a workspace configuration file is rejected outright. The code instead
+reads the TOML as text and matches line-oriented regexes, so quoted keys, dotted keys, and
+target-scoped `linker`/`runner` forms can slip through. Cargo configuration has far more
+execution-affecting surface than the scanner covers. Digest-pinning the compiler and then
+accepting a text file that can select an unregistered linker or wrapper is a control-boundary
+defect, not a parsing gap. Pick one coherent policy: reject every ancestor `.cargo/config*`
+outright as documented, or parse TOML structurally against a documented schema and hash the
+accepted configuration into the request identity. Do not enforce a TOML authority boundary
+with regular expressions.
+
+### P19. `cargo fetch` is missing from the protected built-in set — **confirmed defect**
+
+*Verified: `CARGO_BUILTIN_COMMANDS` in `command-capabilities.mjs` does not contain `fetch`.*
+
+`fetch` is a real Cargo built-in, so it can still be registered as an external command and
+redirected — the exact hole P-section item 12.4 was meant to close, left open by a
+hand-maintained list. The list should be generated or validated against the pinned Cargo
+version during runtime activation rather than typed by hand.
+
+### P20. Proof 7 is overclaimed and should be split — **confirmed**
+
+The closing test seeds durable rows at `ADMITTED`/`STARTING`/`RUNNING`/`REAPING`, constructs
+a service, and asserts the receipt is byte-identical across two recoveries. No process is
+launched and no broker is killed, and the loop omits `SUBMITTED`/`CLASSIFIED`/`QUEUED`. What
+it proves is real but narrow. Restate as:
+
+| | Proof | Status |
+|---|---|---|
+| 7a | A pre-seeded open durable row recovers idempotently into one stable terminal receipt | **closed** |
+| 7b | Payload launch is at-most-once across real broker crashes | **open** |
+| 7c | The terminal receipt is exactly-once across real crash boundaries | **open** |
+
+7b and 7c need a helper executable writing a unique fsynced side-effect record, with broker
+termination injected at each launcher boundary. Under this split the honest headline is that
+**no end-to-end operational guarantee is fully proven**, not "1 of 13 closed".
+
+### P21. The control plane shares the busiest storage domain, with per-transition fsync
+
+Database, event log, socket, runtime state, receipts, target trees, temp, and compiler cache
+all live on one external volume, so a latency event takes out both the build data and the
+evidence needed to diagnose it. Compounding it: synchronous SQLite, WAL with
+`synchronous = FULL`, one transaction per lifecycle state, an awaited required-log write per
+event, and an event log that can rewrite and rename its retained tail rather than rotating a
+segment. A `--version` probe can therefore incur several synchronous commits and fsyncs on
+the same disk a compilation is using. Not benchmarked here — structural, not measured. Split
+the control plane onto internal storage, move SQLite work off the broker event loop, use
+segmented append-only logs, and fsync ownership-critical and terminal events rather than
+every transition.
+
+### P22. One declarative policy model, not one registry — extends P6
+
+P6 asked for a shared rules registry. The stronger form: the root cause of the crash loop
+was not "two validators" but the absence of an authoritative policy model. A command should
+declare orthogonal resources — workspace lock, artifact writer, cpu tokens, memory class,
+toolchain lock, cargo-home lock, network class, cache mode, namespace requirement — acquired
+in one canonical order. Config validation, classification, resource acquisition, external
+command validation, documentation, and tests should all be generated from that one
+declaration. Today `HEAVY` alone drives disk reservation, namespace activation, directory
+creation, storage sampling, sccache startup, compiler injection, and admission, so an
+unlocked `metadata`, `fmt`, `clean`, or `outdated` can create artifact directories and
+reserve build disk without compiling anything. Keep unknown commands fail-closed.
+
+### P23. `cargo tree` is classified CONTROL unconditionally
+
+Without `--locked`/`--frozen`, resolution may rewrite `Cargo.lock`. `tree` should classify
+like `metadata`: CONTROL when locked or frozen, WORKSPACE_WRITE otherwise.
+
+### P24. External plugin invocation is only partially Cargo-compatible
+
+Forwarding the subcommand fixed the immediate failure, but the broker passes the original
+argv straight through without canonicalising Cargo-global options that appear *before* the
+subcommand, and the execution environment does not set `CARGO`, which plugins use to invoke
+Cargo again. Set `CARGO` to the managed shim so recursive invocations stay brokered, and
+either translate or explicitly reject unsupported global options.
+
+### P25. The two documents still mix four kinds of content
+
+Normative architecture, current implementation, future remediation, and incident history are
+interleaved, which is why they can contradict themselves. A live example inside this
+document: F1.1 is withdrawn, yet the section summary still counts the ~1.9x multiplier it
+removed and the sequencing table still schedules it. Proof status also does not distinguish
+unit, fault-injection, integration, and live evidence. The suggested split is an architecture
+specification carrying only MUST/SHOULD invariants, an operations runbook describing only the
+deployed commit, a validation matrix with one row per requirement and a column per evidence
+class, and an incident/decision record. Adopting it is a decision for Adrian, not a defect.
+
+### Standing question
+
+**Who clears a namespace quarantine when no human is at the wheel?** Define the
+agent-session policy before the first unattended trip, not after.
 
 ### Findings raised and rejected
 
@@ -678,7 +912,7 @@ This single field is what makes 16:13:18 and 16:57:00 diagnosable. Nothing else 
 
 **Fix F6.3** — rotate logs daily, retain 14 days, cap total log bytes. The log must never become the thing that fills the disk.
 **Fix F6.4** — prune runtimes. `installManagedRuntime` (`runtime.mjs:13`) never removes old versions: **35 `runtime-*` directories** exist (plus the `runtime-current` symlink), including `r2` through `r17` of one version deployed in a single day, plus orphaned `runtime-source.*`, `verify.*`, and `verify-metadata.*` staging directories. Keep current + previous 2, delete the rest, and clean staging on both success and failure paths.
-**Fix F6.4b** — `runtime.mjs` has **no test file** in either the repo package or any deployed runtime. The atomic symlink switch, the health probe, and the rollback-on-failed-activation path — the exact machinery that produced those 35 directories, and the machinery through which *every fix in this document will be deployed* — is entirely uncovered. Cover it before wave 1 ships through it.
+**Fix F6.4b** — ~~`runtime.mjs` has **no test file**~~ **Corrected 2026-08-22:** this claim was false. `packages/build-control-broker/src/runtime.test.mjs` exists and carries 14 tests (8 passing, 6 failing on the fixture defect in P-section item P-TESTS). The real finding is narrower and still stands: the install/rollback path is thinly covered and its failing fixtures mean the deployment machinery is not currently proven. An external review propagated the false version of this claim verbatim, which is what surfaced it — a documentation error becomes an analysis error one hop downstream. The atomic symlink switch, the health probe, and the rollback-on-failed-activation path — the exact machinery that produced those 35 directories, and the machinery through which *every fix in this document will be deployed* — is entirely uncovered. Cover it before wave 1 ships through it.
 **Fix F6.5** — prune receipts. 1 187 receipt files for 407 entries; `state/broker.json` is 1 MB and is rewritten with `fsync` on **every** state transition, including all 189 `cargo metadata` calls. Move terminal entries to a rotating archive and keep the hot state file to live entries only.
 
 ---
@@ -701,7 +935,7 @@ Ordered by *"what makes the next failure diagnosable"* first, then blast radius.
 
 ## 8. Verification — every gate must be proven able to fail
 
-A prior finding in this workspace: *a green run from a check that inspects nothing is worse than no check.* Two CodeRight gates were passing over nothing. The 104 Node tests that certified this system exercise injected `spawn` and `statfs` doubles — doubles never daemonise, never orphan, never stall, never fill a disk. That test suite went green **because** it tested a world where every defect in this document is impossible.
+A prior finding in this workspace: *a green run from a check that inspects nothing is worse than no check.* Two CodeRight gates were passing over nothing. The Node tests that certified this system — 104 at the time of the 2026-08-14 measurement, 252 in the broker package as of 2026-08-22 — exercise injected `spawn` and `statfs` doubles — doubles never daemonise, never orphan, never stall, never fill a disk. That test suite went green **because** it tested a world where every defect in this document is impossible.
 
 Each fix therefore ships with a test that is **first demonstrated to fail against current `main`**:
 
