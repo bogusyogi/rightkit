@@ -45,7 +45,7 @@ export const DEFAULT_INTERNAL_CAPABILITIES = Object.freeze({
  * claim one of these names.
  */
 const CARGO_BUILTIN_COMMANDS = new Set([
-  'fix', 'publish', 'package', 'login', 'logout', 'owner', 'yank',
+  'fetch', 'fix', 'publish', 'package', 'login', 'logout', 'owner', 'yank',
   'uninstall', 'init', 'new', 'info', 'config', 'report', 'pkgid', 'verify-project', 'rustc', 'rustdoc'
 ]);
 

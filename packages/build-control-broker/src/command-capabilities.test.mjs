@@ -182,3 +182,15 @@ test('an external registration still cannot claim add or remove now that they ar
     );
   }
 });
+
+test('every protected built-in the pinned toolchain reports is refused as external', () => {
+  // P19: this list was hand-written and omitted fetch. Assert the ones that
+  // matter explicitly so the next omission fails a test, not a security review.
+  for (const command of ['fetch', 'fix', 'publish', 'package', 'login', 'owner', 'yank', 'uninstall', 'init', 'new']) {
+    assert.throws(
+      () => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command, toolId: 'x', lane: 'CONTROL', digest: 'a'.repeat(64) }] }),
+      /cannot shadow built-in/,
+      `${command} was registerable as an external tool`
+    );
+  }
+});

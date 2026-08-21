@@ -166,10 +166,16 @@ deadline is not.
 
 The receipt for `cda53b70` holds 1 234 bytes of bounded head/tail and a digest. The tail
 proves the results table had already printed before cancellation, but nothing records *when*
-any chunk arrived, and no child CPU or RSS is sampled. A specific claim — that the run spent
-its final minutes tearing down an internal hash table rather than resolving the graph —
-therefore **cannot be confirmed or refuted from our telemetry**. It remains an unproven
-hypothesis about `cargo-outdated`, not a measurement.
+any chunk arrived, and no child CPU or RSS is sampled.
+
+**Corrected 2026-08-22.** An earlier revision called the teardown claim an "unproven
+hypothesis". That was wrong, and the error was one of scope: RightKit telemetry cannot prove
+it, but external profiling can and did. A live macOS sample measured **1 302 of 1 493 samples
+inside `PkgStatus` hash-table destruction**, with output appearing around the 19-minute mark
+of the 24-minute run — roughly five minutes spent tearing down after the answer was already
+available. The correct statement is that **RightKit could not see it**, not that it did not
+happen. That is the actual finding: our telemetry was the blind party, and writing "unproven"
+where we meant "unobservable by us" understated our own gap.
 
 The event log is no help either. Filtering `events.ndjson` for that request returns **seven
 events total**: five lifecycle transitions in the first 400 ms, then a single gap of
@@ -187,7 +193,8 @@ F6.2.
 
 ### P11. Dependency-upgrade tooling is only half reachable
 
-`update`, `add`, and `remove` are Cargo built-ins and now route to `WORKSPACE_WRITE`. The
+`update`, `add` (built in since Rust 1.62), and `remove` (since 1.66) are Cargo built-ins
+and now route to `WORKSPACE_WRITE`. The
 cargo-edit commands `upgrade` and `set-version` are declared and registerable but stay
 unreachable until an operator pins a digest, and **cargo-edit is not installed on the macOS
 host** — only Windows carries `cargo-upgrade`, `cargo-add`, `cargo-rm`, and
@@ -426,6 +433,119 @@ class, and an incident/decision record. Adopting it is a decision for Adrian, no
 
 **Who clears a namespace quarantine when no human is at the wheel?** Define the
 agent-session policy before the first unattended trip, not after.
+
+### P26. Caching is a first-class resource, not a bolt-on — **supersedes P17's remedy**
+
+P17 concluded "set `sccache.mode` back to `disabled` until a live cancellation proof
+passes". The diagnosis stands; **the remedy was wrong** and is withdrawn. A build controller
+whose answer to a containment gap is to permanently stop caching has traded one incomplete
+design for another — the target is not
+
+```text
+correct ownership + rebuild everything
+```
+
+it is
+
+```text
+correct ownership + deterministic cancellation + warm targets
+  + sccache + incremental where it helps + bounded parallelism
+```
+
+Disabling is an emergency fallback, not an architecture. The correct topology keeps cache
+*storage* machine-global while keeping every `rustc` inside the requesting build domain:
+
+```text
+broker-owned shared cache state
+        |
+   lookup / store
+        |
+  request A domain            request B domain
+    cargo -> sccache client     cargo -> sccache client
+      -> rustc (in domain A)      -> rustc (in domain B)
+```
+
+That is exactly what the current server-side mode does not give us, and it is why the
+containment proof fails — not a reason to stop caching. **Evaluate `SCCACHE_CLIENT_SIDE`
+against the pinned version first**, since it runs the compiler in the client process and
+would leave rustc in the requesting job's tree. Keep one broker-owned server; the local disk
+backend is not designed for several servers over one cache directory.
+
+Three layers, each with a distinct job, rather than one global switch:
+
+| Layer | Best at |
+|---|---|
+| Cargo warm target directory | same workspace, small edits, repeated local work |
+| sccache | clean or GC'd targets, branch switches, cross-workspace reuse, agent/CI churn |
+| Registry + toolchain cache | source acquisition |
+
+Incremental compilation should therefore be **profile-aware, not globally disabled**. F1.4
+proposes switching `CARGO_INCREMENTAL=0` off for test/check/clippy/release; that must not
+land as a blanket rule without benchmarking, because incremental and sccache are strong at
+different things and the doc currently pays for incremental state *and* loses sccache hits on
+the same crates. Sketch of the profiles to measure rather than assume: interactive
+development (incremental on, sccache on), agent check/clippy (benchmark both), release and
+installer (incremental off, sccache on), ephemeral clean build (incremental off, sccache
+most valuable).
+
+**Promote the cache to a modelled service** with lifecycle ownership, an immutable binary,
+cache directory and byte cap, stats, hit/miss telemetry, health state, restart budget,
+fallback mode, and a compiler-containment proof — and put its result in every receipt, so
+these three outcomes stop being indistinguishable:
+
+```text
+build succeeded, cache healthy
+build succeeded, cache degraded
+build succeeded, direct rustc fallback
+```
+
+**Add an effectiveness gate.** A cache that runs and returns a 2% hit rate has not succeeded.
+Measure hit rate, cacheable-compile rate, bytes read and written, and time saved across cold
+target + cold cache (baseline), warm target, cold target + warm cache, a small edit, and a
+branch switch.
+
+This also attacks the disk problem from section 2. Roughly 22 GB sits in per-namespace target
+trees today because losing one means a fully cold rebuild. With an effective compiler cache
+that stops being true, so target-cache GC can be far more aggressive — cache-aware GC and
+disk pressure are the same problem.
+
+**Revised order:** make sccache containment correct (not disabled); then the single-broker
+invariant (P14); transactional quarantine (P13); nested resource ownership (P16); intelligent
+warm-target retention; benchmark incremental against sccache per workload; cache-aware GC;
+and only then tune `-j`, linker, profiles, and crate structure.
+
+### P27. RUNNING has no heartbeat, so a live job cannot be observed at all
+
+The heartbeat timer exists only while a request is queued and is cleared at admission, which
+is why `events.ndjson` holds seven records across a 24-minute run (P10). Persist sampled
+progress *while RUNNING*: elapsed time, output bytes, last-output timestamp, CPU, and RSS.
+Without it no deadline, stall detector, or effectiveness measurement can be trusted, and
+every later proof that depends on log evidence is unprovable.
+
+### P28. Deadlines must start at RUNNING, not at submission
+
+`bounds.jobDeadlineMs` is measured from submission and therefore includes queue time, so
+raising it above zero today would kill legitimate builds that merely waited behind the
+machine-wide lane. What is needed is a **run-phase** deadline applied to bounded analysis
+commands, with builds staying release-owned. Regression tests must assert that the clock
+starts at RUNNING, and that a timeout reaps the whole process tree and records `TIMED_OUT`.
+
+### P29. `outdated` is in the wrong lane
+
+A dependency query writes temporary manifests; it does not mutate the source repository.
+Holding `WORKSPACE_WRITE` makes it serialize against BUILD for that repository, which is how
+one 24-minute query held HeardRight's build lane. It belongs in a low-concurrency
+dependency-analysis lane that is read-only with respect to the checkout. `machete --fix`
+does mutate and stays `WORKSPACE_WRITE`; default `machete` analysis does not. `upgrade` and
+`set-version` genuinely rewrite manifests and correctly stay `WORKSPACE_WRITE`, as do
+`update`, `add`, and `remove`.
+
+### P30. Receipts carry no timing or resource evidence
+
+Add `queueWaitMs`, `runDurationMs`, `firstOutputAt`, `lastOutputAt`, stdout and stderr byte
+counts, and the resource samples from P27. Today every one of these must be reconstructed
+from `lifecycle_transitions`, and the output-timing fields must survive bounded head/tail
+retention — the retention policy discards exactly the evidence a slow run needs.
 
 ### Findings raised and rejected
 

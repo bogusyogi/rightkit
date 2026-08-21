@@ -192,8 +192,9 @@ safety mechanism. Two rules bound registration:
 A plugin is invoked by Cargo's convention, `cargo-<cmd> <cmd> …`; the subcommand is
 forwarded, not stripped.
 
-Note which commands are Cargo's own and which are plugins: `update`, `add`, and `remove` are
-built-ins and route directly, so they are never registered as external tools. `upgrade` and
+Note which commands are Cargo's own and which are plugins: `update`, `add` (built in since
+Rust 1.62), and `remove` (since 1.66) are Cargo's own and route directly, so they are never
+registered as external tools. `upgrade` and
 `set-version` belong to cargo-edit and stay unreachable until their digests are pinned.
 
 > **Two real defects here, both fixed 2026-08-21.** The command name was gated by a

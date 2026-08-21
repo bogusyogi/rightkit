@@ -288,6 +288,11 @@ export class ManagedJobService {
       const tool = await this.#verifyInvocationTool(job);
       if (job.diagnostics.length) await this.#log({ type: 'DIRECT_RUSTC_DIAGNOSTIC', id: job.id, diagnostics: job.diagnostics });
       const env = await this.#executionEnvironment(job);
+      // Cargo exposes its own path to a plugin through CARGO so the plugin can
+      // call Cargo again. Without it a plugin resolves `cargo` from PATH, which
+      // escapes the broker; with the managed shim, the recursive call is
+      // classified, lane-checked, and receipted like any other request.
+      if (job.capability.external) env.CARGO = this.#managedCargoShimPath() ?? env.CARGO;
       await this.#reportCacheMode(job);
       job.child = spawnManagedProcess(tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: ['ignore', 'pipe', 'pipe'] }, this.#spawn);
       // Own exit before publishing STARTING/RUNNING. Cancellation may arrive as
@@ -628,6 +633,15 @@ export class ManagedJobService {
     }
     await this.#log({ type: 'RECOVERY_QUARANTINED', id: entry.id, from: entry.state, to: 'CANCELLED', code, reason, processMayBeLive: quarantine.processMayBeLive, reap });
     return receipt;
+  }
+
+  /**
+   * The managed `cargo` shim, not the pinned Cargo binary. A plugin that calls
+   * Cargo again must re-enter the broker rather than bypass it.
+   */
+  #managedCargoShimPath() {
+    const root = this.#config.broker?.externalRoot?.path;
+    return typeof root === 'string' && root ? join(root, 'agent-bin', 'cargo') : null;
   }
 
   #startMaintenance() {
