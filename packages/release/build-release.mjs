@@ -325,7 +325,7 @@ try {
         checkpoint(stateRoot, "hardened");
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -365,17 +365,32 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity }) {
+function sealRelease({ configRoot, managedCargoTarget, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity }) {
+  // Every app's right-release.config.mjs names installer/updater artifacts
+  // relative to the local `src-tauri/target`. On a broker-managed host that
+  // directory is never populated (the broker owns CARGO_TARGET_DIR and
+  // targetBridge.ensure() deliberately leaves a real local directory alone,
+  // see target-bridge.mjs) so those paths must resolve against the broker's
+  // own target root instead, or every managed build fails at seal after a
+  // full compile, sign, and notarize.
+  const targetPrefix = "src-tauri/target/";
+  const resolveArtifactPath = (file) => {
+    const normalized = file.replaceAll(path.win32.sep, "/");
+    if (managedCargoTarget && normalized.startsWith(targetPrefix)) {
+      return path.join(managedCargoTarget, normalized.slice(targetPrefix.length));
+    }
+    return path.resolve(configRoot, file);
+  };
   const sources = new Map();
   const addSource = (source, role) => {
     const current = sources.get(source) ?? new Set();
     current.add(role);
     sources.set(source, current);
   };
-  for (const artifact of target.installer?.artifacts ?? []) addSource(path.resolve(configRoot, artifact.file), "installer");
+  for (const artifact of target.installer?.artifacts ?? []) addSource(resolveArtifactPath(artifact.file), "installer");
   for (const artifact of target.updater?.artifacts ?? []) {
-    addSource(path.resolve(configRoot, artifact.file), "updater");
-    addSource(path.resolve(configRoot, artifact.signature), "updater-signature");
+    addSource(resolveArtifactPath(artifact.file), "updater");
+    addSource(resolveArtifactPath(artifact.signature), "updater-signature");
   }
   for (const file of sources.keys()) if (!existsSync(file)) fail(`cannot seal missing artifact: ${file}`);
   const temp = `${sealedDir}.tmp-${process.pid}`;
@@ -392,14 +407,15 @@ function sealRelease({ configRoot, sealedDir, releaseId, config, target, platfor
   }
   const routes = { patch: [], update: [] };
   for (const artifact of target.installer?.artifacts ?? []) {
-    const source = path.resolve(configRoot, artifact.file);
+    const source = resolveArtifactPath(artifact.file);
     routes.patch.push({ role: "installer", name: sourceNames.get(source), bucket: "public", key: artifact.key });
   }
   for (const artifact of target.updater?.artifacts ?? []) {
-    const source = path.resolve(configRoot, artifact.file);
+    const source = resolveArtifactPath(artifact.file);
+    const signatureSource = resolveArtifactPath(artifact.signature);
     const patchKey = artifact.patchKey ?? artifact.key.replace("/updates/", "/installers/");
-    routes.patch.push({ role: "updater", name: sourceNames.get(source), signature: sourceNames.get(path.resolve(configRoot, artifact.signature)), bucket: "public", key: patchKey, platform: artifact.platform });
-    routes.update.push({ role: "updater", name: sourceNames.get(source), signature: sourceNames.get(path.resolve(configRoot, artifact.signature)), bucket: "private", key: artifact.key, platform: artifact.platform });
+    routes.patch.push({ role: "updater", name: sourceNames.get(source), signature: sourceNames.get(signatureSource), bucket: "public", key: patchKey, platform: artifact.platform });
+    routes.update.push({ role: "updater", name: sourceNames.get(source), signature: sourceNames.get(signatureSource), bucket: "private", key: artifact.key, platform: artifact.platform });
   }
   writeJson(path.join(temp, "hardening.json"), { schema: 1, passed: true, checkedAt: new Date().toISOString(), files: files.map((file) => file.sha256) });
   const manifest = {

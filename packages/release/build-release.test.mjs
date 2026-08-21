@@ -54,6 +54,24 @@ test("production builds package from the real primary app checkout", () => {
   assert.match(source, /sealRelease\(\{ configRoot: appRoot,/);
 });
 
+test("sealing resolves installer and updater artifacts against the broker target on a managed host", () => {
+  assert.match(source, /sealRelease\(\{ configRoot: appRoot, managedCargoTarget,/);
+  assert.match(source, /function sealRelease\(\{ configRoot, managedCargoTarget,/);
+  assert.match(source, /const targetPrefix = "src-tauri\/target\/";/);
+  assert.match(source, /if \(managedCargoTarget && normalized\.startsWith\(targetPrefix\)\) \{/);
+  // Every configRoot-relative artifact lookup inside sealRelease must route
+  // through the resolver, or a managed build fails at seal after a full
+  // compile, sign, and notarize because src-tauri/target is never populated
+  // locally on a broker-managed host (target-bridge.mjs leaves it alone).
+  assert.doesNotMatch(source, /addSource\(path\.resolve\(configRoot, artifact\.file\)/);
+  assert.doesNotMatch(source, /addSource\(path\.resolve\(configRoot, artifact\.signature\)/);
+  assert.match(source, /addSource\(resolveArtifactPath\(artifact\.file\), "installer"\)/);
+  assert.match(source, /addSource\(resolveArtifactPath\(artifact\.file\), "updater"\)/);
+  assert.match(source, /addSource\(resolveArtifactPath\(artifact\.signature\), "updater-signature"\)/);
+  assert.match(source, /const source = resolveArtifactPath\(artifact\.file\);/);
+  assert.match(source, /const signatureSource = resolveArtifactPath\(artifact\.signature\);/);
+});
+
 test("production builds never create or use an internal Git worktree", () => {
   assert.doesNotMatch(source, /git", \["worktree", "add"/);
   assert.doesNotMatch(source, /path\.join\(vaultRoot, "worktrees"/);

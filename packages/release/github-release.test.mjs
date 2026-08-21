@@ -27,13 +27,13 @@ function fixture() {
 function addonFixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "right-release-github-addon-"));
   mkdirSync(path.join(root, "out"));
-  for (const [name, bytes] of [["membrane", "command"], ["cortex-service", "service"], ["icon.png", "icon"], ["LICENSE", "license"], ["EULA.txt", "eula"], ["PRIVACY.md", "privacy"], ["THIRD-PARTY-NOTICES.txt", "notices"]]) writeFileSync(path.join(root, "out", name), bytes);
+  for (const [name, bytes] of [["membrane", "command"], ["membrane-service", "service"], ["icon.png", "icon"], ["LICENSE", "license"], ["EULA.txt", "eula"], ["PRIVACY.md", "privacy"], ["THIRD-PARTY-NOTICES.txt", "notices"]]) writeFileSync(path.join(root, "out", name), bytes);
   execFileSync("git", ["init", "--initial-branch", "main"], { cwd: root });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
   writeFileSync(path.join(root, "tracked"), "source"); execFileSync("git", ["add", "."], { cwd: root }); execFileSync("git", ["commit", "-m", "source"], { cwd: root });
-  const files = [["command", "membrane", true], ["service", "cortex-service", true], ["icon", "icon.png", false], ["license", "LICENSE", false], ["eula", "EULA.txt", false], ["privacy", "PRIVACY.md", false], ["third-party-notices", "THIRD-PARTY-NOTICES.txt", false]].map(([role, name, executable]) => ({ role, name, source: `out/${name}`, executable }));
-  const config = { schema: 1, kind: "headless-addon", addon: "membrane", version: "0.1.0", packageManager: "pnpm", distribution: { provider: "github-releases", repository: "Orthic-Labs/Membrane" }, checks: [], buildInputs: { include: ["tracked"] }, consumer: { contract: "orthic-product-v1" }, targets: { win: { targetTriple: "x86_64-pc-windows-msvc", build: { cmd: "false", args: [] }, signing: { contract: "azure-artifact-signing-v1" }, files } } };
+  const files = [["command", "membrane", true], ["service", "membrane-service", true], ["icon", "icon.png", false], ["license", "LICENSE", false], ["eula", "EULA.txt", false], ["privacy", "PRIVACY.md", false], ["third-party-notices", "THIRD-PARTY-NOTICES.txt", false]].map(([role, name, executable]) => ({ role, name, source: `out/${name}`, executable }));
+  const config = { schema: 1, kind: "headless-addon", addon: "membrane", version: "0.1.0", packageManager: "pnpm", distribution: { provider: "github-releases", repository: "Orthic-Labs/Membrane" }, checks: [], buildInputs: { include: ["tracked"] }, consumer: { contract: "membrane-product-v1" }, targets: { win: { targetTriple: "x86_64-pc-windows-msvc", build: { cmd: "false", args: [] }, signing: { contract: "azure-artifact-signing-v1" }, files } } };
   const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   const manifest = createAddonManifest({ config, root, platform: "win", commit, signing: { command: { contract: "test-fixture-v1", status: "verified" }, service: { contract: "test-fixture-v1", status: "verified" } } });
   const sealed = path.join(root, ".right-release", "addons", "membrane", "0.1.0", commit.slice(0, 8), "win"); mkdirSync(sealed, { recursive: true });

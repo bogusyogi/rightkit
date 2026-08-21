@@ -13,8 +13,8 @@ function fixture() {
   mkdirSync(path.join(root, "legal")); mkdirSync(path.join(root, "assets"));
   for (const name of ["LICENSE", "EULA.txt", "PRIVACY.md", "THIRD-PARTY-NOTICES.txt"]) writeFileSync(path.join(root, "legal", name), name);
   writeFileSync(path.join(root, "assets", "tab.png"), "icon");
-  const files = [["command", "membrane", "out/membrane", true], ["service", "cortex-service", "out/cortex-service", true], ["icon", "membrane-tab-icon.png", "assets/tab.png", false], ["license", "LICENSE", "legal/LICENSE", false], ["eula", "EULA.txt", "legal/EULA.txt", false], ["privacy", "PRIVACY.md", "legal/PRIVACY.md", false], ["third-party-notices", "THIRD-PARTY-NOTICES.txt", "legal/THIRD-PARTY-NOTICES.txt", false]].map(([role, name, source, executable]) => ({ role, name, source, executable }));
-  writeFileSync(path.join(root, "right-addon.config.mjs"), `export default ${JSON.stringify({ schema: 1, kind: "headless-addon", addon: "membrane", version: "0.1.0", packageManager: "pnpm", checks: [], buildInputs: { include: ["right-addon.config.mjs"] }, consumer: { contract: "orthic-product-v1" }, targets: { mac: { targetTriple: "aarch64-apple-darwin", build: { cmd: "false", args: [] }, signing: { contract: "apple-developer-id-executable-v1", teamId: "6KLGD3LLKF" }, files }, win: { targetTriple: "x86_64-pc-windows-msvc", build: { cmd: "false", args: [] }, signing: { contract: "azure-artifact-signing-v1" }, files } } }, null, 2)};\n`);
+  const files = [["command", "membrane", "out/membrane", true], ["service", "membrane-service", "out/membrane-service", true], ["icon", "membrane-tab-icon.png", "assets/tab.png", false], ["license", "LICENSE", "legal/LICENSE", false], ["eula", "EULA.txt", "legal/EULA.txt", false], ["privacy", "PRIVACY.md", "legal/PRIVACY.md", false], ["third-party-notices", "THIRD-PARTY-NOTICES.txt", "legal/THIRD-PARTY-NOTICES.txt", false]].map(([role, name, source, executable]) => ({ role, name, source, executable }));
+  writeFileSync(path.join(root, "right-addon.config.mjs"), `export default ${JSON.stringify({ schema: 1, kind: "headless-addon", addon: "membrane", version: "0.1.0", packageManager: "pnpm", checks: [], buildInputs: { include: ["right-addon.config.mjs"] }, consumer: { contract: "membrane-product-v1" }, targets: { mac: { targetTriple: "aarch64-apple-darwin", build: { cmd: "false", args: [] }, signing: { contract: "apple-developer-id-executable-v1", teamId: "6KLGD3LLKF" }, files }, win: { targetTriple: "x86_64-pc-windows-msvc", build: { cmd: "false", args: [] }, signing: { contract: "azure-artifact-signing-v1" }, files } } }, null, 2)};\n`);
   execFileSync("git", ["init", "--initial-branch", "main"], { cwd: root }); execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root }); execFileSync("git", ["config", "user.name", "Test"], { cwd: root }); execFileSync("git", ["add", "."], { cwd: root }); execFileSync("git", ["commit", "-m", "init"], { cwd: root });
   return root;
 }
@@ -25,7 +25,7 @@ test("add-on dry-run creates no release state and never executes build", () => {
 
 test("local adoption verifies lock and stages portable plus Tauri-qualified binaries", async () => {
   const root = fixture(); const config = (await import(`${pathToFileURL(path.join(root, "right-addon.config.mjs")).href}?test=${Date.now()}`)).default;
-  mkdirSync(path.join(root, "out")); writeFileSync(path.join(root, "out", "membrane"), "command"); writeFileSync(path.join(root, "out", "cortex-service"), "service");
+  mkdirSync(path.join(root, "out")); writeFileSync(path.join(root, "out", "membrane"), "command"); writeFileSync(path.join(root, "out", "membrane-service"), "service");
   const manifest = createAddonManifest({ config, root, platform: "mac", commit: "d".repeat(40), signing: { command: { contract: "test-fixture-v1", status: "verified" }, service: { contract: "test-fixture-v1", status: "verified" } } });
   const sealed = path.join(root, "sealed"); mkdirSync(sealed);
   for (const file of manifest.files) writeFileSync(path.join(sealed, file.name), readFileSync(path.join(root, config.targets.mac.files.find((entry) => entry.role === file.role).source)));
@@ -44,11 +44,11 @@ test("local adoption verifies lock and stages portable plus Tauri-qualified bina
 
 test("remote downloader accepts only immutable manifest plus file routes", async () => {
   const root = fixture(); const config = (await import(`${pathToFileURL(path.join(root, "right-addon.config.mjs")).href}?remote=${Date.now()}`)).default;
-  mkdirSync(path.join(root, "out")); writeFileSync(path.join(root, "out", "membrane"), "command"); writeFileSync(path.join(root, "out", "cortex-service"), "service");
+  mkdirSync(path.join(root, "out")); writeFileSync(path.join(root, "out", "membrane"), "command"); writeFileSync(path.join(root, "out", "membrane-service"), "service");
   const manifest = createAddonManifest({ config, root, platform: "mac", commit: "e".repeat(40), signing: { command: { contract: "test-fixture-v1", status: "verified" }, service: { contract: "test-fixture-v1", status: "verified" } } });
   const digest = addonManifestSha256(manifest); const base = `https://example.test/membrane/addons/mac/sha256/${digest}/`; const bytes = new Map([[`${base}addon-manifest.json`, Buffer.from(canonicalAddonManifest(manifest))], ...manifest.files.map((file) => [base + encodeURIComponent(file.name), readFileSync(path.join(root, config.targets.mac.files.find((entry) => entry.role === file.role).source))])]);
   const destination = path.join(root, "remote"); mkdirSync(destination);
   await downloadImmutableAddOn(`${base}addon-manifest.json`, destination, { fetchImpl: async (url) => ({ ok: bytes.has(url), status: bytes.has(url) ? 200 : 404, arrayBuffer: async () => bytes.get(url) }) });
-  assert.equal(readFileSync(path.join(destination, "cortex-service"), "utf8"), "service");
+  assert.equal(readFileSync(path.join(destination, "membrane-service"), "utf8"), "service");
   assert.equal(immutableAddonManifestUrl(manifest, `https://github.com/Orthic-Labs/Membrane/releases/download/addon-membrane-v0.1.0-mac-sha256-${digest}/addon-manifest.json`, digest), true);
 });

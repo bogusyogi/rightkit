@@ -9,16 +9,16 @@ import { ManagedJobService } from './job-service.mjs';
 import { brokerSccacheServerEnvironment } from './sccache-supervisor.mjs';
 import { DurableStateStore } from './state-store.mjs';
 
-async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null, targetTriples = null, sccacheMode = null, sccacheSupervisor = null, sccacheOwnershipRecord = null, sccacheReaper = null, prepareSccacheSocket = null } = {}) {
+async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = null, statfsOperation = null, bounds = {}, eventLog = null, activationFence = null, targetTriples = null, targetInspector = async ({ rustupHome, pinnedToolchain, target }) => ({ rustupHome, pinnedToolchain, toolchain: pinnedToolchain, target, compiler: { release: null, host: null }, available: true }), sccacheMode = null, sccacheSupervisor = null, sccacheOwnershipRecord = null, sccacheReaper = null, prepareSccacheSocket = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'rightkit-job-service-')); const tokenFile = path.join(root, 'parent-token');
   const workspace = path.join(root, 'workspace'); const managed = path.join(root, 'managed'); const bin = path.join(root, 'fake-cargo');
   await mkdir(path.join(workspace, '.git'), { recursive: true }); await mkdir(managed, { recursive: true });
-  await writeFile(bin, `#!/usr/bin/env node\nconst fs=require('node:fs'); const command=process.argv[2]; const ci=String(process.env.CI||''); if(process.env.RUST_LOG) try{fs.writeFileSync(process.env.RUST_LOG, ci==='env'?JSON.stringify({wrapper:process.env.RUSTC_WRAPPER??null,uds:process.env.SCCACHE_SERVER_UDS??null,dir:process.env.SCCACHE_DIR??null,size:process.env.SCCACHE_CACHE_SIZE??null}):(process.env.RIGHTKIT_PARENT_CAPABILITY_TOKEN||''))}catch{}; if(ci.startsWith('out:')) process.stdout.write('x'.repeat(Number(ci.slice(4))||0)); if(command==='--version'||command==='metadata'||command==='show'){ console.log('fake cargo 1.0'); process.exit(0); } setTimeout(()=>process.exit(0), Number(ci)||${delayMs});\n`);
+  await writeFile(bin, `#!/usr/bin/env node\nconst fs=require('node:fs'); const command=process.argv[2]; const ci=String(process.env.CI||''); if(process.env.RUST_LOG) try{fs.writeFileSync(process.env.RUST_LOG, ci==='env'?JSON.stringify({wrapper:process.env.RUSTC_WRAPPER??null,uds:process.env.SCCACHE_SERVER_UDS??null,dir:process.env.SCCACHE_DIR??null,size:process.env.SCCACHE_CACHE_SIZE??null}):ci==='argv'?JSON.stringify(process.argv.slice(2)):(process.env.RIGHTKIT_PARENT_CAPABILITY_TOKEN||''))}catch{}; if(ci.startsWith('out:')) process.stdout.write('x'.repeat(Number(ci.slice(4))||0)); if(command==='--version'||command==='metadata'||command==='show'){ console.log('fake cargo 1.0'); process.exit(0); } setTimeout(()=>process.exit(0), Number(ci)||${delayMs});\n`);
   await chmod(bin, 0o755); const sha256 = createHash('sha256').update(await readFile(bin)).digest('hex');
   const config = {
     broker: { externalRoot: { path: managed, volumeId: 'test-volume', mounted: true, writable: true, internal: false }, capacityBytes: 1_000_000_000, stateFile: path.join(managed, 'state', 'legacy.json'), receiptsDir: path.join(managed, 'receipts'), ...(activationFence ? { activationFencePath: path.join(managed, 'activation-fence.json') } : {}) },
     unixSocket: path.join(managed, 'broker.sock'),
-    tools: [{ id: 'cargo', path: bin, root, sha256 }, { id: 'sccache', path: bin, root, sha256 }], shims: { cargo: 'cargo' },
+    tools: [{ id: 'cargo', path: bin, root, sha256 }, { id: 'rustc', path: bin, root, sha256 }, { id: 'rustup', path: bin, root, sha256 }, { id: 'sccache', path: bin, root, sha256 }], shims: { cargo: 'cargo', rustc: 'rustc', rustup: 'rustup' },
     defaults: { toolchain: 'stable', targetTriple: 'x86_64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', ...(sccacheMode === 'managed' ? { sccacheToolId: 'sccache', cacheMode: 'managed' } : {}) },
     ...(sccacheMode ? { sccache: { mode: sccacheMode, lifecycleOwner: sccacheMode === 'managed' ? 'broker' : null, requireOwnershipProof: sccacheMode === 'managed', maxSizeBytes: 21_474_836_480 } } : {}),
     bounds: { heartbeatIntervalMs: 20, diskSampleIntervalMs: 20, processGraceMs: 300, statfsTimeoutMs: 50, freeFloorBytes: 1, eventLogMaxBytes: 64 * 1024, outputBufferBytes: 64 * 1024, ...bounds }
@@ -27,7 +27,7 @@ async function fixture({ delayMs = 350, freeBytes = 100_000_000, statfsError = n
   const statfs = statfsOperation ?? (async () => { if (statfsError) throw statfsError; return { bavail: freeBytes, bsize: 1 }; });
   const databasePath = `${config.broker.stateFile}.sqlite`;
   if (sccacheOwnershipRecord) { const seed = await DurableStateStore.open({ databasePath }); seed.writeSetting('sccache-server-ownership', sccacheOwnershipRecord); seed.close(); }
-  const service = await ManagedJobService.create({ config, statfs, eventLog, sccacheSupervisor, ...(sccacheReaper ? { sccacheReaper } : {}), ...(prepareSccacheSocket ? { prepareSccacheSocket } : {}) });
+  const service = await ManagedJobService.create({ config, statfs, eventLog, targetInspector, sccacheSupervisor, ...(sccacheReaper ? { sccacheReaper } : {}), ...(prepareSccacheSocket ? { prepareSccacheSocket } : {}) });
   return { root, workspace, managed, bin, tokenFile, config, databasePath, service, cleanup: async () => { await service.shutdown().catch(() => null); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -74,6 +74,35 @@ test('registered universal release targets admit while unknown targets reject', 
     const rejected = await call(item.service, submit(managed(item.workspace, ['build', '--target', 'wasm32-unknown-unknown'])));
     assert.equal(rejected.result.status, 'REJECTED');
     assert.match(rejected.result.error, /must be registered/);
+  } finally { await item.cleanup(); }
+});
+
+test('build target std absence rejects before job creation or workspace mutation', async () => {
+  const item = await fixture({ targetTriples: ['x86_64-apple-darwin', 'aarch64-apple-darwin'], targetInspector: async ({ rustupHome, pinnedToolchain, target }) => ({ rustupHome, pinnedToolchain, toolchain: pinnedToolchain, target, compiler: { release: '1.0', host: 'aarch64-apple-darwin' }, available: target !== 'x86_64-apple-darwin' }) });
+  try {
+    const rejected = await call(item.service, submit(managed(item.workspace, ['build', '--target', 'x86_64-apple-darwin'])));
+    assert.equal(rejected.result.status, 'REJECTED'); assert.equal(rejected.result.code, 'RK_TARGET_STD_UNAVAILABLE');
+  } finally { await item.cleanup(); }
+});
+
+test('registered target add uses broker-fixed toolchain, verifies before & after, & persists terminal evidence', async () => {
+  const observations = []; let available = false;
+  const item = await fixture({ targetTriples: ['x86_64-apple-darwin', 'aarch64-apple-darwin'], targetInspector: async (input) => { observations.push(input); const result = { rustupHome: input.rustupHome, pinnedToolchain: input.pinnedToolchain, toolchain: input.pinnedToolchain, target: input.target, compiler: { release: '1.0', host: 'aarch64-apple-darwin' }, available }; available = true; return result; } });
+  try {
+    const request = managed(item.workspace, ['target', 'add', 'x86_64-apple-darwin'], { shim: 'rustup', request: { environment: { RUST_LOG: item.tokenFile, CI: 'argv' } } });
+    const submitted = await call(item.service, submit(request)); assert.equal(submitted.result.lane, 'TOOLCHAIN_WRITE', JSON.stringify(submitted.result));
+    const completed = await call(item.service, command('WATCH', submitted.result.id));
+    assert.equal(completed.result.status, 'SUCCEEDED'); assert.equal(completed.result.receipt.namespace, null); assert.equal(completed.result.receipt.toolchainEvidence.available, true);
+    assert.equal(observations.length, 2); assert.ok(observations.every(({ target }) => target === 'x86_64-apple-darwin'));
+    assert.deepEqual(JSON.parse(await readFile(item.tokenFile, 'utf8')), ['target', 'add', 'x86_64-apple-darwin', '--toolchain', 'stable']);
+  } finally { await item.cleanup(); }
+});
+
+test('unregistered target add rejects before scheduling', async () => {
+  const item = await fixture({ targetTriples: ['aarch64-apple-darwin'] });
+  try {
+    const rejected = await call(item.service, submit(managed(item.workspace, ['target', 'add', 'x86_64-apple-darwin'], { shim: 'rustup' })));
+    assert.equal(rejected.result.status, 'REJECTED'); assert.equal(rejected.result.code, 'RK_TARGET_NOT_REGISTERED', JSON.stringify(rejected.result));
   } finally { await item.cleanup(); }
 });
 

@@ -4,7 +4,7 @@ export class QueueCancelledError extends Error {
   constructor(message = 'queued request cancelled') { super(message); this.name = 'QueueCancelledError'; this.code = 'RK_QUEUE_CANCELLED'; }
 }
 
-const LANES = new Set(['CONTROL', 'BUILD', 'WORKSPACE_WRITE', 'MAINTENANCE']);
+const LANES = new Set(['CONTROL', 'BUILD', 'WORKSPACE_WRITE', 'MAINTENANCE', 'TOOLCHAIN_WRITE']);
 const PRIORITIES = new Map([['BATCH', 0], ['INTERACTIVE', 1], ['INSTALLER', 2]]);
 
 /**
@@ -14,7 +14,7 @@ const PRIORITIES = new Map([['BATCH', 0], ['INTERACTIVE', 1], ['INSTALLER', 2]])
  * cannot starve an older request.
  */
 export class CapabilityScheduler {
-  #active = { CONTROL: [], BUILD: [], WORKSPACE_WRITE: [], MAINTENANCE: [] }; #queue = { CONTROL: [], BUILD: [], WORKSPACE_WRITE: [], MAINTENANCE: [] }; #limits; #heartbeatIntervalMs; #priorityAgingMs; #now;
+  #active = { CONTROL: [], BUILD: [], WORKSPACE_WRITE: [], MAINTENANCE: [], TOOLCHAIN_WRITE: [] }; #queue = { CONTROL: [], BUILD: [], WORKSPACE_WRITE: [], MAINTENANCE: [], TOOLCHAIN_WRITE: [] }; #limits; #heartbeatIntervalMs; #priorityAgingMs; #now;
   constructor({ controlConcurrency = 4, buildConcurrency = 1, workspaceWriteConcurrency = 4, maintenanceConcurrency = 1, heartbeatIntervalMs = 5_000, priorityAgingMs = 30_000, now = () => Date.now() } = {}) {
     if (!Number.isSafeInteger(controlConcurrency) || controlConcurrency < 1) throw new TypeError('controlConcurrency must be a positive integer');
     if (!Number.isSafeInteger(buildConcurrency) || buildConcurrency < 1) throw new TypeError('buildConcurrency must be a positive integer');
@@ -23,16 +23,16 @@ export class CapabilityScheduler {
     if (!Number.isSafeInteger(heartbeatIntervalMs) || heartbeatIntervalMs < 10) throw new TypeError('heartbeatIntervalMs must be at least 10');
     if (!Number.isSafeInteger(priorityAgingMs) || priorityAgingMs < 1) throw new TypeError('priorityAgingMs must be a positive integer');
     if (typeof now !== 'function') throw new TypeError('now must be a function');
-    this.#limits = Object.freeze({ CONTROL: controlConcurrency, BUILD: buildConcurrency, WORKSPACE_WRITE: workspaceWriteConcurrency, MAINTENANCE: maintenanceConcurrency });
+    this.#limits = Object.freeze({ CONTROL: controlConcurrency, BUILD: buildConcurrency, WORKSPACE_WRITE: workspaceWriteConcurrency, MAINTENANCE: maintenanceConcurrency, TOOLCHAIN_WRITE: 1 });
     this.#heartbeatIntervalMs = heartbeatIntervalMs; this.#priorityAgingMs = priorityAgingMs; this.#now = now;
   }
   get snapshot() {
     const lane = (name) => Object.freeze({ active: Object.freeze(this.#active[name].map(({ id }) => id)), queued: Object.freeze(this.#queue[name].map(({ id }) => id)) });
-    return Object.freeze({ CONTROL: lane('CONTROL'), BUILD: lane('BUILD'), WORKSPACE_WRITE: lane('WORKSPACE_WRITE'), MAINTENANCE: lane('MAINTENANCE') });
+    return Object.freeze({ CONTROL: lane('CONTROL'), BUILD: lane('BUILD'), WORKSPACE_WRITE: lane('WORKSPACE_WRITE'), MAINTENANCE: lane('MAINTENANCE'), TOOLCHAIN_WRITE: lane('TOOLCHAIN_WRITE') });
   }
   acquire({ id, lane, priority = 'BATCH', repositoryIdentity, onHeartbeat = () => {} }) {
     if (typeof id !== 'string' || !id || typeof repositoryIdentity !== 'string' || !repositoryIdentity || typeof onHeartbeat !== 'function') throw new TypeError('id, repositoryIdentity, & heartbeat callback are required');
-    if (!LANES.has(lane)) throw new TypeError('lane must be CONTROL, BUILD, WORKSPACE_WRITE, or MAINTENANCE');
+    if (!LANES.has(lane)) throw new TypeError('lane must be CONTROL, BUILD, WORKSPACE_WRITE, MAINTENANCE, or TOOLCHAIN_WRITE');
     if (!PRIORITIES.has(priority)) throw new TypeError('priority must be BATCH, INTERACTIVE, or INSTALLER');
     if ([...LANES].some((name) => this.#active[name].some((item) => item.id === id) || this.#queue[name].some((item) => item.id === id))) throw new TypeError('scheduler request id must be unique');
     let resolvePermit; let rejectPermit; let settled = false;
@@ -43,7 +43,7 @@ export class CapabilityScheduler {
     const cancel = () => {
       if (settled || this.#active[lane].includes(ticket)) return false;
       const index = this.#queue[lane].indexOf(ticket); if (index < 0) return false;
-      this.#queue[lane].splice(index, 1); settled = true; clearInterval(timer); rejectPermit(new QueueCancelledError()); this.#reindex(lane); return true;
+      this.#queue[lane].splice(index, 1); settled = true; clearInterval(timer); rejectPermit(new QueueCancelledError()); this.#reindex(lane); queueMicrotask(() => this.#drainAll()); return true;
     };
     return Object.freeze({ id, lane, permit, cancel });
   }
@@ -72,16 +72,17 @@ export class CapabilityScheduler {
     return queue.splice(selected, 1)[0];
   }
   #canRun(ticket) {
+    if (ticket.lane === 'TOOLCHAIN_WRITE') return [...LANES].every((lane) => this.#active[lane].length === 0);
+    if (this.#active.TOOLCHAIN_WRITE.length || this.#queue.TOOLCHAIN_WRITE.length) return false;
     if (ticket.lane === 'BUILD') return !this.#active.BUILD.some(({ repositoryIdentity }) => repositoryIdentity === ticket.repositoryIdentity)
       && !this.#active.WORKSPACE_WRITE.some(({ repositoryIdentity }) => repositoryIdentity === ticket.repositoryIdentity);
     if (ticket.lane === 'WORKSPACE_WRITE') return !this.#active.WORKSPACE_WRITE.some(({ repositoryIdentity }) => repositoryIdentity === ticket.repositoryIdentity) && !this.#active.BUILD.some(({ repositoryIdentity }) => repositoryIdentity === ticket.repositoryIdentity);
     return true;
   }
   #drainRelated(lane) {
-    this.#drain(lane);
-    if (lane === 'BUILD') this.#drain('WORKSPACE_WRITE');
-    if (lane === 'WORKSPACE_WRITE') this.#drain('BUILD');
+    this.#drainAll();
   }
+  #drainAll() { for (const name of ['TOOLCHAIN_WRITE', 'CONTROL', 'BUILD', 'WORKSPACE_WRITE', 'MAINTENANCE']) this.#drain(name); }
   #compare(left, right) {
     const score = (ticket) => PRIORITIES.get(ticket.priority) + Math.floor(Math.max(0, this.#now() - ticket.enqueuedAt) / this.#priorityAgingMs);
     const difference = score(right) - score(left);

@@ -8,6 +8,7 @@ export class UnknownManagedCommandError extends Error {
 const control = (command) => Object.freeze({ command, lane: 'CONTROL', buildCapable: false });
 const build = (command) => Object.freeze({ command, lane: 'BUILD', buildCapable: true });
 const workspaceWrite = (command) => Object.freeze({ command, lane: 'WORKSPACE_WRITE', buildCapable: false });
+const toolchainWrite = (command) => Object.freeze({ command, lane: 'TOOLCHAIN_WRITE', buildCapable: false });
 const maintenance = (operation) => Object.freeze({ operation, lane: 'MAINTENANCE', buildCapable: false, internal: true });
 const external = (command, lane, buildCapable) => Object.freeze({ command, lane, buildCapable, external: true });
 
@@ -19,7 +20,7 @@ export const DEFAULT_COMMAND_CAPABILITIES = Object.freeze({
     build: build('build'), check: build('check'), test: build('test'), bench: build('bench'), clippy: build('clippy'), doc: build('doc'), install: build('install'), nextest: external('nextest', 'BUILD', true), run: build('run')
   }),
   rustup: Object.freeze({
-    '--version': control('--version'), '-V': control('-V'), show: control('show'), 'target-list': control('target-list'), 'target-list-installed': control('target-list-installed'), which: control('which')
+    '--version': control('--version'), '-V': control('-V'), show: control('show'), 'target-list': control('target-list'), 'target-list-installed': control('target-list-installed'), 'target-add': toolchainWrite('target-add'), which: control('which')
   }),
   rustc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), probe: control('probe'), '*': build('rustc') }),
   rustdoc: Object.freeze({ '--version': control('--version'), '-V': control('-V'), '-vV': control('-vV'), probe: control('probe'), '*': build('rustdoc') })
@@ -116,6 +117,7 @@ function isCompilerPrintProbe(argv) {
 }
 
 function rustupCommand(argv) {
+  if (isRustupTargetAdd(argv)) return 'target-add';
   if (isRustupTargetProbe(argv)) return 'target-list';
   if (isRustupInstalledTargetProbe(argv)) return 'target-list-installed';
   for (let index = 0; index < argv.length; index += 1) {
@@ -128,6 +130,10 @@ function rustupCommand(argv) {
     return value;
   }
   return null;
+}
+
+function isRustupTargetAdd(argv) {
+  return argv.length === 3 && argv[0] === 'target' && argv[1] === 'add' && /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(argv[2]);
 }
 
 function isRustupTargetProbe(argv) {

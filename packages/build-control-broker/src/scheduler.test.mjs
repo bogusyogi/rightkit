@@ -102,6 +102,25 @@ test('bounded MAINTENANCE is independent from active BUILD work', async () => {
   maintenancePermit.release(); buildPermit.release();
 });
 
+test('queued TOOLCHAIN_WRITE drains active work, blocks every new lane, runs alone, then releases all lanes', async () => {
+  const scheduler = new CapabilityScheduler({ controlConcurrency: 2, buildConcurrency: 2 });
+  const activeBuild = scheduler.acquire({ id: 'active-build', lane: 'BUILD', repositoryIdentity: 'repo-a' });
+  const activeControl = scheduler.acquire({ id: 'active-control', lane: 'CONTROL', repositoryIdentity: 'repo-b' });
+  const buildPermit = await activeBuild.permit; const controlPermit = await activeControl.permit;
+  const write = scheduler.acquire({ id: 'toolchain', lane: 'TOOLCHAIN_WRITE', priority: 'INSTALLER', repositoryIdentity: 'broker' });
+  const blockedControl = scheduler.acquire({ id: 'blocked-control', lane: 'CONTROL', repositoryIdentity: 'repo-c' });
+  const blockedBuild = scheduler.acquire({ id: 'blocked-build', lane: 'BUILD', repositoryIdentity: 'repo-d' });
+  assert.deepEqual(scheduler.snapshot.TOOLCHAIN_WRITE, { active: [], queued: ['toolchain'] });
+  assert.deepEqual(scheduler.snapshot.CONTROL.queued, ['blocked-control']); assert.deepEqual(scheduler.snapshot.BUILD.queued, ['blocked-build']);
+  controlPermit.release(); buildPermit.release();
+  const toolchainPermit = await write.permit;
+  assert.deepEqual(scheduler.snapshot.TOOLCHAIN_WRITE.active, ['toolchain']);
+  assert.deepEqual(scheduler.snapshot.CONTROL.active, []); assert.deepEqual(scheduler.snapshot.BUILD.active, []);
+  toolchainPermit.release();
+  const [nextControl, nextBuild] = await Promise.all([blockedControl.permit, blockedBuild.permit]);
+  nextControl.release(); nextBuild.release();
+});
+
 test('installer is next queued BUILD request but never preempts an active build', async () => {
   const scheduler = new CapabilityScheduler();
   const active = scheduler.acquire({ id: 'active', lane: 'BUILD', repositoryIdentity: 'repo' });

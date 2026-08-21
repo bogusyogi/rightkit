@@ -23,6 +23,16 @@ never is.** Losing the machine loses only output the scripts can regenerate.
 
 ## Recovering after a reset
 
+## Provisioning a registered Rust target
+
+RightKit owns target-std mutation inside its pinned, isolated Rustup home. Use only:
+
+```bash
+rightkit rustup target add x86_64-apple-darwin
+```
+
+Broker accepts exact `target add <registered-triple>` grammar only. It rejects caller toolchain selectors, options, extra arguments, removal, update, component, toolchain, & run commands. A queued target install drains every active lane, blocks new work, executes alone, verifies broker-pinned compiler identity plus target inventory before & after mutation, then records target, pinned toolchain, managed Rustup home, & verification result in terminal receipt. Cargo, rustc, & rustdoc requests for missing target std reject as `RK_TARGET_STD_UNAVAILABLE` before lease or workspace writes.
+
 ### macOS
 
 ```bash

@@ -55,9 +55,17 @@ test('rustup registers only CONTROL inspection commands with global options', ()
   assert.equal(classifyManagedCommand('rustup', ['which', 'rustc']).lane, 'CONTROL');
 });
 
-test('rustup provisioning, run, & unknown commands reject', () => {
-  for (const command of ['default', 'toolchain', 'target', 'component', 'run', 'unregistered']) assert.throws(() => classifyManagedCommand('rustup', [command]), UnknownManagedCommandError);
-  assert.throws(() => classifyManagedCommand('rustup', ['target', 'add', 'aarch64-apple-darwin']), UnknownManagedCommandError);
+test('rustup admits only exact target add grammar into TOOLCHAIN_WRITE', () => {
+  assert.equal(classifyManagedCommand('rustup', ['target', 'add', 'aarch64-apple-darwin']).lane, 'TOOLCHAIN_WRITE');
+  for (const argv of [
+    ['target', 'add'], ['target', 'add', 'aarch64-apple-darwin', '--force'], ['target', 'add', '--toolchain', 'stable'],
+    ['target', 'remove', 'aarch64-apple-darwin'], ['update'], ['component', 'add', 'rust-src'], ['run', 'stable', 'rustc'],
+    ['toolchain', 'install', 'stable'], ['target', 'add', '../escape']
+  ]) assert.throws(() => classifyManagedCommand('rustup', argv), UnknownManagedCommandError);
+});
+
+test('rustup administration, run, & unknown commands reject', () => {
+  for (const command of ['default', 'toolchain', 'target', 'component', 'run', 'update', 'unregistered']) assert.throws(() => classifyManagedCommand('rustup', [command]), UnknownManagedCommandError);
   assert.throws(() => classifyManagedCommand('rustup', ['target', 'list', '--unknown']), UnknownManagedCommandError);
 });
 

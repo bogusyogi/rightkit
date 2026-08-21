@@ -31,6 +31,7 @@ import {
 import { brokerOwnedSccacheProof, brokerSccacheNotifyPath, brokerSccacheSocketPath, directRustcFallback, prepareBrokerSccacheSocket, sccacheSocketPathsWithinLimit, SccacheSupervisor } from './sccache-supervisor.mjs';
 import { CapabilityScheduler, QueueCancelledError } from './scheduler.mjs';
 import { DurableStateStore } from './state-store.mjs';
+import { inspectManagedTargetStd, requireManagedTargetStd, rustupToolchainSelector } from './toolchain-components.mjs';
 import { ImmutableToolRegistry, ToolChangedError } from './tool-registry.mjs';
 
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
@@ -53,9 +54,9 @@ const nowIso = () => new Date().toISOString();
  * jobs; only an explicit CANCEL command or configured deadline cancels one.
  */
 export class ManagedJobService {
-  #config; #runtime; #store; #registry; #commands; #toolErrors; #events; #scheduler; #maintenance; #spawn; #statfs; #sccache = null; #sccacheSocket = null; #jobs = new Map(); #stopping = false; #maintenanceTimer = null; #maintenanceRun = Promise.resolve(); #maintenanceCursor = null;
+  #config; #runtime; #store; #registry; #commands; #toolErrors; #events; #scheduler; #maintenance; #spawn; #statfs; #targetInspector; #sccache = null; #sccacheSocket = null; #jobs = new Map(); #stopping = false; #maintenanceTimer = null; #maintenanceRun = Promise.resolve(); #maintenanceCursor = null;
 
-  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, spawn = nodeSpawn, statfs = nodeStatfs, scheduler = null, registry = null, eventLog = null, sccacheSupervisor = null, sccacheReaper = reapPersistedProcessTree, prepareSccacheSocket = prepareBrokerSccacheSocket } = {}) {
+  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, spawn = nodeSpawn, statfs = nodeStatfs, scheduler = null, registry = null, eventLog = null, targetInspector = inspectManagedTargetStd, sccacheSupervisor = null, sccacheReaper = reapPersistedProcessTree, prepareSccacheSocket = prepareBrokerSccacheSocket } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
     const root = normalize(config.broker.externalRoot.path);
     const databasePath = normalize(config.broker.databasePath ?? `${config.broker.stateFile}.sqlite`);
@@ -120,15 +121,15 @@ export class ManagedJobService {
       stateStore: store,
       maxBatchEntries: integer(config.bounds?.maintenanceBatchEntries, 'maintenanceBatchEntries', 128, 1)
     });
-    const service = new ManagedJobService({ config, runtimeIdentity, store, registry: toolRegistry, toolErrors, events, scheduler: laneScheduler, maintenance, spawn, statfs, sccache, sccacheSocket });
+    const service = new ManagedJobService({ config, runtimeIdentity, store, registry: toolRegistry, toolErrors, events, scheduler: laneScheduler, maintenance, spawn, statfs, targetInspector, sccache, sccacheSocket });
     if (sccacheDegraded) await service.#log({ type: 'SCCACHE_DEGRADED', reason: sccacheDegraded, reap: sccacheOrphanReap });
     await service.#recover();
     service.#startMaintenance();
     return service;
   }
 
-  constructor({ config, runtimeIdentity, store, registry, toolErrors, events, scheduler, maintenance, spawn, statfs, sccache = null, sccacheSocket = null }) {
-    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#store = store; this.#registry = registry; this.#commands = createCommandCapabilityRegistry({ externalCommands: config.externalCommands }); this.#toolErrors = toolErrors; this.#events = events; this.#scheduler = scheduler; this.#maintenance = maintenance; this.#spawn = spawn; this.#statfs = statfs; this.#sccache = sccache; this.#sccacheSocket = sccacheSocket;
+  constructor({ config, runtimeIdentity, store, registry, toolErrors, events, scheduler, maintenance, spawn, statfs, targetInspector, sccache = null, sccacheSocket = null }) {
+    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#store = store; this.#registry = registry; this.#commands = createCommandCapabilityRegistry({ externalCommands: config.externalCommands }); this.#toolErrors = toolErrors; this.#events = events; this.#scheduler = scheduler; this.#maintenance = maintenance; this.#spawn = spawn; this.#statfs = statfs; this.#targetInspector = targetInspector; this.#sccache = sccache; this.#sccacheSocket = sccacheSocket;
   }
 
   get runtimeIdentity() { return this.#runtime; }
@@ -210,8 +211,8 @@ export class ManagedJobService {
     const defaultTargetTriple = this.#config.defaults?.targetTriple;
     const allowedTargetTriples = this.#config.defaults?.targetTriples ?? [defaultTargetTriple];
     const explicitTargetTriple = ['cargo', 'rustc', 'rustdoc'].includes(message.shim) ? compilationTarget(message.shim, rawRequest.argv) : null;
-    const targetTriple = explicitTargetTriple ?? defaultTargetTriple;
-    if (!allowedTargetTriples.includes(targetTriple)) throw new TypeError(`managed Rust target must be registered by broker: ${targetTriple}`);
+    const targetTriple = capability.lane === 'TOOLCHAIN_WRITE' ? rawRequest.argv[2] : explicitTargetTriple ?? defaultTargetTriple;
+    if (!allowedTargetTriples.includes(targetTriple)) throw Object.assign(new TypeError(`managed Rust target must be registered by broker: ${targetTriple}`), { code: 'RK_TARGET_NOT_REGISTERED' });
     const argv = message.shim === 'cargo' && capability.lane === 'BUILD' ? normalizeCargoTargetArgv(rawRequest.argv, targetTriple) : rawRequest.argv;
     const request = Object.freeze({ ...rawRequest, argv, environment: normalizeRequestEnvironment(rawRequest.environment) });
     if (['cargo', 'rustc', 'rustdoc'].includes(message.shim)) await rejectWorkspaceCargoConfiguration(request.workspace);
@@ -223,6 +224,13 @@ export class ManagedJobService {
     const priority = message.priority ?? 'BATCH'; if (!PRIORITIES.has(priority)) throw new TypeError('priority must be BATCH, INTERACTIVE, or INSTALLER');
     const layout = storageLayout(this.#config, { repositoryIdentity: roots.repositoryRoot, buildProfile: classifyBuildProfile(request.argv, this.#config.defaults?.buildProfile), targetTriple });
     validateManagedRustEnvironment(message.observedEnvironment ?? {}, managedRustEnvironment(layout));
+    const checksTargetStd = Array.isArray(this.#config.defaults?.targetTriples) && (capability.lane === 'TOOLCHAIN_WRITE' || (capability.lane === 'BUILD' && ['cargo', 'rustc', 'rustdoc'].includes(message.shim)));
+    let toolchainEvidence = null;
+    if (checksTargetStd) {
+      const rustupTool = message.shim === 'rustup' ? registeredTool : await this.#verifyTool(this.#config.shims?.rustup);
+      toolchainEvidence = await this.#targetInspector({ rustupPath: rustupTool.path, rustupHome: layout.rustupHome, pinnedToolchain: this.#config.defaults.toolchain, target: targetTriple });
+      if (capability.lane !== 'TOOLCHAIN_WRITE') requireManagedTargetStd(toolchainEvidence);
+    }
     const parentId = message.execution?.mode === 'NESTED' ? message.execution.parentId : null;
     if (message.execution && (!parentId || message.execution.mode !== 'NESTED')) throw new TypeError('nested execution requires parentId');
     if (parentId && (typeof message.execution.capabilityToken !== 'string' || message.execution.capabilityToken.length < 32)) throw Object.assign(new TypeError('nested execution requires parent capability token'), { code: 'RK_PARENT_CAPABILITY_REQUIRED' });
@@ -230,12 +238,12 @@ export class ManagedJobService {
     const parentCapabilityToken = randomBytes(32).toString('base64url');
     const suppliedCapabilityToken = message.execution?.capabilityToken ?? null;
     const directArgv = capability.external ? request.argv.filter((value, index) => index !== request.argv.indexOf(capability.command)) : request.argv;
-    const invokeArgv = ['rustc', 'rustdoc'].includes(message.shim) && capability.lane === 'BUILD' ? normalizeCompilerOutputArgv(directArgv, { compiler: message.shim, outputRoot: join(layout.build, 'raw-compiler'), targetTriple }) : directArgv;
+    const invokeArgv = capability.lane === 'TOOLCHAIN_WRITE' ? [...directArgv, '--toolchain', rustupToolchainSelector(this.#config.defaults.toolchain)] : ['rustc', 'rustdoc'].includes(message.shim) && capability.lane === 'BUILD' ? normalizeCompilerOutputArgv(directArgv, { compiler: message.shim, outputRoot: join(layout.build, 'raw-compiler'), targetTriple }) : directArgv;
     const diagnostics = message.shim === 'rustc' && this.#config.sccache?.mode === 'disabled' ? Object.freeze(['direct-rustc-with-sccache-disabled']) : Object.freeze([]);
-    const data = Object.freeze({ id, request, invokeArgv, shim: message.shim, toolId, repositoryIdentity: roots.repositoryRoot, capability, priority, parentId, layout, diagnostics, submittedAt });
+    const data = Object.freeze({ id, request, invokeArgv, shim: message.shim, toolId, repositoryIdentity: roots.repositoryRoot, capability, priority, parentId, layout, diagnostics, toolchainEvidence, submittedAt });
     let resolveDone; const done = new Promise((resolve) => { resolveDone = resolve; });
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, 'outputBufferBytes', DEFAULT_OUTPUT_BYTES, 1024);
-    return { id, data, request, invokeArgv, shim: message.shim, toolId, repositoryIdentity: roots.repositoryRoot, capability, priority, parentId, layout, diagnostics, submittedAt, parentCapabilityToken, suppliedCapabilityToken, state: 'QUEUED', history: [], historyBytes: 0, historyDroppedBytes: 0, historyDroppedEvents: 0, historyLimit: integer(this.#config.bounds?.eventHistoryEntries, 'eventHistoryEntries', 4096, 16), historyByteLimit: integer(this.#config.bounds?.eventHistoryBytes, 'eventHistoryBytes', outputLimit, 1024), watchers: new Set(), children: new Set(), parentJob: null, rootJob: null, domainJob: null, reservationOwner: null, outputBytes: 0, outputLimit, outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputDigest: createHash('sha256'), ticket: null, permit: null, child: null, termination: null, cancelReason: null, terminal: null, eventLogFailures: [], done, resolveDone };
+    return { id, data, request, invokeArgv, shim: message.shim, toolId, repositoryIdentity: roots.repositoryRoot, capability, priority, parentId, layout, diagnostics, toolchainEvidence, targetTriple, submittedAt, parentCapabilityToken, suppliedCapabilityToken, state: 'QUEUED', history: [], historyBytes: 0, historyDroppedBytes: 0, historyDroppedEvents: 0, historyLimit: integer(this.#config.bounds?.eventHistoryEntries, 'eventHistoryEntries', 4096, 16), historyByteLimit: integer(this.#config.bounds?.eventHistoryBytes, 'eventHistoryBytes', outputLimit, 1024), watchers: new Set(), children: new Set(), parentJob: null, rootJob: null, domainJob: null, reservationOwner: null, outputBytes: 0, outputLimit, outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputDigest: createHash('sha256'), ticket: null, permit: null, child: null, termination: null, cancelReason: null, terminal: null, eventLogFailures: [], done, resolveDone };
   }
 
   async #execute(job) {
@@ -269,7 +277,7 @@ export class ManagedJobService {
       if (job.cancelReason) throw new QueueCancelledError();
       if (HEAVY.has(job.capability.lane) && !job.parentId) { const amount = integer(this.#config.defaults?.reservationBytes, 'reservationBytes', 0); if (amount > 0 && Number.isSafeInteger(this.#config.broker.capacityBytes)) { this.#store.reserveRequest({ requestId: job.id, domain: this.#config.broker.externalRoot.path, capacity: this.#config.broker.capacityBytes, amount }); job.reservationAmount = amount; } await this.#heavyPreflight(job); }
       await this.#transition(job, 'QUEUED', 'ADMITTED');
-      if (job.capability.lane !== 'CONTROL') await this.#prepareNamespace(job);
+      if (HEAVY.has(job.capability.lane)) await this.#prepareNamespace(job);
       const tool = await this.#verifyInvocationTool(job);
       if (job.diagnostics.length) await this.#log({ type: 'DIRECT_RUSTC_DIAGNOSTIC', id: job.id, diagnostics: job.diagnostics });
       const env = await this.#executionEnvironment(job);
@@ -291,6 +299,11 @@ export class ManagedJobService {
       if (HEAVY.has(job.capability.lane)) this.#startStorageSampling(job);
       if (job.cancelReason) this.#terminate(job);
       const result = await job.exit;
+      if (result.code === 0 && job.capability.lane === 'TOOLCHAIN_WRITE') {
+        const rustupTool = await this.#verifyTool(this.#config.shims.rustup);
+        job.toolchainEvidence = await this.#targetInspector({ rustupPath: rustupTool.path, rustupHome: job.layout.rustupHome, pinnedToolchain: this.#config.defaults.toolchain, target: job.targetTriple });
+        requireManagedTargetStd(job.toolchainEvidence);
+      }
       await this.#transition(job, 'RUNNING', 'REAPING', { exitCode: result.code, signal: result.signal });
       const reap = job.termination ? await job.termination : await terminateProcessTree(job.child, { graceMs: integer(this.#config.bounds?.processGraceMs, 'processGraceMs', 5_000) });
       if (!reap.reaped) throw Object.assign(new Error(`process tree remains live: ${reap.reason}`), { code: 'RK_REAP_PENDING', reap });
@@ -359,10 +372,10 @@ export class ManagedJobService {
     // Attempt & fsync terminal evidence before committing one terminal receipt.
     // Its durability field is therefore final at first persistence; no crash
     // window or correction transaction can leave STATUS overstating evidence.
-    await this.#requiredLog(job, { type: 'TERMINAL', id: job.id, state, exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null });
-    const receipt = Object.freeze({ id: job.id, state, exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, error: details.error ?? null, diagnostics: job.diagnostics ?? [], capability: job.capability, priority: job.priority, repositoryIdentity: job.repositoryIdentity, namespace: job.capability.lane === 'CONTROL' ? null : job.layout.namespace, generation: job.generation ?? null, parentId: job.parentId, submittedAt: job.submittedAt, terminalAt, reap: details.reap ?? null, output, eventLog: eventLogStatus(job.eventLogFailures) });
+    await this.#requiredLog(job, { type: 'TERMINAL', id: job.id, state, exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, toolchainEvidence: job.toolchainEvidence ?? null });
+    const receipt = Object.freeze({ id: job.id, state, exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, error: details.error ?? null, diagnostics: job.diagnostics ?? [], capability: job.capability, priority: job.priority, repositoryIdentity: job.repositoryIdentity, namespace: HEAVY.has(job.capability.lane) ? job.layout.namespace : null, generation: job.generation ?? null, parentId: job.parentId, toolchainEvidence: job.toolchainEvidence ?? null, submittedAt: job.submittedAt, terminalAt, reap: details.reap ?? null, output, eventLog: eventLogStatus(job.eventLogFailures) });
     const outcome = this.#store.recoverOpenRequest({ id: job.id, state, data: { ...details, terminalAt: receipt.terminalAt }, receipt, occurredAt: receipt.terminalAt });
-    if (job.capability.lane !== 'CONTROL' && job.generation !== undefined) {
+    if (HEAVY.has(job.capability.lane) && job.generation !== undefined) {
       const namespaceState = this.#namespaceHasLiveDescendants(job) ? 'ACTIVE' : state;
       this.#store.upsertNamespace({ namespace: job.layout.namespace, generation: job.generation, state: namespaceState, repositoryIdentity: job.repositoryIdentity, ...(namespaceState === state ? { terminalAt: receipt.terminalAt, lruAt: receipt.terminalAt } : {}) });
     }
@@ -622,13 +635,13 @@ export class ManagedJobService {
   }
   async #executionEnvironment(job) {
     const extra = {};
-    if (job.capability.lane !== 'CONTROL') {
+    if (HEAVY.has(job.capability.lane)) {
       if (this.#config.defaults?.rustcToolId) extra.RUSTC = (await this.#verifyTool(this.#config.defaults.rustcToolId)).path;
       if (this.#config.defaults?.rustdocToolId) extra.RUSTDOC = (await this.#verifyTool(this.#config.defaults.rustdocToolId)).path;
       if (Number.isSafeInteger(this.#config.defaults?.cargoBuildJobs) && this.#config.defaults.cargoBuildJobs > 0) extra.CARGO_BUILD_JOBS = String(this.#config.defaults.cargoBuildJobs);
     }
     const environment = { ...executionEnvironment(this.#config, job), ...extra };
-    if (!this.#sccache || job.capability.lane === 'CONTROL') return Object.freeze(environment);
+    if (!this.#sccache || !HEAVY.has(job.capability.lane)) return Object.freeze(environment);
     // Cache routing is broker-injected only. `RUSTC_WRAPPER` &
     // `SCCACHE_SERVER_UDS` stay in forbiddenRequestEnvironment so no client can
     // supply them, and they are added only once this broker can prove it owns
@@ -718,7 +731,7 @@ function executionEnvironment(config, job) {
   const root = job.rootJob ?? job;
   const requestEnvironment = { ...inherited, ...job.request.environment };
   const common = { ...base, RIGHTKIT_PARENT_REQUEST_ID: root.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: root.parentCapabilityToken };
-  if (job.capability.lane === 'CONTROL') return injectBrokerEnvironment({ requestEnvironment, runtimeEnvironment: { ...common, CARGO_HOME: job.layout.cargoHome, RUSTUP_HOME: job.layout.rustupHome } });
+  if (!HEAVY.has(job.capability.lane)) return injectBrokerEnvironment({ requestEnvironment, runtimeEnvironment: { ...common, CARGO_HOME: job.layout.cargoHome, RUSTUP_HOME: job.layout.rustupHome } });
   const home = join(job.layout.temp, 'home');
   // Normalized config always carries a cache bound; an unnormalized one simply
   // leaves sccache on its own default rather than failing the build.

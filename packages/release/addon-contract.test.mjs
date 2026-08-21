@@ -8,12 +8,12 @@ import { addonManifestSha256, addonRoutes, createAddonManifest, validateAddonCon
 function fixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "right-addon-contract-"));
   mkdirSync(path.join(root, "bin")); mkdirSync(path.join(root, "assets")); mkdirSync(path.join(root, "legal"));
-  for (const [file, bytes] of [["bin/membrane", "membrane"], ["bin/cortex-service", "service"], ["assets/tab.png", "icon"], ["legal/LICENSE", "license"], ["legal/EULA.txt", "eula"], ["legal/PRIVACY.md", "privacy"], ["legal/THIRD-PARTY-NOTICES.txt", "notice"]]) writeFileSync(path.join(root, file), bytes);
+  for (const [file, bytes] of [["bin/membrane", "membrane"], ["bin/membrane-service", "service"], ["assets/tab.png", "icon"], ["legal/LICENSE", "license"], ["legal/EULA.txt", "eula"], ["legal/PRIVACY.md", "privacy"], ["legal/THIRD-PARTY-NOTICES.txt", "notice"]]) writeFileSync(path.join(root, file), bytes);
   const files = [
-    ["command", "membrane", "bin/membrane", true], ["service", "cortex-service", "bin/cortex-service", true], ["icon", "membrane-tab-icon.png", "assets/tab.png", false],
+    ["command", "membrane", "bin/membrane", true], ["service", "membrane-service", "bin/membrane-service", true], ["icon", "membrane-tab-icon.png", "assets/tab.png", false],
     ["license", "LICENSE", "legal/LICENSE", false], ["eula", "EULA.txt", "legal/EULA.txt", false], ["privacy", "PRIVACY.md", "legal/PRIVACY.md", false], ["third-party-notices", "THIRD-PARTY-NOTICES.txt", "legal/THIRD-PARTY-NOTICES.txt", false],
   ].map(([role, name, source, executable]) => ({ role, name, source, executable }));
-  return { root, config: { schema: 1, kind: "headless-addon", addon: "membrane", version: "0.1.0", packageManager: "pnpm", checks: ["test"], buildInputs: { include: ["right-addon.config.mjs"] }, consumer: { contract: "orthic-product-v1" }, targets: { mac: { targetTriple: "aarch64-apple-darwin", build: { cmd: "cargo", args: ["build"] }, signing: { contract: "apple-developer-id-executable-v1", teamId: "6KLGD3LLKF" }, files }, win: { targetTriple: "x86_64-pc-windows-msvc", build: { cmd: "cargo", args: ["build"] }, signing: { contract: "azure-artifact-signing-v1" }, files } } } };
+  return { root, config: { schema: 1, kind: "headless-addon", addon: "membrane", version: "0.1.0", packageManager: "pnpm", checks: ["test"], buildInputs: { include: ["right-addon.config.mjs"] }, consumer: { contract: "membrane-product-v1" }, targets: { mac: { targetTriple: "aarch64-apple-darwin", build: { cmd: "cargo", args: ["build"] }, signing: { contract: "apple-developer-id-executable-v1", teamId: "6KLGD3LLKF" }, files }, win: { targetTriple: "x86_64-pc-windows-msvc", build: { cmd: "cargo", args: ["build"] }, signing: { contract: "azure-artifact-signing-v1" }, files } } } };
 }
 
 test("add-on manifest has portable immutable identity and routes", () => {
