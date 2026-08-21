@@ -71,7 +71,8 @@ test('delegated compiler environment preserves Cargo semantics without process a
   assert.deepEqual(captured, { CARGO_PKG_VERSION: '1.2.3', OUT_DIR: '/managed/target/out', CUSTOM_BUILD_VALUE: 'yes' });
   assert.deepEqual(normalizeDelegatedCompilerEnvironment(captured), captured);
   assert.deepEqual(injectBrokerEnvironment({ requestEnvironment: captured, runtimeEnvironment: { PATH: '/broker/bin' }, normalizeEnvironment: normalizeDelegatedCompilerEnvironment }), { ...captured, PATH: '/broker/bin' });
-  for (const key of ['PATH', 'RUSTDOC', 'RUSTC_BOOTSTRAP', 'CARGO_MAKEFLAGS', 'DYLD_LIBRARY_PATH', 'RIGHTKIT_PARENT_REQUEST_ID', 'SCCACHE_SERVER_UDS', '__CF_USER_TEXT_ENCODING']) assert.throws(() => normalizeDelegatedCompilerEnvironment({ [key]: '/untrusted' }), /broker-controlled/);
+  assert.deepEqual(normalizeDelegatedCompilerEnvironment({ __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0' }), {});
+  for (const key of ['PATH', 'RUSTDOC', 'RUSTC_BOOTSTRAP', 'CARGO_MAKEFLAGS', 'DYLD_LIBRARY_PATH', 'RIGHTKIT_PARENT_REQUEST_ID', 'SCCACHE_SERVER_UDS']) assert.throws(() => normalizeDelegatedCompilerEnvironment({ [key]: '/untrusted' }), /broker-controlled/);
 });
 
 test('raw rustc & rustdoc outputs are broker-owned regardless of caller paths', () => {

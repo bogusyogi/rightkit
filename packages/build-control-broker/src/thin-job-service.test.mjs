@@ -124,6 +124,27 @@ test('Cargo BUILD delegates nested rustc without a second permit or output rewri
   } finally { await item.close(); }
 });
 
+test('Cargo metadata delegates nested compiler probes with ambient macOS metadata stripped', async () => {
+  const item = await fixture();
+  try {
+    const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['metadata', '--locked'])))).result;
+    await waitFor(item.service, root.id, ['RUNNING']);
+    const rootChild = item.children.at(-1); const token = rootChild.environment.RIGHTKIT_PARENT_CAPABILITY_TOKEN;
+    const probe = (await call(item.service, command('SUBMIT', compilerMessage(item.workspace, ['-vV'], {
+      observedEnvironment: { CARGO_HOME: rootChild.environment.CARGO_HOME, RUSTUP_HOME: rootChild.environment.RUSTUP_HOME },
+      request: { environment: { __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0' } },
+      execution: { mode: 'NESTED', parentId: root.id, capabilityToken: token }
+    })))).result;
+    assert.equal(probe.type, 'SUBMITTED', JSON.stringify(probe));
+    await waitFor(item.service, probe.id, ['RUNNING']);
+    const probeChild = item.children.at(-1);
+    assert.equal(probeChild.environment.__CF_USER_TEXT_ENCODING, undefined);
+    probeChild.emit('close', 0, null);
+    assert.equal((await call(item.service, command('WATCH', probe.id))).result.status, 'SUCCEEDED');
+    rootChild.emit('close', 0, null); await call(item.service, command('WATCH', root.id));
+  } finally { await item.close(); }
+});
+
 test('delegated rustc still rejects a cwd outside parent repository, Cargo, & managed build roots', async () => {
   const item = await fixture();
   try {

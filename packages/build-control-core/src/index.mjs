@@ -37,7 +37,8 @@ export const MANAGED_REQUEST_ENVIRONMENT_KEYS = Object.freeze([
   'SOURCE_DATE_EPOCH', 'TERM', 'TZ'
 ]);
 const managedRequestEnvironment = new Set(MANAGED_REQUEST_ENVIRONMENT_KEYS);
-const delegatedCompilerRuntimeEnvironment = /^(?:PATH|HOME|USER|LOGNAME|SHELL|PWD|OLDPWD|SHLVL|_|LANG|LC_.+|__CF_USER_TEXT_ENCODING|TMPDIR|TMP|TEMP|RIGHTKIT_.+|SCCACHE_.+|CARGO_MAKEFLAGS|MAKEFLAGS|MFLAGS)$/i;
+const delegatedCompilerAmbientEnvironment = /^__CF_USER_TEXT_ENCODING$/i;
+const delegatedCompilerRuntimeEnvironment = /^(?:PATH|HOME|USER|LOGNAME|SHELL|PWD|OLDPWD|SHLVL|_|LANG|LC_.+|TMPDIR|TMP|TEMP|RIGHTKIT_.+|SCCACHE_.+|CARGO_MAKEFLAGS|MAKEFLAGS|MFLAGS)$/i;
 const forbiddenRequestEnvironment = /^(?:DYLD_(?:INSERT_LIBRARIES|LIBRARY_PATH|FALLBACK_LIBRARY_PATH|FRAMEWORK_PATH|FALLBACK_FRAMEWORK_PATH)|LD_(?:PRELOAD|LIBRARY_PATH|AUDIT|DEBUG)|NODE_OPTIONS|RUSTC|RUSTC_(?:BOOTSTRAP|FORCE_UNSTABLE)|RUSTDOC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTFLAGS|RUSTDOCFLAGS|CARGO_(?:HOME|TARGET_DIR|BUILD_(?:TARGET|TARGET_DIR|BUILD_DIR|RUSTC|RUSTDOC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTFLAGS)|ENCODED_RUSTFLAGS|INSTALL_ROOT)|CARGO_TARGET_.+_(?:LINKER|RUNNER|RUSTFLAGS)|(?:CC|CXX|AR|AS|LD|RANLIB|STRIP|OBJC|OBJCXX|LINK|CL|RC|CMAKE_.+|SWIFTC|SDKROOT|DEVELOPER_DIR))$/i;
 const redirectArgument = /^(?:--(?:target-dir|config|cache-dir|build-dir|toolchain|temp-dir)(?:=|$)|-Z(?:build-std|config)(?:=|$))/;
 const redirectConfig = /(?:^|[._-])(?:target(?:[_-]?dir)?|build(?:[_-]?dir)?|cache(?:[_-]?dir)?|toolchain|rustc|rustdoc|temp(?:[_-]?dir)?|home|cargo_(?:target_dir|build_build_dir|install_root))$/i;
@@ -123,7 +124,7 @@ export function captureDelegatedCompilerEnvironment(environment = {}) {
   const input = environmentObject(environment, 'compiler environment'); const normalized = {};
   for (const [key, value] of Object.entries(input)) {
     const canonical = key.toUpperCase();
-    if (delegatedCompilerRuntimeEnvironment.test(canonical) || redirectEnvironment.test(canonical) || forbiddenRequestEnvironment.test(canonical)) continue;
+    if (delegatedCompilerAmbientEnvironment.test(canonical) || delegatedCompilerRuntimeEnvironment.test(canonical) || redirectEnvironment.test(canonical) || forbiddenRequestEnvironment.test(canonical)) continue;
     if (Object.hasOwn(normalized, canonical)) throw new TypeError(`compiler environment has duplicate key: ${canonical}`);
     normalized[canonical] = environmentValue(canonical, value, 'compiler environment');
   }
@@ -134,6 +135,7 @@ export function normalizeDelegatedCompilerEnvironment(environment = {}) {
   const input = environmentObject(environment, 'compiler environment'); const normalized = {};
   for (const [key, value] of Object.entries(input)) {
     const canonical = key.toUpperCase();
+    if (delegatedCompilerAmbientEnvironment.test(canonical)) continue;
     if (delegatedCompilerRuntimeEnvironment.test(canonical) || redirectEnvironment.test(canonical) || forbiddenRequestEnvironment.test(canonical)) throw new TypeError(`compiler environment cannot set broker-controlled ${canonical}`);
     if (Object.hasOwn(normalized, canonical)) throw new TypeError(`compiler environment has duplicate key: ${canonical}`);
     normalized[canonical] = environmentValue(canonical, value, 'compiler environment');

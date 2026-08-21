@@ -180,7 +180,8 @@ export class ThinJobService {
     if (parentId && (!parent || parent.terminal)) throw Object.assign(new Error('nested parent request is not active'), { code: 'RK_PARENT_NOT_ACTIVE' });
     const capability = parent ? this.#policy.classifyNested(parent.capability, message.shim, request.argv) : this.#policy.classify(message.shim, request.argv);
     const delegatedWorkspaceWrite = parent?.capability.external === true && parent.capability.lane === 'WORKSPACE_WRITE' && capability.lane === 'WORKSPACE_WRITE';
-    const delegatedCompiler = parent?.capability.lane === 'BUILD' && parent.capability.compile === true && ['rustc', 'rustdoc'].includes(message.shim);
+    const nestedCompiler = Boolean(parent) && ['rustc', 'rustdoc'].includes(message.shim);
+    const delegatedCompiler = nestedCompiler && parent.capability.lane === 'BUILD' && parent.capability.compile === true;
     if (parent && !['CONTROL', 'ANALYSIS'].includes(capability.lane) && !delegatedWorkspaceWrite && !delegatedCompiler) throw Object.assign(new Error('nested non-control work is rejected'), { code: 'RK_NESTED_HEAVY_REJECTED' });
     if (parent) {
       const supplied = Buffer.from(message.execution?.capabilityToken ?? ''); const expected = Buffer.from(parent.rootToken);
@@ -217,12 +218,12 @@ export class ThinJobService {
     // broker reuses parent runtime & injects it after stripping request control.
     // Cargo may synthesize controlled-looking values such as encoded rustflags,
     // so validating compiler observations against root Cargo input is incorrect.
-    const observedEnvironment = delegatedCompiler ? {} : { ...(message.observedEnvironment ?? {}) };
+    const observedEnvironment = nestedCompiler ? {} : { ...(message.observedEnvironment ?? {}) };
     validateManagedRustEnvironment(observedEnvironment, expectedEnvironment);
     let resolveDone; const done = new Promise((resolve) => { resolveDone = resolve; });
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, DEFAULT_OUTPUT_BYTES, 1024);
-    const effectiveCapability = delegatedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true }) : capability;
-    const requestEnvironment = delegatedCompiler ? normalizeDelegatedCompilerEnvironment(request.environment) : normalizeRequestEnvironment(request.environment);
+    const effectiveCapability = nestedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true }) : capability;
+    const requestEnvironment = nestedCompiler ? normalizeDelegatedCompilerEnvironment(request.environment) : normalizeRequestEnvironment(request.environment);
     return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, workspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
   }
 
