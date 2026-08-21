@@ -1,8 +1,60 @@
 # RightKit Thin Build Control — Canonical Architecture & Migration Plan
 
-**Status:** target architecture.  
+**Status:** live on macOS; old core retained pending destructive-cleanup gate.
 **Authority:** this document supersedes the previous build-control architecture and remediation plans for implementation decisions.  
 **Purpose:** preserve aggressive Rust/Cargo cache reuse while preventing autonomous agents from competing for the same workstation, spawning unmanaged build trees, or leaving unsafe orphaned writers behind.
+
+---
+
+## 0. Live implementation state — 2026-08-22
+
+macOS broker entrypoint now constructs `ThinJobService`. Installed shims keep
+the v2 protocol and runtime-identity handshake; product repositories still use
+`rightkit cargo ...`.
+
+Current host configuration:
+
+```text
+BUILD concurrency = 1
+ANALYSIS concurrency = 2
+CONTROL concurrency = 4
+Cargo build jobs = 4
+sccache = 0.17.0 client-side mode
+shared Cargo home = enabled
+shared compiler cache = enabled
+persistent workspace generations = enabled
+```
+
+Implemented and live:
+
+- one command/resource policy, global BUILD queue, workspace read/write locks,
+  and exclusive toolchain mutation;
+- JSON thin state, broker singleton, persistent target generations, active
+  writer recovery, process-group containment, cancellation, NDJSON logs, and
+  terminal receipts;
+- stable digest-pinned managed tools plus recursive Cargo-plugin calls through
+  the managed shim;
+- same-workspace nested `cargo update` delegation for workspace-writing Cargo
+  plugins, with token validation, workspace-containment checks, and root-cancel
+  propagation;
+- one global `CARGO_HOME`, one global sccache directory, client-side sccache,
+  and per-workspace target/TMP generations;
+- source bootstrap and immutable runtime cutover.
+
+Evidence:
+
+```text
+build-control-broker package: 284/284 tests pass
+live cargo upgrade: HeardRight passes
+live recursive cargo upgrade/update: CodeRight passes
+live re-bootstrap: passes with intended concurrency/cache settings
+```
+
+Superseded architecture/remediation/handoff documents were deleted. Old core
+modules remain dormant beside the live thin core because sections 20–21 allow
+their deletion only after the complete destructive macOS crash/cancellation
+acceptance set. Windows Job Object code remains preserved; live Windows
+acceptance is still phase 6.
 
 ---
 
@@ -611,19 +663,25 @@ Do not enforce a security/authority boundary with ad-hoc line regexes.
 
 Choose one of two policies:
 
-### Preferred first implementation
+### Live implementation
 
-Reject ancestor/workspace `.cargo/config` and `.cargo/config.toml` for managed agent builds, with a clear error.
+Read ancestor/workspace `.cargo/config` and `.cargo/config.toml` as bounded,
+regular, non-symlink files. Permit settings that do not redirect managed tools,
+outputs, flags, aliases, or target selection; reject redirect-capable settings
+with a clear error.
 
-This is simplest and most auditable.
+This exception was required by live HeardRight, whose checked-in configuration
+contains only `net.git-fetch-with-cli = true`. Rejecting every Cargo config made
+managed Cargo unable to run a first-party product. Target/cache/toolchain
+redirection remains rejected.
 
-### Later alternative
+### Required hardening if policy grows
 
-Parse Cargo TOML structurally and explicitly allow a documented subset.
+Parse Cargo TOML structurally before expanding the documented subset.
 
 If this is done, accepted configuration must participate in build/cache identity where semantically relevant.
 
-Do not retain the current partial regex enforcement while documentation claims the configuration is rejected outright.
+Do not claim full TOML parsing while bounded conservative validation is active.
 
 ---
 
