@@ -40,7 +40,8 @@ Implemented and live:
 - Cargo-owned nested `rustc`/`rustdoc` delegation without a second BUILD permit
   or broker output-path rewriting, including authenticated compiler cwd under
   parent Cargo home or target generation while rejecting unrelated roots, plus
-  Cargo-provided `RUSTC`/`RUSTDOC` values limited to registered tools or shims;
+  Cargo-provided `RUSTC`/`RUSTDOC` values limited to registered tools, managed
+  toolchain paths, or broker-first shim names;
 - same-workspace nested `cargo update` delegation for workspace-writing Cargo
   plugins, with token validation, workspace-containment checks, and root-cancel
   propagation;

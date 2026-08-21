@@ -210,8 +210,10 @@ export class ThinJobService {
         const entry = Object.entries(observedEnvironment).find(([candidate]) => candidate.toUpperCase() === key);
         if (!entry) continue;
         const toolIdForCompiler = this.#config.shims?.[shim]; const registered = toolIdForCompiler ? await this.#registry.verify(toolIdForCompiler) : null;
-        const allowedPaths = [registered?.path, join(agentBin, shim)].filter(Boolean).map((value) => normalize(value));
-        if (!allowedPaths.includes(normalize(entry[1]))) throw new TypeError(`managed agent request has conflicting ${entry[0]}`);
+        const observedPath = normalize(entry[1]); const managedRustupHome = expectedEnvironment.RUSTUP_HOME;
+        const allowedPaths = [registered?.path, join(agentBin, shim), shim, process.platform === 'win32' ? `${shim}.exe` : null].filter(Boolean).map((value) => normalize(value));
+        const managedToolchainPath = isAbsolute(observedPath) && pathIsWithin(managedRustupHome, observedPath) && basename(observedPath).toLowerCase() === `${shim}${process.platform === 'win32' ? '.exe' : ''}`;
+        if (!allowedPaths.includes(observedPath) && !managedToolchainPath) throw new TypeError(`managed agent request has conflicting ${entry[0]}`);
         delete observedEnvironment[entry[0]];
       }
     }
