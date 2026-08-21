@@ -67,11 +67,11 @@ test('request environment is allowlisted while broker runtime injection wins', (
 });
 
 test('delegated compiler environment preserves Cargo semantics without process authority', () => {
-  const captured = captureDelegatedCompilerEnvironment({ CARGO_PKG_VERSION: '1.2.3', OUT_DIR: '/managed/target/out', CUSTOM_BUILD_VALUE: 'yes', PATH: '/untrusted', RUSTDOC: '/untrusted/rustdoc', RUSTC_BOOTSTRAP: '1', CARGO_MAKEFLAGS: '-j --jobserver-fds=4,6', RIGHTKIT_PARENT_REQUEST_ID: 'parent' });
+  const captured = captureDelegatedCompilerEnvironment({ CARGO_PKG_VERSION: '1.2.3', OUT_DIR: '/managed/target/out', CUSTOM_BUILD_VALUE: 'yes', PATH: '/untrusted', RUSTDOC: '/untrusted/rustdoc', RUSTC_BOOTSTRAP: '1', CARGO_MAKEFLAGS: '-j --jobserver-fds=4,6', RIGHTKIT_PARENT_REQUEST_ID: 'parent', __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0' });
   assert.deepEqual(captured, { CARGO_PKG_VERSION: '1.2.3', OUT_DIR: '/managed/target/out', CUSTOM_BUILD_VALUE: 'yes' });
   assert.deepEqual(normalizeDelegatedCompilerEnvironment(captured), captured);
   assert.deepEqual(injectBrokerEnvironment({ requestEnvironment: captured, runtimeEnvironment: { PATH: '/broker/bin' }, normalizeEnvironment: normalizeDelegatedCompilerEnvironment }), { ...captured, PATH: '/broker/bin' });
-  for (const key of ['PATH', 'RUSTDOC', 'RUSTC_BOOTSTRAP', 'CARGO_MAKEFLAGS', 'DYLD_LIBRARY_PATH', 'RIGHTKIT_PARENT_REQUEST_ID', 'SCCACHE_SERVER_UDS']) assert.throws(() => normalizeDelegatedCompilerEnvironment({ [key]: '/untrusted' }), /broker-controlled/);
+  for (const key of ['PATH', 'RUSTDOC', 'RUSTC_BOOTSTRAP', 'CARGO_MAKEFLAGS', 'DYLD_LIBRARY_PATH', 'RIGHTKIT_PARENT_REQUEST_ID', 'SCCACHE_SERVER_UDS', '__CF_USER_TEXT_ENCODING']) assert.throws(() => normalizeDelegatedCompilerEnvironment({ [key]: '/untrusted' }), /broker-controlled/);
 });
 
 test('raw rustc & rustdoc outputs are broker-owned regardless of caller paths', () => {
