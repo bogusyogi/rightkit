@@ -19,9 +19,9 @@ BUILD concurrency = 1
 ANALYSIS concurrency = 2
 CONTROL concurrency = 4
 Cargo build jobs = 4
-sccache = 0.17.0 client-side mode
+sccache = 0.17.0 installed; macOS client path temporarily disabled
 shared Cargo home = enabled
-shared compiler cache = enabled
+shared compiler cache = degraded to direct rustc
 persistent workspace generations = enabled
 ```
 
@@ -36,6 +36,8 @@ Implemented and live:
   managed storage while bundle-dependent Rust, package-manager, and system
   tools retain their real install paths;
 - recursive Cargo-plugin calls through the managed shim;
+- Cargo-owned nested `rustc`/`rustdoc` delegation without a second BUILD permit
+  or broker output-path rewriting;
 - same-workspace nested `cargo update` delegation for workspace-writing Cargo
   plugins, with token validation, workspace-containment checks, and root-cancel
   propagation;
@@ -46,7 +48,7 @@ Implemented and live:
 Evidence:
 
 ```text
-build-control-broker package: 286/286 tests pass
+build-control-broker package: 287/287 tests pass
 live cargo upgrade: HeardRight passes
 live recursive cargo upgrade/update: CodeRight passes
 live re-bootstrap: passes with intended concurrency/cache settings
@@ -60,6 +62,9 @@ validation; managed copying is limited to standalone tools.
 Managed `TMPDIR` is intentionally shallow under the external root. sccache
 creates a transient startup socket below `TMPDIR`; putting that directory inside
 the full workspace-generation path exceeds macOS's 103-byte Unix socket limit.
+The live Mac currently uses explicit direct-rustc degradation while client-side
+sccache startup is repaired; shared Cargo home and persistent target generations
+remain active.
 
 Superseded architecture/remediation/handoff documents were deleted. Old core
 modules remain dormant beside the live thin core because sections 20–21 allow

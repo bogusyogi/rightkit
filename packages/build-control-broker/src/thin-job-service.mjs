@@ -165,7 +165,8 @@ export class ThinJobService {
     if (parentId && (!parent || parent.terminal)) throw Object.assign(new Error('nested parent request is not active'), { code: 'RK_PARENT_NOT_ACTIVE' });
     const capability = parent ? this.#policy.classifyNested(parent.capability, message.shim, request.argv) : this.#policy.classify(message.shim, request.argv);
     const delegatedWorkspaceWrite = parent?.capability.external === true && parent.capability.lane === 'WORKSPACE_WRITE' && capability.lane === 'WORKSPACE_WRITE';
-    if (parent && !['CONTROL', 'ANALYSIS'].includes(capability.lane) && !delegatedWorkspaceWrite) throw Object.assign(new Error('nested non-control work is rejected'), { code: 'RK_NESTED_HEAVY_REJECTED' });
+    const delegatedCompiler = parent?.capability.lane === 'BUILD' && parent.capability.compile === true && ['rustc', 'rustdoc'].includes(message.shim) && capability.lane === 'BUILD';
+    if (parent && !['CONTROL', 'ANALYSIS'].includes(capability.lane) && !delegatedWorkspaceWrite && !delegatedCompiler) throw Object.assign(new Error('nested non-control work is rejected'), { code: 'RK_NESTED_HEAVY_REJECTED' });
     if (parent) {
       const supplied = Buffer.from(message.execution?.capabilityToken ?? ''); const expected = Buffer.from(parent.rootToken);
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw Object.assign(new Error('nested capability token is invalid'), { code: 'RK_PARENT_CAPABILITY_INVALID' });
@@ -185,7 +186,9 @@ export class ThinJobService {
     const targetTriple = this.#config.defaults?.targetTriple;
     let argv = request.argv;
     if (message.shim === 'cargo' && capability.compile && targetTriple) argv = normalizeCargoTargetArgv(argv, targetTriple);
-    if (['rustc', 'rustdoc'].includes(message.shim) && capability.compile) argv = normalizeCompilerOutputArgv(argv, { compiler: message.shim, outputRoot: join(workspace.layout.target, 'rightkit-raw'), targetTriple });
+    // Cargo already owns nested compiler output paths under its broker-owned
+    // target generation. Rewriting them would make Cargo lose its artifacts.
+    if (['rustc', 'rustdoc'].includes(message.shim) && capability.compile && !delegatedCompiler) argv = normalizeCompilerOutputArgv(argv, { compiler: message.shim, outputRoot: join(workspace.layout.target, 'rightkit-raw'), targetTriple });
     const toolId = capability.externalToolId ?? this.#config.shims?.[message.shim];
     if (!toolId) throw new TypeError(`no registered tool for shim ${message.shim ?? '<empty>'}`);
     const tool = await this.#registry.verify(toolId);
@@ -196,7 +199,8 @@ export class ThinJobService {
     validateManagedRustEnvironment(message.observedEnvironment ?? {}, expectedEnvironment);
     let resolveDone; const done = new Promise((resolve) => { resolveDone = resolve; });
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, DEFAULT_OUTPUT_BYTES, 1024);
-    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: normalizeRequestEnvironment(request.environment) }), invokeArgv: argv, shim: message.shim, tool, capability, priority, workspaceRoot: roots.workspaceRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
+    const effectiveCapability = delegatedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true }) : capability;
+    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: normalizeRequestEnvironment(request.environment) }), invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, workspaceRoot: roots.workspaceRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
   }
 
   async #execute(job) {
