@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
 import {
-  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, stageManagedTools, supportsClientSideSccache, whichUnmanaged,
+  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, ensureMacOSRustToolLoaderLinks, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, stageManagedTools, supportsClientSideSccache, whichUnmanaged,
 } from './bootstrap-macos-cli.mjs';
 
 test('parseArgs accepts the documented flags & rejects anything else', () => {
@@ -89,6 +89,24 @@ test('staging preserves bundled tools & copies standalone Cargo tools', async (t
   assert.equal(rustc.root, join(scratch, 'toolchain', 'bin'));
   assert.notEqual(upgrade.path, upgradePath);
   assert.equal(existsSync(upgrade.path), true);
+});
+
+test('macOS bootstrap supplies rust-objcopy its toolchain-root libLLVM companion', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS-only toolchain layout');
+  const scratch = mkdtempSync(join(tmpdir(), 'rk-rust-objcopy-loader-'));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const cargo = join(scratch, 'bin', 'cargo');
+  const library = join(scratch, 'lib', 'libLLVM.dylib');
+  const objcopy = join(scratch, 'lib', 'rustlib', 'aarch64-apple-darwin', 'bin', 'rust-objcopy');
+  mkdirSync(join(scratch, 'bin'), { recursive: true });
+  mkdirSync(join(scratch, 'lib'), { recursive: true });
+  mkdirSync(join(scratch, 'lib', 'rustlib', 'aarch64-apple-darwin', 'bin'), { recursive: true });
+  writeFileSync(cargo, 'cargo'); writeFileSync(library, 'llvm'); writeFileSync(objcopy, 'objcopy');
+
+  const links = await ensureMacOSRustToolLoaderLinks([{ id: 'cargo', path: cargo }], ['aarch64-apple-darwin']);
+  assert.equal(links.length, 1);
+  assert.equal(realpathSync(links[0]), realpathSync(library));
+  assert.equal((await ensureMacOSRustToolLoaderLinks([{ id: 'cargo', path: cargo }], ['aarch64-apple-darwin'])).length, 1);
 });
 
 test('buildConfig produces a config the broker’s own schema accepts', async (t) => {

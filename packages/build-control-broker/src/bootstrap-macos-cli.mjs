@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { execFile as childExecFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { constants, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { chmod, copyFile, mkdir, open, readFile, realpath } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, open, readFile, realpath, symlink } from 'node:fs/promises';
 import { availableParallelism as cpuCount, homedir, totalmem } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -106,6 +106,34 @@ export async function stageManagedTools(tools, externalRoot) {
     staged.push({ ...tool, path: target, root: directory });
   }
   return staged;
+}
+
+/** Rust 1.98's macOS rust-objcopy rpath resolves libLLVM beside the target
+ * tools, while rustup installs that library at the toolchain root. DYLD_* is
+ * consumed before rustc can forward it to rust-objcopy, so bootstrap repairs
+ * the missing immutable companion link instead of accepting client loader
+ * authority or wrapping the compiler. */
+export async function ensureMacOSRustToolLoaderLinks(tools, targetTriples) {
+  if (process.platform !== 'darwin') return [];
+  const cargo = tools.find((tool) => tool.id === 'cargo');
+  if (!cargo || !Array.isArray(targetTriples)) return [];
+  const toolchainRoot = resolve(dirname(cargo.path), '..');
+  const library = join(toolchainRoot, 'lib', 'libLLVM.dylib');
+  try { await lstat(library); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  const repaired = [];
+  for (const triple of targetTriples) {
+    const objcopy = join(toolchainRoot, 'lib', 'rustlib', triple, 'bin', 'rust-objcopy');
+    try { await lstat(objcopy); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+    const target = join(toolchainRoot, 'lib', 'rustlib', triple, 'lib', 'libLLVM.dylib');
+    await mkdir(dirname(target), { recursive: true });
+    try { await symlink('../../../libLLVM.dylib', target, 'file'); }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      if (await realpath(target) !== await realpath(library)) throw new Error(`rust-objcopy loader companion is not owned by this toolchain: ${target}`);
+    }
+    repaired.push(target);
+  }
+  return repaired;
 }
 
 function externalCommands(tools) {
@@ -274,6 +302,10 @@ async function main() {
   } else {
     console.log(`bootstrap-macos: ${configPath} already exists; pass --force to regenerate`);
   }
+
+  const activeConfig = JSON.parse(await readFile(configPath, 'utf8'));
+  const loaderLinks = await ensureMacOSRustToolLoaderLinks(activeConfig.tools ?? [], activeConfig.defaults?.targetTriples ?? [activeConfig.defaults?.targetTriple]);
+  if (loaderLinks.length) console.log(`bootstrap-macos: verified ${loaderLinks.length} macOS Rust loader companion link(s)`);
 
   if (!existsSync(v1StatePath)) {
     writeFileSync(v1StatePath, `${JSON.stringify({ entries: [] }, null, 2)}\n`);
