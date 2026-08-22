@@ -3,6 +3,13 @@ import { promisify } from 'node:util';
 
 const defaultRun = promisify(nodeExecFile);
 const MAX_STATS_BYTES = 256 * 1024;
+// Generation-scoped target paths (workspaces/<key>/generations/000012/target)
+// and repo roots participate in sccache cache identity. Without stable base
+// dirs those paths appear as absolute input paths, so rotated generations
+// cannot reuse cache entries. SCCACHE_BASEDIRS remains behind a configuration
+// gate (v2.7 §12): permanent activation requires the controlled C-vs-D A/B.
+const basedirKeys = new Set(['compilerCache']);
+const platformBasedirKey = process.platform === 'win32' ? 'compilerCacheWin' : 'compilerCachePosix';
 
 function positive(value, label, fallback) {
   const selected = value ?? fallback;
@@ -31,12 +38,17 @@ function delta(before, after) {
 }
 
 export class ThinCache {
-  #paths; #tool; #enabled; #clientSide; #maxSize; #timeout; #run;
+  #paths; #tool; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs;
 
-  constructor({ paths, sccachePath = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = 2_000, run = defaultRun } = {}) {
+  constructor({ paths, sccachePath = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = 2_000, basedirs = null, basedirsEnabled = false, run = defaultRun } = {}) {
     if (!paths?.cargoHome || !paths?.compilerCache) throw new TypeError('thin state cache paths are required');
     if (enabled && (typeof sccachePath !== 'string' || !sccachePath)) throw new TypeError('enabled cache requires sccachePath');
     this.#paths = paths; this.#tool = sccachePath; this.#enabled = enabled; this.#clientSide = clientSideSupported; this.#maxSize = positive(maxSizeBytes, 'maxSizeBytes', 20 * 1024 ** 3); this.#timeout = positive(timeoutMs, 'timeoutMs', 2_000); this.#run = run;
+    // SCCACHE_BASEDIRS is gated (v2.7 §12.2): production activation requires
+    // the controlled cold/warm/rotated C-vs-D A/B, so even when basedirs are
+    // provided they only take effect when basedirsEnabled === true.
+    this.#basedirs = Array.isArray(basedirs) ? Object.freeze([...basedirs].filter((value) => typeof value === 'string' && value)) : null;
+    this.#basedirsEnabled = basedirsEnabled === true;
   }
 
   async prepare({ layout, cargoBuildJobs = 4 } = {}) {
@@ -54,11 +66,15 @@ export class ThinCache {
     if (!this.#enabled) return Object.freeze({ mode: 'direct', status: 'DISABLED', environment: base, before: null });
     const sample = await this.snapshot();
     if (sample.status !== 'OK') return Object.freeze({ mode: 'direct', status: 'DEGRADED', reason: sample.reason, environment: base, before: null });
+    const basedirs = this.#basedirsEnabled && this.#basedirs && this.#basedirs.length > 0
+      ? Object.freeze({ SCCACHE_BASEDIRS: [...this.#basedirs].join(process.platform === 'win32' ? ';' : ':') })
+      : Object.freeze({});
     const environment = Object.freeze({
       ...base,
       RUSTC_WRAPPER: this.#tool,
       SCCACHE_DIR: this.#paths.compilerCache,
       SCCACHE_CACHE_SIZE: String(this.#maxSize),
+      ...(this.#basedirsEnabled && this.#basedirs && this.#basedirs.length > 0 ? basedirs : {}),
       ...(this.#clientSide ? { SCCACHE_CLIENT_SIDE: '1' } : {})
     });
     return Object.freeze({ mode: 'sccache', status: 'OK', environment, before: sample.stats });
@@ -70,6 +86,8 @@ export class ThinCache {
     if (sample.status !== 'OK') return Object.freeze({ mode: 'sccache', status: 'DEGRADED', reason: sample.reason, delta: null });
     return Object.freeze({ mode: 'sccache', status: 'OK', delta: Object.freeze(delta(prepared.before, sample.stats) ?? {}) });
   }
+
+  get basedirsActive() { return Boolean(this.#basedirsEnabled && this.#basedirs && this.#basedirs.length > 0); }
 
   async snapshot() {
     if (!this.#enabled) return Object.freeze({ status: 'DISABLED', stats: null });

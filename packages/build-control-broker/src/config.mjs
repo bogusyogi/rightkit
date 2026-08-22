@@ -9,9 +9,9 @@ const shimNames = new Set(['cargo', 'rustc', 'rustdoc', 'rustup', 'pnpm', 'npm',
 const defaultFields = new Set(['repositoryIdentity', 'toolchain', 'targetTriple', 'targetTriples', 'buildProfile', 'reservationBytes', 'rustcToolId', 'rustdocToolId', 'sccacheToolId', 'cacheMode', 'cargoBuildJobs']);
 const outputPolicyFields = new Set(['mode', 'allowedSourceDirs', 'scanRoot']);
 const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'digest']);
-const sccacheFields = new Set(['mode', 'clientSide', 'lifecycleOwner', 'requireOwnershipProof', 'maxSizeBytes']);
+const sccacheFields = new Set(['mode', 'clientSide', 'lifecycleOwner', 'requireOwnershipProof', 'maxSizeBytes', 'basedirs', 'basedirsEnabled']);
 const defaultSccacheMaxSizeBytes = 20 * 1024 ** 3;
-const boundFields = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'processGraceMs', 'freeFloorBytes', 'quotaWatermarkBytes', 'retentionMs', 'gcIntervalMs', 'statfsTimeoutMs', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'eventHistoryEntries', 'eventHistoryBytes', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs', 'targetCacheCapBytes', 'targetCacheFloorMs']);
+const boundFields = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'processGraceMs', 'freeFloorBytes', 'quotaWatermarkBytes', 'retentionMs', 'gcIntervalMs', 'statfsTimeoutMs', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'eventHistoryEntries', 'eventHistoryBytes', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs', 'targetCacheCapBytes', 'targetCacheFloorMs', 'workspaceDiscoveryTtlMs', 'workspaceDiscoveryTimeoutMs']);
 const EXTERNAL_COMMAND = /^[a-z][a-z0-9-]*$/;
 const HEX_256 = /^[a-f0-9]{64}$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -139,8 +139,8 @@ function validateBounds(value, { schemaVersion, capacity }) {
   const normalized = {};
   // A null target-cache cap means uncapped: age retention alone governs.
   const nullable = new Set(['quotaWatermarkBytes', 'retentionMs', 'targetCacheCapBytes', 'targetCacheFloorMs']);
-  const positive = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'gcIntervalMs', 'statfsTimeoutMs', 'eventHistoryEntries', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs']);
-  const minimums = new Map([['eventHistoryEntries', 16], ['eventLogMaxBytes', 1024], ['maintenanceBatchEntries', 1], ['controlConcurrency', 1], ['analysisConcurrency', 1], ['buildConcurrency', 1], ['workspaceWriteConcurrency', 1], ['maintenanceConcurrency', 1], ['outputBufferBytes', 1024]]);
+  const positive = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'gcIntervalMs', 'statfsTimeoutMs', 'eventHistoryEntries', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs', 'workspaceDiscoveryTimeoutMs']);
+  const minimums = new Map([['eventHistoryEntries', 16], ['eventLogMaxBytes', 1024], ['maintenanceBatchEntries', 1], ['controlConcurrency', 1], ['analysisConcurrency', 1], ['buildConcurrency', 1], ['workspaceWriteConcurrency', 1], ['maintenanceConcurrency', 1], ['outputBufferBytes', 1024], ['workspaceDiscoveryTimeoutMs', 1], ['workspaceDiscoveryTtlMs', 0]]);
   for (const key of boundFields) if (bounds[key] !== undefined) normalized[key] = nonnegative(bounds[key], `bounds.${key}`, { nullable: nullable.has(key), minimum: minimums.get(key) ?? (positive.has(key) ? 1 : 0) });
   if (bounds.diskSampleIntervalMs === undefined && bounds.pollIntervalMs !== undefined) normalized.diskSampleIntervalMs = normalized.pollIntervalMs;
   if (normalized.quotaWatermarkBytes !== undefined && normalized.quotaWatermarkBytes !== null && normalized.quotaWatermarkBytes > capacity) throw new TypeError('bounds.quotaWatermarkBytes cannot exceed broker.capacityBytes');
@@ -225,6 +225,13 @@ export function validateBrokerConfig(value) {
   if (typeof requireOwnershipProof !== 'boolean') throw new TypeError('sccache.requireOwnershipProof must be boolean');
   const clientSide = sccache.clientSide ?? false;
   if (typeof clientSide !== 'boolean') throw new TypeError('sccache.clientSide must be boolean');
+  const basedirs = sccache.basedirs;
+  const basedirsEnabled = sccache.basedirsEnabled ?? false;
+  if (basedirs !== undefined) {
+    if (!Array.isArray(basedirs) || !basedirs.every((value) => typeof value === 'string' && isAbsolute(value))) throw new TypeError('sccache.basedirs must be an array of absolute paths');
+    if (basedirs.length === 0) throw new TypeError('sccache.basedirs must be non-empty when present');
+  }
+  if (typeof basedirsEnabled !== 'boolean') throw new TypeError('sccache.basedirsEnabled must be boolean');
   if (mode === 'managed' && (!normalized.defaults.sccacheToolId || normalized.defaults.cacheMode !== 'managed')) throw new TypeError('managed sccache requires a registered tool');
   if (mode === 'managed' && clientSide && (lifecycleOwner !== null || requireOwnershipProof !== false)) throw new TypeError('client-side sccache does not use broker server ownership');
   if (mode === 'managed' && !clientSide && (lifecycleOwner !== 'broker' || requireOwnershipProof !== true)) throw new TypeError('server-side managed sccache requires broker lifecycle ownership proof');
@@ -234,7 +241,7 @@ export function validateBrokerConfig(value) {
   // and upstream sccache's own LRU enforces it.
   const maxSizeBytes = sccache.maxSizeBytes ?? defaultSccacheMaxSizeBytes;
   if (!Number.isSafeInteger(maxSizeBytes) || maxSizeBytes < 1) throw new TypeError('sccache.maxSizeBytes must be a positive safe integer');
-  normalized.sccache = { mode, clientSide, lifecycleOwner, requireOwnershipProof, maxSizeBytes };
+  normalized.sccache = { mode, clientSide, lifecycleOwner, requireOwnershipProof, maxSizeBytes, ...(basedirs !== undefined ? { basedirs } : {}), ...(basedirsEnabled ? { basedirsEnabled: true } : {}) };
   return freezeConfig(normalized);
 }
 

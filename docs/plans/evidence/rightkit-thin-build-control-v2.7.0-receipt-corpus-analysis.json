@@ -1,0 +1,23 @@
+{
+  "capturedAt": "2026-08-22T11:10:01.716640+00:00",
+  "method": "read-only receipt corpus analysis",
+  "receiptStorePath": "/Volumes/D/.rightkit-managed/rightkit-build-control/receipts",
+  "totalReceipts": 42144,
+  "byKind": {
+    "cargo": 700,
+    "rustc": 41421,
+    "rustdoc": 3,
+    "other": 20
+  },
+  "probeMetrics": {
+    "count": 7770,
+    "medianRunMs": 316,
+    "p90RunMs": 723,
+    "cumulativeMs": 3636935
+  },
+  "compilerChildrenWithCacheDelta": 20279,
+  "sccacheGlobalCumulative": {
+    "rustHits": 14,
+    "rustMisses": 5682
+  }
+}

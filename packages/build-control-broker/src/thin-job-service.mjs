@@ -68,13 +68,46 @@ const pathIsWithin = (root, candidate) => {
   return childPath === '' || (childPath !== '..' && !childPath.startsWith(`..${sep}`) && !isAbsolute(childPath));
 };
 
-export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env } = {}) {
+export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env, timeoutMs = 10_000 } = {}) {
   if (typeof workspace !== 'string' || !isAbsolute(workspace) || typeof cargoPath !== 'string' || !cargoPath) throw new TypeError('absolute workspace & cargoPath are required');
   const executionCwd = await realpath(workspace);
-  const result = await run(cargoPath, ['locate-project', '--workspace', '--message-format', 'plain'], { cwd: executionCwd, env: environment, encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 });
+  const startedAt = Date.now();
+  const result = await run(cargoPath, ['locate-project', '--workspace', '--message-format', 'plain'], { cwd: executionCwd, env: environment, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 });
   const manifest = String(result?.stdout ?? result).trim();
   if (!isAbsolute(manifest) || basename(manifest) !== 'Cargo.toml') throw Object.assign(new Error('Cargo workspace root could not be resolved'), { code: 'RK_WORKSPACE_UNRESOLVED' });
-  return Object.freeze({ executionCwd, workspaceRoot: await realpath(dirname(manifest)) });
+  return Object.freeze({ executionCwd, workspaceRoot: await realpath(dirname(manifest)), workspaceDiscoveryMs: Date.now() - startedAt });
+}
+
+// Bounded, cached, observable workspace discovery (v2.7 §7 / §22.4): `cargo
+// locate-project --workspace` is classified CONTROL and must not become a hidden
+// 10-second BUILD-lane blocker. The TTL bounds re-resolution; a low, explicit
+// timeout bounds any single invocation. Empty/negative TTL disables caching.
+export class CachedWorkspaceResolver {
+  #next; #ttlMs; #timeoutMs; #stats;
+  constructor({ ttlMs = 10 * 60_000, timeoutMs = 10_000, now = Date.now, resolver = resolveCargoWorkspace } = {}) {
+    this.#ttlMs = Number.isSafeInteger(ttlMs) && ttlMs > 0 ? ttlMs : 0;
+    this.#timeoutMs = Number.isSafeInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10_000;
+    this.#stats = { lookup: 0, hit: 0, miss: 0, error: 0 };
+    if (typeof resolver !== 'function') throw new TypeError('workspace resolver must be a function');
+    this.#next = resolver;
+  }
+  get stats() { return Object.freeze({ ...this.#stats }); }
+  async resolve(workspace, options = {}) {
+    const executionCwd = await (options.realpath ?? realpath)(workspace);
+    const now = options.now ?? Date.now;
+    const key = `${this.#ttlMs}|${executionCwd}`;
+    const cached = this.#cache.get(key);
+    this.#stats.hits += 1;
+    if (cached && !cached.expiresAt) this.#cache.delete(key);
+    if (cached && now() < cached.expiresAt && this.#ttlMs > 0) { this.#stats.hit += 1; return cached.value; }
+    this.#stats.miss += 1;
+    try {
+      const value = await this.#next(executionCwd, { ...options, timeoutMs: this.#timeoutMs });
+      if (this.#ttlMs > 0) this.#cache.set(key, { value, expiresAt: now() + this.#ttlMs });
+      return value;
+    } catch (error) { this.#stats.error += 1; throw error; }
+  }
+  #cache = new Map();
 }
 
 export async function resolveRepositoryRoot(workspace, { inspect = lstat } = {}) {
@@ -119,7 +152,10 @@ export class ThinJobService {
         sccachePath: sccacheTool?.path ?? null,
         clientSideSupported: config.sccache?.clientSide === true,
         maxSizeBytes: config.sccache?.maxSizeBytes,
-        timeoutMs: config.bounds?.statfsTimeoutMs ?? 2_000
+        timeoutMs: config.bounds?.statfsTimeoutMs ?? 2_000,
+        // v2.7 §12: SCCACHE_BASEDIRS is gated behind explicit experiment enablement.
+        basedirs: config.sccache?.basedirs ?? null,
+        basedirsEnabled: config.sccache?.basedirsEnabled === true
       });
       const thinLogger = logger ?? await ThinLogger.open({ path: join(thinState.paths.logs, 'events.ndjson') });
       const thinScheduler = scheduler ?? new ThinScheduler({
@@ -128,7 +164,11 @@ export class ThinJobService {
         workspaceWriteConcurrency: integer(config.bounds?.workspaceWriteConcurrency, 4, 1),
         buildConcurrency: integer(config.bounds?.buildConcurrency, 1, 1), now
       });
-      const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now });
+      // Bound, cache & make observable the CONTROL-class workspace discovery.
+      const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
+        ? workspaceResolver
+        : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 10_000, 1) });
+      const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1) }) });
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
       return service;
@@ -176,7 +216,27 @@ export class ThinJobService {
   }
 
   async #submit(message, emit) {
-    const job = await this.#normalize(message);
+    let job;
+    try {
+      job = await this.#normalize(message);
+    } catch (error) {
+      // Receipted pre-execution failure (v2.7 §20): a request that fails before
+      // admission still persists a typed rejection receipt so callers can
+      // STATUS/ATTACH well-formed failures instead of losing them to a socket.
+      const shim = message?.shim; const argv = (message?.request?.argv ?? []);
+      const attempted = Object.freeze({
+        id: randomUUID(), state: 'REJECTED', status: 'REJECTED',
+        command: `${shim} ${argv.join(' ')}`.trim(),
+        workspace: message?.request?.workspace ?? null,
+        exitCode: 125, signal: null,
+        reason: error.code ?? 'pre-execution-rejected', error: error.message,
+        cache: { mode: 'direct', status: 'NOT_APPLICABLE', delta: null },
+        cancellation: null, submittedAt: new Date(this.#now()).toISOString(), terminalAt: new Date(this.#now()).toISOString(),
+        output: { bytes: 0, digest: '', head: '', tail: '' }
+      });
+      await this.#state.writeReceipt(attempted.id, attempted).catch(() => null);
+      return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', id: attempted.id, error: error.message, code: error.code });
+    }
     this.#jobs.set(job.id, job);
     this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'QUEUED', lane: job.capability.lane, priority: job.priority, at: this.#iso() } });
     await this.#log({ type: 'QUEUED', id: job.id, lane: job.capability.lane, command: job.command, workspace: job.workspaceRoot });
@@ -215,7 +275,9 @@ export class ThinJobService {
     const roots = capability.workspaceAccess === 'none'
       ? { executionCwd, workspaceRoot: null }
       : parent ? { executionCwd, workspaceRoot: parent.workspaceRoot }
-        : await this.#workspaceResolver(executionCwd, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } });
+        : await (typeof this.#workspaceResolver.resolve === 'function'
+          ? this.#workspaceResolver.resolve(executionCwd, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } })
+          : this.#workspaceResolver(executionCwd, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } }));
     const workspace = roots.workspaceRoot ? await this.#state.workspace(roots.workspaceRoot) : null;
     const repositoryRoot = parent?.repositoryRoot ?? (roots.workspaceRoot ? await this.#repositoryResolver(roots.workspaceRoot) : null);
     const defaultTargetTriple = this.#config.defaults?.targetTriple;
@@ -242,9 +304,9 @@ export class ThinJobService {
     validateManagedRustEnvironment(observedEnvironment, expectedEnvironment);
     let resolveDone; const done = new Promise((resolve) => { resolveDone = resolve; });
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, DEFAULT_OUTPUT_BYTES, 1024);
-    const effectiveCapability = nestedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true }) : capability;
+    const effectiveCapability = nestedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true, skipRootServices: true }) : capability;
     const requestEnvironment = nestedCompiler ? normalizeDelegatedCompilerEnvironment(request.environment) : normalizeRequestEnvironment(request.environment);
-    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
+    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
   }
 
   async #execute(job) {
@@ -255,8 +317,13 @@ export class ThinJobService {
       }
       if (job.cancelReason) throw Object.assign(new Error('queued request cancelled'), { code: 'RK_QUEUE_CANCELLED' });
       job.queueMs = this.#now() - job.submittedAt;
-      if (job.capability.compile) await this.#admitStorage(job);
-      job.cachePrepared = job.capability.compile ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4 }) : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };
+      job.rootSetupStartedAt ??= this.#now();
+      if (job.capability.compile && !job.capability.skipRootServices) await this.#admitStorage(job);
+      job.cachePrepared = (job.capability.compile && !job.capability.skipRootServices)
+        ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4 })
+        : job.parentId
+          ? { mode: 'sccache-inherited', status: 'OK', environment: { }, before: null }
+          : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };
       const agentBin = join(this.#config.broker.externalRoot.path, 'agent-bin');
       const runtimeEnvironment = { ...runtimeBase(this.#toolchainLibraryPath), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken };
       // Loader authority remains broker-owned even when a cache adapter or
@@ -276,17 +343,21 @@ export class ThinJobService {
       const observed = await this.#identity(job.child.pid); if (observed.status !== 'OK') throw Object.assign(new Error(`process identity unavailable: ${observed.reason}`), { code: 'RK_PROCESS_IDENTITY_UNAVAILABLE' });
       job.ownership = this.#ownership(job.child, { identity: observed });
       if (job.capability.artifactWrite) job.workspace = await this.#state.markRunning(job.workspaceRoot, { id: job.id, ownership: job.ownership, command: job.command });
-      job.state = 'RUNNING'; job.startedAt = this.#now();
+      job.state = 'RUNNING'; job.startedAt = this.#now(); job.cargoRunStartedAt ??= this.#now();
       await this.#log({ type: 'STARTED', id: job.id, pid: job.ownership.pid, pgid: job.ownership.processGroupId, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cacheMode: job.cachePrepared.mode, tempDir: job.cachePrepared.environment.TMPDIR ?? null });
       await this.#start(job.child);
       this.#startSampling(job);
       if (job.cancelReason) this.#terminateJob(job);
       const result = await job.exit;
+      job.teardownStartedAt ??= this.#now();
       const reap = await (job.termination ?? this.#terminate(job.child, { graceMs: integer(this.#config.bounds?.processGraceMs, 5_000, 1) }).catch((error) => ({ reaped: false, reason: error.message })));
-      job.cacheResult = await this.#cache.finish(job.cachePrepared);
+      job.cacheResult = job.parentId
+        ? Object.freeze({ mode: 'sccache-inherited', status: 'OK', delta: null })
+        : await this.#cache.finish(job.cachePrepared);
       const status = job.cancelReason === 'deadline' ? 'TIMED_OUT' : job.cancelReason ? 'CANCELLED' : result.code === 0 ? 'SUCCEEDED' : 'FAILED';
       return this.#finish(job, status, { exitCode: safeExit(result.code, status), signal: result.signal, reap, reason: job.cancelReason ?? (result.code === 0 ? null : 'tool-exit') });
     } catch (error) {
+      job.teardownStartedAt ??= this.#now();
       if (job.child) {
         const reap = await (job.termination ?? this.#terminate(job.child, { graceMs: integer(this.#config.bounds?.processGraceMs, 5_000, 1) }).catch((cause) => ({ reaped: false, reason: cause.message })));
         return this.#finish(job, job.cancelReason === 'deadline' ? 'TIMED_OUT' : job.cancelReason || error.code === 'RK_QUEUE_CANCELLED' ? 'CANCELLED' : 'FAILED', { exitCode: 125, reason: job.cancelReason ?? error.code, error: error.message, reap });
@@ -304,11 +375,59 @@ export class ThinJobService {
     const uncertainWriter = job.capability.artifactWrite && details.reap && details.reap.reaped === false;
     if (uncertainWriter) job.workspace = await this.#state.rotate(job.workspaceRoot, 'process-tree-unreaped');
     const terminalAt = this.#now();
-    const receipt = Object.freeze({ id: job.id, state: status, status, command: job.command, workspace: job.workspaceRoot, targetTriple: job.targetTriple ?? null, generation: job.capability.artifactWrite ? (uncertainWriter ? job.workspace.state.rotatedFrom : job.workspace.layout.generation) : null, queueMs: job.queueMs ?? null, runMs: job.startedAt ? terminalAt - job.startedAt : 0, exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, error: details.error ?? null, cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }), reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(), output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') } });
+    // Roll delegated compiler children up into their admitted root so the root
+    // receipt carries one authoritative compiler process & round-trip count and
+    // broker-hop time (v2.7 §20), rather than fragmented per-child numbers.
+    if (job.parentId) {
+      const parent = this.#jobs.get(job.parentId);
+      if (parent && !parent.terminal) {
+        parent.compilerChildren?.push(job.id);
+        parent.compilerRoundTrips = (parent.compilerRoundTrips ?? 0) + 1;
+        // The managed chain time for compilers is their broker run duration
+        if (job.startedAt) {
+          const accumulated = terminalAt - job.startedAt;
+          parent.compilerBrokerMs = (parent.compilerBrokerMs ?? 0) + Math.max(0, accumulated);
+        }
+      }
+    }
+    // Aggregate the compiler subtree for this job's receipt stats
+    // Aggregate the compiler subtree that ran under this admitted root so the
+    // root receipt exposes compiler process count and broker round-trip count
+    // once per Cargo root (v2.7 §20), instead of fragmenting them per child.
+    const compilerProcessCount = job.parentId ? 0 : (job.compilerChildren?.length ?? 0) + [...this.#jobs.values()].filter((candidate) => candidate.parentId === job.id && !candidate.terminal && !job.compilerChildren?.includes(candidate.id)).length;
+    const phaseTimings = this.#phaseTimings(job, terminalAt);
+    const receipt = Object.freeze({
+      id: job.id, state: status, status, command: job.command, workspace: job.workspaceRoot, targetTriple: job.targetTriple ?? null,
+      generation: job.capability.artifactWrite ? (uncertainWriter ? job.workspace.state.rotatedFrom : job.workspace.layout.generation) : null,
+      // v2.7 §20 root timing
+      ...phaseTimings,
+      queueMs: job.queueMs ?? null,
+      runMs: job.startedAt ? terminalAt - job.startedAt : 0,
+      exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, error: details.error ?? null,
+      // v2.7 §4.1: exact cancellation provenance (never inferred from SIGTERM alone)
+      cancellation: job.cancelProvenance ? Object.freeze({ source: job.cancelProvenance, reason: job.cancelReason ?? null }) : null,
+      cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }),
+      cacheCounterScope: job.parentId ? null : 'root-delta',
+      compilerProcessCount, compilerBrokerRoundTrips: job.parentId ? 0 : (job.compilerRoundTrips ?? 0),
+      reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(),
+      output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') }
+    });
     if (job.capability.artifactWrite && !uncertainWriter) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
     job.state = status; job.terminal = Object.freeze({ type: 'RESULT', id: job.id, exitCode: receipt.exitCode, status, receipt });
     await this.#log({ type: 'TERMINAL', id: job.id, status, exitCode: receipt.exitCode, signal: receipt.signal, queueMs: receipt.queueMs, runMs: receipt.runMs, cache: receipt.cache, generation: receipt.generation, uncertainWriter });
     this.#publish(job, job.terminal); job.resolveDone(job.terminal); return job.terminal;
+  }
+
+  #phaseTimings(job, terminalAt) {
+    const duration = (start, end) => (start ? end - start : null);
+    return Object.freeze({
+      workspaceDiscoveryMs: job.workspaceDiscoveryMs ?? null,
+      rootSetupMs: job.rootSetupStartedAt ? this.#now() - job.rootSetupStartedAt : null,
+      cargoRunMs: job.cargoRunStartedAt && job.teardownStartedAt ? job.teardownStartedAt - job.cargoRunStartedAt : null,
+      compilerBrokerMs: job.compilerBrokerMs ?? null,
+      teardownMs: job.teardownStartedAt ? terminalAt - job.teardownStartedAt : null,
+      totalMs: job.submittedAt ? terminalAt - job.submittedAt : null
+    });
   }
 
   async #admitStorage(job) {
@@ -372,8 +491,20 @@ export class ThinJobService {
     const accepted = this.#requestCancel(job, 'explicit-cancel'); return this.#emit(emit, { type: 'CANCEL_REQUESTED', id, accepted, state: job.state });
   }
 
+  #cancelProvenance = Object.freeze({
+    'explicit-cancel': 'USER_CANCEL',
+    'broker-shutdown': 'BROKER_SHUTDOWN',
+    'deadline': 'DEADLINE',
+    'storage-floor': 'STORAGE_FLOOR',
+    'parent-user-cancel': 'PARENT_CANCEL',
+    'containment-failure': 'CONTAINMENT_FAILURE'
+  });
+
   #requestCancel(job, reason) {
     if (job.terminal || job.cancelReason) return false; job.cancelReason = reason;
+    const provenance = this.#cancelProvenance[reason] ?? (reason?.startsWith?.('parent-') ? 'PARENT_CANCEL' : 'UNKNOWN');
+    // A cancelled request always carries its first typed cancellation source.
+    if (provenance) { job.cancelProvenance ??= provenance; }
     for (const child of this.#jobs.values()) if (child.parentId === job.id && !child.terminal) this.#requestCancel(child, `parent-${reason}`);
     if (job.ticket?.cancel()) return true; if (job.child) this.#terminateJob(job); return true;
   }
