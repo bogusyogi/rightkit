@@ -38,12 +38,11 @@ export function parseArgs(argv) {
 
 export function isDirectMain({ moduleUrl = import.meta.url, argv1 = process.argv[1], platform = process.platform } = {}) {
   if (typeof argv1 !== 'string' || !argv1) return false;
+  const modulePath = decodeURIComponent(new URL(moduleUrl).pathname);
   if (platform === 'win32') {
-    const modulePath = decodeURIComponent(new URL(moduleUrl).pathname).replace(/^\/(?=[A-Za-z]:)/, '');
     const normalize = (value) => win32.normalize(value.replace(/^\/(?=[A-Za-z]:)/, '')).toLowerCase();
     return normalize(modulePath) === normalize(win32.resolve(argv1));
   }
-  const modulePath = fileURLToPath(moduleUrl);
   return resolve(modulePath) === resolve(argv1);
 }
 
