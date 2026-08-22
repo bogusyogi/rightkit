@@ -217,11 +217,13 @@ export async function reapPersistedProcessTree(ownership, { graceMs = 5_000, kil
   if (ownership.platform === 'win32') {
     const addon = loadJobAddon();
     if (!addon) return reapPending('windows-job-object-unsupported');
+    // KILL_ON_JOB_CLOSE normally removes the whole tree before recovery starts.
+    // A dead PID needs no identity proof because no process will be touched.
+    if (!addon.isPidAlive(ownership.pid)) return reaped(false);
     const identity = await persistedIdentity(ownership, readIdentity);
     // A missing identity token means we cannot rule out PID reuse; refuse
     // rather than risk terminating an unrelated process that reused the pid.
     if (!identity.matches) return reapPending(identity.reason);
-    if (!addon.isPidAlive(ownership.pid)) return reaped(false);
     try {
       const handles = addon.assignRunningProcessToNewJob(ownership.pid);
       addon.terminateJob(handles.jobHandle);

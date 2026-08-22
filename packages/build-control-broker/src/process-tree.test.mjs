@@ -247,7 +247,7 @@ test('Windows persisted reap is a no-op when the OS already tore the job down on
   const fakeAddon = { isPidAlive: () => false, assignRunningProcessToNewJob: () => { throw new Error('must not be called: already dead'); } };
   const result = await reapPersistedProcessTree(
     { pid: 1000, platform: 'win32', identity: 'win32:1000:t' },
-    { platform: 'win32', loadJobAddon: () => fakeAddon, readIdentity: async () => ({ status: 'OK', identity: 'win32:1000:t' }) },
+    { platform: 'win32', loadJobAddon: () => fakeAddon, readIdentity: async () => { throw new Error('dead PID must not require an identity subprocess'); } },
   );
   assert.deepEqual(result, { status: 'REAPED', reaped: true, escalated: false });
 });
