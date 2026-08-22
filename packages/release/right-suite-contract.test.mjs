@@ -486,12 +486,12 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal": "0.3.0",
     "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.6",
-    "@rightkit/release": "0.2.66",
+    "@rightkit/release": "0.2.67",
     "@rightkit/qa": "0.2.0",
   });
   assert.deepEqual(versions.legacyNpm, {
     "@rightkit/legal-ui": ["0.1.0"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66"],
     "@rightkit/qa": ["0.1.0"],
   });
   assert.ok(
@@ -862,7 +862,7 @@ const cargoTargetRootHelpers = [
 test("shared target-root helpers still resolve build output via cargo metadata's target_directory", () => {
   for (const helperPath of cargoTargetRootHelpers) {
     const appRoot = path.join(workspace, helperPath.split("/scripts/lib/target-root.mjs")[0]);
-    if (!existsSync(appRoot)) continue;
+    if (!existsSync(path.join(appRoot, "package.json"))) continue;
     const fullPath = path.join(workspace, helperPath);
     assert.ok(existsSync(fullPath), `${helperPath} is missing; the app must keep its shared cargo-metadata target resolver`);
     const source = readFileSync(fullPath, "utf8");

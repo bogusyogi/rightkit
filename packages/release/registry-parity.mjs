@@ -1,0 +1,79 @@
+#!/usr/bin/env node
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const packageRoot = fileURLToPath(new URL('.', import.meta.url));
+
+async function files(root, relative = '') {
+  const entries = await readdir(join(root, relative), { withFileTypes: true });
+  const result = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const path = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) result.push(...await files(root, path));
+    else if (entry.isFile()) result.push(path);
+  }
+  return result;
+}
+
+export async function packedTree(root) {
+  const paths = await files(root);
+  const values = [];
+  for (const path of paths) {
+    const bytes = await readFile(join(root, path));
+    values.push([path, createHash('sha256').update(bytes).digest('hex')]);
+  }
+  return values;
+}
+
+export function comparePackedTrees(local, published) {
+  const left = JSON.stringify(local); const right = JSON.stringify(published);
+  if (left === right) return Object.freeze({ equal: true, differences: [] });
+  const localMap = new Map(local); const publishedMap = new Map(published);
+  const differences = [...new Set([...localMap.keys(), ...publishedMap.keys()])]
+    .sort()
+    .filter((path) => localMap.get(path) !== publishedMap.get(path));
+  return Object.freeze({ equal: false, differences: Object.freeze(differences) });
+}
+
+async function extract(archive, destination) {
+  await mkdir(destination, { recursive: true });
+  execFileSync('tar', ['-xzf', archive, '-C', destination], { stdio: 'pipe' });
+  return join(destination, 'package');
+}
+
+export async function verifyRegistryParity({ allowUnpublished = false, fetchImpl = fetch } = {}) {
+  const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+  const encodedName = encodeURIComponent(manifest.name);
+  const metadata = await fetchImpl(`https://registry.npmjs.org/${encodedName}/${manifest.version}`);
+  if (metadata.status === 404 && allowUnpublished) return Object.freeze({ status: 'UNPUBLISHED', name: manifest.name, version: manifest.version });
+  if (!metadata.ok) throw new Error(`registry metadata failed: HTTP ${metadata.status}`);
+  const record = await metadata.json();
+  if (typeof record?.dist?.tarball !== 'string') throw new Error('registry metadata omitted dist.tarball');
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-release-parity-'));
+  try {
+    const localDir = join(root, 'local'); const publishedArchive = join(root, 'published.tgz');
+    await mkdir(localDir, { recursive: true });
+    const packed = JSON.parse(execFileSync('pnpm', ['pack', '--pack-destination', localDir, '--json'], { cwd: packageRoot, encoding: 'utf8' }));
+    const localArchive = join(localDir, basename(packed[0]?.filename ?? ''));
+    const response = await fetchImpl(record.dist.tarball);
+    if (!response.ok) throw new Error(`registry tarball failed: HTTP ${response.status}`);
+    await writeFile(publishedArchive, Buffer.from(await response.arrayBuffer()));
+    const localTree = await packedTree(await extract(localArchive, join(root, 'local-tree')));
+    const publishedTree = await packedTree(await extract(publishedArchive, join(root, 'published-tree')));
+    const comparison = comparePackedTrees(localTree, publishedTree);
+    if (!comparison.equal) throw new Error(`published ${manifest.name}@${manifest.version} differs from source pack: ${comparison.differences.join(', ')}`);
+    return Object.freeze({ status: 'MATCH', name: manifest.name, version: manifest.version, files: localTree.length });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  verifyRegistryParity({ allowUnpublished: process.argv.includes('--allow-unpublished') })
+    .then((result) => process.stdout.write(`${JSON.stringify(result)}\n`))
+    .catch((error) => { process.stderr.write(`${error.message}\n`); process.exitCode = 1; });
+}
