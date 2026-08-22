@@ -89,10 +89,10 @@ export function managedProcessOwnership(child, { platform = process.platform, id
  * Linux uses proc starttime; macOS uses `ps lstart`. Windows Job Object identity
  * is intentionally unsupported until a Job Object owner exists.
  */
-export async function readProcessIdentity(pid, ownership = null, { platform = process.platform, readFile, execFile = nodeExecFile, timeoutMs = 250 } = {}) {
+export async function readProcessIdentity(pid, ownership = null, { platform = process.platform, readFile, execFile = nodeExecFile, timeoutMs = 250, loadJobAddon = loadWindowsJobAddon } = {}) {
   if (!Number.isSafeInteger(pid) || pid < 1) throw new TypeError('positive process pid is required');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new TypeError('positive process identity timeout is required');
-  if (ownership?.platform === 'win32' || platform === 'win32') return readWindowsIdentity(pid, { execFile, timeoutMs });
+  if (ownership?.platform === 'win32' || platform === 'win32') return readWindowsIdentity(pid, { execFile, timeoutMs, loadJobAddon });
   if (platform === 'linux') return readLinuxIdentity(pid, { readFile, timeoutMs });
   if (platform === 'darwin') return readMacosIdentity(pid, { execFile, timeoutMs });
   return unavailable('process-identity-platform-unsupported');
@@ -323,7 +323,14 @@ async function readLinuxIdentity(pid, { readFile = defaultReadFile, timeoutMs })
 /** CreationDate is a WMI-formatted timestamp string unique enough to detect
  * PID reuse the same way Linux's proc starttime & macOS's `ps lstart` do —
  * a reused pid gets a new creation time, so a stale identity never matches. */
-async function readWindowsIdentity(pid, { execFile, timeoutMs }) {
+async function readWindowsIdentity(pid, { execFile, timeoutMs, loadJobAddon }) {
+  try {
+    const addon = loadJobAddon?.();
+    if (typeof addon?.getProcessCreationTime === 'function') {
+      const created = String(addon.getProcessCreationTime(pid)).trim();
+      return created ? available(`win32:${pid}:${created}`) : unavailable('process-identity-unavailable');
+    }
+  } catch { /* compatibility fallback for source runtimes without the new addon */ }
   if (typeof execFile !== 'function') return unavailable('process-identity-reader-missing');
   try {
     const source = String(await bounded(runPowerShellCreationDate(execFile, pid, timeoutMs), timeoutMs)).trim();

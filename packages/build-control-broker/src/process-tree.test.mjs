@@ -164,6 +164,16 @@ test('macOS process identity uses bounded ps lstart through an injected seam', a
   assert.deepEqual(result, { status: 'OK', identity: 'darwin:52:Thu Aug 14 20:00:00 2026' });
 });
 
+test('Windows process identity uses native creation time without PowerShell', async () => {
+  const result = await readProcessIdentity(52, null, {
+    platform: 'win32',
+    timeoutMs: 10,
+    loadJobAddon: () => ({ getProcessCreationTime: (pid) => { assert.equal(pid, 52); return '134157836012345678'; } }),
+    execFile: () => assert.fail('PowerShell fallback must not run'),
+  });
+  assert.deepEqual(result, { status: 'OK', identity: 'win32:52:134157836012345678' });
+});
+
 test('identity probe timeout is typed unavailable & requires no live process', async () => {
   const result = await readProcessIdentity(53, null, { platform: 'linux', timeoutMs: 5, readFile: () => new Promise(() => {}) });
   assert.deepEqual(result, { status: 'UNAVAILABLE', reason: 'process-identity-timeout' });

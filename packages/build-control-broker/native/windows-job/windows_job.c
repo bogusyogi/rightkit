@@ -295,6 +295,38 @@ static napi_value IsPidAlive(napi_env env, napi_callback_info info) {
   return result;
 }
 
+/** getProcessCreationTime(pid: number) -> string
+ * Returns the kernel creation FILETIME as a decimal string. Unlike a PID,
+ * this token changes on reuse. Reading it through the already-required native
+ * addon avoids spawning PowerShell on every managed process admission. */
+static napi_value GetProcessCreationTimeFn(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  if (napi_get_cb_info(env, info, &argc, args, NULL, NULL) != napi_ok || argc < 1) {
+    napi_throw_type_error(env, NULL, "getProcessCreationTime(pid) requires pid");
+    return NULL;
+  }
+  uint32_t pid = 0;
+  if (napi_get_value_uint32(env, args[0], &pid) != napi_ok) {
+    napi_throw_type_error(env, NULL, "pid must be a uint32");
+    return NULL;
+  }
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (!process) return ThrowLastError(env, "OpenProcess");
+  FILETIME created, exited, kernel, user;
+  BOOL ok = GetProcessTimes(process, &created, &exited, &kernel, &user);
+  CloseHandle(process);
+  if (!ok) return ThrowLastError(env, "GetProcessTimes");
+  ULARGE_INTEGER value;
+  value.LowPart = created.dwLowDateTime;
+  value.HighPart = created.dwHighDateTime;
+  char token[32];
+  _ui64toa_s(value.QuadPart, token, sizeof(token), 10);
+  napi_value result;
+  napi_create_string_utf8(env, token, NAPI_AUTO_LENGTH, &result);
+  return result;
+}
+
 static napi_value Init(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
     { "spawnContained", NULL, SpawnContained, NULL, NULL, NULL, napi_default, NULL },
@@ -303,6 +335,7 @@ static napi_value Init(napi_env env, napi_value exports) {
     { "closeProcessHandle", NULL, CloseProcessHandleFn, NULL, NULL, NULL, napi_default, NULL },
     { "isProcessAlive", NULL, IsProcessAlive, NULL, NULL, NULL, napi_default, NULL },
     { "isPidAlive", NULL, IsPidAlive, NULL, NULL, NULL, napi_default, NULL },
+    { "getProcessCreationTime", NULL, GetProcessCreationTimeFn, NULL, NULL, NULL, napi_default, NULL },
   };
   napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]), properties);
   return exports;
