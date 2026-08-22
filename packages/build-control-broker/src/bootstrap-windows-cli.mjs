@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { execFile as childExecFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { constants, mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { copyFile, mkdir, readFile, realpath } from 'node:fs/promises';
+import { copyFile, mkdir, open, readFile, realpath } from 'node:fs/promises';
 import { availableParallelism as cpuCount, totalmem } from 'node:os';
 import { dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,21 +50,46 @@ export async function sha256File(path) { return createHash('sha256').update(awai
 
 /** Windows has no single `which`; `where.exe` lists every match on PATH, one
  * per line — the first is what an unqualified invocation would actually run. */
-export async function where(name) {
-  try { return (await execFile('where', [name])).stdout.trim().split(/\r?\n/)[0] || null; }
+export async function whereUnmanaged(name, run = execFile, { exists = existsSync } = {}) {
+  let candidates;
+  try { candidates = (await run('where', [name])).stdout.trim().split(/\r?\n/).filter(Boolean); }
+  catch { return null; }
+  for (const candidate of candidates) {
+    if (exists(join(dirname(candidate), '.rightkit-managed-agent-shims.json'))) continue;
+    const prefix = await executablePrefix(candidate).catch(() => '');
+    if (prefix.includes('rightkit.build-control.agent-shims.install.v1') || prefix.includes('packages\\release\\cargo-guard.mjs')) continue;
+    return realpath(candidate);
+  }
+  return null;
+}
+
+async function executablePrefix(path, bytes = 1_024) {
+  const handle = await open(path, 'r');
+  try { const buffer = Buffer.alloc(bytes); const { bytesRead } = await handle.read(buffer, 0, bytes, 0); return buffer.subarray(0, bytesRead).toString('utf8'); }
+  finally { await handle.close(); }
+}
+
+async function rustupTool(rustupPath, id) {
+  if (!rustupPath) return null;
+  try { const path = (await execFile(rustupPath, ['which', id])).stdout.trim(); return path ? realpath(path) : null; }
   catch { return null; }
 }
 
 export async function discoverTools() {
   const tools = [];
+  const rustupPath = await whereUnmanaged('rustup.exe').then((found) => found ?? whereUnmanaged('rustup'));
   for (const id of KNOWN_TOOLS) {
-    const path = await where(`${id}.exe`).then((found) => found ?? where(id));
+    const path = ['cargo', 'rustc', 'rustdoc'].includes(id)
+      ? await rustupTool(rustupPath, id)
+      : id === 'rustup'
+        ? rustupPath
+        : await whereUnmanaged(`${id}.exe`).then((found) => found ?? whereUnmanaged(id));
     if (!path) continue;
     const real = await realpath(path);
     tools.push({ id, path: real, root: dirname(real), sha256: await sha256File(real) });
   }
   for (const [, id] of EXTERNAL_CARGO_TOOLS) {
-    const found = await where(`${id}.exe`).then((value) => value ?? where(id)); if (!found) continue;
+    const found = await whereUnmanaged(`${id}.exe`).then((value) => value ?? whereUnmanaged(id)); if (!found) continue;
     const real = await realpath(found); tools.push({ id, path: real, root: dirname(real), sha256: await sha256File(real) });
   }
   return tools;
@@ -91,9 +116,9 @@ function externalCommands(tools) {
   return EXTERNAL_CARGO_TOOLS.flatMap(([command, toolId, lane]) => byId.has(toolId) ? [{ shim: 'cargo', command, toolId, lane, digest: byId.get(toolId).sha256 }] : []);
 }
 
-export async function rustcVersionTriple() {
+export async function rustcVersionTriple(rustcPath = 'rustc') {
   try {
-    const { stdout } = await execFile('rustc', ['-vV']);
+    const { stdout } = await execFile(rustcPath, ['-vV']);
     const version = stdout.match(/^release:\s*(\S+)/m)?.[1];
     const host = stdout.match(/^host:\s*(\S+)/m)?.[1];
     return version && host ? `stable-${version}-${host}` : null;
@@ -145,7 +170,7 @@ export async function buildConfig({ externalRoot }) {
   const tools = await stageManagedTools(await discoverTools(), externalRoot);
   const sccacheTool = tools.find((tool) => tool.id === 'sccache');
   const clientSideSccache = await supportsClientSideSccache(sccacheTool?.path);
-  const toolchain = (await rustcVersionTriple()) ?? 'stable-x86_64-pc-windows-msvc';
+  const toolchain = (await rustcVersionTriple(tools.find((tool) => tool.id === 'rustc')?.path)) ?? 'stable-x86_64-pc-windows-msvc';
   const targetTriple = 'x86_64-pc-windows-msvc';
   return {
     schemaVersion: 2,

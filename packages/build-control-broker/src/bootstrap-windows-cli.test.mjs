@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
-import { defaultBounds, defaultCargoBuildJobs, isDirectMain, parseArgs, shimTable, stageManagedTools, supportsClientSideSccache } from './bootstrap-windows-cli.mjs';
+import { defaultBounds, defaultCargoBuildJobs, isDirectMain, parseArgs, shimTable, stageManagedTools, supportsClientSideSccache, whereUnmanaged } from './bootstrap-windows-cli.mjs';
 
 // discoverTools/where/buildConfig shell out to `where.exe`, which does not
 // exist on this Mac — those three are exercised only by a real Windows run.
@@ -31,6 +31,18 @@ test('direct-main detection is portable across Windows and POSIX path forms', ()
 test('shimTable only maps shims for tools actually discovered, mirroring the macOS table', () => {
   assert.deepEqual(shimTable([{ id: 'cargo' }, { id: 'gcc' }]), { cargo: 'cargo', gcc: 'gcc' });
   assert.deepEqual(shimTable([]), {});
+});
+
+test('Windows tool discovery skips installed RightKit agent shims', async (t) => {
+  const scratch = mkdtempSync(join(tmpdir(), 'rk-win-where-'));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const shimDir = join(scratch, 'agent-bin'); const realDir = join(scratch, 'toolchain');
+  mkdirSync(shimDir); mkdirSync(realDir);
+  const shim = join(shimDir, 'cargo.exe'); const real = join(realDir, 'cargo.exe');
+  writeFileSync(join(shimDir, '.rightkit-managed-agent-shims.json'), '{}');
+  writeFileSync(shim, 'shim'); writeFileSync(real, 'cargo');
+  const selected = await whereUnmanaged('cargo.exe', async () => ({ stdout: `${shim}\r\n${real}\r\n` }));
+  assert.equal(selected, real);
 });
 
 test('staging preserves bundled tools & copies standalone Cargo tools', async (t) => {
