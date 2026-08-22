@@ -55,8 +55,8 @@ Implemented and live:
 - one global `CARGO_HOME`, one global sccache directory, client-side sccache,
   one shallow managed temp directory, and per-workspace target generations;
 - source bootstrap and immutable runtime cutover;
-- native Windows Job Object containment with `KILL_ON_JOB_CLOSE`, suspended
-  launch/assignment, creation-time process identity, cancellation, and
+- native Windows Job Object containment with `KILL_ON_JOB_CLOSE`, synchronous
+  launcher assignment before IPC START, creation-time process identity, cancellation, and
   crash-recovery generation rotation;
 - thin cutover drain proof from active-root markers, plus readiness-independent GC for
   retired generations; predecessor SQLite, lifecycle, reservation, maintenance,

@@ -198,20 +198,27 @@ test('persisted Windows tree is REAP_PENDING because Job Object recovery is unsu
   assert.deepEqual(result, { status: 'REAP_PENDING', reaped: false, escalated: false, reason: 'windows-job-object-unsupported' });
 });
 
-test('Windows spawn assigns the launcher to a new job immediately, before any await, when the addon is present', () => {
+test('Windows assigns Job Object before IPC START can create payload', async () => {
   const calls = [];
   const fakeAddon = {
     assignRunningProcessToNewJob: (pid) => { calls.push(['assign', pid]); return { processHandle: 'ph', jobHandle: 'jh' }; },
     closeProcessHandle: (handle) => { calls.push(['closeProcessHandle', handle]); },
   };
-  const spawnedChild = Object.assign(new EventEmitter(), { pid: 777, exitCode: null, signalCode: null });
-  const spawn = () => spawnedChild;
+  const spawnedChild = Object.assign(new EventEmitter(), {
+    pid: 777, exitCode: null, signalCode: null, connected: true,
+    send(message, callback) { calls.push(['send', message.type]); callback?.(); }
+  });
+  const spawn = () => { calls.push(['spawn']); return spawnedChild; };
   const result = spawnManagedProcess('binary', ['build'], { platform: 'win32', loadJobAddon: () => fakeAddon }, spawn);
   assert.equal(result, spawnedChild);
-  assert.deepEqual(calls, [['assign', 777]]);
+  assert.deepEqual(calls, [['spawn'], ['assign', 777]]);
+  const started = startManagedProcess(result, { platform: 'win32', timeoutMs: 50 });
+  assert.deepEqual(calls, [['spawn'], ['assign', 777], ['send', 'START']]);
+  spawnedChild.emit('message', { type: 'STARTED', pid: 778 });
+  assert.deepEqual(await started, { pid: 778 });
   // The processHandle is released once the child actually closes, not before.
   spawnedChild.emit('close', 0, null);
-  assert.deepEqual(calls, [['assign', 777], ['closeProcessHandle', 'ph']]);
+  assert.deepEqual(calls.at(-1), ['closeProcessHandle', 'ph']);
 });
 
 test('Windows terminate uses the job handle for a certain whole-tree kill when the addon assigned one at spawn', async () => {

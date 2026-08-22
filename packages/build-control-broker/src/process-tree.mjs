@@ -14,7 +14,7 @@ const windowsJobHandles = new WeakMap();
 export const WINDOWS_CONTAINMENT_CONTRACT = Object.freeze({
   code: 'RK_WINDOWS_CONTAINMENT_UNAVAILABLE',
   reason: 'windows-job-object-unsupported',
-  required: 'native Job Object owner: CREATE_SUSPENDED + AssignProcessToJobObject + KILL_ON_JOB_CLOSE before ResumeThread',
+  required: 'native Job Object owner: synchronous AssignProcessToJobObject + KILL_ON_JOB_CLOSE before IPC START',
 });
 function windowsContainmentError() { return Object.assign(new Error(WINDOWS_CONTAINMENT_CONTRACT.required), WINDOWS_CONTAINMENT_CONTRACT); }
 
@@ -30,11 +30,10 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
     const addon = loadJobAddon();
     if (!addon) throw windowsContainmentError();
     const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: ['ignore', spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: false });
-    // Immediately, before any await: Node's IPC channel requires spawn() to
-    // own process creation (see windows_job.c's header for why the native
-    // CREATE_SUSPENDED path cannot be used for the IPC-bearing launcher), so
-    // containment is layered on right after — the residual race is documented
-    // in assignRunningProcessToNewJob's own comment.
+    // Immediately, before any await: Node owns process creation so its IPC
+    // channel can hold this pinned launcher at the START gate. The launcher
+    // cannot spawn the managed payload until startManagedProcess sends START,
+    // which happens only after this assignment & durable ownership capture.
     if (!Number.isSafeInteger(child.pid) || child.pid < 1) throw new Error('managed launcher did not report a pid to contain');
     const handles = addon.assignRunningProcessToNewJob(child.pid);
     windowsJobHandles.set(child, handles);
@@ -46,7 +45,7 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
   observeClose(child); return child;
 }
 
-/** Send START only after ownership persistence; resolve after payload spawn. */
+/** Send START only after Job/process-group ownership persistence; resolve after payload spawn. */
 export function startManagedProcess(child, { timeoutMs = 30_000, platform = process.platform } = {}) {
   if (!child || typeof child.send !== 'function' || !child.connected) throw new Error('managed launcher IPC is unavailable');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new TypeError('positive launcher start timeout is required');
