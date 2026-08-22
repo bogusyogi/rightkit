@@ -106,7 +106,7 @@ export class ThinCache {
       const identity = JSON.stringify({ version: parsed.version ?? null, cacheLocation: parsed.cache_location ?? null, basedirs: parsed.basedirs ?? null, clientSide: this.#clientSide });
       return Object.freeze({ status: 'SERVICE_OK', stats: Object.freeze(numbers(parsed.stats ?? parsed) ?? {}), attribution: Object.freeze({ scope: 'shared-cumulative-root-window', epoch: this.#epoch, serverIdentity: createHash('sha256').update(identity).digest('hex'), mode: this.#clientSide ? 'client-side' : 'server', sampledAt: new Date(this.#now()).toISOString() }) });
     } catch (error) {
-      return Object.freeze({ status: 'DEGRADED', stats: null, reason: error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? 'sccache-stats-too-large' : `sccache-stats-unavailable:${error.code ?? error.message}` });
+      return Object.freeze({ status: 'DEGRADED', stats: null, reason: cacheFailureReason(error) });
     }
   }
 }
@@ -116,4 +116,11 @@ export const thinCacheStatsDelta = delta;
 function containsNegative(value) {
   if (typeof value === 'number') return value < 0;
   return Boolean(value && typeof value === 'object' && Object.values(value).some(containsNegative));
+}
+
+function cacheFailureReason(error) {
+  if (error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return 'sccache-stats-too-large';
+  const diagnostic = String(error?.stderr ?? '').replace(/\s+/g, ' ').trim().slice(0, 1_024);
+  const cause = error?.code ?? error?.signal ?? error?.message ?? 'unknown';
+  return `sccache-stats-unavailable:${cause}${diagnostic ? `:${diagnostic}` : ''}`;
 }

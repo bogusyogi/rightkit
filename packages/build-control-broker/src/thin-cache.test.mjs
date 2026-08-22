@@ -34,6 +34,12 @@ test('cache probe failure visibly degrades to direct rustc for job', async () =>
   assert.equal(prepared.environment.RUSTC_WRAPPER, undefined);
 });
 
+test('cache probe failure preserves bounded stderr diagnosis', async () => {
+  const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', run: async () => { throw Object.assign(new Error('exit'), { code: 2, stderr: 'socket ownership failed\n' }); } });
+  const prepared = await cache.prepare({ layout });
+  assert.equal(prepared.reason, 'sccache-stats-unavailable:2:socket ownership failed');
+});
+
 test('records bounded numeric cache deltas', async () => {
   const samples = ['{"version":"0.17","cache_location":"Disk","stats":{"compile_requests":7,"cache_hits":{"Rust":5},"text":"ignored"}}', '{"version":"0.17","cache_location":"Disk","stats":{"compile_requests":10,"cache_hits":{"Rust":7},"text":"ignored"}}'];
   let now = 1_000;
