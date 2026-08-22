@@ -27,6 +27,7 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
   await mkdir(root, { recursive: true }); await mkdir(staging, { recursive: false });
   try {
     for (const name of packageNames) { const target = join(staging, name); await mkdir(target, { recursive: true }); await Promise.all([cp(join(source, name, 'src'), join(target, 'src'), { recursive: true }), cp(join(source, name, 'package.json'), join(target, 'package.json'))]); }
+    await stageRuntimeDependencies(staging, source);
     const addon = platform === 'win32' ? await stageWindowsJobAddon(staging, source, windowsJobAddon) : undefined;
     await linkRuntimePackages(staging);
     const contentDigest = await digestTree(staging, { excludeManifest: true });
@@ -259,6 +260,55 @@ const syncDirectory = syncDirectoryForPlatform;
 
 async function linkRuntimePackages(runtime) {
   for (const consumer of ['build-control-broker', 'build-control-clients']) { const directory = join(runtime, consumer, 'node_modules', '@rightkit'); await mkdir(directory, { recursive: true }); await symlink('../../../build-control-core', join(directory, 'build-control-core')); }
+}
+
+async function stageRuntimeDependencies(runtime, sourcePackagesRoot) {
+  const fallbackRequire = createRequire(import.meta.url);
+  for (const consumer of packageNames) {
+    const sourcePackage = join(sourcePackagesRoot, consumer, 'package.json');
+    const manifest = JSON.parse(stripBom(await readFile(sourcePackage, 'utf8')));
+    const sourceRequire = createRequire(sourcePackage);
+    const targetModules = join(runtime, consumer, 'node_modules'); const seen = new Set();
+    for (const [dependency, declaredVersion] of Object.entries(manifest.dependencies ?? {})) {
+      if (dependency.startsWith('@rightkit/')) continue;
+      await stageExternalDependency({ dependency, declaredVersion, targetModules, sourceRequire, fallbackRequire, seen });
+    }
+  }
+}
+
+async function stageExternalDependency({ dependency, declaredVersion, targetModules, sourceRequire, fallbackRequire, seen }) {
+  if (seen.has(dependency)) return;
+  seen.add(dependency);
+  const entry = resolveDependencyEntry(dependency, sourceRequire, fallbackRequire);
+  const root = await dependencyPackageRoot(dependency, entry);
+  const manifest = JSON.parse(stripBom(await readFile(join(root, 'package.json'), 'utf8')));
+  if (/^\d+\.\d+\.\d+(?:[-+].+)?$/.test(declaredVersion) && manifest.version !== declaredVersion) throw new Error(`runtime dependency ${dependency} resolved ${manifest.version}, expected ${declaredVersion}`);
+  const target = join(targetModules, ...dependency.split('/'));
+  await mkdir(dirname(target), { recursive: true });
+  await cp(root, target, { recursive: true, filter: (path) => basename(path) !== 'node_modules' });
+  const nestedRequire = createRequire(join(root, 'package.json'));
+  for (const [nested, nestedVersion] of Object.entries(manifest.dependencies ?? {})) {
+    await stageExternalDependency({ dependency: nested, declaredVersion: nestedVersion, targetModules, sourceRequire: nestedRequire, fallbackRequire, seen });
+  }
+}
+
+function resolveDependencyEntry(dependency, sourceRequire, fallbackRequire) {
+  try { return sourceRequire.resolve(dependency); }
+  catch (sourceError) {
+    try { return fallbackRequire.resolve(dependency); }
+    catch { throw new Error(`runtime dependency ${dependency} is unavailable: ${sourceError.message}`); }
+  }
+}
+
+async function dependencyPackageRoot(dependency, entry) {
+  let cursor = dirname(await realpath(entry));
+  for (;;) {
+    const manifest = await readFile(join(cursor, 'package.json'), 'utf8').then((value) => JSON.parse(stripBom(value))).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+    if (manifest?.name === dependency) return cursor;
+    const parent = dirname(cursor);
+    if (parent === cursor) throw new Error(`runtime dependency package root not found for ${dependency}`);
+    cursor = parent;
+  }
 }
 
 export function loadRuntimeWindowsJobAddon(runtime, { loadAddon = createRequire(import.meta.url) } = {}) {
