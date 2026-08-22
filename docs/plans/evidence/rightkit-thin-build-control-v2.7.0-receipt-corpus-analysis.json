@@ -1,23 +1,69 @@
 {
-  "capturedAt": "2026-08-22T11:10:01.716640+00:00",
-  "method": "read-only receipt corpus analysis",
+  "schema": "rightkit.thin-build-control.receipt-corpus-analysis.v2.7",
+  "capturedAt": "2026-08-22T14:13:59.451548+00:00",
+  "method": "read-only snapshot of receipt filenames followed by deterministic JSON aggregation",
   "receiptStorePath": "/Volumes/D/.rightkit-managed/rightkit-build-control/receipts",
-  "totalReceipts": 42144,
+  "receiptSnapshotFileCount": 46571,
+  "parsedReceiptCount": 46571,
+  "aggregationScript": "tools/rightkit/docs/plans/evidence/aggregate-receipts.py",
+  "aggregationScriptSha256": "f8cb725a4022c71549a9a09cb47d07e5374c8855cf92868e0227c29d300b76dc",
+  "runtimeIdentity": {
+    "schema": "rightkit.build-control.runtime.v2",
+    "version": "bootstrap-2f2df197-1787362469735",
+    "clientDigest": "364b93b3e32aa0f7de25f18ef2ab9a29bf5ce2ca7e9574d6f311f2a996a3a206",
+    "brokerDigest": "58e3d8b7be711480eac29c95736cc3e0bee328fe016e1ba687af3e40e33e21af",
+    "sourceRevision": "2f2df1979b0f8a4ca58eeb35ea117f9d938ed2d5",
+    "sourceTreeDigest": "4ba98dba4af2dd852added96d84c806e937f82ce"
+  },
+  "runtimeSourceRevision": "2f2df1979b0f8a4ca58eeb35ea117f9d938ed2d5",
+  "localSourceRevisionAtCapture": "8ad47663aef48dfc7e6c81af11668cf850f50bf6",
   "byKind": {
-    "cargo": 700,
-    "rustc": 41421,
+    "cargo": 772,
+    "rustc": 45773,
     "rustdoc": 3,
-    "other": 20
+    "other": 23
   },
+  "probeSelectionRule": "command starts with rustc -vV, rustc --version, or rustc --print",
   "probeMetrics": {
-    "count": 7770,
-    "medianRunMs": 316,
-    "p90RunMs": 723,
-    "cumulativeMs": 3636935
+    "count": 16684,
+    "medianRunMs": 371,
+    "p90RunMs": 850,
+    "cumulativeMs": 8673343,
+    "formulas": {
+      "median": "statistics.median(sorted runMs)",
+      "p90": "sorted runMs[floor(n*0.9)]",
+      "cumulative": "sum(runMs)"
+    }
   },
-  "compilerChildrenWithCacheDelta": 20279,
-  "sccacheGlobalCumulative": {
+  "compilerChildrenWithCacheSampling": 22406,
+  "compilerChildQueueMetrics": {
+    "count": 45776,
+    "medianMs": 1,
+    "cumulativeMs": 160389
+  },
+  "nativeProbeBaseline": {
+    "status": "HISTORICAL_RANGE_ONLY",
+    "rangeMs": [
+      20,
+      50
+    ],
+    "command": null,
+    "reason": "exact native command/results were not persisted before remediation; workspace policy forbids recreating them through unmanaged rustc"
+  },
+  "sccacheGlobalCumulativeAtCapture": {
+    "status": "SERVICE_OK",
+    "measurementMode": "client-side",
+    "serverIdentitySha256": "07b6bc47033929e107800a2f57c05e6bf927f69d7ae7be38a0c9154aa3cf9fb5",
+    "serverRestartEpoch": null,
+    "serverRestartEpochReason": "pre-remediation sccache output exposed no restart epoch",
+    "version": "0.17.0",
+    "cacheLocation": "Local disk: \"/Volumes/D/.rightkit-managed/rightkit-build-control/global/compiler-cache\"",
+    "basedirs": [],
     "rustHits": 14,
-    "rustMisses": 5682
+    "rustMisses": 6297
+  },
+  "interpretation": {
+    "receiptStore": "pre-remediation thin receipts; compiler child cache windows overlap root windows",
+    "cacheCounters": "shared cumulative sccache counters; roots plus children must never be summed"
   }
 }

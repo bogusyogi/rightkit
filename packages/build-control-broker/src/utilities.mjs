@@ -1,19 +1,24 @@
-import { chmod, lstat, mkdir, unlink, readFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, unlink } from 'node:fs/promises';
 import { isAbsolute, join, normalize, dirname, relative, resolve } from 'node:path';
+import { parse as parseToml } from 'smol-toml';
 
-const cargoConfigurationRedirect = /^\s*(?:\[alias\]|(?:target-dir|build-dir|rustc|rustdoc|rustc-wrapper|rustc-workspace-wrapper)\s*=)/i;
-const targetImportLibraryFlags = /^\s*rustflags\s*=\s*\[\s*"-C"\s*,\s*"link-arg=[A-Za-z0-9_.-]+\.lib"\s*\]\s*(?:#.*)?$/i;
+const forbiddenBuildKeys = new Set(['target', 'target-dir', 'build-dir', 'rustc', 'rustdoc', 'rustc-wrapper', 'rustc-workspace-wrapper', 'rustflags', 'rustdocflags']);
 
-function cargoConfigurationRedirects(source) {
-  let section = '';
-  for (const line of source.split(/\r?\n/)) {
-    const header = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
-    if (header) section = header[1];
-    if (cargoConfigurationRedirect.test(line)) return true;
-    if (section.toLowerCase() === 'build' && /^\s*target\s*=/i.test(line)) return true;
-    if (/^\s*(?:rustflags|rustdocflags)\s*=/i.test(line) && (!section.toLowerCase().startsWith('target.') || !targetImportLibraryFlags.test(line))) return true;
+function safeImportLibraryFlags(value) {
+  if (!Array.isArray(value) || value.length === 0 || value.length % 2 !== 0) return false;
+  for (let index = 0; index < value.length; index += 2) if (value[index] !== '-C' || !/^link-arg=[A-Za-z0-9_.-]+\.lib$/i.test(value[index + 1])) return false;
+  return true;
+}
+
+function validateCargoConfiguration(value, path) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error(`managed Cargo configuration must parse to a TOML table: ${path}`), { code: 'RK_CARGO_CONFIG_INVALID' });
+  if (value.alias !== undefined) throw Object.assign(new Error(`managed Cargo configuration cannot define aliases: ${path}`), { code: 'RK_CARGO_CONFIG_UNSUPPORTED' });
+  if (value.env !== undefined) throw Object.assign(new Error(`managed Cargo configuration cannot inject environment variables: ${path}`), { code: 'RK_CARGO_CONFIG_UNSUPPORTED' });
+  for (const key of Object.keys(value.build ?? {})) if (forbiddenBuildKeys.has(key.toLowerCase())) throw Object.assign(new Error(`managed Cargo configuration cannot set build.${key}: ${path}`), { code: 'RK_CARGO_CONFIG_UNSUPPORTED' });
+  for (const [target, table] of Object.entries(value.target ?? {})) {
+    if (!table || typeof table !== 'object' || Array.isArray(table)) continue;
+    if (table.rustdocflags !== undefined || (table.rustflags !== undefined && !safeImportLibraryFlags(table.rustflags))) throw Object.assign(new Error(`managed Cargo configuration cannot set uncontrolled target flags for ${target}: ${path}`), { code: 'RK_CARGO_CONFIG_UNSUPPORTED' });
   }
-  return false;
 }
 
 function ancestorDirectories(directory) {
@@ -22,14 +27,17 @@ function ancestorDirectories(directory) {
   for (;;) { values.push(current); const parent = dirname(current); if (parent === current) return values; current = parent; }
 }
 
-/** Reject Cargo config capable of redirecting managed toolchain or output paths. */
+/** Parse bounded Cargo TOML structurally before allowing semantic configuration. */
 export async function rejectWorkspaceCargoConfiguration(workspace, { maxBytes = 64 * 1024 } = {}) {
   for (const directory of ancestorDirectories(workspace)) for (const name of ['config', 'config.toml']) {
     const candidate = join(directory, '.cargo', name);
     const metadata = await lstat(candidate).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
     if (!metadata) continue;
     if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > maxBytes) throw new Error(`managed Cargo configuration is not an admissible bounded file: ${candidate}`);
-    if (cargoConfigurationRedirects(await readFile(candidate, 'utf8'))) throw new Error(`managed Cargo configuration cannot redirect tools, outputs, flags, or aliases: ${candidate}`);
+    let parsed;
+    try { parsed = parseToml(await readFile(candidate, 'utf8')); }
+    catch (error) { throw Object.assign(new Error(`managed Cargo configuration is invalid TOML: ${candidate}: ${error.message}`), { code: 'RK_CARGO_CONFIG_INVALID' }); }
+    validateCargoConfiguration(parsed, candidate);
   }
 }
 

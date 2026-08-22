@@ -37,6 +37,7 @@ import {
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 const PRIORITIES = new Set(['BATCH', 'INTERACTIVE', 'INSTALLER']);
 const DEFAULT_OUTPUT_BYTES = 8 * 1024 * 1024;
+const CANCELLATION_SOURCES = new Set(['USER_CANCEL', 'OPERATOR_CANCEL', 'CLIENT_SIGNAL', 'PARENT_CANCEL', 'BROKER_SHUTDOWN', 'DEADLINE', 'STORAGE_FLOOR', 'CONTAINMENT_FAILURE', 'RELEASE_PRIORITY_CANCEL', 'UNKNOWN']);
 const execFile = promisify(nodeExecFile);
 
 const integer = (value, fallback, minimum = 0) => {
@@ -68,7 +69,7 @@ const pathIsWithin = (root, candidate) => {
   return childPath === '' || (childPath !== '..' && !childPath.startsWith(`..${sep}`) && !isAbsolute(childPath));
 };
 
-export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env, timeoutMs = 10_000 } = {}) {
+export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env, timeoutMs = 2_000 } = {}) {
   if (typeof workspace !== 'string' || !isAbsolute(workspace) || typeof cargoPath !== 'string' || !cargoPath) throw new TypeError('absolute workspace & cargoPath are required');
   const executionCwd = await realpath(workspace);
   const startedAt = Date.now();
@@ -83,29 +84,42 @@ export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFi
 // 10-second BUILD-lane blocker. The TTL bounds re-resolution; a low, explicit
 // timeout bounds any single invocation. Empty/negative TTL disables caching.
 export class CachedWorkspaceResolver {
-  #next; #ttlMs; #timeoutMs; #stats;
-  constructor({ ttlMs = 10 * 60_000, timeoutMs = 10_000, now = Date.now, resolver = resolveCargoWorkspace } = {}) {
+  #next; #ttlMs; #timeoutMs; #concurrency; #active = 0; #waiting = []; #inflight = new Map(); #stats;
+  constructor({ ttlMs = 10 * 60_000, timeoutMs = 2_000, concurrency = 4, now = Date.now, resolver = resolveCargoWorkspace } = {}) {
     this.#ttlMs = Number.isSafeInteger(ttlMs) && ttlMs > 0 ? ttlMs : 0;
-    this.#timeoutMs = Number.isSafeInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10_000;
+    this.#timeoutMs = Number.isSafeInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 2_000;
+    this.#concurrency = Number.isSafeInteger(concurrency) && concurrency > 0 ? concurrency : 4;
     this.#stats = { lookup: 0, hit: 0, miss: 0, error: 0 };
     if (typeof resolver !== 'function') throw new TypeError('workspace resolver must be a function');
     this.#next = resolver;
   }
-  get stats() { return Object.freeze({ ...this.#stats }); }
+  get stats() { return Object.freeze({ ...this.#stats, active: this.#active, queued: this.#waiting.length, inflight: this.#inflight.size }); }
   async resolve(workspace, options = {}) {
     const executionCwd = await (options.realpath ?? realpath)(workspace);
     const now = options.now ?? Date.now;
     const key = `${this.#ttlMs}|${executionCwd}`;
     const cached = this.#cache.get(key);
-    this.#stats.hits += 1;
-    if (cached && !cached.expiresAt) this.#cache.delete(key);
-    if (cached && now() < cached.expiresAt && this.#ttlMs > 0) { this.#stats.hit += 1; return cached.value; }
+    this.#stats.lookup += 1;
+    if (cached && now() < cached.expiresAt && this.#ttlMs > 0) { this.#stats.hit += 1; return Object.freeze({ ...cached.value, workspaceDiscoveryMs: 0, workspaceDiscoveryCache: 'HIT' }); }
     this.#stats.miss += 1;
-    try {
+    if (this.#inflight.has(key)) return this.#inflight.get(key);
+    const pending = this.#bounded(async () => {
       const value = await this.#next(executionCwd, { ...options, timeoutMs: this.#timeoutMs });
-      if (this.#ttlMs > 0) this.#cache.set(key, { value, expiresAt: now() + this.#ttlMs });
-      return value;
+      const selected = Object.freeze({ ...value, workspaceDiscoveryCache: 'MISS' });
+      if (this.#ttlMs > 0) this.#cache.set(key, { value: selected, expiresAt: now() + this.#ttlMs });
+      return selected;
+    });
+    this.#inflight.set(key, pending);
+    try {
+      return await pending;
     } catch (error) { this.#stats.error += 1; throw error; }
+    finally { this.#inflight.delete(key); }
+  }
+  async #bounded(action) {
+    if (this.#active >= this.#concurrency) await new Promise((resolve) => this.#waiting.push(resolve));
+    this.#active += 1;
+    try { return await action(); }
+    finally { this.#active -= 1; this.#waiting.shift()?.(); }
   }
   #cache = new Map();
 }
@@ -133,7 +147,7 @@ function runtimeBase(toolchainLibraryPath) {
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #jobs = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #compilerEnvironment; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #jobs = new Map(); #stopping = false;
 
   static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
@@ -145,6 +159,8 @@ export class ThinJobService {
       const toolRegistry = registry ?? new ImmutableToolRegistry();
       if (!registry) for (const tool of config.tools ?? []) if (selectedToolIds(config).has(tool.id)) await toolRegistry.register(tool);
       const cargoTool = await toolRegistry.verify(config.shims?.cargo);
+      const rustcTool = await toolRegistry.verify(config.defaults?.rustcToolId ?? config.shims?.rustc);
+      const rustdocTool = await toolRegistry.verify(config.defaults?.rustdocToolId ?? config.shims?.rustdoc);
       const sccacheTool = config.defaults?.sccacheToolId ? await toolRegistry.verify(config.defaults.sccacheToolId) : null;
       const thinCache = cache ?? new ThinCache({
         paths: thinState.paths,
@@ -167,8 +183,8 @@ export class ThinJobService {
       // Bound, cache & make observable the CONTROL-class workspace discovery.
       const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
         ? workspaceResolver
-        : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 10_000, 1) });
-      const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now });
+        : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 2_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
+      const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1) }) });
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
       return service;
@@ -179,8 +195,8 @@ export class ThinJobService {
     }
   }
 
-  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now }) {
-    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now;
+  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, compilerEnvironment, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now }) {
+    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#compilerEnvironment = compilerEnvironment; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now;
   }
 
   get runtimeIdentity() { return this.#runtime; }
@@ -196,7 +212,7 @@ export class ThinJobService {
       if (message.type === 'SUBMIT') return await this.#submit(message.job, emit);
       if (message.type === 'WATCH') return this.#watch(message.id, emit, onDisconnect);
       if (message.type === 'STATUS') return await this.#status(message.id, emit);
-      if (message.type === 'CANCEL') return this.#cancel(message.id, emit);
+      if (message.type === 'CANCEL') return this.#cancel(message, emit);
       if (message.type === 'MANAGED_AGENT') { const submitted = await this.#submit(message, emit); return submitted.type === 'SUBMITTED' ? this.#watch(submitted.id, emit, onDisconnect) : submitted; }
       throw new TypeError('registered broker job operation is required');
     } catch (error) {
@@ -306,7 +322,7 @@ export class ThinJobService {
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, DEFAULT_OUTPUT_BYTES, 1024);
     const effectiveCapability = nestedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true, skipRootServices: true }) : capability;
     const requestEnvironment = nestedCompiler ? normalizeDelegatedCompilerEnvironment(request.environment) : normalizeRequestEnvironment(request.environment);
-    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
+    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, workspaceDiscoveryCache: roots.workspaceDiscoveryCache ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, cancelRequests: [], terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
   }
 
   async #execute(job) {
@@ -325,7 +341,8 @@ export class ThinJobService {
           ? { mode: 'sccache-inherited', status: 'OK', environment: { }, before: null }
           : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };
       const agentBin = join(this.#config.broker.externalRoot.path, 'agent-bin');
-      const runtimeEnvironment = { ...runtimeBase(this.#toolchainLibraryPath), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken };
+      const directCargoCompilers = !job.parentId && job.shim === 'cargo' ? this.#compilerEnvironment : {};
+      const runtimeEnvironment = { ...runtimeBase(this.#toolchainLibraryPath), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, ...directCargoCompilers, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken };
       // Loader authority remains broker-owned even when a cache adapter or
       // inherited parent environment contains a stale value.
       if (process.platform === 'darwin' && this.#toolchainLibraryPath) runtimeEnvironment.DYLD_FALLBACK_LIBRARY_PATH = this.#toolchainLibraryPath;
@@ -394,7 +411,7 @@ export class ThinJobService {
     // Aggregate the compiler subtree that ran under this admitted root so the
     // root receipt exposes compiler process count and broker round-trip count
     // once per Cargo root (v2.7 §20), instead of fragmenting them per child.
-    const compilerProcessCount = job.parentId ? 0 : (job.compilerChildren?.length ?? 0) + [...this.#jobs.values()].filter((candidate) => candidate.parentId === job.id && !candidate.terminal && !job.compilerChildren?.includes(candidate.id)).length;
+    const compilerProcessCount = job.parentId ? null : Number.isSafeInteger(job.cacheResult?.delta?.compile_requests) ? job.cacheResult.delta.compile_requests : null;
     const phaseTimings = this.#phaseTimings(job, terminalAt);
     const receipt = Object.freeze({
       id: job.id, state: status, status, command: job.command, workspace: job.workspaceRoot, targetTriple: job.targetTriple ?? null,
@@ -405,10 +422,10 @@ export class ThinJobService {
       runMs: job.startedAt ? terminalAt - job.startedAt : 0,
       exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, error: details.error ?? null,
       // v2.7 §4.1: exact cancellation provenance (never inferred from SIGTERM alone)
-      cancellation: job.cancelProvenance ? Object.freeze({ source: job.cancelProvenance, reason: job.cancelReason ?? null }) : null,
+      cancellation: job.cancelProvenance ? Object.freeze({ source: job.cancelProvenance, reason: job.cancelReason ?? null, requests: Object.freeze(job.cancelRequests.map((request) => Object.freeze({ ...request }))) }) : null,
       cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }),
       cacheCounterScope: job.parentId ? null : 'root-delta',
-      compilerProcessCount, compilerBrokerRoundTrips: job.parentId ? 0 : (job.compilerRoundTrips ?? 0),
+      compilerProcessCount, compilerBrokerRoundTrips: job.parentId ? null : (job.compilerRoundTrips ?? 0),
       reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(),
       output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') }
     });
@@ -422,7 +439,8 @@ export class ThinJobService {
     const duration = (start, end) => (start ? end - start : null);
     return Object.freeze({
       workspaceDiscoveryMs: job.workspaceDiscoveryMs ?? null,
-      rootSetupMs: job.rootSetupStartedAt ? this.#now() - job.rootSetupStartedAt : null,
+      workspaceDiscoveryCache: job.workspaceDiscoveryCache ?? null,
+      rootSetupMs: job.rootSetupStartedAt && job.cargoRunStartedAt ? job.cargoRunStartedAt - job.rootSetupStartedAt : null,
       cargoRunMs: job.cargoRunStartedAt && job.teardownStartedAt ? job.teardownStartedAt - job.cargoRunStartedAt : null,
       compilerBrokerMs: job.compilerBrokerMs ?? null,
       teardownMs: job.teardownStartedAt ? terminalAt - job.teardownStartedAt : null,
@@ -486,9 +504,11 @@ export class ThinJobService {
     });
   }
 
-  #cancel(id, emit) {
-    const job = this.#jobs.get(id); if (!job) throw Object.assign(new Error('job not found'), { code: 'RK_JOB_NOT_FOUND' });
-    const accepted = this.#requestCancel(job, 'explicit-cancel'); return this.#emit(emit, { type: 'CANCEL_REQUESTED', id, accepted, state: job.state });
+  #cancel(message, emit) {
+    const job = this.#jobs.get(message.id); if (!job) throw Object.assign(new Error('job not found'), { code: 'RK_JOB_NOT_FOUND' });
+    const source = message.source ?? 'USER_CANCEL';
+    if (!CANCELLATION_SOURCES.has(source) || ['PARENT_CANCEL', 'BROKER_SHUTDOWN', 'DEADLINE', 'STORAGE_FLOOR', 'CONTAINMENT_FAILURE', 'UNKNOWN'].includes(source)) throw new TypeError('CANCEL source must be USER_CANCEL, OPERATOR_CANCEL, CLIENT_SIGNAL, or RELEASE_PRIORITY_CANCEL');
+    const accepted = this.#requestCancel(job, 'explicit-cancel', source); return this.#emit(emit, { type: 'CANCEL_REQUESTED', id: message.id, accepted, state: job.state });
   }
 
   #cancelProvenance = Object.freeze({
@@ -500,11 +520,12 @@ export class ThinJobService {
     'containment-failure': 'CONTAINMENT_FAILURE'
   });
 
-  #requestCancel(job, reason) {
-    if (job.terminal || job.cancelReason) return false; job.cancelReason = reason;
-    const provenance = this.#cancelProvenance[reason] ?? (reason?.startsWith?.('parent-') ? 'PARENT_CANCEL' : 'UNKNOWN');
-    // A cancelled request always carries its first typed cancellation source.
-    if (provenance) { job.cancelProvenance ??= provenance; }
+  #requestCancel(job, reason, explicitSource = null) {
+    if (job.terminal) return false;
+    const provenance = explicitSource ?? this.#cancelProvenance[reason] ?? (reason?.startsWith?.('parent-') ? 'PARENT_CANCEL' : 'UNKNOWN');
+    job.cancelRequests.push(Object.freeze({ source: provenance, reason, at: this.#iso() }));
+    if (job.cancelReason) return false; job.cancelReason = reason;
+    job.cancelProvenance = provenance;
     for (const child of this.#jobs.values()) if (child.parentId === job.id && !child.terminal) this.#requestCancel(child, `parent-${reason}`);
     if (job.ticket?.cancel()) return true; if (job.child) this.#terminateJob(job); return true;
   }

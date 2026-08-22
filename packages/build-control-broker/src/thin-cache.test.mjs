@@ -30,12 +30,28 @@ test('cache probe failure visibly degrades to direct rustc for job', async () =>
 });
 
 test('records bounded numeric cache deltas', async () => {
-  const samples = ['{"compile_requests":7,"cache_hits":{"Rust":5},"text":"ignored"}', '{"compile_requests":10,"cache_hits":{"Rust":7},"text":"ignored"}'];
-  const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', run: async () => ({ stdout: samples.shift() }) });
+  const samples = ['{"version":"0.17","cache_location":"Disk","stats":{"compile_requests":7,"cache_hits":{"Rust":5},"text":"ignored"}}', '{"version":"0.17","cache_location":"Disk","stats":{"compile_requests":10,"cache_hits":{"Rust":7},"text":"ignored"}}'];
+  let now = 1_000;
+  const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', epoch: 'epoch-1', now: () => now += 1_000, run: async () => ({ stdout: samples.shift() }) });
   const prepared = await cache.prepare({ layout });
   const result = await cache.finish(prepared);
   assert.deepEqual(result.delta, { compile_requests: 3, cache_hits: { Rust: 2 } });
+  assert.equal(result.status, 'SERVICE_OK');
+  assert.equal(result.attribution.epoch, 'epoch-1');
+  assert.equal(result.attribution.scope, 'shared-cumulative-root-window');
+  assert.equal(result.attribution.windowStartedAt, '1970-01-01T00:00:02.000Z');
+  assert.equal(result.attribution.windowEndedAt, '1970-01-01T00:00:03.000Z');
+  assert.match(result.attribution.serverIdentity, /^[a-f0-9]{64}$/);
   assert.deepEqual(thinCacheStatsDelta({ a: 4 }, { a: 9 }), { a: 5 });
+});
+
+test('counter reset degrades attribution instead of emitting negative deltas', async () => {
+  const samples = ['{"stats":{"compile_requests":10}}', '{"stats":{"compile_requests":1}}'];
+  const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', run: async () => ({ stdout: samples.shift() }) });
+  const result = await cache.finish(await cache.prepare({ layout }));
+  assert.equal(result.status, 'DEGRADED');
+  assert.equal(result.reason, 'sccache-counter-reset');
+  assert.equal(result.delta, null);
 });
 
 test('disabled cache remains explicit', async () => {

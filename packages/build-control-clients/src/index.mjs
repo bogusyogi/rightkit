@@ -49,7 +49,7 @@ export function createNestedManagedAgentRequest({ parentId, capabilityToken, ...
   return createManagedAgentRequest({ ...input, environment: { ...(input.environment ?? {}), RIGHTKIT_PARENT_REQUEST_ID: jobId(parentId), ...(capabilityToken === undefined ? {} : { RIGHTKIT_PARENT_CAPABILITY_TOKEN: capabilityToken }) } });
 }
 
-export function createJobCommand(type, { message, id, runtimeIdentity } = {}) {
+export function createJobCommand(type, { message, id, runtimeIdentity, source } = {}) {
   if (!Object.values(JOB_REQUEST_TYPES).includes(type)) throw new TypeError('registered job operation is required');
   const runtime = jobRuntime(runtimeIdentity ?? message?.runtime ?? SOURCE_RUNTIME_IDENTITY);
   if (type === JOB_REQUEST_TYPES.SUBMIT) {
@@ -58,7 +58,8 @@ export function createJobCommand(type, { message, id, runtimeIdentity } = {}) {
     if (normalizedMessage.runtime.version !== runtime.version || normalizedMessage.runtime.clientDigest !== runtime.clientDigest || normalizedMessage.runtime.brokerDigest !== runtime.brokerDigest) throw new TypeError('job & managed-agent runtime identities must match');
     return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime, job: normalizedMessage });
   }
-  return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime, id: jobId(id) });
+  if (type === JOB_REQUEST_TYPES.CANCEL && source !== undefined && !['USER_CANCEL', 'OPERATOR_CANCEL', 'CLIENT_SIGNAL', 'RELEASE_PRIORITY_CANCEL'].includes(source)) throw new TypeError('registered cancellation source is required');
+  return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime, id: jobId(id), ...(type === JOB_REQUEST_TYPES.CANCEL && source ? { source } : {}) });
 }
 
 export function shimName(argv0) {
@@ -247,7 +248,7 @@ export async function sendJobCommand(command, { endpoint = brokerEndpoint(), con
 export function submitManagedAgentJob(message, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.SUBMIT, { message }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.SUBMITTED, 'RESULT']) }); }
 export function watchManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.WATCH, { id, runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set(['RESULT']) }); }
 export function statusManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.STATUS, { id, runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.STATUS]) }); }
-export function cancelManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id, runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.CANCEL_REQUESTED]) }); }
+export function cancelManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id, runtimeIdentity: options.runtimeIdentity, source: options.source }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.CANCEL_REQUESTED]) }); }
 export async function submitAndWatchManagedAgentJob(message, options = {}) {
   const submitted = await submitManagedAgentJob(message, options);
   if (submitted.type === 'RESULT') return submitted;

@@ -12,4 +12,4 @@ export { ThinState } from './thin-state.mjs';
 export { ThinCache } from './thin-cache.mjs';
 export { ThinLogger } from './thin-logger.mjs';
 export { acquireThinBrokerSingleton } from './thin-singleton.mjs';
-export { ThinJobService, createThinJobServer, resolveCargoWorkspace } from './thin-job-service.mjs';
+export { CachedWorkspaceResolver, ThinJobService, createThinJobServer, resolveCargoWorkspace } from './thin-job-service.mjs';

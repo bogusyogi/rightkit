@@ -6,14 +6,22 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { prepareUnixSocketEndpoint, rejectWorkspaceCargoConfiguration, removeStaleUnixSocket, secureUnixSocketEndpoint } from './utilities.mjs';
 
-test('Cargo config utility rejects ancestor redirects & permits import-library flags', async () => {
+test('Cargo config utility parses TOML structurally & rejects authority redirects', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-utility-'));
   try {
     await mkdir(join(root, '.cargo'));
     await writeFile(join(root, '.cargo', 'config.toml'), '[target.x86_64-pc-windows-msvc]\nrustflags = ["-C", "link-arg=Advapi32.lib"]\n');
     await assert.doesNotReject(rejectWorkspaceCargoConfiguration(join(root, 'workspace')));
     await writeFile(join(root, '.cargo', 'config.toml'), '[build]\nrustc-wrapper = "/tmp/evil"\n');
-    await assert.rejects(rejectWorkspaceCargoConfiguration(join(root, 'workspace')), /cannot redirect/);
+    await assert.rejects(rejectWorkspaceCargoConfiguration(join(root, 'workspace')), (error) => error.code === 'RK_CARGO_CONFIG_UNSUPPORTED');
+    await writeFile(join(root, '.cargo', 'config.toml'), '[alias]\nb = "build"\n');
+    await assert.rejects(rejectWorkspaceCargoConfiguration(join(root, 'workspace')), /cannot define aliases/);
+    await writeFile(join(root, '.cargo', 'config.toml'), '[target.x86_64-pc-windows-msvc]\nrustflags = ["-C", "link-arg=Advapi32.lib"]\n');
+    await assert.doesNotReject(rejectWorkspaceCargoConfiguration(join(root, 'workspace')));
+    await writeFile(join(root, '.cargo', 'config.toml'), '[target.x86_64-pc-windows-msvc]\nrustflags = ["-C", "target-cpu=native"]\n');
+    await assert.rejects(rejectWorkspaceCargoConfiguration(join(root, 'workspace')), /uncontrolled target flags/);
+    await writeFile(join(root, '.cargo', 'config.toml'), '[build\n');
+    await assert.rejects(rejectWorkspaceCargoConfiguration(join(root, 'workspace')), (error) => error.code === 'RK_CARGO_CONFIG_INVALID');
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

@@ -27,3 +27,20 @@ test('ANALYSIS does not consume BUILD slot but obeys workspace writer exclusion'
   await tick(); assert.deepEqual(scheduler.snapshot.queued.map(({ id }) => id), ['writer-same']);
   analysisPermit.release(); (await writerSame.permit).release(); buildPermit.release();
 });
+
+test('queued interactive BUILD starts before installer & batch without preemption', async () => {
+  const scheduler = new ThinScheduler({ buildConcurrency: 1 });
+  const active = scheduler.acquire({ id: 'active', capability: BUILD, workspaceKey: 'active' });
+  const activePermit = await active.permit;
+  const batch = scheduler.acquire({ id: 'batch', capability: BUILD, workspaceKey: 'batch', priority: 'BATCH' });
+  const installer = scheduler.acquire({ id: 'installer', capability: BUILD, workspaceKey: 'installer', priority: 'INSTALLER' });
+  const interactive = scheduler.acquire({ id: 'interactive', capability: BUILD, workspaceKey: 'interactive', priority: 'INTERACTIVE' });
+  await tick();
+  assert.equal(scheduler.snapshot.active[0].id, 'active');
+  activePermit.release();
+  const interactivePermit = await interactive.permit;
+  assert.equal(scheduler.snapshot.active[0].id, 'interactive');
+  interactivePermit.release();
+  (await installer.permit).release();
+  (await batch.permit).release();
+});

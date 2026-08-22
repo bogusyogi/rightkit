@@ -1,5 +1,7 @@
 const LANES = new Set(['CONTROL', 'ANALYSIS', 'WORKSPACE_WRITE', 'BUILD', 'TOOLCHAIN_WRITE']);
-const PRIORITY = new Map([['BATCH', 0], ['INTERACTIVE', 1], ['INSTALLER', 2]]);
+// Canonical order: human-interactive work outranks installer/release work,
+// which outranks normal/background work. Priority never preempts active work.
+const PRIORITY = new Map([['BATCH', 0], ['INSTALLER', 1], ['INTERACTIVE', 2]]);
 
 export class ThinQueueCancelledError extends Error {
   constructor() { super('queued request cancelled'); this.name = 'ThinQueueCancelledError'; this.code = 'RK_QUEUE_CANCELLED'; }

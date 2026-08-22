@@ -19,7 +19,10 @@
     "bootstrap:windows": "node src/bootstrap-windows-cli.mjs",
     "build:windows-job": "cd native/windows-job && node-gyp rebuild"
   },
-  "dependencies": { "@rightkit/build-control-core": "workspace:0.1.0-phase1" },
+  "dependencies": {
+    "@rightkit/build-control-core": "workspace:0.1.0-phase1",
+    "smol-toml": "1.7.0"
+  },
   "devDependencies": { "@rightkit/build-control-clients": "workspace:0.1.0-phase1" },
   "engines": { "node": ">=24" }
 }

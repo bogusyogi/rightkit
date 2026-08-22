@@ -20,6 +20,9 @@ importers:
       '@rightkit/build-control-core':
         specifier: workspace:0.1.0-phase1
         version: link:../build-control-core
+      smol-toml:
+        specifier: 1.7.0
+        version: 1.7.0
     devDependencies:
       '@rightkit/build-control-clients':
         specifier: workspace:0.1.0-phase1

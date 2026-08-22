@@ -10,7 +10,7 @@ try {
   const cancel = (signal) => {
     if (!requestId || cancelling) return;
     process.stderr.write(`rightkit managed-agent: ${signal} cancelling request ${requestId}\n`);
-    cancelling = cancelManagedAgentJob(requestId, { runtimeIdentity: message.runtime })
+    cancelling = cancelManagedAgentJob(requestId, { runtimeIdentity: message.runtime, source: 'CLIENT_SIGNAL' })
       .then((receipt) => process.stderr.write(`rightkit managed-agent: cancel ${JSON.stringify(receipt)}\n`))
       .catch((error) => process.stderr.write(`rightkit managed-agent: cancel failed for ${requestId}: ${error.message}\n`));
   };

@@ -251,6 +251,11 @@ test('job API submits, watches, reads status, cancels, & preserves detached work
   await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
 });
 
+test('cancel command carries only an explicit typed provenance source', () => {
+  assert.equal(createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id: 'job-1', source: 'CLIENT_SIGNAL' }).source, 'CLIENT_SIGNAL');
+  assert.throws(() => createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id: 'job-1', source: 'BROKER_SHUTDOWN' }), /cancellation source/);
+});
+
 test('managed child prints request id & turns SIGINT into explicit broker cancellation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const endpoint = join(root, 'broker.sock'); let watchSocket; let cancelSeen = false;
   const finish = () => { if (watchSocket && cancelSeen) watchSocket.end(`${JSON.stringify({ type: 'RESULT', id: 'signal-job', exitCode: 130, status: 'CANCELLED' })}\n`); };

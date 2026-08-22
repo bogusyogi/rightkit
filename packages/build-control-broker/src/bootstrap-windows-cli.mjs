@@ -128,6 +128,7 @@ export function defaultBounds() {
     maintenanceBatchEntries: 128, controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 1, workspaceWriteConcurrency: 4,
     maintenanceConcurrency: 1, priorityAgingMs: 30_000, targetCacheCapBytes: 150 * 1024 ** 3,
     targetCacheFloorMs: 86_400_000,
+    workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 2_000,
   };
 }
 

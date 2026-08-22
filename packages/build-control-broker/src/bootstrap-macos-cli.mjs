@@ -189,6 +189,7 @@ export function defaultBounds() {
     // Roots touched inside this window stay protected from cap eviction, so a
     // day's warm target trees survive a workspace that sits over cap.
     targetCacheFloorMs: 86_400_000,
+    workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 2_000,
   };
 }
 

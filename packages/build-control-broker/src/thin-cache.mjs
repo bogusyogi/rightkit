@@ -1,4 +1,5 @@
 import { execFile as nodeExecFile } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 
 const defaultRun = promisify(nodeExecFile);
@@ -38,9 +39,9 @@ function delta(before, after) {
 }
 
 export class ThinCache {
-  #paths; #tool; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs;
+  #paths; #tool; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #epoch; #now;
 
-  constructor({ paths, sccachePath = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = 2_000, basedirs = null, basedirsEnabled = false, run = defaultRun } = {}) {
+  constructor({ paths, sccachePath = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = 2_000, basedirs = null, basedirsEnabled = false, run = defaultRun, epoch = randomUUID(), now = Date.now } = {}) {
     if (!paths?.cargoHome || !paths?.compilerCache) throw new TypeError('thin state cache paths are required');
     if (enabled && (typeof sccachePath !== 'string' || !sccachePath)) throw new TypeError('enabled cache requires sccachePath');
     this.#paths = paths; this.#tool = sccachePath; this.#enabled = enabled; this.#clientSide = clientSideSupported; this.#maxSize = positive(maxSizeBytes, 'maxSizeBytes', 20 * 1024 ** 3); this.#timeout = positive(timeoutMs, 'timeoutMs', 2_000); this.#run = run;
@@ -49,6 +50,8 @@ export class ThinCache {
     // provided they only take effect when basedirsEnabled === true.
     this.#basedirs = Array.isArray(basedirs) ? Object.freeze([...basedirs].filter((value) => typeof value === 'string' && value)) : null;
     this.#basedirsEnabled = basedirsEnabled === true;
+    this.#epoch = String(epoch);
+    this.#now = now;
   }
 
   async prepare({ layout, cargoBuildJobs = 4 } = {}) {
@@ -65,7 +68,7 @@ export class ThinCache {
     });
     if (!this.#enabled) return Object.freeze({ mode: 'direct', status: 'DISABLED', environment: base, before: null });
     const sample = await this.snapshot();
-    if (sample.status !== 'OK') return Object.freeze({ mode: 'direct', status: 'DEGRADED', reason: sample.reason, environment: base, before: null });
+    if (sample.status !== 'SERVICE_OK') return Object.freeze({ mode: 'direct', status: 'DEGRADED', reason: sample.reason, environment: base, before: null, attribution: sample.attribution ?? null });
     const basedirs = this.#basedirsEnabled && this.#basedirs && this.#basedirs.length > 0
       ? Object.freeze({ SCCACHE_BASEDIRS: [...this.#basedirs].join(process.platform === 'win32' ? ';' : ':') })
       : Object.freeze({});
@@ -77,14 +80,16 @@ export class ThinCache {
       ...(this.#basedirsEnabled && this.#basedirs && this.#basedirs.length > 0 ? basedirs : {}),
       ...(this.#clientSide ? { SCCACHE_CLIENT_SIDE: '1' } : {})
     });
-    return Object.freeze({ mode: 'sccache', status: 'OK', environment, before: sample.stats });
+    return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', environment, before: sample.stats, attribution: sample.attribution });
   }
 
   async finish(prepared) {
     if (prepared?.mode !== 'sccache') return Object.freeze({ mode: prepared?.mode ?? 'direct', status: prepared?.status ?? 'DISABLED', ...(prepared?.reason ? { reason: prepared.reason } : {}), delta: null });
     const sample = await this.snapshot();
-    if (sample.status !== 'OK') return Object.freeze({ mode: 'sccache', status: 'DEGRADED', reason: sample.reason, delta: null });
-    return Object.freeze({ mode: 'sccache', status: 'OK', delta: Object.freeze(delta(prepared.before, sample.stats) ?? {}) });
+    if (sample.status !== 'SERVICE_OK') return Object.freeze({ mode: 'sccache', status: 'DEGRADED', reason: sample.reason, delta: null, attribution: sample.attribution ?? prepared.attribution ?? null });
+    const measured = delta(prepared.before, sample.stats) ?? {};
+    if (containsNegative(measured)) return Object.freeze({ mode: 'sccache', status: 'DEGRADED', reason: 'sccache-counter-reset', delta: null, attribution: Object.freeze({ ...sample.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: sample.attribution.sampledAt }) });
+    return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', delta: Object.freeze(measured), attribution: Object.freeze({ ...sample.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: sample.attribution.sampledAt }) });
   }
 
   get basedirsActive() { return Boolean(this.#basedirsEnabled && this.#basedirs && this.#basedirs.length > 0); }
@@ -97,7 +102,8 @@ export class ThinCache {
         encoding: 'utf8', timeout: this.#timeout, maxBuffer: MAX_STATS_BYTES
       });
       const parsed = JSON.parse(String(result?.stdout ?? result));
-      return Object.freeze({ status: 'OK', stats: Object.freeze(numbers(parsed) ?? {}) });
+      const identity = JSON.stringify({ version: parsed.version ?? null, cacheLocation: parsed.cache_location ?? null, basedirs: parsed.basedirs ?? null, clientSide: this.#clientSide });
+      return Object.freeze({ status: 'SERVICE_OK', stats: Object.freeze(numbers(parsed.stats ?? parsed) ?? {}), attribution: Object.freeze({ scope: 'shared-cumulative-root-window', epoch: this.#epoch, serverIdentity: createHash('sha256').update(identity).digest('hex'), mode: this.#clientSide ? 'client-side' : 'server', sampledAt: new Date(this.#now()).toISOString() }) });
     } catch (error) {
       return Object.freeze({ status: 'DEGRADED', stats: null, reason: error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? 'sccache-stats-too-large' : `sccache-stats-unavailable:${error.code ?? error.message}` });
     }
@@ -105,3 +111,8 @@ export class ThinCache {
 }
 
 export const thinCacheStatsDelta = delta;
+
+function containsNegative(value) {
+  if (typeof value === 'number') return value < 0;
+  return Boolean(value && typeof value === 'object' && Object.values(value).some(containsNegative));
+}

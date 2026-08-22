@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
-import { ThinJobService, createThinJobServer } from './thin-job-service.mjs';
+import { CachedWorkspaceResolver, ThinJobService, createThinJobServer } from './thin-job-service.mjs';
 import { ThinState } from './thin-state.mjs';
 
 const digest = 'a'.repeat(64);
@@ -32,7 +32,7 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
 }
 
 async function call(service, value) { const events = []; const result = await service.dispatch(value, (event) => { events.push(event); return true; }); return { result, events }; }
-async function waitFor(service, id, states) { for (let attempt = 0; attempt < 100; attempt += 1) { const { result } = await call(service, command('STATUS', id)); if (states.includes(result.state)) return result; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error(`job ${id} did not reach ${states}`); }
+async function waitFor(service, id, states) { let last; for (let attempt = 0; attempt < 100; attempt += 1) { const { result } = await call(service, command('STATUS', id)); last = result; if (states.includes(result.state)) return result; if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(result.state)) break; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error(`job ${id} did not reach ${states}: ${JSON.stringify(last)}`); }
 
 test('disconnected watcher EPIPE detaches without crashing broker', async () => {
   let connect; let finish;
@@ -56,6 +56,24 @@ test('disconnected watcher EPIPE detaches without crashing broker', async () => 
   connect(socket);
   socket.emit('data', Buffer.from('{}\n'));
   await completed;
+});
+
+test('workspace discovery is bounded, deduplicated, cached & reports hit timing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-workspace-resolver-'));
+  let calls = 0; let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const resolver = new CachedWorkspaceResolver({ concurrency: 1, resolver: async (cwd, options) => { calls += 1; assert.equal(options.timeoutMs, 2_000); await gate; return { executionCwd: cwd, workspaceRoot: cwd, workspaceDiscoveryMs: 8 }; } });
+  try {
+    const first = resolver.resolve(root); const duplicate = resolver.resolve(root);
+    for (let attempt = 0; attempt < 20 && calls === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 1));
+    assert.equal(calls, 1); assert.equal(resolver.stats.inflight, 1);
+    release();
+    assert.equal((await first).workspaceDiscoveryCache, 'MISS');
+    assert.equal((await duplicate).workspaceDiscoveryCache, 'MISS');
+    const cached = await resolver.resolve(root);
+    assert.equal(cached.workspaceDiscoveryCache, 'HIT'); assert.equal(cached.workspaceDiscoveryMs, 0);
+    assert.deepEqual(resolver.stats, { lookup: 3, hit: 1, miss: 2, error: 0, active: 0, queued: 0, inflight: 0 });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('two BUILD roots serialize globally while CONTROL completes', async () => {
@@ -102,13 +120,13 @@ test('registered explicit Cargo target overrides host default within persistent 
   } finally { await item.close(); }
 });
 
-test('allows harmless Cargo config but rejects managed output redirection', async () => {
+test('allows structurally parsed harmless Cargo config but rejects output redirection', async () => {
   const item = await fixture();
   try {
     assert.equal((await call(item.service, command('SUBMIT', message(item.workspace, ['--version'])))).result.type, 'SUBMITTED');
     await writeFile(join(item.workspace, '.cargo', 'config.toml'), '[build]\ntarget-dir = "local-target"\n');
     const rejected = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
-    assert.equal(rejected.status, 'REJECTED'); assert.match(rejected.error, /cannot redirect/);
+    assert.equal(rejected.status, 'REJECTED'); assert.equal(rejected.code, 'RK_CARGO_CONFIG_UNSUPPORTED');
   } finally { await item.close(); }
 });
 
@@ -119,6 +137,27 @@ test('same workspace consecutive BUILD jobs reuse current generation', async () 
     assert.equal((await run(['check'])).generation, 1);
     assert.equal((await run(['test'])).generation, 1);
     assert.equal((await item.state.workspace(item.workspace)).state.currentGeneration, 1);
+  } finally { await item.close(); }
+});
+
+test('Cargo roots own exact pinned compilers directly while raw rustc remains brokered', async () => {
+  const item = await fixture();
+  try {
+    const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, root.id, ['RUNNING']);
+    const cargo = item.children.at(-1);
+    assert.equal(cargo.environment.RUSTC, '/managed/rustc');
+    assert.equal(cargo.environment.RUSTDOC, '/managed/rustdoc');
+    assert.doesNotMatch(cargo.environment.RUSTC, /agent-bin/);
+    cargo.emit('close', 0, null);
+    const terminal = (await call(item.service, command('WATCH', root.id))).result;
+    assert.equal(terminal.receipt.compilerBrokerRoundTrips, 0);
+
+    const raw = (await call(item.service, command('SUBMIT', { ...compilerMessage(item.workspace, ['--version']), execution: undefined }))).result;
+    await waitFor(item.service, raw.id, ['RUNNING']);
+    assert.equal(item.children.at(-1).payload.command, '/managed/rustc');
+    item.children.at(-1).emit('close', 0, null);
+    assert.equal((await call(item.service, command('WATCH', raw.id))).result.status, 'SUCCEEDED');
   } finally { await item.close(); }
 });
 
@@ -256,6 +295,8 @@ test('active cancellation terminates owned tree & persists receipt', async () =>
     assert.equal((await call(item.service, command('CANCEL', submitted.id))).result.accepted, true);
     const terminal = (await call(item.service, command('WATCH', submitted.id))).result;
     assert.equal(terminal.status, 'CANCELLED'); assert.equal(terminal.receipt.reap.reaped, true);
+    assert.equal(terminal.receipt.cancellation.source, 'USER_CANCEL');
+    assert.equal(terminal.receipt.cancellation.requests.length, 1);
     assert.equal((await item.state.receipt(submitted.id)).state, 'CANCELLED');
   } finally { await item.close(); }
 });
