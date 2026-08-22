@@ -259,6 +259,9 @@ export class ThinJobService {
       job.cachePrepared = job.capability.compile ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4 }) : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };
       const agentBin = join(this.#config.broker.externalRoot.path, 'agent-bin');
       const runtimeEnvironment = { ...runtimeBase(this.#toolchainLibraryPath), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken };
+      // Loader authority remains broker-owned even when a cache adapter or
+      // inherited parent environment contains a stale value.
+      if (process.platform === 'darwin' && this.#toolchainLibraryPath) runtimeEnvironment.DYLD_FALLBACK_LIBRARY_PATH = this.#toolchainLibraryPath;
       if (job.capability.external) runtimeEnvironment.CARGO = join(this.#config.broker.externalRoot.path, 'agent-bin', 'cargo');
       job.executionEnvironment = Object.freeze({ ...runtimeEnvironment });
       const env = injectBrokerEnvironment({
