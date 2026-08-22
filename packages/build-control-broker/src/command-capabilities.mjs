@@ -24,7 +24,7 @@ export const DEFAULT_COMMAND_CAPABILITIES = Object.freeze({
     // `set-version`. Declared here so they are registerable; each stays
     // unreachable until an operator pins its digest in externalCommands.
     upgrade: external('upgrade', 'WORKSPACE_WRITE', false), 'set-version': external('set-version', 'WORKSPACE_WRITE', false),
-    build: build('build'), check: build('check'), test: build('test'), bench: build('bench'), clippy: build('clippy'), doc: build('doc'), install: build('install'), nextest: external('nextest', 'BUILD', true), run: build('run'),
+    build: build('build'), check: build('check'), test: build('test'), bench: build('bench'), clippy: build('clippy'), doc: build('doc'), nextest: external('nextest', 'BUILD', true), run: build('run'),
     outdated: external('outdated', 'WORKSPACE_WRITE', false), machete: external('machete', 'WORKSPACE_WRITE', false), audit: external('audit', 'CONTROL', false), deny: external('deny', 'CONTROL', false)
   }),
   rustup: Object.freeze({
@@ -46,7 +46,10 @@ export const DEFAULT_INTERNAL_CAPABILITIES = Object.freeze({
  */
 const CARGO_BUILTIN_COMMANDS = new Set([
   'fetch', 'fix', 'publish', 'package', 'login', 'logout', 'owner', 'yank',
-  'uninstall', 'init', 'new', 'info', 'config', 'report', 'pkgid', 'verify-project', 'rustc', 'rustdoc'
+  'uninstall', 'init', 'new', 'info', 'config', 'report', 'pkgid', 'verify-project', 'rustc', 'rustdoc',
+  // `install` is additionally denied outright (v2.8 §11): agent installs must
+  // not create unregistered executables beside digest-managed tools.
+  'install'
 ]);
 
 export class CommandCapabilityRegistry {

@@ -17,7 +17,7 @@ test('injects shared Cargo/sccache & persistent generation environment', async (
   assert.equal(prepared.mode, 'sccache');
   assert.equal(prepared.environment.CARGO_HOME, paths.cargoHome);
   assert.equal(prepared.environment.CARGO_TARGET_DIR, layout.target);
-  assert.equal(prepared.environment.CARGO_INSTALL_ROOT, paths.tools);
+  assert.equal(prepared.environment.CARGO_INSTALL_ROOT, undefined);
   assert.equal(prepared.environment.CARGO_BUILD_BUILD_DIR, undefined);
   assert.equal(prepared.environment.RUSTC_WRAPPER, '/managed/tools/sccache');
   assert.equal(prepared.environment.SCCACHE_CLIENT_SIDE, '1');

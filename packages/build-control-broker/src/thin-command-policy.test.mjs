@@ -30,3 +30,9 @@ test('unknown & unregistered external commands fail closed', () => {
   assert.throws(() => policy.classify('cargo', ['mystery']), { code: 'RK_UNKNOWN_COMMAND' });
   assert.throws(() => new ThinCommandPolicy({ externalCommands: [{ shim: 'cargo', command: 'metadata', toolId: 'evil', digest }] }), /cannot shadow/);
 });
+
+test('cargo install is intentionally denied, including nested and external shadowing', () => {
+  assert.throws(() => policy.classify('cargo', ['install', 'some-crate']), { code: 'RK_COMMAND_DENIED', name: 'DeniedThinCommandError' });
+  assert.throws(() => policy.classifyNested(null, 'cargo', ['install', 'some-crate']), { code: 'RK_COMMAND_DENIED' });
+  assert.throws(() => new ThinCommandPolicy({ externalCommands: [{ shim: 'cargo', command: 'install', toolId: 'evil', digest }] }), /cannot shadow/);
+});

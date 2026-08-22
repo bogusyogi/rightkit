@@ -6,6 +6,14 @@ export class UnknownThinCommandError extends Error {
   }
 }
 
+export class DeniedThinCommandError extends Error {
+  constructor(shim, command, reason) {
+    super(`denied managed command: ${shim} ${command} (${reason})`);
+    this.name = 'DeniedThinCommandError';
+    this.code = 'RK_COMMAND_DENIED';
+  }
+}
+
 const capability = (lane, workspaceAccess, { compile = false, artifactWrite = false, cache = false } = {}) =>
   Object.freeze({ lane, workspaceAccess, compile, artifactWrite, cache });
 
@@ -35,6 +43,13 @@ const CARGO_BUILTINS = new Set([
   'read-manifest', 'search', 'help', 'version'
 ]);
 
+// cargo install would place unregistered executables beside digest-pinned
+// managed tools. Tool provisioning is an operator path (stage, hash, register,
+// promote), so agent-initiated installs fail closed (v2.8 plan §11).
+const DENIED_CARGO_COMMANDS = new Map([
+  ['install', 'agent tool installation is denied; managed tools are digest-registered by the operator']
+]);
+
 function commandForCargo(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
@@ -56,6 +71,7 @@ function hasFlag(argv, flag) {
 }
 
 function cargoCapability(command, argv) {
+  if (DENIED_CARGO_COMMANDS.has(command)) throw new DeniedThinCommandError('cargo', command, DENIED_CARGO_COMMANDS.get(command));
   if (['--version', '-V', '-vV', 'version', 'help', 'locate-project', 'read-manifest'].includes(command)) return CONTROL;
   if (command === 'metadata' || command === 'tree') return hasFlag(argv, '--locked') || hasFlag(argv, '--frozen') ? ANALYSIS : WORKSPACE_WRITE;
   if (command === 'search') return ANALYSIS;
@@ -64,7 +80,7 @@ function cargoCapability(command, argv) {
   if (command === 'fmt') return hasFlag(argv, '--check') ? ANALYSIS : WORKSPACE_WRITE;
   if (['update', 'vendor', 'generate-lockfile', 'add', 'remove'].includes(command)) return WORKSPACE_WRITE;
   if (command === 'clean') return ARTIFACT_WRITE;
-  if (['build', 'check', 'test', 'bench', 'clippy', 'doc', 'run', 'install', 'rustc', 'rustdoc'].includes(command)) return BUILD;
+  if (['build', 'check', 'test', 'bench', 'clippy', 'doc', 'run', 'rustc', 'rustdoc'].includes(command)) return BUILD;
   return null;
 }
 
@@ -93,6 +109,7 @@ function externalRegistrations(entries = []) {
       throw new TypeError('invalid external command registration');
     }
     if (CARGO_BUILTINS.has(entry.command)) throw new TypeError(`external registration cannot shadow Cargo built-in: ${entry.command}`);
+    if (DENIED_CARGO_COMMANDS.has(entry.command)) throw new TypeError(`external registration cannot shadow denied Cargo command: ${entry.command}`);
     if (!Object.hasOwn(CARGO_EXTERNAL_POLICY, entry.command)) throw new TypeError(`external command has no thin policy: ${entry.command}`);
     if (map.has(entry.command)) throw new TypeError(`duplicate external command: cargo:${entry.command}`);
     map.set(entry.command, Object.freeze({ ...CARGO_EXTERNAL_POLICY[entry.command], external: true, externalToolId: entry.toolId, externalDigest: entry.digest.toLowerCase() }));

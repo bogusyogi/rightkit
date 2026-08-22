@@ -37,10 +37,15 @@ Implemented and live:
   managed storage while bundle-dependent Rust, package-manager, and system
   tools retain their real install paths;
 - recursive Cargo-plugin calls through the managed shim;
-- Cargo-owned nested `rustc`/`rustdoc` delegation without a second BUILD permit
-  or broker output-path rewriting, including authenticated compiler cwd under
-  parent repository, Cargo home, or target generation while rejecting unrelated
-  roots; this admits Cargo path dependencies elsewhere in the same repository;
+- normal Cargo-owned `rustc`/`rustdoc` execution happens directly inside the
+  admitted Cargo root through broker-injected `RUSTC`/`RUSTDOC`/`RUSTC_WRAPPER`
+  pointing at digest-verified real tools (zero normal compiler broker child
+  jobs). Compiler processes that still re-enter the broker through the managed
+  `agent-bin` PATH (for example a build script invoking bare `rustc`) are
+  delegated without a second BUILD permit or broker output-path rewriting,
+  with authenticated compiler cwd under parent repository, Cargo home, or
+  target generation while rejecting unrelated roots; this admits Cargo path
+  dependencies elsewhere in the same repository;
 - Cargo compiler environment forwarding preserves package/build-script inputs
   while broker-owned tool, path, cache, loader, and unstable-feature authority
   remains stripped and broker-injected;
@@ -321,7 +326,18 @@ cargo locate-project --workspace
 
 or equivalent metadata query.
 
-Canonicalize the resolved path and derive the workspace key from it plus the Rust toolchain identity where necessary.
+Canonicalize the resolved path and derive the workspace key from it:
+
+```text
+workspaceKey = SHA-256(canonical Cargo workspace root)
+```
+
+One broker configuration pins one managed Rust toolchain, so toolchain identity
+is not part of the workspace key. Toolchain identity belongs to receipt
+evidence, compiler/cache identity, and bootstrap/runtime identity instead;
+Cargo fingerprints already determine whether existing target artifacts remain
+reusable after a toolchain change. Do not multiply persistent workspace
+directories merely because the pinned toolchain changes.
 
 Git repository identity may be recorded in receipts for traceability, but it must not define the Cargo target-cache unit if Cargo itself considers several crates one workspace.
 
@@ -414,7 +430,6 @@ cargo test
 cargo clippy
 cargo doc
 cargo nextest
-cargo install when it compiles Rust
 raw rustc/rustdoc compilation
 ```
 
@@ -445,6 +460,40 @@ globally exclusive
 ```
 
 Unknown commands fail closed.
+
+### Intentionally denied Cargo commands
+
+`cargo install` is **intentionally denied** for managed agents. A generic agent
+install would place unregistered executables beside digest-pinned managed
+tools, so it fails closed with an explicit error. Managed Cargo tool
+provisioning is an operator path: stage, compile, hash, register the immutable
+tool identity, and only then expose it through the managed tool registry.
+
+The following read-only builtins are currently unrouted and reject as unknown
+commands. They are follow-up candidates, addable through the same declarative
+command policy with tests when a concrete Right Suite tool needs one:
+
+```text
+verify-project
+pkgid
+report
+info
+config
+new
+init
+```
+
+Publishing/credential commands stay denied permanently:
+
+```text
+publish
+package
+login
+logout
+owner
+yank
+uninstall
+```
 
 ---
 
@@ -735,13 +784,29 @@ While BUILD runs, periodically sample free disk.
 
 If the machine reaches a critical floor, cancel the active build with an explicit storage reason.
 
-GC may be simple:
+GC order:
 
-1. Never delete the current generation.
-2. Never delete a generation with an active marker.
-3. Prefer retired/suspect generations.
-4. Delete oldest inactive generations when total managed target storage exceeds a cap or on explicit `rightkit gc`.
-5. Atomic rename to trash before recursive delete is sufficient.
+1. Never delete an active generation.
+2. Prefer retired/suspect generations, oldest first.
+3. When total managed target storage still exceeds `targetCacheCapBytes`,
+   evict **idle current generations** least-recently-used first. Evicting an
+   idle current generation means advancing the workspace to a fresh generation
+   under the same per-workspace write exclusion used by BUILD, then renaming
+   the retired generation to trash. A current generation is never deleted
+   in place without first making a different generation current.
+4. Atomic rename to trash before recursive delete is sufficient.
+
+The cap is an **eventual** budget, not a hard invariant: it may be temporarily
+exceeded during an active build, while every candidate is active/locked, or
+when one unavoidable active generation itself exceeds the cap. When the cap
+cannot be enforced, emit one `TARGET_CACHE_CAP_UNENFORCEABLE` event and keep
+admitting work; `freeFloorBytes` remains the immediate hard circuit breaker.
+
+Workspace state carries advisory LRU metadata (`lastUsedAt`, measured size,
+dirty flag). Size accounting may be approximate between measurements; safety
+comes from workspace exclusion, generation rotation, and the free-disk floor,
+not from byte-exact accounting. Avoid full-tree size walks in request hot
+paths: measure in the background and rescan only dirty/missing generations.
 
 Do not rebuild:
 
@@ -802,11 +867,18 @@ Terminal receipt should include approximately:
   "signal": null,
   "cache": {
     "mode": "sccache",
-    "status": "OK",
-    "delta": {}
+    "status": "SERVICE_OK",
+    "delta": null,
+    "reason": "client-side-counters-unattributable"
   }
 }
 ```
+
+`cache.delta` is nullable. In client-side sccache mode (the live production
+mode) per-root deltas are not attributable from cumulative counters, so
+receipts record `delta: null` with an explicit reason. A non-null delta is
+valid only in a mode whose attribution semantics actually support it; receipts
+must never manufacture attribution they do not have.
 
 Receipts summarize telemetry; they do not contain the full time series.
 
@@ -838,123 +910,37 @@ Only add command-result caching later for a narrowly-defined, demonstrably pure 
 
 ---
 
-# Migration from the current implementation
+# Migration from the previous implementation
 
-## 18. Documentation authority
+## 18. HISTORICAL MIGRATION — COMPLETED. Do not implement from this section.
 
-Immediately update documentation so there is one implementation contract.
+The thin core was built beside the predecessor core, the broker entrypoint was
+switched to `ThinJobService`, source bootstrap became authoritative, and live
+macOS + Windows native acceptance passed on 2026-08-22. The predecessor SQLite
+lifecycle, reservation, maintenance, server-owned sccache, and v1 migration
+cores were then removed (commit `328f2e073`). No migration work remains.
+Acceptance evidence lives in
+`docs/plans/evidence/rightkit-thin-build-control-v2.7-native-acceptance.md`.
 
-This document becomes the canonical build-control architecture.
+## 19. Open v2.8 work
 
-The old `RIGHTKIT-BUILD-CONTROL-ARCHITECTURE.md` must either be replaced by this document or start with:
+Outstanding completion work is tracked by
+`docs/plans/RIGHTKIT-THIN-BUILD-CONTROL-v2.8-IMPLEMENTATION.md`:
 
-> **SUPERSEDED. Do not implement from this document. See the Thin Build Control architecture.**
+1. remove normal Cargo-owned compiler children from the broker job graph —
+   live (root-level `RUSTC`/`RUSTDOC`/`RUSTC_WRAPPER` injection); native
+   containment acceptance rerun still pending;
+2. run the incremental-compilation-vs-sccache experiment;
+3. run the `SCCACHE_BASEDIRS` path-normalization experiment;
+4. make the target-cache cap enforceable across idle warm workspaces via LRU
+   eviction of idle current generations;
+5. reconcile client-side sccache receipt semantics in this document — done;
+6. smaller policy/resource corrections: `cargo install` fail-closed, denied
+   builtins documented, Windows Cargo-job heuristic, stale concurrency
+   commentary.
 
-The old `BUILD-CONTROL-REMEDIATION.md` must not remain a competing implementation plan.
-
-Either delete it after useful incident evidence is extracted, or reduce it to an historical incident/proof archive that explicitly says:
-
-> **SUPERSEDED AS AN IMPLEMENTATION PLAN. Historical evidence only.**
-
-Do not let an agent synthesize work from both architectures.
-
----
-
-## 19. Implementation order
-
-Implement forward from the existing system.
-
-Do not roll product repositories back to unmanaged Cargo.
-
-### Phase 1 — thin core beside old core
-
-Create:
-
-```text
-thin-command-policy.mjs
-thin-scheduler.mjs
-thin-state.mjs
-thin-cache.mjs
-thin-job-service.mjs
-thin-logger.mjs
-thin-singleton.mjs
-```
-
-Reuse:
-
-```text
-client/shim protocol
-runtime identity handshake
-process-tree.mjs
-Windows Job Object code
-immutable tool verification where useful
-runtime cutover infrastructure where useful
-```
-
-### Phase 2 — focused tests
-
-Before changing the live broker entrypoint, prove:
-
-1. two BUILD requests -> one RUNNING, one queued;
-2. CONTROL completes during active BUILD;
-3. ANALYSIS does not consume BUILD slot;
-4. same workspace consecutive builds use same generation;
-5. crash marker rotates only affected workspace generation;
-6. workspace read/write exclusion behaves correctly;
-7. nested heavy work rejects;
-8. second broker fails before state mutation;
-9. cache environment is injected correctly;
-10. sccache degradation is explicit.
-
-### Phase 3 — switch broker entrypoint
-
-Change `broker.mjs` to construct the thin service.
-
-Keep the existing network protocol so installed shims and product repositories do not need a simultaneous migration.
-
-### Phase 4 — bootstrap/config
-
-Make source bootstrap authoritative.
-
-For the Air, source defaults should initially express:
-
-```text
-BUILD concurrency = 1
-ANALYSIS concurrency = 2
-CONTROL concurrency = 4
-Cargo build jobs = measured 3 or 4
-shared Cargo home = enabled
-shared sccache = enabled after client-side containment proof
-persistent workspace generations = enabled
-```
-
-Remove live-config-only tuning.
-
-A re-bootstrap must reproduce the intended system.
-
-### Phase 5 — live macOS acceptance
-
-Before deleting the old code, prove on the actual machine:
-
-1. two simultaneous BUILD requests queue correctly;
-2. CONTROL stays responsive;
-3. `cargo outdated`/analysis does not hold the compile slot;
-4. warm workspace build reuses its generation;
-5. cold target + warm sccache produces real cache hits;
-6. active build cancellation leaves zero attributed compiler processes;
-7. broker kill during build rotates the affected generation;
-8. restarted build cannot write into the suspect generation;
-9. unrelated workspace builds remain admissible after another workspace crashes;
-10. second broker is rejected before touching state;
-11. re-bootstrap reproduces the intended cache/concurrency settings;
-12. receipts expose queue/run/cache evidence.
-
-### Phase 6 — Windows acceptance
-
-Completed on 2026-08-22. See the native acceptance evidence artifact.
-
----
-
+Do not describe any of these as "deferred measurements": the v2.7 protocol
+already closed the compiler-topology decision with live receipt evidence.
 # Thin-core closure
 
 ## 20. Predecessor removal — completed
@@ -1026,12 +1012,25 @@ These are the actual product.
 
 Use the following as the task instruction when continuing the work:
 
-> Implement the RightKit Thin Build Control architecture in this document. Treat it as authoritative over the previous architecture/remediation plans. Do not redesign it and do not reintroduce the old SQLite lifecycle, reservation, quarantine, exactly-once, maintenance-lease, generic result-cache, or adaptive token scheduler machinery.
+> Implement the outstanding items of the RightKit Thin Build Control v2.8
+> completion plan (`docs/plans/RIGHTKIT-THIN-BUILD-CONTROL-v2.8-IMPLEMENTATION.md`)
+> against this canonical architecture. Do not redesign the thin architecture and
+> do not reintroduce the old SQLite lifecycle, reservation, quarantine,
+> exactly-once, maintenance-lease, generic result-cache, or adaptive token
+> scheduler machinery.
 >
-> Preserve the existing RightKit agent/shim entrypoint and client protocol unless a concrete incompatibility forces a change. Agents must continue to use managed RightKit Cargo rather than direct Cargo.
+> Preserve the RightKit agent/shim entrypoint and client protocol. Agents must
+> continue to use managed RightKit Cargo rather than direct Cargo. Normal
+> Cargo-owned compiler execution stays inside the admitted Cargo root process
+> domain; raw agent `rustc`/`rustdoc` remains a top-level managed BUILD request.
 >
-> The core goals are: one shared Cargo home, one shared sccache compiler cache, one persistent warm target generation per Cargo workspace, one globally bounded compile queue on the MacBook Air, per-workspace read/write exclusion, process-group/Job Object cancellation, crash-time target-generation rotation, and useful structured receipts.
+> The settled guarantees are: one shared Cargo home, one shared sccache compiler
+> cache, one persistent warm target generation per Cargo workspace, one globally
+> bounded compile queue, per-workspace read/write exclusion, process-group / Job
+> Object cancellation, crash-time target-generation rotation, and truthful
+> structured receipts.
 >
-> Implement the thin core beside the old one first; switch the broker entrypoint only after focused tests pass. Do not delete the old implementation until the live macOS acceptance suite passes. After acceptance, delete the obsolete modules and configuration concepts listed in sections 20–21 rather than maintaining two implementations.
->
-> When uncertain, prefer deleting complexity over inventing new machinery, provided the eight guarantees in section 1 remain true.
+> Cache policy changes (incremental compilation, `SCCACHE_BASEDIRS`) land only
+> behind their measured evidence gates. Do not invent a universal cache-hit
+> target. When uncertain, prefer deleting complexity over inventing new
+> machinery, provided the guarantees in section 1 remain true.

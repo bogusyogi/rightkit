@@ -153,13 +153,15 @@ export function defaultBounds() {
   };
 }
 
-// Same derivation as bootstrap-macos-cli.mjs's defaultCargoBuildJobs; each host
-// derives its own value rather than inheriting a literal from the other.
+// Host-neutral conservative derivation (v2.8 §13.2): the macOS file keeps its
+// Apple-silicon performance-core reasoning, but `logical / 2` has no general
+// meaning on x86/Windows hosts. Memory (≈2 GiB per compile job) binds before
+// CPU, and 4 remains the accepted hard ceiling until host measurement says
+// otherwise.
 export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = totalmem() } = {}) {
   const logical = Number.isSafeInteger(cpus) && cpus > 0 ? cpus : 1;
-  const performanceCores = Math.max(1, Math.floor(logical / 2));
   const memoryGiB = Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 2;
-  return Math.max(1, Math.min(4, performanceCores, Math.floor(memoryGiB / 2)));
+  return Math.max(1, Math.min(4, logical, Math.floor(memoryGiB / 2)));
 }
 
 export async function buildConfig({ externalRoot }) {

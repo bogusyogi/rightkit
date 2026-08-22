@@ -187,10 +187,9 @@ export class ThinJobService {
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1) }) });
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
       // Cache sizing may traverse large native target trees. Keep broker startup
-      // & activation handshakes independent from that best-effort maintenance.
-      void thinState.gc({ capBytes: config.bounds?.targetCacheCapBytes ?? null })
-        .then((gc) => gc.deleted.length ? thinLogger.append({ type: 'GENERATION_GC', ...gc }) : null)
-        .catch((error) => thinLogger.append({ type: 'GENERATION_GC_FAILED', error: error.message }).catch(() => {}));
+      // & activation handshakes independent from that best-effort maintenance;
+      // the maintenance GC also LRU-evicts idle current generations over cap.
+      void service.#maintenanceGc();
       return service;
     } catch (error) {
       await logger?.close?.().catch(() => {});
@@ -204,6 +203,39 @@ export class ThinJobService {
   }
 
   get runtimeIdentity() { return this.#runtime; }
+
+  #gcInFlight = false; #gcQueued = false;
+
+  /** Background maintenance GC (v2.8 §10.6): runs detached from broker
+   * readiness and from request hot paths; repeated triggers coalesce. */
+  async #maintenanceGc() {
+    if (this.#gcInFlight) { this.#gcQueued = true; return; }
+    this.#gcInFlight = true;
+    try {
+      do {
+        this.#gcQueued = false;
+        const gc = await this.#state.gc({ capBytes: this.#config.bounds?.targetCacheCapBytes ?? null, evictIdle: this.#evictIdleGeneration });
+        if (gc.deleted?.length || gc.evicted?.length) await this.#log({ type: 'GENERATION_GC', deleted: gc.deleted ?? [], evicted: gc.evicted ?? [], beforeBytes: gc.beforeBytes ?? null, afterBytes: gc.afterBytes ?? null, capBytes: gc.capBytes ?? null });
+        if (gc.unenforceable) await this.#log({ type: 'TARGET_CACHE_CAP_UNENFORCEABLE', capBytes: gc.capBytes, targetBytes: gc.afterBytes, overByBytes: gc.unenforceable.overByBytes, idleCandidatesRemaining: gc.unenforceable.idleCandidatesRemaining });
+      } while (this.#gcQueued);
+    } catch (error) {
+      await this.#log({ type: 'GENERATION_GC_FAILED', error: error.message }).catch(() => {});
+    } finally { this.#gcInFlight = false; }
+  }
+
+  /** Evict an idle current generation only while holding the same per-workspace
+   * write exclusion BUILD/WORKSPACE_WRITE jobs use (v2.8 §10.3), so eviction
+   * can never interleave with an admitted writer. tryRun keeps maintenance
+   * non-blocking: when the workspace write slot is busy the eviction is
+   * skipped (candidate stays warm) rather than queued behind the writer. */
+  #evictIdleGeneration = async (candidate) => {
+    const ticket = this.#scheduler.acquire({ id: `gc-evict-${candidate.workspaceKey}-${randomUUID().slice(0, 8)}`, capability: { lane: 'WORKSPACE_WRITE', workspaceAccess: 'write' }, workspaceKey: candidate.workspaceKey, tryRun: true });
+    let permit;
+    try { permit = await ticket.permit; } catch { return null; }
+    try { return await this.#state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes }); }
+    catch { return null; }
+    finally { permit.release(); }
+  };
 
   async dispatch(message, emit = () => {}, onDisconnect = null) {
     this.#assertEnvelope(message); emit(Object.freeze({ type: 'HANDSHAKE', runtime: this.#runtime }));
@@ -336,6 +368,19 @@ export class ThinJobService {
         job.permit = await job.ticket.permit;
       }
       if (job.cancelReason) throw Object.assign(new Error('queued request cancelled'), { code: 'RK_QUEUE_CANCELLED' });
+      // A background GC may have evicted (rotated) this workspace's generation
+      // while the request waited in queue. Re-resolve under the held workspace
+      // permit so every path/env targets the current generation (v2.8 §10.3),
+      // and relocate raw-compiler outputs that were normalized against the old
+      // generation (normalization is idempotent under a fresh output root).
+      if (job.workspace && !job.parentId) {
+        job.workspace = await this.#state.workspace(job.workspaceRoot);
+        if (['rustc', 'rustdoc'].includes(job.shim) && job.capability.compile) {
+          job.invokeArgv = normalizeCompilerOutputArgv(job.invokeArgv, { compiler: job.shim, outputRoot: join(job.workspace.layout.target, 'rightkit-raw'), targetTriple: job.targetTriple });
+          job.request = Object.freeze({ ...job.request, argv: job.invokeArgv });
+          job.command = `${job.shim} ${job.invokeArgv.join(' ')}`.trim();
+        }
+      }
       job.queueMs = this.#now() - job.submittedAt;
       job.rootSetupStartedAt ??= this.#now();
       if (job.capability.compile && !job.capability.skipRootServices) await this.#admitStorage(job);
@@ -440,7 +485,12 @@ export class ThinJobService {
     if (job.capability.artifactWrite && !uncertainWriter) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
     job.state = status; job.terminal = Object.freeze({ type: 'RESULT', id: job.id, exitCode: receipt.exitCode, status, receipt });
     await this.#log({ type: 'TERMINAL', id: job.id, status, exitCode: receipt.exitCode, signal: receipt.signal, queueMs: receipt.queueMs, runMs: receipt.runMs, cache: receipt.cache, generation: receipt.generation, uncertainWriter });
-    this.#publish(job, job.terminal); job.resolveDone(job.terminal); return job.terminal;
+    this.#publish(job, job.terminal); job.resolveDone(job.terminal);
+    // Terminal artifact writes mark the workspace size dirty (v2.8 §10.6):
+    // schedule a detached maintenance GC so the target-cache budget stays
+    // enforceable without a synchronous tree walk in the request hot path.
+    if (job.capability.artifactWrite) void this.#maintenanceGc();
+    return job.terminal;
   }
 
   #phaseTimings(job, terminalAt) {
@@ -468,7 +518,7 @@ export class ThinJobService {
     return Object.freeze({
       CARGO_HOME: this.#state.paths.cargoHome,
       RUSTUP_HOME: join(this.#state.paths.global, 'toolchains', toolchainKey),
-      ...(layout ? { CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, CARGO_INSTALL_ROOT: this.#state.paths.tools, TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp } : {}),
+      ...(layout ? { CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp } : {}),
       RIGHTKIT_PARENT_REQUEST_ID: rootId,
       RIGHTKIT_PARENT_CAPABILITY_TOKEN: rootToken
     });

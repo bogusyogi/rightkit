@@ -6,10 +6,10 @@ members = ["crates/*"]
 # (it rejects any workspace config that redirects tools, outputs, or flags), so
 # manifest profiles are the only place workspace-wide build cost can be shaped.
 #
-# This host is 8 cores / 8.6 GB, and the broker admits 2 concurrent builds at 4
-# jobs each — so peak memory, not core count, is the binding constraint. Every
-# setting below reduces per-compile memory and link time rather than adding
-# parallelism, which is what actually makes builds finish here.
+# This host is 8 cores / 8.6 GB, and the broker admits one concurrent build at
+# up to 4 jobs — so peak memory, not core count, is the binding constraint.
+# Every setting below reduces per-compile memory and link time rather than
+# adding parallelism, which is what actually makes builds finish here.
 
 [profile.dev]
 # Line tables keep file/line in backtraces and panics; they drop the type,

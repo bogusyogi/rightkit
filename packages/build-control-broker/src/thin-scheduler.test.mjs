@@ -44,3 +44,21 @@ test('queued interactive BUILD starts before installer & batch without preemptio
   (await installer.permit).release();
   (await batch.permit).release();
 });
+
+test('tryRun acquires immediately or rejects — never queues behind an active writer', async () => {
+  const scheduler = new ThinScheduler({ buildConcurrency: 1, controlConcurrency: 2, analysisConcurrency: 2, workspaceWriteConcurrency: 2, now: Date.now });
+  const build = scheduler.acquire({ id: 'build-1', capability: { lane: 'BUILD', workspaceAccess: 'write', compile: true }, workspaceKey: 'ws' });
+  const buildPermit = await build.permit;
+  // Same workspace, write access: must reject (writer active), not queue.
+  await assert.rejects(scheduler.acquire({ id: 'gc-1', capability: { lane: 'WORKSPACE_WRITE', workspaceAccess: 'write' }, workspaceKey: 'ws', tryRun: true }).permit, { code: 'RK_QUEUE_UNAVAILABLE' });
+  // Different workspace with free write capacity: acquires immediately.
+  const free = scheduler.acquire({ id: 'gc-2', capability: { lane: 'WORKSPACE_WRITE', workspaceAccess: 'write' }, workspaceKey: 'other', tryRun: true });
+  const freePermit = await free.permit;
+  assert.equal(free.cancel(), false);
+  freePermit.release();
+  buildPermit.release();
+  // After release the workspace is evictable again.
+  const retry = scheduler.acquire({ id: 'gc-3', capability: { lane: 'WORKSPACE_WRITE', workspaceAccess: 'write' }, workspaceKey: 'ws', tryRun: true });
+  const retryPermit = await retry.permit;
+  retryPermit.release();
+});

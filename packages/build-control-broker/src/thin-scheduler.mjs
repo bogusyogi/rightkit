@@ -7,6 +7,10 @@ export class ThinQueueCancelledError extends Error {
   constructor() { super('queued request cancelled'); this.name = 'ThinQueueCancelledError'; this.code = 'RK_QUEUE_CANCELLED'; }
 }
 
+export class ThinQueueUnavailableError extends Error {
+  constructor() { super('requested lane/workspace capacity is currently occupied'); this.name = 'ThinQueueUnavailableError'; this.code = 'RK_QUEUE_UNAVAILABLE'; }
+}
+
 export class ThinScheduler {
   #limits; #queue = []; #active = new Map(); #workspace = new Map(); #toolchainActive = false; #sequence = 0; #now;
   constructor({ controlConcurrency = 4, analysisConcurrency = 2, workspaceWriteConcurrency = 4, buildConcurrency = 1, now = Date.now } = {}) {
@@ -22,12 +26,22 @@ export class ThinScheduler {
     });
   }
 
-  acquire({ id, capability, workspaceKey = null, priority = 'BATCH', onHeartbeat = () => {} }) {
+  acquire({ id, capability, workspaceKey = null, priority = 'BATCH', onHeartbeat = () => {}, tryRun = false } = {}) {
     if (typeof id !== 'string' || !id || !capability || !LANES.has(capability.lane) || !PRIORITY.has(priority)) throw new TypeError('id, capability and priority are required');
     if (this.#active.has(id) || this.#queue.some((item) => item.id === id)) throw new TypeError('scheduler id must be unique');
     let resolvePermit; let rejectPermit;
     const permit = new Promise((resolve, reject) => { resolvePermit = resolve; rejectPermit = reject; });
     const ticket = { id, lane: capability.lane, access: capability.workspaceAccess, compile: capability.compile === true, workspaceKey, priority, sequence: ++this.#sequence, queuedAt: this.#now(), onHeartbeat, resolvePermit, rejectPermit, state: 'QUEUED' };
+    // tryRun: never queue. Background maintenance (idle-generation eviction)
+    // must not block waiting for a workspace whose write slot an admitted job
+    // holds; it gives up immediately instead (v2.8 §10.2). The synchronous
+    // check-then-start below is atomic in single-threaded JS, so a successful
+    // tryRun owns the workspace writer slot before any queued ticket can.
+    if (tryRun) {
+      if (!this.#canRun(ticket)) { rejectPermit(new ThinQueueUnavailableError()); return Object.freeze({ id, permit, cancel: () => false }); }
+      this.#start(ticket);
+      return Object.freeze({ id, permit, cancel: () => false });
+    }
     this.#queue.push(ticket);
     this.#emitHeartbeat(ticket);
     queueMicrotask(() => this.#drain());

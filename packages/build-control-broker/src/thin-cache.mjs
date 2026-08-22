@@ -61,7 +61,8 @@ export class ThinCache {
       CARGO_HOME: this.#paths.cargoHome,
       CARGO_TARGET_DIR: layout.target,
       CARGO_BUILD_TARGET_DIR: layout.target,
-      CARGO_INSTALL_ROOT: this.#paths.tools,
+      // No CARGO_INSTALL_ROOT: generic `cargo install` is denied (v2.8 §11) and
+      // must never write into the digest-registered managed tools namespace.
       CARGO_BUILD_JOBS: String(positive(cargoBuildJobs, 'cargoBuildJobs', 4)),
       TMPDIR: layout.temp,
       TMP: layout.temp,

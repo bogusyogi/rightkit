@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -26,7 +26,7 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
   const tools = new Map([['cargo', { id: 'cargo', path: '/managed/cargo', sha256: digest }], ['rustc', { id: 'rustc', path: '/managed/rustc', sha256: digest }], ['rustdoc', { id: 'rustdoc', path: '/managed/rustdoc', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
   const registry = { verify: async (id) => { const tool = tools.get(id); if (!tool) throw new Error(`missing ${id}`); return tool; } };
   const logger = { events: [], append(event) { this.events.push(event); return Promise.resolve(event); }, close: async () => {} };
-  const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, CARGO_INSTALL_ROOT: state.paths.tools, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
+  const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
   const config = { broker: { externalRoot: { path: root } }, shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
   const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
@@ -155,7 +155,7 @@ test('same workspace consecutive BUILD jobs reuse current generation', async () 
 });
 
 test('Cargo roots own exact pinned compilers directly while raw rustc remains brokered', async () => {
-  const item = await fixture({ cache: { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: '/managed/cargo-home', CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, CARGO_INSTALL_ROOT: '/managed/tools', RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'SERVICE_OK', delta: { compile_requests: 0, requests_executed: 7 } }) } });
+  const item = await fixture({ cache: { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: '/managed/cargo-home', CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'SERVICE_OK', delta: { compile_requests: 0, requests_executed: 7 } }) } });
   try {
     const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
     await waitFor(item.service, root.id, ['RUNNING']);
@@ -318,5 +318,53 @@ test('active cancellation terminates owned tree & persists receipt', async () =>
     assert.equal(terminal.receipt.cancellation.source, 'USER_CANCEL');
     assert.equal(terminal.receipt.cancellation.requests.length, 1);
     assert.equal((await item.state.receipt(submitted.id)).state, 'CANCELLED');
+  } finally { await item.close(); }
+});
+
+test('idle-current-generation eviction holds workspace write exclusion & a queued build re-resolves to the fresh generation', async () => {
+  let evictIdle = null;
+  const item = await fixture({
+    gc: async ({ capBytes, evictIdle: callback }) => { evictIdle = callback; return { capBytes, beforeBytes: 0, afterBytes: 0, deleted: [], evicted: [], unenforceable: null }; }
+  });
+  try {
+    assert.equal(typeof evictIdle, 'function', 'maintenance GC must receive the eviction callback');
+    // Occupy the single BUILD lane with the unrelated workspace.
+    const first = (await call(item.service, command('SUBMIT', message(item.other, ['check'])))).result;
+    await waitFor(item.service, first.id, ['RUNNING']);
+    // Queue a build for the main workspace behind the occupied lane.
+    const second = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+    assert.equal((await call(item.service, command('STATUS', second.id))).result.state, 'QUEUED');
+    // Background GC evicts the idle main-workspace generation while the build waits.
+    const workspace = await item.state.workspace(item.workspace);
+    const evicted = await evictIdle({ workspaceKey: workspace.key, canonicalRoot: workspace.canonicalRoot, generation: workspace.state.currentGeneration, sizeBytes: 1024 });
+    assert.equal(evicted.evictedGeneration, 1);
+    assert.equal(evicted.newGeneration, 2);
+    await assert.rejects(stat(workspace.layout.root), { code: 'ENOENT' });
+    // The queued build proceeds on the fresh generation, never the evicted one.
+    item.children[0].emit('close', 0, null);
+    await waitFor(item.service, second.id, ['RUNNING']);
+    const child = item.children[1];
+    assert.ok(child.environment.CARGO_TARGET_DIR.includes(join('generations', '000002', 'target')), `build targeted ${child.environment.CARGO_TARGET_DIR}`);
+    child.emit('close', 0, null);
+    const terminal = (await call(item.service, command('WATCH', second.id))).result;
+    assert.equal(terminal.status, 'SUCCEEDED');
+    assert.equal(terminal.receipt.generation, 2);
+  } finally { await item.close(); }
+});
+
+test('eviction never retires a generation with an active writer', async () => {
+  let evictIdle = null;
+  const item = await fixture({
+    gc: async ({ capBytes, evictIdle: callback }) => { evictIdle = callback; return { capBytes, beforeBytes: 0, afterBytes: 0, deleted: [], evicted: [], unenforceable: null }; }
+  });
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+    await waitFor(item.service, submitted.id, ['RUNNING']);
+    const workspace = await item.state.workspace(item.workspace);
+    assert.equal(await evictIdle({ workspaceKey: workspace.key, canonicalRoot: workspace.canonicalRoot, generation: workspace.state.currentGeneration, sizeBytes: 1024 }), null);
+    await assert.doesNotReject(stat(workspace.layout.root));
+    const terminal = (await call(item.service, command('CANCEL', submitted.id))).result;
+    assert.equal(terminal.accepted, true);
+    await waitFor(item.service, submitted.id, ['CANCELLED']);
   } finally { await item.close(); }
 });

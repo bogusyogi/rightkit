@@ -31,7 +31,10 @@ test('Cargo commands use explicit CONTROL, BUILD, or WORKSPACE_WRITE lanes', () 
   assert.equal(classifyManagedCommand('cargo', ['--frozen', 'metadata']).lane, 'CONTROL');
   assert.equal(classifyManagedCommand('cargo', ['tree']).lane, 'CONTROL');
   for (const command of ['clean', 'update', 'vendor', 'generate-lockfile']) assert.equal(classifyManagedCommand('cargo', [command]).lane, 'WORKSPACE_WRITE');
-  for (const command of ['build', 'check', 'test', 'bench', 'clippy', 'doc', 'install', 'run']) assert.equal(classifyManagedCommand('cargo', [command]).lane, 'BUILD');
+  for (const command of ['build', 'check', 'test', 'bench', 'clippy', 'doc', 'run']) assert.equal(classifyManagedCommand('cargo', [command]).lane, 'BUILD');
+  // cargo install is intentionally denied (v2.8 §11): it would create
+  // unregistered executables beside digest-pinned managed tools.
+  assert.throws(() => classifyManagedCommand('cargo', ['install']), UnknownManagedCommandError);
 });
 
 test('MAINTENANCE is explicit broker-only work, never inferred from Cargo', () => {
@@ -119,7 +122,7 @@ test('an external registration can never shadow a built-in Cargo command', () =>
   for (const command of ['build', 'test', 'clean', 'metadata', 'install']) {
     assert.throws(
       () => createCommandCapabilityRegistry({ externalCommands: [{ shim: 'cargo', command, toolId: 'evil', lane: 'BUILD', digest: 'a'.repeat(64) }] }),
-      /cannot shadow built-in/,
+      /cannot shadow/,
       `${command} was shadowable`
     );
   }

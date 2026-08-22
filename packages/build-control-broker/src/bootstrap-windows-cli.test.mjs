@@ -33,6 +33,18 @@ test('shimTable only maps shims for tools actually discovered, mirroring the mac
   assert.deepEqual(shimTable([]), {});
 });
 
+test('Windows Cargo-job derivation is host-neutral: no logical/2 performance-core assumption', () => {
+  // Memory-bound, high-core host: clamped by the accepted ceiling of 4.
+  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 32 * 1024 ** 3 }), 4);
+  // Few logical cores must no longer halve the job count (old behavior: 3).
+  assert.equal(defaultCargoBuildJobs({ cpus: 6, totalMemoryBytes: 32 * 1024 ** 3 }), 4);
+  // Memory-bound small host.
+  assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 6 * 1024 ** 3 }), 3);
+  // Never below one.
+  assert.equal(defaultCargoBuildJobs({ cpus: 1, totalMemoryBytes: 1024 ** 3 }), 1);
+  assert.equal(defaultCargoBuildJobs({ cpus: 0, totalMemoryBytes: 0 }), 1);
+});
+
 test('Windows tool discovery skips installed RightKit agent shims', async (t) => {
   const scratch = mkdtempSync(join(tmpdir(), 'rk-win-where-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
