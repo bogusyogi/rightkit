@@ -256,23 +256,28 @@ test('cancel command carries only an explicit typed provenance source', () => {
   assert.throws(() => createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id: 'job-1', source: 'BROKER_SHUTDOWN' }), /cancellation source/);
 });
 
-test('managed child prints request id & turns SIGINT into explicit broker cancellation', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const endpoint = join(root, 'broker.sock'); let watchSocket; let cancelSeen = false;
-  const finish = () => { if (watchSocket && cancelSeen) watchSocket.end(`${JSON.stringify({ type: 'RESULT', id: 'signal-job', exitCode: 130, status: 'CANCELLED' })}\n`); };
-  const server = net.createServer((socket) => socket.on('data', (data) => {
-    const command = JSON.parse(data.toString()); socket.write(handshake({ runtime: command.runtime }));
-    if (command.type === 'SUBMIT') return socket.end(`${JSON.stringify({ type: 'SUBMITTED', id: 'signal-job', state: 'QUEUED' })}\n`);
-    if (command.type === 'WATCH') { watchSocket = socket; finish(); return; }
-    assert.equal(command.type, 'CANCEL'); assert.equal(command.id, 'signal-job'); cancelSeen = true;
-    socket.end(`${JSON.stringify({ type: 'CANCEL_REQUESTED', id: command.id, state: 'REAPING' })}\n`); finish();
-  }));
-  await new Promise((resolve) => server.listen(endpoint, resolve));
-  const child = spawn(process.execPath, [fileURLToPath(new URL('./managed-agent.mjs', import.meta.url)), 'test'], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: endpoint, RIGHTKIT_MANAGED_AGENT_SHIM: 'cargo' } });
-  let stderr = ''; let interrupted = false;
-  child.stderr.on('data', (chunk) => { stderr += chunk; if (!interrupted && stderr.includes('request signal-job')) { interrupted = true; child.kill('SIGINT'); } });
-  assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }), 130);
-  assert.match(stderr, /request signal-job/); assert.match(stderr, /SIGINT cancelling request signal-job/); assert.match(stderr, /CANCEL_REQUESTED/);
-  await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
+test('managed entrypoints turn SIGINT into CLIENT_SIGNAL cancellation', async (t) => {
+  for (const [name, script, argv, environment] of [
+    ['shim', './managed-agent.mjs', ['test'], { RIGHTKIT_MANAGED_AGENT_SHIM: 'cargo' }],
+    ['rightkit', './rightkit.mjs', ['cargo', 'test'], {}]
+  ]) await t.test(name, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const endpoint = join(root, 'broker.sock'); let watchSocket; let cancelSeen = false;
+    const finish = () => { if (watchSocket && cancelSeen) watchSocket.end(`${JSON.stringify({ type: 'RESULT', id: 'signal-job', exitCode: 130, status: 'CANCELLED' })}\n`); };
+    const server = net.createServer((socket) => socket.on('data', (data) => {
+      const command = JSON.parse(data.toString()); socket.write(handshake({ runtime: command.runtime }));
+      if (command.type === 'SUBMIT') return socket.end(`${JSON.stringify({ type: 'SUBMITTED', id: 'signal-job', state: 'QUEUED' })}\n`);
+      if (command.type === 'WATCH') { watchSocket = socket; finish(); return; }
+      assert.equal(command.type, 'CANCEL'); assert.equal(command.id, 'signal-job'); assert.equal(command.source, 'CLIENT_SIGNAL'); cancelSeen = true;
+      socket.end(`${JSON.stringify({ type: 'CANCEL_REQUESTED', id: command.id, state: 'REAPING' })}\n`); finish();
+    }));
+    await new Promise((resolve) => server.listen(endpoint, resolve));
+    const child = spawn(process.execPath, [fileURLToPath(new URL(script, import.meta.url)), ...argv], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: endpoint, ...environment } });
+    let stderr = ''; let interrupted = false;
+    child.stderr.on('data', (chunk) => { stderr += chunk; if (!interrupted && stderr.includes('request signal-job')) { interrupted = true; child.kill('SIGINT'); } });
+    assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }), 130);
+    assert.match(stderr, /request signal-job/); assert.match(stderr, /SIGINT cancelling request signal-job/); assert.match(stderr, /CANCEL_REQUESTED/);
+    await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
+  });
 });
 
 test('nested job context is explicit while legacy managed requests stay readable', () => {
