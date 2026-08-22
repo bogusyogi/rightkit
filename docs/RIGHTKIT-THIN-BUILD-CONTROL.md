@@ -44,6 +44,9 @@ Implemented and live:
 - Cargo compiler environment forwarding preserves package/build-script inputs
   while broker-owned tool, path, cache, loader, and unstable-feature authority
   remains stripped and broker-injected;
+- macOS Rust tools receive the immutable toolchain library directory through a
+  broker-owned fallback loader path, so Rust 1.98 `rust-objcopy` can load its
+  sibling `libLLVM.dylib` without accepting client loader overrides;
 - same-workspace nested `cargo update` delegation for workspace-writing Cargo
   plugins, with token validation, workspace-containment checks, and root-cancel
   propagation;

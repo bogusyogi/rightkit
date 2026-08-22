@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
 import { ThinJobService, createThinJobServer } from './thin-job-service.mjs';
@@ -71,6 +71,16 @@ test('two BUILD roots serialize globally while CONTROL completes', async () => {
     await waitFor(item.service, second.id, ['RUNNING']);
     item.children.find((child) => child.payload.argv.includes('test')).emit('close', 0, null);
     assert.equal((await call(item.service, command('WATCH', second.id))).result.status, 'SUCCEEDED');
+  } finally { await item.close(); }
+});
+
+test('macOS jobs receive broker-owned Rust toolchain library path', async (context) => {
+  if (process.platform !== 'darwin') return context.skip('macOS-only dynamic loader contract');
+  const item = await fixture();
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['--version'])))).result;
+    assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
+    assert.equal(item.children.at(-1).environment.DYLD_FALLBACK_LIBRARY_PATH, join(dirname('/managed/cargo'), '..', 'lib'));
   } finally { await item.close(); }
 });
 
