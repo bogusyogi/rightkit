@@ -67,7 +67,7 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
   try {
     await health({ runtime, config, nodePath, timeoutMs: healthTimeoutMs, healthWorkspace, platform });
     const current = join(root, 'runtime-current'); prior = await readlink(current).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
-    const next = join(root, `.runtime-current-${randomUUID()}`); await symlink(basename(runtime), next); await rename(next, current); await syncDirectory(root);
+    const next = join(root, `.runtime-current-${randomUUID()}`); await symlink(basename(runtime), next); await replaceRuntimeSelection({ root, current, next, platform }); await syncDirectory(root);
     selected = true;
     try {
       await verifyRuntimeBundle(runtime, manifest, contentDigest);
@@ -79,7 +79,7 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
       committed = true;
     } catch (error) {
       if (committed) throw error;
-      const rollback = join(root, `.runtime-current-${randomUUID()}`); if (prior === null) await rm(current, { force: true }); else { await symlink(prior, rollback); await rename(rollback, current); } await syncDirectory(root);
+      const rollback = join(root, `.runtime-current-${randomUUID()}`); if (prior === null) await rm(current, { force: true }); else { await symlink(prior, rollback); await replaceRuntimeSelection({ root, current, next: rollback, platform }); } await syncDirectory(root);
       selected = false;
       await removeRuntimeActivationFence(activation);
       try { await rollbackService({ prior, current, failedRuntime: runtime, manifest, service, taskXmlPath, timeoutMs: healthTimeoutMs }); }
@@ -92,6 +92,22 @@ export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, 
     if (selected && !committed) throw new Error(`runtime activation selected candidate without rollback: ${error.message}`);
     throw error;
   }
+}
+
+/** POSIX rename replaces a symlink atomically. Windows refuses to rename over
+ * an existing directory link, so preserve it under a unique recovery name,
+ * install the candidate, then remove the displaced link. */
+export async function replaceRuntimeSelection({ root, current, next, platform = process.platform }) {
+  if (platform !== 'win32') { await rename(next, current); return; }
+  const displaced = join(root, `.runtime-current-displaced-${randomUUID()}`);
+  const present = await lstat(current).then(() => true).catch((error) => error.code === 'ENOENT' ? false : Promise.reject(error));
+  if (present) await rename(current, displaced);
+  try { await rename(next, current); }
+  catch (error) {
+    if (present) await rename(displaced, current).catch(() => {});
+    throw error;
+  }
+  if (present) await rm(displaced, { force: true });
 }
 
 export async function writeRuntimeManifest(runtime, version, provenance, windowsJobAddon, { platform = process.platform } = {}) {

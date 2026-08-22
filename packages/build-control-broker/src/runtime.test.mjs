@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
+import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, replaceRuntimeSelection, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -16,6 +16,17 @@ const git = async (cwd, args) => (await execFile('git', ['-C', cwd, ...args], { 
 test('Git provenance scopes use forward slashes even from Windows paths', () => {
   assert.equal(normalizeGitScopedPath('tools\\rightkit\\packages'), 'tools/rightkit/packages');
   assert.equal(normalizeGitScopedPath('packages/build-control-broker'), 'packages/build-control-broker');
+});
+
+test('Windows runtime selection replaces an existing directory link recoverably', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rk-win-select-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'runtime-old')); await mkdir(join(root, 'runtime-new'));
+  const current = join(root, 'runtime-current'); const next = join(root, '.runtime-current-next');
+  await symlink('runtime-old', current); await symlink('runtime-new', next);
+  await replaceRuntimeSelection({ root, current, next, platform: 'win32' });
+  assert.equal(await readlink(current), 'runtime-new');
+  assert.equal((await readdir(root)).some((name) => name.startsWith('.runtime-current-displaced-')), false);
 });
 
 test('Windows directory fsync EPERM degrades while POSIX remains strict', async () => {
