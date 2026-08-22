@@ -11,6 +11,7 @@ const MAX_STATS_BYTES = 256 * 1024;
 // gate (v2.7 §12): permanent activation requires the controlled C-vs-D A/B.
 const basedirKeys = new Set(['compilerCache']);
 const platformBasedirKey = process.platform === 'win32' ? 'compilerCacheWin' : 'compilerCachePosix';
+export const defaultThinCacheTimeoutMs = (platform = process.platform) => platform === 'win32' ? 5_000 : 2_000;
 
 function positive(value, label, fallback) {
   const selected = value ?? fallback;
@@ -41,7 +42,7 @@ function delta(before, after) {
 export class ThinCache {
   #paths; #tool; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #epoch; #now;
 
-  constructor({ paths, sccachePath = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = 2_000, basedirs = null, basedirsEnabled = false, run = defaultRun, epoch = randomUUID(), now = Date.now } = {}) {
+  constructor({ paths, sccachePath = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = defaultThinCacheTimeoutMs(), basedirs = null, basedirsEnabled = false, run = defaultRun, epoch = randomUUID(), now = Date.now } = {}) {
     if (!paths?.cargoHome || !paths?.compilerCache) throw new TypeError('thin state cache paths are required');
     if (enabled && (typeof sccachePath !== 'string' || !sccachePath)) throw new TypeError('enabled cache requires sccachePath');
     this.#paths = paths; this.#tool = sccachePath; this.#enabled = enabled; this.#clientSide = clientSideSupported; this.#maxSize = positive(maxSizeBytes, 'maxSizeBytes', 20 * 1024 ** 3); this.#timeout = positive(timeoutMs, 'timeoutMs', 2_000); this.#run = run;

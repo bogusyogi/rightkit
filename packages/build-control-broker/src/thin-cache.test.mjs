@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ThinCache, thinCacheStatsDelta } from './thin-cache.mjs';
+import { defaultThinCacheTimeoutMs, ThinCache, thinCacheStatsDelta } from './thin-cache.mjs';
 
 const paths = { cargoHome: '/managed/cargo-home', compilerCache: '/managed/compiler-cache', tools: '/managed/tools' };
 const layout = { target: '/managed/workspace/generations/000001/target', temp: '/managed/workspace/generations/000001/tmp' };
+
+test('cache sampling allows measured Windows process startup overhead', () => {
+  assert.equal(defaultThinCacheTimeoutMs('win32'), 5_000);
+  assert.equal(defaultThinCacheTimeoutMs('darwin'), 2_000);
+});
 
 test('injects shared Cargo/sccache & persistent generation environment', async () => {
   const calls = [];
