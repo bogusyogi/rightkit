@@ -146,8 +146,9 @@ test('resolveVolumeId & rustcVersionTriple degrade to a safe default instead of 
 test('defaultBounds matches the doc-mandated shape (one field per bound, no drift)', () => {
   const bounds = defaultBounds();
   assert.equal(bounds.jobDeadlineMs, 0, 'the broker itself has no build timeout; right-release owns that');
+  assert.equal(bounds.buildConcurrency, 1);
   assert.ok(bounds.targetCacheCapBytes > 0);
-  assert.ok(bounds.retentionMs > 0);
+  assert.equal(bounds.maintenanceConcurrency, undefined);
 });
 
 test('cargo build jobs are clamped at canonical workstation maximum', () => {

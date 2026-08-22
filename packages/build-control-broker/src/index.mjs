@@ -1,11 +1,9 @@
 /**
  * Public broker package surface.
  *
- * Runtime service implementation lives in job-service.mjs. Legacy v1 broker
- * classes remain quarantined under ../legacy-v1 for migration fixtures only.
+ * Runtime service implementation lives in thin-job-service.mjs.
  */
 export { rejectWorkspaceCargoConfiguration, removeStaleUnixSocket } from './utilities.mjs';
-export { drainStoppedV1Broker } from './v1-drain.mjs';
 export { ThinCommandPolicy } from './thin-command-policy.mjs';
 export { ThinScheduler } from './thin-scheduler.mjs';
 export { ThinState } from './thin-state.mjs';

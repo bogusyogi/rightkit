@@ -3,194 +3,89 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import {
-  managedDatabasePath, parseWindowsCutoverArgs, proveLegacyOwnershipAbsent, proveManagedRequestsDrained, proveV1Drained, runWindowsCutover, stopLegacyTask,
-} from './runtime-cutover-windows-cli.mjs';
-
-test('stopLegacyTask polls for the pipe handle to release after /End instead of failing the first probe', async () => {
-  let probes = 0;
-  // The broker holds the pipe for the first two probes after /End, then frees it.
-  const netModule = { createConnection: () => { const open = probes++ < 2; const handlers = {}; queueMicrotask(() => (open ? handlers.connect?.() : handlers.error?.())); return { once: (event, fn) => { handlers[event] = fn; }, destroy() {} }; } };
-  const result = await stopLegacyTask({ legacyTaskName: 'T', endpoint: '\\\\.\\pipe\\x', execFile: async () => {}, netModule, pipeReleaseTimeoutMs: 5000, pipePollIntervalMs: 1, sleep: async () => {} });
-  assert.deepEqual(result, { stopped: true, target: 'T', listener: false });
-  assert.ok(probes >= 3);
-});
-
-test('stopLegacyTask still fails closed if the listener never releases within the window', async () => {
-  const netModule = { createConnection: () => { const handlers = {}; queueMicrotask(() => handlers.connect?.()); return { once: (event, fn) => { handlers[event] = fn; }, destroy() {} }; } };
-  const ends = [];
-  await assert.rejects(
-    stopLegacyTask({ legacyTaskName: 'T', endpoint: '\\\\.\\pipe\\x', execFile: async (_cmd, args) => { ends.push(args.join(' ')); }, netModule, pipeReleaseTimeoutMs: 30, pipePollIntervalMs: 1, sleep: async () => {} }),
-    /remains reachable after stop/,
-  );
-  // /End is re-issued once mid-window as insurance against a missed first call.
-  assert.equal(ends.filter((a) => a.includes('/End')).length, 2);
-});
+import { parseWindowsCutoverArgs, proveThinRequestsDrained, runWindowsCutover, stopManagedTask } from './runtime-cutover-windows-cli.mjs';
 import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition, selectWindowsNodePid, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
 
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-win-cutover-cli-')));
   const external = join(root, 'external'); const source = join(root, 'packages'); const health = join(root, 'health');
-  await mkdir(external); await mkdir(source); await mkdir(health);
-  await writeFile(join(health, 'Cargo.toml'), '[package]\nname = "rk-cutover-health"\nversion = "0.0.0"\nedition = "2021"\n');
-  const config = join(root, 'broker.json'); const v1 = join(root, 'v1.json'); const endpoint = '\\\\.\\pipe\\rightkit-build-control-test';
-  await writeFile(config, JSON.stringify({
-    broker: { externalRoot: { path: external, volumeId: 'test', mounted: true, writable: true, internal: false }, stateFile: join(external, 'state.json'), receiptsDir: join(external, 'receipts'), activationFencePath: join(external, 'activation-fence.json'), capacityBytes: 1 },
-    windowsPipe: endpoint,
-  }));
-  await writeFile(v1, JSON.stringify({ entries: [{ id: 'done', state: 'CANCELLED' }] }));
-  return { root, external, source, health, config, v1, endpoint };
+  await mkdir(external); await mkdir(source); await mkdir(health); await writeFile(join(health, 'Cargo.toml'), '[package]\nname = "rk-cutover-health"\nversion = "0.0.0"\nedition = "2021"\n');
+  const config = join(root, 'broker.json'); const endpoint = '\\\\.\\pipe\\rightkit-build-control-test';
+  await writeFile(config, JSON.stringify({ broker: { externalRoot: { path: external, volumeId: 'test', mounted: true, writable: true, internal: false }, stateFile: join(external, 'state.json'), receiptsDir: join(external, 'receipts'), activationFencePath: join(external, 'activation-fence.json'), capacityBytes: 1 }, windowsPipe: endpoint }));
+  return { root, external, source, health, config, endpoint };
 }
+
+const input = (item, endpoint = item.endpoint) => ({ configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', taskName: 'RightKitBuildControl', endpoint, healthWorkspace: item.health, timeoutMs: 100 });
+
+test('stopManagedTask polls until named pipe releases', async () => {
+  let probes = 0;
+  const netModule = { createConnection: () => { const open = probes++ < 2; const handlers = {}; queueMicrotask(() => (open ? handlers.connect?.() : handlers.error?.())); return { once: (event, fn) => { handlers[event] = fn; }, destroy() {} }; } };
+  const result = await stopManagedTask({ taskName: 'T', endpoint: '\\\\.\\pipe\\x', execFile: async () => {}, netModule, pipeReleaseTimeoutMs: 5_000, pipePollIntervalMs: 1, sleep: async () => {} });
+  assert.deepEqual(result, { stopped: true, target: 'T', listener: false }); assert.ok(probes >= 3);
+});
+
+test('stopManagedTask fails closed when named pipe remains live', async () => {
+  const netModule = { createConnection: () => { const handlers = {}; queueMicrotask(() => handlers.connect?.()); return { once: (event, fn) => { handlers[event] = fn; }, destroy() {} }; } };
+  await assert.rejects(stopManagedTask({ taskName: 'T', endpoint: '\\\\.\\pipe\\x', execFile: async () => {}, netModule, pipeReleaseTimeoutMs: 30, pipePollIntervalMs: 1, sleep: async () => {} }), /remains reachable/);
+});
 
 test('argument parser rejects unknown switches & requires exact activation identity', () => {
   assert.throws(() => parseWindowsCutoverArgs(['--config', 'C:\\a']), /--external-root is required/);
   assert.throws(() => parseWindowsCutoverArgs(['--nope', 'x']), /unknown/);
 });
 
-test('v1 drain proof rejects any non-terminal request', async () => {
-  await assert.rejects(proveV1Drained('/state', { readFile: async () => JSON.stringify({ entries: [{ state: 'ACTIVE' }] }) }), /non-terminal/);
+test('thin drain proof rejects active markers', async () => {
+  const item = await fixture();
+  try {
+    assert.equal((await proveThinRequestsDrained(item.external)).open, 0);
+    const active = join(item.external, 'rightkit-build-control', 'global', 'active'); await mkdir(active, { recursive: true }); await writeFile(join(active, 'job-1.json'), JSON.stringify({ id: 'job-1' }));
+    await assert.rejects(proveThinRequestsDrained(item.external), /in flight: job-1/);
+  } finally { await rm(item.root, { recursive: true, force: true }); }
 });
 
-test('v1 drain proof strips a leading UTF-8 BOM instead of failing opaquely', async () => {
-  const result = await proveV1Drained('/state', { readFile: async () => `﻿${JSON.stringify({ entries: [{ state: 'RELEASED' }] })}` });
-  assert.equal(result.open, 0);
-});
-
-test('legacy ownership is proven absent by exact PID liveness alone', async () => {
-  const missing = await proveLegacyOwnershipAbsent({ pid: 999_999 });
-  assert.equal(missing.absent, true); assert.equal(missing.fallback, 'pid-esrch');
-  const live = await proveLegacyOwnershipAbsent({ pid: process.pid });
-  assert.equal(live.absent, false);
-});
-
-test('managed drain proof refuses activation while a v2 request is still running', () => {
-  const running = { exists: () => true, openDatabase: () => ({ prepare: () => ({ all: () => [{ id: 'abc123', state: 'RUNNING' }] }), close() {} }) };
-  assert.throws(() => proveManagedRequestsDrained('/present.sqlite', running), /in flight.*abc123=RUNNING/s);
-});
-
-test('managed drain proof reports an empty or absent store as drained', () => {
-  assert.equal(proveManagedRequestsDrained('/absent.sqlite', { exists: () => false }).open, 0);
-  const empty = proveManagedRequestsDrained('/present.sqlite', { exists: () => true, openDatabase: () => ({ prepare: () => ({ all: () => [] }), close() {} }) });
-  assert.equal(empty.open, 0); assert.equal(empty.present, true);
-});
-
-test('managedDatabasePath derives from a Windows-style stateFile path', () => {
-  const derived = managedDatabasePath({ broker: { stateFile: 'C:\\rightkit\\state\\broker.json' } });
-  assert.match(derived, /broker\.json\.sqlite$/);
-});
-
-test('an in-flight managed build blocks cutover before the scheduled task is ever stopped', async () => {
+test('in-flight thin build blocks cutover before scheduled task stops', async () => {
   const item = await fixture();
   try {
     let stopped = false; let installed = false;
-    await assert.rejects(runWindowsCutover(
-      { configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', taskName: 'RightKitBuildControl', endpoint: item.endpoint, v1StatePath: item.v1, healthWorkspace: item.health, timeoutMs: 100 },
-      {
-        platform: 'win32',
-        proveManagedDrain: () => { throw new Error('cannot activate while 1 managed request(s) are in flight: abc123=RUNNING'); },
-        stopLegacy: async () => { stopped = true; return { stopped: true }; },
-        install: async () => { installed = true; },
-      },
-    ), /in flight/);
-    // The whole point of the fix: the running build is never signalled.
-    assert.equal(stopped, false);
-    assert.equal(installed, false);
+    await assert.rejects(runWindowsCutover(input(item), { platform: 'win32', proveThinDrain: async () => { throw new Error('cannot activate while 1 thin request(s) are in flight: job-1'); }, stopManaged: async () => { stopped = true; }, install: async () => { installed = true; } }), /in flight/);
+    assert.equal(stopped, false); assert.equal(installed, false);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
 
-test('cutover CLI proves exact input selection & rechecks v1 drain at activation', async () => {
+test('cutover proves input selection & rechecks thin drain', async () => {
   const item = await fixture();
   try {
     let options;
-    const receipt = await runWindowsCutover(
-      { configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', taskName: 'RightKitBuildControl', endpoint: item.endpoint, v1StatePath: item.v1, healthWorkspace: item.health, timeoutMs: 100 },
-      {
-        platform: 'win32',
-        stopLegacy: async () => ({ stopped: true }),
-        install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); return { taskName: 'RightKitBuildControl' }; },
-      },
-    );
-    assert.equal(receipt.v1Drain.open, 0); assert.equal(options.externalRoot, item.external); assert.equal(options.configPath, item.config);
-    assert.equal(options.taskXmlPath.endsWith('.xml'), true);
+    const receipt = await runWindowsCutover(input(item), { platform: 'win32', stopManaged: async () => ({ stopped: true }), install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); return { taskName: 'RightKitBuildControl' }; } });
+    assert.equal(receipt.thinDrain.open, 0); assert.equal(options.externalRoot, item.external); assert.equal(options.taskXmlPath.endsWith('.xml'), true);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
 
-test('cutover CLI refuses config or v1-state identity drift before activation', async () => {
+test('cutover refuses named-pipe drift before activation', async () => {
   const item = await fixture();
-  try {
-    await writeFile(item.v1, JSON.stringify({ entries: [{ id: 'live', state: 'ACTIVE' }] }));
-    let installed = false;
-    await assert.rejects(runWindowsCutover(
-      { configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', taskName: 'RightKitBuildControl', endpoint: item.endpoint, v1StatePath: item.v1, healthWorkspace: item.health, timeoutMs: 100 },
-      { platform: 'win32', stopLegacy: async () => ({ stopped: true }), install: async () => { installed = true; } },
-    ), /no verifiable pid.*ownership|non-terminal/);
-    assert.equal(installed, false);
-  } finally { await rm(item.root, { recursive: true, force: true }); }
+  try { await assert.rejects(runWindowsCutover(input(item, '\\\\.\\pipe\\wrong'), { platform: 'win32', stopManaged: async () => {}, install: async () => {} }), /windowsPipe differs/); }
+  finally { await rm(item.root, { recursive: true, force: true }); }
 });
 
-test('cutover CLI refuses a windowsPipe mismatch before activation', async () => {
-  const item = await fixture();
-  try {
-    await assert.rejects(runWindowsCutover(
-      { configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', taskName: 'RightKitBuildControl', endpoint: '\\\\.\\pipe\\some-other-name', v1StatePath: item.v1, healthWorkspace: item.health, timeoutMs: 100 },
-      { platform: 'win32', stopLegacy: async () => ({ stopped: true }), install: async () => {} },
-    ), /windowsPipe differs/);
-  } finally { await rm(item.root, { recursive: true, force: true }); }
-});
-
-test('renderTaskDefinition sets non-interactive logon, auto-restart, & hidden — the crash/window fixes', () => {
+test('task definition is hidden, non-interactive, restartable, & boot/logon triggered', () => {
   const xml = renderTaskDefinition({ taskName: 'RightKitBuildControl', nodePath: 'C:\\node\\node.exe', brokerScript: 'C:\\rightkit\\broker.mjs', configPath: 'C:\\rightkit\\config.json' });
-  // S4U, not InteractiveToken: node.exe is a console-subsystem binary & would
-  // otherwise flash a visible window in the user's session on every restart.
-  assert.match(xml, /<LogonType>S4U<\/LogonType>/);
-  assert.match(xml, /<Hidden>true<\/Hidden>/);
-  assert.match(xml, /<RestartOnFailure>[\s\S]*<Count>999<\/Count>[\s\S]*<\/RestartOnFailure>/);
-  assert.match(xml, /<BootTrigger>/); assert.match(xml, /<LogonTrigger>/);
-  assert.match(xml, /<Command>C:\\node\\node\.exe<\/Command>/);
+  assert.match(xml, /<LogonType>S4U<\/LogonType>/); assert.match(xml, /<Hidden>true<\/Hidden>/); assert.match(xml, /<RestartOnFailure>[\s\S]*<Count>999<\/Count>/); assert.match(xml, /<BootTrigger>/); assert.match(xml, /<LogonTrigger>/);
 });
 
-test('renderTaskDefinition escapes reserved XML characters', () => {
-  const xml = renderTaskDefinition({ taskName: 'x', nodePath: 'C:\\a & b\\node.exe', brokerScript: 'C:\\x<y', configPath: 'C:\\c.json' });
-  assert.ok(!xml.includes('C:\\a & b\\node.exe'));
-  assert.match(xml, /C:\\a &amp; b\\node\.exe/);
+test('task definition escapes XML & temporary file uses UTF-16LE BOM', async () => {
+  assert.match(renderTaskDefinition({ taskName: 'x', nodePath: 'C:\\a & b\\node.exe', brokerScript: 'C:\\x<y', configPath: 'C:\\c.json' }), /C:\\a &amp; b\\node\.exe/);
+  let bytes; await withTaskDefinitionFile('<Task/>', async (file) => { bytes = await readFile(file); });
+  assert.deepEqual(bytes.subarray(0, 2), Buffer.from([0xff, 0xfe])); assert.equal(bytes.subarray(2).toString('utf16le'), '<Task/>');
 });
 
-test('Task Scheduler XML is written as BOM-prefixed UTF-16LE', async () => {
-  let bytes;
-  await withTaskDefinitionFile('<Task/>', async (file) => { bytes = await readFile(file); });
-  assert.deepEqual(bytes.subarray(0, 2), Buffer.from([0xff, 0xfe]));
-  assert.equal(bytes.subarray(2).toString('utf16le'), '<Task/>');
+test('Windows PID selection rejects shell/self matches', () => {
+  const processes = [{ ProcessId: 712, Name: 'powershell.exe', CommandLine: 'config.json' }, { ProcessId: 913, Name: 'NODE.EXE', ExecutablePath: 'c:/PROGRAM FILES/nodejs/NODE.EXE', CommandLine: 'node broker.mjs config.json' }];
+  assert.equal(selectWindowsNodePid(processes, 'C:\\Program Files\\nodejs\\node.exe'), 913); assert.equal(selectWindowsNodePid(processes[0], 'C:\\Program Files\\nodejs\\node.exe'), null);
 });
 
-test('Windows PID selection ignores PowerShell self-match & accepts canonical node candidate', () => {
-  const processes = [
-    { ProcessId: 712, Name: 'powershell.exe', CommandLine: 'powershell -Command ... config.json' },
-    { ProcessId: 411, Name: 'node.exe', ExecutablePath: 'C:\\Other\\node.exe', CommandLine: 'node broker.mjs config.json' },
-    { ProcessId: 913, Name: 'NODE.EXE', ExecutablePath: 'c:/PROGRAM FILES/nodejs/NODE.EXE', CommandLine: 'node broker.mjs config.json' },
-  ];
-  assert.equal(selectWindowsNodePid(processes, 'C:\\Program Files\\nodejs\\node.exe'), 913);
-  assert.equal(selectWindowsNodePid(processes[0], 'C:\\Program Files\\nodejs\\node.exe'), null);
-  assert.equal(selectWindowsNodePid({ ProcessId: 914, Name: 'node.exe' }, 'C:\\Program Files\\nodejs\\node.exe'), null);
-});
-
-test('fresh Windows cutover registers task before use & rollback handles absent or registered candidate', async () => {
-  const calls = [];
-  const execFile = async (command, args) => {
-    calls.push([command, args]);
-    if (args[0] === '/Query') throw new Error('missing task');
-    return { stdout: '' };
-  };
-  await ensureWindowsTaskRegistered({ taskName: 'RightKitTest', taskXmlPath: '/tmp/task.xml', execFile });
-  assert.deepEqual(calls.map(([, args]) => args[0]), ['/Create']);
-  const staleCalls = [];
-  await ensureWindowsTaskRegistered({ taskName: 'RightKitTest', taskXmlPath: '/tmp/task.xml', execFile: async (command, args) => { staleCalls.push([command, args]); } });
-  assert.deepEqual(staleCalls[0][1], ['/Create', '/TN', 'RightKitTest', '/XML', '/tmp/task.xml', '/F']);
-  const callbacks = createWindowsRuntimeCallbacks({ taskName: 'RightKitTest', endpoint: '\\\\.\\pipe\\rightkit-test', drainProbe: async () => ({ open: 0 }), execFile });
-  await callbacks.rollbackService({ prior: null });
-  assert.equal(calls.at(-1)[1][0], '/Query');
-  const registeredCalls = [];
-  const registeredExec = async (command, args) => { registeredCalls.push([command, args]); return { stdout: '' }; };
-  const registeredCallbacks = createWindowsRuntimeCallbacks({ taskName: 'RightKitTest', endpoint: '\\\\.\\pipe\\rightkit-test', drainProbe: async () => ({ open: 0 }), execFile: registeredExec });
-  await registeredCallbacks.rollbackService({ prior: null });
-  assert.equal(registeredCalls.at(-1)[1][0], '/End');
+test('fresh Windows cutover registers task & rollback ends registered candidate', async () => {
+  const calls = []; const execFile = async (command, args) => { calls.push([command, args]); if (args[0] === '/Query') throw new Error('missing'); return { stdout: '' }; };
+  await ensureWindowsTaskRegistered({ taskName: 'RightKitTest', taskXmlPath: '/tmp/task.xml', execFile }); assert.equal(calls[0][1][0], '/Create');
+  const registeredCalls = []; const callbacks = createWindowsRuntimeCallbacks({ taskName: 'RightKitTest', endpoint: '\\\\.\\pipe\\rightkit-test', drainProbe: async () => ({ open: 0 }), execFile: async (command, args) => { registeredCalls.push([command, args]); return { stdout: '' }; } });
+  await callbacks.rollbackService({ prior: null }); assert.equal(registeredCalls.at(-1)[1][0], '/End');
 });

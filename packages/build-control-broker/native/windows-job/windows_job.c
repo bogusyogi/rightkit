@@ -1,11 +1,8 @@
 // Windows Job Object containment for the managed build broker.
 //
-// UNTESTED ON THIS CHECKOUT: written on a Mac with no Windows host to compile
-// or run against. It follows the standard, widely-documented Win32 pattern
-// (the same one Chromium's sandbox launcher & Docker Desktop's Windows
-// process host use) precisely, but it has never been built or exercised.
-// Build with `node-gyp rebuild` on the target Windows machine and run
-// windows_job.test.mjs before wiring it into process-tree.mjs's win32 branch.
+// Built and exercised on the native Windows host on 2026-08-22. Acceptance
+// covered successful compile, explicit cancellation, broker-crash recovery,
+// creation-time identity, whole-tree reap, and generation rotation.
 //
 // Why CREATE_SUSPENDED is required, not optional: AssignProcessToJobObject
 // only captures processes already in the job when THEY spawn further

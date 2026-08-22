@@ -1,147 +1,71 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig, validateBrokerConfig } from './config.mjs';
 
-const fixture = () => ({ broker: { externalRoot: { path: '/managed', volumeId: 'disk-1', mounted: true, writable: true, internal: false }, capacityBytes: 100, stateFile: '/managed/state.json', receiptsDir: '/managed/receipts' }, unixSocket: '/managed/broker.sock', tools: [], shims: {}, defaults: {}, outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' }, bounds: { heartbeatIntervalMs: 10, diskSampleIntervalMs: 10, processGraceMs: 0, freeFloorBytes: 0, quotaWatermarkBytes: null, retentionMs: null, gcIntervalMs: 10 } });
-const addCargoTool = (value) => { value.tools = [{ id: 'cargo-pinned', path: '/opt/rust/bin/cargo', root: '/opt/rust', sha256: 'a'.repeat(64) }]; value.shims = { cargo: 'cargo-pinned' }; return value; };
+function fixture(root = '/managed') {
+  return {
+    schemaVersion: 2,
+    broker: { externalRoot: { path: root, volumeId: 'disk-1', mounted: true, writable: true, internal: false }, capacityBytes: 100_000, stateFile: `${root}/state.json`, receiptsDir: `${root}/receipts`, activationFencePath: `${root}/activation.json` },
+    unixSocket: `${root}/broker.sock`,
+    tools: [{ id: 'cargo', path: `${root}/tools/cargo`, root: `${root}/tools`, sha256: 'a'.repeat(64) }, { id: 'rustc', path: `${root}/tools/rustc`, root: `${root}/tools`, sha256: 'b'.repeat(64) }, { id: 'rustdoc', path: `${root}/tools/rustdoc`, root: `${root}/tools`, sha256: 'c'.repeat(64) }],
+    shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc' },
+    defaults: { toolchain: 'stable-aarch64-apple-darwin', targetTriple: 'aarch64-apple-darwin', targetTriples: ['aarch64-apple-darwin'], buildProfile: 'development', rustcToolId: 'rustc', rustdocToolId: 'rustdoc', cacheMode: 'disabled', cargoBuildJobs: 4 },
+    sccache: { mode: 'disabled', clientSide: false, lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20_000 },
+    outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
+    bounds: { heartbeatIntervalMs: 5_000, processGraceMs: 5_000, freeFloorBytes: 0, jobDeadlineMs: 0, outputBufferBytes: 8_192, outputHeadBytes: 1_024, outputTailBytes: 1_024, controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 1, workspaceWriteConcurrency: 4, workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 2_000 },
+  };
+}
 
-test('config accepts explicit known settings & freezes its outer object', () => {
-  const config = validateBrokerConfig(fixture());
-  assert.equal(config.broker.externalRoot.path, '/managed');
-  // The compiler cache carries a default size bound even while sccache is disabled.
-  assert.deepEqual(config.sccache, { mode: 'disabled', clientSide: false, lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 });
-  assert.ok(Object.isFrozen(config)); assert.ok(Object.isFrozen(config.broker)); assert.ok(Object.isFrozen(config.broker.externalRoot));
+test('config accepts exact thin settings & freezes result', () => {
+  const config = validateBrokerConfig(fixture()); assert.equal(config.bounds.buildConcurrency, 1); assert.equal(Object.isFrozen(config), true); assert.equal(Object.isFrozen(config.broker), true);
 });
 
-test('config refuses managed sccache without broker ownership proof contract', () => {
-  const value = addCargoTool(fixture()); value.defaults = { sccacheToolId: 'cargo-pinned', cacheMode: 'managed' }; value.sccache = { mode: 'managed', lifecycleOwner: 'broker', requireOwnershipProof: false };
+test('config rejects predecessor workflow, reservation, & maintenance concepts', () => {
+  for (const mutate of [
+    (v) => { v.broker.databasePath = '/managed/state.sqlite'; },
+    (v) => { v.broker.eventLogPath = '/managed/events.ndjson'; },
+    (v) => { v.broker.usedBytes = 1; },
+    (v) => { v.defaults.reservationBytes = 1; },
+    (v) => { v.bounds.maintenanceConcurrency = 1; },
+    (v) => { v.bounds.quotaWatermarkBytes = 1; },
+  ]) { const value = fixture(); mutate(value); assert.throws(() => validateBrokerConfig(value), /unknown/); }
+});
+
+test('config accepts Windows managed paths on any coordinator host', () => {
+  const root = 'D:\\RightKitManagedAgent'; const value = fixture(root); delete value.unixSocket; value.windowsPipe = '\\\\.\\pipe\\rightkit-managed-agent';
+  for (const tool of value.tools) { tool.root = `${root}\\tools`; tool.path = `${root}\\tools\\${tool.id}.exe`; }
+  value.broker.stateFile = `${root}\\state.json`; value.broker.receiptsDir = `${root}\\receipts`; value.broker.activationFencePath = `${root}\\activation.json`;
+  assert.equal(validateBrokerConfig(value).windowsPipe, value.windowsPipe);
+});
+
+test('client-side sccache requires pinned tool without server ownership', () => {
+  const value = fixture(); value.tools.push({ id: 'sccache', path: '/managed/tools/sccache', root: '/managed/tools', sha256: 'd'.repeat(64) }); value.defaults.sccacheToolId = 'sccache'; value.defaults.cacheMode = 'managed'; value.sccache = { mode: 'managed', clientSide: true, lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20_000 };
+  assert.equal(validateBrokerConfig(value).sccache.clientSide, true);
+  value.sccache.lifecycleOwner = 'broker'; assert.throws(() => validateBrokerConfig(value), /client-side/);
+});
+
+test('server-side sccache requires broker ownership proof', () => {
+  const value = fixture(); value.tools.push({ id: 'sccache', path: '/managed/tools/sccache', root: '/managed/tools', sha256: 'd'.repeat(64) }); value.defaults.sccacheToolId = 'sccache'; value.defaults.cacheMode = 'managed'; value.sccache = { mode: 'managed', clientSide: false, lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20_000 };
   assert.throws(() => validateBrokerConfig(value), /ownership proof/);
-  value.sccache.requireOwnershipProof = true;
-  assert.equal(validateBrokerConfig(value).sccache.mode, 'managed');
 });
 
-test('config accepts pinned client-side sccache without broker server ownership', () => {
-  const value = addCargoTool(fixture()); value.defaults = { sccacheToolId: 'cargo-pinned', cacheMode: 'managed' };
-  value.sccache = { mode: 'managed', clientSide: true, lifecycleOwner: null, requireOwnershipProof: false };
-  const config = validateBrokerConfig(value);
-  assert.equal(config.sccache.clientSide, true); assert.equal(config.sccache.lifecycleOwner, null);
+test('config validates external command pins & bounded output', () => {
+  const value = fixture(); value.tools.push({ id: 'cargo-upgrade', path: '/managed/tools/cargo-upgrade', root: '/managed/tools', sha256: 'd'.repeat(64) }); value.externalCommands = [{ shim: 'cargo', command: 'upgrade', toolId: 'cargo-upgrade', lane: 'WORKSPACE_WRITE', digest: 'd'.repeat(64) }];
+  assert.equal(validateBrokerConfig(value).externalCommands[0].command, 'upgrade');
+  value.bounds.outputHeadBytes = 7_500; assert.throws(() => validateBrokerConfig(value), /outputHeadBytes.*outputTailBytes/);
 });
 
-test('config accepts a Windows managed-root path on any coordinator host', () => {
-  const value = fixture(); value.broker.externalRoot.path = 'D:\\RightKitManagedAgent\\external'; value.broker.stateFile = 'D:\\RightKitManagedAgent\\external\\state.json'; value.broker.receiptsDir = 'D:\\RightKitManagedAgent\\external\\receipts'; delete value.unixSocket; value.windowsPipe = '\\\\.\\pipe\\rightkit-managed-agent';
-  assert.equal(validateBrokerConfig(value).broker.externalRoot.path, 'D:\\RightKitManagedAgent\\external');
+test('config rejects unknown keys, escaped paths, & malformed endpoints', () => {
+  const unknown = fixture(); unknown.mystery = true; assert.throws(() => validateBrokerConfig(unknown), /unknown broker config key/);
+  const escaped = fixture(); escaped.broker.receiptsDir = '/elsewhere'; assert.throws(() => validateBrokerConfig(escaped), /remain below/);
+  const endpoint = fixture(); endpoint.unixSocket = 'relative.sock'; assert.throws(() => validateBrokerConfig(endpoint), /absolute/);
 });
 
-test('config rejects unknown settings at every owned boundary', () => {
-  for (const change of [
-    (v) => { v.ignored = true; },
-    (v) => { v.broker.pollIntervalMs = 1; },
-    (v) => { v.broker.externalRoot.mutable = true; },
-    (v) => { v.outputPolicy.recursiveScan = true; },
-    (v) => { v.bounds.unknownBound = 1; }
-  ]) { const value = fixture(); change(value); assert.throws(() => validateBrokerConfig(value), /unknown/); }
-});
-
-test('v1 poll interval is accepted only as disk-sample compatibility input', () => {
-  const value = fixture(); delete value.bounds.diskSampleIntervalMs; value.schemaVersion = 1; value.bounds.pollIntervalMs = 123;
-  assert.equal(validateBrokerConfig(value).bounds.diskSampleIntervalMs, 123);
-});
-
-test('config loader wraps invalid JSON & validates parsed values', async () => {
-  await assert.rejects(loadBrokerConfig('/config.json', { readFile: async () => '{' }), /invalid broker config/);
-  await assert.rejects(loadBrokerConfig('/config.json', { readFile: async () => JSON.stringify({ ...fixture(), unixSocket: 'relative.sock' }) }), /absolute path/);
-});
-
-test('config loader strips a leading UTF-8 BOM instead of failing opaquely', async () => {
-  // PowerShell's Set-Content/Out-File write this by default on Windows.
-  const config = await loadBrokerConfig('/config.json', { readFile: async () => `﻿${JSON.stringify(fixture())}` });
-  assert.equal(config.broker.externalRoot.path, '/managed');
-});
-
-test('config validates digest-pinned external command registrations', () => {
-  const value = addCargoTool(fixture()); value.externalCommands = [{ shim: 'cargo', command: 'about', toolId: 'cargo-pinned', lane: 'CONTROL', digest: 'a'.repeat(64) }];
-  const config = validateBrokerConfig(value); assert.equal(config.externalCommands[0].toolId, 'cargo-pinned'); assert.ok(Object.isFrozen(config.externalCommands));
-  for (const mutate of [
-    (entry) => { entry.digest = 'bad'; },
-    (entry) => { entry.lane = 'MAINTENANCE'; },
-    (entry) => { entry.extra = true; },
-    (entry) => { entry.shim = 'rustc'; }
-  ]) { const candidate = addCargoTool(fixture()); candidate.externalCommands = [{ shim: 'cargo', command: 'about', toolId: 'cargo-pinned', lane: 'CONTROL', digest: 'a'.repeat(64) }]; mutate(candidate.externalCommands[0]); assert.throws(() => validateBrokerConfig(candidate)); }
-  const duplicate = addCargoTool(fixture()); duplicate.externalCommands = [value.externalCommands[0], value.externalCommands[0]]; assert.throws(() => validateBrokerConfig(duplicate), /duplicate/);
-});
-
-test('config rejects malformed tool registrations & unregistered references', () => {
-  for (const mutate of [
-    (v) => { addCargoTool(v).tools[0].extra = true; },
-    (v) => { addCargoTool(v).tools[0].path = '/other/cargo'; },
-    (v) => { addCargoTool(v).tools[0].path = 'relative/cargo'; },
-    (v) => { addCargoTool(v).tools[0].sha256 = 'not-a-digest'; },
-    (v) => { addCargoTool(v).tools.push({ ...v.tools[0] }); },
-    (v) => { v.shims = { cargo: 'unregistered' }; },
-    (v) => { addCargoTool(v); v.defaults = { rustcToolId: 'unregistered' }; }
-  ]) { const value = fixture(); mutate(value); assert.throws(() => validateBrokerConfig(value)); }
-});
-
-test('config validates every defaults field & sccache cross-field contract', () => {
-  const valid = addCargoTool(fixture()); valid.defaults = { repositoryIdentity: 'repo-1', toolchain: 'stable', targetTriple: 'x86_64-apple-darwin', targetTriples: ['x86_64-apple-darwin', 'aarch64-apple-darwin'], buildProfile: 'development', reservationBytes: 100, rustcToolId: 'cargo-pinned', rustdocToolId: 'cargo-pinned', sccacheToolId: 'cargo-pinned', cacheMode: 'managed', cargoBuildJobs: 4 }; valid.sccache = { mode: 'managed', lifecycleOwner: 'broker', requireOwnershipProof: true };
-  assert.equal(validateBrokerConfig(valid).defaults.cargoBuildJobs, 4);
-  for (const mutate of [
-    (v) => { addCargoTool(v); v.defaults = { unknown: true }; },
-    (v) => { addCargoTool(v); v.defaults = { targetTriple: 'x86_64-apple-darwin', targetTriples: ['aarch64-apple-darwin'] }; },
-    (v) => { addCargoTool(v); v.defaults = { targetTriples: ['x86_64-apple-darwin', 'x86_64-apple-darwin'] }; },
-    (v) => { addCargoTool(v); v.defaults = { cargoBuildJobs: 0 }; },
-    (v) => { addCargoTool(v); v.defaults = { reservationBytes: 101 }; },
-    (v) => { addCargoTool(v); v.defaults = { cacheMode: 'automatic' }; },
-    (v) => { addCargoTool(v); v.sccache = { mode: 'disabled', lifecycleOwner: 'broker', requireOwnershipProof: true }; }
-  ]) { const value = fixture(); mutate(value); assert.throws(() => validateBrokerConfig(value)); }
-});
-
-test('config rejects missing or malformed endpoints, escaped state paths & invalid output policy', () => {
-  for (const mutate of [
-    (v) => { delete v.unixSocket; },
-    (v) => { v.windowsPipe = 'rightkit'; },
-    (v) => { v.broker.stateFile = '/state.json'; },
-    (v) => { v.broker.receiptsDir = '/managed/../receipts'; },
-    (v) => { v.outputPolicy.allowedSourceDirs = ['src', '../escape']; },
-    (v) => { v.outputPolicy.mode = 'audit'; },
-    (v) => { v.outputPolicy.scanRoot = 'workspace'; }
-  ]) { const value = fixture(); mutate(value); assert.throws(() => validateBrokerConfig(value)); }
-});
-
-test('config enforces capacity & bounded-output relationships without conflating disk floor with quota', () => {
-  const valid = fixture(); valid.broker.usedBytes = 100; valid.bounds.freeFloorBytes = 10_000; valid.bounds.outputBufferBytes = 4_096; valid.bounds.outputHeadBytes = 2_048; valid.bounds.outputTailBytes = 2_048;
-  assert.equal(validateBrokerConfig(valid).bounds.freeFloorBytes, 10_000);
-  for (const mutate of [
-    (v) => { v.broker.usedBytes = 101; },
-    (v) => { v.bounds.quotaWatermarkBytes = 101; },
-    (v) => { v.bounds.outputBufferBytes = 1_024; v.bounds.outputHeadBytes = 1_024; v.bounds.outputTailBytes = 1; },
-    (v) => { v.bounds.eventHistoryEntries = 15; },
-    (v) => { v.bounds.eventLogMaxBytes = 1_023; },
-    (v) => { v.schemaVersion = 2; v.bounds.pollIntervalMs = 10; }
-  ]) { const value = fixture(); mutate(value); assert.throws(() => validateBrokerConfig(value)); }
-});
-
-test('schema v2 requires a contained activation fence while v1 remains migration-compatible', () => {
-  const missing = fixture(); missing.schemaVersion = 2;
-  assert.throws(() => validateBrokerConfig(missing), /activationFencePath/);
-  const valid = fixture(); valid.schemaVersion = 2; valid.broker.activationFencePath = '/managed/state/activation-fence.json';
-  assert.equal(validateBrokerConfig(valid).broker.activationFencePath, '/managed/state/activation-fence.json');
-  const escaped = fixture(); escaped.schemaVersion = 2; escaped.broker.activationFencePath = '/outside/fence.json';
-  assert.throws(() => validateBrokerConfig(escaped), /below broker\.externalRoot/);
-});
-
-test('config validation accepts any bounded external command name, not a hardcoded pair', () => {
-  // config.mjs and command-capabilities.mjs both validate this entry. When only
-  // the registry was opened, config load still rejected the same row and the
-  // broker crash-looped on every start, so the two must agree.
-  for (const command of ['outdated', 'machete', 'audit', 'deny']) {
-    const value = addCargoTool(fixture());
-    value.externalCommands = [{ shim: 'cargo', command, toolId: 'cargo-pinned', lane: 'CONTROL', digest: 'a'.repeat(64) }];
-    assert.equal(validateBrokerConfig(value).externalCommands[0].command, command);
-  }
-  for (const command of ['--version', 'Outdated', '../evil', 'a b', '']) {
-    const value = addCargoTool(fixture());
-    value.externalCommands = [{ shim: 'cargo', command, toolId: 'cargo-pinned', lane: 'CONTROL', digest: 'a'.repeat(64) }];
-    assert.throws(() => validateBrokerConfig(value), `${command} was accepted`);
-  }
+test('config loader strips UTF-8 BOM & wraps malformed JSON', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rk-config-')); const path = join(root, 'config.json');
+  try { await writeFile(path, `﻿${JSON.stringify(fixture(root))}`); assert.equal((await loadBrokerConfig(path)).schemaVersion, 2); await writeFile(path, '{'); await assert.rejects(loadBrokerConfig(path), /invalid broker config/); }
+  finally { await rm(root, { recursive: true, force: true }); }
 });

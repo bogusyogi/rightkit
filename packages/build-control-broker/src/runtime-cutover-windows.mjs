@@ -115,7 +115,7 @@ export function createWindowsRuntimeCallbacks(options = {}) {
   } = options;
   if (typeof taskName !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(taskName)) throw new TypeError('taskName must be an exact scheduled-task name');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100) throw new TypeError('timeoutMs must be at least 100');
-  if (typeof drainProbe !== 'function') throw new TypeError('drainProbe is required to refuse open legacy v1 requests');
+  if (typeof drainProbe !== 'function') throw new TypeError('drainProbe is required to refuse active thin requests');
   const pipe = endpoint ?? config?.windowsPipe;
   if (typeof pipe !== 'string' || pipe.length === 0) throw new TypeError('endpoint or config.windowsPipe is required');
 

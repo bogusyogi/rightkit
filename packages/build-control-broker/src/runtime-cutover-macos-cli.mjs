@@ -6,17 +6,15 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { loadBrokerConfig } from './config.mjs';
 import { installManagedRuntimeMacOS } from './runtime-cutover-macos.mjs';
-import { drainStoppedV1Broker } from './v1-drain.mjs';
-import { reapPersistedProcessTree } from './process-tree.mjs';
-import { absoluteHostPath as absolute, assertDirectory, assertFile, contained, managedDatabasePath, proveManagedRequestsDrained, proveV1Drained, targetAbsent } from './cutover-shared.mjs';
+import { absoluteHostPath as absolute, assertDirectory, assertFile, contained, proveThinRequestsDrained } from './cutover-shared.mjs';
 
 const execDefault = promisify(childExecFile);
 
-const required = new Set(['config', 'external-root', 'source-packages', 'source-revision', 'source-tree-digest', 'version', 'label', 'uid', 'endpoint', 'plist', 'v1-state', 'health-workspace']);
+const required = new Set(['config', 'external-root', 'source-packages', 'source-revision', 'source-tree-digest', 'version', 'label', 'uid', 'endpoint', 'plist', 'health-workspace']);
 
 // Re-exported: these now live in cutover-shared.mjs, shared with the Windows
 // cutover CLI, but kept importable from here for existing callers & tests.
-export { managedDatabasePath, proveManagedRequestsDrained, proveV1Drained };
+export { proveThinRequestsDrained };
 
 export function parseMacOSCutoverArgs(argv) {
   const values = {};
@@ -38,7 +36,7 @@ export function parseMacOSCutoverArgs(argv) {
   return Object.freeze({
     configPath: absolute(values.config, 'config'), externalRoot: absolute(values['external-root'], 'external-root'), sourcePackagesRoot: absolute(values['source-packages'], 'source-packages'),
     version: values.version, sourceRevision: values['source-revision'], sourceTreeDigest: values['source-tree-digest'], launchdLabel: values.label, uid, endpoint: absolute(values.endpoint, 'endpoint'), plistPath: absolute(values.plist, 'plist'),
-    v1StatePath: absolute(values['v1-state'], 'v1-state'), healthWorkspace: absolute(values['health-workspace'], 'health-workspace'), timeoutMs,
+    healthWorkspace: absolute(values['health-workspace'], 'health-workspace'), timeoutMs,
   });
 }
 
@@ -51,25 +49,18 @@ function plistProgramArguments(contents) {
   if (!block) throw new Error('plist ProgramArguments are required');
   return [...block.matchAll(/<string>([\s\S]*?)<\/string>/g)].map((match) => match[1].replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>'));
 }
-async function stopLegacyLaunchd({ launchdLabel, uid, plistPath, endpoint, execFile = execDefault, netModule = net }) {
+export async function stopManagedLaunchd({ launchdLabel, uid, plistPath, endpoint, execFile = execDefault, netModule = net }) {
   const target = `gui/${uid}/${launchdLabel}`; const domain = `gui/${uid}`;
   await execFile('launchctl', ['disable', target]);
   await execFile('launchctl', ['bootout', domain, plistPath]).catch(() => {});
   const visible = await execFile('launchctl', ['print', target]).then(() => true).catch(() => false);
-  if (visible) throw new Error('v1 launchd service remains loaded after bootout');
+  if (visible) throw new Error('managed launchd service remains loaded after bootout');
   const listener = await new Promise((resolveListener) => {
     const socket = netModule.createConnection(endpoint); const done = (open) => { socket.destroy(); resolveListener(open); };
     socket.once('connect', () => done(true)); socket.once('error', () => done(false));
   });
-  if (listener) throw new Error('v1 broker listener remains reachable after stop');
+  if (listener) throw new Error('managed broker listener remains reachable after stop');
   return Object.freeze({ stopped: true, target, listener: false });
-}
-
-export async function proveLegacyOwnershipAbsent(ownership, { reapOwnership = reapPersistedProcessTree, processKill = process.kill } = {}) {
-  const pgid = ownership?.pgid ?? ownership?.processGroupId ?? ownership?.pid;
-  const reap = await reapOwnership({ ...ownership, platform: 'posix', processGroupId: pgid });
-  const absent = reap.reaped === true || (Number.isSafeInteger(ownership?.pid) && ownership.pid > 0 && Number.isSafeInteger(pgid) && pgid > 0 && targetAbsent(ownership.pid, processKill) && targetAbsent(-pgid, processKill));
-  return Object.freeze({ absent, reap, fallback: absent && reap.reaped !== true ? 'pid-pgid-esrch' : null });
 }
 
 /**
@@ -77,13 +68,13 @@ export async function proveLegacyOwnershipAbsent(ownership, { reapOwnership = re
  * selection before allowing runtime.mjs to stage or switch runtime-current.
  */
 export async function runMacOSCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopLegacy = stopLegacyLaunchd, drainLegacy = drainStoppedV1Broker, reapOwnership = reapPersistedProcessTree, processKill = process.kill, proveManagedDrain = proveManagedRequestsDrained } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopManaged = stopManagedLaunchd, proveThinDrain = proveThinRequestsDrained } = dependencies;
   if (platform !== 'darwin') throw new Error('macOS cutover may only run on darwin');
   const options = typeof input?.configPath === 'string' ? input : parseMacOSCutoverArgs(input);
-  const [configPath, externalRoot, sourcePackagesRoot, plistPath, v1StatePath, healthWorkspace] = await Promise.all([
-    canonicalize(options.configPath), canonicalize(options.externalRoot), canonicalize(options.sourcePackagesRoot), canonicalize(options.plistPath), canonicalize(options.v1StatePath), canonicalize(options.healthWorkspace),
+  const [configPath, externalRoot, sourcePackagesRoot, plistPath, healthWorkspace] = await Promise.all([
+    canonicalize(options.configPath), canonicalize(options.externalRoot), canonicalize(options.sourcePackagesRoot), canonicalize(options.plistPath), canonicalize(options.healthWorkspace),
   ]);
-  await assertFile(configPath, 'config', statFile); await assertFile(plistPath, 'plist', statFile); await assertFile(v1StatePath, 'v1 state', statFile); await assertDirectory(healthWorkspace, 'health workspace', statFile); await assertFile(resolve(healthWorkspace, 'Cargo.toml'), 'health workspace Cargo.toml', statFile);
+  await assertFile(configPath, 'config', statFile); await assertFile(plistPath, 'plist', statFile); await assertDirectory(healthWorkspace, 'health workspace', statFile); await assertFile(resolve(healthWorkspace, 'Cargo.toml'), 'health workspace Cargo.toml', statFile);
   const config = await loadConfig(configPath);
   if (resolve(config.broker.externalRoot.path) !== externalRoot) throw new Error('config broker.externalRoot.path differs from --external-root');
   if (resolve(config.unixSocket ?? '') !== options.endpoint) throw new Error('config unixSocket differs from --endpoint');
@@ -93,18 +84,16 @@ export async function runMacOSCutover(input, dependencies = {}) {
   const programArguments = plistProgramArguments(plist); const runtimeScript = resolve(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   if (programArguments.length !== 3 || programArguments.some((value) => !isAbsolute(value) || /\s/.test(value)) || resolve(programArguments[1]) !== runtimeScript || resolve(programArguments[2]) !== configPath) throw new Error('plist ProgramArguments must be exact node, runtime-current broker, & config paths');
   const nodePath = await canonicalize(programArguments[0]); await assertFile(nodePath, 'plist Node executable', statFile);
-  // Ordered before stopLegacy on purpose: proving the drain after the service
-  // is stopped would only confirm the build this activation just killed.
-  const managedDrain = proveManagedDrain(managedDatabasePath(config));
-  const stopProof = await stopLegacy({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
-  const drainResult = await drainLegacy({ statePath: v1StatePath, receiptsDir: config.broker.receiptsDir, assertBrokerStopped: async () => stopProof, assertOwnershipAbsent: async ({ ownership }) => proveLegacyOwnershipAbsent(ownership, { reapOwnership, processKill }) });
-  const drain = await proveV1Drained(v1StatePath, { readFile: load });
+  // Ordered before stop on purpose: a post-stop check could only confirm work
+  // this activation just killed.
+  const thinDrain = await proveThinDrain(externalRoot);
+  const stopProof = await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
   const result = await install({
     externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
     plistPath, configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs,
-    drainProbe: async () => ({ open: (await proveV1Drained(v1StatePath, { readFile: load })).open }),
+    drainProbe: async () => proveThinDrain(externalRoot),
   });
-  return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, plistPath, managedDrain, v1Drain: { ...drain, drainResult, stopProof }, result });
+  return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, plistPath, thinDrain, stopProof, result });
 }
 
 async function main() {

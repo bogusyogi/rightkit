@@ -12,7 +12,7 @@
     "rightkit-build-bootstrap-windows": "src/bootstrap-windows-cli.mjs"
   },
   "scripts": {
-    "test": "node --test --test-concurrency=1 src/*.test.mjs legacy-v1/quarantine.test.mjs",
+    "test": "node --test --test-concurrency=1 src/*.test.mjs",
     "cutover:macos": "node src/runtime-cutover-macos-cli.mjs",
     "cutover:windows": "node src/runtime-cutover-windows-cli.mjs",
     "bootstrap:macos": "node src/bootstrap-macos-cli.mjs",

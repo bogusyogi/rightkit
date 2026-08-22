@@ -47,7 +47,7 @@ test('macOS cutover uses exact launchctl target, waits PID change & validates ha
   await callbacks.probeService({ manifest, restart: result, timeoutMs: 200 });
 });
 
-test('macOS cutover refuses while legacy v1 requests remain open', async () => {
+test('macOS cutover refuses while thin requests remain active', async () => {
   const { callbacks, calls } = harness({ open: 1 });
   await assert.rejects(callbacks.restartService({ manifest, timeoutMs: 200 }), /open v1 request/);
   assert.equal(calls.length, 0);

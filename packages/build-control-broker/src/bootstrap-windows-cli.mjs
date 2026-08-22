@@ -146,13 +146,9 @@ export function shimTable(tools) {
 // actually run under them, not fresh guesses. See that file for the rationale.
 export function defaultBounds() {
   return {
-    heartbeatIntervalMs: 5_000, diskSampleIntervalMs: 5_000, processGraceMs: 5_000,
-    retentionMs: 604_800_000, gcIntervalMs: 300_000, statfsTimeoutMs: 1_000, jobDeadlineMs: 0,
+    heartbeatIntervalMs: 5_000, processGraceMs: 5_000, jobDeadlineMs: 0,
     outputBufferBytes: 8 * 1024 * 1024, outputHeadBytes: 16_384, outputTailBytes: 16_384,
-    eventHistoryEntries: 4_096, eventHistoryBytes: 8 * 1024 * 1024, eventLogMaxBytes: 8 * 1024 * 1024,
-    maintenanceBatchEntries: 128, controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 1, workspaceWriteConcurrency: 4,
-    maintenanceConcurrency: 1, priorityAgingMs: 30_000, targetCacheCapBytes: 150 * 1024 ** 3,
-    targetCacheFloorMs: 86_400_000,
+    controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 1, workspaceWriteConcurrency: 4, targetCacheCapBytes: 150 * 1024 ** 3,
     workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 2_000,
   };
 }
@@ -178,8 +174,6 @@ export async function buildConfig({ externalRoot }) {
       externalRoot: { path: externalRoot, volumeId: 'unknown', mounted: true, writable: true, internal: false },
       capacityBytes: 200 * 1024 ** 3,
       stateFile: join(externalRoot, 'state', 'broker.json'),
-      databasePath: join(externalRoot, 'state', 'broker.sqlite'),
-      eventLogPath: join(externalRoot, 'state', 'events.ndjson'),
       activationFencePath: join(externalRoot, 'state', 'runtime-activation.json'),
       receiptsDir: join(externalRoot, 'receipts'),
     },
@@ -189,7 +183,7 @@ export async function buildConfig({ externalRoot }) {
     externalCommands: externalCommands(tools),
     defaults: {
       toolchain, targetTriple, targetTriples: [targetTriple],
-      buildProfile: 'development', reservationBytes: 16 * 1024 ** 3,
+      buildProfile: 'development',
       // Only referenced when actually discovered: the field is schema-optional,
       // & pointing it at an unregistered tool id rejects the whole config.
       ...(tools.some((tool) => tool.id === 'rustc') ? { rustcToolId: 'rustc' } : {}),
@@ -209,7 +203,6 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const externalRoot = resolve(options.externalRoot ?? 'D:\\.rightkit-managed');
   const configPath = join(externalRoot, 'config.json');
-  const v1StatePath = join(externalRoot, 'state', 'broker.json');
 
   mkdirSync(externalRoot, { recursive: true });
   mkdirSync(join(externalRoot, 'state'), { recursive: true });
@@ -220,11 +213,6 @@ async function main() {
     console.log(`bootstrap-windows: wrote ${configPath} (${config.tools.length} tools discovered)`);
   } else {
     console.log(`bootstrap-windows: ${configPath} already exists; pass --force to regenerate`);
-  }
-
-  if (!existsSync(v1StatePath)) {
-    writeFileSync(v1StatePath, `${JSON.stringify({ entries: [] }, null, 2)}\n`);
-    console.log(`bootstrap-windows: wrote empty v1 drain state at ${v1StatePath}`);
   }
 
   const sourceRevision = (await execFile('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'])).stdout.trim();
@@ -243,7 +231,7 @@ async function main() {
     configPath, externalRoot, sourcePackagesRoot, sourceRevision, sourceTreeDigest,
     version: `bootstrap-${sourceRevision.slice(0, 8)}-${Date.now()}`,
     taskName: TASK_NAME, endpoint: '\\\\.\\pipe\\rightkit-build-control',
-    v1StatePath, healthWorkspace, timeoutMs: 20_000,
+    healthWorkspace, timeoutMs: 20_000,
   });
   console.log(JSON.stringify(receipt, null, 2));
   console.log('bootstrap-windows: broker activated');

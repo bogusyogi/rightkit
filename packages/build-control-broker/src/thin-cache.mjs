@@ -1,5 +1,5 @@
 import { execFile as nodeExecFile } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 
 const defaultRun = promisify(nodeExecFile);
@@ -86,6 +86,7 @@ export class ThinCache {
 
   async finish(prepared) {
     if (prepared?.mode !== 'sccache') return Object.freeze({ mode: prepared?.mode ?? 'direct', status: prepared?.status ?? 'DISABLED', ...(prepared?.reason ? { reason: prepared.reason } : {}), delta: null });
+    if (this.#clientSide) return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', reason: 'client-side-counters-unattributable', delta: null, attribution: Object.freeze({ ...prepared.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: new Date(this.#now()).toISOString() }) });
     const sample = await this.snapshot();
     if (sample.status !== 'SERVICE_OK') return Object.freeze({ mode: 'sccache', status: 'DEGRADED', reason: sample.reason, delta: null, attribution: sample.attribution ?? prepared.attribution ?? null });
     const measured = delta(prepared.before, sample.stats) ?? {};
@@ -103,8 +104,7 @@ export class ThinCache {
         encoding: 'utf8', timeout: this.#timeout, maxBuffer: MAX_STATS_BYTES
       });
       const parsed = JSON.parse(String(result?.stdout ?? result));
-      const identity = JSON.stringify({ version: parsed.version ?? null, cacheLocation: parsed.cache_location ?? null, basedirs: parsed.basedirs ?? null, clientSide: this.#clientSide });
-      return Object.freeze({ status: 'SERVICE_OK', stats: Object.freeze(numbers(parsed.stats ?? parsed) ?? {}), attribution: Object.freeze({ scope: 'shared-cumulative-root-window', epoch: this.#epoch, serverIdentity: createHash('sha256').update(identity).digest('hex'), mode: this.#clientSide ? 'client-side' : 'server', sampledAt: new Date(this.#now()).toISOString() }) });
+      return Object.freeze({ status: 'SERVICE_OK', stats: Object.freeze(numbers(parsed.stats ?? parsed) ?? {}), attribution: Object.freeze({ scope: this.#clientSide ? 'client-side-counters-unattributable' : 'shared-cumulative-root-window', epoch: this.#epoch, serverIdentity: null, mode: this.#clientSide ? 'client-side' : 'server', sampledAt: new Date(this.#now()).toISOString() }) });
     } catch (error) {
       return Object.freeze({ status: 'DEGRADED', stats: null, reason: cacheFailureReason(error) });
     }

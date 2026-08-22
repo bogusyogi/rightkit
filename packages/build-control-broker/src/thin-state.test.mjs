@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -18,7 +18,7 @@ test('creates required global & persistent workspace generation layout', async (
   try {
     const workspace = await item.state.workspace(item.workspace);
     assert.equal(workspace.state.currentGeneration, 1);
-    for (const path of [item.state.paths.state, item.state.paths.cargoHome, item.state.paths.compilerCache, item.state.paths.tools, item.state.paths.active, item.state.paths.logs, item.state.paths.receipts, workspace.layout.target, workspace.layout.temp]) await assert.doesNotReject((await import('node:fs/promises')).stat(path));
+    for (const path of [item.state.paths.state, item.state.paths.cargoHome, item.state.paths.compilerCache, item.state.paths.tools, item.state.paths.active, item.state.paths.trash, item.state.paths.logs, item.state.paths.receipts, workspace.layout.target, workspace.layout.temp]) await assert.doesNotReject((await import('node:fs/promises')).stat(path));
     assert.equal(workspace.layout.temp, join(item.root, 'tmp'));
     assert.equal(workspace.layout.build, undefined);
     assert.equal(JSON.parse(await readFile(workspace.identityPath, 'utf8')).canonicalRoot, item.workspace);
@@ -51,5 +51,16 @@ test('restart rotates only workspace with active writer & records ABANDONED', as
     assert.equal((await item.state.workspace(item.workspace)).state.currentGeneration, 2);
     assert.equal((await item.state.workspace(other)).state.currentGeneration, 1);
     assert.equal((await item.state.receipt('job-crashed')).status, 'ABANDONED');
+  } finally { await item.close(); }
+});
+
+test('thin GC deletes oldest retired generation while preserving current generation', async () => {
+  const item = await fixture();
+  try {
+    const first = await item.state.workspace(item.workspace); await writeFile(join(first.layout.target, 'old.bin'), Buffer.alloc(16));
+    const second = await item.state.rotate(item.workspace, 'test'); await writeFile(join(second.layout.target, 'current.bin'), Buffer.alloc(16));
+    const result = await item.state.gc({ capBytes: 20 });
+    assert.deepEqual(result.deleted.map(({ generation }) => generation), [1]);
+    await assert.rejects(stat(first.layout.root), { code: 'ENOENT' }); await assert.doesNotReject(stat(second.layout.root));
   } finally { await item.close(); }
 });

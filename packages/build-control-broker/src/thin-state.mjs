@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize } from 'node:path';
 
 const SCHEMA_VERSION = 1;
@@ -65,6 +65,7 @@ export class ThinState {
       tools: join(this.#base, 'global', 'tools'),
       active: join(this.#base, 'global', 'active'),
       workspaces: join(this.#base, 'workspaces'),
+      trash: join(this.#base, 'trash'),
       logs: join(this.#base, 'logs'),
       receipts: join(this.#base, 'receipts')
     });
@@ -176,6 +177,34 @@ export class ThinState {
     return Object.freeze(recovered);
   }
 
+  /** Delete oldest retired generations only when total generation storage is
+   * above cap. Current and active-writer generations are never candidates. */
+  async gc({ capBytes } = {}) {
+    if (capBytes === null || capBytes === undefined) return Object.freeze({ capBytes: null, beforeBytes: null, afterBytes: null, deleted: Object.freeze([]) });
+    if (!Number.isSafeInteger(capBytes) || capBytes < 1) throw new TypeError('gc capBytes must be a positive integer or null');
+    const candidates = []; let total = 0;
+    for (const workspaceEntry of await readdir(this.paths.workspaces, { withFileTypes: true })) {
+      if (!workspaceEntry.isDirectory()) continue;
+      const directory = join(this.paths.workspaces, workspaceEntry.name); const state = await readJson(join(directory, STATE_FILE), { missing: null });
+      if (!state) continue;
+      const generations = join(directory, 'generations');
+      for (const generationEntry of await readdir(generations, { withFileTypes: true }).catch((error) => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
+        if (!generationEntry.isDirectory() || !/^\d{6}$/.test(generationEntry.name)) continue;
+        const generation = Number(generationEntry.name); const path = join(generations, generationEntry.name); const sizeBytes = await directorySize(path); const metadata = await lstat(path);
+        total += sizeBytes;
+        if (generation !== state.currentGeneration && generation !== state.active?.generation) candidates.push({ workspaceKey: workspaceEntry.name, generation, path, sizeBytes, modifiedMs: metadata.mtimeMs });
+      }
+    }
+    const beforeBytes = total; const deleted = [];
+    for (const candidate of candidates.sort((left, right) => left.modifiedMs - right.modifiedMs || left.path.localeCompare(right.path))) {
+      if (total <= capBytes) break;
+      const trash = join(this.paths.trash, `${candidate.workspaceKey}-${generationName(candidate.generation)}-${randomUUID()}`);
+      await rename(candidate.path, trash); await rm(trash, { recursive: true, force: true }); total -= candidate.sizeBytes;
+      deleted.push(Object.freeze({ workspaceKey: candidate.workspaceKey, generation: candidate.generation, sizeBytes: candidate.sizeBytes }));
+    }
+    return Object.freeze({ capBytes, beforeBytes, afterBytes: total, deleted: Object.freeze(deleted) });
+  }
+
   #layout(workspace, generation) {
     const root = join(workspace.directory, 'generations', generationName(generation));
     return Object.freeze({ generation, root, target: join(root, 'target'), temp: this.paths.temporary });
@@ -198,3 +227,13 @@ export class ThinState {
 
 export const thinWorkspaceKey = workspaceKey;
 export const thinGenerationName = generationName;
+
+async function directorySize(root) {
+  let total = 0;
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) total += await directorySize(path);
+    else if (entry.isFile()) total += (await lstat(path)).size;
+  }
+  return total;
+}

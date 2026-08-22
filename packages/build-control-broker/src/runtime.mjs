@@ -348,7 +348,7 @@ async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspa
   const { activationFencePath, ...probeBroker } = config.broker;
   // Isolated health gets its own absent fence under probeRoot. This satisfies
   // schema-v2 containment without inheriting production PENDING state.
-  const probeConfig = { ...config, ...(platform === 'win32' ? { windowsPipe: endpoint } : { unixSocket: endpoint }), broker: { ...probeBroker, activationFencePath: join(probeRoot, 'activation-fence.json'), externalRoot: { ...liveExternal, path: probeRoot }, stateFile: join(probeRoot, 'state.json'), databasePath: join(probeRoot, 'state.sqlite'), eventLogPath: join(probeRoot, 'events.ndjson'), receiptsDir: join(probeRoot, 'receipts') } };
+  const probeConfig = { ...config, ...(platform === 'win32' ? { windowsPipe: endpoint } : { unixSocket: endpoint }), broker: { ...probeBroker, activationFencePath: join(probeRoot, 'activation-fence.json'), externalRoot: { ...liveExternal, path: probeRoot }, stateFile: join(probeRoot, 'state.json'), receiptsDir: join(probeRoot, 'receipts') } };
   const configPath = join(tmpdir(), `rk-${randomUUID()}.health-config.json`); await writeFile(configPath, `${JSON.stringify(probeConfig)}\n`, { mode: 0o600 });
   const spawnOptions = { stdio: ['ignore', 'ignore', 'pipe'], ...(platform === 'win32' ? { platform, loadJobAddon: () => loadRuntimeWindowsJobAddon(runtime) } : {}) };
   const child = spawnManagedProcess(nodePath, [join(runtime, 'build-control-broker', 'src', 'broker.mjs'), configPath], spawnOptions, spawn); let stderr = '';

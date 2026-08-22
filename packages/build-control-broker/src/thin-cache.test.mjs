@@ -23,6 +23,12 @@ test('injects shared Cargo/sccache & persistent generation environment', async (
   assert.equal(prepared.environment.SCCACHE_CLIENT_SIDE, '1');
   assert.equal(prepared.environment.CARGO_BUILD_JOBS, '4');
   assert.deepEqual(calls[0][1], ['--show-stats', '--stats-format=json']);
+  const finished = await cache.finish(prepared);
+  assert.equal(finished.status, 'SERVICE_OK');
+  assert.equal(finished.delta, null);
+  assert.equal(finished.reason, 'client-side-counters-unattributable');
+  assert.equal(finished.attribution.scope, 'client-side-counters-unattributable');
+  assert.equal(calls.length, 1);
 });
 
 test('cache probe failure visibly degrades to direct rustc for job', async () => {
@@ -52,7 +58,7 @@ test('records bounded numeric cache deltas', async () => {
   assert.equal(result.attribution.scope, 'shared-cumulative-root-window');
   assert.equal(result.attribution.windowStartedAt, '1970-01-01T00:00:02.000Z');
   assert.equal(result.attribution.windowEndedAt, '1970-01-01T00:00:03.000Z');
-  assert.match(result.attribution.serverIdentity, /^[a-f0-9]{64}$/);
+  assert.equal(result.attribution.serverIdentity, null);
   assert.deepEqual(thinCacheStatsDelta({ a: 4 }, { a: 9 }), { a: 5 });
 });
 

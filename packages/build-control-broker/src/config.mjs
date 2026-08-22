@@ -2,16 +2,16 @@ import { readFile as defaultReadFile } from 'node:fs/promises';
 import { isAbsolute, normalize, relative, win32 } from 'node:path';
 
 const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands']);
-const brokerFields = new Set(['externalRoot', 'volumeId', 'capacityBytes', 'usedBytes', 'stateFile', 'receiptsDir', 'databasePath', 'eventLogPath', 'activationFencePath']);
+const brokerFields = new Set(['externalRoot', 'capacityBytes', 'stateFile', 'receiptsDir', 'activationFencePath']);
 const externalRootFields = new Set(['path', 'volumeId', 'mounted', 'writable', 'internal']);
 const toolFields = new Set(['id', 'path', 'root', 'sha256']);
 const shimNames = new Set(['cargo', 'rustc', 'rustdoc', 'rustup', 'pnpm', 'npm', 'swift', 'swiftc', 'cmake', 'make', 'cc', 'c++', 'clang', 'gcc']);
-const defaultFields = new Set(['repositoryIdentity', 'toolchain', 'targetTriple', 'targetTriples', 'buildProfile', 'reservationBytes', 'rustcToolId', 'rustdocToolId', 'sccacheToolId', 'cacheMode', 'cargoBuildJobs']);
+const defaultFields = new Set(['repositoryIdentity', 'toolchain', 'targetTriple', 'targetTriples', 'buildProfile', 'rustcToolId', 'rustdocToolId', 'sccacheToolId', 'cacheMode', 'cargoBuildJobs']);
 const outputPolicyFields = new Set(['mode', 'allowedSourceDirs', 'scanRoot']);
 const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'digest']);
 const sccacheFields = new Set(['mode', 'clientSide', 'lifecycleOwner', 'requireOwnershipProof', 'maxSizeBytes', 'basedirs', 'basedirsEnabled']);
 const defaultSccacheMaxSizeBytes = 20 * 1024 ** 3;
-const boundFields = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'processGraceMs', 'freeFloorBytes', 'quotaWatermarkBytes', 'retentionMs', 'gcIntervalMs', 'statfsTimeoutMs', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'eventHistoryEntries', 'eventHistoryBytes', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs', 'targetCacheCapBytes', 'targetCacheFloorMs', 'workspaceDiscoveryTtlMs', 'workspaceDiscoveryTimeoutMs']);
+const boundFields = new Set(['heartbeatIntervalMs', 'processGraceMs', 'freeFloorBytes', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'targetCacheCapBytes', 'workspaceDiscoveryTtlMs', 'workspaceDiscoveryTimeoutMs']);
 const EXTERNAL_COMMAND = /^[a-z][a-z0-9-]*$/;
 const HEX_256 = /^[a-f0-9]{64}$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -91,7 +91,7 @@ function validateShims(value, ids) {
   return normalized;
 }
 
-function validateDefaults(value, ids, capacity) {
+function validateDefaults(value, ids) {
   const defaults = object(value, 'defaults'); only(defaults, defaultFields, 'defaults');
   const normalized = {};
   for (const field of ['repositoryIdentity', 'toolchain', 'targetTriple', 'buildProfile']) if (defaults[field] !== undefined) normalized[field] = requiredString(defaults[field], `defaults.${field}`, SAFE_TOKEN);
@@ -100,10 +100,6 @@ function validateDefaults(value, ids, capacity) {
     normalized.targetTriples = defaults.targetTriples.map((value, index) => requiredString(value, `defaults.targetTriples[${index}]`, SAFE_TOKEN));
     if (new Set(normalized.targetTriples).size !== normalized.targetTriples.length) throw new TypeError('defaults.targetTriples must be unique');
     if (normalized.targetTriple && !normalized.targetTriples.includes(normalized.targetTriple)) throw new TypeError('defaults.targetTriples must include defaults.targetTriple');
-  }
-  if (defaults.reservationBytes !== undefined) {
-    normalized.reservationBytes = nonnegative(defaults.reservationBytes, 'defaults.reservationBytes');
-    if (normalized.reservationBytes > capacity) throw new TypeError('defaults.reservationBytes cannot exceed broker.capacityBytes');
   }
   for (const field of ['rustcToolId', 'rustdocToolId', 'sccacheToolId']) if (defaults[field] !== undefined) normalized[field] = referenceTool(defaults[field], `defaults.${field}`, ids);
   if (defaults.cacheMode !== undefined) {
@@ -133,18 +129,13 @@ function validateOutputPolicy(value) {
   return normalized;
 }
 
-function validateBounds(value, { schemaVersion, capacity }) {
+function validateBounds(value, { capacity }) {
   const bounds = object(value, 'bounds'); only(bounds, boundFields, 'bounds');
-  if (bounds.pollIntervalMs !== undefined && schemaVersion === 2) throw new TypeError('bounds.pollIntervalMs is only accepted by schemaVersion 1');
   const normalized = {};
-  // A null target-cache cap means uncapped: age retention alone governs.
-  const nullable = new Set(['quotaWatermarkBytes', 'retentionMs', 'targetCacheCapBytes', 'targetCacheFloorMs']);
-  const positive = new Set(['pollIntervalMs', 'heartbeatIntervalMs', 'diskSampleIntervalMs', 'gcIntervalMs', 'statfsTimeoutMs', 'eventHistoryEntries', 'eventLogMaxBytes', 'maintenanceBatchEntries', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'maintenanceConcurrency', 'priorityAgingMs', 'workspaceDiscoveryTimeoutMs']);
-  const minimums = new Map([['eventHistoryEntries', 16], ['eventLogMaxBytes', 1024], ['maintenanceBatchEntries', 1], ['controlConcurrency', 1], ['analysisConcurrency', 1], ['buildConcurrency', 1], ['workspaceWriteConcurrency', 1], ['maintenanceConcurrency', 1], ['outputBufferBytes', 1024], ['workspaceDiscoveryTimeoutMs', 1], ['workspaceDiscoveryTtlMs', 0]]);
-  for (const key of boundFields) if (bounds[key] !== undefined) normalized[key] = nonnegative(bounds[key], `bounds.${key}`, { nullable: nullable.has(key), minimum: minimums.get(key) ?? (positive.has(key) ? 1 : 0) });
-  if (bounds.diskSampleIntervalMs === undefined && bounds.pollIntervalMs !== undefined) normalized.diskSampleIntervalMs = normalized.pollIntervalMs;
-  if (normalized.quotaWatermarkBytes !== undefined && normalized.quotaWatermarkBytes !== null && normalized.quotaWatermarkBytes > capacity) throw new TypeError('bounds.quotaWatermarkBytes cannot exceed broker.capacityBytes');
-  if (normalized.targetCacheCapBytes !== undefined && normalized.targetCacheCapBytes !== null && normalized.targetCacheCapBytes > capacity) throw new TypeError('bounds.targetCacheCapBytes cannot exceed broker.capacityBytes');
+  const positive = new Set(['heartbeatIntervalMs', 'processGraceMs', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'workspaceDiscoveryTimeoutMs']);
+  const minimums = new Map([['controlConcurrency', 1], ['analysisConcurrency', 1], ['buildConcurrency', 1], ['workspaceWriteConcurrency', 1], ['outputBufferBytes', 1024], ['workspaceDiscoveryTimeoutMs', 1], ['workspaceDiscoveryTtlMs', 0]]);
+  for (const key of boundFields) if (bounds[key] !== undefined) normalized[key] = nonnegative(bounds[key], `bounds.${key}`, { minimum: minimums.get(key) ?? (positive.has(key) ? 1 : 0) });
+  if (normalized.targetCacheCapBytes !== undefined && normalized.targetCacheCapBytes > capacity) throw new TypeError('bounds.targetCacheCapBytes cannot exceed broker.capacityBytes');
   const outputBuffer = normalized.outputBufferBytes ?? 8 * 1024 * 1024;
   const durableOutput = (normalized.outputHeadBytes ?? 16 * 1024) + (normalized.outputTailBytes ?? 16 * 1024);
   if (durableOutput > outputBuffer) throw new TypeError('bounds.outputHeadBytes + bounds.outputTailBytes cannot exceed bounds.outputBufferBytes');
@@ -154,8 +145,8 @@ function validateBounds(value, { schemaVersion, capacity }) {
 /** Reject malformed or ambiguous configuration before a process can bind a live endpoint. */
 export function validateBrokerConfig(value) {
   const config = object(value, 'broker config'); only(config, topLevel, 'broker config');
-  const schemaVersion = config.schemaVersion ?? 1;
-  if (schemaVersion !== 1 && schemaVersion !== 2) throw new TypeError('schemaVersion must be 1 or 2');
+  const schemaVersion = config.schemaVersion ?? 2;
+  if (schemaVersion !== 2) throw new TypeError('schemaVersion must be 2');
 
   const broker = object(config.broker, 'broker'); only(broker, brokerFields, 'broker');
   const externalRoot = object(broker.externalRoot, 'broker.externalRoot'); only(externalRoot, externalRootFields, 'broker.externalRoot');
@@ -173,12 +164,7 @@ export function validateBrokerConfig(value) {
     stateFile: inside(rootPath, absolute(broker.stateFile, 'broker.stateFile'), 'broker.stateFile'),
     receiptsDir: inside(rootPath, absolute(broker.receiptsDir, 'broker.receiptsDir'), 'broker.receiptsDir')
   };
-  if (broker.volumeId !== undefined) normalizedBroker.volumeId = requiredString(broker.volumeId, 'broker.volumeId');
-  if (broker.usedBytes !== undefined) {
-    normalizedBroker.usedBytes = nonnegative(broker.usedBytes, 'broker.usedBytes');
-    if (normalizedBroker.usedBytes > capacityBytes) throw new TypeError('broker.usedBytes cannot exceed broker.capacityBytes');
-  }
-  for (const field of ['databasePath', 'eventLogPath', 'activationFencePath']) if (broker[field] !== undefined) normalizedBroker[field] = inside(rootPath, absolute(broker[field], `broker.${field}`), `broker.${field}`);
+  if (broker.activationFencePath !== undefined) normalizedBroker.activationFencePath = inside(rootPath, absolute(broker.activationFencePath, 'broker.activationFencePath'), 'broker.activationFencePath');
   if (schemaVersion === 2 && normalizedBroker.activationFencePath === undefined) throw new TypeError('broker.activationFencePath is required by schemaVersion 2');
 
   const hasUnixSocket = config.unixSocket !== undefined; const hasWindowsPipe = config.windowsPipe !== undefined;
@@ -194,10 +180,10 @@ export function validateBrokerConfig(value) {
   const tools = validateTools(config.tools ?? []); normalized.tools = tools;
   const toolIds = registeredToolIds(tools);
   normalized.shims = validateShims(config.shims ?? {}, toolIds);
-  normalized.defaults = validateDefaults(config.defaults ?? {}, toolIds, capacityBytes);
+  normalized.defaults = validateDefaults(config.defaults ?? {}, toolIds);
 
   if (config.outputPolicy !== undefined) normalized.outputPolicy = validateOutputPolicy(config.outputPolicy);
-  if (config.bounds !== undefined) normalized.bounds = validateBounds(config.bounds, { schemaVersion, capacity: capacityBytes });
+  if (config.bounds !== undefined) normalized.bounds = validateBounds(config.bounds, { capacity: capacityBytes });
 
   if (config.externalCommands !== undefined) {
     if (!Array.isArray(config.externalCommands)) throw new TypeError('externalCommands must be an array');

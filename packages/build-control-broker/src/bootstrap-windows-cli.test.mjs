@@ -66,7 +66,9 @@ test('staging preserves bundled tools & copies standalone Cargo tools', async (t
 test('defaultBounds matches the same doc-mandated shape shipped on macOS', () => {
   const bounds = defaultBounds();
   assert.equal(bounds.jobDeadlineMs, 0);
+  assert.equal(bounds.buildConcurrency, 1);
   assert.ok(bounds.targetCacheCapBytes > 0);
+  assert.equal(bounds.maintenanceConcurrency, undefined);
 });
 
 test('the Windows-shaped config buildConfig() constructs is accepted by the broker’s own schema', async (t) => {
@@ -80,8 +82,6 @@ test('the Windows-shaped config buildConfig() constructs is accepted by the brok
       externalRoot: { path: scratch, volumeId: 'unknown', mounted: true, writable: true, internal: false },
       capacityBytes: 200 * 1024 ** 3,
       stateFile: join(scratch, 'state', 'broker.json'),
-      databasePath: join(scratch, 'state', 'broker.sqlite'),
-      eventLogPath: join(scratch, 'state', 'events.ndjson'),
       activationFencePath: join(scratch, 'state', 'runtime-activation.json'),
       receiptsDir: join(scratch, 'receipts'),
     },
@@ -95,7 +95,7 @@ test('the Windows-shaped config buildConfig() constructs is accepted by the brok
     externalCommands: [],
     defaults: {
       toolchain: 'stable-x86_64-pc-windows-msvc', targetTriple: 'x86_64-pc-windows-msvc', targetTriples: ['x86_64-pc-windows-msvc'],
-      buildProfile: 'development', reservationBytes: 16 * 1024 ** 3, rustcToolId: 'rustc', rustdocToolId: 'rustdoc', cacheMode: 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
+      buildProfile: 'development', rustcToolId: 'rustc', rustdocToolId: 'rustdoc', cacheMode: 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
     },
     sccache: { mode: 'disabled', lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
@@ -122,8 +122,6 @@ test('a config with no rustc/rustdoc discovered omits rustcToolId/rustdocToolId 
       externalRoot: { path: scratch, volumeId: 'unknown', mounted: true, writable: true, internal: false },
       capacityBytes: 200 * 1024 ** 3,
       stateFile: join(scratch, 'state', 'broker.json'),
-      databasePath: join(scratch, 'state', 'broker.sqlite'),
-      eventLogPath: join(scratch, 'state', 'events.ndjson'),
       activationFencePath: join(scratch, 'state', 'runtime-activation.json'),
       receiptsDir: join(scratch, 'receipts'),
     },
@@ -131,7 +129,7 @@ test('a config with no rustc/rustdoc discovered omits rustcToolId/rustdocToolId 
     tools: [{ id: 'pnpm', path: join(scratch, 'pnpm.exe'), root: scratch, sha256: 'a'.repeat(64) }],
     shims: { pnpm: 'pnpm' },
     externalCommands: [],
-    defaults: { toolchain: 'stable-x86_64-pc-windows-msvc', targetTriple: 'x86_64-pc-windows-msvc', targetTriples: ['x86_64-pc-windows-msvc'], buildProfile: 'development', reservationBytes: 16 * 1024 ** 3, cacheMode: 'disabled', cargoBuildJobs: defaultCargoBuildJobs() },
+    defaults: { toolchain: 'stable-x86_64-pc-windows-msvc', targetTriple: 'x86_64-pc-windows-msvc', targetTriples: ['x86_64-pc-windows-msvc'], buildProfile: 'development', cacheMode: 'disabled', cargoBuildJobs: defaultCargoBuildJobs() },
     sccache: { mode: 'disabled', lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
     bounds: defaultBounds(),

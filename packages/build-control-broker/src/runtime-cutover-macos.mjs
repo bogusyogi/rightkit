@@ -41,7 +41,7 @@ export function createMacOSRuntimeCallbacks(options = {}) {
   } = options;
   if (typeof launchdLabel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(launchdLabel)) throw new TypeError('launchdLabel must be an exact launchd label');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100) throw new TypeError('timeoutMs must be at least 100');
-  if (typeof drainProbe !== 'function') throw new TypeError('drainProbe is required to refuse open legacy v1 requests');
+  if (typeof drainProbe !== 'function') throw new TypeError('drainProbe is required to refuse active thin requests');
   const target = uid == null ? `system/${launchdLabel}` : `gui/${uid}/${launchdLabel}`;
   const domain = uid == null ? 'system' : `gui/${uid}`;
   const socket = endpoint ?? config?.unixSocket;

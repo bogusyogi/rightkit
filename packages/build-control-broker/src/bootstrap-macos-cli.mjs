@@ -180,15 +180,9 @@ export function shimTable(tools) {
  * under, not fresh guesses. */
 export function defaultBounds() {
   return {
-    heartbeatIntervalMs: 5_000, diskSampleIntervalMs: 5_000, processGraceMs: 5_000,
-    retentionMs: 604_800_000, gcIntervalMs: 300_000, statfsTimeoutMs: 1_000, jobDeadlineMs: 0,
+    heartbeatIntervalMs: 5_000, processGraceMs: 5_000, jobDeadlineMs: 0,
     outputBufferBytes: 8 * 1024 * 1024, outputHeadBytes: 16_384, outputTailBytes: 16_384,
-    eventHistoryEntries: 4_096, eventHistoryBytes: 8 * 1024 * 1024, eventLogMaxBytes: 8 * 1024 * 1024,
-    maintenanceBatchEntries: 128, controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 1, workspaceWriteConcurrency: 4,
-    maintenanceConcurrency: 1, priorityAgingMs: 30_000, targetCacheCapBytes: 150 * 1024 ** 3,
-    // Roots touched inside this window stay protected from cap eviction, so a
-    // day's warm target trees survive a workspace that sits over cap.
-    targetCacheFloorMs: 86_400_000,
+    controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 1, workspaceWriteConcurrency: 4, targetCacheCapBytes: 150 * 1024 ** 3,
     workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 2_000,
   };
 }
@@ -217,8 +211,6 @@ export async function buildConfig({ externalRoot }) {
       externalRoot: { path: externalRoot, volumeId: (await resolveVolumeId(externalRoot)) ?? 'unknown', mounted: true, writable: true, internal: false },
       capacityBytes: 200 * 1024 ** 3,
       stateFile: join(externalRoot, 'state', 'broker.json'),
-      databasePath: join(externalRoot, 'state', 'broker.sqlite'),
-      eventLogPath: join(externalRoot, 'state', 'events.ndjson'),
       activationFencePath: join(externalRoot, 'state', 'runtime-activation.json'),
       receiptsDir: join(externalRoot, 'receipts'),
     },
@@ -229,7 +221,7 @@ export async function buildConfig({ externalRoot }) {
     externalCommands: externalCommands(tools),
     defaults: {
       toolchain, targetTriple, targetTriples: [targetTriple, otherTriple],
-      buildProfile: 'development', reservationBytes: 16 * 1024 ** 3,
+      buildProfile: 'development',
       // Only referenced when actually discovered: the field is schema-optional,
       // & pointing it at an unregistered tool id rejects the whole config.
       ...(tools.some((tool) => tool.id === 'rustc') ? { rustcToolId: 'rustc' } : {}),
@@ -288,7 +280,6 @@ async function main() {
   const home = homedir();
   const configPath = join(externalRoot, 'config.json');
   const plistPath = join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`);
-  const v1StatePath = join(externalRoot, 'state', 'broker.json');
   const nodePath = await realpath(options.nodePath ?? process.execPath);
 
   mkdirSync(externalRoot, { recursive: true });
@@ -307,11 +298,6 @@ async function main() {
   const activeConfig = JSON.parse(await readFile(configPath, 'utf8'));
   const loaderLinks = await ensureMacOSRustToolLoaderLinks(activeConfig.tools ?? [], activeConfig.defaults?.targetTriples ?? [activeConfig.defaults?.targetTriple]);
   if (loaderLinks.length) console.log(`bootstrap-macos: verified ${loaderLinks.length} macOS Rust loader companion link(s)`);
-
-  if (!existsSync(v1StatePath)) {
-    writeFileSync(v1StatePath, `${JSON.stringify({ entries: [] }, null, 2)}\n`);
-    console.log(`bootstrap-macos: wrote empty v1 drain state at ${v1StatePath}`);
-  }
 
   const brokerScript = join(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   writeFileSync(plistPath, renderPlist({ nodePath, brokerScript, configPath, home }));
@@ -333,7 +319,7 @@ async function main() {
     configPath, externalRoot, sourcePackagesRoot, sourceRevision, sourceTreeDigest,
     version: `bootstrap-${sourceRevision.slice(0, 8)}-${Date.now()}`,
     launchdLabel: LABEL, uid, endpoint: join(externalRoot, 'broker.sock'),
-    plistPath, v1StatePath, healthWorkspace, timeoutMs: 20_000,
+    plistPath, healthWorkspace, timeoutMs: 20_000,
   });
   console.log(JSON.stringify(receipt, null, 2));
   console.log('bootstrap-macos: broker activated');
