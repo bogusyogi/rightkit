@@ -17,9 +17,9 @@ try {
   const result = await submitAndWatchManagedAgentJob(message, {
     onSubmitted(submitted) {
       requestId = submitted.id;
-      process.stderr.write(`rightkit managed-agent: request ${requestId}\n`);
       process.once('SIGINT', () => cancel('SIGINT'));
       process.once('SIGTERM', () => cancel('SIGTERM'));
+      process.stderr.write(`rightkit managed-agent: request ${requestId}\n`);
     },
     onEvent(event) {
       const value = jobEvent(event);

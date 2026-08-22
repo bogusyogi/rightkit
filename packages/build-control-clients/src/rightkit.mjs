@@ -25,9 +25,9 @@ try {
       onEvent: streamJobEvent,
       onSubmitted(submitted) {
         requestId = submitted.id;
-        process.stderr.write(`rightkit: request ${requestId}\n`);
         process.once('SIGINT', () => cancel('SIGINT'));
         process.once('SIGTERM', () => cancel('SIGTERM'));
+        process.stderr.write(`rightkit: request ${requestId}\n`);
       }
     });
     await cancelling;
