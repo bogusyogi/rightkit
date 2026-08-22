@@ -33,6 +33,7 @@ import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures }
 import { assertCleanSource } from "./source-gate.mjs";
 import { acquireHeavyWorkSlot, heavyCommandEnvironment, terminateProcessTree } from "./heavy-command.mjs";
 import { processGroupCpuSeconds } from "./process-liveness.mjs";
+import { cancelAndReapManagedRequest, firstManagedRequestId, releaseProgressLimits } from "./progress-control.mjs";
 
 // Fingerprint of the pipeline code that can change the bytes we ship or the way
 // they are signed — deliberately NOT the package version, which moves for docs
@@ -104,6 +105,7 @@ let suiteSlot;
 let cacheLease;
 let heavySlot;
 let interrupted;
+let requestActiveRunStop = null;
 
 // A dry-run is an inspection contract, not a partial build. It must finish
 // before locks, cache directories, receipts, dependency installation, or any
@@ -124,9 +126,10 @@ if (dryRun) {
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.once(signal, () => {
-    if (child?.pid) killTree(child.pid);
     interrupted = new Error(`release interrupted by ${signal}`);
     process.exitCode = signal === "SIGINT" ? 130 : 143;
+    if (requestActiveRunStop) void requestActiveRunStop(interrupted.message);
+    else if (child?.pid) killTree(child.pid);
   });
 }
 
@@ -462,13 +465,17 @@ function collectToolVersions(packageManager) {
 }
 
 async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = null) {
-  const inactivityMs = Number(process.env.RIGHT_RELEASE_STALL_MS ?? 10 * 60 * 1000);
-  const absoluteMs = Number(process.env.RIGHT_RELEASE_ABSOLUTE_MS ?? 90 * 60 * 1000);
+  const { inactivityMs, absoluteMs } = releaseProgressLimits(process.env);
   let lastProgress = Date.now();
   const watchDirs = Array.isArray(watchDir) ? watchDir : [watchDir];
   let lastMtime = Math.max(...watchDirs.map(newestMtime));
   const started = Date.now();
   await new Promise((resolve, reject) => {
+    let settled = false;
+    let stopping = false;
+    let managedRequestId = null;
+    const settleResolve = () => { if (!settled) { settled = true; resolve(); } };
+    const settleReject = (error) => { if (!settled) { settled = true; reject(error); } };
     child = spawn(cmd, runArgs, { cwd, env, stdio: ["inherit", "pipe", "pipe"], windowsHide: true, shell: process.platform === "win32", detached: process.platform !== "win32" });
     try {
       if (child.pid && heavySlot) heavySlot.trackChild(child.pid, cmd);
@@ -487,6 +494,7 @@ async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = nu
       stream.on("data", (chunk) => {
         lastProgress = Date.now();
         tail = `${tail}${chunk}`.slice(-64 * 1024);
+        if (!managedRequestId) managedRequestId = firstManagedRequestId(tail);
         output.write(chunk);
       });
     }
@@ -497,12 +505,24 @@ async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = nu
       const cpu = processGroupCpuSeconds(child.pid);
       if (cpu !== null && lastCpu !== null && cpu > lastCpu) lastProgress = Date.now();
       if (cpu !== null) lastCpu = cpu;
-      if (Date.now() - started > absoluteMs) stop(`absolute limit exceeded (${Math.round(absoluteMs / 60000)}m)`, cpu);
-      else if (Date.now() - lastProgress > inactivityMs) stop(`no output, file, or CPU progress for ${Math.round(inactivityMs / 60000)}m`, cpu);
+      if (Date.now() - started > absoluteMs) void stop(`absolute limit exceeded (${Math.round(absoluteMs / 60000)}m)`, cpu);
+      else if (Date.now() - lastProgress > inactivityMs) void stop(`no output, file, or CPU progress for ${Math.round(inactivityMs / 60000)}m`, cpu);
     }, Math.min(30_000, Math.max(250, Math.floor(inactivityMs / 4))));
-    const cleanup = () => { clearInterval(monitor); closeWatchers(); };
-    const stop = (reason, cpu = null) => {
+    const cleanup = () => {
+      clearInterval(monitor);
+      closeWatchers();
+      if (requestActiveRunStop === stop) requestActiveRunStop = null;
+    };
+    const stop = async (reason, cpu = null) => {
+      if (stopping || settled) return;
+      stopping = true;
       cleanup();
+      let cancellation = { status: "NO_MANAGED_REQUEST" };
+      try {
+        cancellation = await cancelAndReapManagedRequest(managedRequestId, { cwd, env });
+      } catch (error) {
+        cancellation = { status: "CANCEL_REAP_FAILED", error: error.message };
+      }
       if (diagnosticPath) {
         try {
           mkdirSync(path.dirname(diagnosticPath), { recursive: true });
@@ -513,6 +533,8 @@ async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = nu
             `watched: ${watchDirs.join(path.delimiter)}`,
             `elapsedMs: ${Date.now() - started}`,
             `cpuSeconds: ${cpu ?? "unavailable"}`,
+            `managedRequestId: ${managedRequestId ?? "none"}`,
+            `managedCancellation: ${JSON.stringify(cancellation)}`,
             `killedAt: ${new Date().toISOString()}`,
             "",
             "--- last output ---",
@@ -522,11 +544,13 @@ async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = nu
           console.error(`right-release: stall diagnostic written to ${diagnosticPath}`);
         } catch { /* diagnostics are best effort; never mask the stall itself */ }
       }
-      killTree(child.pid);
-      reject(new Error(`release step stalled: ${reason}`));
+      if (child?.pid) killTree(child.pid);
+      child = null;
+      settleReject(new Error(`release step stalled: ${reason}`));
     };
-    child.once("error", (error) => { cleanup(); reject(error); });
-    child.once("exit", (code) => { cleanup(); child = null; code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`)); });
+    requestActiveRunStop = stop;
+    child.once("error", (error) => { cleanup(); child = null; if (!stopping) settleReject(error); });
+    child.once("exit", (code) => { cleanup(); child = null; if (!stopping) code === 0 ? settleResolve() : settleReject(new Error(`${cmd} exited ${code}`)); });
   });
 }
 
