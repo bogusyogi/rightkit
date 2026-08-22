@@ -185,9 +185,12 @@ export class ThinJobService {
         : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 2_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
       const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1) }) });
-      const gc = await thinState.gc({ capBytes: config.bounds?.targetCacheCapBytes ?? null });
-      if (gc.deleted.length) await thinLogger.append({ type: 'GENERATION_GC', ...gc });
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
+      // Cache sizing may traverse large native target trees. Keep broker startup
+      // & activation handshakes independent from that best-effort maintenance.
+      void thinState.gc({ capBytes: config.bounds?.targetCacheCapBytes ?? null })
+        .then((gc) => gc.deleted.length ? thinLogger.append({ type: 'GENERATION_GC', ...gc }) : null)
+        .catch((error) => thinLogger.append({ type: 'GENERATION_GC_FAILED', error: error.message }).catch(() => {}));
       return service;
     } catch (error) {
       await logger?.close?.().catch(() => {});

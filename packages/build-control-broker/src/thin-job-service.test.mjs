@@ -17,11 +17,12 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null } = {}) {
+async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
   const state = await ThinState.open({ externalRoot: root }); const children = []; let pid = 300;
+  if (gc) state.gc = gc;
   const tools = new Map([['cargo', { id: 'cargo', path: '/managed/cargo', sha256: digest }], ['rustc', { id: 'rustc', path: '/managed/rustc', sha256: digest }], ['rustdoc', { id: 'rustdoc', path: '/managed/rustdoc', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
   const registry = { verify: async (id) => { const tool = tools.get(id); if (!tool) throw new Error(`missing ${id}`); return tool; } };
   const logger = { events: [], append(event) { this.events.push(event); return Promise.resolve(event); }, close: async () => {} };
@@ -33,6 +34,19 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
 
 async function call(service, value) { const events = []; const result = await service.dispatch(value, (event) => { events.push(event); return true; }); return { result, events }; }
 async function waitFor(service, id, states) { let last; for (let attempt = 0; attempt < 100; attempt += 1) { const { result } = await call(service, command('STATUS', id)); last = result; if (states.includes(result.state)) return result; if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(result.state)) break; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error(`job ${id} did not reach ${states}: ${JSON.stringify(last)}`); }
+
+test('broker readiness does not wait for retired-generation sizing', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const item = await Promise.race([
+    fixture({ gc: async () => gate }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('broker creation waited for GC')), 100))
+  ]);
+  try {
+    assert.equal(item.logger.events.some((event) => event.type === 'BROKER_READY'), true);
+    release({ deleted: [], totalBytes: 0, capBytes: null });
+  } finally { await item.close(); }
+});
 
 test('disconnected watcher EPIPE detaches without crashing broker', async () => {
   let connect; let finish;
