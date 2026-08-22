@@ -26,7 +26,7 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
   const registry = { verify: async (id) => { const tool = tools.get(id); if (!tool) throw new Error(`missing ${id}`); return tool; } };
   const logger = { events: [], append(event) { this.events.push(event); return Promise.resolve(event); }, close: async () => {} };
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, CARGO_INSTALL_ROOT: state.paths.tools, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
-  const config = { broker: { externalRoot: { path: root } }, shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
+  const config = { broker: { externalRoot: { path: root } }, shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
   const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
@@ -141,7 +141,7 @@ test('same workspace consecutive BUILD jobs reuse current generation', async () 
 });
 
 test('Cargo roots own exact pinned compilers directly while raw rustc remains brokered', async () => {
-  const item = await fixture();
+  const item = await fixture({ cache: { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: '/managed/cargo-home', CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, CARGO_INSTALL_ROOT: '/managed/tools', RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'SERVICE_OK', delta: { compile_requests: 0, requests_executed: 7 } }) } });
   try {
     const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
     await waitFor(item.service, root.id, ['RUNNING']);
@@ -152,12 +152,18 @@ test('Cargo roots own exact pinned compilers directly while raw rustc remains br
     cargo.emit('close', 0, null);
     const terminal = (await call(item.service, command('WATCH', root.id))).result;
     assert.equal(terminal.receipt.compilerBrokerRoundTrips, 0);
+    assert.equal(terminal.receipt.compilerProcessCount, 7);
+    assert.equal(terminal.receipt.repository, item.repository); assert.equal(terminal.receipt.profile, 'development');
+    assert.deepEqual(terminal.receipt.compilerIdentity.rustc, { id: 'rustc', path: '/managed/rustc', sha256: digest });
+    assert.equal(terminal.receipt.ownership.pid, cargo.pid); assert.equal(terminal.receipt.ownership.processGroupId, cargo.pid);
 
     const raw = (await call(item.service, command('SUBMIT', { ...compilerMessage(item.workspace, ['--version']), execution: undefined }))).result;
     await waitFor(item.service, raw.id, ['RUNNING']);
     assert.equal(item.children.at(-1).payload.command, '/managed/rustc');
     item.children.at(-1).emit('close', 0, null);
-    assert.equal((await call(item.service, command('WATCH', raw.id))).result.status, 'SUCCEEDED');
+    const rawTerminal = (await call(item.service, command('WATCH', raw.id))).result;
+    assert.equal(rawTerminal.status, 'SUCCEEDED'); assert.equal(rawTerminal.receipt.compilerProcessCount, 1);
+    assert.deepEqual(rawTerminal.receipt.compilerIdentity.rustc, { id: 'rustc', path: '/managed/rustc', sha256: digest });
   } finally { await item.close(); }
 });
 

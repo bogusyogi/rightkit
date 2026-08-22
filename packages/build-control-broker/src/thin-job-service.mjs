@@ -147,7 +147,7 @@ function runtimeBase(toolchainLibraryPath) {
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #compilerEnvironment; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #jobs = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #jobs = new Map(); #stopping = false;
 
   static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
@@ -184,7 +184,7 @@ export class ThinJobService {
       const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
         ? workspaceResolver
         : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 2_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
-      const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now });
+      const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1) }) });
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
       return service;
@@ -195,8 +195,8 @@ export class ThinJobService {
     }
   }
 
-  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, compilerEnvironment, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now }) {
-    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#compilerEnvironment = compilerEnvironment; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now;
+  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now }) {
+    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#compilerEnvironment = compilerEnvironment; this.#compilerIdentity = compilerIdentity; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now;
   }
 
   get runtimeIdentity() { return this.#runtime; }
@@ -411,10 +411,13 @@ export class ThinJobService {
     // Aggregate the compiler subtree that ran under this admitted root so the
     // root receipt exposes compiler process count and broker round-trip count
     // once per Cargo root (v2.7 §20), instead of fragmenting them per child.
-    const compilerProcessCount = job.parentId ? null : Number.isSafeInteger(job.cacheResult?.delta?.compile_requests) ? job.cacheResult.delta.compile_requests : null;
+    const compilerProcessCount = job.parentId ? null
+      : ['rustc', 'rustdoc'].includes(job.shim) && job.startedAt ? 1
+        : Number.isSafeInteger(job.cacheResult?.delta?.requests_executed) ? job.cacheResult.delta.requests_executed
+          : Number.isSafeInteger(job.cacheResult?.delta?.compile_requests) ? job.cacheResult.delta.compile_requests : null;
     const phaseTimings = this.#phaseTimings(job, terminalAt);
     const receipt = Object.freeze({
-      id: job.id, state: status, status, command: job.command, workspace: job.workspaceRoot, targetTriple: job.targetTriple ?? null,
+      id: job.id, state: status, status, command: job.command, workspace: job.workspaceRoot, repository: job.repositoryRoot ?? null, profile: this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null,
       generation: job.capability.artifactWrite ? (uncertainWriter ? job.workspace.state.rotatedFrom : job.workspace.layout.generation) : null,
       // v2.7 §20 root timing
       ...phaseTimings,
@@ -426,7 +429,8 @@ export class ThinJobService {
       cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }),
       cacheCounterScope: job.parentId ? null : 'root-delta',
       compilerProcessCount, compilerBrokerRoundTrips: job.parentId ? null : (job.compilerRoundTrips ?? 0),
-      reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(),
+      compilerIdentity: job.parentId ? null : job.shim === 'cargo' && job.capability.compile ? this.#compilerIdentity : ['rustc', 'rustdoc'].includes(job.shim) ? Object.freeze({ [job.shim]: job.tool }) : null,
+      ownership: job.ownership ?? null, reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(),
       output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') }
     });
     if (job.capability.artifactWrite && !uncertainWriter) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
