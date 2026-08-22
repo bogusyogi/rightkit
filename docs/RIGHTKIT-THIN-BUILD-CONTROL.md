@@ -1,6 +1,6 @@
 # RightKit Thin Build Control — Canonical Architecture & Migration Plan
 
-**Status:** live on macOS; old core retained pending destructive-cleanup gate.
+**Status:** live on macOS and Windows; predecessor core removed.
 **Authority:** this document supersedes the previous build-control architecture and remediation plans for implementation decisions.  
 **Purpose:** preserve aggressive Rust/Cargo cache reuse while preventing autonomous agents from competing for the same workstation, spawning unmanaged build trees, or leaving unsafe orphaned writers behind.
 
@@ -8,7 +8,7 @@
 
 ## 0. Live implementation state — 2026-08-22
 
-macOS broker entrypoint now constructs `ThinJobService`. Installed shims keep
+macOS and Windows broker entrypoints construct `ThinJobService`. Installed shims keep
 the v2 protocol and runtime-identity handshake; product repositories still use
 `rightkit cargo ...`.
 
@@ -54,15 +54,23 @@ Implemented and live:
   propagation;
 - one global `CARGO_HOME`, one global sccache directory, client-side sccache,
   one shallow managed temp directory, and per-workspace target generations;
-- source bootstrap and immutable runtime cutover.
+- source bootstrap and immutable runtime cutover;
+- native Windows Job Object containment with `KILL_ON_JOB_CLOSE`, suspended
+  launch/assignment, creation-time process identity, cancellation, and
+  crash-recovery generation rotation;
+- thin cutover drain proof from active-root markers, plus readiness-independent GC for
+  retired generations; predecessor SQLite, lifecycle, reservation, maintenance,
+  server-owned sccache, and v1 migration paths are absent.
 
 Evidence:
 
 ```text
-build-control-broker package: 288/288 tests pass
+build-control-broker package: 172/172 tests pass
+Windows native-focused package set: 57/57 tests pass
 live cargo upgrade: HeardRight passes
 live recursive cargo upgrade/update: CodeRight passes
-live re-bootstrap: passes with intended concurrency/cache settings
+macOS and Windows re-bootstrap: passes with intended concurrency/cache settings
+native acceptance: docs/plans/evidence/rightkit-thin-build-control-v2.7-native-acceptance.md
 ```
 
 Bootstrap originally copied `rustc` and `rustdoc` as isolated executables. That
@@ -74,11 +82,9 @@ Managed `TMPDIR` is intentionally shallow under the external root. sccache
 creates a transient startup socket below `TMPDIR`; putting that directory inside
 the full workspace-generation path exceeds macOS's 103-byte Unix socket limit.
 
-Superseded architecture/remediation/handoff documents were deleted. Old core
-modules remain dormant beside the live thin core because sections 20–21 allow
-their deletion only after the complete destructive macOS crash/cancellation
-acceptance set. Windows Job Object code remains preserved; live Windows
-acceptance is still phase 6.
+Superseded architecture/remediation/handoff documents and predecessor core are
+deleted. Cache-normalization and BUILD-capacity measurements remain deliberately
+deferred; they do not change live topology or native containment acceptance.
 
 ---
 
@@ -513,11 +519,13 @@ verify/best-effort enumerate
 
 ### Windows
 
-Use the existing Job Object implementation.
+Use the native Job Object implementation.
 
 A job must use `KILL_ON_JOB_CLOSE` semantics so broker/process failure causes owned descendants to die with the Job Object.
 
-Windows is not considered accepted until this has been built and exercised on a real Windows host.
+Windows acceptance passed on its native host on 2026-08-22: build, normal exit,
+explicit cancellation, non-zero failure, broker-crash reap, affected-workspace
+generation rotation, and post-restart build all passed.
 
 ### Nested work
 
@@ -943,48 +951,25 @@ Before deleting the old code, prove on the actual machine:
 
 ### Phase 6 — Windows acceptance
 
-Build and prove the Job Object implementation on a real Windows host before claiming Windows support complete.
+Completed on 2026-08-22. See the native acceptance evidence artifact.
 
 ---
 
-# What to delete from the current system
+# Thin-core closure
 
-## 20. Delete only after thin macOS acceptance
+## 20. Predecessor removal — completed
 
-Once the thin broker is live and the acceptance tests pass, remove the old active implementation instead of carrying two systems forever.
-
-Primary deletion candidates:
-
-```text
-tools/rightkit/packages/build-control-broker/src/state-store.mjs
-tools/rightkit/packages/build-control-broker/src/state-store.test.mjs
-
-tools/rightkit/packages/build-control-broker/src/maintenance-worker.mjs
-tools/rightkit/packages/build-control-broker/src/maintenance-worker.test.mjs
-
-old tools/rightkit/packages/build-control-broker/src/job-service.mjs
-old tools/rightkit/packages/build-control-broker/src/job-service.test.mjs
-
-old tools/rightkit/packages/build-control-broker/src/scheduler.mjs
-old tools/rightkit/packages/build-control-broker/src/scheduler.test.mjs
-```
-
-Delete the old fsync-heavy event-log implementation if `thin-logger.mjs` fully replaces it:
-
-```text
-event-log.mjs
-event-log.test.mjs
-```
-
-Delete broker-owned sccache server/process-ownership machinery that is no longer necessary **only after** client-side sccache behavior is proven with the pinned version.
-
-Delete old v1 migration/drain code only after no installed host can still require it.
+Commit `328f2e073` removed old state store, maintenance worker, job service,
+scheduler, fsync-heavy event log, broker-owned sccache server, legacy fixtures,
+and v1 migration/drain paths after macOS and Windows native acceptance. Commit
+`54f2991b7` moved retired-generation sizing after broker readiness so cache GC
+cannot block service activation.
 
 ---
 
-## 21. Configuration/schema concepts to remove
+## 21. Removed configuration/schema concepts
 
-Remove these when the thin broker no longer references them:
+Schema rejects:
 
 ```text
 SQLite lifecycle database requirement
@@ -1004,9 +989,7 @@ generic command-result cache proposals
 per-transition durable fsync requirement
 ```
 
-Do not preserve a config field just because an old test expects it.
-
-Rewrite tests to the thin architecture.
+Source bootstrap emits thin-only configuration on both hosts.
 
 ---
 
