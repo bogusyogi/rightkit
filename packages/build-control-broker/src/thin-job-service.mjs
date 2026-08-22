@@ -168,7 +168,6 @@ export class ThinJobService {
         sccachePath: sccacheTool?.path ?? null,
         clientSideSupported: config.sccache?.clientSide === true,
         maxSizeBytes: config.sccache?.maxSizeBytes,
-        timeoutMs: config.bounds?.statfsTimeoutMs ?? 2_000,
         // v2.7 §12: SCCACHE_BASEDIRS is gated behind explicit experiment enablement.
         basedirs: config.sccache?.basedirs ?? null,
         basedirsEnabled: config.sccache?.basedirsEnabled === true
