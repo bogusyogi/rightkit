@@ -36,12 +36,21 @@ async function call(service, value) { const events = []; const result = await se
 async function waitFor(service, id, states) { let last; for (let attempt = 0; attempt < 100; attempt += 1) { const { result } = await call(service, command('STATUS', id)); last = result; if (states.includes(result.state)) return result; if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(result.state)) break; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error(`job ${id} did not reach ${states}: ${JSON.stringify(last)}`); }
 
 test('broker readiness does not wait for retired-generation sizing', async () => {
-  let release;
+  let release; let markGcStarted;
   const gate = new Promise((resolve) => { release = resolve; });
-  const item = await Promise.race([
-    fixture({ gc: async () => gate }),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('broker creation waited for GC')), 100))
+  const gcStarted = new Promise((resolve) => { markGcStarted = resolve; });
+  const creating = fixture({ gc: async () => { markGcStarted(); return gate; } });
+  // Wait until detached maintenance is definitely blocked on GC. Correct
+  // startup returns the service in the same event-loop turn; an accidental
+  // await leaves creation blocked until `gate` is released. This proves causal
+  // ordering without a wall-clock threshold that flakes under filesystem load.
+  await gcStarted;
+  const outcome = await Promise.race([
+    creating.then((item) => ({ item })),
+    new Promise((resolve) => setImmediate(() => resolve({ item: null })))
   ]);
+  assert.ok(outcome.item, 'broker creation waited for GC');
+  const item = outcome.item;
   try {
     assert.equal(item.logger.events.some((event) => event.type === 'BROKER_READY'), true);
     release({ deleted: [], totalBytes: 0, capBytes: null });

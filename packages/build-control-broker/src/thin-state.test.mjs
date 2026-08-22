@@ -164,3 +164,104 @@ test('GC reuses cached current-generation sizes until the workspace is dirty', a
     assert.equal(again.evicted.length, 0);
   } finally { await item.close(); }
 });
+
+test('dirty generations are remeasured in the same GC pass that decides the cap', async () => {
+  const item = await fixture();
+  try {
+    const workspace = await item.state.workspace(item.workspace);
+    await writeFile(join(workspace.layout.target, 'small.bin'), Buffer.alloc(16));
+    // First GC caches the size at 16 bytes.
+    await item.state.gc({ capBytes: 1_000_000 });
+    assert.equal((await item.state.workspace(item.workspace)).state.lastMeasuredBytes, 16);
+    // Artifact growth marks the workspace dirty; the cached 16 must not be
+    // used for the next cap decision.
+    await writeFile(join(workspace.layout.target, 'grown.bin'), Buffer.alloc(512));
+    await item.state.markRunning(item.workspace, { id: 'job-grow', command: 'cargo build' });
+    await item.state.finish(item.workspace, 'job-grow', { status: 'SUCCEEDED' });
+    const measured = await item.state.gc({ capBytes: 8 });
+    // Fresh walk must see the grown size (>= 528), not the stale 16.
+    assert.ok(measured.beforeBytes >= 528, `stale size used for cap decision: ${measured.beforeBytes}`);
+    assert.equal(measured.unenforceable.overByBytes, measured.beforeBytes - 8);
+    const persisted = (await item.state.workspace(item.workspace)).state;
+    assert.equal(persisted.lastMeasuredBytes, measured.beforeBytes);
+    assert.equal(persisted.sizeDirty, false);
+  } finally { await item.close(); }
+});
+
+test('GC continues past a refused oldest-LRU candidate to the next eligible workspace', async () => {
+  const item = await fixture({ advanceClock: true });
+  try {
+    const fs = await import('node:fs/promises');
+    const oldest = join(item.root, 'app-oldest'); const newest = join(item.root, 'app-newest');
+    await fs.mkdir(oldest); await fs.mkdir(newest);
+    for (const root of [oldest, newest]) {
+      const workspace = await item.state.workspace(root);
+      await writeFile(join(workspace.layout.target, 'w.bin'), Buffer.alloc(64));
+    }
+    await item.state.markRunning(oldest, { id: 'job-o', command: 'cargo build' }); await item.state.finish(oldest, 'job-o', { status: 'SUCCEEDED' });
+    await item.state.markRunning(newest, { id: 'job-n', command: 'cargo build' }); await item.state.finish(newest, 'job-n', { status: 'SUCCEEDED' });
+    const refused = [];
+    // Refuse only the oldest candidate (e.g. its scheduler write slot is busy).
+    const evictIdle = async (candidate) => {
+      if (candidate.canonicalRoot === oldest) { refused.push(candidate.canonicalRoot); return null; }
+      return item.state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes });
+    };
+    const result = await item.state.gc({ capBytes: 64, evictIdle });
+    assert.deepEqual(refused, [oldest], 'oldest-LRU must be attempted first');
+    assert.deepEqual(result.evicted.map((entry) => entry.canonicalRoot), [newest], 'GC must continue to the next candidate after refusal');
+    assert.equal(result.unenforceable, null, 'cap must be enforceable once a later candidate evicts');
+    await assert.doesNotReject(stat((await item.state.workspace(oldest)).layout.root));
+  } finally { await item.close(); }
+});
+
+test('crash window between state transition and rename is harmless: orphaned old generation is retired-GC-able', async () => {
+  const item = await fixture();
+  try {
+    const workspace = await item.state.workspace(item.workspace);
+    await writeFile(join(workspace.layout.target, 'orphan.bin'), Buffer.alloc(64));
+    // Simulate the crash window in evictIdleWorkspace: state advanced to
+    // generation 2 (persisted) but the generation-1 directory was never
+    // renamed/deleted — exactly what a broker crash between atomicJson and
+    // rename leaves behind.
+    const fs = await import('node:fs/promises');
+    const statePath = workspace.statePath;
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    await fs.mkdir(join(workspace.directory, 'generations', '000002', 'target'), { recursive: true });
+    await (await import('node:fs/promises')).writeFile(statePath, JSON.stringify({ ...state, currentGeneration: 2, active: null, updatedAt: state.updatedAt }));
+    // The next GC must treat the leftover generation 1 as a retired candidate
+    // (not current, not active) and reclaim it over cap.
+    const result = await item.state.gc({ capBytes: 16 });
+    assert.deepEqual(result.deleted.map(({ generation }) => generation), [1]);
+    await assert.rejects(stat(workspace.layout.root), { code: 'ENOENT' });
+    assert.equal((await item.state.workspace(item.workspace)).state.currentGeneration, 2);
+  } finally { await item.close(); }
+});
+
+test('pre-v2.8 state.json without LRU metadata migrates lazily through GC', async () => {
+  const item = await fixture();
+  try {
+    const workspace = await item.state.workspace(item.workspace);
+    await writeFile(join(workspace.layout.target, 'legacy.bin'), Buffer.alloc(32));
+    // Rewrite state.json in the legacy shape: none of lastUsedAt, sizeDirty,
+    // lastMeasuredGeneration, lastMeasuredBytes, lastMeasuredAt exist.
+    const fs = await import('node:fs/promises');
+    const legacy = { schemaVersion: 1, currentGeneration: 1, active: null, updatedAt: '2026-08-01T00:00:00.000Z' };
+    await fs.writeFile(workspace.statePath, JSON.stringify(legacy));
+    const loaded = await item.state.workspace(item.workspace);
+    assert.equal(loaded.state.currentGeneration, 1, 'legacy state must validate & load');
+    // GC must measure (no cached size), persist metadata, and not throw.
+    const result = await item.state.gc({ capBytes: 1_000_000 });
+    assert.equal(result.beforeBytes, 32);
+    const migrated = (await item.state.workspace(item.workspace)).state;
+    assert.equal(migrated.lastMeasuredGeneration, 1);
+    assert.equal(migrated.lastMeasuredBytes, 32);
+    assert.equal(migrated.sizeDirty, false);
+    assert.equal(typeof migrated.lastMeasuredAt, 'string');
+    // markRunning/finish still upgrade legacy state in place.
+    await item.state.markRunning(item.workspace, { id: 'job-legacy', command: 'cargo build' });
+    await item.state.finish(item.workspace, 'job-legacy', { status: 'SUCCEEDED' });
+    const after = (await item.state.workspace(item.workspace)).state;
+    assert.equal(typeof after.lastUsedAt, 'string');
+    assert.equal(after.sizeDirty, true);
+  } finally { await item.close(); }
+});
