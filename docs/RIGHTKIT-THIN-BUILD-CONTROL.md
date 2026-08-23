@@ -15,7 +15,7 @@ the v2 protocol and runtime-identity handshake; product repositories still use
 Current host configuration:
 
 ```text
-BUILD concurrency = 1
+BUILD concurrency = 3
 ANALYSIS concurrency = 2
 CONTROL concurrency = 4
 Cargo build jobs = 4
@@ -30,6 +30,9 @@ Implemented and live:
 
 - one command/resource policy, global BUILD queue, workspace read/write locks,
   and exclusive toolchain mutation;
+- `cargo run` holds BUILD plus workspace-writer admission only through
+  compilation; Cargo's executable-start event moves it to a durable resident
+  process state, releases both permits, and keeps cancellation/crash reaping;
 - JSON thin state, broker singleton, persistent target generations, active
   writer recovery, process-group containment, cancellation, NDJSON logs, and
   terminal receipts;
@@ -91,7 +94,8 @@ the full workspace-generation path exceeds macOS's 103-byte Unix socket limit.
 Superseded architecture/remediation/handoff documents and predecessor core are
 deleted. macOS v2.8 measurement keeps Cargo's incremental default and leaves
 `SCCACHE_BASEDIRS` disabled: neither alternative produced a material reuse win.
-BUILD remains 1; no v2.8 change raised host concurrency.
+BUILD concurrency is 3. Resident `cargo run` processes do not consume compile
+capacity after Cargo launches their executable.
 
 ---
 
@@ -440,7 +444,7 @@ Properties:
 ```text
 compile slot: yes
 workspace/artifact access: write
-global active roots on the Air: 1 initially
+global active compile roots on the Air: 3
 CARGO_BUILD_JOBS: measured bounded value, initially 3 or 4
 ```
 
@@ -772,7 +776,7 @@ Do not claim full TOML parsing while bounded conservative validation is active.
 
 Do not restore the reservation ledger.
 
-With one global BUILD root, admission can be simple:
+With one globally bounded BUILD queue, admission can be simple:
 
 Before BUILD:
 
@@ -944,7 +948,7 @@ Settled results:
 6. generic `cargo install` fails closed for managed storage and remaining
    policy/resource corrections are implemented.
 
-Windows source bootstrap reproduces BUILD=1, Cargo jobs=4, the 150 GiB target
+Windows source bootstrap reproduces BUILD=3, Cargo jobs=4, the 150 GiB target
 budget, client-side sccache, Cargo-default incremental behavior, and disabled
 `SCCACHE_BASEDIRS`. Native compiler-active cancellation ends `REAPED` through
 the Job Object with no surviving launcher or descendants; post-cancel work

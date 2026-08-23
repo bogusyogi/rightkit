@@ -122,7 +122,7 @@ test('buildConfig produces a config the broker’s own schema accepts', macOSOnl
   const loaded = await loadBrokerConfig(configPath);
   assert.equal(loaded.broker.externalRoot.path, scratch);
   assert.equal(loaded.sccache.mode, loaded.sccache.clientSide ? 'managed' : 'disabled');
-  assert.equal(loaded.bounds.buildConcurrency, 1);
+  assert.equal(loaded.bounds.buildConcurrency, 3);
   assert.equal(loaded.bounds.analysisConcurrency, 2);
   assert.ok(loaded.tools.length > 0, 'a real machine must discover at least one tool');
 });
@@ -148,7 +148,7 @@ test('resolveVolumeId & rustcVersionTriple degrade to a safe default instead of 
 test('defaultBounds matches the doc-mandated shape (one field per bound, no drift)', () => {
   const bounds = defaultBounds();
   assert.equal(bounds.jobDeadlineMs, 0, 'the broker itself has no build timeout; right-release owns that');
-  assert.equal(bounds.buildConcurrency, 1);
+  assert.equal(bounds.buildConcurrency, 3);
   assert.equal(bounds.workspaceDiscoveryTimeoutMs, 10_000);
   assert.ok(bounds.targetCacheCapBytes > 0);
   assert.equal(bounds.maintenanceConcurrency, undefined);

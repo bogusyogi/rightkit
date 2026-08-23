@@ -63,6 +63,7 @@ function compilationTarget(shim, argv) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const safeExit = (code, status) => status === 'SUCCEEDED' ? 0 : Number.isInteger(code) && code >= 1 && code <= 255 ? code : 125;
 const appendTail = (current, chunk, limit) => chunk.length >= limit ? Buffer.from(chunk.subarray(chunk.length - limit)) : Buffer.concat([current, chunk]).subarray(Math.max(0, current.length + chunk.length - limit));
+const stripAnsi = (value) => value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
 const pathIsWithin = (root, candidate) => {
   if (typeof root !== 'string' || !root) return false;
   const childPath = relative(normalize(root), candidate);
@@ -178,7 +179,7 @@ export class ThinJobService {
         controlConcurrency: integer(config.bounds?.controlConcurrency, 4, 1),
         analysisConcurrency: integer(config.bounds?.analysisConcurrency, 2, 1),
         workspaceWriteConcurrency: integer(config.bounds?.workspaceWriteConcurrency, 4, 1),
-        buildConcurrency: integer(config.bounds?.buildConcurrency, 1, 1), now
+        buildConcurrency: integer(config.bounds?.buildConcurrency, 3, 1), now
       });
       // Bound, cache & make observable the CONTROL-class workspace discovery.
       const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
@@ -359,7 +360,7 @@ export class ThinJobService {
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, DEFAULT_OUTPUT_BYTES, 1024);
     const effectiveCapability = nestedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true, skipRootServices: true }) : capability;
     const requestEnvironment = nestedCompiler ? normalizeDelegatedCompilerEnvironment(request.environment) : normalizeRequestEnvironment(request.environment);
-    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, workspaceDiscoveryCache: roots.workspaceDiscoveryCache ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, cancelRequests: [], terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
+    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, workspaceDiscoveryCache: roots.workspaceDiscoveryCache ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, residentOutput: '', residentTransition: null, residentAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, cancelRequests: [], terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
   }
 
   async #execute(job) {
@@ -411,11 +412,13 @@ export class ThinJobService {
       job.ownership = this.#ownership(job.child, { identity: observed, platform: this.#platform });
       if (job.capability.artifactWrite) job.workspace = await this.#state.markRunning(job.workspaceRoot, { id: job.id, ownership: job.ownership, command: job.command });
       job.state = 'RUNNING'; job.startedAt = this.#now(); job.cargoRunStartedAt ??= this.#now();
+      this.#maybeMakeResident(job);
       await this.#log({ type: 'STARTED', id: job.id, pid: job.ownership.pid, pgid: job.ownership.processGroupId, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cacheMode: job.cachePrepared.mode, tempDir: job.cachePrepared.environment.TMPDIR ?? null });
       await this.#start(job.child, { platform: this.#platform });
       this.#startSampling(job);
       if (job.cancelReason) this.#terminateJob(job);
       const result = await job.exit;
+      await job.residentTransition;
       job.teardownStartedAt ??= this.#now();
       const reap = await (job.termination ?? this.#terminate(job.child, { graceMs: integer(this.#config.bounds?.processGraceMs, 5_000, 1), platform: this.#platform }).catch((error) => ({ reaped: false, reason: error.message })));
       job.cacheResult = job.parentId
@@ -439,7 +442,7 @@ export class ThinJobService {
   async #finish(job, status, details) {
     if (job.terminal) return job.terminal;
     if (job.deadline) clearTimeout(job.deadline);
-    const uncertainWriter = job.capability.artifactWrite && details.reap && details.reap.reaped === false;
+    const uncertainWriter = job.capability.artifactWrite && !job.residentAt && details.reap && details.reap.reaped === false;
     if (uncertainWriter) job.workspace = await this.#state.rotate(job.workspaceRoot, 'process-tree-unreaped');
     const terminalAt = this.#now();
     // Roll delegated compiler children up into their admitted root so the root
@@ -473,6 +476,9 @@ export class ThinJobService {
       ...phaseTimings,
       queueMs: job.queueMs ?? null,
       runMs: job.startedAt ? terminalAt - job.startedAt : 0,
+      residentAt: job.residentAt ? new Date(job.residentAt).toISOString() : null,
+      buildPermitMs: job.startedAt ? (job.residentAt ?? terminalAt) - job.startedAt : null,
+      residentMs: job.residentAt ? terminalAt - job.residentAt : null,
       exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, error: details.error ?? null,
       // v2.7 §4.1: exact cancellation provenance (never inferred from SIGTERM alone)
       cancellation: job.cancelProvenance ? Object.freeze({ source: job.cancelProvenance, reason: job.cancelReason ?? null, requests: Object.freeze(job.cancelRequests.map((request) => Object.freeze({ ...request }))) }) : null,
@@ -542,6 +548,30 @@ export class ThinJobService {
     if (job.outputHead.length < headLimit) job.outputHead = Buffer.concat([job.outputHead, data.subarray(0, headLimit - job.outputHead.length)]);
     job.outputTail = appendTail(job.outputTail, data, tailLimit);
     this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type, data: data.toString('utf8') } });
+    if (type === 'STDERR' && job.capability.residentAfterBuild && !job.residentTransition) {
+      job.residentOutput = `${job.residentOutput}${data.toString('utf8')}`.slice(-16 * 1024);
+      this.#maybeMakeResident(job);
+    }
+  }
+
+  #maybeMakeResident(job) {
+    if (job.state === 'RUNNING' && /(?:^|\r?\n)\s*Running\s+[`']/m.test(stripAnsi(job.residentOutput))) this.#makeResident(job);
+  }
+
+  #makeResident(job) {
+    if (job.state !== 'RUNNING' || job.residentTransition || job.terminal || job.cancelReason) return;
+    job.residentTransition = (async () => {
+      job.workspace = await this.#state.markResident(job.workspaceRoot, job.id);
+      job.residentAt = this.#now();
+      job.state = 'RESIDENT';
+      job.permit?.release(); job.permit = null;
+      const event = { type: 'RESIDENT', at: new Date(job.residentAt).toISOString(), buildLaneReleased: true };
+      this.#publish(job, { type: 'JOB_EVENT', id: job.id, event });
+      await this.#log({ ...event, id: job.id, workspace: job.workspaceRoot, generation: job.workspace.layout.generation });
+    })().catch(async (error) => {
+      job.residentTransitionError = error.message;
+      await this.#log({ type: 'RESIDENT_TRANSITION_FAILED', id: job.id, error: error.message });
+    });
   }
 
   #status(id, emit) {

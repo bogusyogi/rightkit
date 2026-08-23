@@ -78,7 +78,7 @@ test('staging preserves bundled tools & copies standalone Cargo tools', async (t
 test('defaultBounds matches the same doc-mandated shape shipped on macOS', () => {
   const bounds = defaultBounds();
   assert.equal(bounds.jobDeadlineMs, 0);
-  assert.equal(bounds.buildConcurrency, 1);
+  assert.equal(bounds.buildConcurrency, 3);
   assert.ok(bounds.targetCacheCapBytes > 0);
   assert.equal(bounds.maintenanceConcurrency, undefined);
 });
@@ -118,7 +118,7 @@ test('the Windows-shaped config buildConfig() constructs is accepted by the brok
   const loaded = await loadBrokerConfig(configPath);
   assert.equal(loaded.windowsPipe, '\\\\.\\pipe\\rightkit-build-control');
   assert.equal(loaded.sccache.mode, 'disabled');
-  assert.equal(loaded.bounds.buildConcurrency, 1);
+  assert.equal(loaded.bounds.buildConcurrency, 3);
   assert.equal(loaded.bounds.analysisConcurrency, 2);
 });
 

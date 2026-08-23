@@ -67,7 +67,7 @@ The thin architecture remains closed. v2.8 is a completion pass, not an architec
 As of the v2.8 start point, the shipped system is:
 
 ```text
-BUILD concurrency = 1
+BUILD concurrency = 3
 ANALYSIS concurrency = 2
 CONTROL concurrency = 4
 Cargo build jobs = 4
@@ -1097,11 +1097,12 @@ Do not add a second hand-maintained command table.
 
 # 13. Phase 8 — host resource defaults
 
-## 13.1 Keep BUILD concurrency at one
+## 13.1 Bound BUILD concurrency at three
 
-`BUILD=1` is accepted today.
+`BUILD=3` is current owner-selected host capacity. A resident `cargo run`
+releases BUILD capacity after Cargo launches its executable.
 
-Do not raise it as part of v2.8 unless the existing controlled host capacity experiment is rerun and proves useful aggregate throughput without unacceptable:
+Do not raise it above three without a controlled host capacity experiment proving useful aggregate throughput without unacceptable:
 
 - peak RSS;
 - swap;

@@ -14,15 +14,19 @@ export class DeniedThinCommandError extends Error {
   }
 }
 
-const capability = (lane, workspaceAccess, { compile = false, artifactWrite = false, cache = false } = {}) =>
-  Object.freeze({ lane, workspaceAccess, compile, artifactWrite, cache });
+const commandCapability = (lane, workspaceAccess, { compile = false, artifactWrite = false, cache = false, residentAfterBuild = false } = {}) =>
+  Object.freeze({ lane, workspaceAccess, compile, artifactWrite, cache, residentAfterBuild });
 
-const CONTROL = capability('CONTROL', 'none');
-const ANALYSIS = capability('ANALYSIS', 'read');
-const WORKSPACE_WRITE = capability('WORKSPACE_WRITE', 'write');
-const ARTIFACT_WRITE = capability('WORKSPACE_WRITE', 'write', { artifactWrite: true });
-const BUILD = capability('BUILD', 'write', { compile: true, artifactWrite: true, cache: true });
-const TOOLCHAIN_WRITE = capability('TOOLCHAIN_WRITE', 'none');
+const CONTROL = commandCapability('CONTROL', 'none');
+const ANALYSIS = commandCapability('ANALYSIS', 'read');
+const WORKSPACE_WRITE = commandCapability('WORKSPACE_WRITE', 'write');
+const ARTIFACT_WRITE = commandCapability('WORKSPACE_WRITE', 'write', { artifactWrite: true });
+const BUILD = commandCapability('BUILD', 'write', { compile: true, artifactWrite: true, cache: true });
+// `cargo run` is a writer only until Cargo launches its executable. Once Cargo
+// reports `Running`, no compiler remains in that Cargo invocation; keeping the
+// BUILD permit for application lifetime would serialize unrelated development.
+const CARGO_RUN = commandCapability('BUILD', 'write', { compile: true, artifactWrite: true, cache: true, residentAfterBuild: true });
+const TOOLCHAIN_WRITE = commandCapability('TOOLCHAIN_WRITE', 'none');
 
 const CARGO_EXTERNAL_POLICY = Object.freeze({
   about: ANALYSIS,
@@ -80,7 +84,8 @@ function cargoCapability(command, argv) {
   if (command === 'fmt') return hasFlag(argv, '--check') ? ANALYSIS : WORKSPACE_WRITE;
   if (['update', 'vendor', 'generate-lockfile', 'add', 'remove'].includes(command)) return WORKSPACE_WRITE;
   if (command === 'clean') return ARTIFACT_WRITE;
-  if (['build', 'check', 'test', 'bench', 'clippy', 'doc', 'run', 'rustc', 'rustdoc'].includes(command)) return BUILD;
+  if (command === 'run') return CARGO_RUN;
+  if (['build', 'check', 'test', 'bench', 'clippy', 'doc', 'rustc', 'rustdoc'].includes(command)) return BUILD;
   return null;
 }
 

@@ -40,6 +40,8 @@ function receiptId(value) {
   return value;
 }
 
+const residents = (state) => Array.isArray(state?.residents) ? state.residents : [];
+
 export class ThinState {
   #base; #now; #locks = new Map();
 
@@ -53,7 +55,7 @@ export class ThinState {
   constructor({ base, now }) { this.#base = base; this.#now = now; }
 
   /** Serialize state transitions per workspace key (v2.8 §10.3): eviction,
-   * rotation, markRunning, and finish re-read-then-write the same state file,
+   * rotation, writer/resident transitions, and finish re-read-then-write the same state file,
    * so within the singleton broker their critical sections must not interleave. */
   async #transition(key, action) {
     const previous = this.#locks.get(key) ?? Promise.resolve();
@@ -100,7 +102,7 @@ export class ThinState {
     if (!identity) await atomicJson(identityPath, { schemaVersion: SCHEMA_VERSION, key, canonicalRoot });
     let stored = await readJson(statePath);
     if (!stored) {
-      stored = { schemaVersion: SCHEMA_VERSION, currentGeneration: 1, active: null, updatedAt: this.#timestamp() };
+      stored = { schemaVersion: SCHEMA_VERSION, currentGeneration: 1, active: null, residents: [], updatedAt: this.#timestamp() };
       await atomicJson(statePath, stored);
     }
     this.#validateState(stored, statePath);
@@ -119,6 +121,20 @@ export class ThinState {
       const next = { ...state, active, lastUsedAt: this.#timestamp(), updatedAt: this.#timestamp() };
       await atomicJson(workspace.statePath, next);
       await atomicJson(join(this.paths.active, `${id}.json`), { workspaceKey: workspace.key, ...active });
+      return Object.freeze({ ...workspace, state: Object.freeze(next), layout: this.#layout(workspace, state.currentGeneration) });
+    });
+  }
+
+  async markResident(workspaceRoot, id) {
+    receiptId(id);
+    const workspace = await this.workspace(workspaceRoot);
+    return this.#transition(workspace.key, async () => {
+      const state = await readJson(workspace.statePath);
+      if (state.active?.id !== id) throw Object.assign(new Error(`job ${id} is not active`), { code: 'RK_JOB_NOT_ACTIVE' });
+      const resident = { ...state.active, residentAt: this.#timestamp() };
+      const next = { ...state, active: null, residents: [...residents(state), resident], sizeDirty: true, updatedAt: this.#timestamp() };
+      await atomicJson(workspace.statePath, next);
+      await atomicJson(join(this.paths.active, `${id}.json`), { workspaceKey: workspace.key, mode: 'RESIDENT', ...resident });
       return Object.freeze({ ...workspace, state: Object.freeze(next), layout: this.#layout(workspace, state.currentGeneration) });
     });
   }
@@ -142,7 +158,13 @@ export class ThinState {
     const workspace = await this.workspace(workspaceRoot);
     await this.#transition(workspace.key, async () => {
       const state = await readJson(workspace.statePath);
-      const next = state.active?.id === id ? { ...state, active: null, sizeDirty: true, updatedAt: this.#timestamp() } : { ...state, sizeDirty: true, updatedAt: this.#timestamp() };
+      const next = {
+        ...state,
+        active: state.active?.id === id ? null : state.active,
+        residents: residents(state).filter((entry) => entry.id !== id),
+        sizeDirty: true,
+        updatedAt: this.#timestamp()
+      };
       await atomicJson(workspace.statePath, next);
     });
     await this.writeReceipt(id, receipt);
@@ -163,7 +185,7 @@ export class ThinState {
     return this.#transition(workspace.key, async () => {
       const state = await readJson(workspace.statePath);
       const currentGeneration = state.currentGeneration + 1;
-      const next = { ...state, currentGeneration, active: null, rotatedFrom: state.currentGeneration, rotationReason: reason, sizeDirty: true, updatedAt: this.#timestamp() };
+      const next = { ...state, currentGeneration, active: null, residents: residents(state), rotatedFrom: state.currentGeneration, rotationReason: reason, sizeDirty: true, updatedAt: this.#timestamp() };
       await this.#ensureGeneration(workspace, currentGeneration);
       await atomicJson(workspace.statePath, next);
       if (state.active?.id) await rm(join(this.paths.active, `${state.active.id}.json`), { force: true });
@@ -178,21 +200,42 @@ export class ThinState {
       const directory = join(this.paths.workspaces, entry.name);
       const identity = await readJson(join(directory, IDENTITY_FILE));
       const state = await readJson(join(directory, STATE_FILE));
-      if (!identity || !state?.active) continue;
-      const active = state.active;
-      const reapResult = await Promise.resolve().then(() => reap(active.ownership)).catch((error) => ({ reaped: false, reason: error.message }));
-      const rotated = await this.rotate(identity.canonicalRoot, 'broker-restart-active-writer');
-      const receipt = {
-        id: active.id,
-        state: 'ABANDONED',
-        status: 'ABANDONED',
-        workspace: identity.canonicalRoot,
-        generation: active.generation,
-        recoveredAt: this.#timestamp(),
-        reap: reapResult
-      };
-      await atomicJson(join(this.paths.receipts, `${receiptId(active.id)}.json`), receipt);
-      recovered.push(Object.freeze({ workspaceKey: entry.name, active: Object.freeze(active), newGeneration: rotated.state.currentGeneration, reap: Object.freeze({ ...reapResult }) }));
+      if (!identity || (!state?.active && residents(state).length === 0)) continue;
+      if (state.active) {
+        const active = state.active;
+        const reapResult = await Promise.resolve().then(() => reap(active.ownership)).catch((error) => ({ reaped: false, reason: error.message }));
+        const rotated = await this.rotate(identity.canonicalRoot, 'broker-restart-active-writer');
+        const receipt = {
+          id: active.id,
+          state: 'ABANDONED',
+          status: 'ABANDONED',
+          workspace: identity.canonicalRoot,
+          generation: active.generation,
+          recoveredAt: this.#timestamp(),
+          reap: reapResult
+        };
+        await atomicJson(join(this.paths.receipts, `${receiptId(active.id)}.json`), receipt);
+        recovered.push(Object.freeze({ workspaceKey: entry.name, mode: 'WRITER', active: Object.freeze(active), newGeneration: rotated.state.currentGeneration, reap: Object.freeze({ ...reapResult }) }));
+      }
+      const currentState = await readJson(join(directory, STATE_FILE));
+      for (const resident of residents(currentState)) {
+        const reapResult = await Promise.resolve().then(() => reap(resident.ownership)).catch((error) => ({ reaped: false, reason: error.message }));
+        let current = await this.workspace(identity.canonicalRoot);
+        if (reapResult.reaped === false && current.state.currentGeneration === resident.generation) current = await this.rotate(identity.canonicalRoot, 'broker-restart-unreaped-resident');
+        const receipt = {
+          id: resident.id,
+          state: 'ABANDONED',
+          status: 'ABANDONED',
+          workspace: identity.canonicalRoot,
+          generation: resident.generation,
+          recoveredAt: this.#timestamp(),
+          processMayBeLive: reapResult.reaped === false,
+          reap: reapResult
+        };
+        if (reapResult.reaped === false) await this.writeReceipt(resident.id, receipt);
+        else await this.finish(identity.canonicalRoot, resident.id, receipt);
+        recovered.push(Object.freeze({ workspaceKey: entry.name, mode: 'RESIDENT', active: Object.freeze(resident), newGeneration: current.state.currentGeneration, reap: Object.freeze({ ...reapResult }) }));
+      }
     }
     return Object.freeze(recovered);
   }
@@ -217,13 +260,13 @@ export class ThinState {
    * A current generation is never deleted in place: the state transition to
    * generation N+1 is persisted before the old directory is renamed. The
    * caller must already hold the per-workspace write exclusion (scheduler)
-   * when invoked from the broker. Returns null when the workspace is active —
-   * an active generation is never an eviction candidate. */
+   * when invoked from the broker. Returns null when the workspace has an active
+   * writer or resident executable — an in-use generation is never evicted. */
   async evictIdleWorkspace(workspaceRoot, { reason = 'cache-budget-eviction', sizeBytes = null } = {}) {
     const workspace = await this.workspace(workspaceRoot);
     return this.#transition(workspace.key, async () => {
       const state = await readJson(workspace.statePath);
-      if (state.active) return null;
+      if (state.active || residents(state).length > 0) return null;
       const currentGeneration = state.currentGeneration;
       const oldRoot = this.#layout(workspace, currentGeneration).root;
       const measured = Number.isSafeInteger(sizeBytes) && sizeBytes >= 0 ? sizeBytes : await directorySize(oldRoot);
@@ -242,7 +285,7 @@ export class ThinState {
   /** Delete oldest retired generations first when total generation storage is
    * above cap; then, when an evictIdle callback is supplied, retire idle
    * current generations least-recently-used first until under cap. Current and
-   * active-writer generations are never direct deletion candidates. Sizes are
+   * active-writer & resident generations are never direct deletion candidates. Sizes are
    * cached per current generation and invalidated by the sizeDirty flag so GC
    * does not repeatedly walk warm target trees (v2.8 §10.5). */
   async gc({ capBytes, evictIdle = null } = {}) {
@@ -259,7 +302,8 @@ export class ThinState {
       for (const generationEntry of await readdir(generations, { withFileTypes: true }).catch((error) => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
         if (!generationEntry.isDirectory() || !/^\d{6}$/.test(generationEntry.name)) continue;
         const generation = Number(generationEntry.name); const path = join(generations, generationEntry.name); const metadata = await lstat(path);
-        const isCurrent = generation === state.currentGeneration; const isActive = generation === state.active?.generation;
+        const isCurrent = generation === state.currentGeneration;
+        const isActive = generation === state.active?.generation || residents(state).some((resident) => resident.generation === generation);
         let sizeBytes;
         if (isCurrent && !state.sizeDirty && state.lastMeasuredGeneration === generation && Number.isSafeInteger(state.lastMeasuredBytes)) sizeBytes = state.lastMeasuredBytes;
         else sizeBytes = await directorySize(path);
@@ -307,7 +351,7 @@ export class ThinState {
   }
 
   #validateState(state, path) {
-    if (state?.schemaVersion !== SCHEMA_VERSION || !Number.isSafeInteger(state.currentGeneration) || state.currentGeneration < 1 || (state.active !== null && typeof state.active !== 'object')) throw new Error(`unsupported thin state at ${path}`);
+    if (state?.schemaVersion !== SCHEMA_VERSION || !Number.isSafeInteger(state.currentGeneration) || state.currentGeneration < 1 || (state.active !== null && typeof state.active !== 'object') || (state.residents !== undefined && !Array.isArray(state.residents))) throw new Error(`unsupported thin state at ${path}`);
   }
 }
 

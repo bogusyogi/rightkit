@@ -13,7 +13,7 @@ export class ThinQueueUnavailableError extends Error {
 
 export class ThinScheduler {
   #limits; #queue = []; #active = new Map(); #workspace = new Map(); #toolchainActive = false; #sequence = 0; #now;
-  constructor({ controlConcurrency = 4, analysisConcurrency = 2, workspaceWriteConcurrency = 4, buildConcurrency = 1, now = Date.now } = {}) {
+  constructor({ controlConcurrency = 4, analysisConcurrency = 2, workspaceWriteConcurrency = 4, buildConcurrency = 3, now = Date.now } = {}) {
     for (const [name, value] of Object.entries({ controlConcurrency, analysisConcurrency, workspaceWriteConcurrency, buildConcurrency })) if (!Number.isSafeInteger(value) || value < 1) throw new TypeError(`${name} must be a positive integer`);
     this.#limits = Object.freeze({ CONTROL: controlConcurrency, ANALYSIS: analysisConcurrency, WORKSPACE_WRITE: workspaceWriteConcurrency, BUILD: buildConcurrency, TOOLCHAIN_WRITE: 1 });
     this.#now = now;
