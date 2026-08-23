@@ -12,6 +12,7 @@ import { adapterRegistry, brokerEndpoint, cancelManagedAgentJob, createClientReq
 const cleanProcessEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !MANAGED_RUST_ENVIRONMENT_KEYS.includes(key.toUpperCase()) && key !== 'RIGHTKIT_BUILD_BROKER_SOCKET'));
 const sourcePackagesRoot = fileURLToPath(new URL('../..', import.meta.url));
 const handshake = (message) => `${JSON.stringify({ type: 'HANDSHAKE', runtime: message.runtime })}\n`;
+const posixOnly = { skip: process.platform === 'win32' ? 'POSIX wrapper execution test' : false };
 
 test('every frozen frontend produces a request-only client payload', () => {
   assert.equal(Object.keys(adapterRegistry).length, 7);
@@ -175,7 +176,7 @@ test('native Windows launcher quotes every forwarded argument', async () => {
   assert.match(source, /string\.Join\(" ", Tail\(Environment\.GetCommandLineArgs\(\)\)\)/);
 });
 
-test('rightkit wrapper sends explicit request identity & fails closed without broker', async () => {
+test('rightkit wrapper sends explicit request identity & fails closed without broker', posixOnly, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const directory = join(root, 'agent-bin'); const endpoint = join(root, 'broker.sock');
   const server = net.createServer((socket) => socket.on('data', (data) => {
     const command = JSON.parse(data.toString()); socket.write(handshake({ runtime: command.runtime }));
@@ -193,7 +194,7 @@ test('rightkit wrapper sends explicit request identity & fails closed without br
   await rm(root, { recursive: true, force: true });
 });
 
-test('installed cargo wrapper preserves exact shim identity for broker routing', async () => {
+test('installed cargo wrapper preserves exact shim identity for broker routing', posixOnly, async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-client-'));
   const directory = join(root, 'agent-bin');
   const endpoint = join(root, 'broker.sock');
