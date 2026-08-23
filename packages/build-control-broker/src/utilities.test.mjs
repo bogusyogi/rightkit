@@ -28,9 +28,9 @@ test('Cargo config utility parses TOML structurally & rejects authority redirect
 test('stale socket utility is conservative', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-utility-'));
   try {
-    assert.equal(await removeStaleUnixSocket(join(root, 'missing.sock')), false);
+    assert.equal(await removeStaleUnixSocket(join(root, 'missing.sock'), { uid: 501 }), false);
     await writeFile(join(root, 'endpoint'), 'not a socket');
-    await assert.rejects(removeStaleUnixSocket(join(root, 'endpoint')), /non-socket/);
+    await assert.rejects(removeStaleUnixSocket(join(root, 'endpoint'), { uid: 501 }), /non-socket/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

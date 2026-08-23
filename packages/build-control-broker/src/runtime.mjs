@@ -4,7 +4,7 @@ import { chmod, cp, lstat, mkdir, open, readFile, readdir, readlink, realpath, r
 import { execFile as nodeExecFile, spawn } from 'node:child_process';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { BUILD_CONTROL_PROTOCOL, RUNTIME_MANIFEST_SCHEMA, normalizeRuntimeIdentity } from '@rightkit/build-control-core';
 import { spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
@@ -18,6 +18,10 @@ export const WINDOWS_JOB_ADDON_RELATIVE_PATH = 'build-control-broker/native/wind
 const execFile = promisify(nodeExecFile);
 export const RUNTIME_ACTIVATION_FENCE_SCHEMA = 'rightkit.build-control.runtime-activation.v1';
 export const normalizeGitScopedPath = (path) => path.replaceAll('\\', '/');
+const pathEscapesRoot = (root, candidate) => {
+  const scoped = relative(resolve(root), resolve(candidate));
+  return isAbsolute(scoped) || scoped === '..' || scoped.startsWith(`..${sep}`);
+};
 
 /** Materialize an immutable runtime bundle. This function never changes runtime-current or a service. */
 export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform = process.platform, windowsJobAddon }) {
@@ -170,7 +174,7 @@ async function gitAt(cwd, args) {
 
 async function verifySourceProvenance(sourcePackagesRoot, { sourceRevision, sourceTreeDigest } = {}) {
   const repository = resolve(await gitAt(sourcePackagesRoot, ['rev-parse', '--show-toplevel'])); const packages = resolve(sourcePackagesRoot); const filesystemScopedPath = relative(repository, packages);
-  if (!filesystemScopedPath || filesystemScopedPath === '.' || filesystemScopedPath.startsWith('..')) throw new Error('runtime source packages root must be a committed repository subdirectory');
+  if (!filesystemScopedPath || filesystemScopedPath === '.' || pathEscapesRoot(repository, packages)) throw new Error('runtime source packages root must be a committed repository subdirectory');
   const scopedPath = normalizeGitScopedPath(filesystemScopedPath);
   const status = await gitAt(repository, ['status', '--porcelain=v1', '--untracked-files=all', '--', scopedPath]);
   if (status) throw new Error(`runtime source packages root is dirty or contains untracked files: ${scopedPath}`);
@@ -184,7 +188,7 @@ function activationFencePathFor(config, root) {
   const path = config?.broker?.activationFencePath;
   if (typeof path !== 'string' || !path) throw new TypeError('broker.activationFencePath is required for runtime activation');
   const resolved = resolve(path);
-  if (relative(root, resolved).startsWith('..')) throw new TypeError('broker.activationFencePath must remain under externalRoot');
+  if (pathEscapesRoot(root, resolved)) throw new TypeError('broker.activationFencePath must remain under externalRoot');
   return resolved;
 }
 

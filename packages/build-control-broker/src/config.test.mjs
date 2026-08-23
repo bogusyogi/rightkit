@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig, validateBrokerConfig } from './config.mjs';
 
@@ -60,7 +60,7 @@ test('config validates external command pins & bounded output', () => {
 
 test('config rejects unknown keys, escaped paths, & malformed endpoints', () => {
   const unknown = fixture(); unknown.mystery = true; assert.throws(() => validateBrokerConfig(unknown), /unknown broker config key/);
-  const escaped = fixture(); escaped.broker.receiptsDir = '/elsewhere'; assert.throws(() => validateBrokerConfig(escaped), /remain below/);
+  const nativeRoot = join(parse(tmpdir()).root, 'managed'); const escaped = fixture(nativeRoot); escaped.broker.receiptsDir = join(parse(nativeRoot).root, 'elsewhere'); assert.throws(() => validateBrokerConfig(escaped), /remain below/);
   const endpoint = fixture(); endpoint.unixSocket = 'relative.sock'; assert.throws(() => validateBrokerConfig(endpoint), /absolute/);
 });
 

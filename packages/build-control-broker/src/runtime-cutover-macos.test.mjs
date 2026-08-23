@@ -6,6 +6,7 @@ import test from 'node:test';
 import { createMacOSRuntimeCallbacks } from './runtime-cutover-macos.mjs';
 
 const manifest = { schema: 'rightkit.build-control.runtime.v2', version: 'v2-test', clientDigest: 'c'.repeat(64), brokerDigest: 'b'.repeat(64) };
+const macOSOnly = { skip: process.platform === 'win32' ? 'macOS-only path semantics' : false };
 
 function harness({ open = 0, unloaded = false } = {}) {
   let pid = 10;
@@ -59,7 +60,7 @@ test('macOS cutover rejects handshake digest mismatch', async () => {
   await assert.rejects(callbacks.restartService({ manifest: bad, timeoutMs: 200 }), /HANDSHAKE identity mismatch/);
 });
 
-test('macOS cutover bootstraps exact supplied plist when service is unloaded', async () => {
+test('macOS cutover bootstraps exact supplied plist when service is unloaded', macOSOnly, async () => {
   const { callbacks, calls } = harness({ unloaded: true });
   await callbacks.restartService({ manifest, timeoutMs: 200 });
   assert.deepEqual(calls.filter(([file]) => file === 'launchctl').slice(0, 4), [

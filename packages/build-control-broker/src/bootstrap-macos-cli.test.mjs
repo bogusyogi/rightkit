@@ -9,6 +9,8 @@ import {
   buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, ensureMacOSRustToolLoaderLinks, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, stageManagedTools, supportsClientSideSccache, whichUnmanaged,
 } from './bootstrap-macos-cli.mjs';
 
+const macOSOnly = { skip: process.platform === 'win32' ? 'macOS-only test' : false };
+
 test('parseArgs accepts the documented flags & rejects anything else', () => {
   assert.deepEqual(parseArgs([]), { force: false });
   assert.deepEqual(parseArgs(['--force']), { force: true });
@@ -21,7 +23,7 @@ test('shimTable only maps shims for tools actually discovered', () => {
   assert.deepEqual(shimTable([]), {});
 });
 
-test('discoverTools finds real, hashed tools on this machine’s PATH', async () => {
+test('discoverTools finds real, hashed tools on this machine’s PATH', macOSOnly, async () => {
   const tools = await discoverTools();
   // node itself proves the process ran & this machine has a real toolchain;
   // cargo is required by every other assertion this session has made about it.
@@ -32,7 +34,7 @@ test('discoverTools finds real, hashed tools on this machine’s PATH', async ()
   for (const tool of tools) assert.equal(tool.root, tool.path.split('/').slice(0, -1).join('/'));
 });
 
-test('tool discovery skips RightKit agent shims & Cargo guard wrappers', async (t) => {
+test('tool discovery skips RightKit agent shims & Cargo guard wrappers', macOSOnly, async (t) => {
   const originalPath = process.env.PATH;
   const scratch = mkdtempSync(join(tmpdir(), 'rk-bootstrap-recursion-'));
   t.after(() => { rmSync(scratch, { recursive: true, force: true }); process.env.PATH = originalPath; });
@@ -48,7 +50,7 @@ test('tool discovery skips RightKit agent shims & Cargo guard wrappers', async (
 // bin/sccache -> ../Cellar/…, and registering that path makes the broker refuse
 // to start with ToolChangedError(unavailable). bootstrap-windows-cli.mjs
 // resolves identically; `where.exe` cannot run here, so only macOS is asserted.
-test('discoverTools records a symlinked tool as its realpath, not the link', async (t) => {
+test('discoverTools records a symlinked tool as its realpath, not the link', macOSOnly, async (t) => {
   const originalPath = process.env.PATH;
   const scratch = mkdtempSync(join(tmpdir(), 'rk-symlink-tool-'));
   t.after(() => { rmSync(scratch, { recursive: true, force: true }); process.env.PATH = originalPath; });
@@ -109,7 +111,7 @@ test('macOS bootstrap supplies rust-objcopy its toolchain-root libLLVM companion
   assert.equal((await ensureMacOSRustToolLoaderLinks([{ id: 'cargo', path: cargo }], ['aarch64-apple-darwin'])).length, 1);
 });
 
-test('buildConfig produces a config the broker’s own schema accepts', async (t) => {
+test('buildConfig produces a config the broker’s own schema accepts', macOSOnly, async (t) => {
   const scratch = mkdtempSync(join(tmpdir(), 'rk-bootstrap-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const config = await buildConfig({ externalRoot: scratch });

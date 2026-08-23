@@ -32,7 +32,7 @@ test('injects shared Cargo/sccache & persistent generation environment', async (
 });
 
 test('basedirs gate uses broker-trusted per-job roots plus operator additions', async () => {
-  const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', basedirsEnabled: true, basedirs: ['/operator/root'], run: async () => ({ stdout: '{}' }) });
+  const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', basedirsEnabled: true, basedirs: ['/operator/root'], platform: 'linux', run: async () => ({ stdout: '{}' }) });
   const prepared = await cache.prepare({ layout: { ...layout, root: '/managed/workspace/generations/000001' }, repositoryRoot: '/repo', workspaceRoot: '/repo/app' });
   assert.equal(prepared.environment.SCCACHE_BASEDIRS, '/repo:/repo/app:/managed/workspace/generations/000001:/operator/root');
   assert.equal(cache.basedirsActive, true);
