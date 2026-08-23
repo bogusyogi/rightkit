@@ -18,7 +18,7 @@ Current host configuration:
 BUILD concurrency = 3
 ANALYSIS concurrency = 2
 CONTROL concurrency = 4
-Cargo build jobs = 4
+Cargo build jobs = 4 macOS / 16 Windows
 sccache = 0.17.0 client-side mode
 Rust = 1.98.0 managed toolchain
 shared Cargo home = enabled
@@ -948,7 +948,7 @@ Settled results:
 6. generic `cargo install` fails closed for managed storage and remaining
    policy/resource corrections are implemented.
 
-Windows source bootstrap reproduces BUILD=3, Cargo jobs=4, the 150 GiB target
+Windows source bootstrap reproduces BUILD=3, Cargo jobs=16, the 150 GiB target
 budget, client-side sccache, Cargo-default incremental behavior, and disabled
 `SCCACHE_BASEDIRS`. Native compiler-active cancellation ends `REAPED` through
 the Job Object with no surviving launcher or descendants; post-cancel work

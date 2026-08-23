@@ -34,10 +34,10 @@ test('shimTable only maps shims for tools actually discovered, mirroring the mac
 });
 
 test('Windows Cargo-job derivation is host-neutral: no logical/2 performance-core assumption', () => {
-  // Memory-bound, high-core host: clamped by the accepted ceiling of 4.
-  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 32 * 1024 ** 3 }), 4);
+  // High-memory, high-core host reaches the Windows ceiling of 16.
+  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 32 * 1024 ** 3 }), 16);
   // Few logical cores must no longer halve the job count (old behavior: 3).
-  assert.equal(defaultCargoBuildJobs({ cpus: 6, totalMemoryBytes: 32 * 1024 ** 3 }), 4);
+  assert.equal(defaultCargoBuildJobs({ cpus: 6, totalMemoryBytes: 32 * 1024 ** 3 }), 6);
   // Memory-bound small host.
   assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 6 * 1024 ** 3 }), 3);
   // Never below one.
@@ -156,8 +156,8 @@ test('a config with no rustc/rustdoc discovered omits rustcToolId/rustdocToolId 
 test('cargo build jobs are clamped at canonical workstation maximum', () => {
   // 8 logical / 4 performance cores with 8 GiB: memory binds first at 4.
   assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
-  // Plenty of RAM: the performance-core share is the limit.
-  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 4);
+  // Plenty of RAM: Windows policy ceiling is the limit.
+  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 16);
   // Small host: never below one job.
   assert.equal(defaultCargoBuildJobs({ cpus: 2, totalMemoryBytes: 1 * 1024 ** 3 }), 1);
 });
