@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, parse } from 'node:path';
 import { BUILD_CONTROL_PROTOCOL, LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, RUNTIME_MANIFEST_SCHEMA, SOURCE_RUNTIME_IDENTITY, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, externalRoots, immutableToolRoot, injectBrokerEnvironment, normalizeBuildRequest, normalizeCargoTargetArgv, normalizeCompilerOutputArgv, normalizeDelegatedCompilerEnvironment, normalizeManagedAgentRequest, normalizeRequestEnvironment, normalizeRuntimeIdentity, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
+
+const fixturePath = (...segments) => join(parse(tmpdir()).root, ...segments);
 
 test('v2 runtime identity requires immutable client & broker digests', () => {
   assert.equal(BUILD_CONTROL_PROTOCOL, 'rightkit.build-control.client.v2'); assert.equal(SOURCE_RUNTIME_IDENTITY.schema, RUNTIME_MANIFEST_SCHEMA);
@@ -12,19 +14,21 @@ test('v2 runtime identity requires immutable client & broker digests', () => {
 });
 
 test('normalizes registered request without executable authority', () => {
-  const request = normalizeBuildRequest({ frontend: 'cargo', argv: ['test'], workspace: '/external/work', environment: { CI: '1' } });
-  assert.deepEqual(request, { frontend: 'cargo', argv: ['test'], workspace: '/external/work', environment: { CI: '1' } });
-  assert.throws(() => normalizeBuildRequest({ frontend: 'unknown', argv: [], workspace: '/external/work' }));
+  const workspace = fixturePath('external', 'work');
+  const request = normalizeBuildRequest({ frontend: 'cargo', argv: ['test'], workspace, environment: { CI: '1' } });
+  assert.deepEqual(request, { frontend: 'cargo', argv: ['test'], workspace, environment: { CI: '1' } });
+  assert.throws(() => normalizeBuildRequest({ frontend: 'unknown', argv: [], workspace }));
 });
 test('immutable tool roots reject mutable or escaping paths', () => {
-  assert.equal(immutableToolRoot({ path: '/external/tools/cargo', root: '/external/tools', sha256: 'a'.repeat(64) }).path, '/external/tools/cargo');
-  assert.throws(() => immutableToolRoot({ path: '/external/cargo', root: '/external/tools', sha256: 'a'.repeat(64) }));
+  const root = fixturePath('external', 'tools'); const cargo = join(root, 'cargo');
+  assert.equal(immutableToolRoot({ path: cargo, root, sha256: 'a'.repeat(64) }).path, cargo);
+  assert.throws(() => immutableToolRoot({ path: fixturePath('external', 'cargo'), root, sha256: 'a'.repeat(64) }));
 });
 test('managed-agent normalization rejects redirect vectors & unmanaged tools', () => {
-  const request = { frontend: 'cargo', argv: ['test'], workspace: '/workspace', environment: { CI: '1' }, managedToolRoot: '/managed/tools' };
+  const request = { frontend: 'cargo', argv: ['test'], workspace: fixturePath('workspace'), environment: { CI: '1' }, managedToolRoot: fixturePath('managed', 'tools') };
   const normalized = normalizeManagedAgentRequest({ ...request, configuration: { net: { retry: 2 } } });
   assert.equal(normalized.profile, PROFILES.MANAGED_AGENT);
-  assert.equal(normalized.managedToolRoot, '/managed/tools');
+  assert.equal(normalized.managedToolRoot, request.managedToolRoot);
   assert.deepEqual(normalized.configuration, { net: { retry: 2 } });
   assert.throws(() => normalizeManagedAgentRequest({ ...request, argv: ['build', '--target-dir', '/tmp/target'] }), /redirect/);
   assert.throws(() => normalizeManagedAgentRequest({ ...request, argv: ['build', '--config', 'build.target-dir=/tmp/target'] }), /redirect/);
@@ -76,7 +80,7 @@ test('delegated compiler environment preserves Cargo semantics without process a
 });
 
 test('raw rustc & rustdoc outputs are broker-owned regardless of caller paths', () => {
-  const root = '/broker/layout/raw-output'; const targetTriple = 'aarch64-apple-darwin';
+  const root = fixturePath('broker', 'layout', 'raw-output'); const targetTriple = 'aarch64-apple-darwin';
   assert.deepEqual(normalizeCompilerOutputArgv(['src/main.rs', '-o', 'product/bin', '--out-dir=/product/target', '--emit=dep-info=product/main.d,link=/product/main'], { compiler: 'rustc', outputRoot: root, targetTriple }), [
     'src/main.rs', '-o', join(root, 'bin'), `--out-dir=${root}`, `--emit=dep-info=${join(root, 'main.d')},link=${join(root, 'main')}`, '--target', targetTriple
   ]);
@@ -107,20 +111,22 @@ test('rustup administration stays available but rustup-run build tools fail clos
   assert.throws(() => validateManagedRustupInvocation('rustup', ['--verbose', 'run', 'stable', 'rustc.exe']), /cannot launch/);
 });
 test('external roots are deterministic & output scan policy identifies local payload roots', () => {
-  const input = { externalRoot: '/Volumes/builds', repositoryIdentity: 'git:abc123', toolchain: 'rust-1.97.1', target: 'aarch64-apple-darwin', buildProfile: 'release', policyProfile: PROFILES.MANAGED_AGENT };
+  const externalRoot = fixturePath('Volumes', 'builds');
+  const input = { externalRoot, repositoryIdentity: 'git:abc123', toolchain: 'rust-1.97.1', target: 'aarch64-apple-darwin', buildProfile: 'release', policyProfile: PROFILES.MANAGED_AGENT };
   const first = externalRoots(input); const second = externalRoots(input);
   const debug = externalRoots({ ...input, buildProfile: 'debug', policyProfile: PROFILES.STRICT_SYSTEM });
   const otherArch = externalRoots({ ...input, target: 'x86_64-apple-darwin' });
   const otherRepo = externalRoots({ ...input, repositoryIdentity: 'git:def456' });
   const otherToolchain = externalRoots({ ...input, toolchain: 'rust-1.98.0' });
-  assert.deepEqual(first, second); assert.match(first.root, /^\/Volumes\/builds\/rightkit-build-control\/workspaces\/[a-f0-9]{16}$/);
+  assert.deepEqual(first, second); assert.equal(first.root, join(externalRoot, 'rightkit-build-control', 'workspaces', first.namespace)); assert.match(first.namespace, /^[a-f0-9]{16}$/);
   assert.equal(first.policyProfile, PROFILES.MANAGED_AGENT);
   // Cargo profile & target triple must not split the namespace; Cargo separates them internally.
   assert.equal(first.namespace, debug.namespace); assert.equal(first.namespace, otherArch.namespace);
   assert.notEqual(first.namespace, otherRepo.namespace); assert.notEqual(first.namespace, otherToolchain.namespace);
-  for (const value of Object.values(first).filter((value) => typeof value === 'string' && value.startsWith('/'))) assert.ok(value.startsWith('/Volumes/builds/rightkit-build-control/'));
-  assert.equal(first.cargoHome, '/Volumes/builds/rightkit-build-control/global/cargo-home');
-  assert.equal(first.compilerCache, '/Volumes/builds/rightkit-build-control/global/compiler-cache');
+  const buildControlRoot = join(externalRoot, 'rightkit-build-control');
+  for (const value of Object.values(first).filter((value) => typeof value === 'string' && isAbsolute(value))) assert.ok(value.startsWith(buildControlRoot));
+  assert.equal(first.cargoHome, join(buildControlRoot, 'global', 'cargo-home'));
+  assert.equal(first.compilerCache, join(buildControlRoot, 'global', 'compiler-cache'));
   assert.deepEqual(scanForbiddenLocalOutputs(['src', 'target', '.cargo-target', 'CMakeFiles', 'cmake-build-fast', 'DerivedData', 'README.md']), ['target', '.cargo-target', 'CMakeFiles', 'cmake-build-fast', 'DerivedData']);
   assert.ok(!LOCAL_OUTPUT_SCAN_POLICY.forbiddenNames.includes('node_modules'));
 });

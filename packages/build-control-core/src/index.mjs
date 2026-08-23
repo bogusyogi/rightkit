@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { lstat as defaultLstat, readdir as defaultReaddir } from 'node:fs/promises';
-import { basename, isAbsolute, join, normalize, relative } from 'node:path';
+import { basename, isAbsolute, join, normalize, relative, sep } from 'node:path';
 
 export const FRONTENDS = Object.freeze(['cargo', 'swiftpm', 'node-pnpm', 'node-gyp', 'cmake', 'make', 'raw-compiler']);
 export const BUILD_CONTROL_PROTOCOL = 'rightkit.build-control.client.v2';
@@ -337,7 +337,7 @@ function normalizedAllowlist(workspace, allowedRelativePaths) {
     if (isAbsolute(path)) throw new TypeError('allowed relative paths must not be absolute');
     const candidate = normalize(path);
     if (candidate === '.' || candidate === '..' || candidate.startsWith('../') || candidate.startsWith('..\\') || relative(workspace, join(workspace, candidate)).startsWith('..')) throw new TypeError('allowed relative path escapes workspace');
-    return candidate;
+    return candidate.split(sep).join('/');
   });
 }
 
