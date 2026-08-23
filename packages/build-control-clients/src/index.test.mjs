@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import net from 'node:net';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { MANAGED_RUST_ENVIRONMENT_KEYS } from '@rightkit/build-control-core';
@@ -20,11 +20,12 @@ test('every frozen frontend produces a request-only client payload', () => {
 });
 
 test('all named aliases normalize into a managed-agent request', () => {
+  const workspace = resolve('/external/work');
   assert.equal(createManagedAgentRequest({ argv0: 'rustc.exe', argv: ['--version'], workspace: '/external/work' }).request.frontend, 'cargo');
   assert.equal(createManagedAgentRequest({ argv0: 'c++', argv: ['x.cc'], workspace: '/external/work' }).request.frontend, 'raw-compiler');
   assert.equal(createManagedAgentRequest({ argv0: 'npm', workspace: '/external/work' }).request.frontend, 'node-pnpm');
-  assert.deepEqual(createManagedAgentRequest({ argv0: 'pnpm', argv: ['--dir', 'packages/app', 'test'], workspace: '/external/work' }).request, { frontend: 'node-pnpm', argv: ['test'], workspace: '/external/work/packages/app', environment: {}, profile: 'MANAGED_AGENT', configuration: {} });
-  assert.equal(createManagedAgentRequest({ argv0: 'npm', argv: ['--prefix=packages/app', 'test'], workspace: '/external/work' }).request.workspace, '/external/work/packages/app');
+  assert.deepEqual(createManagedAgentRequest({ argv0: 'pnpm', argv: ['--dir', 'packages/app', 'test'], workspace }).request, { frontend: 'node-pnpm', argv: ['test'], workspace: join(workspace, 'packages', 'app'), environment: {}, profile: 'MANAGED_AGENT', configuration: {} });
+  assert.equal(createManagedAgentRequest({ argv0: 'npm', argv: ['--prefix=packages/app', 'test'], workspace }).request.workspace, join(workspace, 'packages', 'app'));
   assert.equal(createManagedAgentRequest({ argv0: 'clang', workspace: '/external/work' }).shim, 'clang');
   assert.throws(() => createManagedAgentRequest({ argv0: 'bash', workspace: '/external/work' }), /unregistered/);
   assert.throws(() => createManagedAgentRequest({ argv0: 'cargo', argv: ['build', '--target-dir', '/tmp/escape'], workspace: '/external/work' }), /cannot redirect/);
@@ -61,21 +62,23 @@ test('nested compiler forwards Cargo semantic environment but not broker control
 });
 
 test('rightkit normalizes explicit build & shim invocations into request-only identity', () => {
-  const build = createRightkitRequest({ argv: ['build', 'cargo', '--', 'test'], workspace: '/external/work' });
+  const workspace = resolve('/external/work');
+  const build = createRightkitRequest({ argv: ['build', 'cargo', '--', 'test'], workspace });
   assert.equal(build.entrypoint, 'rightkit'); assert.equal(build.shim, 'cargo'); assert.deepEqual(build.request.argv, ['test']);
-  const shim = createRightkitRequest({ argv: ['pnpm', '--dir', 'apps/site', 'test'], workspace: '/external/work' });
-  assert.equal(shim.shim, 'pnpm'); assert.equal(shim.request.workspace, '/external/work/apps/site');
+  const shim = createRightkitRequest({ argv: ['pnpm', '--dir', 'apps/site', 'test'], workspace });
+  assert.equal(shim.shim, 'pnpm'); assert.equal(shim.request.workspace, join(workspace, 'apps', 'site'));
   assert.throws(() => createRightkitRequest({ argv: ['build', 'shell', '--', 'x'] }), /usage/);
   assert.throws(() => createRightkitRequest({ argv: ['build', 'cargo', 'test'] }), /usage/);
   assert.throws(() => createRightkitRequest({ argv: [] }), /usage/);
 });
 
 test('Cargo manifest path selects its workspace for policy and config discovery', () => {
-  const request = createRightkitRequest({ argv: ['cargo', 'test', '--manifest-path', 'engine/Cargo.toml'], workspace: '/external/work' });
-  assert.equal(request.request.workspace, '/external/work/engine');
-  assert.deepEqual(request.request.argv, ['test', '--manifest-path', '/external/work/engine/Cargo.toml']);
-  const passthrough = createRightkitRequest({ argv: ['cargo', 'test', '--', '--manifest-path', 'fixture/Cargo.toml'], workspace: '/external/work' });
-  assert.equal(passthrough.request.workspace, '/external/work');
+  const workspace = resolve('/external/work');
+  const request = createRightkitRequest({ argv: ['cargo', 'test', '--manifest-path', 'engine/Cargo.toml'], workspace });
+  assert.equal(request.request.workspace, join(workspace, 'engine'));
+  assert.deepEqual(request.request.argv, ['test', '--manifest-path', join(workspace, 'engine', 'Cargo.toml')]);
+  const passthrough = createRightkitRequest({ argv: ['cargo', 'test', '--', '--manifest-path', 'fixture/Cargo.toml'], workspace });
+  assert.equal(passthrough.request.workspace, workspace);
   assert.deepEqual(passthrough.request.argv, ['test', '--', '--manifest-path', 'fixture/Cargo.toml']);
 });
 

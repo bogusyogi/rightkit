@@ -2,7 +2,7 @@ import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, captureDele
 import net from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve, win32 } from 'node:path';
+import { basename, dirname, isAbsolute, join, posix, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const adapterRegistry = Object.freeze(Object.fromEntries(FRONTENDS.map((frontend) => [frontend, Object.freeze({ frontend, mode: 'REQUEST_ONLY' })])));
@@ -344,7 +344,7 @@ export async function installAgentShims({ directory, platform = process.platform
     for (const name of NATIVE_WINDOWS_SHIMS) await writeAtomic(resolve(target, `${name}.exe`), compiledLauncher);
   } else {
     for (const { name } of manifest.links) {
-      const executable = join(selectedRuntime, 'build-control-clients', 'src', name === 'rightkit' ? 'rightkit.mjs' : 'managed-agent.mjs');
+      const executable = posix.join(selectedRuntime, 'build-control-clients', 'src', name === 'rightkit' ? 'rightkit.mjs' : 'managed-agent.mjs');
       const endpoint = `if [ -z "$RIGHTKIT_BUILD_BROKER_SOCKET" ]; then export RIGHTKIT_BUILD_BROKER_SOCKET=${shellQuote(defaultBrokerEndpoint)}; fi\n`;
       const identity = name === 'rightkit' ? '' : `export RIGHTKIT_MANAGED_AGENT_SHIM=${shellQuote(name)}\n`;
       const wrapper = `#!/bin/sh\n# ${INSTALL_MARKER}\n${endpoint}${identity}exec ${shellQuote(nodePath)} ${shellQuote(executable)} "$@"\n`;
