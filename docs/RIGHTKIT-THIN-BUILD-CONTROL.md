@@ -76,7 +76,7 @@ live cargo upgrade: HeardRight passes
 live recursive cargo upgrade/update: CodeRight passes
 macOS and Windows re-bootstrap: passes with intended concurrency/cache settings
 native acceptance: docs/plans/evidence/rightkit-thin-build-control-v2.7-native-acceptance.md
-macOS v2.8 acceptance: docs/plans/evidence/rightkit-thin-build-control-v2.8-acceptance.md
+macOS + Windows v2.8 acceptance: docs/plans/evidence/rightkit-thin-build-control-v2.8-acceptance.md
 ```
 
 Bootstrap originally copied `rustc` and `rustdoc` as isolated executables. That
@@ -926,7 +926,7 @@ Acceptance evidence lives in
 
 ## 19. v2.8 completion state
 
-The macOS track is complete. Acceptance evidence lives in
+The macOS and Windows tracks are complete. Acceptance evidence lives in
 `docs/plans/evidence/rightkit-thin-build-control-v2.8-acceptance.md` and cache
 measurements live in
 `docs/plans/evidence/rightkit-thin-build-control-v2.8-cache-experiment.md`.
@@ -944,8 +944,11 @@ Settled results:
 6. generic `cargo install` fails closed for managed storage and remaining
    policy/resource corrections are implemented.
 
-Windows v2.8 acceptance is outside the explicitly selected Mac-only scope. No
-Windows result is required for, or included in, the macOS completion claim.
+Windows source bootstrap reproduces BUILD=1, Cargo jobs=4, the 150 GiB target
+budget, client-side sccache, Cargo-default incremental behavior, and disabled
+`SCCACHE_BASEDIRS`. Native compiler-active cancellation ends `REAPED` through
+the Job Object with no surviving launcher or descendants; post-cancel work
+reuses the generation successfully.
 # Thin-core closure
 
 ## 20. Predecessor removal — completed

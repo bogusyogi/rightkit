@@ -1,6 +1,6 @@
 # RightKit Thin Build Control v2.8 — Completion Implementation Plan
 
-**Status:** `COMPLETE — HISTORICAL IMPLEMENTATION EVIDENCE (macOS scope)`; Windows v2.8 acceptance excluded by current user scope.
+**Status:** `COMPLETE — HISTORICAL IMPLEMENTATION EVIDENCE`; native macOS and Windows acceptance complete.
 **Version:** 2.8.  
 **Date:** 2026-08-23.  
 **Scope:** finish the shipped Thin Build Control system without reopening its settled architecture.  
@@ -1505,10 +1505,18 @@ v2.8 is complete when:
 
 ## 19.1 macOS closure disposition — 2026-08-23
 
-All macOS-applicable requirements above are complete. Windows-only acceptance
-and Windows default validation are excluded from the user's Mac-only scope;
-their absence does not create pending Mac work. Final Mac evidence is recorded
-in `docs/plans/evidence/rightkit-thin-build-control-v2.8-acceptance.md`.
+At this checkpoint all macOS-applicable requirements were complete; Windows was
+excluded from that then-current Mac-only scope. Section 19.2 records the later
+Windows closure. Final native evidence is recorded in
+`docs/plans/evidence/rightkit-thin-build-control-v2.8-acceptance.md`.
+
+## 19.2 Windows closure disposition — 2026-08-23
+
+Windows source bootstrap, host-native tests, live runtime activation, Job
+Object cancellation, zero-descendant proof, post-cancel generation reuse, and
+accepted defaults are complete. Final native evidence is recorded in
+`docs/plans/evidence/rightkit-thin-build-control-v2.8-acceptance.md`; no v2.8
+implementation work remains on either host.
 
 ---
 
