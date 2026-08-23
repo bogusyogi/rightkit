@@ -262,7 +262,7 @@ test('cancel command carries only an explicit typed provenance source', () => {
   assert.throws(() => createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id: 'job-1', source: 'BROKER_SHUTDOWN' }), /cancellation source/);
 });
 
-test('managed entrypoints turn SIGINT into CLIENT_SIGNAL cancellation', async (t) => {
+test('managed entrypoints turn SIGINT into CLIENT_SIGNAL cancellation', posixOnly, async (t) => {
   for (const [name, script, argv, environment] of [
     ['shim', './managed-agent.mjs', ['test'], { RIGHTKIT_MANAGED_AGENT_SHIM: 'cargo' }],
     ['rightkit', './rightkit.mjs', ['cargo', 'test'], {}]
