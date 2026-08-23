@@ -43,13 +43,19 @@ const forbiddenRequestEnvironment = /^(?:DYLD_(?:INSERT_LIBRARIES|LIBRARY_PATH|F
 const redirectArgument = /^(?:--(?:target-dir|config|cache-dir|build-dir|toolchain|temp-dir)(?:=|$)|-Z(?:build-std|config)(?:=|$))/;
 const redirectConfig = /(?:^|[._-])(?:target(?:[_-]?dir)?|build(?:[_-]?dir)?|cache(?:[_-]?dir)?|toolchain|rustc|rustdoc|temp(?:[_-]?dir)?|home|cargo_(?:target_dir|build_build_dir|install_root))$/i;
 
+function pathEscapesRoot(root, candidate) {
+  const scoped = relative(normalize(root), normalize(candidate));
+  return isAbsolute(scoped) || scoped === '..' || scoped.startsWith(`..${sep}`);
+}
+
 function requireProfile(profile) {
   if (profile !== undefined && !Object.values(PROFILES).includes(profile)) throw new TypeError('recognized profile is required');
 }
 
 function isUnmanagedToolPath(argument, managedToolRoot) {
-  if (!isAbsolute(argument) || !managedToolNames.has(basename(argument))) return false;
-  return !managedToolRoot || relative(normalize(managedToolRoot), normalize(argument)).startsWith('..');
+  const toolName = basename(argument).toLowerCase().replace(/\.exe$/, '');
+  if (!isAbsolute(argument) || !managedToolNames.has(toolName)) return false;
+  return !managedToolRoot || pathEscapesRoot(managedToolRoot, argument);
 }
 
 function configurationKeys(configuration, prefix = '') {
@@ -316,7 +322,7 @@ export function externalRoots({ externalRoot, repositoryIdentity, toolchain, tar
   const namespace = createHash('sha256').update(JSON.stringify([repositoryIdentity, toolchain])).digest('hex').slice(0, 16);
   const globalRoot = join(base, 'global'); const root = join(base, 'workspaces', namespace);
   const contained = (path) => {
-    if (relative(base, path).startsWith('..')) throw new TypeError('external roots must remain contained');
+    if (pathEscapesRoot(base, path)) throw new TypeError('external roots must remain contained');
     return path;
   };
   return Object.freeze({
@@ -336,7 +342,7 @@ function normalizedAllowlist(workspace, allowedRelativePaths) {
   return allowedRelativePaths.map((path) => {
     if (isAbsolute(path)) throw new TypeError('allowed relative paths must not be absolute');
     const candidate = normalize(path);
-    if (candidate === '.' || candidate === '..' || candidate.startsWith('../') || candidate.startsWith('..\\') || relative(workspace, join(workspace, candidate)).startsWith('..')) throw new TypeError('allowed relative path escapes workspace');
+    if (candidate === '.' || candidate === '..' || candidate.startsWith('../') || candidate.startsWith('..\\') || pathEscapesRoot(workspace, join(workspace, candidate))) throw new TypeError('allowed relative path escapes workspace');
     return candidate.split(sep).join('/');
   });
 }
@@ -400,7 +406,7 @@ export async function scanWorkspaceForUnmanagedOutputs(workspace, options = {}) 
 
 export function immutableToolRoot(tool) {
   if (!tool || typeof tool !== 'object' || !isAbsolute(tool.path) || !digest.test(tool.sha256 ?? '')) throw new TypeError('immutable tool requires absolute path & sha256');
-  if (tool.mutable === true || relative(tool.root ?? tool.path, tool.path).startsWith('..')) throw new TypeError('tool must remain inside immutable root');
+  if (tool.mutable === true || pathEscapesRoot(tool.root ?? tool.path, tool.path)) throw new TypeError('tool must remain inside immutable root');
   return Object.freeze({ path: normalize(tool.path), root: normalize(tool.root ?? tool.path), sha256: tool.sha256, version: tool.version ?? null });
 }
 

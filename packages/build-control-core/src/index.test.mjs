@@ -23,6 +23,7 @@ test('immutable tool roots reject mutable or escaping paths', () => {
   const root = fixturePath('external', 'tools'); const cargo = join(root, 'cargo');
   assert.equal(immutableToolRoot({ path: cargo, root, sha256: 'a'.repeat(64) }).path, cargo);
   assert.throws(() => immutableToolRoot({ path: fixturePath('external', 'cargo'), root, sha256: 'a'.repeat(64) }));
+  if (process.platform === 'win32') assert.throws(() => immutableToolRoot({ path: 'D:\\external\\cargo.exe', root: 'C:\\external\\tools', sha256: 'a'.repeat(64) }));
 });
 test('managed-agent normalization rejects redirect vectors & unmanaged tools', () => {
   const request = { frontend: 'cargo', argv: ['test'], workspace: fixturePath('workspace'), environment: { CI: '1' }, managedToolRoot: fixturePath('managed', 'tools') };
@@ -41,7 +42,9 @@ test('managed-agent normalization rejects redirect vectors & unmanaged tools', (
   assert.throws(() => normalizeManagedAgentRequest({ ...request, environment: { npm_config_store_dir: '/tmp/pnpm' } }), /environment/);
   assert.throws(() => normalizeManagedAgentRequest({ ...request, configuration: { build: { targetDir: '/tmp/target' } } }), /configuration/);
   assert.throws(() => normalizeManagedAgentRequest({ ...request, configuration: { env: { CARGO_TARGET_DIR: '/tmp/target' } } }), /configuration/);
-  assert.throws(() => normalizeManagedAgentRequest({ ...request, argv: ['/usr/local/bin/cargo', 'test'] }), /redirect/);
+  assert.throws(() => normalizeManagedAgentRequest({ ...request, argv: [fixturePath('usr', 'local', 'bin', 'cargo'), 'test'] }), /redirect/);
+  assert.throws(() => normalizeManagedAgentRequest({ ...request, argv: [join(fixturePath('usr', 'local', 'bin'), 'cargo.exe'), 'test'] }), /redirect/);
+  if (process.platform === 'win32') assert.throws(() => normalizeManagedAgentRequest({ ...request, argv: ['D:\\unmanaged\\cargo.exe', 'test'] }), /redirect/);
   assert.doesNotThrow(() => normalizeManagedAgentRequest({ ...request, argv: ['test', '--', '--target-dir'] }));
   assert.doesNotThrow(() => normalizeBuildRequest({ ...request, profile: PROFILES.STRICT_SYSTEM, argv: ['--target-dir', '/managed/target'] }));
 });
