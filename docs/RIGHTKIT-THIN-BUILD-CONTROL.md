@@ -6,7 +6,7 @@
 
 ---
 
-## 0. Live implementation state — 2026-08-22
+## 0. Live implementation state — 2026-08-23
 
 macOS and Windows broker entrypoints construct `ThinJobService`. Installed shims keep
 the v2 protocol and runtime-identity handshake; product repositories still use
@@ -70,12 +70,13 @@ Implemented and live:
 Evidence:
 
 ```text
-build-control-broker package: 172/172 tests pass
+build-control suite: 250/250 tests pass
 Windows native-focused package set: 57/57 tests pass
 live cargo upgrade: HeardRight passes
 live recursive cargo upgrade/update: CodeRight passes
 macOS and Windows re-bootstrap: passes with intended concurrency/cache settings
 native acceptance: docs/plans/evidence/rightkit-thin-build-control-v2.7-native-acceptance.md
+macOS v2.8 acceptance: docs/plans/evidence/rightkit-thin-build-control-v2.8-acceptance.md
 ```
 
 Bootstrap originally copied `rustc` and `rustdoc` as isolated executables. That
@@ -88,8 +89,9 @@ creates a transient startup socket below `TMPDIR`; putting that directory inside
 the full workspace-generation path exceeds macOS's 103-byte Unix socket limit.
 
 Superseded architecture/remediation/handoff documents and predecessor core are
-deleted. Cache-normalization and BUILD-capacity measurements remain deliberately
-deferred; they do not change live topology or native containment acceptance.
+deleted. macOS v2.8 measurement keeps Cargo's incremental default and leaves
+`SCCACHE_BASEDIRS` disabled: neither alternative produced a material reuse win.
+BUILD remains 1; no v2.8 change raised host concurrency.
 
 ---
 
@@ -922,25 +924,28 @@ cores were then removed (commit `328f2e073`). No migration work remains.
 Acceptance evidence lives in
 `docs/plans/evidence/rightkit-thin-build-control-v2.7-native-acceptance.md`.
 
-## 19. Open v2.8 work
+## 19. v2.8 completion state
 
-Outstanding completion work is tracked by
-`docs/plans/RIGHTKIT-THIN-BUILD-CONTROL-v2.8-IMPLEMENTATION.md`:
+The macOS track is complete. Acceptance evidence lives in
+`docs/plans/evidence/rightkit-thin-build-control-v2.8-acceptance.md` and cache
+measurements live in
+`docs/plans/evidence/rightkit-thin-build-control-v2.8-cache-experiment.md`.
 
-1. remove normal Cargo-owned compiler children from the broker job graph —
-   live (root-level `RUSTC`/`RUSTDOC`/`RUSTC_WRAPPER` injection); native
-   containment acceptance rerun still pending;
-2. run the incremental-compilation-vs-sccache experiment;
-3. run the `SCCACHE_BASEDIRS` path-normalization experiment;
-4. make the target-cache cap enforceable across idle warm workspaces via LRU
-   eviction of idle current generations;
-5. reconcile client-side sccache receipt semantics in this document — done;
-6. smaller policy/resource corrections: `cargo install` fail-closed, denied
-   builtins documented, Windows Cargo-job heuristic, stale concurrency
-   commentary.
+Settled results:
 
-Do not describe any of these as "deferred measurements": the v2.7 protocol
-already closed the compiler-topology decision with live receipt evidence.
+1. normal Cargo-owned compiler processes execute directly under the admitted
+   Cargo root with zero compiler broker round trips;
+2. incremental policy is `KEEP CARGO DEFAULT`;
+3. `SCCACHE_BASEDIRS` remains disabled after a negative alternate-path gate;
+4. target budget can evict idle current generations by LRU while active
+   generations remain protected;
+5. client-side sccache receipts report service health without fabricated
+   per-root deltas;
+6. generic `cargo install` fails closed for managed storage and remaining
+   policy/resource corrections are implemented.
+
+Windows v2.8 acceptance is outside the explicitly selected Mac-only scope. No
+Windows result is required for, or included in, the macOS completion claim.
 # Thin-core closure
 
 ## 20. Predecessor removal — completed
