@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { defaultThinCacheTimeoutMs, ThinCache, thinCacheStatsDelta } from './thin-cache.mjs';
+import { defaultThinCacheTimeoutMs, ThinCache, ThinCacheUnavailableError, thinCacheStatsDelta } from './thin-cache.mjs';
 
 const paths = { cargoHome: '/managed/cargo-home', compilerCache: '/managed/compiler-cache', tools: '/managed/tools' };
 const layout = { target: '/managed/workspace/generations/000001/target', temp: '/managed/workspace/generations/000001/tmp' };
@@ -46,19 +46,25 @@ test('basedirs gate stays absent when disabled & uses Windows separator/case ded
   assert.equal(prepared.environment.SCCACHE_BASEDIRS, 'C:\\Repo;C:\\Repo\\app;C:\\managed\\generation');
 });
 
-test('cache probe failure visibly degrades to direct rustc for job', async () => {
+test('cache probe failure blocks build admission', async () => {
   const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', run: async () => { throw Object.assign(new Error('offline'), { code: 'ENOENT' }); } });
-  const prepared = await cache.prepare({ layout });
-  assert.equal(prepared.mode, 'direct');
-  assert.equal(prepared.status, 'DEGRADED');
-  assert.match(prepared.reason, /ENOENT/);
-  assert.equal(prepared.environment.RUSTC_WRAPPER, undefined);
+  await assert.rejects(cache.prepare({ layout }), (error) => {
+    assert.equal(error instanceof ThinCacheUnavailableError, true);
+    assert.equal(error.code, 'RK_SCCACHE_UNAVAILABLE');
+    assert.equal(error.cache.mode, 'sccache');
+    assert.equal(error.cache.status, 'BLOCKED');
+    assert.equal(error.cache.healthStatus, 'DEGRADED');
+    assert.match(error.cache.reason, /ENOENT/);
+    return true;
+  });
 });
 
 test('cache probe failure preserves bounded stderr diagnosis', async () => {
   const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', run: async () => { throw Object.assign(new Error('exit'), { code: 2, stderr: 'socket ownership failed\n' }); } });
-  const prepared = await cache.prepare({ layout });
-  assert.equal(prepared.reason, 'sccache-stats-unavailable:2:socket ownership failed');
+  await assert.rejects(cache.prepare({ layout }), (error) => {
+    assert.equal(error.cache.reason, 'sccache-stats-unavailable:2:socket ownership failed');
+    return true;
+  });
 });
 
 test('records bounded numeric cache deltas', async () => {
@@ -86,8 +92,10 @@ test('counter reset degrades attribution instead of emitting negative deltas', a
   assert.equal(result.delta, null);
 });
 
-test('disabled cache remains explicit', async () => {
+test('disabled cache blocks build admission explicitly', async () => {
   const cache = new ThinCache({ paths, enabled: false });
-  const prepared = await cache.prepare({ layout });
-  assert.deepEqual(await cache.finish(prepared), { mode: 'direct', status: 'DISABLED', delta: null });
+  await assert.rejects(cache.prepare({ layout }), (error) => {
+    assert.deepEqual(error.cache, { mode: 'sccache', status: 'BLOCKED', healthStatus: 'DISABLED', reason: 'sccache-disabled', delta: null });
+    return true;
+  });
 });

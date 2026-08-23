@@ -13,6 +13,15 @@ const basedirKeys = new Set(['compilerCache']);
 const platformBasedirKey = process.platform === 'win32' ? 'compilerCacheWin' : 'compilerCachePosix';
 export const defaultThinCacheTimeoutMs = (platform = process.platform) => platform === 'win32' ? 5_000 : 2_000;
 
+export class ThinCacheUnavailableError extends Error {
+  constructor(reason, healthStatus = 'DEGRADED') {
+    super(`required sccache unavailable: ${reason}`);
+    this.name = 'ThinCacheUnavailableError';
+    this.code = 'RK_SCCACHE_UNAVAILABLE';
+    this.cache = Object.freeze({ mode: 'sccache', status: 'BLOCKED', healthStatus, reason, delta: null });
+  }
+}
+
 function positive(value, label, fallback) {
   const selected = value ?? fallback;
   if (!Number.isSafeInteger(selected) || selected < 1) throw new TypeError(`${label} must be a positive integer`);
@@ -69,9 +78,9 @@ export class ThinCache {
       TMP: layout.temp,
       TEMP: layout.temp
     });
-    if (!this.#enabled) return Object.freeze({ mode: 'direct', status: 'DISABLED', environment: base, before: null });
+    if (!this.#enabled) throw new ThinCacheUnavailableError('sccache-disabled', 'DISABLED');
     const sample = await this.snapshot();
-    if (sample.status !== 'SERVICE_OK') return Object.freeze({ mode: 'direct', status: 'DEGRADED', reason: sample.reason, environment: base, before: null, attribution: sample.attribution ?? null });
+    if (sample.status !== 'SERVICE_OK') throw new ThinCacheUnavailableError(sample.reason);
     const trustedRoots = [repositoryRoot, workspaceRoot, layout.root, ...(this.#basedirs ?? [])].filter((value) => typeof value === 'string' && value);
     const seen = new Set();
     const basedirs = this.#basedirsEnabled

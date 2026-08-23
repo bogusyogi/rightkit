@@ -428,6 +428,13 @@ export class ThinJobService {
       return this.#finish(job, status, { exitCode: safeExit(result.code, status), signal: result.signal, reap, reason: job.cancelReason ?? (result.code === 0 ? null : 'tool-exit') });
     } catch (error) {
       job.teardownStartedAt ??= this.#now();
+      if (error.code === 'RK_SCCACHE_UNAVAILABLE') {
+        job.cachePrepared = error.cache;
+        const cacheEvent = Object.freeze({ type: 'CACHE_ADMISSION_BLOCKED', id: job.id, command: job.command, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cache: error.cache, code: error.code, error: error.message });
+        this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: cacheEvent });
+        await this.#log(cacheEvent);
+        return this.#finish(job, 'REJECTED', { exitCode: 125, reason: error.code, error: error.message });
+      }
       if (job.child) {
         const reap = await (job.termination ?? this.#terminate(job.child, { graceMs: integer(this.#config.bounds?.processGraceMs, 5_000, 1), platform: this.#platform }).catch((cause) => ({ reaped: false, reason: cause.message })));
         return this.#finish(job, job.cancelReason === 'deadline' ? 'TIMED_OUT' : job.cancelReason || error.code === 'RK_QUEUE_CANCELLED' ? 'CANCELLED' : 'FAILED', { exitCode: 125, reason: job.cancelReason ?? error.code, error: error.message, reap });
@@ -482,7 +489,7 @@ export class ThinJobService {
       exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, error: details.error ?? null,
       // v2.7 §4.1: exact cancellation provenance (never inferred from SIGTERM alone)
       cancellation: job.cancelProvenance ? Object.freeze({ source: job.cancelProvenance, reason: job.cancelReason ?? null, requests: Object.freeze(job.cancelRequests.map((request) => Object.freeze({ ...request }))) }) : null,
-      cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }),
+      cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, healthStatus: job.cachePrepared.healthStatus ?? null, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }),
       cacheCounterScope: job.parentId ? null : (job.cacheResult?.attribution?.scope ?? (job.cacheResult?.delta ? 'shared-cumulative-root-window' : null)),
       compilerProcessCount, compilerBrokerRoundTrips: job.parentId ? null : (job.compilerRoundTrips ?? 0),
       compilerIdentity: job.parentId ? null : job.shim === 'cargo' && job.capability.compile ? this.#compilerIdentity : ['rustc', 'rustdoc'].includes(job.shim) ? Object.freeze({ [job.shim]: job.tool }) : null,

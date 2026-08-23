@@ -245,7 +245,7 @@ The compiler should remain inside the requesting job's process domain while the 
 
 Do not permanently disable sccache as a containment workaround.
 
-If sccache fails for an individual request, RightKit may fall back to direct rustc, but that degradation must be explicit in the receipt.
+If managed sccache is disabled, unavailable, or fails its admission probe, RightKit must reject compilation before spawning Cargo or rustc. Direct-rustc fallback is forbidden. Emit an immediate `CACHE_ADMISSION_BLOCKED` event plus a terminal receipt containing exact cache health and failure reason.
 
 ---
 
