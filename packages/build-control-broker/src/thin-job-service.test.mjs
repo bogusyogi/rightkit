@@ -177,7 +177,7 @@ test('cache preparation receives broker-owned repository, workspace & active-gen
     assert.equal(prepared.length, 1);
     assert.equal(prepared[0].repositoryRoot, item.repository);
     assert.equal(prepared[0].workspaceRoot, item.workspace);
-    assert.match(prepared[0].layout.root, /generations\/000001$/);
+    assert.match(prepared[0].layout.root, /generations[\\/]000001$/);
   } finally { await item.close(); }
 });
 

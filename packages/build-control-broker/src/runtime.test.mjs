@@ -65,15 +65,17 @@ test('functional health surfaces FAILED receipt error and reason details', () =>
 async function sourceFixture() {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-source-')); const packages = join(root, 'packages'); const healthWorkspace = join(root, 'health');
   for (const name of ['build-control-broker', 'build-control-core', 'build-control-clients']) await cp(join(sourcePackages, name), join(packages, name), { recursive: true });
+  const addonRelative = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node'; const addonPath = join(packages, addonRelative); const addonBytes = Buffer.from('MZ-fixture-rightkit-job-addon');
+  await mkdir(join(packages, 'build-control-broker/native/windows-job/build/Release'), { recursive: true }); await writeFile(addonPath, addonBytes);
   await mkdir(healthWorkspace); await writeFile(join(healthWorkspace, 'Cargo.toml'), '[package]\nname = "rk-runtime-health"\nversion = "0.0.0"\nedition = "2021"\n');
   await git(root, ['init']); await git(root, ['config', 'user.email', 'rightkit-test@example.invalid']); await git(root, ['config', 'user.name', 'RightKit Test']);
-  await git(root, ['add', 'packages']); await git(root, ['commit', '-m', 'runtime fixture']);
-  return { root, packages, healthWorkspace, revision: await git(root, ['rev-parse', 'HEAD']), tree: await git(root, ['rev-parse', 'HEAD:packages']) };
+  await git(root, ['add', '-f', 'packages']); await git(root, ['commit', '-m', 'runtime fixture']);
+  return { root, packages, healthWorkspace, windowsJobAddon: { path: addonPath, sha256: createHash('sha256').update(addonBytes).digest('hex'), sizeBytes: addonBytes.length }, revision: await git(root, ['rev-parse', 'HEAD']), tree: await git(root, ['rev-parse', 'HEAD:packages']) };
 }
 
 test('staging creates content-addressed immutable provenance-bound bundle without activation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
-    const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, platform: 'linux' });
+    const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon });
     assert.equal(staged.version, 'release-a');
     assert.equal(staged.manifest.sourceRevision, fixture.revision); assert.equal(staged.manifest.sourceTreeDigest, fixture.tree);
     assert.equal((await readFile(join(staged.runtime, 'runtime-manifest.json'), 'utf8')).includes(staged.manifest.brokerDigest), true);
@@ -85,8 +87,8 @@ test('staging creates content-addressed immutable provenance-bound bundle withou
 
 test('same source content returns on-disk release identity instead of requested conflicting label', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
-    const first = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', platform: 'linux' });
-    const second = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-b', platform: 'linux' });
+    const first = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', windowsJobAddon: fixture.windowsJobAddon });
+    const second = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-b', windowsJobAddon: fixture.windowsJobAddon });
     assert.equal(second.runtime, first.runtime); assert.equal(second.version, 'release-a'); assert.equal(second.manifest.version, 'release-a');
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
 });
@@ -124,7 +126,7 @@ test('activation fence remains PENDING through candidate probe then rolls select
     let rollback = false;
     await assert.rejects(installManagedRuntime({
       externalRoot: root, sourcePackagesRoot: fixture.packages, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } },
-      platform: 'linux', health: async () => {}, restartService: async ({ activation }) => {
+      windowsJobAddon: fixture.windowsJobAddon, health: async () => {}, restartService: async ({ activation }) => {
         const state = JSON.parse(await readFile(activation.path, 'utf8')); assert.equal(state.schema, RUNTIME_ACTIVATION_FENCE_SCHEMA); assert.equal(state.state, 'PENDING');
         assert.equal(state.state === 'COMMITTED', false, 'candidate must reject SUBMIT/MANAGED_AGENT while PENDING'); return { pid: 101, runtimeIdentity: activation.runtime };
       }, probeService: async () => { throw new Error('post-switch probe refused'); }, rollbackService: async () => { rollback = true; }, processProbe: async () => ({ alive: true, runtimePath: root }),
@@ -137,7 +139,7 @@ test('activation commits only after exact post-switch process proof', async () =
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
     const fence = join(root, 'state', 'activation-fence.json'); let runtime;
     const result = await installManagedRuntime({
-      externalRoot: root, sourcePackagesRoot: fixture.packages, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } }, platform: 'linux', health: async () => {},
+      externalRoot: root, sourcePackagesRoot: fixture.packages, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } }, windowsJobAddon: fixture.windowsJobAddon, health: async () => {},
       restartService: async ({ manifest, runtime: candidate }) => { runtime = candidate; return { pid: 101, runtimeIdentity: manifest }; },
       probeService: async ({ manifest }) => ({ pid: 101, runtimeIdentity: manifest }), rollbackService: async () => { throw new Error('must not rollback committed candidate'); }, processProbe: async () => ({ alive: true, runtimePath: runtime }),
     });
