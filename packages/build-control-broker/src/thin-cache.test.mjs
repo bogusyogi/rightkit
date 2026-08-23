@@ -31,6 +31,21 @@ test('injects shared Cargo/sccache & persistent generation environment', async (
   assert.equal(calls.length, 1);
 });
 
+test('basedirs gate uses broker-trusted per-job roots plus operator additions', async () => {
+  const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', basedirsEnabled: true, basedirs: ['/operator/root'], run: async () => ({ stdout: '{}' }) });
+  const prepared = await cache.prepare({ layout: { ...layout, root: '/managed/workspace/generations/000001' }, repositoryRoot: '/repo', workspaceRoot: '/repo/app' });
+  assert.equal(prepared.environment.SCCACHE_BASEDIRS, '/repo:/repo/app:/managed/workspace/generations/000001:/operator/root');
+  assert.equal(cache.basedirsActive, true);
+});
+
+test('basedirs gate stays absent when disabled & uses Windows separator/case deduplication when enabled', async () => {
+  const disabled = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', basedirs: ['/operator/root'], run: async () => ({ stdout: '{}' }) });
+  assert.equal((await disabled.prepare({ layout, repositoryRoot: '/repo' })).environment.SCCACHE_BASEDIRS, undefined);
+  const windows = new ThinCache({ paths, sccachePath: 'C:\\tools\\sccache.exe', basedirsEnabled: true, basedirs: ['c:\\repo'], platform: 'win32', run: async () => ({ stdout: '{}' }) });
+  const prepared = await windows.prepare({ layout: { target: 'C:\\managed\\target', temp: 'C:\\managed\\tmp', root: 'C:\\managed\\generation' }, repositoryRoot: 'C:\\Repo', workspaceRoot: 'C:\\Repo\\app' });
+  assert.equal(prepared.environment.SCCACHE_BASEDIRS, 'C:\\Repo;C:\\Repo\\app;C:\\managed\\generation');
+});
+
 test('cache probe failure visibly degrades to direct rustc for job', async () => {
   const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', run: async () => { throw Object.assign(new Error('offline'), { code: 'ENOENT' }); } });
   const prepared = await cache.prepare({ layout });

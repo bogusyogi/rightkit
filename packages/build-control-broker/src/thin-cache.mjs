@@ -40,9 +40,9 @@ function delta(before, after) {
 }
 
 export class ThinCache {
-  #paths; #tool; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #epoch; #now;
+  #paths; #tool; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #platform; #epoch; #now;
 
-  constructor({ paths, sccachePath = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = defaultThinCacheTimeoutMs(), basedirs = null, basedirsEnabled = false, run = defaultRun, epoch = randomUUID(), now = Date.now } = {}) {
+  constructor({ paths, sccachePath = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = defaultThinCacheTimeoutMs(), basedirs = null, basedirsEnabled = false, platform = process.platform, run = defaultRun, epoch = randomUUID(), now = Date.now } = {}) {
     if (!paths?.cargoHome || !paths?.compilerCache) throw new TypeError('thin state cache paths are required');
     if (enabled && (typeof sccachePath !== 'string' || !sccachePath)) throw new TypeError('enabled cache requires sccachePath');
     this.#paths = paths; this.#tool = sccachePath; this.#enabled = enabled; this.#clientSide = clientSideSupported; this.#maxSize = positive(maxSizeBytes, 'maxSizeBytes', 20 * 1024 ** 3); this.#timeout = positive(timeoutMs, 'timeoutMs', 2_000); this.#run = run;
@@ -51,11 +51,12 @@ export class ThinCache {
     // provided they only take effect when basedirsEnabled === true.
     this.#basedirs = Array.isArray(basedirs) ? Object.freeze([...basedirs].filter((value) => typeof value === 'string' && value)) : null;
     this.#basedirsEnabled = basedirsEnabled === true;
+    this.#platform = platform;
     this.#epoch = String(epoch);
     this.#now = now;
   }
 
-  async prepare({ layout, cargoBuildJobs = 4 } = {}) {
+  async prepare({ layout, cargoBuildJobs = 4, repositoryRoot = null, workspaceRoot = null } = {}) {
     if (!layout?.target || !layout?.temp) throw new TypeError('workspace generation layout is required');
     const base = Object.freeze({
       CARGO_HOME: this.#paths.cargoHome,
@@ -71,15 +72,17 @@ export class ThinCache {
     if (!this.#enabled) return Object.freeze({ mode: 'direct', status: 'DISABLED', environment: base, before: null });
     const sample = await this.snapshot();
     if (sample.status !== 'SERVICE_OK') return Object.freeze({ mode: 'direct', status: 'DEGRADED', reason: sample.reason, environment: base, before: null, attribution: sample.attribution ?? null });
-    const basedirs = this.#basedirsEnabled && this.#basedirs && this.#basedirs.length > 0
-      ? Object.freeze({ SCCACHE_BASEDIRS: [...this.#basedirs].join(process.platform === 'win32' ? ';' : ':') })
+    const trustedRoots = [repositoryRoot, workspaceRoot, layout.root, ...(this.#basedirs ?? [])].filter((value) => typeof value === 'string' && value);
+    const seen = new Set();
+    const basedirs = this.#basedirsEnabled
+      ? Object.freeze({ SCCACHE_BASEDIRS: trustedRoots.filter((value) => { const key = this.#platform === 'win32' ? value.toLowerCase() : value; if (seen.has(key)) return false; seen.add(key); return true; }).join(this.#platform === 'win32' ? ';' : ':') })
       : Object.freeze({});
     const environment = Object.freeze({
       ...base,
       RUSTC_WRAPPER: this.#tool,
       SCCACHE_DIR: this.#paths.compilerCache,
       SCCACHE_CACHE_SIZE: String(this.#maxSize),
-      ...(this.#basedirsEnabled && this.#basedirs && this.#basedirs.length > 0 ? basedirs : {}),
+      ...(this.#basedirsEnabled ? basedirs : {}),
       ...(this.#clientSide ? { SCCACHE_CLIENT_SIDE: '1' } : {})
     });
     return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', environment, before: sample.stats, attribution: sample.attribution });
@@ -95,7 +98,7 @@ export class ThinCache {
     return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', delta: Object.freeze(measured), attribution: Object.freeze({ ...sample.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: sample.attribution.sampledAt }) });
   }
 
-  get basedirsActive() { return Boolean(this.#basedirsEnabled && this.#basedirs && this.#basedirs.length > 0); }
+  get basedirsActive() { return this.#basedirsEnabled; }
 
   async snapshot() {
     if (!this.#enabled) return Object.freeze({ status: 'DISABLED', stats: null });

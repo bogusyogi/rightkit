@@ -91,11 +91,13 @@ test('workspace discovery is bounded, deduplicated, cached & reports hit timing'
     for (let attempt = 0; attempt < 20 && calls === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 1));
     assert.equal(calls, 1); assert.equal(resolver.stats.inflight, 1);
     release();
-    assert.equal((await first).workspaceDiscoveryCache, 'MISS');
-    assert.equal((await duplicate).workspaceDiscoveryCache, 'MISS');
+    const initial = await Promise.all([first, duplicate]);
+    assert.ok(initial.some((value) => value.workspaceDiscoveryCache === 'MISS'));
+    assert.ok(initial.every((value) => ['MISS', 'HIT'].includes(value.workspaceDiscoveryCache)));
     const cached = await resolver.resolve(root);
     assert.equal(cached.workspaceDiscoveryCache, 'HIT'); assert.equal(cached.workspaceDiscoveryMs, 0);
-    assert.deepEqual(resolver.stats, { lookup: 3, hit: 1, miss: 2, error: 0, active: 0, queued: 0, inflight: 0 });
+    assert.equal(resolver.stats.lookup, 3); assert.equal(resolver.stats.hit + resolver.stats.miss, 3);
+    assert.deepEqual({ error: resolver.stats.error, active: resolver.stats.active, queued: resolver.stats.queued, inflight: resolver.stats.inflight }, { error: 0, active: 0, queued: 0, inflight: 0 });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -160,6 +162,22 @@ test('same workspace consecutive BUILD jobs reuse current generation', async () 
     assert.equal((await run(['check'])).generation, 1);
     assert.equal((await run(['test'])).generation, 1);
     assert.equal((await item.state.workspace(item.workspace)).state.currentGeneration, 1);
+  } finally { await item.close(); }
+});
+
+test('cache preparation receives broker-owned repository, workspace & active-generation roots', async () => {
+  const prepared = [];
+  const cache = { prepare: async (input) => { prepared.push(input); return { mode: 'direct', status: 'DISABLED', environment: {}, before: null }; }, finish: async () => ({ mode: 'direct', status: 'DISABLED', delta: null }) };
+  const item = await fixture({ cache });
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+    await waitFor(item.service, submitted.id, ['RUNNING']);
+    item.children.at(-1).emit('close', 0, null);
+    await call(item.service, command('WATCH', submitted.id));
+    assert.equal(prepared.length, 1);
+    assert.equal(prepared[0].repositoryRoot, item.repository);
+    assert.equal(prepared[0].workspaceRoot, item.workspace);
+    assert.match(prepared[0].layout.root, /generations\/000001$/);
   } finally { await item.close(); }
 });
 

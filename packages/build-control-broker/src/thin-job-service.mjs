@@ -385,7 +385,7 @@ export class ThinJobService {
       job.rootSetupStartedAt ??= this.#now();
       if (job.capability.compile && !job.capability.skipRootServices) await this.#admitStorage(job);
       job.cachePrepared = (job.capability.compile && !job.capability.skipRootServices)
-        ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4 })
+        ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4, repositoryRoot: job.repositoryRoot, workspaceRoot: job.workspaceRoot })
         : job.parentId
           ? { mode: 'sccache-inherited', status: 'OK', environment: { }, before: null }
           : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };
