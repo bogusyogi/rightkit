@@ -33,7 +33,7 @@ function submitPayload(archive, requestId, { deadlineMs = 60_000, digest = creat
   });
 }
 
-async function workerFixture({ send, now = () => Date.parse('2026-08-24T00:00:00.000Z'), slotsPerRepository = 3 } = {}) {
+async function workerFixture({ send, now = () => Date.parse('2026-08-24T00:00:00.000Z'), slotsPerRepository = 3, onSlotGuardAcquired } = {}) {
   const rootDir = await mkdtemp(join(tmpdir(), 'rightkit-remote-worker-'));
   const archive = archiveFixture();
   const digest = createHash('sha256').update(archive).digest('hex');
@@ -41,7 +41,7 @@ async function workerFixture({ send, now = () => Date.parse('2026-08-24T00:00:00
   await writeFile(join(rootDir, 'remote-inputs', `${digest}.tar`), archive);
   const worker = createRemoteWorker({
     rootDir, endpoint: 'test-broker', slotsPerRepository, now,
-    send, loadIdentity: async () => SOURCE_RUNTIME_IDENTITY,
+    send, loadIdentity: async () => SOURCE_RUNTIME_IDENTITY, onSlotGuardAcquired,
   });
   return { rootDir, archive, digest, worker };
 }
@@ -103,6 +103,50 @@ test('slot exclusion preserves active accepted job and reports no slot', async (
     await assert.rejects(() => fixture.worker.submit(submitPayload(fixture.archive, 'rr-second')), (error) => error.code === 'REMOTE_NO_SLOT');
     assert.deepEqual(calls.map(({ type }) => type), [JOB_REQUEST_TYPES.SUBMIT, JOB_REQUEST_TYPES.STATUS]);
   } finally { await rm(fixture.rootDir, { recursive: true, force: true }); }
+});
+
+test('concurrent submissions cannot claim or replace one replica slot', async () => {
+  let enterFirstGuard;
+  let releaseFirstGuard;
+  const firstGuardEntered = new Promise((resolve) => { enterFirstGuard = resolve; });
+  const firstGuardRelease = new Promise((resolve) => { releaseFirstGuard = resolve; });
+  let firstGuard = true;
+  const calls = [];
+  const fixture = await workerFixture({
+    slotsPerRepository: 1,
+    onSlotGuardAcquired: async () => {
+      if (!firstGuard) return;
+      firstGuard = false;
+      enterFirstGuard();
+      await firstGuardRelease;
+    },
+    send: async (command) => {
+      calls.push(command);
+      return { type: 'SUBMITTED', id: 'job-first', state: 'QUEUED' };
+    },
+  });
+  try {
+    const first = fixture.worker.submit(submitPayload(fixture.archive, 'rr-concurrent-first'));
+    await firstGuardEntered;
+    await assert.rejects(
+      () => fixture.worker.submit(submitPayload(fixture.archive, 'rr-concurrent-second')),
+      (error) => error instanceof RemoteWorkerError && error.code === 'REMOTE_NO_SLOT',
+    );
+    await assert.rejects(
+      () => fixture.worker.submit(submitPayload(fixture.archive, 'rr-concurrent-first')),
+      (error) => error instanceof RemoteWorkerError && error.code === 'REMOTE_NO_SLOT',
+    );
+    releaseFirstGuard();
+    const result = await first;
+    assert.equal(result.requestId, 'rr-concurrent-first');
+    assert.equal(calls.length, 1);
+    const lease = JSON.parse(await readFile(join(fixture.rootDir, 'state', 'remote-slots', 'repo.1.json'), 'utf8'));
+    assert.equal(lease.ownerRequestId, 'rr-concurrent-first');
+    await assert.rejects(stat(join(fixture.rootDir, 'state', 'remote-slots', 'repo.1.json.lock')), { code: 'ENOENT' });
+  } finally {
+    releaseFirstGuard();
+    await rm(fixture.rootDir, { recursive: true, force: true });
+  }
 });
 
 test('single-shot STATUS maps missing broker job to terminal LOST, while deadline cancels once', async () => {

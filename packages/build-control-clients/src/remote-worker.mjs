@@ -62,6 +62,7 @@ export function createRemoteWorker({
   now = Date.now,
   send = sendJobCommand,
   loadIdentity = loadRuntimeIdentity,
+  onSlotGuardAcquired = async () => {},
 } = {}) {
   if (!Number.isSafeInteger(slotsPerRepository) || slotsPerRepository < 1) throw new TypeError('slotsPerRepository must be a positive integer');
   const paths = Object.freeze({
@@ -75,6 +76,31 @@ export function createRemoteWorker({
   const requestPath = (id) => join(paths.requests, `${id}.json`);
   const slotLeasePath = (repositoryKeyValue, slot) => join(paths.slots, `${repositoryKeyValue}.${slot}.json`);
   const slotDirOf = (repositoryKeyValue, slot) => join(paths.workspaces, repositoryKeyValue, `slot${slot}`);
+
+  async function tryAcquireSlotGuard(leasePath, requestId) {
+    const guardPath = `${leasePath}.lock`;
+    const token = randomUUID();
+    try {
+      await writeFile(guardPath, `${JSON.stringify({ token, requestId, pid: process.pid, acquiredAt: new Date(now()).toISOString() })}\n`, { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      if (error.code === 'EEXIST') return null;
+      throw error;
+    }
+    try {
+      await onSlotGuardAcquired({ guardPath, leasePath, requestId });
+    } catch (error) {
+      await rm(guardPath, { force: true });
+      throw error;
+    }
+    let released = false;
+    return async () => {
+      if (released) return;
+      const guard = await readJson(guardPath);
+      if (guard?.token !== token) throw new RemoteWorkerError(`replica slot guard ownership changed for ${leasePath}`, 'REMOTE_SLOT_GUARD_LOST');
+      await rm(guardPath, { force: true });
+      released = true;
+    };
+  }
 
   async function persistRequest(record) {
     await mkdir(paths.requests, { recursive: true });
@@ -128,31 +154,42 @@ export function createRemoteWorker({
     await mkdir(paths.slots, { recursive: true });
     for (let slot = 1; slot <= slotsPerRepository; slot += 1) {
       const leasePath = slotLeasePath(repositoryKeyValue, slot);
-      const lease = await readJson(leasePath);
-      if (!lease) {
-        const fresh = { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString() };
-        await writeJsonAtomic(leasePath, fresh);
-        return { slot, leasePath };
-      }
-      const owner = lease.ownerRequestId === requestId ? null : await readJson(requestPath(lease.ownerRequestId));
-      const stalePreparing = owner?.state === 'PREPARING' && now() - Date.parse(owner.createdAt) > STALE_PREPARING_MS;
-      if (!owner || stalePreparing || isTerminalRemoteState(owner.state)) {
-        await writeJsonAtomic(leasePath, { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString(), reclaimedFrom: lease.ownerRequestId });
-        if (stalePreparing) await persistRequest({ ...owner, state: 'FAILED', reason: 'REMOTE_PREPARING_STALE' });
-        return { slot, leasePath };
-      }
-      if (owner.brokerId !== undefined) {
-        const resolved = await resolveOwnerFate(identity, owner);
-        if (isTerminalRemoteState(resolved.state)) {
-          await writeJsonAtomic(leasePath, { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString(), reclaimedFrom: lease.ownerRequestId });
-          return { slot, leasePath };
+      const releaseSlotGuard = await tryAcquireSlotGuard(leasePath, requestId);
+      if (!releaseSlotGuard) continue;
+      let claimed = false;
+      try {
+        const lease = await readJson(leasePath);
+        if (!lease) {
+          const fresh = { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString() };
+          await writeJsonAtomic(leasePath, fresh);
+          claimed = true;
+          return { slot, leasePath, releaseSlotGuard };
         }
-        if (now() >= Date.parse(resolved.deadlineAt)) {
-          await cancelBrokerJob(identity, resolved.brokerId).catch(() => {});
-          await persistRequest({ ...resolved, state: 'DEADLINE', reason: 'REMOTE_JOB_DEADLINE', detail: 'absolute remote deadline expired during slot reclaim' });
+        const owner = await readJson(requestPath(lease.ownerRequestId));
+        const stalePreparing = owner?.state === 'PREPARING' && now() - Date.parse(owner.createdAt) > STALE_PREPARING_MS;
+        if (!owner || stalePreparing || isTerminalRemoteState(owner.state)) {
           await writeJsonAtomic(leasePath, { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString(), reclaimedFrom: lease.ownerRequestId });
-          return { slot, leasePath };
+          if (stalePreparing) await persistRequest({ ...owner, state: 'FAILED', reason: 'REMOTE_PREPARING_STALE' });
+          claimed = true;
+          return { slot, leasePath, releaseSlotGuard };
         }
+        if (owner.brokerId !== undefined) {
+          const resolved = await resolveOwnerFate(identity, owner);
+          if (isTerminalRemoteState(resolved.state)) {
+            await writeJsonAtomic(leasePath, { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString(), reclaimedFrom: lease.ownerRequestId });
+            claimed = true;
+            return { slot, leasePath, releaseSlotGuard };
+          }
+          if (now() >= Date.parse(resolved.deadlineAt)) {
+            await cancelBrokerJob(identity, resolved.brokerId).catch(() => {});
+            await persistRequest({ ...resolved, state: 'DEADLINE', reason: 'REMOTE_JOB_DEADLINE', detail: 'absolute remote deadline expired during slot reclaim' });
+            await writeJsonAtomic(leasePath, { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString(), reclaimedFrom: lease.ownerRequestId });
+            claimed = true;
+            return { slot, leasePath, releaseSlotGuard };
+          }
+        }
+      } finally {
+        if (!claimed) await releaseSlotGuard();
       }
     }
     throw new RemoteWorkerError(`no replica slot available for ${repositoryKeyValue}`, 'REMOTE_NO_SLOT');
@@ -199,7 +236,7 @@ export function createRemoteWorker({
       if (!endpoint) throw new RemoteWorkerError('RightKit broker endpoint is not configured', 'REMOTE_BROKER_UNAVAILABLE');
       const identity = await loadIdentity();
       const requestId = payload.requestId || generateRemoteRequestId(now);
-      const { slot, leasePath } = await acquireSlot(identity, payload.repositoryKey, requestId);
+      const { slot, leasePath, releaseSlotGuard } = await acquireSlot(identity, payload.repositoryKey, requestId);
       // Write-before-ack step 1: durable PREPARING request + selected slot.
       let record = {
         id: requestId, op: 'SUBMIT', state: 'PREPARING',
@@ -207,7 +244,11 @@ export function createRemoteWorker({
         argv: payload.argv, slot, leasePath, deadlineMs: payload.deadlineMs,
         createdAt: new Date(now()).toISOString(),
       };
-      await persistRequest(record);
+      try {
+        await persistRequest(record);
+      } finally {
+        await releaseSlotGuard();
+      }
       const inputPath = join(paths.inputs, `${payload.digest}.tar`);
       let archiveBuffer;
       try {
