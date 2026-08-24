@@ -224,8 +224,8 @@ remains unknown rather than evidence of idleness.
 ## 10. Initial deliverable
 
 - `rightkit remote windows cargo <check|clippy|test|build> [args...]` coordinator;
-- zero-config workspace transport defaults to SSH alias `win`, managed nvm4w Node, canonical
-  `D:\Claude` worker, & managed remote-input root; `RIGHTKIT_REMOTE_WINDOWS_*` overrides remain for
+- zero-config workspace transport defaults to SSH alias `win`, managed nvm4w Node, immutable
+  `runtime-current` worker, & managed remote-input root; `RIGHTKIT_REMOTE_WINDOWS_*` overrides remain for
   host migration;
 - detached SUBMIT plus STATUS/CANCEL by remote request ID; no watch/poll path for agents;
 - Windows snapshot worker with three stable replica slots per repository;

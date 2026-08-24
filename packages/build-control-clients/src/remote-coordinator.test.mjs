@@ -22,8 +22,17 @@ function snapshotFixture() {
   };
 }
 
-test('workspace Windows transport works without undocumented environment setup', () => {
-  assert.doesNotThrow(() => createRemoteCoordinator({ environment: {} }));
+test('workspace Windows transport defaults to immutable active-runtime worker', async () => {
+  let invocation;
+  const coordinator = createRemoteCoordinator({
+    environment: {},
+    run: (value) => {
+      invocation = value;
+      return { status: 0, stdout: `${JSON.stringify({ ok: true, requestId: 'rr-1', state: 'RUNNING', terminal: false })}\n`, stderr: '' };
+    },
+  });
+  await coordinator.remoteStatus('rr-1');
+  assert.equal(invocation.args[1].includes("'D:\\.rightkit-managed\\runtime-current\\build-control-clients\\src\\remote-worker.mjs'"), true);
 });
 
 test('SUBMIT uploads exact snapshot then detaches with durable request ID', async () => {

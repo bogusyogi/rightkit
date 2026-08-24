@@ -25,7 +25,7 @@ function configuredTransport(environment = process.env) {
   const host = environment.RIGHTKIT_REMOTE_WINDOWS_HOST ?? 'win';
   if (!/^[A-Za-z0-9._-]+$/.test(host)) throw new RemoteCoordinatorError('RIGHTKIT_REMOTE_WINDOWS_HOST must be an ssh alias', 'REMOTE_CONFIG_INVALID');
   const nodeExe = environment.RIGHTKIT_REMOTE_WINDOWS_NODE ?? 'C:\\nvm4w\\nodejs\\node.exe';
-  const workerScript = environment.RIGHTKIT_REMOTE_WINDOWS_WORKER ?? 'D:\\Claude\\tools\\rightkit\\packages\\build-control-clients\\src\\remote-worker.mjs';
+  const workerScript = environment.RIGHTKIT_REMOTE_WINDOWS_WORKER ?? 'D:\\.rightkit-managed\\runtime-current\\build-control-clients\\src\\remote-worker.mjs';
   if (!nodeExe || !WINDOWS_ABSOLUTE.test(nodeExe)) throw new RemoteCoordinatorError('RIGHTKIT_REMOTE_WINDOWS_NODE must be an absolute Windows node.exe path without shell metacharacters', 'REMOTE_CONFIG_INVALID');
   if (!workerScript || !WINDOWS_ABSOLUTE.test(workerScript)) throw new RemoteCoordinatorError('RIGHTKIT_REMOTE_WINDOWS_WORKER must be an absolute Windows script path without shell metaracters', 'REMOTE_CONFIG_INVALID');
   const inputsDir = environment.RIGHTKIT_REMOTE_INPUTS_DIR ?? 'D:/.rightkit-managed/remote-inputs';
