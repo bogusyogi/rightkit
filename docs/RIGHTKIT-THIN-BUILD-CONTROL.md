@@ -66,14 +66,16 @@ Implemented and live:
 - native Windows Job Object containment with `KILL_ON_JOB_CLOSE`, synchronous
   launcher assignment before IPC START, creation-time process identity, cancellation, and
   crash-recovery generation rotation;
-- thin cutover drain proof from active-root markers, plus readiness-independent GC for
-  retired generations; predecessor SQLite, lifecycle, reservation, maintenance,
+- runtime cutover admission fence plus live broker `DRAIN_STATUS` covering synchronous admissions
+  and every queued/running root—including analysis—followed by active-root marker proof; service
+  stop occurs only after both report zero; readiness-independent GC covers retired generations;
+  predecessor SQLite, lifecycle, reservation, maintenance,
   server-owned sccache, and v1 migration paths are absent.
 
 Evidence:
 
 ```text
-build-control suite: 250/250 tests pass
+build-control suite: 304/304 tests pass
 Windows native-focused package set: 57/57 tests pass
 live cargo upgrade: HeardRight passes
 live recursive cargo upgrade/update: CodeRight passes
@@ -81,6 +83,9 @@ macOS and Windows re-bootstrap: passes with intended concurrency/cache settings
 native acceptance: docs/plans/evidence/rightkit-thin-build-control-v2.7-native-acceptance.md
 macOS + Windows v2.8 acceptance: docs/plans/evidence/rightkit-thin-build-control-v2.8-acceptance.md
 ```
+
+Cross-host Mac-to-Windows validation, detached SSH lifecycle, replica isolation, native-build
+routing, & linker watchdog contracts live in `RIGHTKIT-DUAL-HOST-BUILD-ROUTING.md`.
 
 Bootstrap originally copied `rustc` and `rustdoc` as isolated executables. That
 breaks their required sibling toolchain libraries on macOS and Windows. Live

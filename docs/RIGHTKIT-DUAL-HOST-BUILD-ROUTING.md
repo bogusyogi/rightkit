@@ -78,7 +78,8 @@ Mac coordinator
                          |
                          v
 Windows managed replica pool (default: 3 stable slots/repository)
-  |-- durable slot lease
+  |-- named OS mutex serializes slot claim
+  |-- durable slot lease owns source after claim
   |-- hash verification + safe extraction
   |-- atomic source replacement
   `-- rightkit cargo ...
@@ -99,9 +100,12 @@ atomically writes remote request intent, submits to already-persistent Windows R
 service, then atomically records broker request ID before acknowledging SUBMIT. Cargo process is
 broker child inside Windows Job Object, never child of SSH console; closing SSH cannot cancel it.
 
-Replica ownership is durable record, not process-held lock. Later submission reclaims slot only
-after one broker STATUS proves prior job terminal, or accepted job is classified LOST. SSH helper
-may exit while source stays immutable for broker-owned job.
+Slot acquisition is serialized by a named Windows OS mutex held through lease selection and durable
+`PREPARING` persistence. Worker or helper death releases mutex automatically; abandoned mutexes are
+recoverable. Replica ownership after that short claim section is a durable lease, not a process-held
+lock. Later submission reclaims a slot only after one broker STATUS proves prior job terminal, or
+accepted job is classified LOST. SSH helper may exit while source stays immutable for broker-owned
+job.
 
 ### Agent lifecycle: submit, schedule, stop
 
@@ -157,6 +161,10 @@ Default route:
 4. Portable `check`, `clippy`, & `test` prefer Windows when reachable; local fallback is explicit,
    not silent, so platform coverage remains truthful.
 5. Same snapshot + same normalized command may be coalesced later; unrelated jobs queue normally.
+
+Routing is explicit, not shell-transparent: plain `rightkit cargo ...` always targets current host.
+Mac agents must choose `rightkit remote windows cargo ...` for portable validation. Windows
+unreachability is typed failure; it never silently becomes local validation.
 
 `tauri dev` remains local because it is interactive, owns local windows/ports, watches source, &
 becomes resident after compilation. RightKit already releases compile/workspace permits after
@@ -217,6 +225,8 @@ remains unknown rather than evidence of idleness.
 - Archive digest is verified before extraction; links, special entries, submodules, traversal,
   reserved Windows paths, & NTFS-normalized collisions are rejected.
 - Replica roots live under `D:\.rightkit-managed\remote-workspaces`.
+- Named Windows OS mutexes serialize replica claims; helper or worker death releases ownership,
+  while durable leases preserve accepted-job source immutability.
 - Interactive Windows checkout under `D:\Claude` is read only for worker/runtime discovery.
 - Host broker remains sole process owner, scheduler, cache owner, & receipt producer.
 - Runtime cutover fences new admissions & requires live broker drain status to report zero admitting,
@@ -231,6 +241,7 @@ remains unknown rather than evidence of idleness.
   host migration;
 - detached SUBMIT plus STATUS/CANCEL by remote request ID; no watch/poll path for agents;
 - Windows snapshot worker with three stable replica slots per repository;
+- crash-releasing named OS mutex around slot claim plus durable lease after claim;
 - strict payload/archive/command validation;
 - broker-child survival after SSH helper exit, durable write-before-ack mapping, typed LOST/deadline,
   & single-shot STATUS tests;
