@@ -280,6 +280,7 @@ const syncDirectory = syncDirectoryForPlatform;
 
 async function linkRuntimePackages(runtime) {
   for (const consumer of ['build-control-broker', 'build-control-clients']) { const directory = join(runtime, consumer, 'node_modules', '@rightkit'); await mkdir(directory, { recursive: true }); await symlink('../../../build-control-core', join(directory, 'build-control-core')); }
+  await symlink('../../../build-control-clients', join(runtime, 'build-control-broker', 'node_modules', '@rightkit', 'build-control-clients'));
 }
 
 async function stageRuntimeDependencies(runtime, sourcePackagesRoot) {

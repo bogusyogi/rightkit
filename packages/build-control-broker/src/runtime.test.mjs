@@ -80,6 +80,7 @@ test('staging creates content-addressed immutable provenance-bound bundle withou
     assert.equal(staged.manifest.sourceRevision, fixture.revision); assert.equal(staged.manifest.sourceTreeDigest, fixture.tree);
     assert.equal((await readFile(join(staged.runtime, 'runtime-manifest.json'), 'utf8')).includes(staged.manifest.brokerDigest), true);
     assert.equal(JSON.parse(await readFile(join(staged.runtime, 'build-control-broker', 'node_modules', 'smol-toml', 'package.json'), 'utf8')).version, '1.7.0');
+    assert.equal(await readlink(join(staged.runtime, 'build-control-broker', 'node_modules', '@rightkit', 'build-control-clients')), '../../../build-control-clients');
     await assert.rejects(readlink(join(root, 'runtime-current')));
     assert.equal((await readdir(root)).some((name) => name.includes('.staging')), false);
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
