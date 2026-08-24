@@ -54,10 +54,15 @@ export async function cutoverDrainPending(externalRoot, { alive = processAlive }
 
 export async function proveBrokerRequestsDrained(externalRoot, endpoint, { loadIdentity = loadRuntimeIdentity, send = sendJobCommand } = {}) {
   const runtimeIdentity = await loadIdentity({ manifestPath: join(resolve(externalRoot), 'runtime-current', 'runtime-manifest.json') });
-  const status = await send(createJobCommand(JOB_REQUEST_TYPES.DRAIN_STATUS, { runtimeIdentity }), { endpoint, completeOn: new Set([JOB_RESPONSE_TYPES.DRAIN_STATUS]) });
+  let status;
+  try { status = await send(createJobCommand(JOB_REQUEST_TYPES.DRAIN_STATUS, { runtimeIdentity }), { endpoint, completeOn: new Set([JOB_RESPONSE_TYPES.DRAIN_STATUS]) }); }
+  catch (error) {
+    if (/RightKit broker unavailable:/i.test(error?.message ?? '')) return Object.freeze({ present: false, open: 0, inFlight: Object.freeze([]), runtime: runtimeIdentity });
+    throw error;
+  }
   if (!Number.isSafeInteger(status.open) || !Array.isArray(status.inFlight)) throw new Error('broker returned invalid cutover drain status');
   if (status.open !== 0) throw new Error(`cannot activate while ${status.open} broker request(s) are in flight: ${status.inFlight.map(({ id }) => id).join(', ')}`);
-  return Object.freeze({ open: 0, inFlight: Object.freeze([]), runtime: runtimeIdentity });
+  return Object.freeze({ present: true, open: 0, inFlight: Object.freeze([]), runtime: runtimeIdentity });
 }
 
 // Deliberately narrower than config.mjs's absolute(): this only ever runs on
