@@ -18,6 +18,7 @@ function harness(options = {}) {
   const stats = JSON.stringify({ version: '0.17.0', cache_location: 'Local disk: "/managed/compiler-cache"', cache_size: 0, max_cache_size: 20 * 1024 ** 3, stats: {} });
   const cache = new ThinCache({
     paths, sccachePath: '/managed/tools/sccache', expectedVersion: '0.17.0', clientSideSupported: true,
+    verifyTool: async () => ({ path: '/managed/tools/sccache' }),
     spawnGateway: async () => { const child = fakeChild(41 + children.length * 2); children.push(child); return child; },
     terminate: async (child) => { child.exitCode = 0; child.emit('close', 0, null); return { reaped: true }; },
     connect: async () => { connects += 1; }, run: async () => ({ stdout: stats }), emit: async (event) => { events.push(event); },
@@ -76,7 +77,7 @@ test('fresh lease avoids per-job stats processes & stale admissions share one pr
 });
 
 test('gateway startup failure hard-blocks build admission', async () => {
-  const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', expectedVersion: '0.17.0', spawnGateway: async () => { throw Object.assign(new Error('offline'), { code: 'ENOENT' }); }, connect: async () => {} });
+  const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', verifyTool: async () => ({ path: '/managed/tools/sccache' }), expectedVersion: '0.17.0', spawnGateway: async () => { throw Object.assign(new Error('offline'), { code: 'ENOENT' }); }, connect: async () => {} });
   await assert.rejects(cache.prepare({ layout }), (error) => {
     assert.equal(error instanceof ThinCacheUnavailableError, true);
     assert.equal(error.code, 'RK_SCCACHE_UNAVAILABLE');
@@ -85,6 +86,17 @@ test('gateway startup failure hard-blocks build admission', async () => {
     assert.match(error.cache.reason, /ENOENT/);
     return true;
   });
+});
+
+test('re-verifies digest-pinned sccache before every gateway spawn', async () => {
+  let verifications = 0;
+  const { cache, children } = harness({ verifyTool: async () => { verifications += 1; return { path: '/managed/tools/sccache' }; } });
+  await cache.start();
+  children[0].exitCode = 1; children[0].emit('close', 1, null);
+  await cache.prepare({ layout });
+  assert.equal(verifications, 2);
+  assert.equal(children.length, 2);
+  await cache.close();
 });
 
 test('gateway exit invalidates health & reports unavailable root-cancellation signal', async () => {

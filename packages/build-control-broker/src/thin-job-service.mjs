@@ -172,6 +172,7 @@ export class ThinJobService {
         paths: thinState.paths,
         enabled: config.sccache?.mode !== 'disabled' && Boolean(sccacheTool),
         sccachePath: sccacheTool?.path ?? null,
+        verifyTool: config.defaults?.sccacheToolId ? () => toolRegistry.verify(config.defaults.sccacheToolId) : null,
         expectedVersion: config.sccache?.expectedVersion ?? null,
         clientSideSupported: config.sccache?.clientSide === true,
         maxSizeBytes: config.sccache?.maxSizeBytes,

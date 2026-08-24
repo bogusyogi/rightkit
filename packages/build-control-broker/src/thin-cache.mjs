@@ -87,14 +87,15 @@ async function defaultSpawnGateway(tool, environment, { platform, spawn, timeout
 }
 
 export class ThinCache {
-  #paths; #tool; #expectedVersion; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #platform; #epoch; #now; #port; #leaseMs; #recoveryMs; #statsIntervalMs; #spawn; #spawnGateway; #terminate; #connect; #emit; #onUnavailable;
+  #paths; #tool; #verifyTool; #expectedVersion; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #platform; #epoch; #now; #port; #leaseMs; #recoveryMs; #statsIntervalMs; #spawn; #spawnGateway; #terminate; #connect; #emit; #onUnavailable;
   #child = null; #health = null; #healthInFlight = null; #recoveryInFlight = null; #timer = null; #lastStats = null; #lastStatsSampledAt = 0; #lastStatsLoggedAt = 0; #stopping = false; #gatewayStderr = '';
 
-  constructor({ paths, sccachePath = null, expectedVersion = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = defaultThinCacheTimeoutMs(), basedirs = null, basedirsEnabled = false, platform = process.platform, gatewayPort = DEFAULT_GATEWAY_PORT, healthLeaseMs = DEFAULT_HEALTH_LEASE_MS, recoveryTimeoutMs = DEFAULT_RECOVERY_MS, statsIntervalMs = DEFAULT_STATS_INTERVAL_MS, run = defaultRun, spawn = nodeSpawn, spawnGateway = defaultSpawnGateway, terminate = terminateProcessTree, connect = defaultConnect, emit = async () => {}, onUnavailable = async () => {}, epoch = randomUUID(), now = Date.now } = {}) {
+  constructor({ paths, sccachePath = null, verifyTool = null, expectedVersion = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = defaultThinCacheTimeoutMs(), basedirs = null, basedirsEnabled = false, platform = process.platform, gatewayPort = DEFAULT_GATEWAY_PORT, healthLeaseMs = DEFAULT_HEALTH_LEASE_MS, recoveryTimeoutMs = DEFAULT_RECOVERY_MS, statsIntervalMs = DEFAULT_STATS_INTERVAL_MS, run = defaultRun, spawn = nodeSpawn, spawnGateway = defaultSpawnGateway, terminate = terminateProcessTree, connect = defaultConnect, emit = async () => {}, onUnavailable = async () => {}, epoch = randomUUID(), now = Date.now } = {}) {
     if (!paths?.cargoHome || !paths?.compilerCache) throw new TypeError('thin state cache paths are required');
     if (enabled && (typeof sccachePath !== 'string' || !sccachePath)) throw new TypeError('enabled cache requires sccachePath');
+    if (enabled && typeof verifyTool !== 'function') throw new TypeError('enabled cache requires verifyTool');
     if (enabled && (typeof expectedVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(expectedVersion))) throw new TypeError('enabled cache requires exact expectedVersion');
-    this.#paths = paths; this.#tool = sccachePath; this.#expectedVersion = expectedVersion; this.#enabled = enabled; this.#clientSide = clientSideSupported; this.#maxSize = positive(maxSizeBytes, 'maxSizeBytes', 20 * 1024 ** 3); this.#timeout = positive(timeoutMs, 'timeoutMs', DEFAULT_RECOVERY_MS); this.#run = run;
+    this.#paths = paths; this.#tool = sccachePath; this.#verifyTool = verifyTool; this.#expectedVersion = expectedVersion; this.#enabled = enabled; this.#clientSide = clientSideSupported; this.#maxSize = positive(maxSizeBytes, 'maxSizeBytes', 20 * 1024 ** 3); this.#timeout = positive(timeoutMs, 'timeoutMs', DEFAULT_RECOVERY_MS); this.#run = run;
     this.#basedirs = Array.isArray(basedirs) ? Object.freeze([...basedirs].filter((value) => typeof value === 'string' && value)) : null;
     this.#basedirsEnabled = basedirsEnabled === true;
     this.#platform = platform; this.#epoch = String(epoch); this.#now = now; this.#port = positive(gatewayPort, 'gatewayPort', DEFAULT_GATEWAY_PORT); this.#leaseMs = positive(healthLeaseMs, 'healthLeaseMs', DEFAULT_HEALTH_LEASE_MS); this.#recoveryMs = positive(recoveryTimeoutMs, 'recoveryTimeoutMs', DEFAULT_RECOVERY_MS); this.#statsIntervalMs = positive(statsIntervalMs, 'statsIntervalMs', DEFAULT_STATS_INTERVAL_MS); this.#spawn = spawn; this.#spawnGateway = spawnGateway; this.#terminate = terminate; this.#connect = connect; this.#emit = emit; this.#onUnavailable = onUnavailable;
@@ -234,6 +235,8 @@ export class ThinCache {
       delete inherited.SCCACHE_CLIENT_SIDE; delete inherited.SCCACHE_ERROR_LOG;
       const environment = { ...inherited, ...this.#baseEnvironment(), SCCACHE_START_SERVER: '1', SCCACHE_NO_DAEMON: '1', SCCACHE_IDLE_TIMEOUT: '0' };
       try {
+        const verifiedTool = await this.#verifyTool();
+        if (verifiedTool?.path !== this.#tool) throw Object.assign(new Error('sccache registry verification returned a different executable'), { code: 'TOOL_CHANGED' });
         const child = await this.#spawnGateway(this.#tool, environment, { platform: this.#platform, spawn: this.#spawn, timeoutMs: Math.max(1, deadline - this.#now()) });
         this.#child = child; this.#epoch = randomUUID();
         child.stdout?.resume?.();
@@ -263,6 +266,7 @@ export class ThinCache {
       } catch (error) {
         const failed = this.#child; this.#child = null; this.#health = null;
         if (failed) await this.#terminate(failed, { platform: this.#platform, graceMs: 1_000 }).catch(() => {});
+        if (error?.event?.type === 'TOOL_CHANGED') await this.#event(error.event);
         await this.#event({ type: 'CACHE_RECOVERY_FAILED', code: error.code ?? null, reason: error.message, endpoint: this.#endpoint.display, stderr: this.#gatewayStderr });
         throw new Error(`sccache-gateway-unavailable:${error.message}`);
       }
