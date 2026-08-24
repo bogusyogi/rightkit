@@ -298,3 +298,11 @@ test('an absent umask leaves the launcher payload byte-identical to today', () =
   assert.deepEqual(capturePayload({ platform: 'darwin', umask: undefined }), { command: '/managed/sccache', argv: [] });
   assert.deepEqual(capturePayload({ platform: 'darwin', umask: 'not-an-integer' }), { command: '/managed/sccache', argv: [] });
 });
+
+test('kill-on-disconnect is explicit launcher payload state, not a spawn option', () => {
+  let spawnOptions = null;
+  const payload = capturePayload({ platform: 'darwin', killOnDisconnect: true, env: { A: '1' } });
+  spawnManagedProcess('/managed/sccache', [], { platform: 'darwin', killOnDisconnect: true }, (_command, _argv, options) => { spawnOptions = options; return Object.assign(new EventEmitter(), { pid: 41, once() { return this; } }); });
+  assert.equal(payload.killOnDisconnect, true);
+  assert.equal(spawnOptions.killOnDisconnect, undefined);
+});

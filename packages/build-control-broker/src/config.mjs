@@ -9,7 +9,7 @@ const shimNames = new Set(['cargo', 'rustc', 'rustdoc', 'rustup', 'pnpm', 'npm',
 const defaultFields = new Set(['repositoryIdentity', 'toolchain', 'targetTriple', 'targetTriples', 'buildProfile', 'rustcToolId', 'rustdocToolId', 'sccacheToolId', 'cacheMode', 'cargoBuildJobs']);
 const outputPolicyFields = new Set(['mode', 'allowedSourceDirs', 'scanRoot']);
 const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'digest']);
-const sccacheFields = new Set(['mode', 'clientSide', 'lifecycleOwner', 'requireOwnershipProof', 'maxSizeBytes', 'basedirs', 'basedirsEnabled']);
+const sccacheFields = new Set(['mode', 'clientSide', 'lifecycleOwner', 'requireOwnershipProof', 'expectedVersion', 'maxSizeBytes', 'basedirs', 'basedirsEnabled', 'gatewayPort', 'healthLeaseMs', 'recoveryTimeoutMs', 'statsIntervalMs']);
 const defaultSccacheMaxSizeBytes = 20 * 1024 ** 3;
 const boundFields = new Set(['heartbeatIntervalMs', 'processGraceMs', 'freeFloorBytes', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'targetCacheCapBytes', 'workspaceDiscoveryTtlMs', 'workspaceDiscoveryTimeoutMs']);
 const EXTERNAL_COMMAND = /^[a-z][a-z0-9-]*$/;
@@ -211,6 +211,8 @@ export function validateBrokerConfig(value) {
   if (typeof requireOwnershipProof !== 'boolean') throw new TypeError('sccache.requireOwnershipProof must be boolean');
   const clientSide = sccache.clientSide ?? false;
   if (typeof clientSide !== 'boolean') throw new TypeError('sccache.clientSide must be boolean');
+  const expectedVersion = sccache.expectedVersion ?? null;
+  if (expectedVersion !== null && !/^\d+\.\d+\.\d+$/.test(expectedVersion)) throw new TypeError('sccache.expectedVersion must be an exact semantic version');
   const basedirs = sccache.basedirs;
   const basedirsEnabled = sccache.basedirsEnabled ?? false;
   if (basedirs !== undefined) {
@@ -219,15 +221,20 @@ export function validateBrokerConfig(value) {
   }
   if (typeof basedirsEnabled !== 'boolean') throw new TypeError('sccache.basedirsEnabled must be boolean');
   if (mode === 'managed' && (!normalized.defaults.sccacheToolId || normalized.defaults.cacheMode !== 'managed')) throw new TypeError('managed sccache requires a registered tool');
-  if (mode === 'managed' && clientSide && (lifecycleOwner !== null || requireOwnershipProof !== false)) throw new TypeError('client-side sccache does not use broker server ownership');
-  if (mode === 'managed' && !clientSide && (lifecycleOwner !== 'broker' || requireOwnershipProof !== true)) throw new TypeError('server-side managed sccache requires broker lifecycle ownership proof');
-  if (mode === 'disabled' && (clientSide || lifecycleOwner !== null || requireOwnershipProof !== false || normalized.defaults.cacheMode === 'managed')) throw new TypeError('disabled sccache cannot carry managed ownership settings');
+  if (mode === 'managed' && (lifecycleOwner !== 'broker' || requireOwnershipProof !== true)) throw new TypeError('managed sccache requires broker lifecycle ownership proof');
+  if (mode === 'managed' && expectedVersion === null) throw new TypeError('managed sccache requires exact expectedVersion');
+  if (mode === 'disabled' && (clientSide || lifecycleOwner !== null || requireOwnershipProof !== false || expectedVersion !== null || normalized.defaults.cacheMode === 'managed')) throw new TypeError('disabled sccache cannot carry managed ownership settings');
   // The compiler cache outlives any single mode: its directory persists while
   // sccache is disabled, so the size bound is configured independently of mode
   // and upstream sccache's own LRU enforces it.
   const maxSizeBytes = sccache.maxSizeBytes ?? defaultSccacheMaxSizeBytes;
   if (!Number.isSafeInteger(maxSizeBytes) || maxSizeBytes < 1) throw new TypeError('sccache.maxSizeBytes must be a positive safe integer');
-  normalized.sccache = { mode, clientSide, lifecycleOwner, requireOwnershipProof, maxSizeBytes, ...(basedirs !== undefined ? { basedirs } : {}), ...(basedirsEnabled ? { basedirsEnabled: true } : {}) };
+  const gatewayPort = nonnegative(sccache.gatewayPort ?? 4_227, 'sccache.gatewayPort', { minimum: 1 });
+  if (gatewayPort > 65_535) throw new TypeError('sccache.gatewayPort must be <= 65535');
+  const healthLeaseMs = nonnegative(sccache.healthLeaseMs ?? 10_000, 'sccache.healthLeaseMs', { minimum: 1 });
+  const recoveryTimeoutMs = nonnegative(sccache.recoveryTimeoutMs ?? 10_000, 'sccache.recoveryTimeoutMs', { minimum: 1 });
+  const statsIntervalMs = nonnegative(sccache.statsIntervalMs ?? 60_000, 'sccache.statsIntervalMs', { minimum: 1 });
+  normalized.sccache = { mode, clientSide, lifecycleOwner, requireOwnershipProof, ...(expectedVersion !== null ? { expectedVersion } : {}), maxSizeBytes, gatewayPort, healthLeaseMs, recoveryTimeoutMs, statsIntervalMs, ...(basedirs !== undefined ? { basedirs } : {}), ...(basedirsEnabled ? { basedirsEnabled: true } : {}) };
   return freezeConfig(normalized);
 }
 

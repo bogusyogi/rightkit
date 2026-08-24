@@ -158,13 +158,20 @@ export async function rustcVersionTriple(path = 'rustc') {
   } catch { return null; }
 }
 
-export async function supportsClientSideSccache(path, run = execFile) {
-  if (typeof path !== 'string' || !path) return false;
+export async function sccacheVersion(path, run = execFile) {
+  if (typeof path !== 'string' || !path) return null;
   try {
     const { stdout } = await run(path, ['--version']); const match = String(stdout).match(/sccache\s+(\d+)\.(\d+)\.(\d+)/i);
-    return Boolean(match) && (Number(match[1]) > 0 || Number(match[2]) >= 17);
-  } catch { return false; }
+    return match ? `${match[1]}.${match[2]}.${match[3]}` : null;
+  } catch { return null; }
 }
+
+const supportsSccacheVersion = (version) => {
+  const match = String(version ?? '').match(/^(\d+)\.(\d+)\.(\d+)$/);
+  return Boolean(match) && (Number(match[1]) > 0 || Number(match[2]) >= 17);
+};
+
+export async function supportsClientSideSccache(path, run = execFile) { return supportsSccacheVersion(await sccacheVersion(path, run)); }
 
 export function shimTable(tools) {
   const present = new Set(tools.map((tool) => tool.id));
@@ -201,7 +208,8 @@ export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = to
 export async function buildConfig({ externalRoot }) {
   const tools = await stageManagedTools(await discoverTools(), externalRoot);
   const sccacheTool = tools.find((tool) => tool.id === 'sccache');
-  const clientSideSccache = await supportsClientSideSccache(sccacheTool?.path);
+  const expectedSccacheVersion = await sccacheVersion(sccacheTool?.path);
+  const clientSideSccache = supportsSccacheVersion(expectedSccacheVersion);
   const toolchain = (await rustcVersionTriple(tools.find((tool) => tool.id === 'rustc')?.path)) ?? 'stable-aarch64-apple-darwin';
   const targetTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
   const otherTriple = targetTriple === 'aarch64-apple-darwin' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwin';
@@ -231,7 +239,7 @@ export async function buildConfig({ externalRoot }) {
     },
     // Doc section 3.1: never enable during an in-flight release; a deliberate,
     // separately-decided activation, not a bootstrap default.
-    sccache: { mode: clientSideSccache ? 'managed' : 'disabled', clientSide: clientSideSccache, lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20 * 1024 ** 3 },
+    sccache: { mode: clientSideSccache ? 'managed' : 'disabled', clientSide: clientSideSccache, lifecycleOwner: clientSideSccache ? 'broker' : null, requireOwnershipProof: clientSideSccache, ...(clientSideSccache ? { expectedVersion: expectedSccacheVersion } : {}), maxSizeBytes: 20 * 1024 ** 3, gatewayPort: 4_227, healthLeaseMs: 10_000, recoveryTimeoutMs: 10_000, statsIntervalMs: 60_000 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
     bounds: defaultBounds(),
   };

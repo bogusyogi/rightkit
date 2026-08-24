@@ -24,8 +24,9 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
   // launcher immediately before exec so the payload's own file creations (an
   // sccache server socket, for example) get a private mode without inserting a
   // shell between the hash-verified tool and its exec.
-  const { platform = process.platform, loadJobAddon = loadWindowsJobAddon, umask, ...spawnOptions } = options;
-  const payload = Buffer.from(JSON.stringify(Number.isSafeInteger(umask) ? { command, argv, umask } : { command, argv }), 'utf8').toString('base64url');
+  const { platform = process.platform, loadJobAddon = loadWindowsJobAddon, umask, killOnDisconnect = false, ...spawnOptions } = options;
+  const payloadObject = { command, argv, ...(Number.isSafeInteger(umask) ? { umask } : {}), ...(killOnDisconnect === true ? { killOnDisconnect: true } : {}) };
+  const payload = Buffer.from(JSON.stringify(payloadObject), 'utf8').toString('base64url');
   if (platform === 'win32') {
     const addon = loadJobAddon();
     if (!addon) throw windowsContainmentError();

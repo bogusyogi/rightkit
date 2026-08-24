@@ -235,13 +235,20 @@ SCCACHE_CLIENT_SIDE=1
 The desired process topology is:
 
 ```text
+RightKit broker
+  owned foreground sccache storage gateway
+
 RightKit job process group
   cargo
-    sccache client
+    client-side sccache
       rustc
 ```
 
-The compiler should remain inside the requesting job's process domain while the cache remains machine-global.
+The compiler remains inside the requesting job's process domain while one broker-owned gateway keeps machine-global cache storage reachable. The gateway uses a managed Unix socket on macOS and a dedicated loopback port on Windows, disables idle exit, runs with explicit read-write storage configuration, and terminates when broker ownership IPC disappears.
+
+Build admission consumes a fresh broker health lease proving owned gateway process liveness, endpoint reachability, and a bounded storage RPC whose parsed cache path, size limit, and version exactly match broker configuration. Bootstrap records `sccache.expectedVersion` from the digest-pinned executable; presence or prefix matches are invalid. Concurrent admissions share one probe or recovery. A failed probe permits one bounded gateway restart; failure after that window blocks compilation. `sccache --show-stats` never proves health by itself because it can emit synthetic empty statistics when no daemon exists; RightKit accepts it only between owned-process and endpoint checks and records its counters as separate telemetry.
+
+Every compiler environment sets `SCCACHE_START_SERVER=0`, `SCCACHE_NO_DAEMON=1`, `SCCACHE_IGNORE_SERVER_IO_ERROR=0`, and `SCCACHE_LOCAL_RW_MODE=READ_WRITE`. Any upstream emergency autostart therefore remains inside requesting process group instead of escaping as an orphan. Gateway loss cancels active compile roots, invalidates their target generation, and emits typed recovery, runtime-block, admission, and statistics events.
 
 Do not permanently disable sccache as a containment workaround.
 
@@ -875,7 +882,23 @@ Terminal receipt should include approximately:
     "mode": "sccache",
     "status": "SERVICE_OK",
     "delta": null,
-    "reason": "client-side-counters-unattributable"
+    "reason": "client-side-counters-unattributable",
+    "strictNoFallback": true,
+    "health": {
+      "ownership": "broker",
+      "gatewayPid": 1234,
+      "endpoint": "/managed/tmp/sccache-gateway.sock",
+      "sampledAt": "2026-08-24T12:00:00.000Z",
+      "ageMs": 18,
+      "leaseMs": 10000,
+      "storageSampledAt": "2026-08-24T11:59:45.000Z",
+      "storage": {
+        "location": "Local disk: \"/managed/compiler-cache\"",
+        "maxSizeBytes": 21474836480,
+        "version": "0.17.0",
+        "configuredRwMode": "READ_WRITE"
+      }
+    }
   }
 }
 ```
@@ -885,6 +908,10 @@ mode) per-root deltas are not attributable from cumulative counters, so
 receipts record `delta: null` with an explicit reason. A non-null delta is
 valid only in a mode whose attribution semantics actually support it; receipts
 must never manufacture attribution they do not have.
+
+`cache.health` is admission proof, not a stats-process result. Periodic
+`CACHE_STATS_SNAPSHOT` events carry cumulative counters independently from job
+admission and receipts.
 
 Receipts summarize telemetry; they do not contain the full time series.
 

@@ -154,6 +154,8 @@ export class ThinJobService {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
     const externalRoot = normalize(config.broker.externalRoot.path);
     let ownedSingleton = singleton;
+    let ownedLogger = logger;
+    let ownedCache = cache;
     try {
       ownedSingleton ??= await acquireThinBrokerSingleton({ stateRoot: join(externalRoot, 'rightkit-build-control', 'state') });
       const thinState = state ?? await ThinState.open({ externalRoot });
@@ -163,18 +165,28 @@ export class ThinJobService {
       const rustcTool = await toolRegistry.verify(config.defaults?.rustcToolId ?? config.shims?.rustc);
       const rustdocTool = await toolRegistry.verify(config.defaults?.rustdocToolId ?? config.shims?.rustdoc);
       const sccacheTool = config.defaults?.sccacheToolId ? await toolRegistry.verify(config.defaults.sccacheToolId) : null;
+      const thinLogger = logger ?? await ThinLogger.open({ path: join(thinState.paths.logs, 'events.ndjson') });
+      ownedLogger = thinLogger;
+      let service = null;
       const thinCache = cache ?? new ThinCache({
         paths: thinState.paths,
         enabled: config.sccache?.mode !== 'disabled' && Boolean(sccacheTool),
         sccachePath: sccacheTool?.path ?? null,
+        expectedVersion: config.sccache?.expectedVersion ?? null,
         clientSideSupported: config.sccache?.clientSide === true,
         maxSizeBytes: config.sccache?.maxSizeBytes,
+        gatewayPort: config.sccache?.gatewayPort,
+        healthLeaseMs: config.sccache?.healthLeaseMs,
+        recoveryTimeoutMs: config.sccache?.recoveryTimeoutMs,
+        statsIntervalMs: config.sccache?.statsIntervalMs,
         // v2.7 §12: SCCACHE_BASEDIRS is gated behind explicit experiment enablement.
         basedirs: config.sccache?.basedirs ?? null,
         basedirsEnabled: config.sccache?.basedirsEnabled === true,
-        platform
+        platform, spawn, terminate: terminateProcess,
+        emit: (event) => thinLogger.append(event),
+        onUnavailable: (event) => service?.cacheUnavailable(event)
       });
-      const thinLogger = logger ?? await ThinLogger.open({ path: join(thinState.paths.logs, 'events.ndjson') });
+      ownedCache = thinCache;
       const thinScheduler = scheduler ?? new ThinScheduler({
         controlConcurrency: integer(config.bounds?.controlConcurrency, 4, 1),
         analysisConcurrency: integer(config.bounds?.analysisConcurrency, 2, 1),
@@ -185,8 +197,9 @@ export class ThinJobService {
       const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
         ? workspaceResolver
         : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 2_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
-      const service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform });
+      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1), platform }) });
+      await thinCache.start?.();
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
       // Cache sizing may traverse large native target trees. Keep broker startup
       // & activation handshakes independent from that best-effort maintenance;
@@ -194,7 +207,8 @@ export class ThinJobService {
       void service.#maintenanceGc();
       return service;
     } catch (error) {
-      await logger?.close?.().catch(() => {});
+      await ownedCache?.close?.().catch(() => {});
+      await ownedLogger?.close?.().catch(() => {});
       await ownedSingleton?.release?.().catch(() => {});
       throw error;
     }
@@ -205,6 +219,13 @@ export class ThinJobService {
   }
 
   get runtimeIdentity() { return this.#runtime; }
+
+  cacheUnavailable(event) {
+    if (this.#stopping) return;
+    const affected = [...this.#jobs.values()].filter((job) => !job.terminal && job.capability.compile);
+    for (const job of affected) this.#requestCancel(job, 'sccache-unavailable');
+    void this.#log({ type: 'CACHE_RUNTIME_BLOCKED', reason: event?.reason ?? 'sccache-unavailable', epoch: event?.epoch ?? null, gatewayPid: event?.gatewayPid ?? null, affectedJobIds: affected.map((job) => job.id) });
+  }
 
   #gcInFlight = false; #gcQueued = false;
 
@@ -264,6 +285,7 @@ export class ThinJobService {
     const open = [...this.#jobs.values()].filter((job) => !job.terminal);
     for (const job of open) this.#requestCancel(job, 'broker-shutdown');
     await Promise.allSettled(open.map((job) => job.done));
+    await this.#cache.close?.();
     await this.#log({ type: 'BROKER_STOPPED' });
     await this.#logger.close();
     await this.#singleton.release();
@@ -387,7 +409,7 @@ export class ThinJobService {
       job.rootSetupStartedAt ??= this.#now();
       if (job.capability.compile && !job.capability.skipRootServices) await this.#admitStorage(job);
       job.cachePrepared = (job.capability.compile && !job.capability.skipRootServices)
-        ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4, repositoryRoot: job.repositoryRoot, workspaceRoot: job.workspaceRoot })
+        ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4, repositoryRoot: job.repositoryRoot, workspaceRoot: job.workspaceRoot, jobId: job.id })
         : job.parentId
           ? { mode: 'sccache-inherited', status: 'OK', environment: { }, before: null }
           : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };
@@ -450,7 +472,9 @@ export class ThinJobService {
     if (job.terminal) return job.terminal;
     if (job.deadline) clearTimeout(job.deadline);
     const uncertainWriter = job.capability.artifactWrite && !job.residentAt && details.reap && details.reap.reaped === false;
-    if (uncertainWriter) job.workspace = await this.#state.rotate(job.workspaceRoot, 'process-tree-unreaped');
+    const cacheIntegrityLost = job.capability.artifactWrite && job.cancelReason === 'sccache-unavailable';
+    const invalidWriter = uncertainWriter || cacheIntegrityLost;
+    if (invalidWriter) job.workspace = await this.#state.rotate(job.workspaceRoot, cacheIntegrityLost ? 'sccache-unavailable' : 'process-tree-unreaped');
     const terminalAt = this.#now();
     // Roll delegated compiler children up into their admitted root so the root
     // receipt carries one authoritative compiler process & round-trip count and
@@ -478,7 +502,7 @@ export class ThinJobService {
     const phaseTimings = this.#phaseTimings(job, terminalAt);
     const receipt = Object.freeze({
       id: job.id, state: status, status, command: job.command, workspace: job.workspaceRoot, repository: job.repositoryRoot ?? null, profile: this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null,
-      generation: job.capability.artifactWrite ? (uncertainWriter ? job.workspace.state.rotatedFrom : job.workspace.layout.generation) : null,
+      generation: job.capability.artifactWrite ? (invalidWriter ? job.workspace.state.rotatedFrom : job.workspace.layout.generation) : null,
       // v2.7 §20 root timing
       ...phaseTimings,
       queueMs: job.queueMs ?? null,
@@ -496,9 +520,9 @@ export class ThinJobService {
       ownership: job.ownership ?? null, reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(),
       output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') }
     });
-    if (job.capability.artifactWrite && !uncertainWriter) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
+    if (job.capability.artifactWrite && (!uncertainWriter || cacheIntegrityLost)) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
     job.state = status; job.terminal = Object.freeze({ type: 'RESULT', id: job.id, exitCode: receipt.exitCode, status, receipt });
-    await this.#log({ type: 'TERMINAL', id: job.id, status, exitCode: receipt.exitCode, signal: receipt.signal, queueMs: receipt.queueMs, runMs: receipt.runMs, cache: receipt.cache, generation: receipt.generation, uncertainWriter });
+    await this.#log({ type: 'TERMINAL', id: job.id, status, exitCode: receipt.exitCode, signal: receipt.signal, queueMs: receipt.queueMs, runMs: receipt.runMs, cache: receipt.cache, generation: receipt.generation, uncertainWriter, cacheIntegrityLost });
     this.#publish(job, job.terminal); job.resolveDone(job.terminal);
     // Terminal artifact writes mark the workspace size dirty (v2.8 §10.6):
     // schedule a detached maintenance GC so the target-cache budget stays

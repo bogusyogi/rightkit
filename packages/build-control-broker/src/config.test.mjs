@@ -41,14 +41,16 @@ test('config accepts Windows managed paths on any coordinator host', () => {
   assert.equal(validateBrokerConfig(value).windowsPipe, value.windowsPipe);
 });
 
-test('client-side sccache requires pinned tool without server ownership', () => {
-  const value = fixture(); value.tools.push({ id: 'sccache', path: '/managed/tools/sccache', root: '/managed/tools', sha256: 'd'.repeat(64) }); value.defaults.sccacheToolId = 'sccache'; value.defaults.cacheMode = 'managed'; value.sccache = { mode: 'managed', clientSide: true, lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20_000 };
-  assert.equal(validateBrokerConfig(value).sccache.clientSide, true);
-  value.sccache.lifecycleOwner = 'broker'; assert.throws(() => validateBrokerConfig(value), /client-side/);
+test('client-side sccache requires broker gateway ownership proof', () => {
+  const value = fixture(); value.tools.push({ id: 'sccache', path: '/managed/tools/sccache', root: '/managed/tools', sha256: 'd'.repeat(64) }); value.defaults.sccacheToolId = 'sccache'; value.defaults.cacheMode = 'managed'; value.sccache = { mode: 'managed', clientSide: true, lifecycleOwner: 'broker', requireOwnershipProof: true, expectedVersion: '0.17.0', maxSizeBytes: 20_000 };
+  const validated = validateBrokerConfig(value);
+  assert.equal(validated.sccache.clientSide, true);
+  assert.equal(validated.sccache.gatewayPort, 4_227);
+  value.sccache.lifecycleOwner = null; assert.throws(() => validateBrokerConfig(value), /ownership proof/);
 });
 
 test('server-side sccache requires broker ownership proof', () => {
-  const value = fixture(); value.tools.push({ id: 'sccache', path: '/managed/tools/sccache', root: '/managed/tools', sha256: 'd'.repeat(64) }); value.defaults.sccacheToolId = 'sccache'; value.defaults.cacheMode = 'managed'; value.sccache = { mode: 'managed', clientSide: false, lifecycleOwner: null, requireOwnershipProof: false, maxSizeBytes: 20_000 };
+  const value = fixture(); value.tools.push({ id: 'sccache', path: '/managed/tools/sccache', root: '/managed/tools', sha256: 'd'.repeat(64) }); value.defaults.sccacheToolId = 'sccache'; value.defaults.cacheMode = 'managed'; value.sccache = { mode: 'managed', clientSide: false, lifecycleOwner: null, requireOwnershipProof: false, expectedVersion: '0.17.0', maxSizeBytes: 20_000 };
   assert.throws(() => validateBrokerConfig(value), /ownership proof/);
 });
 
