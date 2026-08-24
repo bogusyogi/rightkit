@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { loadBrokerConfig } from './config.mjs';
-import { installManagedRuntimeWindows, renderTaskDefinition, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
+import { installManagedRuntimeWindows, quotePowerShell, renderTaskDefinition, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
 import { absoluteHostPath as absolute, assertDirectory, assertFile, contained, proveThinRequestsDrained } from './cutover-shared.mjs';
 
 const execDefault = promisify(childExecFile);
@@ -38,7 +38,7 @@ export function parseWindowsCutoverArgs(argv) {
   });
 }
 
-export async function stopManagedTask({ taskName, endpoint, execFile = execDefault, netModule = net, pipeReleaseTimeoutMs = 20_000, pipePollIntervalMs = 250, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
+export async function stopManagedTask({ taskName, endpoint, configPath = null, brokerScript = null, execFile = execDefault, netModule = net, pipeReleaseTimeoutMs = 20_000, pipePollIntervalMs = 250, orphanTakeoverMs = 5_000, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   const end = () => execFile('schtasks', ['/End', '/TN', taskName]).catch(() => {});
   await end();
   await execFile('schtasks', ['/Change', '/TN', taskName, '/DISABLE']).catch(() => {});
@@ -53,11 +53,22 @@ export async function stopManagedTask({ taskName, endpoint, execFile = execDefau
   // exact race that made re-running bootstrap "work" every time. Poll for the
   // handle to release instead, and re-issue /End once mid-window in case the
   // first call did not take.
-  const deadline = Date.now() + pipeReleaseTimeoutMs; let reEnded = false;
+  const reapOwnedOrphan = async () => {
+    if (typeof configPath !== 'string' || !configPath || typeof brokerScript !== 'string' || !brokerScript) return [];
+    const { stdout } = await execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command',
+      `@(Get-CimInstance Win32_Process | Where-Object { $_.Name -ieq 'node.exe' -and $_.CommandLine -like '*${quotePowerShell(configPath)}*' -and $_.CommandLine -like '*${quotePowerShell(brokerScript)}*' } | Select-Object -ExpandProperty ProcessId) | ConvertTo-Json -Compress`]);
+    let parsed;
+    try { parsed = JSON.parse(String(stdout).trim() || '[]'); } catch { return []; }
+    const pids = (Array.isArray(parsed) ? parsed : [parsed]).filter((pid) => Number.isSafeInteger(pid) && pid > 0);
+    for (const pid of pids) await execFile('taskkill', ['/PID', String(pid), '/T', '/F']);
+    return pids;
+  };
+  const startedAt = Date.now(); const deadline = startedAt + pipeReleaseTimeoutMs; let reEnded = false; let forcedPids = [];
   for (;;) {
-    if (!(await reachable())) return Object.freeze({ stopped: true, target: taskName, listener: false });
+    if (!(await reachable())) return Object.freeze({ stopped: true, target: taskName, listener: false, ...(forcedPids.length ? { forcedPids: Object.freeze(forcedPids) } : {}) });
     if (Date.now() >= deadline) throw new Error('managed broker listener remains reachable after stop');
     if (!reEnded && Date.now() > deadline - Math.floor((pipeReleaseTimeoutMs * 2) / 3)) { await end(); reEnded = true; }
+    if (forcedPids.length === 0 && Date.now() - startedAt >= Math.min(orphanTakeoverMs, Math.floor(pipeReleaseTimeoutMs / 2))) forcedPids = await reapOwnedOrphan();
     await sleep(pipePollIntervalMs);
   }
 }
@@ -83,7 +94,7 @@ export async function runWindowsCutover(input, dependencies = {}) {
   const nodePath = await canonicalize(process.execPath);
   const runtimeScript = resolve(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   const thinDrain = await proveThinDrain(externalRoot);
-  const stopProof = await stopManaged({ taskName: options.taskName, endpoint: options.endpoint, execFile });
+  const stopProof = await stopManaged({ taskName: options.taskName, endpoint: options.endpoint, configPath, brokerScript: runtimeScript, execFile });
   const definition = renderTaskDefinition({ taskName: options.taskName, nodePath, brokerScript: runtimeScript, configPath });
   const result = await withTaskDefinitionFile(definition, (taskXmlPath) => install({
     externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, taskName: options.taskName, endpoint: options.endpoint,

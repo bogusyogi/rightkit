@@ -9,6 +9,7 @@ import { describeWindowsJobAddon, installManagedRuntime } from './runtime.mjs';
 
 const execDefault = promisify(childExecFile);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+export const quotePowerShell = (value) => String(value).replace(/'/g, "''");
 
 /**
  * Install a staged runtime behind a Windows scheduled task. Mirrors
@@ -124,7 +125,6 @@ export function createWindowsRuntimeCallbacks(options = {}) {
    * the exact node+script+config command line, not trusting a bare number. */
   const livePid = async () => {
     const nodeName = String(nodePath).split(/[\\/]/).pop();
-    const quotePowerShell = (value) => String(value).replace(/'/g, "''");
     const { stdout } = await execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command',
       `Get-CimInstance Win32_Process | Where-Object { $_.Name -ieq '${quotePowerShell(nodeName)}' -and $_.CommandLine -like '*${quotePowerShell(configPath)}*' } | Select-Object ProcessId,Name,ExecutablePath | ConvertTo-Json -Compress`]);
     let processes;
