@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { chmod, cp, lstat, mkdir, open, readFile, readdir, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, cp, lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFile as nodeExecFile, spawn } from 'node:child_process';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
@@ -359,7 +359,20 @@ const availableLoopbackPort = () => new Promise((resolvePort, reject) => {
 
 async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspace, platform = process.platform }) {
   const liveExternal = config.broker?.externalRoot; if (!liveExternal?.path) throw new TypeError('broker external root is required for isolated health probe');
-  const probeId = randomUUID(); const probeRoot = join(liveExternal.path, '.runtime-health', probeId); await mkdir(probeRoot, { recursive: true, mode: 0o700 }); await chmod(probeRoot, 0o700); const endpoint = platform === 'win32' ? healthProbeEndpoint(platform, probeId) : join(probeRoot, 'broker.sock');
+  const probeId = randomUUID();
+  let probeRoot;
+  if (platform === 'win32') {
+    probeRoot = join(liveExternal.path, '.runtime-health', probeId);
+    await mkdir(probeRoot, { recursive: true, mode: 0o700 });
+  } else {
+    // sccache's macOS UDS has a 104-byte sockaddr limit. A full UUID nested in
+    // .runtime-health pushes its derived gateway socket past that limit.
+    const probeContainer = join(liveExternal.path, '.rh');
+    await mkdir(probeContainer, { recursive: true, mode: 0o700 });
+    await chmod(probeContainer, 0o700);
+    probeRoot = await mkdtemp(join(probeContainer, 'p-'));
+  }
+  await chmod(probeRoot, 0o700); const endpoint = platform === 'win32' ? healthProbeEndpoint(platform, probeId) : join(probeRoot, 'broker.sock');
   const { activationFencePath, ...probeBroker } = config.broker;
   // Isolated health gets its own absent fence under probeRoot. This satisfies
   // schema-v2 containment without inheriting production PENDING state.

@@ -268,7 +268,8 @@ export class ThinCache {
         if (failed) await this.#terminate(failed, { platform: this.#platform, graceMs: 1_000 }).catch(() => {});
         if (error?.event?.type === 'TOOL_CHANGED') await this.#event(error.event);
         await this.#event({ type: 'CACHE_RECOVERY_FAILED', code: error.code ?? null, reason: error.message, endpoint: this.#endpoint.display, stderr: this.#gatewayStderr });
-        throw new Error(`sccache-gateway-unavailable:${error.message}`);
+        const diagnostic = this.#gatewayStderr.replace(/\s+/g, ' ').trim().slice(0, 1_024);
+        throw new Error(`sccache-gateway-unavailable:${error.message}${diagnostic ? `:${diagnostic}` : ''}`);
       }
     })().finally(() => { this.#recoveryInFlight = null; });
     return this.#recoveryInFlight;
