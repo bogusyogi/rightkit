@@ -36,6 +36,12 @@ export function parseArgs(argv) {
   return values;
 }
 
+export function ensureRemoteRoutingRoots(externalRoot) {
+  const inputs = join(externalRoot, 'remote-inputs');
+  mkdirSync(inputs, { recursive: true });
+  return inputs;
+}
+
 export function isDirectMain({ moduleUrl = import.meta.url, argv1 = process.argv[1], platform = process.platform } = {}) {
   if (typeof argv1 !== 'string' || !argv1) return false;
   const modulePath = decodeURIComponent(new URL(moduleUrl).pathname);
@@ -226,6 +232,7 @@ async function main() {
 
   mkdirSync(externalRoot, { recursive: true });
   mkdirSync(join(externalRoot, 'state'), { recursive: true });
+  ensureRemoteRoutingRoots(externalRoot);
 
   if (!existsSync(configPath) || options.force) {
     const config = await buildConfig({ externalRoot });

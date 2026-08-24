@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
-import { defaultBounds, defaultCargoBuildJobs, isDirectMain, parseArgs, shimTable, stageManagedTools, supportsClientSideSccache, whereUnmanaged } from './bootstrap-windows-cli.mjs';
+import { defaultBounds, defaultCargoBuildJobs, ensureRemoteRoutingRoots, isDirectMain, parseArgs, shimTable, stageManagedTools, supportsClientSideSccache, whereUnmanaged } from './bootstrap-windows-cli.mjs';
 
 // discoverTools/where/buildConfig shell out to `where.exe`, which does not
 // exist on this Mac — those three are exercised only by a real Windows run.
@@ -26,6 +26,14 @@ test('direct-main detection is portable across Windows and POSIX path forms', ()
   assert.equal(isDirectMain({ moduleUrl: 'file:///C:/RightKit/bootstrap-windows-cli.mjs', argv1: 'C:\\Other\\bootstrap-windows-cli.mjs', platform: 'win32' }), false);
   assert.equal(isDirectMain({ moduleUrl: 'file:///tmp/bootstrap-windows-cli.mjs', argv1: '/tmp/bootstrap-windows-cli.mjs', platform: 'linux' }), true);
   assert.equal(isDirectMain({ moduleUrl: 'file:///tmp/bootstrap-windows-cli.mjs', argv1: '', platform: 'linux' }), false);
+});
+
+test('bootstrap creates remote snapshot inbox before first scp transfer', (t) => {
+  const scratch = mkdtempSync(join(tmpdir(), 'rk-win-remote-inputs-'));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const inputs = ensureRemoteRoutingRoots(scratch);
+  assert.equal(inputs, join(scratch, 'remote-inputs'));
+  assert.equal(existsSync(inputs), true);
 });
 
 test('shimTable only maps shims for tools actually discovered, mirroring the macOS table', () => {
