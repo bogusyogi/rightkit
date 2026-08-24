@@ -237,3 +237,6 @@ one exact commit on `bogusyogi/claude` `main`, with no npm-publication claim.
 
 See [Managed Build Control](docs/MANAGED-BUILD-CONTROL.md) for health, receipts,
 recovery, cleanup, GC, & platform operations.
+
+Cross-host Rust validation uses content-addressed Mac snapshots, managed Windows
+replicas, & each host's local broker. See [Dual-Host Rust Routing](docs/RIGHTKIT-DUAL-HOST-BUILD-ROUTING.md).

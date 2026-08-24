@@ -322,6 +322,7 @@ try {
           env,
           [managedCargoTarget ?? env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
           path.join(stateRoot, "stall-build.log"),
+          { livenessOwnerTimeoutMs: target.package.livenessOwnerTimeoutMs ?? null },
         );
         checkpoint(stateRoot, "build_complete");
         checkpoint(stateRoot, "signed");
@@ -464,8 +465,8 @@ function collectToolVersions(packageManager) {
   }
 }
 
-async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = null) {
-  const { inactivityMs, absoluteMs } = releaseProgressLimits(process.env);
+async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = null, { livenessOwnerTimeoutMs = null } = {}) {
+  const { inactivityMs, absoluteMs } = releaseProgressLimits(env, { livenessOwnerTimeoutMs });
   let lastProgress = Date.now();
   const watchDirs = Array.isArray(watchDir) ? watchDir : [watchDir];
   let lastMtime = Math.max(...watchDirs.map(newestMtime));

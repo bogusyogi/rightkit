@@ -1,12 +1,31 @@
 #!/usr/bin/env node
 import { cancelManagedAgentJob, createRightkitRequest, loadRuntimeIdentity, statusManagedAgentJob, submitAndWatchManagedAgentJob, watchManagedAgentJob } from './index.mjs';
+import { createRemoteCoordinator } from './remote-coordinator.mjs';
 
 const write = (value, stream) => { if (typeof value === 'string' && value) stream.write(value); };
 const jobEvent = (event) => event.type === 'JOB_EVENT' ? event.event : event;
 const streamJobEvent = (event) => { const value = jobEvent(event); if (value.type === 'STDOUT') write(value.data, process.stdout); if (value.type === 'STDERR') write(value.data, process.stderr); };
 try {
   const argv = process.argv.slice(2); const runtimeIdentity = await loadRuntimeIdentity();
-  if (['status', 'attach', 'cancel'].includes(argv[0])) {
+  if (argv[0] === 'remote') {
+    // Dual-host routing (docs/RIGHTKIT-DUAL-HOST-BUILD-ROUTING.md): detached
+    // SUBMIT plus one-shot STATUS/CANCEL by durable remote request ID. There is
+    // deliberately no watch/attach/poll path: agents schedule one 15-minute
+    // wake after SUBMIT and read STATUS once per wake until terminal.
+    if (argv[1] === 'windows' && argv[2] === 'cargo') {
+      const coordinator = createRemoteCoordinator();
+      const ack = await coordinator.submitRemoteCargo({ argv: argv.slice(3), workspace: process.cwd() });
+      process.stdout.write(`${JSON.stringify(ack)}\n`);
+      process.stderr.write(`rightkit remote: request ${ack.requestId} accepted; schedule one wake in 15 minutes, then issue one 'rightkit remote status ${ack.requestId}' per wake until terminal. Do not poll or attach.\n`);
+    } else if (['status', 'cancel'].includes(argv[1]) && argv.length === 3) {
+      const coordinator = createRemoteCoordinator();
+      const result = argv[1] === 'status' ? await coordinator.remoteStatus(argv[2]) : await coordinator.remoteCancel(argv[2]);
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+      if (result.terminal && typeof result.exitCode === 'number' && result.state === 'TERMINAL') process.exitCode = result.exitCode;
+    } else {
+      throw new TypeError('usage: rightkit remote windows cargo <check|clippy|test|build> [args...] | rightkit remote <status|cancel> <request-id>');
+    }
+  } else if (['status', 'attach', 'cancel'].includes(argv[0])) {
     if (argv.length !== 2) throw new TypeError(`usage: rightkit ${argv[0]} <request-id>`);
     const operation = argv[0] === 'status' ? statusManagedAgentJob : argv[0] === 'attach' ? watchManagedAgentJob : cancelManagedAgentJob;
     const result = await operation(argv[1], { runtimeIdentity, onEvent: streamJobEvent });

@@ -18,9 +18,9 @@ import {
   validateManagedRustupInvocation
 } from '@rightkit/build-control-core';
 import { ThinCache } from './thin-cache.mjs';
-import { ThinCommandPolicy } from './thin-command-policy.mjs';
+import { ThinCommandPolicy, compileClass } from './thin-command-policy.mjs';
 import { ThinLogger } from './thin-logger.mjs';
-import { ThinScheduler } from './thin-scheduler.mjs';
+import { ThinScheduler, deriveCompileCosts } from './thin-scheduler.mjs';
 import { acquireThinBrokerSingleton } from './thin-singleton.mjs';
 import { ThinState } from './thin-state.mjs';
 import { ImmutableToolRegistry, ToolChangedError } from './tool-registry.mjs';
@@ -192,7 +192,10 @@ export class ThinJobService {
         controlConcurrency: integer(config.bounds?.controlConcurrency, 4, 1),
         analysisConcurrency: integer(config.bounds?.analysisConcurrency, 2, 1),
         workspaceWriteConcurrency: integer(config.bounds?.workspaceWriteConcurrency, 4, 1),
-        buildConcurrency: integer(config.bounds?.buildConcurrency, 3, 1), now
+        buildConcurrency: integer(config.bounds?.buildConcurrency, 3, 1),
+        // Aggregate compiler budget (dual-host routing §5): absent on hosts that
+        // keep the measured v2.8 lane-only behavior (macOS default bootstrap).
+        compileBudget: config.bounds?.compileBudgetUnits ?? null, now
       });
       // Bound, cache & make observable the CONTROL-class workspace discovery.
       const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
@@ -245,6 +248,16 @@ export class ThinJobService {
     } catch (error) {
       await this.#log({ type: 'GENERATION_GC_FAILED', error: error.message }).catch(() => {});
     } finally { this.#gcInFlight = false; }
+  }
+
+  /** Aggregate compiler-budget admission (dual-host routing §5): map a
+   * classified capability onto its command-class root cost. Returns null for
+   * non-compiling roots and when no budget is configured. */
+  #compileCost(capability) {
+    const budget = this.#config.bounds?.compileBudgetUnits;
+    if (!budget) return null;
+    const classification = compileClass(capability);
+    return classification ? deriveCompileCosts(budget)[classification] : null;
   }
 
   /** Evict an idle current generation only while holding the same per-workspace
@@ -389,7 +402,7 @@ export class ThinJobService {
   async #execute(job) {
     try {
       if (!job.parentId) {
-        job.ticket = this.#scheduler.acquire({ id: job.id, capability: job.capability, workspaceKey: job.workspace?.key ?? null, priority: job.priority, onHeartbeat: (heartbeat) => this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'HEARTBEAT', ...heartbeat } }) });
+        job.ticket = this.#scheduler.acquire({ id: job.id, capability: job.capability, workspaceKey: job.workspace?.key ?? null, priority: job.priority, compileCost: this.#compileCost(job.capability), onHeartbeat: (heartbeat) => this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'HEARTBEAT', ...heartbeat } }) });
         job.permit = await job.ticket.permit;
       }
       if (job.cancelReason) throw Object.assign(new Error('queued request cancelled'), { code: 'RK_QUEUE_CANCELLED' });

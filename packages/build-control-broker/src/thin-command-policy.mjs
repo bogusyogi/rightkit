@@ -54,6 +54,17 @@ const DENIED_CARGO_COMMANDS = new Map([
   ['install', 'agent tool installation is denied; managed tools are digest-registered by the operator']
 ]);
 
+/** Command-class cost bucket for compile-capable roots (dual-host routing §5).
+ * One declarative classification next to the capability table: analysis
+ * (check/clippy), test (test/bench/nextest), everything else that compiles is a
+ * build-class root. Non-compiling capabilities return null. */
+export function compileClass(capability) {
+  if (!capability || typeof capability !== 'object' || capability.compile !== true) return null;
+  if (capability.command === 'check' || capability.command === 'clippy') return 'ANALYSIS';
+  if (capability.command === 'test' || capability.command === 'bench' || capability.command === 'nextest') return 'TEST';
+  return 'BUILD';
+}
+
 function commandForCargo(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];

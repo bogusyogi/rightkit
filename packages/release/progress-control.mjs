@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 
 const MANAGED_REQUEST_PATTERN = /\brightkit(?: managed-agent)?: request ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/gi;
+export const RELEASE_LIVENESS_OWNER_MARGIN_MS = 5 * 60 * 1000;
 
 export function latestManagedRequestId(value, fallback = null) {
   let latest = fallback;
@@ -13,11 +14,17 @@ export function firstManagedRequestId(value) {
   return MANAGED_REQUEST_PATTERN.exec(String(value ?? ""))?.[1]?.toLowerCase() ?? null;
 }
 
-export function releaseProgressLimits(env = process.env) {
-  const inactivityMs = Number(env.RIGHT_RELEASE_STALL_MS ?? 10 * 60 * 1000);
+export function releaseProgressLimits(env = process.env, { livenessOwnerTimeoutMs = null } = {}) {
+  const configuredInactivityMs = Number(env.RIGHT_RELEASE_STALL_MS ?? 10 * 60 * 1000);
   const absoluteMs = Number(env.RIGHT_RELEASE_ABSOLUTE_MS ?? 4 * 60 * 60 * 1000);
-  if (![inactivityMs, absoluteMs].every((value) => Number.isFinite(value) && value > 0)) throw new Error("release progress limits must be positive finite milliseconds");
-  if (absoluteMs <= inactivityMs) throw new Error("RIGHT_RELEASE_ABSOLUTE_MS must exceed RIGHT_RELEASE_STALL_MS");
+  const ownerTimeoutMs = livenessOwnerTimeoutMs === null ? null : Number(livenessOwnerTimeoutMs);
+  if (![configuredInactivityMs, absoluteMs, ...(ownerTimeoutMs === null ? [] : [ownerTimeoutMs])].every((value) => Number.isFinite(value) && value > 0)) {
+    throw new Error("release progress limits must be positive finite milliseconds");
+  }
+  const inactivityMs = ownerTimeoutMs === null
+    ? configuredInactivityMs
+    : Math.max(configuredInactivityMs, ownerTimeoutMs + RELEASE_LIVENESS_OWNER_MARGIN_MS);
+  if (absoluteMs <= inactivityMs) throw new Error("RIGHT_RELEASE_ABSOLUTE_MS must exceed effective release inactivity limit");
   return Object.freeze({ inactivityMs, absoluteMs });
 }
 

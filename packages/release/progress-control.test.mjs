@@ -10,6 +10,23 @@ test("release progress stays bounded without killing a healthy long native build
   assert.throws(() => releaseProgressLimits({ RIGHT_RELEASE_STALL_MS: "nope" }), /positive finite/);
 });
 
+test("declared inner liveness owner always exits before the outer watchdog", () => {
+  const ownerTimeoutMs = 45 * 60 * 1000;
+  assert.deepEqual(
+    releaseProgressLimits({}, { livenessOwnerTimeoutMs: ownerTimeoutMs }),
+    { inactivityMs: 50 * 60 * 1000, absoluteMs: 4 * 60 * 60 * 1000 },
+  );
+  assert.deepEqual(
+    releaseProgressLimits({ RIGHT_RELEASE_STALL_MS: String(60 * 60 * 1000) }, { livenessOwnerTimeoutMs: ownerTimeoutMs }),
+    { inactivityMs: 60 * 60 * 1000, absoluteMs: 4 * 60 * 60 * 1000 },
+  );
+  assert.throws(
+    () => releaseProgressLimits({ RIGHT_RELEASE_ABSOLUTE_MS: String(49 * 60 * 1000) }, { livenessOwnerTimeoutMs: ownerTimeoutMs }),
+    /must exceed effective release inactivity limit/,
+  );
+  assert.throws(() => releaseProgressLimits({}, { livenessOwnerTimeoutMs: 0 }), /positive finite/);
+});
+
 test("latest managed request id follows streamed root Cargo requests", () => {
   const first = "11111111-1111-4111-8111-111111111111";
   const second = "22222222-2222-4222-8222-222222222222";

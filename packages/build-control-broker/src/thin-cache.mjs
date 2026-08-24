@@ -269,7 +269,12 @@ export class ThinCache {
         if (error?.event?.type === 'TOOL_CHANGED') await this.#event(error.event);
         await this.#event({ type: 'CACHE_RECOVERY_FAILED', code: error.code ?? null, reason: error.message, endpoint: this.#endpoint.display, stderr: this.#gatewayStderr });
         const diagnostic = this.#gatewayStderr.replace(/\s+/g, ' ').trim().slice(0, 1_024);
-        throw new Error(`sccache-gateway-unavailable:${error.message}${diagnostic ? `:${diagnostic}` : ''}`);
+        // Preserve typed spawn failures in recovery receipts. Callers need the
+        // stable code (for example ENOENT) to distinguish missing tool/runtime
+        // from a generic gateway outage; the human message remains diagnostic.
+        const cause = error?.code ?? error?.message ?? 'unknown';
+        const detail = error?.code && error?.message && error.message !== error.code ? `:${error.message}` : '';
+        throw new Error(`sccache-gateway-unavailable:${cause}${detail}${diagnostic ? `:${diagnostic}` : ''}`);
       }
     })().finally(() => { this.#recoveryInFlight = null; });
     return this.#recoveryInFlight;

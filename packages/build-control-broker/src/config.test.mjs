@@ -23,6 +23,15 @@ test('config accepts exact thin settings & freezes result', () => {
   const config = validateBrokerConfig(fixture()); assert.equal(config.bounds.buildConcurrency, 1); assert.equal(Object.isFrozen(config), true); assert.equal(Object.isFrozen(config.broker), true);
 });
 
+test('config accepts aggregate compile budget units & rejects invalid values', () => {
+  const value = fixture(); value.bounds.compileBudgetUnits = 12;
+  const config = validateBrokerConfig(value); assert.equal(config.bounds.compileBudgetUnits, 12);
+  const zero = fixture(); zero.bounds.compileBudgetUnits = 0;
+  assert.throws(() => validateBrokerConfig(zero), /compileBudgetUnits/);
+  const fractional = fixture(); fractional.bounds.compileBudgetUnits = 1.5;
+  assert.throws(() => validateBrokerConfig(fractional), /compileBudgetUnits/);
+});
+
 test('config rejects predecessor workflow, reservation, & maintenance concepts', () => {
   for (const mutate of [
     (v) => { v.broker.databasePath = '/managed/state.sqlite'; },

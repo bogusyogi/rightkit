@@ -160,6 +160,18 @@ export function defaultBounds() {
   };
 }
 
+/** Aggregate compiler-budget sizing (dual-host routing §5): one host budget
+ * unit derived from logical CPUs & memory. A 64 GiB / >=8-logical-CPU i9-class
+ * workstation yields 12 units — exactly three analysis roots, two test roots,
+ * or one heavy build, plus mixtures. Smaller hosts derive a proportionally
+ * smaller budget; the floor keeps at least one compile-heavy root admissible.
+ * macOS bootstrap deliberately omits this field and keeps v2.8 lane behavior. */
+export function deriveCompileBudgetUnits({ cpus = cpuCount(), totalMemoryBytes = totalmem() } = {}) {
+  const logical = Number.isSafeInteger(cpus) && cpus > 0 ? cpus : 1;
+  const memoryGiB = Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 2;
+  return Math.max(4, Math.min(12, logical, Math.floor(memoryGiB / 4)));
+}
+
 // Windows host policy: high-memory x86 workstations may use up to 16 Cargo
 // compiler jobs per admitted build. Logical CPUs and an approximately 2 GiB
 // per-job memory ceiling still bound smaller hosts.
@@ -203,7 +215,7 @@ export async function buildConfig({ externalRoot }) {
     // separately-decided activation, not a bootstrap default.
     sccache: { mode: clientSideSccache ? 'managed' : 'disabled', clientSide: clientSideSccache, lifecycleOwner: clientSideSccache ? 'broker' : null, requireOwnershipProof: clientSideSccache, ...(clientSideSccache ? { expectedVersion: expectedSccacheVersion } : {}), maxSizeBytes: 20 * 1024 ** 3, gatewayPort: 4_227, healthLeaseMs: 10_000, recoveryTimeoutMs: 10_000, statsIntervalMs: 60_000 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
-    bounds: defaultBounds(),
+    bounds: { ...defaultBounds(), compileBudgetUnits: deriveCompileBudgetUnits() },
   };
 }
 

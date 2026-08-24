@@ -131,7 +131,8 @@ Do **not** turn RightKit into:
 - a generic build graph;
 - a generic result cache;
 - a CI system;
-- a distributed executor;
+- a network-transparent distributed executor (cross-host orchestration stays in
+  build-control clients & still submits to one host-local broker);
 - an exactly-once workflow engine;
 - a transactional storage allocator;
 - a generalized resource-market/token scheduler.

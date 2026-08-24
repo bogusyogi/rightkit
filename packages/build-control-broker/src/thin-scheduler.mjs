@@ -11,27 +11,46 @@ export class ThinQueueUnavailableError extends Error {
   constructor() { super('requested lane/workspace capacity is currently occupied'); this.name = 'ThinQueueUnavailableError'; this.code = 'RK_QUEUE_UNAVAILABLE'; }
 }
 
+/** Aggregate compiler-budget root costs derived from one host budget unit
+ * (dual-host routing §5): an analysis root costs about one third of the host
+ * budget, a test root about one half, and any build-class root the full budget.
+ * With budget 12 this admits exactly three analysis roots, two test roots, or
+ * one heavy build at once, plus mixtures while the total fits. */
+export function deriveCompileCosts(compileBudgetUnits) {
+  if (!Number.isSafeInteger(compileBudgetUnits) || compileBudgetUnits < 1) throw new TypeError('compileBudgetUnits must be a positive integer');
+  return Object.freeze({
+    ANALYSIS: Math.max(1, Math.round(compileBudgetUnits / 3)),
+    TEST: Math.max(1, Math.round(compileBudgetUnits / 2)),
+    BUILD: compileBudgetUnits,
+  });
+}
+
 export class ThinScheduler {
-  #limits; #queue = []; #active = new Map(); #workspace = new Map(); #toolchainActive = false; #sequence = 0; #now;
-  constructor({ controlConcurrency = 4, analysisConcurrency = 2, workspaceWriteConcurrency = 4, buildConcurrency = 3, now = Date.now } = {}) {
+  #limits; #compileBudget; #queue = []; #active = new Map(); #workspace = new Map(); #toolchainActive = false; #sequence = 0; #now;
+  constructor({ controlConcurrency = 4, analysisConcurrency = 2, workspaceWriteConcurrency = 4, buildConcurrency = 3, compileBudget = null, now = Date.now } = {}) {
     for (const [name, value] of Object.entries({ controlConcurrency, analysisConcurrency, workspaceWriteConcurrency, buildConcurrency })) if (!Number.isSafeInteger(value) || value < 1) throw new TypeError(`${name} must be a positive integer`);
+    if (compileBudget !== null && (!Number.isSafeInteger(compileBudget) || compileBudget < 1)) throw new TypeError('compileBudget must be a positive integer or null');
     this.#limits = Object.freeze({ CONTROL: controlConcurrency, ANALYSIS: analysisConcurrency, WORKSPACE_WRITE: workspaceWriteConcurrency, BUILD: buildConcurrency, TOOLCHAIN_WRITE: 1 });
+    this.#compileBudget = compileBudget;
     this.#now = now;
   }
 
   get snapshot() {
     return Object.freeze({
+      compileBudget: this.#compileBudget,
       active: Object.freeze([...this.#active.values()].map((item) => Object.freeze({ id: item.id, lane: item.lane, workspaceKey: item.workspaceKey }))),
       queued: Object.freeze(this.#queue.map((item) => Object.freeze({ id: item.id, lane: item.lane, workspaceKey: item.workspaceKey })))
     });
   }
 
-  acquire({ id, capability, workspaceKey = null, priority = 'BATCH', onHeartbeat = () => {}, tryRun = false } = {}) {
+  acquire({ id, capability, workspaceKey = null, priority = 'BATCH', compileCost = null, onHeartbeat = () => {}, tryRun = false } = {}) {
     if (typeof id !== 'string' || !id || !capability || !LANES.has(capability.lane) || !PRIORITY.has(priority)) throw new TypeError('id, capability and priority are required');
+    if (compileCost !== null && (!Number.isSafeInteger(compileCost) || compileCost < 1)) throw new TypeError('compileCost must be a positive integer or null');
+    if (compileCost !== null && this.#compileBudget === null) throw new TypeError('compileCost requires a configured compileBudget');
     if (this.#active.has(id) || this.#queue.some((item) => item.id === id)) throw new TypeError('scheduler id must be unique');
     let resolvePermit; let rejectPermit;
     const permit = new Promise((resolve, reject) => { resolvePermit = resolve; rejectPermit = reject; });
-    const ticket = { id, lane: capability.lane, access: capability.workspaceAccess, compile: capability.compile === true, workspaceKey, priority, sequence: ++this.#sequence, queuedAt: this.#now(), onHeartbeat, resolvePermit, rejectPermit, state: 'QUEUED' };
+    const ticket = { id, lane: capability.lane, access: capability.workspaceAccess, compile: capability.compile === true, cost: compileCost, workspaceKey, priority, sequence: ++this.#sequence, queuedAt: this.#now(), onHeartbeat, resolvePermit, rejectPermit, state: 'QUEUED' };
     // tryRun: never queue. Background maintenance (idle-generation eviction)
     // must not block waiting for a workspace whose write slot an admitted job
     // holds; it gives up immediately instead (v2.8 §10.2). The synchronous
@@ -63,6 +82,14 @@ export class ThinScheduler {
     if (ticket.lane === 'TOOLCHAIN_WRITE') return this.#active.size === 0;
     if (this.#toolchainActive || this.#queue.some((item) => item.lane === 'TOOLCHAIN_WRITE')) return false;
     if (this.#laneCount(ticket.lane) >= this.#limits[ticket.lane]) return false;
+    // Aggregate compiler budget (dual-host routing §5): the sum of admitted
+    // root costs stays within one machine-wide budget. Lane caps remain the
+    // secondary bound above; budget admission never replaces them.
+    if (ticket.cost !== null) {
+      let used = 0;
+      for (const item of this.#active.values()) used += item.cost ?? 0;
+      if (used + ticket.cost > this.#compileBudget) return false;
+    }
     const state = this.#workspaceState(ticket.workspaceKey);
     if (ticket.access === 'read' && state?.writer) return false;
     if (ticket.access === 'write' && state && (state.writer || state.readers > 0)) return false;

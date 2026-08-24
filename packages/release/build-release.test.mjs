@@ -157,6 +157,11 @@ test("CPU sampling degrades to the old behaviour rather than inventing a verdict
   assert.equal(processGroupCpuSeconds(123, { platform: "darwin", run: ok("") }), null);
 });
 
+test("package liveness owner timeout floors outer watchdog through shared release limits", () => {
+  assert.match(source, /livenessOwnerTimeoutMs: target\.package\.livenessOwnerTimeoutMs \?\? null/);
+  assert.match(source, /releaseProgressLimits\(env, \{ livenessOwnerTimeoutMs \}\)/);
+});
+
 // Regression: the managed-host gate must not depend on RIGHTKIT_BUILD_BROKER_SOCKET
 // alone. That variable is exported by login shells only, while the managed cargo
 // shim is on PATH in every shell — so an agent shell took the Cache V2 branch,

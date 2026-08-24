@@ -11,7 +11,7 @@ const outputPolicyFields = new Set(['mode', 'allowedSourceDirs', 'scanRoot']);
 const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'digest']);
 const sccacheFields = new Set(['mode', 'clientSide', 'lifecycleOwner', 'requireOwnershipProof', 'expectedVersion', 'maxSizeBytes', 'basedirs', 'basedirsEnabled', 'gatewayPort', 'healthLeaseMs', 'recoveryTimeoutMs', 'statsIntervalMs']);
 const defaultSccacheMaxSizeBytes = 20 * 1024 ** 3;
-const boundFields = new Set(['heartbeatIntervalMs', 'processGraceMs', 'freeFloorBytes', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'targetCacheCapBytes', 'workspaceDiscoveryTtlMs', 'workspaceDiscoveryTimeoutMs']);
+const boundFields = new Set(['heartbeatIntervalMs', 'processGraceMs', 'freeFloorBytes', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'targetCacheCapBytes', 'workspaceDiscoveryTtlMs', 'workspaceDiscoveryTimeoutMs', 'compileBudgetUnits']);
 const EXTERNAL_COMMAND = /^[a-z][a-z0-9-]*$/;
 const HEX_256 = /^[a-f0-9]{64}$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -132,7 +132,7 @@ function validateOutputPolicy(value) {
 function validateBounds(value, { capacity }) {
   const bounds = object(value, 'bounds'); only(bounds, boundFields, 'bounds');
   const normalized = {};
-  const positive = new Set(['heartbeatIntervalMs', 'processGraceMs', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'workspaceDiscoveryTimeoutMs']);
+  const positive = new Set(['heartbeatIntervalMs', 'processGraceMs', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'workspaceDiscoveryTimeoutMs', 'compileBudgetUnits']);
   const minimums = new Map([['controlConcurrency', 1], ['analysisConcurrency', 1], ['buildConcurrency', 1], ['workspaceWriteConcurrency', 1], ['outputBufferBytes', 1024], ['workspaceDiscoveryTimeoutMs', 1], ['workspaceDiscoveryTtlMs', 0]]);
   for (const key of boundFields) if (bounds[key] !== undefined) normalized[key] = nonnegative(bounds[key], `bounds.${key}`, { minimum: minimums.get(key) ?? (positive.has(key) ? 1 : 0) });
   if (normalized.targetCacheCapBytes !== undefined && normalized.targetCacheCapBytes > capacity) throw new TypeError('bounds.targetCacheCapBytes cannot exceed broker.capacityBytes');
