@@ -52,7 +52,7 @@ function delta(before, after) {
 function childAlive(child) { return Boolean(child && child.exitCode === null && child.signalCode == null); }
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const comparablePath = (value, platform) => {
-  const normalized = String(value ?? '').replaceAll('\\', '/').replace(/\/+$/g, '');
+  const normalized = String(value ?? '').replace(/[\\/]+/g, '/').replace(/\/+$/g, '');
   return platform === 'win32' ? normalized.toLowerCase() : normalized;
 };
 const localDiskPath = (value) => String(value ?? '').match(/^Local disk:\s*"([^"]+)"$/)?.[1] ?? null;
@@ -263,8 +263,8 @@ export class ThinCache {
       } catch (error) {
         const failed = this.#child; this.#child = null; this.#health = null;
         if (failed) await this.#terminate(failed, { platform: this.#platform, graceMs: 1_000 }).catch(() => {});
-        await this.#event({ type: 'CACHE_RECOVERY_FAILED', reason: error.code ?? error.message, endpoint: this.#endpoint.display, stderr: this.#gatewayStderr });
-        throw new Error(`sccache-gateway-unavailable:${error.code ?? error.message}`);
+        await this.#event({ type: 'CACHE_RECOVERY_FAILED', code: error.code ?? null, reason: error.message, endpoint: this.#endpoint.display, stderr: this.#gatewayStderr });
+        throw new Error(`sccache-gateway-unavailable:${error.message}`);
       }
     })().finally(() => { this.#recoveryInFlight = null; });
     return this.#recoveryInFlight;
@@ -312,5 +312,6 @@ function cacheFailureReason(error) {
   if (error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return 'sccache-stats-too-large';
   const diagnostic = String(error?.stderr ?? '').replace(/\s+/g, ' ').trim().slice(0, 1_024);
   const cause = error?.code ?? error?.signal ?? error?.message ?? 'unknown';
-  return `sccache-stats-unavailable:${cause}${diagnostic ? `:${diagnostic}` : ''}`;
+  const detail = error?.message && error.message !== cause ? String(error.message).replace(/\s+/g, ' ').trim().slice(0, 1_024) : '';
+  return `sccache-stats-unavailable:${cause}${detail ? `:${detail}` : ''}${diagnostic ? `:${diagnostic}` : ''}`;
 }
