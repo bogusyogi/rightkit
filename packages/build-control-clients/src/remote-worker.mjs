@@ -16,8 +16,10 @@
 // 15-minute agent wakes always terminate.
 
 import { createHash, randomUUID } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createJobCommand, createRightkitRequest, JOB_REQUEST_TYPES, JOB_RESPONSE_TYPES, loadRuntimeIdentity, sendJobCommand } from './index.mjs';
 import { decodePayload, generateRemoteRequestId, isTerminalRemoteState } from './remote-protocol.mjs';
 import { extractArchive, inspectArchive } from './remote-tar.mjs';
@@ -282,11 +284,10 @@ export function createRemoteWorker({
   };
 }
 
-function isDirectMain() {
-  if (!process.argv[1]) return false;
+export function isDirectMain({ modulePath = fileURLToPath(import.meta.url), argv1 = process.argv[1], canonicalize = (path) => realpathSync(resolve(path)) } = {}) {
+  if (!argv1) return false;
   try {
-    const modulePath = new URL('remote-worker.mjs', import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/, '');
-    return resolve(modulePath) === resolve(process.argv[1]);
+    return canonicalize(modulePath) === canonicalize(argv1);
   } catch { return false; }
 }
 

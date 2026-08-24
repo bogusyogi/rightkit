@@ -7,7 +7,7 @@ import test from 'node:test';
 import { SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
 import { createJobCommand, JOB_REQUEST_TYPES } from './index.mjs';
 import { encodePayload } from './remote-protocol.mjs';
-import { createRemoteWorker, RemoteWorkerError } from './remote-worker.mjs';
+import { createRemoteWorker, isDirectMain, RemoteWorkerError } from './remote-worker.mjs';
 
 function header(path, size, typeflag = '0') {
   const value = Buffer.alloc(512, 0);
@@ -45,6 +45,15 @@ async function workerFixture({ send, now = () => Date.parse('2026-08-24T00:00:00
   });
   return { rootDir, archive, digest, worker };
 }
+
+test('CLI entry detection canonicalizes runtime-current symlink before comparison', () => {
+  const canonicalize = (path) => path.replace('runtime-current', 'runtime-content-digest');
+  assert.equal(isDirectMain({
+    modulePath: 'D:\\.rightkit-managed\\runtime-content-digest\\build-control-clients\\src\\remote-worker.mjs',
+    argv1: 'D:\\.rightkit-managed\\runtime-current\\build-control-clients\\src\\remote-worker.mjs',
+    canonicalize,
+  }), true);
+});
 
 test('worker verifies digest, installs isolated replica, and submits through host-local RightKit broker', async () => {
   const calls = [];
