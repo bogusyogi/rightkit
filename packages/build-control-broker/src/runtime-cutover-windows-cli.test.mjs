@@ -16,6 +16,7 @@ async function fixture() {
 }
 
 const input = (item, endpoint = item.endpoint) => ({ configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', taskName: 'RightKitBuildControl', endpoint, healthWorkspace: item.health, timeoutMs: 100 });
+const drainDependencies = { beginDrain: async () => ({ path: 'test', token: 'test' }), endDrain: async () => {}, proveBrokerDrain: async () => ({ open: 0, inFlight: [] }) };
 
 test('stopManagedTask polls until named pipe releases', async () => {
   let probes = 0;
@@ -47,7 +48,7 @@ test('in-flight thin build blocks cutover before scheduled task stops', async ()
   const item = await fixture();
   try {
     let stopped = false; let installed = false;
-    await assert.rejects(runWindowsCutover(input(item), { platform: 'win32', proveThinDrain: async () => { throw new Error('cannot activate while 1 thin request(s) are in flight: job-1'); }, stopManaged: async () => { stopped = true; }, install: async () => { installed = true; } }), /in flight/);
+    await assert.rejects(runWindowsCutover(input(item), { ...drainDependencies, platform: 'win32', proveThinDrain: async () => { throw new Error('cannot activate while 1 thin request(s) are in flight: job-1'); }, stopManaged: async () => { stopped = true; }, install: async () => { installed = true; } }), /in flight/);
     assert.equal(stopped, false); assert.equal(installed, false);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
@@ -56,14 +57,14 @@ test('cutover proves input selection & rechecks thin drain', async () => {
   const item = await fixture();
   try {
     let options;
-    const receipt = await runWindowsCutover(input(item), { platform: 'win32', stopManaged: async () => ({ stopped: true }), install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); return { taskName: 'RightKitBuildControl' }; } });
+    const receipt = await runWindowsCutover(input(item), { ...drainDependencies, platform: 'win32', stopManaged: async () => ({ stopped: true }), install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); return { taskName: 'RightKitBuildControl' }; } });
     assert.equal(receipt.thinDrain.open, 0); assert.equal(options.externalRoot, item.external); assert.equal(options.taskXmlPath.endsWith('.xml'), true);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
 
 test('cutover refuses named-pipe drift before activation', async () => {
   const item = await fixture();
-  try { await assert.rejects(runWindowsCutover(input(item, '\\\\.\\pipe\\wrong'), { platform: 'win32', stopManaged: async () => {}, install: async () => {} }), /windowsPipe differs/); }
+  try { await assert.rejects(runWindowsCutover(input(item, '\\\\.\\pipe\\wrong'), { ...drainDependencies, platform: 'win32', stopManaged: async () => {}, install: async () => {} }), /windowsPipe differs/); }
   finally { await rm(item.root, { recursive: true, force: true }); }
 });
 

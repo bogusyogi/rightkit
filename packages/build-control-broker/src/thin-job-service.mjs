@@ -23,6 +23,7 @@ import { ThinLogger } from './thin-logger.mjs';
 import { ThinScheduler, deriveCompileCosts } from './thin-scheduler.mjs';
 import { acquireThinBrokerSingleton } from './thin-singleton.mjs';
 import { ThinState } from './thin-state.mjs';
+import { cutoverDrainPending } from './cutover-shared.mjs';
 import { ImmutableToolRegistry, ToolChangedError } from './tool-registry.mjs';
 import { rejectWorkspaceCargoConfiguration } from './utilities.mjs';
 import {
@@ -148,7 +149,7 @@ function runtimeBase(toolchainLibraryPath, platform = process.platform) {
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #platform; #jobs = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #platform; #jobs = new Map(); #admissions = new Map(); #stopping = false;
 
   static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
@@ -277,18 +278,28 @@ export class ThinJobService {
   async dispatch(message, emit = () => {}, onDisconnect = null) {
     this.#assertEnvelope(message); emit(Object.freeze({ type: 'HANDSHAKE', runtime: this.#runtime }));
     if (this.#stopping) return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: 'RightKit broker is stopping' });
+    const submittedMessage = message.type === 'SUBMIT' ? message.job : message.type === 'MANAGED_AGENT' ? message : null;
+    const rootAdmissionId = submittedMessage && submittedMessage.execution?.mode !== 'NESTED' ? randomUUID() : null;
+    if (rootAdmissionId) this.#admissions.set(rootAdmissionId, Object.freeze({ id: rootAdmissionId, state: 'ADMITTING' }));
     if (await this.#activationPending()) {
+      if (rootAdmissionId) this.#admissions.delete(rootAdmissionId);
       if (message.type === 'STATUS' && message.id === 'runtime-health-probe') return this.#emit(emit, { type: 'STATUS', id: message.id, state: 'ACTIVATION_PENDING', runtime: this.#runtime });
       return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: 'runtime activation is pending', code: 'RK_ACTIVATION_PENDING' });
     }
+    if (rootAdmissionId && await cutoverDrainPending(this.#config.broker.externalRoot.path)) {
+      this.#admissions.delete(rootAdmissionId);
+      return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: 'runtime cutover drain is pending', code: 'RK_CUTOVER_DRAIN_PENDING' });
+    }
     try {
-      if (message.type === 'SUBMIT') return await this.#submit(message.job, emit);
+      if (message.type === 'DRAIN_STATUS') return this.#drainStatus(emit);
+      if (message.type === 'SUBMIT') return await this.#submit(message.job, emit, rootAdmissionId);
       if (message.type === 'WATCH') return this.#watch(message.id, emit, onDisconnect);
       if (message.type === 'STATUS') return await this.#status(message.id, emit);
       if (message.type === 'CANCEL') return this.#cancel(message, emit);
-      if (message.type === 'MANAGED_AGENT') { const submitted = await this.#submit(message, emit); return submitted.type === 'SUBMITTED' ? this.#watch(submitted.id, emit, onDisconnect) : submitted; }
+      if (message.type === 'MANAGED_AGENT') { const submitted = await this.#submit(message, emit, rootAdmissionId); return submitted.type === 'SUBMITTED' ? this.#watch(submitted.id, emit, onDisconnect) : submitted; }
       throw new TypeError('registered broker job operation is required');
     } catch (error) {
+      if (rootAdmissionId) this.#admissions.delete(rootAdmissionId);
       if (error instanceof ToolChangedError || error.code === 'TOOL_CHANGED') emit(error.event);
       return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: error.message, code: error.code });
     }
@@ -305,17 +316,18 @@ export class ThinJobService {
     await this.#singleton.release();
   }
 
-  async #submit(message, emit) {
+  async #submit(message, emit, reservedId = null) {
     let job;
     try {
-      job = await this.#normalize(message);
+      job = await this.#normalize(message, reservedId);
     } catch (error) {
+      if (reservedId) this.#admissions.delete(reservedId);
       // Receipted pre-execution failure (v2.7 §20): a request that fails before
       // admission still persists a typed rejection receipt so callers can
       // STATUS/ATTACH well-formed failures instead of losing them to a socket.
       const shim = message?.shim; const argv = (message?.request?.argv ?? []);
       const attempted = Object.freeze({
-        id: randomUUID(), state: 'REJECTED', status: 'REJECTED',
+        id: reservedId ?? randomUUID(), state: 'REJECTED', status: 'REJECTED',
         command: `${shim} ${argv.join(' ')}`.trim(),
         workspace: message?.request?.workspace ?? null,
         exitCode: 125, signal: null,
@@ -328,6 +340,7 @@ export class ThinJobService {
       return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', id: attempted.id, error: error.message, code: error.code });
     }
     this.#jobs.set(job.id, job);
+    if (reservedId) this.#admissions.delete(reservedId);
     this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'QUEUED', lane: job.capability.lane, priority: job.priority, at: this.#iso() } });
     await this.#log({ type: 'QUEUED', id: job.id, lane: job.capability.lane, command: job.command, workspace: job.workspaceRoot });
     const deadlineMs = integer(this.#config.bounds?.jobDeadlineMs, 0);
@@ -336,7 +349,7 @@ export class ThinJobService {
     return this.#emit(emit, { type: 'SUBMITTED', id: job.id, state: 'QUEUED', lane: job.capability.lane, priority: job.priority });
   }
 
-  async #normalize(message) {
+  async #normalize(message, reservedId = null) {
     if (!message || message.type !== 'MANAGED_AGENT' || message.protocol !== BUILD_CONTROL_PROTOCOL) throw new TypeError('MANAGED_AGENT v2 payload is required');
     this.#assertRuntime(message.runtime);
     const request = normalizeManagedAgentRequest(message.request);
@@ -384,7 +397,7 @@ export class ThinJobService {
     const tool = await this.#registry.verify(toolId);
     if (capability.external && tool.sha256 !== capability.externalDigest) throw new ToolChangedError({ toolId, path: tool.path, expectedSha256: capability.externalDigest, observedSha256: tool.sha256, reason: 'capability-digest-mismatch' });
     const priority = message.priority ?? 'BATCH'; if (!PRIORITIES.has(priority)) throw new TypeError('priority must be BATCH, INTERACTIVE, or INSTALLER');
-    const id = randomUUID(); const rootToken = parent?.rootToken ?? randomBytes(32).toString('base64url');
+    const id = reservedId ?? randomUUID(); const rootToken = parent?.rootToken ?? randomBytes(32).toString('base64url');
     const expectedEnvironment = parent?.executionEnvironment ?? (workspace ? this.#managedEnvironment(workspace.layout, rootToken, parent?.id ?? id) : { CARGO_HOME: this.#state.paths.cargoHome });
     // Delegated compiler requests cannot select their process environment:
     // broker reuses parent runtime & injects it after stripping request control.
@@ -623,6 +636,13 @@ export class ThinJobService {
     const live = this.#jobs.get(id);
     if (live) return this.#emit(emit, { type: 'STATUS', id, state: live.state, receipt: live.terminal?.receipt ?? null });
     return this.#state.receipt(id).then((receipt) => { if (!receipt) throw Object.assign(new Error('job not found'), { code: 'RK_JOB_NOT_FOUND' }); return this.#emit(emit, { type: 'STATUS', id, state: receipt.state, receipt }); });
+  }
+
+  #drainStatus(emit) {
+    const active = [...this.#jobs.values()].filter((job) => !job.parentId && !job.terminal).map((job) => Object.freeze({ id: job.id, state: job.state }));
+    const admitting = [...this.#admissions.values()];
+    const inFlight = Object.freeze([...admitting, ...active]);
+    return this.#emit(emit, { type: 'DRAIN_STATUS', open: inFlight.length, inFlight });
   }
 
   async #watch(id, emit, onDisconnect) {

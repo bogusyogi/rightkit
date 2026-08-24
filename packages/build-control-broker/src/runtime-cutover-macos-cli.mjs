@@ -6,7 +6,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { loadBrokerConfig } from './config.mjs';
 import { installManagedRuntimeMacOS } from './runtime-cutover-macos.mjs';
-import { absoluteHostPath as absolute, assertDirectory, assertFile, contained, proveThinRequestsDrained } from './cutover-shared.mjs';
+import { absoluteHostPath as absolute, assertDirectory, assertFile, beginCutoverDrain, contained, endCutoverDrain, proveBrokerRequestsDrained, proveThinRequestsDrained } from './cutover-shared.mjs';
 
 const execDefault = promisify(childExecFile);
 
@@ -68,7 +68,7 @@ export async function stopManagedLaunchd({ launchdLabel, uid, plistPath, endpoin
  * selection before allowing runtime.mjs to stage or switch runtime-current.
  */
 export async function runMacOSCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopManaged = stopManagedLaunchd, proveThinDrain = proveThinRequestsDrained } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopManaged = stopManagedLaunchd, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained } = dependencies;
   if (platform !== 'darwin') throw new Error('macOS cutover may only run on darwin');
   const options = typeof input?.configPath === 'string' ? input : parseMacOSCutoverArgs(input);
   const [configPath, externalRoot, sourcePackagesRoot, plistPath, healthWorkspace] = await Promise.all([
@@ -84,16 +84,20 @@ export async function runMacOSCutover(input, dependencies = {}) {
   const programArguments = plistProgramArguments(plist); const runtimeScript = resolve(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   if (programArguments.length !== 3 || programArguments.some((value) => !isAbsolute(value) || /\s/.test(value)) || resolve(programArguments[1]) !== runtimeScript || resolve(programArguments[2]) !== configPath) throw new Error('plist ProgramArguments must be exact node, runtime-current broker, & config paths');
   const nodePath = await canonicalize(programArguments[0]); await assertFile(nodePath, 'plist Node executable', statFile);
-  // Ordered before stop on purpose: a post-stop check could only confirm work
-  // this activation just killed.
-  const thinDrain = await proveThinDrain(externalRoot);
-  const stopProof = await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
-  const result = await install({
-    externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
-    plistPath, configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs,
-    drainProbe: async () => proveThinDrain(externalRoot),
-  });
-  return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, plistPath, thinDrain, stopProof, result });
+  // Fence new admissions first, then ask live broker for all admitting/queued/
+  // running roots. Filesystem markers remain independent writer recovery proof.
+  const drainFence = await beginDrain(externalRoot);
+  try {
+    const brokerDrain = await proveBrokerDrain(externalRoot, options.endpoint);
+    const thinDrain = await proveThinDrain(externalRoot);
+    const stopProof = await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
+    const result = await install({
+      externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
+      plistPath, configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs,
+      drainProbe: async () => proveThinDrain(externalRoot),
+    });
+    return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, plistPath, brokerDrain, thinDrain, stopProof, result });
+  } finally { await endDrain(drainFence); }
 }
 
 async function main() {

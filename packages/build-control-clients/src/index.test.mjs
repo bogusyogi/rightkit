@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { MANAGED_RUST_ENVIRONMENT_KEYS } from '@rightkit/build-control-core';
+import { BUILD_CONTROL_PROTOCOL, MANAGED_RUST_ENVIRONMENT_KEYS, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
 import { adapterRegistry, brokerEndpoint, cancelManagedAgentJob, createClientRequest, createJobCommand, createManagedAgentRequest, createNestedManagedAgentRequest, createRightkitRequest, installAgentShims, INSTALLED_MANAGED_SHIMS, JOB_REQUEST_TYPES, MAX_BROKER_LINE_BYTES, loadRuntimeIdentity, sendManagedAgentRequest, shimManifest, statusManagedAgentJob, submitManagedAgentJob, ToolChangedError, watchManagedAgentJob } from './index.mjs';
 
 const cleanProcessEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !MANAGED_RUST_ENVIRONMENT_KEYS.includes(key.toUpperCase()) && key !== 'RIGHTKIT_BUILD_BROKER_SOCKET'));
@@ -260,6 +260,7 @@ test('job API submits, watches, reads status, cancels, & preserves detached work
 test('cancel command carries only an explicit typed provenance source', () => {
   assert.equal(createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id: 'job-1', source: 'CLIENT_SIGNAL' }).source, 'CLIENT_SIGNAL');
   assert.throws(() => createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id: 'job-1', source: 'BROKER_SHUTDOWN' }), /cancellation source/);
+  assert.deepEqual(createJobCommand(JOB_REQUEST_TYPES.DRAIN_STATUS), { type: 'DRAIN_STATUS', protocol: BUILD_CONTROL_PROTOCOL, runtime: SOURCE_RUNTIME_IDENTITY });
 });
 
 test('managed entrypoints turn SIGINT into CLIENT_SIGNAL cancellation', posixOnly, async (t) => {

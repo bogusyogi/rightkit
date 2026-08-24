@@ -7,6 +7,7 @@ import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
 import { CachedWorkspaceResolver, ThinJobService, createThinJobServer } from './thin-job-service.mjs';
 import { ThinState } from './thin-state.mjs';
+import { beginCutoverDrain, endCutoverDrain } from './cutover-shared.mjs';
 
 const digest = 'a'.repeat(64);
 const message = (workspace, argv, extra = {}) => ({ type: 'MANAGED_AGENT', protocol: BUILD_CONTROL_PROTOCOL, runtime: SOURCE_RUNTIME_IDENTITY, shim: 'cargo', observedEnvironment: {}, request: { frontend: 'cargo', argv, workspace, environment: {}, profile: 'MANAGED_AGENT', configuration: {} }, ...extra });
@@ -217,6 +218,27 @@ test('nested heavy work rejects under active analysis root', async () => {
     assert.equal(rejected.result.status, 'REJECTED'); assert.equal(rejected.result.code, 'RK_NESTED_HEAVY_REJECTED');
     item.children.at(-1).emit('close', 0, null); await call(item.service, command('WATCH', root.id));
   } finally { await item.close(); }
+});
+
+test('cutover fence rejects new roots while drain status exposes active analysis', async () => {
+  const item = await fixture({ externalCommands: [{ shim: 'cargo', command: 'outdated', toolId: 'cargo-outdated', digest, lane: 'ANALYSIS' }] });
+  let fence;
+  try {
+    const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['outdated'])))).result;
+    await waitFor(item.service, root.id, ['RUNNING']);
+    const draining = (await call(item.service, command('DRAIN_STATUS'))).result;
+    assert.equal(draining.open, 1);
+    assert.deepEqual(draining.inFlight, [{ id: root.id, state: 'RUNNING' }]);
+    fence = await beginCutoverDrain(item.root);
+    const rejected = (await call(item.service, command('SUBMIT', message(item.workspace, ['outdated'])))).result;
+    assert.equal(rejected.code, 'RK_CUTOVER_DRAIN_PENDING');
+    item.children.at(-1).emit('close', 0, null);
+    await call(item.service, command('WATCH', root.id));
+    assert.equal((await call(item.service, command('DRAIN_STATUS'))).result.open, 0);
+  } finally {
+    if (fence) await endCutoverDrain(fence);
+    await item.close();
+  }
 });
 
 test('Cargo BUILD delegates nested rustc without a second permit or output rewrite', async () => {

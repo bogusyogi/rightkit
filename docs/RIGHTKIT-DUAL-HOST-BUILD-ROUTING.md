@@ -219,6 +219,8 @@ remains unknown rather than evidence of idleness.
 - Replica roots live under `D:\.rightkit-managed\remote-workspaces`.
 - Interactive Windows checkout under `D:\Claude` is read only for worker/runtime discovery.
 - Host broker remains sole process owner, scheduler, cache owner, & receipt producer.
+- Runtime cutover fences new admissions & requires live broker drain status to report zero admitting,
+  queued, or running roots—including analysis jobs—before service stop.
 - Native target build/sign rules remain unchanged.
 
 ## 10. Initial deliverable

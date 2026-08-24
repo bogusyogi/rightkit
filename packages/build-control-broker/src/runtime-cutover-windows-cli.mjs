@@ -6,7 +6,7 @@ import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { loadBrokerConfig } from './config.mjs';
 import { installManagedRuntimeWindows, quotePowerShell, renderTaskDefinition, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
-import { absoluteHostPath as absolute, assertDirectory, assertFile, contained, proveThinRequestsDrained } from './cutover-shared.mjs';
+import { absoluteHostPath as absolute, assertDirectory, assertFile, beginCutoverDrain, contained, endCutoverDrain, proveBrokerRequestsDrained, proveThinRequestsDrained } from './cutover-shared.mjs';
 
 const execDefault = promisify(childExecFile);
 
@@ -80,7 +80,7 @@ export async function stopManagedTask({ taskName, endpoint, configPath = null, b
  * legacy service is stopped.
  */
 export async function runWindowsCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeWindows, canonicalize = realpath, statFile = stat, stopManaged = stopManagedTask, proveThinDrain = proveThinRequestsDrained, execFile = execDefault } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeWindows, canonicalize = realpath, statFile = stat, stopManaged = stopManagedTask, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, execFile = execDefault } = dependencies;
   if (platform !== 'win32') throw new Error('windows cutover may only run on win32');
   const options = typeof input?.configPath === 'string' ? input : parseWindowsCutoverArgs(input);
   const [configPath, externalRoot, sourcePackagesRoot, healthWorkspace] = await Promise.all([
@@ -93,15 +93,19 @@ export async function runWindowsCutover(input, dependencies = {}) {
   if (typeof config.broker.activationFencePath !== 'string' || !isAbsolute(config.broker.activationFencePath) || !contained(resolve(config.broker.activationFencePath), externalRoot)) throw new Error('config broker.activationFencePath must be an absolute path contained by --external-root');
   const nodePath = await canonicalize(process.execPath);
   const runtimeScript = resolve(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
-  const thinDrain = await proveThinDrain(externalRoot);
-  const stopProof = await stopManaged({ taskName: options.taskName, endpoint: options.endpoint, configPath, brokerScript: runtimeScript, execFile });
-  const definition = renderTaskDefinition({ taskName: options.taskName, nodePath, brokerScript: runtimeScript, configPath });
-  const result = await withTaskDefinitionFile(definition, (taskXmlPath) => install({
-    externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, taskName: options.taskName, endpoint: options.endpoint,
-    configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs, taskXmlPath,
-    drainProbe: async () => proveThinDrain(externalRoot),
-  }));
-  return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, thinDrain, stopProof, result });
+  const drainFence = await beginDrain(externalRoot);
+  try {
+    const brokerDrain = await proveBrokerDrain(externalRoot, options.endpoint);
+    const thinDrain = await proveThinDrain(externalRoot);
+    const stopProof = await stopManaged({ taskName: options.taskName, endpoint: options.endpoint, configPath, brokerScript: runtimeScript, execFile });
+    const definition = renderTaskDefinition({ taskName: options.taskName, nodePath, brokerScript: runtimeScript, configPath });
+    const result = await withTaskDefinitionFile(definition, (taskXmlPath) => install({
+      externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, taskName: options.taskName, endpoint: options.endpoint,
+      configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs, taskXmlPath,
+      drainProbe: async () => proveThinDrain(externalRoot),
+    }));
+    return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, brokerDrain, thinDrain, stopProof, result });
+  } finally { await endDrain(drainFence); }
 }
 
 async function main() {

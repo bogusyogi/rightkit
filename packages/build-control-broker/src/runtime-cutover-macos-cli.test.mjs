@@ -16,6 +16,7 @@ async function fixture() {
 }
 
 const input = (item) => ({ configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', launchdLabel: 'dev.rightkit.broker', uid: 501, endpoint: item.endpoint, plistPath: item.plist, healthWorkspace: item.health, timeoutMs: 100 });
+const drainDependencies = { beginDrain: async () => ({ path: 'test', token: 'test' }), endDrain: async () => {}, proveBrokerDrain: async () => ({ open: 0, inFlight: [] }) };
 
 test('argument parser rejects unknown switches & requires exact activation identity', () => {
   assert.throws(() => parseMacOSCutoverArgs(['--config', '/a']), /--external-root is required/);
@@ -35,7 +36,7 @@ test('cutover proves exact input selection & rechecks thin drain at activation',
   const item = await fixture();
   try {
     let options;
-    const receipt = await runMacOSCutover(input(item), { platform: 'darwin', stopManaged: async () => ({ stopped: true }), install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); return { runtime: join(item.external, 'runtime-test') }; } });
+    const receipt = await runMacOSCutover(input(item), { ...drainDependencies, platform: 'darwin', stopManaged: async () => ({ stopped: true }), install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); return { runtime: join(item.external, 'runtime-test') }; } });
     assert.equal(receipt.thinDrain.open, 0); assert.equal(options.externalRoot, item.external); assert.equal(options.plistPath, item.plist);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
@@ -44,7 +45,7 @@ test('in-flight thin build blocks cutover before launchd is stopped', async () =
   const item = await fixture();
   try {
     let stopped = false; let installed = false;
-    await assert.rejects(runMacOSCutover(input(item), { platform: 'darwin', proveThinDrain: async () => { throw new Error('cannot activate while 1 thin request(s) are in flight: job-1'); }, stopManaged: async () => { stopped = true; }, install: async () => { installed = true; } }), /in flight/);
+    await assert.rejects(runMacOSCutover(input(item), { ...drainDependencies, platform: 'darwin', proveThinDrain: async () => { throw new Error('cannot activate while 1 thin request(s) are in flight: job-1'); }, stopManaged: async () => { stopped = true; }, install: async () => { installed = true; } }), /in flight/);
     assert.equal(stopped, false); assert.equal(installed, false);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
@@ -53,6 +54,6 @@ test('cutover refuses plist identity drift before activation', async () => {
   const item = await fixture();
   try {
     await writeFile(item.plist, '<plist><dict><key>Label</key><string>wrong</string></dict></plist>');
-    await assert.rejects(runMacOSCutover(input(item), { platform: 'darwin', stopManaged: async () => {}, install: async () => {} }), /Label differs/);
+    await assert.rejects(runMacOSCutover(input(item), { ...drainDependencies, platform: 'darwin', stopManaged: async () => {}, install: async () => {} }), /Label differs/);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });

@@ -21,8 +21,8 @@ export const FRONTEND_SHIMS = Object.freeze({ cargo: 'cargo', swiftpm: 'swift', 
 export const INSTALLED_MANAGED_SHIMS = Object.freeze(['cargo', 'rustc', 'rustdoc', 'rustup']);
 export const MAX_BROKER_LINE_BYTES = 1024 * 1024;
 export const BUILD_PRIORITIES = Object.freeze(['INSTALLER', 'INTERACTIVE', 'BATCH']);
-export const JOB_REQUEST_TYPES = Object.freeze({ SUBMIT: 'SUBMIT', WATCH: 'WATCH', STATUS: 'STATUS', CANCEL: 'CANCEL' });
-export const JOB_RESPONSE_TYPES = Object.freeze({ SUBMITTED: 'SUBMITTED', STATUS: 'STATUS', CANCEL_REQUESTED: 'CANCEL_REQUESTED' });
+export const JOB_REQUEST_TYPES = Object.freeze({ SUBMIT: 'SUBMIT', WATCH: 'WATCH', STATUS: 'STATUS', CANCEL: 'CANCEL', DRAIN_STATUS: 'DRAIN_STATUS' });
+export const JOB_RESPONSE_TYPES = Object.freeze({ SUBMITTED: 'SUBMITTED', STATUS: 'STATUS', CANCEL_REQUESTED: 'CANCEL_REQUESTED', DRAIN_STATUS: 'DRAIN_STATUS' });
 
 export class ToolChangedError extends Error {
   constructor(event) {
@@ -58,6 +58,7 @@ export function createJobCommand(type, { message, id, runtimeIdentity, source } 
     if (normalizedMessage.runtime.version !== runtime.version || normalizedMessage.runtime.clientDigest !== runtime.clientDigest || normalizedMessage.runtime.brokerDigest !== runtime.brokerDigest) throw new TypeError('job & managed-agent runtime identities must match');
     return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime, job: normalizedMessage });
   }
+  if (type === JOB_REQUEST_TYPES.DRAIN_STATUS) return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime });
   if (type === JOB_REQUEST_TYPES.CANCEL && source !== undefined && !['USER_CANCEL', 'OPERATOR_CANCEL', 'CLIENT_SIGNAL', 'RELEASE_PRIORITY_CANCEL'].includes(source)) throw new TypeError('registered cancellation source is required');
   return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime, id: jobId(id), ...(type === JOB_REQUEST_TYPES.CANCEL && source ? { source } : {}) });
 }
