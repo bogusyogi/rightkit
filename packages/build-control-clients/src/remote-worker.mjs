@@ -16,6 +16,8 @@
 // 15-minute agent wakes always terminate.
 
 import { createHash, randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -53,6 +55,80 @@ function isBrokerJobNotFound(error) {
   return error?.code === 'RK_JOB_NOT_FOUND' || /job not found/i.test(error?.message ?? '');
 }
 
+export function windowsSlotMutexName(leasePath) {
+  return `Global\\RightKitRemoteSlot-${sha256Hex(Buffer.from(leasePath.toLowerCase(), 'utf8'))}`;
+}
+
+/** Windows production guard. Mutex ownership lives in a hidden helper whose
+ * stdin is held by this worker; process death closes the pipe, so Windows
+ * releases the mutex without any stale lockfile recovery protocol. */
+export async function acquireWindowsSlotGuard({ leasePath, requestId, spawnProcess = spawn, timeoutMs = 5_000 }) {
+  const mutexName = windowsSlotMutexName(leasePath);
+  const script = [
+    `$mutex = [System.Threading.Mutex]::new($false, '${mutexName}')`,
+    '$acquired = $false',
+    'try {',
+    '  try { $acquired = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $acquired = $true }',
+    "  if (-not $acquired) { [Console]::Out.WriteLine('BUSY'); [Console]::Out.Flush(); exit 73 }",
+    "  [Console]::Out.WriteLine('ACQUIRED'); [Console]::Out.Flush()",
+    '  [Console]::In.ReadLine() | Out-Null',
+    '  $mutex.ReleaseMutex(); $acquired = $false',
+    '} finally { if ($acquired) { $mutex.ReleaseMutex() }; $mutex.Dispose() }',
+  ].join('\n');
+  const child = spawnProcess('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+  });
+  let stderr = '';
+  let stdout = '';
+  let acquired = false;
+  let released = false;
+  let lost = false;
+  child.stderr?.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+  child.once('exit', () => { if (acquired && !released) lost = true; });
+
+  const result = await new Promise((resolveGuard, rejectGuard) => {
+    let settled = false;
+    const settleGuard = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback();
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      settleGuard(() => rejectGuard(new RemoteWorkerError(`timed out acquiring replica slot mutex for ${requestId}`, 'REMOTE_SLOT_GUARD_FAILED')));
+    }, timeoutMs);
+    child.once('error', (error) => settleGuard(() => rejectGuard(new RemoteWorkerError(`could not start Windows slot mutex helper: ${error.message}`, 'REMOTE_SLOT_GUARD_FAILED'))));
+    child.once('exit', (code, signal) => settleGuard(() => rejectGuard(new RemoteWorkerError(`Windows slot mutex helper exited before acquisition (${code ?? signal}): ${stderr.trim()}`, 'REMOTE_SLOT_GUARD_FAILED'))));
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString('utf8');
+      const line = stdout.split(/\r?\n/, 1)[0];
+      if (line === 'BUSY') {
+        child.stdin.end();
+        settleGuard(() => resolveGuard(null));
+      } else if (line === 'ACQUIRED') {
+        acquired = true;
+        settleGuard(() => resolveGuard({
+          assertOwned() {
+            if (released || lost || child.exitCode !== null || child.signalCode !== null) {
+              throw new RemoteWorkerError(`replica slot mutex ownership lost for ${leasePath}`, 'REMOTE_SLOT_GUARD_LOST');
+            }
+          },
+          async release() {
+            if (released) return;
+            this.assertOwned();
+            released = true;
+            child.stdin.end('\n');
+            if (child.exitCode === null && child.signalCode === null) await once(child, 'exit');
+            if (child.exitCode !== 0) throw new RemoteWorkerError(`Windows slot mutex helper failed during release (${child.exitCode ?? child.signalCode}): ${stderr.trim()}`, 'REMOTE_SLOT_GUARD_FAILED');
+          },
+        }));
+      }
+    });
+  });
+  return result;
+}
+
 /** Create the worker handlers against explicit storage roots, endpoint, clock,
  * and broker-send function so tests drive every path without a live host. */
 export function createRemoteWorker({
@@ -63,6 +139,7 @@ export function createRemoteWorker({
   send = sendJobCommand,
   loadIdentity = loadRuntimeIdentity,
   onSlotGuardAcquired = async () => {},
+  acquireSlotGuard = process.platform === 'win32' ? acquireWindowsSlotGuard : null,
 } = {}) {
   if (!Number.isSafeInteger(slotsPerRepository) || slotsPerRepository < 1) throw new TypeError('slotsPerRepository must be a positive integer');
   const paths = Object.freeze({
@@ -78,6 +155,12 @@ export function createRemoteWorker({
   const slotDirOf = (repositoryKeyValue, slot) => join(paths.workspaces, repositoryKeyValue, `slot${slot}`);
 
   async function tryAcquireSlotGuard(leasePath, requestId) {
+    if (acquireSlotGuard) {
+      const guard = await acquireSlotGuard({ leasePath, requestId });
+      if (guard) await onSlotGuardAcquired({ leasePath, requestId });
+      return guard;
+    }
+    // Non-Windows test host fallback; remote-worker production is Windows-only.
     const guardPath = `${leasePath}.lock`;
     const token = randomUUID();
     try {
@@ -93,12 +176,17 @@ export function createRemoteWorker({
       throw error;
     }
     let released = false;
-    return async () => {
-      if (released) return;
-      const guard = await readJson(guardPath);
-      if (guard?.token !== token) throw new RemoteWorkerError(`replica slot guard ownership changed for ${leasePath}`, 'REMOTE_SLOT_GUARD_LOST');
-      await rm(guardPath, { force: true });
-      released = true;
+    return {
+      assertOwned() {
+        if (released) throw new RemoteWorkerError(`replica slot guard ownership lost for ${leasePath}`, 'REMOTE_SLOT_GUARD_LOST');
+      },
+      async release() {
+        if (released) return;
+        const guard = await readJson(guardPath);
+        if (guard?.token !== token) throw new RemoteWorkerError(`replica slot guard ownership changed for ${leasePath}`, 'REMOTE_SLOT_GUARD_LOST');
+        await rm(guardPath, { force: true });
+        released = true;
+      },
     };
   }
 
@@ -154,16 +242,17 @@ export function createRemoteWorker({
     await mkdir(paths.slots, { recursive: true });
     for (let slot = 1; slot <= slotsPerRepository; slot += 1) {
       const leasePath = slotLeasePath(repositoryKeyValue, slot);
-      const releaseSlotGuard = await tryAcquireSlotGuard(leasePath, requestId);
-      if (!releaseSlotGuard) continue;
+      const slotGuard = await tryAcquireSlotGuard(leasePath, requestId);
+      if (!slotGuard) continue;
       let claimed = false;
       try {
+        slotGuard.assertOwned();
         const lease = await readJson(leasePath);
         if (!lease) {
           const fresh = { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString() };
           await writeJsonAtomic(leasePath, fresh);
           claimed = true;
-          return { slot, leasePath, releaseSlotGuard };
+          return { slot, leasePath, slotGuard };
         }
         const owner = await readJson(requestPath(lease.ownerRequestId));
         const stalePreparing = owner?.state === 'PREPARING' && now() - Date.parse(owner.createdAt) > STALE_PREPARING_MS;
@@ -171,25 +260,25 @@ export function createRemoteWorker({
           await writeJsonAtomic(leasePath, { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString(), reclaimedFrom: lease.ownerRequestId });
           if (stalePreparing) await persistRequest({ ...owner, state: 'FAILED', reason: 'REMOTE_PREPARING_STALE' });
           claimed = true;
-          return { slot, leasePath, releaseSlotGuard };
+          return { slot, leasePath, slotGuard };
         }
         if (owner.brokerId !== undefined) {
           const resolved = await resolveOwnerFate(identity, owner);
           if (isTerminalRemoteState(resolved.state)) {
             await writeJsonAtomic(leasePath, { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString(), reclaimedFrom: lease.ownerRequestId });
             claimed = true;
-            return { slot, leasePath, releaseSlotGuard };
+            return { slot, leasePath, slotGuard };
           }
           if (now() >= Date.parse(resolved.deadlineAt)) {
             await cancelBrokerJob(identity, resolved.brokerId).catch(() => {});
             await persistRequest({ ...resolved, state: 'DEADLINE', reason: 'REMOTE_JOB_DEADLINE', detail: 'absolute remote deadline expired during slot reclaim' });
             await writeJsonAtomic(leasePath, { ownerRequestId: requestId, acquiredAt: new Date(now()).toISOString(), reclaimedFrom: lease.ownerRequestId });
             claimed = true;
-            return { slot, leasePath, releaseSlotGuard };
+            return { slot, leasePath, slotGuard };
           }
         }
       } finally {
-        if (!claimed) await releaseSlotGuard();
+        if (!claimed) await slotGuard.release();
       }
     }
     throw new RemoteWorkerError(`no replica slot available for ${repositoryKeyValue}`, 'REMOTE_NO_SLOT');
@@ -236,7 +325,7 @@ export function createRemoteWorker({
       if (!endpoint) throw new RemoteWorkerError('RightKit broker endpoint is not configured', 'REMOTE_BROKER_UNAVAILABLE');
       const identity = await loadIdentity();
       const requestId = payload.requestId || generateRemoteRequestId(now);
-      const { slot, leasePath, releaseSlotGuard } = await acquireSlot(identity, payload.repositoryKey, requestId);
+      const { slot, leasePath, slotGuard } = await acquireSlot(identity, payload.repositoryKey, requestId);
       // Write-before-ack step 1: durable PREPARING request + selected slot.
       let record = {
         id: requestId, op: 'SUBMIT', state: 'PREPARING',
@@ -245,9 +334,11 @@ export function createRemoteWorker({
         createdAt: new Date(now()).toISOString(),
       };
       try {
+        slotGuard.assertOwned();
         await persistRequest(record);
+        slotGuard.assertOwned();
       } finally {
-        await releaseSlotGuard();
+        await slotGuard.release();
       }
       const inputPath = join(paths.inputs, `${payload.digest}.tar`);
       let archiveBuffer;
