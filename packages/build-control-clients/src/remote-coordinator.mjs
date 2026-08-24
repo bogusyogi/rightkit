@@ -37,7 +37,10 @@ function configuredTransport(environment = process.env) {
  * for tests; production uses spawnSync against the ssh bridge. */
 async function runWorkerOperation({ transport, op, payloadB64, run }) {
   // base64url alphabet + fixed argv layout: no user string becomes shell syntax.
-  const command = `"${transport.nodeExe}" "${transport.workerScript}" ${op} ${payloadB64}`;
+  // Windows OpenSSH enters PowerShell in this workspace. PowerShell requires
+  // call operator before quoted executable path; strict path charset above
+  // excludes apostrophes, so single-quoted literals remain non-interpreted.
+  const command = `& '${transport.nodeExe}' '${transport.workerScript}' ${op} ${payloadB64}`;
   const result = run({ command: 'ssh', args: [transport.host, command] });
   if (result.error) throw new RemoteCoordinatorError(`ssh bridge failed: ${result.error.message}`, 'REMOTE_HOST_UNREACHABLE');
   if (result.status !== 0) {

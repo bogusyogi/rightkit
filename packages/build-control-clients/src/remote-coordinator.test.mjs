@@ -48,7 +48,7 @@ test('SUBMIT uploads exact snapshot then detaches with durable request ID', asyn
   assert.equal(calls[0].type, 'upload');
   assert.equal(calls[1].type, 'run');
   assert.deepEqual(calls[1].args.slice(0, 1), ['win']);
-  assert.match(calls[1].args[1], /^"C:\\Program Files\\nodejs\\node\.exe"/);
+  assert.match(calls[1].args[1], /^& 'C:\\Program Files\\nodejs\\node\.exe'/);
 });
 
 test('STATUS and CANCEL each make one typed SSH operation and never expose a watch path', async () => {
