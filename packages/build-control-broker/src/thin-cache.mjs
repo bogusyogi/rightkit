@@ -88,7 +88,7 @@ async function defaultSpawnGateway(tool, environment, { platform, spawn, timeout
 
 export class ThinCache {
   #paths; #tool; #verifyTool; #expectedVersion; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #platform; #epoch; #now; #port; #leaseMs; #recoveryMs; #statsIntervalMs; #spawn; #spawnGateway; #terminate; #connect; #emit; #onUnavailable;
-  #child = null; #health = null; #healthInFlight = null; #recoveryInFlight = null; #timer = null; #lastStats = null; #lastStatsSampledAt = 0; #lastStatsLoggedAt = 0; #stopping = false; #gatewayStderr = '';
+  #child = null; #health = null; #healthInFlight = null; #recoveryInFlight = null; #timer = null; #lastStats = null; #lastStatsSampledAt = 0; #lastStatsAttemptedAt = 0; #lastStatsLoggedAt = 0; #stopping = false; #gatewayStderr = '';
 
   constructor({ paths, sccachePath = null, verifyTool = null, expectedVersion = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = defaultThinCacheTimeoutMs(), basedirs = null, basedirsEnabled = false, platform = process.platform, gatewayPort = DEFAULT_GATEWAY_PORT, healthLeaseMs = DEFAULT_HEALTH_LEASE_MS, recoveryTimeoutMs = DEFAULT_RECOVERY_MS, statsIntervalMs = DEFAULT_STATS_INTERVAL_MS, run = defaultRun, spawn = nodeSpawn, spawnGateway = defaultSpawnGateway, terminate = terminateProcessTree, connect = defaultConnect, emit = async () => {}, onUnavailable = async () => {}, epoch = randomUUID(), now = Date.now } = {}) {
     if (!paths?.cargoHome || !paths?.compilerCache) throw new TypeError('thin state cache paths are required');
@@ -168,6 +168,7 @@ export class ThinCache {
   async snapshot({ timeoutMs = this.#timeout } = {}) {
     if (!this.#enabled) return Object.freeze({ status: 'DISABLED', stats: null });
     if (!childAlive(this.#child)) return Object.freeze({ status: 'DEGRADED', stats: null, reason: 'sccache-gateway-not-owned' });
+    this.#lastStatsAttemptedAt = this.#now();
     try {
       const result = await this.#run(this.#tool, ['--show-stats', '--stats-format=json'], { env: { ...process.env, ...this.#clientEnvironment() }, encoding: 'utf8', timeout: Math.max(1, Math.min(this.#timeout, timeoutMs)), maxBuffer: MAX_STATS_BYTES });
       if (!childAlive(this.#child)) throw Object.assign(new Error('sccache gateway exited during stats collection'), { code: 'RK_SCCACHE_GATEWAY_EXITED' });
@@ -209,9 +210,11 @@ export class ThinCache {
       if (!childAlive(this.#child)) return this.#recover('gateway-not-running');
       try {
         await this.#connect(this.#endpoint, Math.min(1_000, this.#recoveryMs));
-        const sample = !this.#lastStats || this.#now() - this.#lastStatsSampledAt >= this.#statsIntervalMs
-          ? await this.#probeStorage(Math.min(this.#timeout, this.#recoveryMs))
-          : this.#lastStats;
+        // Startup/recovery proves exact storage identity. Lease refresh proves
+        // gateway liveness without making periodic telemetry authoritative for
+        // build health: a loaded cache may answer stats slowly while compiler
+        // traffic remains healthy.
+        const sample = this.#lastStats ?? await this.#probeStorage(Math.min(this.#timeout, this.#recoveryMs));
         return this.#markHealthy(sample.storage, sample.attribution?.sampledAt ?? null);
       } catch (error) {
         return this.#recover(`health-probe:${error.code ?? error.message}`);
@@ -297,6 +300,10 @@ export class ThinCache {
     if (this.#stopping || !this.#enabled) return;
     try {
       await this.#ensureHealthy();
+      if (this.#now() - this.#lastStatsAttemptedAt >= this.#statsIntervalMs) {
+        const sample = await this.snapshot();
+        if (sample.status !== 'SERVICE_OK') await this.#event({ type: 'CACHE_STATS_SNAPSHOT', status: sample.status, reason: sample.reason ?? null, storage: null, attribution: sample.attribution ?? null, stats: null });
+      }
       if (this.#lastStats && this.#lastStatsSampledAt > this.#lastStatsLoggedAt) {
         const sample = this.#lastStats; this.#lastStatsLoggedAt = this.#lastStatsSampledAt;
         await this.#event({ type: 'CACHE_STATS_SNAPSHOT', status: sample.status, reason: sample.reason ?? null, storage: sample.storage ?? null, attribution: sample.attribution ?? null, stats: sample.stats ?? null });

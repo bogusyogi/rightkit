@@ -122,7 +122,7 @@ test('buildConfig produces a config the broker’s own schema accepts', macOSOnl
   const loaded = await loadBrokerConfig(configPath);
   assert.equal(loaded.broker.externalRoot.path, scratch);
   assert.equal(loaded.sccache.mode, loaded.defaults.sccacheToolId ? 'managed' : 'disabled');
-  assert.equal(loaded.sccache.clientSide, false);
+  assert.equal(loaded.sccache.clientSide, loaded.sccache.mode === 'managed');
   assert.equal(loaded.bounds.buildConcurrency, 3);
   assert.equal(loaded.bounds.analysisConcurrency, 2);
   assert.ok(loaded.tools.length > 0, 'a real machine must discover at least one tool');

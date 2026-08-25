@@ -19,7 +19,7 @@ BUILD concurrency = 3
 ANALYSIS concurrency = 2
 CONTROL concurrency = 4
 Cargo build jobs = 4 macOS / 16 Windows
-sccache = 0.17.0 server mode macOS / client-side mode Windows
+sccache = 0.17.0 client-side mode
 Rust = 1.98.0 managed toolchain
 shared Cargo home = enabled
 shared compiler cache = enabled
@@ -60,7 +60,7 @@ Implemented and live:
 - same-workspace nested `cargo update` delegation for workspace-writing Cargo
   plugins, with token validation, workspace-containment checks, and root-cancel
   propagation;
-- one global `CARGO_HOME`, one global sccache directory, broker-gateway sccache,
+- one global `CARGO_HOME`, one global sccache directory, client-side sccache,
   one shallow managed temp directory, and per-workspace target generations;
 - source bootstrap and immutable runtime cutover;
 - native Windows Job Object containment with `KILL_ON_JOB_CLOSE`, synchronous
@@ -232,10 +232,10 @@ cross-workspace reuse remains blocked until Rust `SCCACHE_BASEDIRS` support land
 
 Do **not** share one Cargo target directory across unrelated workspaces.
 
-macOS uses server-side compilation through one broker-owned gateway:
+Prefer client-side sccache compilation when supported and verified by the pinned sccache version:
 
 ```text
-SCCACHE_CLIENT_SIDE unset
+SCCACHE_CLIENT_SIDE=1
 ```
 
 The desired process topology is:
@@ -246,13 +246,16 @@ RightKit broker
 
 RightKit job process group
   cargo
-    sccache client
+    client-side sccache
       rustc
 ```
 
-One broker-owned gateway keeps machine-global cache storage reachable & serializes
-macOS cache metadata access. Windows retains client-side compilation. Gateway uses
-a managed Unix socket on macOS and a dedicated loopback port on Windows, disables idle exit, runs with explicit read-write storage configuration, and terminates when broker ownership IPC disappears. Every initial or recovery spawn re-verifies the registered executable identity and digest before execution; a changed tool emits `TOOL_CHANGED` and blocks recovery. macOS runtime preflight uses a private short state root so its derived Unix socket stays below the kernel path limit. Windows runtime preflight allocates a separate ephemeral loopback port so candidate teardown cannot race production gateway startup.
+The compiler remains inside the requesting job's process domain while one broker-owned gateway keeps machine-global cache storage reachable. The gateway uses a managed Unix socket on macOS and a dedicated loopback port on Windows, disables idle exit, runs with explicit read-write storage configuration, and terminates when broker ownership IPC disappears. Every initial or recovery spawn re-verifies the registered executable identity and digest before execution; a changed tool emits `TOOL_CHANGED` and blocks recovery. macOS runtime preflight uses a private short state root so its derived Unix socket stays below the kernel path limit. Windows runtime preflight allocates a separate ephemeral loopback port so candidate teardown cannot race production gateway startup.
+
+Periodic statistics are telemetry, not gateway health. A stats timeout emits a
+degraded `CACHE_STATS_SNAPSHOT` without restarting gateway, cancelling builds,
+or rotating workspace generations. Startup and actual recovery still require
+exact storage identity proof.
 
 Build admission consumes a fresh broker health lease proving owned gateway process liveness, endpoint reachability, and a bounded storage RPC whose parsed cache path, size limit, and version exactly match broker configuration. Bootstrap records `sccache.expectedVersion` from the digest-pinned executable; presence or prefix matches are invalid. Concurrent admissions share one probe or recovery. A failed probe permits one bounded gateway restart; failure after that window blocks compilation. `sccache --show-stats` never proves health by itself because it can emit synthetic empty statistics when no daemon exists; RightKit accepts it only between owned-process and endpoint checks and records its counters as separate telemetry.
 
@@ -913,8 +916,8 @@ Terminal receipt should include approximately:
 }
 ```
 
-`cache.delta` is nullable. In Windows client-side sccache mode per-root deltas
-are not attributable from cumulative counters, so
+`cache.delta` is nullable. In client-side sccache mode per-root deltas are not
+attributable from cumulative counters, so
 receipts record `delta: null` with an explicit reason. A non-null delta is
 valid only in a mode whose attribution semantics actually support it; receipts
 must never manufacture attribution they do not have.
@@ -980,8 +983,8 @@ Settled results:
 3. `SCCACHE_BASEDIRS` remains disabled after a negative alternate-path gate;
 4. target budget can evict idle current generations by LRU while active
    generations remain protected;
-5. Windows client-side sccache receipts report service health without fabricated
-   per-root deltas; macOS uses server-side counters after client-side probe stalls;
+5. client-side sccache receipts report service health without fabricated
+   per-root deltas;
 6. generic `cargo install` fails closed for managed storage and remaining
    policy/resource corrections are implemented.
 

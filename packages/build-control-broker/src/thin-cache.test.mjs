@@ -77,6 +77,18 @@ test('fresh lease avoids per-job stats processes & stale admissions share one pr
   await cache.close();
 });
 
+test('stale health lease does not turn periodic stats into destructive gateway recovery', async () => {
+  let now = 1_000; let statsCalls = 0;
+  const { cache, children } = harness({ now: () => now, healthLeaseMs: 10, statsIntervalMs: 20, run: async () => { statsCalls += 1; return { stdout: '{"version":"0.17.0","cache_location":"Local disk: \\"/managed/compiler-cache\\"","cache_size":0,"max_cache_size":21474836480,"stats":{}}' }; } });
+  await cache.start();
+  assert.equal(statsCalls, 1);
+  now += 21;
+  await cache.prepare({ layout });
+  assert.equal(statsCalls, 1, 'admission health must not synchronously collect telemetry');
+  assert.equal(children.length, 1, 'slow telemetry must not restart gateway');
+  await cache.close();
+});
+
 test('gateway startup failure hard-blocks build admission', async () => {
   const cache = new ThinCache({ paths, sccachePath: '/managed/tools/sccache', verifyTool: async () => ({ path: '/managed/tools/sccache' }), expectedVersion: '0.17.0', spawnGateway: async () => { throw Object.assign(new Error('offline'), { code: 'ENOENT' }); }, connect: async () => {} });
   await assert.rejects(cache.prepare({ layout }), (error) => {

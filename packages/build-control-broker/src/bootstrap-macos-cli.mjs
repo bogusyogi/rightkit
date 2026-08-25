@@ -239,11 +239,10 @@ export async function buildConfig({ externalRoot }) {
     },
     // Doc section 3.1: never enable during an in-flight release; a deliberate,
     // separately-decided activation, not a bootstrap default.
-    // Keep 0.17's opt-in client-side architecture disabled: one broker-owned
-    // gateway serializes local-cache metadata access & provides attributable
-    // counters. Client-side mode caused probe stalls, gateway recovery, build
-    // cancellation, & generation rotation under concurrent macOS workloads.
-    sccache: { mode: managedSccache ? 'managed' : 'disabled', clientSide: false, lifecycleOwner: managedSccache ? 'broker' : null, requireOwnershipProof: managedSccache, ...(managedSccache ? { expectedVersion: expectedSccacheVersion } : {}), maxSizeBytes: 20 * 1024 ** 3, gatewayPort: 4_227, healthLeaseMs: 10_000, recoveryTimeoutMs: 10_000, statsIntervalMs: 60_000 },
+    // Client-side compilation keeps rustc inside requesting job containment.
+    // Broker still owns one storage gateway; telemetry failure is isolated from
+    // gateway health so a slow stats query cannot cancel active builds.
+    sccache: { mode: managedSccache ? 'managed' : 'disabled', clientSide: managedSccache, lifecycleOwner: managedSccache ? 'broker' : null, requireOwnershipProof: managedSccache, ...(managedSccache ? { expectedVersion: expectedSccacheVersion } : {}), maxSizeBytes: 20 * 1024 ** 3, gatewayPort: 4_227, healthLeaseMs: 10_000, recoveryTimeoutMs: 10_000, statsIntervalMs: 60_000 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
     bounds: defaultBounds(),
   };
