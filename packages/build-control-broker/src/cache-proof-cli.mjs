@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFile as nodeExecFile } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { rename, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { arch, hostname } from 'node:os';
 import { join, resolve, win32 } from 'node:path';
@@ -24,11 +25,15 @@ export function parseCacheProofArgs(argv) {
   return options;
 }
 
-export function isDirectCacheProofMain({ moduleUrl = import.meta.url, argv1 = process.argv[1], platform = process.platform } = {}) {
+export function isDirectCacheProofMain({ moduleUrl = import.meta.url, argv1 = process.argv[1], platform = process.platform, canonicalize = realpathSync.native } = {}) {
   if (typeof argv1 !== 'string' || !argv1) return false;
   const modulePath = decodeURIComponent(new URL(moduleUrl).pathname);
-  if (platform === 'win32') return win32.normalize(modulePath.replace(/^\/(?=[A-Za-z]:)/, '')).toLowerCase() === win32.normalize(argv1).toLowerCase();
-  return resolve(modulePath) === resolve(argv1);
+  const equal = platform === 'win32'
+    ? (left, right) => win32.normalize(left.replace(/^\/(?=[A-Za-z]:)/, '')).toLowerCase() === win32.normalize(right).toLowerCase()
+    : (left, right) => resolve(left) === resolve(right);
+  if (equal(modulePath, argv1)) return true;
+  try { return equal(canonicalize(modulePath), canonicalize(argv1)); }
+  catch { return false; }
 }
 
 async function liveFixtureLayout(managedRoot, fixtureWorkspace) {

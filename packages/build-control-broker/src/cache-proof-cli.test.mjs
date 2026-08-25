@@ -12,4 +12,10 @@ test('cache proof CLI bounds iterations & rejects unknown arguments', () => {
 test('cache proof direct-main detection works on Windows & POSIX', () => {
   assert.equal(isDirectCacheProofMain({ moduleUrl: 'file:///D:/Claude/cache-proof-cli.mjs', argv1: 'D:\\Claude\\cache-proof-cli.mjs', platform: 'win32' }), true);
   assert.equal(isDirectCacheProofMain({ moduleUrl: 'file:///tmp/cache-proof-cli.mjs', argv1: '/tmp/cache-proof-cli.mjs', platform: 'darwin' }), true);
+  assert.equal(isDirectCacheProofMain({
+    moduleUrl: 'file:///D:/managed/runtime-versioned/cache-proof-cli.mjs',
+    argv1: 'D:\\managed\\runtime-current\\cache-proof-cli.mjs',
+    platform: 'win32',
+    canonicalize: () => 'D:\\managed\\runtime-versioned\\cache-proof-cli.mjs'
+  }), true);
 });
