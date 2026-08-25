@@ -50,6 +50,26 @@ test('in-flight thin build blocks cutover before launchd is stopped', async () =
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
 
+test('cutover fence waits boundedly for existing requests to drain', async () => {
+  const item = await fixture();
+  try {
+    let attempts = 0; let sleeps = 0; let stopped = false;
+    const receipt = await runMacOSCutover({ ...input(item), drainTimeoutMs: 5_000 }, {
+      ...drainDependencies, platform: 'darwin', now: () => attempts * 100,
+      sleep: async () => { sleeps += 1; },
+      proveBrokerDrain: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('cannot activate while 1 broker request(s) are in flight: job-1');
+        return { open: 0, inFlight: [] };
+      },
+      proveThinDrain: async () => ({ open: 0, inFlight: [] }),
+      stopManaged: async () => { stopped = true; return { stopped: true }; },
+      install: async () => ({ runtime: join(item.external, 'runtime-test') }),
+    });
+    assert.equal(sleeps, 1); assert.equal(stopped, true); assert.equal(receipt.brokerDrain.open, 0);
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
 test('cutover refuses plist identity drift before activation', async () => {
   const item = await fixture();
   try {

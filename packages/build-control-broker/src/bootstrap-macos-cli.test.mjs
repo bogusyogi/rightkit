@@ -12,9 +12,10 @@ import {
 const macOSOnly = { skip: process.platform === 'win32' ? 'macOS-only test' : false };
 
 test('parseArgs accepts the documented flags & rejects anything else', () => {
-  assert.deepEqual(parseArgs([]), { force: false });
-  assert.deepEqual(parseArgs(['--force']), { force: true });
-  assert.deepEqual(parseArgs(['--external-root', '/x', '--node', '/y']), { force: false, externalRoot: '/x', nodePath: '/y' });
+  assert.deepEqual(parseArgs([]), { force: false, drainTimeoutMs: 0 });
+  assert.deepEqual(parseArgs(['--force']), { force: true, drainTimeoutMs: 0 });
+  assert.deepEqual(parseArgs(['--external-root', '/x', '--node', '/y', '--drain-timeout-ms', '5000']), { force: false, drainTimeoutMs: 5000, externalRoot: '/x', nodePath: '/y' });
+  assert.throws(() => parseArgs(['--drain-timeout-ms', '-1']), /non-negative integer/);
   assert.throws(() => parseArgs(['--bogus']), /unknown bootstrap argument/);
 });
 

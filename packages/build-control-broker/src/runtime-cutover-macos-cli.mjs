@@ -22,7 +22,7 @@ export function parseMacOSCutoverArgs(argv) {
     const flag = argv[index]; const value = argv[index + 1];
     if (typeof flag !== 'string' || !flag.startsWith('--') || value === undefined) throw new TypeError('cutover arguments must be --name value pairs');
     const name = flag.slice(2);
-    if (![...required, 'timeout-ms'].includes(name) || values[name] !== undefined) throw new TypeError(`unknown or duplicate cutover argument: ${flag}`);
+    if (![...required, 'timeout-ms', 'drain-timeout-ms'].includes(name) || values[name] !== undefined) throw new TypeError(`unknown or duplicate cutover argument: ${flag}`);
     values[name] = value;
   }
   for (const name of required) if (values[name] === undefined) throw new TypeError(`--${name} is required`);
@@ -30,13 +30,15 @@ export function parseMacOSCutoverArgs(argv) {
   if (!Number.isSafeInteger(uid) || uid < 0) throw new TypeError('--uid must be a non-negative integer');
   const timeoutMs = values['timeout-ms'] === undefined ? 8_000 : Number(values['timeout-ms']);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100) throw new TypeError('--timeout-ms must be an integer of at least 100');
+  const drainTimeoutMs = values['drain-timeout-ms'] === undefined ? 0 : Number(values['drain-timeout-ms']);
+  if (!Number.isSafeInteger(drainTimeoutMs) || drainTimeoutMs < 0) throw new TypeError('--drain-timeout-ms must be a non-negative integer');
   if (!/^[A-Za-z0-9._-]+$/.test(values.version)) throw new TypeError('--version must be an immutable safe identifier');
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(values.label)) throw new TypeError('--label is invalid');
   for (const name of ['source-revision', 'source-tree-digest']) if (!/^[a-f0-9]{40,64}$/i.test(values[name])) throw new TypeError(`--${name} must be a Git object digest`);
   return Object.freeze({
     configPath: absolute(values.config, 'config'), externalRoot: absolute(values['external-root'], 'external-root'), sourcePackagesRoot: absolute(values['source-packages'], 'source-packages'),
     version: values.version, sourceRevision: values['source-revision'], sourceTreeDigest: values['source-tree-digest'], launchdLabel: values.label, uid, endpoint: absolute(values.endpoint, 'endpoint'), plistPath: absolute(values.plist, 'plist'),
-    healthWorkspace: absolute(values['health-workspace'], 'health-workspace'), timeoutMs,
+    healthWorkspace: absolute(values['health-workspace'], 'health-workspace'), timeoutMs, drainTimeoutMs,
   });
 }
 
@@ -68,7 +70,7 @@ export async function stopManagedLaunchd({ launchdLabel, uid, plistPath, endpoin
  * selection before allowing runtime.mjs to stage or switch runtime-current.
  */
 export async function runMacOSCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopManaged = stopManagedLaunchd, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopManaged = stopManagedLaunchd, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds)), now = Date.now } = dependencies;
   if (platform !== 'darwin') throw new Error('macOS cutover may only run on darwin');
   const options = typeof input?.configPath === 'string' ? input : parseMacOSCutoverArgs(input);
   const [configPath, externalRoot, sourcePackagesRoot, plistPath, healthWorkspace] = await Promise.all([
@@ -88,8 +90,20 @@ export async function runMacOSCutover(input, dependencies = {}) {
   // running roots. Filesystem markers remain independent writer recovery proof.
   const drainFence = await beginDrain(externalRoot);
   try {
-    const brokerDrain = await proveBrokerDrain(externalRoot, options.endpoint);
-    const thinDrain = await proveThinDrain(externalRoot);
+    const drainStartedAt = now();
+    let brokerDrain; let thinDrain;
+    for (;;) {
+      try {
+        brokerDrain = await proveBrokerDrain(externalRoot, options.endpoint);
+        thinDrain = await proveThinDrain(externalRoot);
+        break;
+      } catch (error) {
+        const pending = /^cannot activate while \d+ (?:broker|thin) request\(s\) are in flight:/.test(error?.message ?? '');
+        const elapsed = now() - drainStartedAt;
+        if (!pending || elapsed >= (options.drainTimeoutMs ?? 0)) throw error;
+        await sleep(Math.min(1_000, (options.drainTimeoutMs ?? 0) - elapsed));
+      }
+    }
     const stopProof = await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
     const result = await install({
       externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
