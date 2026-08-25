@@ -2,7 +2,7 @@
 import { execFile as nodeExecFile } from 'node:child_process';
 import { rename, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { arch, hostname } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, win32 } from 'node:path';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { clearCacheProofTarget, initializeCacheProofTarget } from './cache-proof.mjs';
@@ -22,6 +22,13 @@ export function parseCacheProofArgs(argv) {
   }
   if (!Number.isSafeInteger(options.iterations) || options.iterations < 1 || options.iterations > 10) throw new TypeError('--iterations must be an integer from 1 to 10');
   return options;
+}
+
+export function isDirectCacheProofMain({ moduleUrl = import.meta.url, argv1 = process.argv[1], platform = process.platform } = {}) {
+  if (typeof argv1 !== 'string' || !argv1) return false;
+  const modulePath = decodeURIComponent(new URL(moduleUrl).pathname);
+  if (platform === 'win32') return win32.normalize(modulePath.replace(/^\/(?=[A-Za-z]:)/, '')).toLowerCase() === win32.normalize(argv1).toLowerCase();
+  return resolve(modulePath) === resolve(argv1);
 }
 
 async function liveFixtureLayout(managedRoot, fixtureWorkspace) {
@@ -95,6 +102,6 @@ export async function runCacheProof({ externalRoot = process.platform === 'win32
   return { report, reportPath };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectCacheProofMain()) {
   runCacheProof(parseCacheProofArgs(process.argv.slice(2))).then(({ report, reportPath }) => process.stdout.write(`${JSON.stringify({ ...report, reportPath }, null, 2)}\n`)).catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });
 }
