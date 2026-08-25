@@ -29,12 +29,17 @@ const EXTERNAL_CARGO_TOOLS = Object.freeze([
 const STANDALONE_MANAGED_TOOLS = new Set(['sccache', ...EXTERNAL_CARGO_TOOLS.map(([, id]) => id)]);
 
 export function parseArgs(argv) {
-  const values = { force: false, drainTimeoutMs: 0 };
+  const values = { force: false, drainTimeoutMs: 0, timeoutMs: 120_000 };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === '--force') { values.force = true; continue; }
     if (flag === '--external-root') { values.externalRoot = argv[++index]; continue; }
     if (flag === '--node') { values.nodePath = argv[++index]; continue; }
+    if (flag === '--timeout-ms') {
+      values.timeoutMs = Number(argv[++index]);
+      if (!Number.isSafeInteger(values.timeoutMs) || values.timeoutMs < 100) throw new TypeError('--timeout-ms must be an integer of at least 100');
+      continue;
+    }
     if (flag === '--drain-timeout-ms') {
       values.drainTimeoutMs = Number(argv[++index]);
       if (!Number.isSafeInteger(values.drainTimeoutMs) || values.drainTimeoutMs < 0) throw new TypeError('--drain-timeout-ms must be a non-negative integer');
@@ -335,7 +340,7 @@ async function main() {
     configPath, externalRoot, sourcePackagesRoot, sourceRevision, sourceTreeDigest,
     version: `bootstrap-${sourceRevision.slice(0, 8)}-${Date.now()}`,
     launchdLabel: LABEL, uid, endpoint: join(externalRoot, 'broker.sock'),
-    plistPath, healthWorkspace, timeoutMs: 20_000, drainTimeoutMs: options.drainTimeoutMs,
+    plistPath, healthWorkspace, timeoutMs: options.timeoutMs, drainTimeoutMs: options.drainTimeoutMs,
   });
   console.log(JSON.stringify(receipt, null, 2));
   console.log('bootstrap-macos: broker activated');
