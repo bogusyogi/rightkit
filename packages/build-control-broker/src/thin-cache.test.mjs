@@ -49,6 +49,7 @@ test('owns one gateway & injects strict cache environment with health proof', as
   assert.equal(prepared.environment.SCCACHE_LOCAL_RW_MODE, 'READ_WRITE');
   assert.equal(prepared.environment.SCCACHE_SERVER_UDS, '/managed/tmp/sccache-gateway.sock');
   assert.equal(prepared.environment.CARGO_BUILD_JOBS, '4');
+  assert.equal(prepared.environment.CARGO_INCREMENTAL, '0');
   assert.equal(prepared.health.gatewayPid, 42);
   assert.equal(prepared.health.ownership, 'broker');
   assert.equal(prepared.strictNoFallback, true);
@@ -56,7 +57,9 @@ test('owns one gateway & injects strict cache environment with health proof', as
   assert.equal(events.some((event) => event.type === 'CACHE_GATEWAY_READY'), true);
   assert.equal(events.some((event) => event.type === 'CACHE_ADMISSION' && event.id === 'job-1'), true);
   const finished = await cache.finish(prepared);
-  assert.equal(finished.status, 'SERVICE_OK');
+  assert.equal(finished.status, 'NOT_MEASURED');
+  assert.equal(finished.healthStatus, 'SERVICE_OK');
+  assert.equal(finished.reuse.status, 'NOT_MEASURED');
   assert.equal(finished.delta, null);
   await cache.close();
 });

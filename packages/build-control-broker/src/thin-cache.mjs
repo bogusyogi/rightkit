@@ -5,6 +5,7 @@ import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
+import { classifyCacheReuse } from './cache-telemetry.mjs';
 
 const defaultRun = promisify(nodeExecFile);
 const MAX_STATS_BYTES = 256 * 1024;
@@ -138,6 +139,10 @@ export class ThinCache {
     const base = Object.freeze({
       CARGO_HOME: this.#paths.cargoHome,
       CARGO_BUILD_JOBS: String(positive(cargoBuildJobs, 'cargoBuildJobs', 4)),
+      // Cargo dev/check/test defaults to incremental rustc output, which
+      // sccache explicitly refuses. Cross-target reuse requires cacheable,
+      // deterministic compiler invocations instead of per-target increments.
+      CARGO_INCREMENTAL: '0',
       TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp
     });
     if (!this.#enabled) throw new ThinCacheUnavailableError('sccache-disabled', 'DISABLED');
@@ -155,12 +160,13 @@ export class ThinCache {
 
   async finish(prepared) {
     if (prepared?.mode !== 'sccache') return Object.freeze({ mode: prepared?.mode ?? 'direct', status: prepared?.status ?? 'DISABLED', ...(prepared?.reason ? { reason: prepared.reason } : {}), delta: null });
-    if (this.#clientSide) return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', reason: 'client-side-counters-unattributable', delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution: Object.freeze({ ...prepared.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: new Date(this.#now()).toISOString() }) });
+    if (this.#clientSide) return Object.freeze({ mode: 'sccache', status: 'NOT_MEASURED', healthStatus: 'SERVICE_OK', reuse: classifyCacheReuse(null), reason: 'client-side-counters-unattributable', delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution: Object.freeze({ ...prepared.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: new Date(this.#now()).toISOString() }) });
     const sample = await this.snapshot();
-    if (sample.status !== 'SERVICE_OK') return Object.freeze({ mode: 'sccache', status: 'DEGRADED', reason: sample.reason, delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution: sample.attribution ?? prepared.attribution ?? null });
+    if (sample.status !== 'SERVICE_OK') return Object.freeze({ mode: 'sccache', status: 'NOT_MEASURED', healthStatus: 'DEGRADED', reuse: classifyCacheReuse(null), reason: sample.reason, delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution: sample.attribution ?? prepared.attribution ?? null });
     const measured = delta(prepared.before, sample.stats) ?? {};
-    if (containsNegative(measured)) return Object.freeze({ mode: 'sccache', status: 'DEGRADED', reason: 'sccache-counter-reset', delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution: Object.freeze({ ...sample.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: sample.attribution.sampledAt }) });
-    return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', delta: Object.freeze(measured), health: prepared.health ?? null, strictNoFallback: true, attribution: Object.freeze({ ...sample.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: sample.attribution.sampledAt }) });
+    if (containsNegative(measured)) return Object.freeze({ mode: 'sccache', status: 'NOT_MEASURED', healthStatus: 'DEGRADED', reuse: classifyCacheReuse(null), reason: 'sccache-counter-reset', delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution: Object.freeze({ ...sample.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: sample.attribution.sampledAt }) });
+    const reuse = classifyCacheReuse(measured);
+    return Object.freeze({ mode: 'sccache', status: reuse.status, healthStatus: 'SERVICE_OK', reuse, delta: Object.freeze(measured), health: prepared.health ?? null, strictNoFallback: true, attribution: Object.freeze({ ...sample.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: sample.attribution.sampledAt }) });
   }
 
   get basedirsActive() { return this.#basedirsEnabled; }

@@ -893,7 +893,14 @@ Terminal receipt should include approximately:
   "signal": null,
   "cache": {
     "mode": "sccache",
-    "status": "SERVICE_OK",
+    "status": "NOT_MEASURED",
+    "healthStatus": "SERVICE_OK",
+    "reuse": {
+      "status": "NOT_MEASURED",
+      "hits": null,
+      "misses": null,
+      "hitRate": null
+    },
     "delta": null,
     "reason": "client-side-counters-unattributable",
     "strictNoFallback": true,
@@ -922,11 +929,26 @@ receipts record `delta: null` with an explicit reason. A non-null delta is
 valid only in a mode whose attribution semantics actually support it; receipts
 must never manufacture attribution they do not have.
 
+`cache.healthStatus` reports service health. `cache.reuse.status` reports reuse
+as `PROVEN`, `NO_COMPILATION`, `MISS`, `MIXED`, or `NOT_MEASURED`.
+`SERVICE_OK` is never a reuse result. Cache reports group only exact
+`cacheCohort` values: host, workspace, command, profile, feature set, target,
+toolchain, compiler identity, & cache epoch.
+
+Managed cache environments set `CARGO_INCREMENTAL=0`. Cargo's development
+default produces incremental rustc jobs that sccache refuses, so permitting it
+would make `check`, `test`, & development builds systematically bypass cache.
+
 `cache.health` is admission proof, not a stats-process result. Periodic
 `CACHE_STATS_SNAPSHOT` events carry cumulative counters independently from job
 admission and receipts.
 
 Receipts summarize telemetry; they do not contain the full time series.
+
+Run `node packages/build-control-broker/src/cache-proof-cli.mjs --iterations 3`
+on each native host for deterministic reuse acceptance. It primes
+`fixture-rust` with a tiny library build, clears only its marked live generation target, then requires at
+least one hit & zero misses on every identical recompilation.
 
 ---
 

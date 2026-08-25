@@ -18,6 +18,7 @@ import {
   validateManagedRustupInvocation
 } from '@rightkit/build-control-core';
 import { ThinCache } from './thin-cache.mjs';
+import { cargoCohort } from './cache-telemetry.mjs';
 import { ThinCommandPolicy, compileClass } from './thin-command-policy.mjs';
 import { ThinLogger } from './thin-logger.mjs';
 import { ThinScheduler, deriveCompileCosts } from './thin-scheduler.mjs';
@@ -533,7 +534,7 @@ export class ThinJobService {
           : Number.isSafeInteger(job.cacheResult?.delta?.compile_requests) ? job.cacheResult.delta.compile_requests : null;
     const phaseTimings = this.#phaseTimings(job, terminalAt);
     const receipt = Object.freeze({
-      id: job.id, state: status, status, command: job.command, workspace: job.workspaceRoot, repository: job.repositoryRoot ?? null, profile: this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null,
+      id: job.id, state: status, status, command: job.command, argv: Object.freeze([...job.invokeArgv]), workspace: job.workspaceRoot, repository: job.repositoryRoot ?? null, profile: this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null,
       generation: job.capability.artifactWrite ? (invalidWriter ? job.workspace.state.rotatedFrom : job.workspace.layout.generation) : null,
       // v2.7 §20 root timing
       ...phaseTimings,
@@ -547,6 +548,7 @@ export class ThinJobService {
       cancellation: job.cancelProvenance ? Object.freeze({ source: job.cancelProvenance, reason: job.cancelReason ?? null, requests: Object.freeze(job.cancelRequests.map((request) => Object.freeze({ ...request }))) }) : null,
       cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, healthStatus: job.cachePrepared.healthStatus ?? null, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }),
       cacheCounterScope: job.parentId ? null : (job.cacheResult?.attribution?.scope ?? (job.cacheResult?.delta ? 'shared-cumulative-root-window' : null)),
+      cacheCohort: job.parentId || !job.capability.compile ? null : cargoCohort({ argv: job.invokeArgv, command: job.command, workspace: job.workspaceRoot, profile: this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null, toolchain: this.#config.defaults?.toolchain ?? null, compilerIdentity: this.#compilerIdentity, cacheEpoch: job.cacheResult?.attribution?.epoch ?? job.cachePrepared?.attribution?.epoch ?? null, platform: this.#platform }),
       compilerProcessCount, compilerBrokerRoundTrips: job.parentId ? null : (job.compilerRoundTrips ?? 0),
       compilerIdentity: job.parentId ? null : job.shim === 'cargo' && job.capability.compile ? this.#compilerIdentity : ['rustc', 'rustdoc'].includes(job.shim) ? Object.freeze({ [job.shim]: job.tool }) : null,
       ownership: job.ownership ?? null, reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(),
