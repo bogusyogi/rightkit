@@ -28,11 +28,12 @@ export function parseCacheProofArgs(argv) {
 export function isDirectCacheProofMain({ moduleUrl = import.meta.url, argv1 = process.argv[1], platform = process.platform, canonicalize = realpathSync.native } = {}) {
   if (typeof argv1 !== 'string' || !argv1) return false;
   const modulePath = decodeURIComponent(new URL(moduleUrl).pathname);
+  const executableModulePath = platform === 'win32' ? modulePath.replace(/^\/(?=[A-Za-z]:)/, '') : modulePath;
   const equal = platform === 'win32'
-    ? (left, right) => win32.normalize(left.replace(/^\/(?=[A-Za-z]:)/, '')).toLowerCase() === win32.normalize(right).toLowerCase()
+    ? (left, right) => win32.normalize(left).toLowerCase() === win32.normalize(right).toLowerCase()
     : (left, right) => resolve(left) === resolve(right);
-  if (equal(modulePath, argv1)) return true;
-  try { return equal(canonicalize(modulePath), canonicalize(argv1)); }
+  if (equal(executableModulePath, argv1)) return true;
+  try { return equal(canonicalize(executableModulePath), canonicalize(argv1)); }
   catch { return false; }
 }
 

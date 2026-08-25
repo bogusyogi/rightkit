@@ -16,6 +16,6 @@ test('cache proof direct-main detection works on Windows & POSIX', () => {
     moduleUrl: 'file:///D:/managed/runtime-versioned/cache-proof-cli.mjs',
     argv1: 'D:\\managed\\runtime-current\\cache-proof-cli.mjs',
     platform: 'win32',
-    canonicalize: () => 'D:\\managed\\runtime-versioned\\cache-proof-cli.mjs'
+    canonicalize: (path) => path.replaceAll('/', '\\').replace('runtime-current', 'runtime-versioned')
   }), true);
 });
