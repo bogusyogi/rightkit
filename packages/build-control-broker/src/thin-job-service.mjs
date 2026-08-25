@@ -426,6 +426,11 @@ export class ThinJobService {
       // generation (normalization is idempotent under a fresh output root).
       if (job.workspace && !job.parentId) {
         job.workspace = await this.#state.workspace(job.workspaceRoot);
+        if (job.shim === 'cargo' && job.capability.compile && job.targetTriple) {
+          job.invokeArgv = normalizeCargoTargetArgv(job.invokeArgv, job.targetTriple, job.workspace.layout.target);
+          job.request = Object.freeze({ ...job.request, argv: job.invokeArgv });
+          job.command = `${job.shim} ${job.invokeArgv.join(' ')}`.trim();
+        }
         if (['rustc', 'rustdoc'].includes(job.shim) && job.capability.compile) {
           job.invokeArgv = normalizeCompilerOutputArgv(job.invokeArgv, { compiler: job.shim, outputRoot: join(job.workspace.layout.target, 'rightkit-raw'), targetTriple: job.targetTriple });
           job.request = Object.freeze({ ...job.request, argv: job.invokeArgv });

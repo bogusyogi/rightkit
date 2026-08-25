@@ -253,10 +253,11 @@ function normalizeCodegenOption(option, outputRoot) {
  * Ensure Cargo's output identity is broker-selected even when caller omits it.
  * Call only after capability classification confirms a target-capable command.
  */
-export function normalizeCargoTargetArgv(argv, targetTriple) {
+export function normalizeCargoTargetArgv(argv, targetTriple, targetDirectory = null) {
   if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string' || !value)) throw new TypeError('Cargo argv must contain non-empty strings');
   if (typeof targetTriple !== 'string' || !targetTriple || targetTriple.includes('\0')) throw new TypeError('broker Cargo target is required');
-  const values = []; let suffix = null; let seenTarget = false;
+  if (targetDirectory !== null && (typeof targetDirectory !== 'string' || !isAbsolute(targetDirectory))) throw new TypeError('broker Cargo target directory must be absolute');
+  const values = []; let suffix = null; let seenTarget = false; let seenTargetDirectory = false;
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === '--') { suffix = argv.slice(index); break; }
@@ -273,9 +274,24 @@ export function normalizeCargoTargetArgv(argv, targetTriple) {
       if (!seenTarget) { values.push(`--target=${targetTriple}`); seenTarget = true; }
       continue;
     }
+    if (value === '--target-dir') {
+      const requested = argv[++index];
+      if (!requested) throw new TypeError('--target-dir requires a path');
+      if (targetDirectory === null) values.push('--target-dir', requested);
+      else if (!seenTargetDirectory) { values.push('--target-dir', targetDirectory); seenTargetDirectory = true; }
+      continue;
+    }
+    if (value.startsWith('--target-dir=')) {
+      const requested = value.slice('--target-dir='.length);
+      if (!requested) throw new TypeError('--target-dir requires a path');
+      if (targetDirectory === null) values.push(value);
+      else if (!seenTargetDirectory) { values.push(`--target-dir=${targetDirectory}`); seenTargetDirectory = true; }
+      continue;
+    }
     values.push(value);
   }
   if (!seenTarget) values.push('--target', targetTriple);
+  if (targetDirectory !== null && !seenTargetDirectory) values.push('--target-dir', targetDirectory);
   if (suffix) values.push(...suffix);
   return Object.freeze(values);
 }

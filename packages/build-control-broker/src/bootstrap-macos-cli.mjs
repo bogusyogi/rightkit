@@ -209,7 +209,7 @@ export async function buildConfig({ externalRoot }) {
   const tools = await stageManagedTools(await discoverTools(), externalRoot);
   const sccacheTool = tools.find((tool) => tool.id === 'sccache');
   const expectedSccacheVersion = await sccacheVersion(sccacheTool?.path);
-  const clientSideSccache = supportsSccacheVersion(expectedSccacheVersion);
+  const managedSccache = supportsSccacheVersion(expectedSccacheVersion);
   const toolchain = (await rustcVersionTriple(tools.find((tool) => tool.id === 'rustc')?.path)) ?? 'stable-aarch64-apple-darwin';
   const targetTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
   const otherTriple = targetTriple === 'aarch64-apple-darwin' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwin';
@@ -234,12 +234,16 @@ export async function buildConfig({ externalRoot }) {
       // & pointing it at an unregistered tool id rejects the whole config.
       ...(tools.some((tool) => tool.id === 'rustc') ? { rustcToolId: 'rustc' } : {}),
       ...(tools.some((tool) => tool.id === 'rustdoc') ? { rustdocToolId: 'rustdoc' } : {}),
-      ...(clientSideSccache ? { sccacheToolId: 'sccache' } : {}),
-      cacheMode: clientSideSccache ? 'managed' : 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
+      ...(managedSccache ? { sccacheToolId: 'sccache' } : {}),
+      cacheMode: managedSccache ? 'managed' : 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
     },
     // Doc section 3.1: never enable during an in-flight release; a deliberate,
     // separately-decided activation, not a bootstrap default.
-    sccache: { mode: clientSideSccache ? 'managed' : 'disabled', clientSide: clientSideSccache, lifecycleOwner: clientSideSccache ? 'broker' : null, requireOwnershipProof: clientSideSccache, ...(clientSideSccache ? { expectedVersion: expectedSccacheVersion } : {}), maxSizeBytes: 20 * 1024 ** 3, gatewayPort: 4_227, healthLeaseMs: 10_000, recoveryTimeoutMs: 10_000, statsIntervalMs: 60_000 },
+    // Keep 0.17's opt-in client-side architecture disabled: one broker-owned
+    // gateway serializes local-cache metadata access & provides attributable
+    // counters. Client-side mode caused probe stalls, gateway recovery, build
+    // cancellation, & generation rotation under concurrent macOS workloads.
+    sccache: { mode: managedSccache ? 'managed' : 'disabled', clientSide: false, lifecycleOwner: managedSccache ? 'broker' : null, requireOwnershipProof: managedSccache, ...(managedSccache ? { expectedVersion: expectedSccacheVersion } : {}), maxSizeBytes: 20 * 1024 ** 3, gatewayPort: 4_227, healthLeaseMs: 10_000, recoveryTimeoutMs: 10_000, statsIntervalMs: 60_000 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
     bounds: defaultBounds(),
   };

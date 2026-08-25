@@ -38,7 +38,8 @@ test('owns one gateway & injects strict cache environment with health proof', as
   const prepared = await cache.prepare({ layout, cargoBuildJobs: 4, jobId: 'job-1' });
   assert.equal(children.length, 1);
   assert.equal(prepared.environment.CARGO_HOME, paths.cargoHome);
-  assert.equal(prepared.environment.CARGO_TARGET_DIR, layout.target);
+  assert.equal(prepared.environment.CARGO_TARGET_DIR, undefined);
+  assert.equal(prepared.environment.CARGO_BUILD_TARGET_DIR, undefined);
   assert.equal(prepared.environment.CARGO_INSTALL_ROOT, undefined);
   assert.equal(prepared.environment.RUSTC_WRAPPER, '/managed/tools/sccache');
   assert.equal(prepared.environment.SCCACHE_CLIENT_SIDE, '1');

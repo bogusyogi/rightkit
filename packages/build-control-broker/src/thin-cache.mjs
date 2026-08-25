@@ -137,8 +137,6 @@ export class ThinCache {
     if (!layout?.target || !layout?.temp) throw new TypeError('workspace generation layout is required');
     const base = Object.freeze({
       CARGO_HOME: this.#paths.cargoHome,
-      CARGO_TARGET_DIR: layout.target,
-      CARGO_BUILD_TARGET_DIR: layout.target,
       CARGO_BUILD_JOBS: String(positive(cargoBuildJobs, 'cargoBuildJobs', 4)),
       TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp
     });

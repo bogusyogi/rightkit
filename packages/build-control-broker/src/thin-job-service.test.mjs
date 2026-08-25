@@ -134,7 +134,8 @@ test('registered explicit Cargo target overrides host default within persistent 
     const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['build', '--target=x86_64-apple-darwin'])))).result;
     await waitFor(item.service, submitted.id, ['RUNNING']);
     const child = item.children.at(-1);
-    assert.deepEqual(child.payload.argv, ['build', '--target=x86_64-apple-darwin']);
+    assert.deepEqual(child.payload.argv.slice(0, 3), ['build', '--target=x86_64-apple-darwin', '--target-dir']);
+    assert.ok(child.payload.argv[3].endsWith(join('generations', '000001', 'target')));
     child.emit('close', 0, null);
     const result = (await call(item.service, command('WATCH', submitted.id))).result;
     assert.equal(result.status, 'SUCCEEDED');

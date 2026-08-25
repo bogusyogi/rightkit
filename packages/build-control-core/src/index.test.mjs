@@ -104,6 +104,8 @@ test('Cargo target normalization injects broker target & rejects caller control'
   assert.deepEqual(normalizeCargoTargetArgv(['test'], 'aarch64-apple-darwin'), ['test', '--target', 'aarch64-apple-darwin']);
   assert.deepEqual(normalizeCargoTargetArgv(['build', '--target=aarch64-apple-darwin'], 'aarch64-apple-darwin'), ['build', '--target=aarch64-apple-darwin']);
   assert.deepEqual(normalizeCargoTargetArgv(['test', '--', '--target', 'passed-to-test'], 'aarch64-apple-darwin'), ['test', '--target', 'aarch64-apple-darwin', '--', '--target', 'passed-to-test']);
+  assert.deepEqual(normalizeCargoTargetArgv(['test', '--', '--target-dir', 'passed-to-test'], 'aarch64-apple-darwin', '/managed/target'), ['test', '--target', 'aarch64-apple-darwin', '--target-dir', '/managed/target', '--', '--target-dir', 'passed-to-test']);
+  assert.deepEqual(normalizeCargoTargetArgv(['build', '--target-dir=/old/generation'], 'aarch64-apple-darwin', '/managed/target'), ['build', '--target-dir=/managed/target', '--target', 'aarch64-apple-darwin']);
   assert.throws(() => normalizeCargoTargetArgv(['test', '--target', 'x86_64-apple-darwin'], 'aarch64-apple-darwin'), /must match/);
   assert.throws(() => normalizeCargoTargetArgv(['test', '--target'], 'aarch64-apple-darwin'), /requires a target triple/);
 });
