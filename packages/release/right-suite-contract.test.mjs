@@ -853,32 +853,26 @@ test("consuming suite apps resolve Cargo build output from cargo metadata, never
 const cargoTargetRootHelpers = [
   "coderight/apps/coderight-tauri/scripts/lib/target-root.mjs",
   "heardright/tauri-app-next/scripts/lib/target-root.mjs",
+  "genright/scripts/lib/target-root.mjs",
   "mailright/scripts/lib/target-root.mjs",
   "orthic/scripts/lib/target-root.mjs",
   "viewright/scripts/lib/target-root.mjs",
   "membrane/apps/membrane-hub/scripts/lib/target-root.mjs",
 ];
 
-test("shared target-root helpers still resolve build output via cargo metadata's target_directory", () => {
+test("consumer target-root helpers delegate to RightKit's canonical resolver", () => {
   for (const helperPath of cargoTargetRootHelpers) {
     const appRoot = path.join(workspace, helperPath.split("/scripts/lib/target-root.mjs")[0]);
     if (!existsSync(path.join(appRoot, "package.json"))) continue;
     const fullPath = path.join(workspace, helperPath);
     assert.ok(existsSync(fullPath), `${helperPath} is missing; the app must keep its shared cargo-metadata target resolver`);
     const source = readFileSync(fullPath, "utf8");
-    assert.match(source, /cargo/, `${helperPath} must invoke cargo`);
-    assert.match(source, /metadata/, `${helperPath} must call cargo metadata`);
-    assert.match(source, /target_directory/, `${helperPath} must read target_directory from cargo metadata's output`);
+    assert.match(source, /@rightkit\/release\/cargo-target\.mjs/, `${helperPath} must import RightKit's resolver`);
+    assert.match(source, /resolveTargetRoot/, `${helperPath} must delegate target resolution to RightKit`);
   }
 });
 
-// After the app migration lands, every consuming app's target-root helper must
-// become a thin re-export of the shared tools/rightkit resolveTargetRoot
-// (cargo-target.mjs) rather than its own copy of the cargo-metadata call. Until
-// that migration lands, cargoTargetRootHelpers above still point at full local
-// implementations, so this stays skipped to avoid failing the still-unmigrated
-// app repos. Enable it once every app's target-root.mjs is a re-export shim.
-test("consuming app target-root helpers are thin re-export shims, not local resolver re-implementations", { skip: true }, () => {
+test("consuming app target-root helpers do not reimplement Cargo metadata", () => {
   const LOCAL_RESOLVER_PATTERN = /function\s+(?:cargoTargetRoot|resolveManagedCargoTarget)\s*\([^)]*\)\s*\{[^}]*cargo[^}]*metadata/s;
   for (const helperPath of cargoTargetRootHelpers) {
     const appRoot = path.join(workspace, helperPath.split("/scripts/lib/target-root.mjs")[0]);
@@ -891,6 +885,96 @@ test("consuming app target-root helpers are thin re-export shims, not local reso
       LOCAL_RESOLVER_PATTERN,
       `${helperPath} must re-export @rightkit/release's resolveTargetRoot instead of reimplementing the cargo metadata call locally`,
     );
+  }
+});
+
+const cargoAuthorityRoots = [
+  ...cargoTargetDirGuardApps,
+  "citadel",
+  "heardright",
+  "legion",
+  "rightsites",
+  "rightsuite",
+  "sellright",
+  "tools/screenright",
+  "voiceright",
+  "workright",
+];
+const cargoAuthorityNames = [
+  "CARGO_HOME",
+  "CARGO_TARGET_DIR",
+  "CARGO_BUILD_TARGET_DIR",
+  "CARGO_BUILD_BUILD_DIR",
+  "CARGO_BUILD_JOBS",
+  "CARGO_ENCODED_RUSTFLAGS",
+  "RUSTFLAGS",
+  "RUSTC_WRAPPER",
+  "RUSTC_WORKSPACE_WRAPPER",
+  "SCCACHE_DIR",
+  "SCCACHE_BASEDIRS",
+  "SCCACHE_CACHE_SIZE",
+];
+const cargoAuthorityExtensions = new Set([".mjs", ".js", ".cjs", ".ts", ".sh", ".ps1", ".py", ".json"]);
+
+function findFirstPartyBuildScripts(root) {
+  const found = [];
+  const visit = (dir) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory() && [
+        ".agent", ".audit", ".cache", ".git", ".right-release", "bakeoff", "dist", "docs",
+        "node_modules", "reference", "target", "tests", "vendor",
+      ].includes(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(full);
+        continue;
+      }
+      if (!entry.isFile() || !cargoAuthorityExtensions.has(path.extname(entry.name))) continue;
+      const relative = path.relative(root, full).replaceAll(path.sep, "/");
+      if (/(?:^|\/)(?:test-|[^/]+\.test\.)/.test(relative)) continue;
+      if (
+        relative.includes("/scripts/")
+        || relative.startsWith("scripts/")
+        || /(?:^|\/)(?:package\.json|package\.(?:sh|ps1)|right-release\.config\.mjs)$/.test(relative)
+        || (!relative.includes("/") && /\.(?:sh|ps1)$/.test(relative))
+      ) found.push(full);
+    }
+  };
+  visit(root);
+  return found;
+}
+
+function executableScriptSource(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((line) => !/^\s*(?:\/\/|#)/.test(line))
+    .join("\n");
+}
+
+test("product scripts never override or destroy RightKit-owned Cargo cache state", () => {
+  const authorityName = cargoAuthorityNames.join("|");
+  const jsMutation = new RegExp(`(?:delete\\s+process\\.env\\.(?:${authorityName})|process\\.env\\.(?:${authorityName})\\s*=|\\b(?:${authorityName})\\s*:)`);
+  const shellMutation = new RegExp(`(?:^|\\n)\\s*(?:export\\s+|unset\\s+|env\\s+(?:-[^\\n ]+\\s+)*-u\\s+)?(?:${authorityName})(?:\\s*=|\\b)`);
+  const powershellMutation = new RegExp(`\\$env:(?:${authorityName})\\s*=`, "i");
+  const cargoClean = /\bcargo\s+clean\b|["']cargo["'][\s\S]{0,400}?["']clean["']/;
+
+  for (const appRoot of cargoAuthorityRoots) {
+    const root = path.join(workspace, appRoot);
+    if (!existsSync(root)) continue;
+    for (const filePath of findFirstPartyBuildScripts(root)) {
+      const source = executableScriptSource(readFileSync(filePath, "utf8"));
+      const relative = path.relative(workspace, filePath);
+      assert.doesNotMatch(source, jsMutation, `${relative} mutates RightKit-owned Cargo/cache environment`);
+      assert.doesNotMatch(source, shellMutation, `${relative} mutates RightKit-owned Cargo/cache environment`);
+      assert.doesNotMatch(source, powershellMutation, `${relative} mutates RightKit-owned Cargo/cache environment`);
+      assert.doesNotMatch(source, cargoClean, `${relative} destroys reusable Cargo output with cargo clean`);
+      assert.doesNotMatch(source, /--target-dir\b/, `${relative} bypasses RightKit target ownership`);
+      assert.doesNotMatch(source, /(?:^|[\\/])\.cargo[\\/]bin(?:[\\/]|\b)/i, `${relative} bypasses managed Cargo by injecting a toolchain directory`);
+      assert.doesNotMatch(source, /build-guard\.mjs/, `${relative} depends on obsolete product-local build/cache control`);
+    }
+    assert.equal(existsSync(path.join(root, "scripts", "build-guard.mjs")), false, `${appRoot} must not carry a product-local build guard`);
   }
 });
 
