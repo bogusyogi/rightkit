@@ -477,7 +477,8 @@ async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = nu
     let managedRequestId = null;
     const settleResolve = () => { if (!settled) { settled = true; resolve(); } };
     const settleReject = (error) => { if (!settled) { settled = true; reject(error); } };
-    child = spawn(cmd, runArgs, { cwd, env, stdio: ["inherit", "pipe", "pipe"], windowsHide: true, shell: process.platform === "win32", detached: process.platform !== "win32" });
+    const useShell = process.platform === "win32" && !/\.(?:exe|com)$/i.test(cmd);
+    child = spawn(cmd, runArgs, { cwd, env, stdio: ["inherit", "pipe", "pipe"], windowsHide: true, shell: useShell, detached: process.platform !== "win32" });
     try {
       if (child.pid && heavySlot) heavySlot.trackChild(child.pid, cmd);
     } catch (error) {
