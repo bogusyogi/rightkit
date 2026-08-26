@@ -31,6 +31,16 @@ export function loadWindowsJobAddon({ path = ADDON_PATH, exists = existsSync, ma
   return cached;
 }
 
+/** Prepare Node/libuv's next named pipe for this exact Windows user even when
+ * Task Scheduler launched the broker with an S4U token. */
+export function secureWindowsBrokerProcessDefaultDacl({ platform = process.platform, loadAddon = loadWindowsJobAddon } = {}) {
+  if (platform !== 'win32') return false;
+  const addon = loadAddon();
+  if (!addon || typeof addon.grantCurrentUserDefaultDacl !== 'function') throw new Error('Windows broker DACL helper is unavailable');
+  addon.grantCurrentUserDefaultDacl();
+  return true;
+}
+
 /** Test-only: clears the module-level cache so a test can simulate a missing
  * or present addon without process isolation. */
 export function resetWindowsJobAddonCacheForTests() { cached = undefined; }

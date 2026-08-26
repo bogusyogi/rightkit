@@ -5,6 +5,7 @@ import { SOURCE_RUNTIME_IDENTITY, normalizeRuntimeIdentity } from '@rightkit/bui
 import { loadBrokerConfig } from './config.mjs';
 import { ThinJobService, createThinJobServer } from './thin-job-service.mjs';
 import { prepareUnixSocketEndpoint, removeStaleUnixSocket, secureUnixSocketEndpoint } from './utilities.mjs';
+import { secureWindowsBrokerProcessDefaultDacl } from './windows-job.mjs';
 const configPath = process.argv[2] ?? process.env.RIGHTKIT_BUILD_BROKER_CONFIG;
 if (!configPath) throw new Error('explicit broker JSON config path is required');
 const config = await loadBrokerConfig(configPath);
@@ -13,6 +14,7 @@ const runtimeIdentity = await readFile(runtimeManifestPath, 'utf8').then((value)
 const service = await ThinJobService.create({ config, runtimeIdentity });
 const endpoint = process.platform === 'win32' ? config.windowsPipe : config.unixSocket;
 if (!endpoint) throw new Error('platform socket/pipe endpoint is required');
+if (process.platform === 'win32') secureWindowsBrokerProcessDefaultDacl();
 if (process.platform !== 'win32') {
   await prepareUnixSocketEndpoint({ endpoint, externalRoot: config.broker.externalRoot.path });
   await removeStaleUnixSocket(endpoint);
