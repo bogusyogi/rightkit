@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const SCHEMA_VERSION = 1;
 const STATE_FILE = 'state.json';
 const IDENTITY_FILE = 'identity.json';
+const WINDOWS_RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'ENOTEMPTY']);
+const WINDOWS_RENAME_RETRY_DELAYS_MS = Object.freeze([10, 25, 50, 100, 200, 400, 800]);
 
 function requireAbsolute(value, label) {
   if (typeof value !== 'string' || !isAbsolute(value)) throw new TypeError(`${label} must be an absolute path`);
@@ -24,11 +27,27 @@ async function readJson(path, { missing = null } = {}) {
   }
 }
 
-async function atomicJson(path, value) {
+export async function replaceAtomicFile(source, target, { platform = process.platform, renameFile = rename, wait = delay, retryDelays = WINDOWS_RENAME_RETRY_DELAYS_MS } = {}) {
+  let retry = 0;
+  for (;;) {
+    try { return await renameFile(source, target); }
+    catch (error) {
+      if (platform !== 'win32' || !WINDOWS_RENAME_RETRY_CODES.has(error.code) || retry >= retryDelays.length) throw error;
+      await wait(retryDelays[retry]); retry += 1;
+    }
+  }
+}
+
+export async function atomicJson(path, value, { platform = process.platform, renameFile = rename, removeFile = rm, wait = delay, retryDelays = WINDOWS_RENAME_RETRY_DELAYS_MS } = {}) {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-  await rename(temporary, path);
+  try { await replaceAtomicFile(temporary, path, { platform, renameFile, wait, retryDelays }); }
+  catch (error) {
+    try { await removeFile(temporary, { force: true }); }
+    catch (cleanupError) { error.cleanupError = cleanupError; }
+    throw error;
+  }
 }
 
 function workspaceKey(canonicalRoot) {

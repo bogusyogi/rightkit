@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { ThinState } from './thin-state.mjs';
+import { atomicJson, replaceAtomicFile, ThinState } from './thin-state.mjs';
 
 async function fixture({ advanceClock = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-state-'));
@@ -13,6 +13,39 @@ async function fixture({ advanceClock = false } = {}) {
   const state = await ThinState.open({ externalRoot: root, now: () => { const value = new Date(clock); if (advanceClock) clock += 1_000; return value; } });
   return { root, workspace, state, close: () => rm(root, { recursive: true, force: true }) };
 }
+
+test('Windows atomic replacement retries transient sharing failures', async () => {
+  const waits = []; let attempts = 0;
+  await replaceAtomicFile('state.tmp', 'state.json', {
+    platform: 'win32', retryDelays: [5, 10, 20], wait: async (milliseconds) => waits.push(milliseconds),
+    renameFile: async () => {
+      attempts += 1;
+      if (attempts < 3) throw Object.assign(new Error('sharing violation'), { code: 'EPERM' });
+    }
+  });
+  assert.equal(attempts, 3);
+  assert.deepEqual(waits, [5, 10]);
+});
+
+test('atomic JSON removes its temporary file after bounded replacement failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-state-atomic-'));
+  try {
+    await assert.rejects(atomicJson(join(root, 'state.json'), { state: 'test' }, {
+      platform: 'win32', retryDelays: [1], wait: async () => {},
+      renameFile: async () => { throw Object.assign(new Error('sharing violation'), { code: 'EPERM' }); }
+    }), { code: 'EPERM' });
+    assert.deepEqual(await readdir(root), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('atomic replacement does not retry non-transient failures', async () => {
+  let attempts = 0;
+  await assert.rejects(replaceAtomicFile('state.tmp', 'state.json', {
+    platform: 'win32', wait: async () => assert.fail('permanent failure must not wait'),
+    renameFile: async () => { attempts += 1; throw Object.assign(new Error('access denied'), { code: 'EACCES' }); }
+  }), { code: 'EACCES' });
+  assert.equal(attempts, 1);
+});
 
 test('creates required global & persistent workspace generation layout', async () => {
   const item = await fixture();
