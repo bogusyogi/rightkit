@@ -18,13 +18,13 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux' } = {}) {
+async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo' } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
   const state = await ThinState.open({ externalRoot: root }); const children = []; let pid = 300;
   if (gc) state.gc = gc;
-  const tools = new Map([['cargo', { id: 'cargo', path: '/managed/cargo', sha256: digest }], ['rustc', { id: 'rustc', path: '/managed/rustc', sha256: digest }], ['rustdoc', { id: 'rustdoc', path: '/managed/rustdoc', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
+  const tools = new Map([['cargo', { id: 'cargo', path: cargoPath, sha256: digest }], ['rustc', { id: 'rustc', path: '/managed/rustc', sha256: digest }], ['rustdoc', { id: 'rustdoc', path: '/managed/rustdoc', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
   const registry = { verify: async (id) => { const tool = tools.get(id); if (!tool) throw new Error(`missing ${id}`); return tool; } };
   const logger = { events: [], append(event) { this.events.push(event); return Promise.resolve(event); }, close: async () => {} };
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
@@ -125,6 +125,16 @@ test('macOS jobs override stale cache loader state with broker-owned Rust toolch
     const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['--version'])))).result;
     assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
     assert.equal(item.children.at(-1).environment.DYLD_FALLBACK_LIBRARY_PATH, join(dirname('/managed/cargo'), '..', 'lib'));
+  } finally { await item.close(); }
+});
+
+test('jobs select the rustup toolchain registered by Cargo path', async () => {
+  const toolchain = 'stable-x86_64-pc-windows-msvc';
+  const item = await fixture({ cargoPath: join('/managed', 'toolchains', toolchain, 'bin', 'cargo') });
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['--version'])))).result;
+    assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
+    assert.equal(item.children.at(-1).environment.RUSTUP_TOOLCHAIN, toolchain);
   } finally { await item.close(); }
 });
 
