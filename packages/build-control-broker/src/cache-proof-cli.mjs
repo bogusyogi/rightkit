@@ -37,6 +37,10 @@ export function isDirectCacheProofMain({ moduleUrl = import.meta.url, argv1 = pr
   catch { return false; }
 }
 
+export function provesCacheableReuse(reuse) {
+  return reuse?.hits >= 1 && reuse?.misses === 0 && reuse?.hitRate === 1;
+}
+
 async function liveFixtureLayout(managedRoot, fixtureWorkspace) {
   const workspaceStore = join(managedRoot, 'rightkit-build-control', 'workspaces');
   const canonical = await realpath(fixtureWorkspace);
@@ -100,7 +104,7 @@ export async function runCacheProof({ externalRoot = process.platform === 'win32
     const run = await runFixture(rightkit, fixtureWorkspace); await assertBrokerIdle(managedRoot);
     const after = await stats(cache); const delta = thinCacheStatsDelta(before, after); const reuse = classifyCacheReuse(delta);
     const sample = Object.freeze({ iteration: index, requestId: run.id, reuse, delta }); samples.push(sample);
-    if (reuse.status !== 'PROVEN' || reuse.hits < 1 || reuse.misses !== 0) throw Object.assign(new Error(`cache proof iteration ${index} failed: ${reuse.status}, ${reuse.hits} hits, ${reuse.misses} misses`), { sample });
+    if (!provesCacheableReuse(reuse)) throw Object.assign(new Error(`cache proof iteration ${index} failed: ${reuse.status}, ${reuse.hits} hits, ${reuse.misses} misses, ${reuse.bypassed} bypassed`), { sample });
   }
   const report = Object.freeze({ schema: 'rightkit.cache-proof.v1', status: 'PROVEN', generatedAt: new Date().toISOString(), host: { name: hostname(), platform: process.platform, arch: arch() }, toolchain: config.defaults.toolchain, targetTriple: config.defaults.targetTriple, fixtureWorkspace, target: targetOptions.target, primeRequestId: prime.id, iterations: Object.freeze(samples) });
   const reportPath = join(managedRoot, 'rightkit-build-control', 'cache-proof-latest.json'); const temporary = `${reportPath}.${randomUUID()}.tmp`;

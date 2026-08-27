@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isDirectCacheProofMain, parseCacheProofArgs } from './cache-proof-cli.mjs';
+import { isDirectCacheProofMain, parseCacheProofArgs, provesCacheableReuse } from './cache-proof-cli.mjs';
 
 test('cache proof CLI bounds iterations & rejects unknown arguments', () => {
   assert.deepEqual(parseCacheProofArgs([]), { iterations: 3 });
@@ -18,4 +18,10 @@ test('cache proof direct-main detection works on Windows & POSIX', () => {
     platform: 'win32',
     canonicalize: (path) => path.replaceAll('/', '\\').replace('runtime-current', 'runtime-versioned')
   }), true);
+});
+
+test('cache proof accepts 100% cacheable hits while retaining bypass telemetry', () => {
+  assert.equal(provesCacheableReuse({ status: 'MIXED', hits: 1, misses: 0, bypassed: 1, hitRate: 1 }), true);
+  assert.equal(provesCacheableReuse({ status: 'MIXED', hits: 1, misses: 1, bypassed: 0, hitRate: 0.5 }), false);
+  assert.equal(provesCacheableReuse({ status: 'BYPASSED', hits: 0, misses: 0, bypassed: 1, hitRate: null }), false);
 });
