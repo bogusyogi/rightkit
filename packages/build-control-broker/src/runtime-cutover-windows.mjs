@@ -25,10 +25,11 @@ export async function installManagedRuntimeWindows(options = {}) {
   return installer({ ...options, ...callbacks, platform: 'win32', windowsJobAddon });
 }
 
-/** One scheduled task, `/RestartOnFailure`, ONSTART + logon triggers so a
- * reboot & a crash both bring the broker back — the launchd `KeepAlive` +
- * `RunAtLoad` equivalent. schtasks.exe's own flags cannot express restart
- * policy; only the Task Scheduler XML schema can. */
+/** One current-user scheduled task with `/RestartOnFailure` + a logon trigger.
+ * Named pipes created by an S4U task run in session 0 & reject interactive
+ * clients with EPERM, so the broker must inherit the user's interactive token.
+ * schtasks.exe's own flags cannot express restart policy; only Task Scheduler
+ * XML can. */
 export function renderTaskDefinition({ taskName, nodePath, brokerScript, configPath, author = 'RightKit' }) {
   const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   return `<?xml version="1.0" encoding="UTF-16"?>
@@ -38,19 +39,13 @@ export function renderTaskDefinition({ taskName, nodePath, brokerScript, configP
     <Description>RightKit managed build broker (v2)</Description>
   </RegistrationInfo>
   <Triggers>
-    <BootTrigger>
-      <Enabled>true</Enabled>
-    </BootTrigger>
     <LogonTrigger>
       <Enabled>true</Enabled>
     </LogonTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">
-      <!-- S4U: runs as this user without an interactive desktop session, so a
-           console-subsystem binary like node.exe never flashes a window —
-           InteractiveToken would, because it runs inside the visible session. -->
-      <LogonType>S4U</LogonType>
+      <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
   </Principals>
@@ -102,7 +97,7 @@ export async function ensureWindowsTaskRegistered({ taskName, taskXmlPath, execF
   if (registered) {
     // Cutover disables the existing task before replacing runtime-current. Its
     // action already targets runtime-current, so re-registering an unchanged
-    // BootTrigger definition is unnecessary & requires elevation on Windows.
+    // definition is unnecessary & requires elevation on Windows.
     // Re-enable it under its existing ACL instead.
     await execFile('schtasks', ['/Change', '/TN', taskName, '/ENABLE']);
     return Object.freeze({ registered: true, reused: true });

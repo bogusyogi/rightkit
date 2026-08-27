@@ -15,7 +15,7 @@ import { runWindowsCutover } from './runtime-cutover-windows-cli.mjs';
 const execFile = promisify(childExecFile);
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const REPO_ROOT = resolve(PACKAGE_ROOT, '..', '..', '..', '..');
-const TASK_NAME = 'RightKitBuildControlManaged';
+const TASK_NAME = 'RightKitManagedAgentBroker';
 
 const KNOWN_TOOLS = ['cargo', 'rustc', 'rustdoc', 'rustup', 'sccache', 'pnpm', 'npm', 'cmake', 'make', 'clang', 'gcc'];
 const EXTERNAL_CARGO_TOOLS = Object.freeze([
