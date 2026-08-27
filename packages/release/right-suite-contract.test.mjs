@@ -489,7 +489,7 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.68",
+    "@rightkit/release": "0.2.70",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4",
   });
@@ -498,7 +498,7 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/hooks": ["0.1.0"],
     "@rightkit/legal": ["0.3.0"],
     "@rightkit/license": ["0.1.6"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69"],
     "@rightkit/qa": ["0.1.0", "0.2.0"],
   });
   assert.ok(
@@ -717,8 +717,12 @@ for (const app of apps) {
 }
 
 for (const app of macOnlyApps) {
-  test(`${app.key} follows the macOS-only AppKit Right Release contract`, async () => {
+  test(`${app.key} follows the macOS-only AppKit Right Release contract`, async (context) => {
     const root = path.join(workspace, app.root);
+    if (!existsSync(path.join(root, "package.json"))) {
+      context.skip(`${app.key} is not present in this checkout`);
+      return;
+    }
     const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
     assert.equal(pkg.scripts["release:doctor"], "right-release doctor");
     assert.equal(pkg.scripts["release:build:mac"], "right-release build --platform mac");

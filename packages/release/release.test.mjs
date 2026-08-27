@@ -16,7 +16,7 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win" } = {}) {
+function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -45,6 +45,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
       app: "fixture",
       packageManager: "pnpm",
       checks: [],
+      ...(hostedWorkflows ? { hostedWorkflows } : {}),
       targets: {
         [platform]: {
           ...(buildInputs ? { buildInputs } : {}),
@@ -52,7 +53,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
           package: packageCommand ?? { cmd: "node", args: ["-e", "process.exit(0)"] },
           ...(publish ? { publish: { cmd: "node", args: ["publish-update.mjs"] } } : {}),
           artifacts: [],
-          ...(platform === "win" ? { signingContract, prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles, files: ["fixture.exe"] } } : {}),
+          ...(platform === "win" ? { signingContract, prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles, files: signFiles } } : {}),
           updater: { artifacts: [{ file: "fixture.exe", signature: "fixture.exe.sig", platform: "windows-x86_64", key: "fixture/fixture.exe" }] },
           hardening: [],
         },
@@ -240,6 +241,32 @@ test("rejects Windows targets with missing or ambiguous signing configuration", 
   }
 });
 
+test("accepts portable Windows releases with multiple pre-package executables and no installer", () => {
+  const result = run(fixture({
+    signingContract: "windows-raw-exe-authenticode-before-portable-v1",
+    prePackageFiles: ["legion.exe", "legion-hook.exe", "legion-mcp.exe"],
+    signFiles: [],
+  }), "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /raw-exe/);
+  assert.doesNotMatch(result.stdout, /bundle marker/);
+});
+
+test("uses a configured signing receipt path for portable architecture isolation", () => {
+  const source = readFileSync(release, "utf8");
+  assert.match(source, /phase === "raw-exe" \? target\.sign\?\.receipt : target\.sign\?\.installerReceipt/);
+  assert.match(source, /if \(configured\) return path\.resolve\(root, configured\)/);
+});
+
+test("rejects portable Windows releases that declare a second installer signing phase", () => {
+  const result = run(fixture({
+    signingContract: "windows-raw-exe-authenticode-before-portable-v1",
+    prePackageFiles: ["legion.exe"],
+  }), "--tier=patch");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /portable.*omit sign\.files/i);
+});
+
 test("rejects Git, path, or link RightKit app dependencies before release work starts", () => {
   const result = run(
     fixture({
@@ -271,6 +298,35 @@ test("rejects hosted workflow files before release work starts", () => {
   const result = run(config, "--tier=patch");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /hosted workflow.*forbidden/i);
+});
+
+test("accepts one right-git managed CI workflow without granting hosted release authority", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci"] }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git — do not hand-edit.\npermissions:\n  contents: read\njobs: {}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add managed ci");
+
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects a self-labeled right-git workflow with release-capable authority", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci"] }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  id-token: write\njobs: {}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add unsafe ci");
+
+  const result = run(config, "--tier=patch");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release-capable permissions or secrets/i);
 });
 
 test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", () => {
