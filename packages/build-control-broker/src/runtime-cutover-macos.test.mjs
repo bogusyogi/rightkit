@@ -62,13 +62,15 @@ test('macOS cutover rejects handshake digest mismatch', async () => {
 
 test('macOS cutover bootstraps exact supplied plist when service is unloaded', macOSOnly, async () => {
   const { callbacks, calls } = harness({ unloaded: true });
-  await callbacks.restartService({ manifest, timeoutMs: 200 });
+  const result = await callbacks.restartService({ manifest, timeoutMs: 200 });
+  assert.equal(result.pid, 10);
   assert.deepEqual(calls.filter(([file]) => file === 'launchctl').slice(0, 4), [
     ['launchctl', ['enable', 'system/com.rightkit.broker']],
     ['launchctl', ['print', 'system/com.rightkit.broker']],
     ['launchctl', ['bootstrap', 'system', '/Library/LaunchAgents/com.rightkit.broker.plist']],
     ['launchctl', ['print', 'system/com.rightkit.broker']],
   ]);
+  assert.equal(calls.some(([file, args]) => file === 'launchctl' && args[0] === 'kickstart'), false);
 });
 
 test('macOS process probe binds launchd PID to exact resolved runtime script', async () => {

@@ -59,10 +59,10 @@ export function createMacOSRuntimeCallbacks(options = {}) {
   };
   const enable = () => execFile('launchctl', ['enable', target]);
   const ensureLoaded = async () => {
-    try { return await serviceStatus(); }
+    try { return { ...(await serviceStatus()), bootstrapped: false }; }
     catch (initialError) {
       await bootstrap();
-      try { return await serviceStatus(); }
+      try { return { ...(await serviceStatus()), bootstrapped: true }; }
       catch (bootstrapError) { throw new Error(`launchd service is unavailable after bootstrap: ${bootstrapError.message}`, { cause: initialError }); }
     }
   };
@@ -155,9 +155,12 @@ export function createMacOSRuntimeCallbacks(options = {}) {
       await ensureDrained();
       await enable();
       const old = await ensureLoaded().catch(() => ({ pid: null }));
-      await kickstart();
       const deadline = Date.now() + callTimeoutMs;
-      const pid = await waitForPid(old.pid, deadline);
+      // Bootstrap already starts a RunAtLoad service. Sending kickstart -k here
+      // races activation against termination of that fresh PID, so only kick an
+      // already-loaded service. For a new bootstrap, wait for its first PID.
+      if (!old.bootstrapped) await kickstart();
+      const pid = await waitForPid(old.bootstrapped ? null : old.pid, deadline);
       const runtimeIdentity = await handshake(manifest, deadline);
       return { pid, runtimeIdentity };
     },
