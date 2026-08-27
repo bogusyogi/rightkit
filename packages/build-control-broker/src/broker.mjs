@@ -30,6 +30,20 @@ try {
   throw error;
 }
 let stopping = false;
-const stop = async () => { if (stopping) return; stopping = true; server.close(); await service.shutdown(); if (process.platform !== 'win32') await removeStaleUnixSocket(endpoint).catch(() => {}); };
-process.once('SIGTERM', () => { void stop().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; }); });
-process.once('SIGINT', () => { void stop().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; }); });
+const stop = async (signal = null) => {
+  if (stopping) return;
+  stopping = true;
+  if (signal) await service.recordTerminationSignal(signal, {
+    pid: process.pid,
+    ppid: process.ppid,
+    platform: process.platform,
+    configPath,
+    endpoint,
+    runtime: runtimeIdentity,
+  });
+  server.close();
+  await service.shutdown();
+  if (process.platform !== 'win32') await removeStaleUnixSocket(endpoint).catch(() => {});
+};
+process.once('SIGTERM', () => { void stop('SIGTERM').catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; }); });
+process.once('SIGINT', () => { void stop('SIGINT').catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; }); });

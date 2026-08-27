@@ -246,6 +246,14 @@ export class ThinJobService {
 
   get runtimeIdentity() { return this.#runtime; }
 
+  async recordTerminationSignal(signal, metadata = {}) {
+    if (!['SIGINT', 'SIGTERM'].includes(signal)) throw new TypeError('broker termination signal must be SIGINT or SIGTERM');
+    const activeRequestIds = [...this.#jobs.values()].filter((job) => !job.terminal).map((job) => job.id).sort();
+    await this.#log({ type: 'BROKER_TERMINATION_SIGNAL', signal, ...metadata, activeRequestIds });
+    await this.#logger.flush?.();
+    return Object.freeze({ signal, activeRequestIds });
+  }
+
   cacheUnavailable(event) {
     if (this.#stopping) return;
     const affected = [...this.#jobs.values()].filter((job) => !job.terminal && job.capability.compile);

@@ -26,7 +26,7 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
   if (gc) state.gc = gc;
   const tools = new Map([['cargo', { id: 'cargo', path: cargoPath, sha256: digest }], ['rustc', { id: 'rustc', path: '/managed/rustc', sha256: digest }], ['rustdoc', { id: 'rustdoc', path: '/managed/rustdoc', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
   const registry = { verify: async (id) => { const tool = tools.get(id); if (!tool) throw new Error(`missing ${id}`); return tool; } };
-  const logger = { events: [], append(event) { this.events.push(event); return Promise.resolve(event); }, close: async () => {} };
+  const logger = { events: [], flushes: 0, append(event) { this.events.push(event); return Promise.resolve(event); }, flush() { this.flushes += 1; return Promise.resolve(); }, close: async () => {} };
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
   const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
   const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }) });
@@ -55,6 +55,20 @@ test('broker readiness does not wait for retired-generation sizing', async () =>
   try {
     assert.equal(item.logger.events.some((event) => event.type === 'BROKER_READY'), true);
     release({ deleted: [], totalBytes: 0, capBytes: null });
+  } finally { await item.close(); }
+});
+
+test('termination signal is durably logged with active request provenance', async () => {
+  const item = await fixture();
+  try {
+    const { result } = await call(item.service, command('SUBMIT', message(item.workspace, ['check'])));
+    await waitFor(item.service, result.id, ['RUNNING']);
+    const recorded = await item.service.recordTerminationSignal('SIGINT', { pid: 41, ppid: 17, platform: 'win32' });
+    assert.deepEqual(recorded, { signal: 'SIGINT', activeRequestIds: [result.id] });
+    assert.equal(item.logger.flushes, 1);
+    assert.deepEqual(item.logger.events.at(-1), { type: 'BROKER_TERMINATION_SIGNAL', signal: 'SIGINT', pid: 41, ppid: 17, platform: 'win32', activeRequestIds: [result.id] });
+    await call(item.service, command('CANCEL', result.id));
+    await waitFor(item.service, result.id, ['CANCELLED']);
   } finally { await item.close(); }
 });
 

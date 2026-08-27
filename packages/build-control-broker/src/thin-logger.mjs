@@ -21,6 +21,12 @@ export class ThinLogger {
     return this.#pending;
   }
 
+  async flush() {
+    if (this.#closed) throw new Error('thin logger is closed');
+    await this.#pending;
+    await this.#handle.sync();
+  }
+
   async close() {
     if (this.#closed) return;
     this.#closed = true;
