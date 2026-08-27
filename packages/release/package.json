@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/release",
-  "version": "0.2.69",
+  "version": "0.2.70",
   "description": "Portable Right Suite release CLI/SDK: native-host signed installers, updater artifacts, hardening, immutable GitHub Release upload, and add-on adoption.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -12,7 +12,9 @@
     "*.mjs",
     "*.json",
     "*.sh",
-    "*.py"
+    "*.py",
+    "!*.test.mjs",
+    "!standalone-clone-evidence.json"
   ],
   "sideEffects": false,
   "scripts": {
