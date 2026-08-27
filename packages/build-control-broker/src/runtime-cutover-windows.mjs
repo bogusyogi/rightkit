@@ -90,6 +90,8 @@ export function selectWindowsNodePid(processes, nodePath) {
 }
 
 export async function selectWindowsNodePidResolved(processes, nodePath, resolvePath = realpath) {
+  const literalMatch = selectWindowsNodePid(processes, nodePath);
+  if (literalMatch) return literalMatch;
   const physicalNodePath = await Promise.resolve().then(() => resolvePath(nodePath)).catch(() => nodePath);
   return selectWindowsNodePid(processes, physicalNodePath);
 }

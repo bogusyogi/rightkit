@@ -85,9 +85,11 @@ test('Windows PID selection rejects shell/self matches', () => {
 });
 
 test('Windows PID selection resolves an NVM junction before exact executable comparison', async () => {
-  const processes = [{ ProcessId: 913, Name: 'node.exe', ExecutablePath: 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe' }];
-  const selected = await selectWindowsNodePidResolved(processes, 'C:\\nvm4w\\nodejs\\node.exe', async () => 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe');
-  assert.equal(selected, 913);
+  const physical = [{ ProcessId: 913, Name: 'node.exe', ExecutablePath: 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe' }];
+  const junction = [{ ProcessId: 914, Name: 'node.exe', ExecutablePath: 'C:\\nvm4w\\nodejs\\node.exe' }];
+  const resolvePath = async () => 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe';
+  assert.equal(await selectWindowsNodePidResolved(physical, 'C:\\nvm4w\\nodejs\\node.exe', resolvePath), 913);
+  assert.equal(await selectWindowsNodePidResolved(junction, 'C:\\nvm4w\\nodejs\\node.exe', resolvePath), 914);
 });
 
 test('fresh Windows cutover registers task & rollback ends registered candidate', async () => {
