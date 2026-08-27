@@ -29,7 +29,8 @@ const RIGHTKIT_ALLOWED = buildAllowedVersions(
 );
 const RIGHTKIT_CARGO_ALLOWED = buildAllowedVersions(RIGHTKIT_VERSIONS.cargo, RIGHTKIT_VERSIONS.stagedCargo);
 const FORBIDDEN_RIGHTKIT_SPEC = /^(?:git|file|link|workspace):|github|github\.com/i;
-const WINDOWS_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-nsis-v1";
+const WINDOWS_NSIS_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-nsis-v1";
+const WINDOWS_PORTABLE_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-portable-v1";
 const DEFAULT_NOTARIZATION_TIMEOUT_MS = 30 * 60 * 1000;
 
 const args = process.argv.slice(2);
@@ -91,7 +92,7 @@ if (config.schema !== 1) fail(`unsupported config schema: ${config.schema ?? "<m
 
 const root = path.dirname(configPath);
 const workdir = path.resolve(root, config.workdir ?? ".");
-await validateRightKitPackageContract(root, config.app);
+await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
 validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.basename(root));
 const target = config.targets?.[opts.platform];
 if (!target) fail(`${config.app ?? "app"} has no ${opts.platform} release target`);
@@ -101,14 +102,16 @@ const legalContract = config.legal
 if (target.signed !== true) {
   fail(`${config.app ?? "app"} ${opts.platform} must declare signed: true; unsigned release targets are forbidden`);
 }
-if (opts.platform === "win" && !target.sign?.files?.length) {
-  fail(`${config.app ?? "app"} win must declare sign.files for the signed release pipeline`);
-}
 if (opts.platform === "win") {
-  if (target.signingContract !== WINDOWS_SIGNING_CONTRACT) fail(`${config.app ?? "app"} win must declare signingContract: ${WINDOWS_SIGNING_CONTRACT}`);
+  const isNsis = target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT;
+  const isPortable = target.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT;
+  if (!isNsis && !isPortable) fail(`${config.app ?? "app"} win must declare signingContract: ${WINDOWS_NSIS_SIGNING_CONTRACT} or ${WINDOWS_PORTABLE_SIGNING_CONTRACT}`);
   if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} win must declare prePackage for the raw EXE build`);
-  if (target.sign?.prePackageFiles?.length !== 1) fail(`${config.app ?? "app"} win must declare exactly one sign.prePackageFiles raw EXE`);
-  if (target.sign.prePackageFiles.some((file) => target.sign.files.includes(file))) fail(`${config.app ?? "app"} win raw EXE and installer signing files must be distinct`);
+  if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} win must declare at least one sign.prePackageFiles raw EXE`);
+  if (isNsis && target.sign.prePackageFiles.length !== 1) fail(`${config.app ?? "app"} win NSIS must declare exactly one sign.prePackageFiles raw EXE`);
+  if (isNsis && !target.sign?.files?.length) fail(`${config.app ?? "app"} win NSIS must declare sign.files for installer signing`);
+  if (isNsis && target.sign.prePackageFiles.some((file) => target.sign.files.includes(file))) fail(`${config.app ?? "app"} win raw EXE and installer signing files must be distinct`);
+  if (isPortable && target.sign?.files?.length) fail(`${config.app ?? "app"} win portable release must sign every executable through sign.prePackageFiles and omit sign.files`);
 }
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
@@ -206,7 +209,8 @@ if (opts.platform === "win") {
   // bundling, and doing that to signed bytes invalidates Authenticode — the exact
   // defect that shipped invalid binaries. Idempotent, so an app that still patches
   // in its own prePackage script simply reports alreadyPatched here.
-  bundleMarkerReceipts = opts.dryRun ? [] : rawFiles.map((file) => patchTauriBundleType(file, { bundle: target.bundleMarker ?? "nsis" }));
+  const isNsis = target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT;
+  bundleMarkerReceipts = !isNsis || opts.dryRun ? [] : rawFiles.map((file) => patchTauriBundleType(file, { bundle: target.bundleMarker ?? "nsis" }));
   for (const receipt of bundleMarkerReceipts) {
     console.log(`right-release: bundle marker ${receipt.bundle} ${receipt.alreadyPatched ? "already applied" : "applied"} at offset ${receipt.offset} in ${path.basename(receipt.file)}`);
   }
@@ -219,7 +223,7 @@ for (const rel of target.artifacts ?? []) {
   await mustExist(path.resolve(root, rel), `missing release artifact: ${rel}`);
 }
 
-if (opts.platform === "win" && target.sign?.files?.length) {
+if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT) {
   const files = target.sign.files.map((p) => path.resolve(root, p));
   for (const file of files) await mustExist(file, `missing signing artifact: ${file}`);
   // Before the installer earns its own signature, prove it carries the bytes we
@@ -360,16 +364,16 @@ function commandTimeoutMs(command) {
     : undefined;
 }
 
-async function validateRightKitPackageContract(root, appName) {
+async function validateRightKitPackageContract(root, appName, hostedWorkflows) {
   const packageJsonPath = path.join(root, "package.json");
   const pkg = JSON.parse(await readFile(packageJsonPath, "utf8"));
   const scripts = pkg.scripts ?? {};
   assertQaBackdoorContract(root, scripts);
   const workflowDir = path.join(root, ".github", "workflows");
   if (existsSync(workflowDir)) {
-    const workflows = await readdir(workflowDir);
+    const workflows = (await readdir(workflowDir)).sort();
     if (workflows.length) {
-      fail(`${appName ?? pkg.name ?? "app"} hosted workflow files are forbidden: ${workflows.join(", ")}`);
+      await validateHostedWorkflows(root, appName ?? pkg.name ?? "app", workflows, hostedWorkflows);
     }
   }
   if (pkg.packageManager !== RIGHTKIT_VERSIONS.packageManager) {
@@ -391,6 +395,33 @@ async function validateRightKitPackageContract(root, appName) {
   const releaseAllowed = RIGHTKIT_ALLOWED.get("@rightkit/release");
   if (!releaseAllowed?.has(pkg.devDependencies?.["@rightkit/release"])) {
     fail(`${appName ?? pkg.name ?? "app"} must depend on a supported @rightkit/release version in devDependencies`);
+  }
+}
+
+async function validateHostedWorkflows(root, appName, workflows, policy) {
+  if (policy !== "right-git-ci-only") {
+    fail(`${appName} hosted workflow files are forbidden: ${workflows.join(", ")}`);
+  }
+  if (workflows.length !== 1 || workflows[0] !== "ci.yml") {
+    fail(`${appName} right-git-ci-only policy permits only ci.yml, got: ${workflows.join(", ")}`);
+  }
+  const manifestPath = path.join(root, ".rightgit.json");
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch {
+    fail(`${appName} right-git-ci-only policy requires a valid .rightgit.json`);
+  }
+  if (manifest?.schemaVersion !== 1 || JSON.stringify(manifest?.lanes) !== JSON.stringify(["ci"])) {
+    fail(`${appName} right-git-ci-only policy requires .rightgit.json lanes=["ci"]`);
+  }
+  const source = await readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
+  if (!source.startsWith("# Managed by right-git")) {
+    fail(`${appName} ci.yml is not marked as right-git managed`);
+  }
+  if (/^\s*(?:actions|attestations|contents|id-token|packages|security-events):\s*write\s*$/mi.test(source)
+    || /\bsecrets\s*\./i.test(source)) {
+    fail(`${appName} right-git managed ci.yml requests release-capable permissions or secrets`);
   }
 }
 
@@ -423,7 +454,7 @@ function expandEnv(value) {
 
 async function signWindows(files, phase, root) {
   const args = [SIGN_WINDOWS];
-  const receipt = path.join(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `windows-${phase}.json`);
+  const receipt = windowsReceiptPath(root, phase);
   if (opts.dryRun) args.push("--dry-run");
   else {
     if (existsSync(receipt)) unlinkSync(receipt);
@@ -435,6 +466,8 @@ async function signWindows(files, phase, root) {
 }
 
 function windowsReceiptPath(root, phase) {
+  const configured = phase === "raw-exe" ? target.sign?.receipt : target.sign?.installerReceipt;
+  if (configured) return path.resolve(root, configured);
   return path.join(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `windows-${phase}.json`);
 }
 
