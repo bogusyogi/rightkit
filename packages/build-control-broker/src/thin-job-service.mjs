@@ -71,6 +71,20 @@ const pathIsWithin = (root, candidate) => {
   const childPath = relative(normalize(root), candidate);
   return childPath === '' || (childPath !== '..' && !childPath.startsWith(`..${sep}`) && !isAbsolute(childPath));
 };
+const BROKER_ENDPOINT_ENVIRONMENT_KEY = 'RIGHTKIT_BUILD_BROKER_SOCKET';
+
+export function brokerEndpointForPlatform(config, platform = process.platform) {
+  const field = platform === 'win32' ? 'windowsPipe' : 'unixSocket';
+  const endpoint = config?.[field];
+  if (typeof endpoint !== 'string' || !endpoint) throw new TypeError(`validated broker ${field} is required`);
+  return endpoint;
+}
+
+function brokerOwnedRuntimeEnvironment(environment, endpoint) {
+  const runtime = Object.fromEntries(Object.entries(environment).filter(([key]) => key.toUpperCase() !== BROKER_ENDPOINT_ENVIRONMENT_KEY));
+  runtime[BROKER_ENDPOINT_ENVIRONMENT_KEY] = endpoint;
+  return runtime;
+}
 
 export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env, timeoutMs = 2_000 } = {}) {
   if (typeof workspace !== 'string' || !isAbsolute(workspace) || typeof cargoPath !== 'string' || !cargoPath) throw new TypeError('absolute workspace & cargoPath are required');
@@ -454,7 +468,7 @@ export class ThinJobService {
           : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };
       const agentBin = join(this.#config.broker.externalRoot.path, 'agent-bin');
       const directCargoCompilers = !job.parentId && job.shim === 'cargo' ? this.#compilerEnvironment : {};
-      const runtimeEnvironment = { ...runtimeBase(this.#toolchainLibraryPath, this.#rustupToolchain, this.#platform), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, ...directCargoCompilers, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken };
+      const runtimeEnvironment = brokerOwnedRuntimeEnvironment({ ...runtimeBase(this.#toolchainLibraryPath, this.#rustupToolchain, this.#platform), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, ...directCargoCompilers, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken }, brokerEndpointForPlatform(this.#config, this.#platform));
       // Loader authority remains broker-owned even when a cache adapter or
       // inherited parent environment contains a stale value.
       if (this.#platform === 'darwin' && this.#toolchainLibraryPath) runtimeEnvironment.DYLD_FALLBACK_LIBRARY_PATH = this.#toolchainLibraryPath;
