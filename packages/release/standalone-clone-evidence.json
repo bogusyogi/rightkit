@@ -8,7 +8,7 @@
       "remote": "https://github.com/bogusyogi/viewright.git",
       "appDir": ".",
       "revision": "21a4171fa8add2d8114bc5f07498b60d7e8eafe5",
-      "packageManager": "pnpm@11.18.0",
+      "packageManager": "pnpm@11.24.0",
       "clone": {
         "command": "git clone --depth 1 --single-branch https://github.com/bogusyogi/viewright.git C:\\Users\\adrds\\AppData\\Local\\Temp\\rightkit-standalone-sBI0iR\\viewright",
         "status": 0,

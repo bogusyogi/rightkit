@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/platform-ui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -43,5 +43,5 @@
     "url": "git+https://github.com/bogusyogi/claude.git",
     "directory": "tools/rightkit/packages/platform-ui"
   },
-  "packageManager": "pnpm@11.18.0"
+  "packageManager": "pnpm@11.24.0"
 }

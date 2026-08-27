@@ -2,7 +2,7 @@
 name = "rightkit-framed-sidecar"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.98.0"
 description = "Bounded JSON-lines transport primitives for Right Suite sidecars."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -15,4 +15,3 @@ publish = false
 [dependencies]
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
-

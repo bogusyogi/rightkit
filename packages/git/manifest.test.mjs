@@ -6,7 +6,7 @@ const VALID_MINIMAL = {
   schemaVersion: 1,
   lanes: ["ci"],
   matrix: { os: ["ubuntu-latest"], node: ["22.13"] },
-  packageManager: "pnpm@11.18.0",
+  packageManager: "pnpm@11.24.0",
   templateVersion: "1.0.0",
 };
 

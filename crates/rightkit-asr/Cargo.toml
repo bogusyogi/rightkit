@@ -2,6 +2,7 @@
 name = "rightkit-asr"
 version = "0.0.0"
 edition = "2021"
+rust-version = "1.98.0"
 publish = false
 license = "MIT"
 description = "Internal reconciled Parakeet ONNX runtime for Right Suite applications"

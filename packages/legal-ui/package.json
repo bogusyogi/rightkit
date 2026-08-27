@@ -52,5 +52,5 @@
     "url": "git+https://github.com/bogusyogi/claude.git",
     "directory": "tools/rightkit/packages/legal-ui"
   },
-  "packageManager": "pnpm@11.18.0"
+  "packageManager": "pnpm@11.24.0"
 }

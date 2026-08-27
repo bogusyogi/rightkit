@@ -2,7 +2,7 @@
 name = "rightkit-tauri"
 version = "0.1.1"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.98.0"
 description = "Native host services for Right Suite Tauri license and device adapters."
 license = "MIT OR Apache-2.0"
 readme = "README.md"

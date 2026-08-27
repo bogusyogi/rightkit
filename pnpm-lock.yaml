@@ -26,6 +26,7 @@ importers:
       smol-toml:
         specifier: 1.7.0
         version: 1.7.0
+
   packages/build-control-clients:
     dependencies:
       '@rightkit/build-control-core':
@@ -184,7 +185,7 @@ importers:
   packages/tauri:
     dependencies:
       '@rightkit/updates':
-        specifier: workspace:0.2.3
+        specifier: workspace:0.2.4
         version: link:../updates
     devDependencies:
       typescript:

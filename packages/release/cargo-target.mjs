@@ -13,11 +13,12 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function resolveTargetRoot(manifestPath) {
+export function resolveTargetRoot(manifestPath, options = {}) {
   if (!manifestPath) throw new Error("resolveTargetRoot requires a Cargo.toml manifest path");
+  const execute = options.execFileSync ?? execFileSync;
   let output;
   try {
-    output = execFileSync(
+    output = execute(
       "cargo",
       ["metadata", "--offline", "--format-version", "1", "--no-deps", "--manifest-path", manifestPath],
       { cwd: path.dirname(manifestPath), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },

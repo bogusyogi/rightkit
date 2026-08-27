@@ -1,9 +1,9 @@
 {
   "name": "@rightkit/qa",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Shared native QA runner, evidence, ownership, and release-backdoor guards for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
-  "packageManager": "pnpm@11.18.0",
+  "packageManager": "pnpm@11.24.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

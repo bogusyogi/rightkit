@@ -2,7 +2,7 @@
 name = "rightkit-db"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.98.0"
 description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
 license = "MIT OR Apache-2.0"
 readme = "README.md"

@@ -13,7 +13,7 @@ const FULL_MANIFEST = {
   schemaVersion: 1,
   lanes: [...KNOWN_LANES],
   matrix: { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] },
-  packageManager: "pnpm@11.18.0",
+  packageManager: "pnpm@11.24.0",
   publish: {
     npm: { oidc: true, provenance: true },
     homebrew: { tap: "acme/homebrew-tap", formulaName: "widgets" },
@@ -46,7 +46,7 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   const manifest = { ...FULL_MANIFEST, lanes: ["ci"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" }, templateVersion: "1.1.0" };
   const content = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"), buildRenderContext(manifest, "/repos/widgets"));
   assert.match(content, /uses: pnpm\/action-setup@v4/);
-  assert.match(content, /version: 11\.18\.0/);
+  assert.match(content, /version: 11\.24\.0/);
   assert.match(content, /rustup toolchain install stable/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
 });
@@ -60,7 +60,7 @@ test("render determinism: same manifest renders byte-identical output every time
 });
 
 test("rendered workflows never request pnpm or yarn setup-node caching before package-manager activation", () => {
-  for (const packageManager of ["pnpm@11.18.0", "yarn@4.6.0"]) {
+  for (const packageManager of ["pnpm@11.24.0", "yarn@4.6.0"]) {
     const rendered = renderAllLanes({ ...FULL_MANIFEST, packageManager }, "/repos/widgets");
     for (const [lane, content] of Object.entries(rendered)) {
       assert.doesNotMatch(
@@ -73,10 +73,10 @@ test("rendered workflows never request pnpm or yarn setup-node caching before pa
 });
 
 test("rendered workflows bootstrap each declared package manager safely", () => {
-  const pnpm = renderAllLanes({ ...FULL_MANIFEST, packageManager: "pnpm@11.18.0" }, "/repos/widgets");
+  const pnpm = renderAllLanes({ ...FULL_MANIFEST, packageManager: "pnpm@11.24.0" }, "/repos/widgets");
   for (const content of Object.values(pnpm)) {
     assert.match(content, /uses: pnpm\/action-setup@v4/);
-    assert.match(content, /version: 11\.18\.0/);
+    assert.match(content, /version: 11\.24\.0/);
     assert.doesNotMatch(content, /corepack enable/);
   }
 

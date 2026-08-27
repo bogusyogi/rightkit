@@ -54,7 +54,7 @@ const FULL_MANIFEST = {
   schemaVersion: 1,
   lanes: [...KNOWN_LANES],
   matrix: { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] },
-  packageManager: "pnpm@11.18.0",
+  packageManager: "pnpm@11.24.0",
   publish: {
     npm: { oidc: true, provenance: true },
     homebrew: { tap: "acme/homebrew-tap", formulaName: "widgets" },

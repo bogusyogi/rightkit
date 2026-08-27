@@ -65,7 +65,7 @@ Implemented and live:
 - source bootstrap and immutable runtime cutover;
 - native Windows Job Object containment with `KILL_ON_JOB_CLOSE`, synchronous
   launcher assignment before IPC START, creation-time process identity, cancellation, and
-  crash-recovery generation rotation;
+  conditional crash-recovery generation rotation when process death is unproven;
 - runtime cutover admission fence plus live broker `DRAIN_STATUS` covering synchronous admissions
   and every queued/running root—including analysis—followed by active-root marker proof; service
   stop occurs only after both report zero; readiness-independent GC covers retired generations;
@@ -316,23 +316,26 @@ workspace A -> generation 12 -> target/
 workspace A -> generation 12 -> target/
 ```
 
-After a broker crash during a writer:
+After a broker crash during a writer whose process tree cannot be proven dead:
 
 ```text
 old orphan may still write -> generation 12
 new work                -> generation 13
 ```
 
-RightKit therefore does **not** need to prove that the old process is dead before allowing future work.
+RightKit first tries to reap the persisted process tree. A `REAPED` result proves
+that no old writer remains, so Cargo can safely resume in the same generation as
+it does after ordinary cancellation. `REAP_PENDING` means process death remains
+uncertain, so new work must move to a fresh generation.
 
 It only needs to ensure that future work cannot write to the same physical generation.
 
 On restart:
 
 1. Read the simple active-writer marker.
-2. For every workspace that had an active artifact writer when the broker disappeared, retire that generation.
-3. Advance that workspace to a fresh generation.
-4. Best-effort reap the old process group.
+2. Reap its persisted process group.
+3. On `REAPED`, mark the job abandoned and preserve the warm generation.
+4. On `REAP_PENDING`, retire that generation and advance to a fresh one.
 5. Admit unrelated work normally.
 6. Never globally wedge the machine because one old tree could not be certified dead.
 
@@ -832,7 +835,9 @@ Workspace state carries advisory LRU metadata (`lastUsedAt`, measured size,
 dirty flag). Size accounting may be approximate between measurements; safety
 comes from workspace exclusion, generation rotation, and the free-disk floor,
 not from byte-exact accounting. Avoid full-tree size walks in request hot
-paths: measure in the background and rescan only dirty/missing generations.
+paths: measure in the background and rescan only dirty/missing idle generations.
+While a generation is active, reuse its last advisory measurement and defer its
+rescan until terminal maintenance runs under an idle state.
 
 Do not rebuild:
 
@@ -1101,7 +1106,8 @@ Use the following as the task instruction when continuing the work:
 > The settled guarantees are: one shared Cargo home, one shared sccache compiler
 > cache, one persistent warm target generation per Cargo workspace, one globally
 > bounded compile queue, per-workspace read/write exclusion, process-group / Job
-> Object cancellation, crash-time target-generation rotation, and truthful
+> Object cancellation, target-generation rotation only for unproven process
+> death or lost cache integrity, and truthful
 > structured receipts.
 >
 > Cache policy changes (incremental compilation, `SCCACHE_BASEDIRS`) land only

@@ -1,9 +1,9 @@
 {
   "name": "@rightkit/logs",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Local-only structured logging and diagnostics client for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
-  "packageManager": "pnpm@11.18.0",
+  "packageManager": "pnpm@11.24.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

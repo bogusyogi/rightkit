@@ -210,6 +210,18 @@ test('Cargo roots own exact pinned compilers directly while raw rustc remains br
   } finally { await item.close(); }
 });
 
+test('release Cargo receipt uses effective argv profile instead of configured default', async () => {
+  const item = await fixture();
+  try {
+    const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['build', '--release'])))).result;
+    await waitFor(item.service, root.id, ['RUNNING']);
+    item.children.at(-1).emit('close', 0, null);
+    const terminal = (await call(item.service, command('WATCH', root.id))).result;
+    assert.equal(terminal.receipt.profile, 'release');
+    assert.equal(terminal.receipt.cacheCohort.profile, 'release');
+  } finally { await item.close(); }
+});
+
 test('nested heavy work rejects under active analysis root', async () => {
   const item = await fixture({ externalCommands: [{ shim: 'cargo', command: 'outdated', toolId: 'cargo-outdated', digest, lane: 'ANALYSIS' }] });
   try {

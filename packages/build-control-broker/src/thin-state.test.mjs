@@ -3,7 +3,7 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { atomicJson, replaceAtomicFile, ThinState } from './thin-state.mjs';
+import { atomicJson, directorySize, replaceAtomicFile, ThinState } from './thin-state.mjs';
 
 async function fixture({ advanceClock = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-state-'));
@@ -85,6 +85,43 @@ test('restart rotates only workspace with active writer & records ABANDONED', as
     assert.equal((await item.state.workspace(item.workspace)).state.currentGeneration, 2);
     assert.equal((await item.state.workspace(other)).state.currentGeneration, 1);
     assert.equal((await item.state.receipt('job-crashed')).status, 'ABANDONED');
+  } finally { await item.close(); }
+});
+
+test('restart preserves warm generation after active writer is conclusively reaped', async () => {
+  const item = await fixture();
+  try {
+    const workspace = await item.state.workspace(item.workspace);
+    await writeFile(join(workspace.layout.target, 'warm.bin'), Buffer.alloc(16));
+    await item.state.markRunning(item.workspace, { id: 'job-dead', ownership: { pid: 52 } });
+    const recovered = await item.state.recoverActive({ reap: async () => ({ reaped: true, escalated: false }) });
+    const current = await item.state.workspace(item.workspace);
+    assert.equal(recovered[0].newGeneration, 1);
+    assert.equal(current.state.currentGeneration, 1);
+    assert.equal(current.state.active, null);
+    assert.equal((await item.state.receipt('job-dead')).status, 'ABANDONED');
+    await assert.doesNotReject(stat(join(current.layout.target, 'warm.bin')));
+  } finally { await item.close(); }
+});
+
+test('directory sizing tolerates entries removed during a concurrent artifact write', async () => {
+  const entries = [{ name: 'gone.rmeta', isDirectory: () => false, isFile: () => true }];
+  const measured = await directorySize('/target', {
+    readDirectory: async () => entries,
+    statPath: async () => { throw Object.assign(new Error('removed'), { code: 'ENOENT' }); }
+  });
+  assert.equal(measured, 0);
+});
+
+test('GC defers dirty active-generation sizing until writer becomes idle', async () => {
+  const item = await fixture();
+  try {
+    const workspace = await item.state.workspace(item.workspace);
+    await writeFile(join(workspace.layout.target, 'mutating.bin'), Buffer.alloc(64));
+    await item.state.markRunning(item.workspace, { id: 'job-mutating', command: 'cargo build' });
+    const result = await item.state.gc({ capBytes: 1_000_000 });
+    assert.equal(result.beforeBytes, 0);
+    assert.equal((await item.state.workspace(item.workspace)).state.lastMeasuredBytes, undefined);
   } finally { await item.close(); }
 });
 

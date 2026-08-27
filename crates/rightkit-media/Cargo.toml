@@ -2,7 +2,7 @@
 name = "rightkit-media"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.98.0"
 description = "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines."
 license = "MIT OR Apache-2.0"
 readme = "README.md"

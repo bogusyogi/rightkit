@@ -2,6 +2,7 @@
 name = "agent-room-core"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.98.0"
 license = "UNLICENSED"
 publish = false
 
@@ -18,4 +19,3 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
-

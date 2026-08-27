@@ -12,7 +12,7 @@ import { MANIFEST_FILENAME, validateManifest } from "./manifest.mjs";
 import { applyPlan, planSync } from "./sync.mjs";
 
 export const DEFAULT_MATRIX = { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] };
-export const DEFAULT_PACKAGE_MANAGER = "pnpm@11.18.0";
+export const DEFAULT_PACKAGE_MANAGER = "pnpm@11.24.0";
 export const DEFAULT_TEMPLATE_VERSION = "1.1.0";
 
 /**
