@@ -898,16 +898,19 @@ Terminal receipt should include approximately:
   "signal": null,
   "cache": {
     "mode": "sccache",
-    "status": "NOT_MEASURED",
+    "status": "NO_COMPILATION",
     "healthStatus": "SERVICE_OK",
     "reuse": {
-      "status": "NOT_MEASURED",
-      "hits": null,
-      "misses": null,
-      "hitRate": null
+      "status": "NO_COMPILATION",
+      "hits": 0,
+      "misses": 0,
+      "bypassed": 0,
+      "hitRate": null,
+      "effectiveHitRate": null
     },
-    "delta": null,
-    "reason": "client-side-counters-unattributable",
+    "delta": {
+      "compile_requests": 0
+    },
     "strictNoFallback": true,
     "health": {
       "ownership": "broker",
@@ -928,14 +931,16 @@ Terminal receipt should include approximately:
 }
 ```
 
-`cache.delta` is nullable. In client-side sccache mode per-root deltas are not
-attributable from cumulative counters, so
-receipts record `delta: null` with an explicit reason. A non-null delta is
-valid only in a mode whose attribution semantics actually support it; receipts
-must never manufacture attribution they do not have.
+`cache.delta` is nullable. Broker attributes cumulative client-side counters
+only when one root owns the full counter window. Overlapping roots record
+`delta: null`, `NOT_MEASURED`, & `concurrent-cache-clients`. Exclusive warm
+no-op roots record exact `NO_COMPILATION`; exclusive recompiles record exact
+hits & misses. Receipts never manufacture attribution they do not have.
 
 `cache.healthStatus` reports service health. `cache.reuse.status` reports reuse
-as `PROVEN`, `NO_COMPILATION`, `MISS`, `MIXED`, or `NOT_MEASURED`.
+as `PROVEN`, `NO_COMPILATION`, `BYPASSED`, `MISS`, `MIXED`, or `NOT_MEASURED`.
+`hitRate` covers cacheable compiles; `effectiveHitRate` includes compiler calls
+which bypassed cache. This prevents non-cacheable work from looking warm.
 `SERVICE_OK` is never a reuse result. Cache reports group only exact
 `cacheCohort` values: host, workspace, command, profile, feature set, target,
 toolchain, compiler identity, & cache epoch.

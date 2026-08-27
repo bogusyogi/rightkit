@@ -57,10 +57,36 @@ test('owns one gateway & injects strict cache environment with health proof', as
   assert.equal(events.some((event) => event.type === 'CACHE_GATEWAY_READY'), true);
   assert.equal(events.some((event) => event.type === 'CACHE_ADMISSION' && event.id === 'job-1'), true);
   const finished = await cache.finish(prepared);
-  assert.equal(finished.status, 'NOT_MEASURED');
+  assert.equal(finished.status, 'NO_COMPILATION');
   assert.equal(finished.healthStatus, 'SERVICE_OK');
-  assert.equal(finished.reuse.status, 'NOT_MEASURED');
-  assert.equal(finished.delta, null);
+  assert.equal(finished.reuse.status, 'NO_COMPILATION');
+  assert.equal(finished.attribution.scope, 'broker-exclusive-client-window');
+  assert.equal(finished.attribution.exact, true);
+  assert.deepEqual(finished.delta, { compile_requests: 0 });
+  await cache.close();
+});
+
+test('attributes exclusive client-side windows & refuses overlapping roots', async () => {
+  let stats = { compile_requests: 0, cache_hits: { Rust: 0 }, cache_misses: { Rust: 0 } };
+  const { cache } = harness({ run: async () => ({ stdout: JSON.stringify({ version: '0.17.0', cache_location: 'Local disk: "/managed/compiler-cache"', cache_size: 0, max_cache_size: 20 * 1024 ** 3, stats }) }) });
+  await cache.start();
+  const first = await cache.prepare({ layout, jobId: 'first' });
+  const second = await cache.prepare({ layout, jobId: 'second' });
+  stats = { compile_requests: 2, cache_hits: { Rust: 2 }, cache_misses: { Rust: 0 } };
+  const firstResult = await cache.finish(first);
+  const secondResult = await cache.finish(second);
+  assert.equal(firstResult.status, 'NOT_MEASURED');
+  assert.equal(firstResult.reason, 'concurrent-cache-clients');
+  assert.equal(secondResult.status, 'NOT_MEASURED');
+  assert.equal(secondResult.reason, 'concurrent-cache-clients');
+
+  const exclusive = await cache.prepare({ layout, jobId: 'exclusive' });
+  stats = { compile_requests: 3, cache_hits: { Rust: 3 }, cache_misses: { Rust: 0 } };
+  const result = await cache.finish(exclusive);
+  assert.equal(result.status, 'PROVEN');
+  assert.deepEqual(result.reuse, { status: 'PROVEN', hits: 1, misses: 0, bypassed: 0, hitRate: 1, effectiveHitRate: 1 });
+  assert.equal(result.attribution.scope, 'broker-exclusive-client-window');
+  assert.equal(result.attribution.exact, true);
   await cache.close();
 });
 
@@ -156,5 +182,5 @@ test('disabled cache blocks build admission explicitly', async () => {
 });
 
 test('numeric stats delta stays bounded to numeric fields', () => {
-  assert.deepEqual(thinCacheStatsDelta({ a: 4, nested: { b: 8 } }, { a: 9, nested: { b: 10 }, text: 'ignored' }), { a: 5, nested: { b: 2 } });
+  assert.deepEqual(thinCacheStatsDelta({ a: 4, nested: { b: 8 }, counts: {} }, { a: 9, nested: { b: 10 }, counts: { Rust: 3 }, text: 'ignored' }), { a: 5, nested: { b: 2 }, counts: { Rust: 3 } });
 });

@@ -40,7 +40,7 @@ function numbers(value) {
 }
 
 function delta(before, after) {
-  if (typeof before === 'number' && typeof after === 'number') return after - before;
+  if (typeof after === 'number') return after - (typeof before === 'number' ? before : 0);
   if (!after || typeof after !== 'object' || Array.isArray(after)) return null;
   const output = {};
   for (const [key, value] of Object.entries(after)) {
@@ -90,6 +90,7 @@ async function defaultSpawnGateway(tool, environment, { platform, spawn, timeout
 export class ThinCache {
   #paths; #tool; #verifyTool; #expectedVersion; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #platform; #epoch; #now; #port; #leaseMs; #recoveryMs; #statsIntervalMs; #spawn; #spawnGateway; #terminate; #connect; #emit; #onUnavailable;
   #child = null; #health = null; #healthInFlight = null; #recoveryInFlight = null; #timer = null; #lastStats = null; #lastStatsSampledAt = 0; #lastStatsAttemptedAt = 0; #lastStatsLoggedAt = 0; #stopping = false; #gatewayStderr = '';
+  #clientWindows = new Map();
 
   constructor({ paths, sccachePath = null, verifyTool = null, expectedVersion = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = defaultThinCacheTimeoutMs(), basedirs = null, basedirsEnabled = false, platform = process.platform, gatewayPort = DEFAULT_GATEWAY_PORT, healthLeaseMs = DEFAULT_HEALTH_LEASE_MS, recoveryTimeoutMs = DEFAULT_RECOVERY_MS, statsIntervalMs = DEFAULT_STATS_INTERVAL_MS, run = defaultRun, spawn = nodeSpawn, spawnGateway = defaultSpawnGateway, terminate = terminateProcessTree, connect = defaultConnect, emit = async () => {}, onUnavailable = async () => {}, epoch = randomUUID(), now = Date.now } = {}) {
     if (!paths?.cargoHome || !paths?.compilerCache) throw new TypeError('thin state cache paths are required');
@@ -129,6 +130,7 @@ export class ThinCache {
     this.#timer = null;
     await Promise.allSettled([this.#healthInFlight, this.#recoveryInFlight].filter(Boolean));
     const child = this.#child; this.#child = null; this.#health = null;
+    this.#clientWindows.clear();
     if (child) await this.#terminate(child, { platform: this.#platform, graceMs: 2_000 }).catch(() => {});
     if (this.#endpoint.kind === 'pipe') await rm(this.#endpoint.path, { force: true }).catch(() => {});
     await this.#event({ type: 'CACHE_GATEWAY_STOPPED', epoch: this.#epoch, endpoint: this.#endpoint.display });
@@ -155,12 +157,21 @@ export class ThinCache {
     const environment = Object.freeze({ ...base, RUSTC_WRAPPER: this.#tool, ...this.#clientEnvironment(), ...(this.#basedirsEnabled ? basedirs : {}) });
     const admission = Object.freeze({ ...health, admittedAt: new Date(this.#now()).toISOString(), strictNoFallback: true });
     await this.#event({ type: 'CACHE_ADMISSION', id: jobId, status: 'SERVICE_OK', health: admission });
-    return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', environment, before: this.#lastStats?.stats ?? null, attribution: this.#attribution(), health: admission, strictNoFallback: true });
+    const attribution = this.#attribution();
+    if (!this.#clientSide) return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', environment, before: this.#lastStats?.stats ?? null, attribution, health: admission, strictNoFallback: true });
+    const windowId = randomUUID();
+    const window = { id: windowId, jobId, exact: this.#clientWindows.size === 0 && this.#lastStats?.status === 'SERVICE_OK', reason: null, before: this.#lastStats?.stats ?? null, startedAt: new Date(this.#now()).toISOString() };
+    if (this.#clientWindows.size > 0) {
+      window.exact = false; window.reason = 'concurrent-cache-clients';
+      for (const active of this.#clientWindows.values()) { active.exact = false; active.reason = 'concurrent-cache-clients'; }
+    } else if (!window.exact) window.reason = 'cache-counter-baseline-unavailable';
+    this.#clientWindows.set(windowId, window);
+    return Object.freeze({ mode: 'sccache', status: 'SERVICE_OK', environment, before: window.before, windowId, attribution, health: admission, strictNoFallback: true });
   }
 
   async finish(prepared) {
     if (prepared?.mode !== 'sccache') return Object.freeze({ mode: prepared?.mode ?? 'direct', status: prepared?.status ?? 'DISABLED', ...(prepared?.reason ? { reason: prepared.reason } : {}), delta: null });
-    if (this.#clientSide) return Object.freeze({ mode: 'sccache', status: 'NOT_MEASURED', healthStatus: 'SERVICE_OK', reuse: classifyCacheReuse(null), reason: 'client-side-counters-unattributable', delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution: Object.freeze({ ...prepared.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: new Date(this.#now()).toISOString() }) });
+    if (this.#clientSide) return this.#finishClientWindow(prepared);
     const sample = await this.snapshot();
     if (sample.status !== 'SERVICE_OK') return Object.freeze({ mode: 'sccache', status: 'NOT_MEASURED', healthStatus: 'DEGRADED', reuse: classifyCacheReuse(null), reason: sample.reason, delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution: sample.attribution ?? prepared.attribution ?? null });
     const measured = delta(prepared.before, sample.stats) ?? {};
@@ -170,6 +181,23 @@ export class ThinCache {
   }
 
   get basedirsActive() { return this.#basedirsEnabled; }
+
+  async #finishClientWindow(prepared) {
+    const window = this.#clientWindows.get(prepared.windowId);
+    if (!window) return Object.freeze({ mode: 'sccache', status: 'NOT_MEASURED', healthStatus: 'DEGRADED', reuse: classifyCacheReuse(null), reason: 'cache-attribution-window-missing', delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution: prepared.attribution ?? null });
+    const shouldSample = window.exact || this.#clientWindows.size === 1;
+    // Attribution must never turn a slow telemetry RPC into a slow build.
+    const sample = shouldSample ? await this.snapshot({ timeoutMs: Math.min(1_000, this.#timeout) }) : null;
+    this.#clientWindows.delete(prepared.windowId);
+    const endedAt = sample?.attribution?.sampledAt ?? new Date(this.#now()).toISOString();
+    const attribution = Object.freeze({ ...(sample?.attribution ?? prepared.attribution), scope: window.exact ? 'broker-exclusive-client-window' : 'client-side-counters-unattributable', exact: window.exact, jobId: window.jobId ?? null, windowStartedAt: window.startedAt, windowEndedAt: endedAt });
+    if (!window.exact) return Object.freeze({ mode: 'sccache', status: 'NOT_MEASURED', healthStatus: sample?.status === 'DEGRADED' ? 'DEGRADED' : 'SERVICE_OK', reuse: classifyCacheReuse(null), reason: window.reason ?? 'client-side-counters-unattributable', delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution });
+    if (sample?.status !== 'SERVICE_OK') return Object.freeze({ mode: 'sccache', status: 'NOT_MEASURED', healthStatus: 'DEGRADED', reuse: classifyCacheReuse(null), reason: sample?.reason ?? 'sccache-stats-unavailable', delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution });
+    const measured = delta(window.before, sample.stats) ?? {};
+    if (containsNegative(measured)) return Object.freeze({ mode: 'sccache', status: 'NOT_MEASURED', healthStatus: 'DEGRADED', reuse: classifyCacheReuse(null), reason: 'sccache-counter-reset', delta: null, health: prepared.health ?? null, strictNoFallback: true, attribution });
+    const reuse = classifyCacheReuse(measured);
+    return Object.freeze({ mode: 'sccache', status: reuse.status, healthStatus: 'SERVICE_OK', reuse, delta: Object.freeze(measured), health: prepared.health ?? null, strictNoFallback: true, attribution });
+  }
 
   async snapshot({ timeoutMs = this.#timeout } = {}) {
     if (!this.#enabled) return Object.freeze({ status: 'DISABLED', stats: null });
@@ -232,6 +260,7 @@ export class ThinCache {
   async #recover(reason) {
     if (this.#recoveryInFlight) return this.#recoveryInFlight;
     this.#recoveryInFlight = (async () => {
+      for (const window of this.#clientWindows.values()) { window.exact = false; window.reason = 'sccache-gateway-recovery'; }
       const deadline = this.#now() + this.#recoveryMs;
       await this.#event({ type: 'CACHE_RECOVERY_STARTED', reason, epoch: this.#epoch, endpoint: this.#endpoint.display });
       if (reason !== 'broker-start') await Promise.resolve().then(() => this.#onUnavailable(Object.freeze({ reason: `sccache-gateway-recovery:${reason}`, epoch: this.#epoch, gatewayPid: this.#child?.gatewayPid ?? this.#child?.pid ?? null, ownerPid: this.#child?.pid ?? null }))).catch(() => {});
@@ -324,9 +353,9 @@ export class ThinCache {
 
 export const thinCacheStatsDelta = delta;
 
-function containsNegative(value) {
-  if (typeof value === 'number') return value < 0;
-  return Boolean(value && typeof value === 'object' && Object.values(value).some(containsNegative));
+function containsNegative(value, key = '') {
+  if (typeof value === 'number') return key !== 'nanos' && value < 0;
+  return Boolean(value && typeof value === 'object' && Object.entries(value).some(([childKey, child]) => containsNegative(child, childKey)));
 }
 
 function cacheFailureReason(error) {

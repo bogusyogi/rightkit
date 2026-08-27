@@ -9,12 +9,14 @@ function totalCounts(value) {
 
 /** Convert one attributable sccache counter window into reuse truth. */
 export function classifyCacheReuse(delta) {
-  if (!delta || typeof delta !== 'object') return Object.freeze({ status: 'NOT_MEASURED', hits: null, misses: null, hitRate: null });
+  if (!delta || typeof delta !== 'object') return Object.freeze({ status: 'NOT_MEASURED', hits: null, misses: null, bypassed: null, hitRate: null, effectiveHitRate: null });
   const hits = totalCounts(delta.cache_hits);
   const misses = totalCounts(delta.cache_misses);
-  const measured = hits + misses;
-  const status = measured === 0 ? 'NO_COMPILATION' : misses === 0 ? 'PROVEN' : hits === 0 ? 'MISS' : 'MIXED';
-  return Object.freeze({ status, hits, misses, hitRate: measured === 0 ? null : hits / measured });
+  const bypassed = totalCounts(delta.requests_not_cacheable) + totalCounts(delta.requests_unsupported_compiler) + totalCounts(delta.non_cacheable_compilations);
+  const cacheable = hits + misses;
+  const attempted = cacheable + bypassed;
+  const status = attempted === 0 ? 'NO_COMPILATION' : cacheable === 0 ? 'BYPASSED' : hits === 0 ? 'MISS' : misses === 0 && bypassed === 0 ? 'PROVEN' : 'MIXED';
+  return Object.freeze({ status, hits, misses, bypassed, hitRate: cacheable === 0 ? null : hits / cacheable, effectiveHitRate: attempted === 0 ? null : hits / attempted });
 }
 
 function optionValues(argv, long, short = null) {
@@ -58,15 +60,15 @@ export function summarizeCacheCohorts(receipts) {
   for (const receipt of receipts) {
     if (!receipt?.cacheCohort) continue;
     const key = cacheCohortKey(receipt.cacheCohort);
-    const group = groups.get(key) ?? { cohort: receipt.cacheCohort, jobs: 0, measuredJobs: 0, notMeasuredJobs: 0, noCompilationJobs: 0, hits: 0, misses: 0 };
+    const group = groups.get(key) ?? { cohort: receipt.cacheCohort, jobs: 0, measuredJobs: 0, notMeasuredJobs: 0, noCompilationJobs: 0, bypassedJobs: 0, hits: 0, misses: 0, bypassed: 0 };
     group.jobs += 1;
     const reuse = receipt.cache?.reuse;
     if (!reuse || reuse.status === 'NOT_MEASURED') group.notMeasuredJobs += 1;
     else if (reuse.status === 'NO_COMPILATION') group.noCompilationJobs += 1;
-    else { group.measuredJobs += 1; group.hits += reuse.hits ?? 0; group.misses += reuse.misses ?? 0; }
+    else { group.measuredJobs += 1; if (reuse.status === 'BYPASSED') group.bypassedJobs += 1; group.hits += reuse.hits ?? 0; group.misses += reuse.misses ?? 0; group.bypassed += reuse.bypassed ?? 0; }
     groups.set(key, group);
   }
-  return Object.freeze([...groups.values()].map((group) => Object.freeze({ ...group, hitRate: group.hits + group.misses === 0 ? null : group.hits / (group.hits + group.misses) })));
+  return Object.freeze([...groups.values()].map((group) => Object.freeze({ ...group, hitRate: group.hits + group.misses === 0 ? null : group.hits / (group.hits + group.misses), effectiveHitRate: group.hits + group.misses + group.bypassed === 0 ? null : group.hits / (group.hits + group.misses + group.bypassed) })));
 }
 
 export const cacheCountTotal = totalCounts;

@@ -503,6 +503,7 @@ export class ThinJobService {
       return this.#finish(job, status, { exitCode: safeExit(result.code, status), signal: result.signal, reap, reason: job.cancelReason ?? (result.code === 0 ? null : 'tool-exit') });
     } catch (error) {
       job.teardownStartedAt ??= this.#now();
+      if (!job.parentId && job.cachePrepared && !job.cacheResult) job.cacheResult = await this.#cache.finish(job.cachePrepared).catch(() => null);
       if (error.code === 'RK_SCCACHE_UNAVAILABLE') {
         job.cachePrepared = error.cache;
         const cacheEvent = Object.freeze({ type: 'CACHE_ADMISSION_BLOCKED', id: job.id, command: job.command, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cache: error.cache, code: error.code, error: error.message });
