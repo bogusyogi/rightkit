@@ -157,9 +157,12 @@ function selectedToolIds(config) {
   return ids;
 }
 
-function registeredRustupToolchain(cargoPath) {
+function registeredRustupContext(cargoPath) {
   const bin = dirname(cargoPath);
-  return basename(bin).toLowerCase() === 'bin' ? basename(dirname(bin)) || null : null;
+  const toolchainRoot = dirname(bin);
+  const toolchainsRoot = dirname(toolchainRoot);
+  if (basename(bin).toLowerCase() !== 'bin' || basename(toolchainsRoot).toLowerCase() !== 'toolchains') return Object.freeze({ toolchain: null, home: null });
+  return Object.freeze({ toolchain: basename(toolchainRoot) || null, home: dirname(toolchainsRoot) });
 }
 
 function runtimeBase(toolchainLibraryPath, rustupToolchain, platform = process.platform) {
@@ -170,7 +173,7 @@ function runtimeBase(toolchainLibraryPath, rustupToolchain, platform = process.p
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #platform; #jobs = new Map(); #admissions = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #rustupHome; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #platform; #jobs = new Map(); #admissions = new Map(); #stopping = false;
 
   static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
@@ -223,7 +226,8 @@ export class ThinJobService {
       const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
         ? workspaceResolver
         : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 2_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
-      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: registeredRustupToolchain(cargoTool.path), compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform });
+      const rustupContext = registeredRustupContext(cargoTool.path);
+      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: rustupContext.toolchain, rustupHome: rustupContext.home, compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1), platform }) });
       await thinCache.start?.();
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
@@ -240,8 +244,8 @@ export class ThinJobService {
     }
   }
 
-  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, rustupToolchain, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform = process.platform }) {
-    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#rustupToolchain = rustupToolchain; this.#compilerEnvironment = compilerEnvironment; this.#compilerIdentity = compilerIdentity; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now; this.#platform = platform;
+  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, rustupToolchain, rustupHome, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform = process.platform }) {
+    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#rustupToolchain = rustupToolchain; this.#rustupHome = rustupHome; this.#compilerEnvironment = compilerEnvironment; this.#compilerIdentity = compilerIdentity; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now; this.#platform = platform;
   }
 
   get runtimeIdentity() { return this.#runtime; }
@@ -413,7 +417,8 @@ export class ThinJobService {
     const workspace = roots.workspaceRoot ? await this.#state.workspace(roots.workspaceRoot) : null;
     const repositoryRoot = parent?.repositoryRoot ?? (roots.workspaceRoot ? await this.#repositoryResolver(roots.workspaceRoot) : null);
     const defaultTargetTriple = this.#config.defaults?.targetTriple;
-    const targetTriple = compilationTarget(message.shim, request.argv) ?? defaultTargetTriple;
+    const rustupTargetTriple = message.shim === 'rustup' && request.argv.length === 3 && request.argv[0] === 'target' && request.argv[1] === 'add' ? request.argv[2] : null;
+    const targetTriple = compilationTarget(message.shim, request.argv) ?? rustupTargetTriple ?? defaultTargetTriple;
     const allowedTargetTriples = this.#config.defaults?.targetTriples ?? [defaultTargetTriple];
     if (!allowedTargetTriples.includes(targetTriple)) throw Object.assign(new TypeError(`managed Rust target must be registered by broker: ${targetTriple}`), { code: 'RK_TARGET_NOT_REGISTERED' });
     let argv = request.argv;
@@ -619,7 +624,7 @@ export class ThinJobService {
     const toolchain = this.#config.defaults?.toolchain ?? 'default'; const toolchainKey = createHash('sha256').update(toolchain).digest('hex').slice(0, 24);
     return Object.freeze({
       CARGO_HOME: this.#state.paths.cargoHome,
-      RUSTUP_HOME: join(this.#state.paths.global, 'toolchains', toolchainKey),
+      RUSTUP_HOME: this.#rustupHome ?? join(this.#state.paths.global, 'toolchains', toolchainKey),
       ...(layout ? { CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp } : {}),
       RIGHTKIT_PARENT_REQUEST_ID: rootId,
       RIGHTKIT_PARENT_CAPABILITY_TOKEN: rootToken

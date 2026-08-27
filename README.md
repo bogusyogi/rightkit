@@ -229,13 +229,31 @@ bounded inventory, durable leases/intents, generation checks, & resumable trash
 deletion. sccache is disabled unless broker ownership is proven. Windows BUILD
 fails closed until native Job Object containment exists.
 
+### Rust targets for new apps
+
+macOS bootstrap registers native Apple Silicon, Intel macOS, physical iOS, &
+Apple Silicon iOS Simulator targets. New apps use those targets directly:
+
+```bash
+rightkit rustup target add aarch64-apple-ios
+rightkit rustup target add aarch64-apple-ios-sim
+rightkit cargo check --target aarch64-apple-ios
+rightkit cargo check --target aarch64-apple-ios-sim
+```
+
+`target add` is globally exclusive & writes into same Rustup home that owns
+broker-registered Cargo/rustc. If a future app needs another target, add it to
+host bootstrap `targetTriples`, add exact bootstrap/admission tests, then use
+guarded bootstrap cutover. Never hand-edit live `config.json`; bootstrap
+regenerates it.
+
 ### Publication boundary
 
 Build-control workspace components are private implementation packages, not
 consumer dependencies; they are never independently published. Their delivery is
 one exact commit on `bogusyogi/claude` `main`, with no npm-publication claim.
 
-See [Managed Build Control](docs/MANAGED-BUILD-CONTROL.md) for health, receipts,
+See [Managed Build Control](docs/RIGHTKIT-THIN-BUILD-CONTROL.md) for health, receipts,
 recovery, cleanup, GC, & platform operations.
 
 Cross-host Rust validation uses content-addressed Mac snapshots, managed Windows
