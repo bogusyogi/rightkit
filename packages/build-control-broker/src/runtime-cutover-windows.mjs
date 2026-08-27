@@ -1,7 +1,7 @@
 import { promisify } from 'node:util';
 import { execFile as childExecFile } from 'node:child_process';
 import net from 'node:net';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve, win32 } from 'node:path';
 import { BUILD_CONTROL_PROTOCOL } from '@rightkit/build-control-core';
@@ -89,6 +89,11 @@ export function selectWindowsNodePid(processes, nodePath) {
   return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 
+export async function selectWindowsNodePidResolved(processes, nodePath, resolvePath = realpath) {
+  const physicalNodePath = await Promise.resolve().then(() => resolvePath(nodePath)).catch(() => nodePath);
+  return selectWindowsNodePid(processes, physicalNodePath);
+}
+
 export async function ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile = execDefault }) {
   if (typeof taskXmlPath !== 'string' || !isAbsolute(taskXmlPath)) throw new TypeError('absolute taskXmlPath is required when the scheduled task is unregistered');
   const registered = await execFile('schtasks', ['/Query', '/TN', taskName])
@@ -119,6 +124,7 @@ export function createWindowsRuntimeCallbacks(options = {}) {
     pollMs = 25,
     externalRoot,
     nodePath = process.execPath,
+    resolveNodePath = realpath,
     configPath,
   } = options;
   if (typeof taskName !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(taskName)) throw new TypeError('taskName must be an exact scheduled-task name');
@@ -136,7 +142,7 @@ export function createWindowsRuntimeCallbacks(options = {}) {
       `Get-CimInstance Win32_Process | Where-Object { $_.Name -ieq '${quotePowerShell(nodeName)}' -and $_.CommandLine -like '*${quotePowerShell(configPath)}*' } | Select-Object ProcessId,Name,ExecutablePath | ConvertTo-Json -Compress`]);
     let processes;
     try { processes = JSON.parse(String(stdout).trim() || '[]'); } catch { return null; }
-    return selectWindowsNodePid(processes, nodePath);
+    return selectWindowsNodePidResolved(processes, nodePath, resolveNodePath);
   };
   const ensureRegistered = async ({ taskXmlPath }) => ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile });
   const ensureDrained = async () => {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { parseWindowsCutoverArgs, proveThinRequestsDrained, runWindowsCutover, stopManagedTask } from './runtime-cutover-windows-cli.mjs';
-import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition, selectWindowsNodePid, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
+import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition, selectWindowsNodePid, selectWindowsNodePidResolved, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
 
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-win-cutover-cli-')));
@@ -82,6 +82,12 @@ test('task definition escapes XML & temporary file uses UTF-16LE BOM', async () 
 test('Windows PID selection rejects shell/self matches', () => {
   const processes = [{ ProcessId: 712, Name: 'powershell.exe', CommandLine: 'config.json' }, { ProcessId: 913, Name: 'NODE.EXE', ExecutablePath: 'c:/PROGRAM FILES/nodejs/NODE.EXE', CommandLine: 'node broker.mjs config.json' }];
   assert.equal(selectWindowsNodePid(processes, 'C:\\Program Files\\nodejs\\node.exe'), 913); assert.equal(selectWindowsNodePid(processes[0], 'C:\\Program Files\\nodejs\\node.exe'), null);
+});
+
+test('Windows PID selection resolves an NVM junction before exact executable comparison', async () => {
+  const processes = [{ ProcessId: 913, Name: 'node.exe', ExecutablePath: 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe' }];
+  const selected = await selectWindowsNodePidResolved(processes, 'C:\\nvm4w\\nodejs\\node.exe', async () => 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe');
+  assert.equal(selected, 913);
 });
 
 test('fresh Windows cutover registers task & rollback ends registered candidate', async () => {
