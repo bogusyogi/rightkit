@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
-import { CachedWorkspaceResolver, ThinJobService, createThinJobServer } from './thin-job-service.mjs';
+import { brokerEndpointForPlatform, CachedWorkspaceResolver, ThinJobService, createThinJobServer } from './thin-job-service.mjs';
 import { ThinState } from './thin-state.mjs';
 import { beginCutoverDrain, endCutoverDrain } from './cutover-shared.mjs';
 
@@ -18,17 +18,17 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux' } = {}) {
+async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo' } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
   const state = await ThinState.open({ externalRoot: root }); const children = []; let pid = 300;
   if (gc) state.gc = gc;
-  const tools = new Map([['cargo', { id: 'cargo', path: '/managed/cargo', sha256: digest }], ['rustc', { id: 'rustc', path: '/managed/rustc', sha256: digest }], ['rustdoc', { id: 'rustdoc', path: '/managed/rustdoc', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
+  const tools = new Map([['cargo', { id: 'cargo', path: cargoPath, sha256: digest }], ['rustc', { id: 'rustc', path: '/managed/rustc', sha256: digest }], ['rustdoc', { id: 'rustdoc', path: '/managed/rustdoc', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
   const registry = { verify: async (id) => { const tool = tools.get(id); if (!tool) throw new Error(`missing ${id}`); return tool; } };
   const logger = { events: [], append(event) { this.events.push(event); return Promise.resolve(event); }, close: async () => {} };
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
-  const config = { broker: { externalRoot: { path: root } }, shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
+  const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
   const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
@@ -125,6 +125,36 @@ test('macOS jobs override stale cache loader state with broker-owned Rust toolch
     const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['--version'])))).result;
     assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
     assert.equal(item.children.at(-1).environment.DYLD_FALLBACK_LIBRARY_PATH, join(dirname('/managed/cargo'), '..', 'lib'));
+  } finally { await item.close(); }
+});
+
+test('external Cargo tools inherit validated broker endpoint with broker-owned precedence', async () => {
+  const unixSocket = '/validated/rightkit.sock'; const windowsPipe = '\\\\.\\pipe\\rightkit-validated';
+  assert.equal(brokerEndpointForPlatform({ unixSocket, windowsPipe }, 'darwin'), unixSocket);
+  assert.equal(brokerEndpointForPlatform({ unixSocket, windowsPipe }, 'win32'), windowsPipe);
+  const item = await fixture({
+    platform: 'darwin',
+    externalCommands: [{ shim: 'cargo', command: 'nextest', toolId: 'cargo-outdated', digest, lane: 'BUILD' }],
+    cacheEnvironment: { rightkit_build_broker_socket: '/stale/rightkit.sock' }
+  });
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['nextest', 'run'])))).result;
+    await waitFor(item.service, submitted.id, ['RUNNING']);
+    const child = item.children.at(-1);
+    assert.equal(child.environment.RIGHTKIT_BUILD_BROKER_SOCKET, join(item.root, 'broker.sock'));
+    assert.equal(child.environment.rightkit_build_broker_socket, undefined);
+    child.emit('close', 0, null);
+    assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
+  } finally { await item.close(); }
+});
+
+test('jobs select the rustup toolchain registered by Cargo path', async () => {
+  const toolchain = 'stable-x86_64-pc-windows-msvc';
+  const item = await fixture({ cargoPath: join('/managed', 'toolchains', toolchain, 'bin', 'cargo') });
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['--version'])))).result;
+    assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
+    assert.equal(item.children.at(-1).environment.RUSTUP_TOOLCHAIN, toolchain);
   } finally { await item.close(); }
 });
 

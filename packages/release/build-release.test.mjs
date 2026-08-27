@@ -54,6 +54,12 @@ test("production builds package from the real primary app checkout", () => {
   assert.match(source, /sealRelease\(\{ configRoot: appRoot,/);
 });
 
+test("Windows native executables preserve arguments containing spaces", () => {
+  assert.match(source, /const useShell = process\.platform === "win32" && !\/\\\.\(\?:exe\|com\)\$\/i\.test\(cmd\);/);
+  assert.match(source, /shell: useShell/);
+  assert.doesNotMatch(source, /shell: process\.platform === "win32"/);
+});
+
 test("sealing resolves installer and updater artifacts against the broker target on a managed host", () => {
   assert.match(source, /sealRelease\(\{ configRoot: appRoot, managedCargoTarget,/);
   assert.match(source, /function sealRelease\(\{ configRoot, managedCargoTarget,/);

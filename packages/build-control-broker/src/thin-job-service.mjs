@@ -71,6 +71,20 @@ const pathIsWithin = (root, candidate) => {
   const childPath = relative(normalize(root), candidate);
   return childPath === '' || (childPath !== '..' && !childPath.startsWith(`..${sep}`) && !isAbsolute(childPath));
 };
+const BROKER_ENDPOINT_ENVIRONMENT_KEY = 'RIGHTKIT_BUILD_BROKER_SOCKET';
+
+export function brokerEndpointForPlatform(config, platform = process.platform) {
+  const field = platform === 'win32' ? 'windowsPipe' : 'unixSocket';
+  const endpoint = config?.[field];
+  if (typeof endpoint !== 'string' || !endpoint) throw new TypeError(`validated broker ${field} is required`);
+  return endpoint;
+}
+
+function brokerOwnedRuntimeEnvironment(environment, endpoint) {
+  const runtime = Object.fromEntries(Object.entries(environment).filter(([key]) => key.toUpperCase() !== BROKER_ENDPOINT_ENVIRONMENT_KEY));
+  runtime[BROKER_ENDPOINT_ENVIRONMENT_KEY] = endpoint;
+  return runtime;
+}
 
 export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env, timeoutMs = 2_000 } = {}) {
   if (typeof workspace !== 'string' || !isAbsolute(workspace) || typeof cargoPath !== 'string' || !cargoPath) throw new TypeError('absolute workspace & cargoPath are required');
@@ -143,14 +157,20 @@ function selectedToolIds(config) {
   return ids;
 }
 
-function runtimeBase(toolchainLibraryPath, platform = process.platform) {
+function registeredRustupToolchain(cargoPath) {
+  const bin = dirname(cargoPath);
+  return basename(bin).toLowerCase() === 'bin' ? basename(dirname(bin)) || null : null;
+}
+
+function runtimeBase(toolchainLibraryPath, rustupToolchain, platform = process.platform) {
   const environment = Object.fromEntries(['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SystemRoot', 'ComSpec'].flatMap((key) => process.env[key] === undefined ? [] : [[key, process.env[key]]]));
+  if (rustupToolchain) environment.RUSTUP_TOOLCHAIN = rustupToolchain;
   if (platform === 'darwin' && toolchainLibraryPath) environment.DYLD_FALLBACK_LIBRARY_PATH = toolchainLibraryPath;
   return environment;
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #platform; #jobs = new Map(); #admissions = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #statfs; #now; #platform; #jobs = new Map(); #admissions = new Map(); #stopping = false;
 
   static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
@@ -203,7 +223,7 @@ export class ThinJobService {
       const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
         ? workspaceResolver
         : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 2_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
-      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform });
+      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: registeredRustupToolchain(cargoTool.path), compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1), platform }) });
       await thinCache.start?.();
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
@@ -220,8 +240,8 @@ export class ThinJobService {
     }
   }
 
-  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform = process.platform }) {
-    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#compilerEnvironment = compilerEnvironment; this.#compilerIdentity = compilerIdentity; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now; this.#platform = platform;
+  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, rustupToolchain, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform = process.platform }) {
+    this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#rustupToolchain = rustupToolchain; this.#compilerEnvironment = compilerEnvironment; this.#compilerIdentity = compilerIdentity; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#statfs = statfs; this.#now = now; this.#platform = platform;
   }
 
   get runtimeIdentity() { return this.#runtime; }
@@ -448,7 +468,7 @@ export class ThinJobService {
           : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };
       const agentBin = join(this.#config.broker.externalRoot.path, 'agent-bin');
       const directCargoCompilers = !job.parentId && job.shim === 'cargo' ? this.#compilerEnvironment : {};
-      const runtimeEnvironment = { ...runtimeBase(this.#toolchainLibraryPath, this.#platform), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, ...directCargoCompilers, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken };
+      const runtimeEnvironment = brokerOwnedRuntimeEnvironment({ ...runtimeBase(this.#toolchainLibraryPath, this.#rustupToolchain, this.#platform), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, ...directCargoCompilers, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken }, brokerEndpointForPlatform(this.#config, this.#platform));
       // Loader authority remains broker-owned even when a cache adapter or
       // inherited parent environment contains a stale value.
       if (this.#platform === 'darwin' && this.#toolchainLibraryPath) runtimeEnvironment.DYLD_FALLBACK_LIBRARY_PATH = this.#toolchainLibraryPath;

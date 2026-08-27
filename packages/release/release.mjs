@@ -521,11 +521,12 @@ function run(cmd, runArgs, cwd, env = {}, options = {}) {
   }
   const started = Date.now();
   return new Promise((resolve) => {
+    const useShell = process.platform === "win32" && !/\.(?:exe|com)$/i.test(cmd);
     const child = spawn(cmd, runArgs, {
       cwd,
       env: { ...process.env, ...releaseEnv, ...env },
       stdio: "inherit",
-      shell: process.platform === "win32",
+      shell: useShell,
       windowsHide: true,
     });
     const timer = options.timeoutMs

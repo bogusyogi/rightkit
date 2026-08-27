@@ -11,6 +11,7 @@
 // process & descendant therefore begins inside Job Object.
 #include <node_api.h>
 #include <windows.h>
+#include <aclapi.h>
 
 static napi_value ThrowLastError(napi_env env, const char *what) {
   DWORD code = GetLastError();
@@ -18,6 +19,87 @@ static napi_value ThrowLastError(napi_env env, const char *what) {
   wsprintfA(message, "%s failed with Win32 error %lu", what, code);
   napi_throw_error(env, NULL, message);
   return NULL;
+}
+
+static napi_value ThrowWin32Error(napi_env env, const char *what, DWORD code) {
+  char message[256];
+  wsprintfA(message, "%s failed with Win32 error %lu", what, code);
+  napi_throw_error(env, NULL, message);
+  return NULL;
+}
+
+/** Grant this process token's exact user SID duplex access in its default
+ * DACL before libuv creates the broker pipe. Task Scheduler S4U tokens for
+ * local admins otherwise grant pipe writes only to an admin SID that medium
+ * interactive tokens carry as deny-only. Existing ACEs remain unchanged. */
+static napi_value GrantCurrentUserDefaultDacl(napi_env env, napi_callback_info info) {
+  HANDLE token = NULL;
+  BYTE *userBuffer = NULL;
+  BYTE *daclBuffer = NULL;
+  PACL updatedDacl = NULL;
+  napi_value undefined;
+
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_DEFAULT, &token))
+    return ThrowLastError(env, "OpenProcessToken");
+
+  DWORD userBytes = 0;
+  GetTokenInformation(token, TokenUser, NULL, 0, &userBytes);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+    CloseHandle(token);
+    return ThrowLastError(env, "GetTokenInformation(TokenUser size)");
+  }
+  userBuffer = (BYTE *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, userBytes);
+  if (!userBuffer) { CloseHandle(token); return ThrowWin32Error(env, "HeapAlloc(TokenUser)", ERROR_OUTOFMEMORY); }
+  if (!GetTokenInformation(token, TokenUser, userBuffer, userBytes, &userBytes)) {
+    HeapFree(GetProcessHeap(), 0, userBuffer); CloseHandle(token);
+    return ThrowLastError(env, "GetTokenInformation(TokenUser)");
+  }
+
+  DWORD daclBytes = 0;
+  GetTokenInformation(token, TokenDefaultDacl, NULL, 0, &daclBytes);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+    HeapFree(GetProcessHeap(), 0, userBuffer); CloseHandle(token);
+    return ThrowLastError(env, "GetTokenInformation(TokenDefaultDacl size)");
+  }
+  daclBuffer = (BYTE *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, daclBytes);
+  if (!daclBuffer) {
+    HeapFree(GetProcessHeap(), 0, userBuffer); CloseHandle(token);
+    return ThrowWin32Error(env, "HeapAlloc(TokenDefaultDacl)", ERROR_OUTOFMEMORY);
+  }
+  if (!GetTokenInformation(token, TokenDefaultDacl, daclBuffer, daclBytes, &daclBytes)) {
+    HeapFree(GetProcessHeap(), 0, daclBuffer); HeapFree(GetProcessHeap(), 0, userBuffer); CloseHandle(token);
+    return ThrowLastError(env, "GetTokenInformation(TokenDefaultDacl)");
+  }
+
+  TOKEN_USER *tokenUser = (TOKEN_USER *)userBuffer;
+  TOKEN_DEFAULT_DACL *current = (TOKEN_DEFAULT_DACL *)daclBuffer;
+  EXPLICIT_ACCESSW access;
+  ZeroMemory(&access, sizeof(access));
+  access.grfAccessPermissions = FILE_GENERIC_READ | FILE_GENERIC_WRITE;
+  access.grfAccessMode = GRANT_ACCESS;
+  access.grfInheritance = NO_INHERITANCE;
+  access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+  access.Trustee.TrusteeType = TRUSTEE_IS_USER;
+  access.Trustee.ptstrName = (LPWSTR)tokenUser->User.Sid;
+
+  DWORD aclError = SetEntriesInAclW(1, &access, current->DefaultDacl, &updatedDacl);
+  if (aclError != ERROR_SUCCESS) {
+    HeapFree(GetProcessHeap(), 0, daclBuffer); HeapFree(GetProcessHeap(), 0, userBuffer); CloseHandle(token);
+    return ThrowWin32Error(env, "SetEntriesInAclW", aclError);
+  }
+
+  TOKEN_DEFAULT_DACL replacement;
+  replacement.DefaultDacl = updatedDacl;
+  BOOL changed = SetTokenInformation(token, TokenDefaultDacl, &replacement, sizeof(replacement));
+  DWORD changeError = changed ? ERROR_SUCCESS : GetLastError();
+  LocalFree(updatedDacl);
+  HeapFree(GetProcessHeap(), 0, daclBuffer);
+  HeapFree(GetProcessHeap(), 0, userBuffer);
+  CloseHandle(token);
+  if (!changed) return ThrowWin32Error(env, "SetTokenInformation(TokenDefaultDacl)", changeError);
+
+  napi_get_undefined(env, &undefined);
+  return undefined;
 }
 
 static napi_value WrapHandle(napi_env env, HANDLE handle) {
@@ -204,6 +286,7 @@ static napi_value GetProcessCreationTimeFn(napi_env env, napi_callback_info info
 
 static napi_value Init(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
+    { "grantCurrentUserDefaultDacl", NULL, GrantCurrentUserDefaultDacl, NULL, NULL, NULL, napi_default, NULL },
     { "assignRunningProcessToNewJob", NULL, AssignRunningProcessToNewJob, NULL, NULL, NULL, napi_default, NULL },
     { "terminateJob", NULL, TerminateJob, NULL, NULL, NULL, napi_default, NULL },
     { "closeProcessHandle", NULL, CloseProcessHandleFn, NULL, NULL, NULL, napi_default, NULL },

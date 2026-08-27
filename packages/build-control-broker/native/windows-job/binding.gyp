@@ -10,7 +10,7 @@
       "conditions": [
         ["OS=='win'", {
           "sources": ["windows_job.c"],
-          "libraries": ["kernel32.lib"],
+          "libraries": ["kernel32.lib", "advapi32.lib"],
           "msvs_settings": {
             "VCCLCompilerTool": {
               "AdditionalOptions!": ["-flto=thin", "-flto=full"],

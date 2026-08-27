@@ -199,6 +199,13 @@ test("release worker reuses owned process-tree termination for Windows and remot
   assert.match(source, /function killProcessTree\(pid\) \{\s*terminateProcessTree\(pid\);\s*\}/s);
 });
 
+test("Windows native release tools preserve artifact arguments containing spaces", () => {
+  const source = readFileSync(release, "utf8");
+  assert.match(source, /const useShell = process\.platform === "win32" && !\/\\\.\(\?:exe\|com\)\$\/i\.test\(cmd\);/);
+  assert.match(source, /shell: useShell/);
+  assert.doesNotMatch(source, /shell: process\.platform === "win32"/);
+});
+
 test("accepts patch and exposes it to the signed package command", () => {
   const result = run(fixture(), "--tier=patch");
   assert.equal(result.status, 0, result.stderr);
