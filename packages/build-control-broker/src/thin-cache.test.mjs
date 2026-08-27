@@ -84,7 +84,7 @@ test('attributes exclusive client-side windows & refuses overlapping roots', asy
   stats = { compile_requests: 3, cache_hits: { Rust: 3 }, cache_misses: { Rust: 0 } };
   const result = await cache.finish(exclusive);
   assert.equal(result.status, 'PROVEN');
-  assert.deepEqual(result.reuse, { status: 'PROVEN', hits: 1, misses: 0, bypassed: 0, hitRate: 1, effectiveHitRate: 1 });
+  assert.deepEqual(result.reuse, { status: 'PROVEN', hits: 1, misses: 0, bypassed: 0, hitRate: 1 });
   assert.equal(result.attribution.scope, 'broker-exclusive-client-window');
   assert.equal(result.attribution.exact, true);
   await cache.close();

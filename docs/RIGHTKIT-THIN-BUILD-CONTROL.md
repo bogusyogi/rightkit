@@ -905,8 +905,7 @@ Terminal receipt should include approximately:
       "hits": 0,
       "misses": 0,
       "bypassed": 0,
-      "hitRate": null,
-      "effectiveHitRate": null
+      "hitRate": null
     },
     "delta": {
       "compile_requests": 0
@@ -939,8 +938,8 @@ hits & misses. Receipts never manufacture attribution they do not have.
 
 `cache.healthStatus` reports service health. `cache.reuse.status` reports reuse
 as `PROVEN`, `NO_COMPILATION`, `BYPASSED`, `MISS`, `MIXED`, or `NOT_MEASURED`.
-`hitRate` covers cacheable compiles; `effectiveHitRate` includes compiler calls
-which bypassed cache. This prevents non-cacheable work from looking warm.
+`hitRate` covers cacheable compiles. `bypassed` stays separate because cheap
+compiler probes & non-cacheable compilation are not equivalent cache misses.
 `SERVICE_OK` is never a reuse result. Cache reports group only exact
 `cacheCohort` values: host, workspace, command, profile, feature set, target,
 toolchain, compiler identity, & cache epoch.
