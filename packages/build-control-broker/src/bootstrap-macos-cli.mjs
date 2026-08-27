@@ -223,6 +223,7 @@ export async function buildConfig({ externalRoot }) {
   const toolchain = (await rustcVersionTriple(tools.find((tool) => tool.id === 'rustc')?.path)) ?? 'stable-aarch64-apple-darwin';
   const targetTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
   const otherTriple = targetTriple === 'aarch64-apple-darwin' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwin';
+  const targetTriples = [targetTriple, otherTriple, 'aarch64-apple-ios', 'aarch64-apple-ios-sim'];
   return {
     schemaVersion: 2,
     broker: {
@@ -238,7 +239,7 @@ export async function buildConfig({ externalRoot }) {
     shims: shimTable(tools),
     externalCommands: externalCommands(tools),
     defaults: {
-      toolchain, targetTriple, targetTriples: [targetTriple, otherTriple],
+      toolchain, targetTriple, targetTriples,
       buildProfile: 'development',
       // Only referenced when actually discovered: the field is schema-optional,
       // & pointing it at an unregistered tool id rejects the whole config.
