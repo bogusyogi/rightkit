@@ -96,7 +96,19 @@ export function selectWindowsNodePid(processes, nodePath) {
 
 export async function ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile = execDefault }) {
   if (typeof taskXmlPath !== 'string' || !isAbsolute(taskXmlPath)) throw new TypeError('absolute taskXmlPath is required when the scheduled task is unregistered');
+  const registered = await execFile('schtasks', ['/Query', '/TN', taskName])
+    .then(() => true)
+    .catch(() => false);
+  if (registered) {
+    // Cutover disables the existing task before replacing runtime-current. Its
+    // action already targets runtime-current, so re-registering an unchanged
+    // BootTrigger definition is unnecessary & requires elevation on Windows.
+    // Re-enable it under its existing ACL instead.
+    await execFile('schtasks', ['/Change', '/TN', taskName, '/ENABLE']);
+    return Object.freeze({ registered: true, reused: true });
+  }
   await execFile('schtasks', ['/Create', '/TN', taskName, '/XML', taskXmlPath, '/F']);
+  return Object.freeze({ registered: true, reused: false });
 }
 
 export function createWindowsRuntimeCallbacks(options = {}) {

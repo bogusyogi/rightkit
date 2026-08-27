@@ -86,7 +86,20 @@ test('Windows PID selection rejects shell/self matches', () => {
 
 test('fresh Windows cutover registers task & rollback ends registered candidate', async () => {
   const calls = []; const execFile = async (command, args) => { calls.push([command, args]); if (args[0] === '/Query') throw new Error('missing'); return { stdout: '' }; };
-  await ensureWindowsTaskRegistered({ taskName: 'RightKitTest', taskXmlPath: '/tmp/task.xml', execFile }); assert.equal(calls[0][1][0], '/Create');
+  assert.deepEqual(await ensureWindowsTaskRegistered({ taskName: 'RightKitTest', taskXmlPath: '/tmp/task.xml', execFile }), { registered: true, reused: false });
+  assert.deepEqual(calls.map(([, args]) => args[0]), ['/Query', '/Create']);
   const registeredCalls = []; const callbacks = createWindowsRuntimeCallbacks({ taskName: 'RightKitTest', endpoint: '\\\\.\\pipe\\rightkit-test', drainProbe: async () => ({ open: 0 }), execFile: async (command, args) => { registeredCalls.push([command, args]); return { stdout: '' }; } });
   await callbacks.rollbackService({ prior: null }); assert.equal(registeredCalls.at(-1)[1][0], '/End');
+});
+
+test('existing Windows cutover re-enables task without elevation-only replacement', async () => {
+  const calls = [];
+  const result = await ensureWindowsTaskRegistered({
+    taskName: 'RightKitTest',
+    taskXmlPath: '/tmp/task.xml',
+    execFile: async (command, args) => { calls.push([command, args]); return { stdout: '' }; },
+  });
+  assert.deepEqual(result, { registered: true, reused: true });
+  assert.deepEqual(calls.map(([, args]) => args[0]), ['/Query', '/Change']);
+  assert.deepEqual(calls[1][1].slice(-1), ['/ENABLE']);
 });
