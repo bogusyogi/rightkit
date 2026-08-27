@@ -57,8 +57,8 @@ test('cutover proves input selection & rechecks thin drain', async () => {
   const item = await fixture();
   try {
     let options;
-    const receipt = await runWindowsCutover(input(item), { ...drainDependencies, platform: 'win32', stopManaged: async () => ({ stopped: true }), install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); return { taskName: 'RightKitBuildControl' }; } });
-    assert.equal(receipt.thinDrain.open, 0); assert.equal(options.externalRoot, item.external); assert.equal(options.taskXmlPath.endsWith('.xml'), true);
+    const receipt = await runWindowsCutover(input(item), { ...drainDependencies, platform: 'win32', stopManaged: async () => ({ stopped: true }), install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); assert.match(await readFile(candidate.taskXmlPath, 'utf16le'), new RegExp(process.execPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))); return { taskName: 'RightKitBuildControl' }; } });
+    assert.equal(receipt.thinDrain.open, 0); assert.equal(options.externalRoot, item.external); assert.equal(options.nodePath, process.execPath); assert.equal(options.taskXmlPath.endsWith('.xml'), true);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
 

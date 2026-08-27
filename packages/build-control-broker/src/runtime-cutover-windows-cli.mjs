@@ -91,7 +91,10 @@ export async function runWindowsCutover(input, dependencies = {}) {
   if (resolve(config.broker.externalRoot.path) !== externalRoot) throw new Error('config broker.externalRoot.path differs from --external-root');
   if ((config.windowsPipe ?? '') !== options.endpoint) throw new Error('config windowsPipe differs from --endpoint');
   if (typeof config.broker.activationFencePath !== 'string' || !isAbsolute(config.broker.activationFencePath) || !contained(resolve(config.broker.activationFencePath), externalRoot)) throw new Error('config broker.activationFencePath must be an absolute path contained by --external-root');
-  const nodePath = await canonicalize(process.execPath);
+  // Keep stable invocation path (for example NVM's nodejs junction) in task
+  // definition. Runtime PID proof accepts either this literal path or its
+  // resolved physical target.
+  const nodePath = process.execPath;
   const runtimeScript = resolve(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   const drainFence = await beginDrain(externalRoot);
   try {
