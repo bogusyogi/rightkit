@@ -33,7 +33,7 @@ test('cache telemetry probe timeout is no longer platform-shortened', () => {
 });
 
 test('owns one gateway & injects strict cache environment with health proof', async () => {
-  const calls = []; const { cache, children, events } = harness({ run: async (...args) => { calls.push(args); return { stdout: '{"version":"0.17.0","cache_location":"Local disk: \\"/managed/compiler-cache\\"","cache_size":0,"max_cache_size":21474836480,"stats":{"compile_requests":7}}' }; } });
+  const calls = []; const { cache, children, events } = harness({ platform: 'linux', run: async (...args) => { calls.push(args); return { stdout: '{"version":"0.17.0","cache_location":"Local disk: \\"/managed/compiler-cache\\"","cache_size":0,"max_cache_size":21474836480,"stats":{"compile_requests":7}}' }; } });
   await cache.start();
   const prepared = await cache.prepare({ layout, cargoBuildJobs: 4, jobId: 'job-1' });
   assert.equal(children.length, 1);
@@ -63,6 +63,15 @@ test('owns one gateway & injects strict cache environment with health proof', as
   assert.equal(finished.attribution.scope, 'broker-exclusive-client-window');
   assert.equal(finished.attribution.exact, true);
   assert.deepEqual(finished.delta, { compile_requests: 0 });
+  await cache.close();
+});
+
+test('Windows cache clients use broker-owned TCP gateway', async () => {
+  const { cache } = harness({ platform: 'win32', gatewayPort: 43_217 });
+  await cache.start();
+  const prepared = await cache.prepare({ layout, jobId: 'windows-job' });
+  assert.equal(prepared.environment.SCCACHE_SERVER_PORT, '43217');
+  assert.equal(prepared.environment.SCCACHE_SERVER_UDS, undefined);
   await cache.close();
 });
 
