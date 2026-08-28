@@ -22,7 +22,7 @@
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.74",
+    "@rightkit/release": "0.2.76",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4"
   },
@@ -72,7 +72,9 @@
       "0.2.70",
       "0.2.71",
       "0.2.72",
-      "0.2.73"
+      "0.2.73",
+      "0.2.74",
+      "0.2.75"
     ],
     "@rightkit/qa": [
       "0.1.0",
