@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { RIGHTRELEASE_MANIFEST_SIGNER, signReleaseManifestWithAzure } from "./sign-release-manifest.mjs";
 import { validateCycloneDxSbom, validateInTotoSlsaProvenance } from "./supply-chain-evidence.mjs";
@@ -73,8 +73,13 @@ function assertGitHubAssetUrl(url) {
 
 export function createPortableArchive({ sourceDir, outputPath, commandRunner = spawnSync }) {
   const source = realpathSync(sourceDir);
-  mkdirSync(dirname(outputPath), { recursive: true });
-  const result = commandRunner("tar", ["-a", "-c", "-f", resolve(outputPath), "-C", source, "."], {
+  const outputDir = resolve(dirname(outputPath));
+  mkdirSync(outputDir, { recursive: true });
+  // GNU tar reads a colon in -f as a remote host spec, so an absolute
+  // Windows path (C:\...) fails with "Cannot connect to C:". Run from the
+  // output directory and pass a bare filename instead.
+  const result = commandRunner("tar", ["-a", "-c", "-f", basename(outputPath), "-C", source, "."], {
+    cwd: outputDir,
     encoding: "utf8",
     windowsHide: true,
   });
