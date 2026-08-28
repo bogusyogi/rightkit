@@ -23,6 +23,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
@@ -48,7 +49,7 @@ const PIPELINE_FINGERPRINT = createHash("sha256")
   .slice(0, 16);
 
 /** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
-function buildPreflight({ config, configPath, appRoot, repoRoot, platform }) {
+function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativeLayout }) {
   let version;
   try {
     version = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8")).version;
@@ -65,10 +66,7 @@ function buildPreflight({ config, configPath, appRoot, repoRoot, platform }) {
     // collision is already enforced downstream, and duplicating it here would
     // reject a legitimate resume of an in-flight build.
     version: undefined,
-    cargoLockPaths: [
-      path.join(appRoot, "src-tauri", "Cargo.lock"),
-      path.join(appRoot, "Cargo.lock"),
-    ],
+    cargoLockPaths: nativeLayout?.lockCandidates ?? [],
   });
 }
 
@@ -152,7 +150,10 @@ try {
   }
   const target = config.targets?.[platform];
   if (!target?.package) fail(`${config.app} has no ${platform} package command`);
-  if (platform === "win") assertNsisInPlaceUpgradeContract(appRoot, target.nsisUpgradeContract);
+  const nativeLayout = resolveNativeCargoLayout({ appRoot, config });
+  if (platform === "win" && target.signingContract === "windows-raw-exe-authenticode-before-nsis-v1") {
+    assertNsisInPlaceUpgradeContract(appRoot, target.nsisUpgradeContract);
+  }
   const { requiredInputs, buildInputs } = resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target });
   const dirtyInputs = dirtyBuildInputs(repoRoot, buildInputs, commit);
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
@@ -170,12 +171,12 @@ try {
     receiptInputs: ["raw-exe", "installer", "embedding"].map((phase) => path.join(receiptRoot, `windows-${phase}.json`)),
   } : null;
   if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
-  const cargoLock = requiredInputs.find((file) => /Cargo\.lock$/i.test(file));
-  const cargoToml = requiredInputs.find((file) => /Cargo\.toml$/i.test(file));
+  const cargoLock = nativeLayout.lockPath;
+  const cargoToml = nativeLayout.manifestPath;
   // A broker-managed host is not identified by RIGHTKIT_BUILD_BROKER_SOCKET alone:
   // that variable is exported by login shells only, while the managed cargo shim is
   // on PATH for every shell. Detecting on the variable alone made agent (non-login)
-  // shells take the Cache V2 branch, bridge src-tauri/target into the release cache,
+  // shells take the Cache V2 branch, bridge resolved native target into release cache,
   // and then lose CARGO_TARGET_DIR to the broker's unconditional override — so the
   // app bundle landed in the broker workspace and packaging failed on an empty cache.
   const managedCargoTarget = brokerManagedHost(process.env) ? resolveTargetRoot(cargoToml) : null;
@@ -204,7 +205,7 @@ try {
   // Preflight BEFORE any compile. These preconditions used to be discovered one
   // per build cycle, minutes deep, with errors that named a symptom instead of a
   // cause. Blocking problems stop here, in seconds, naming the fix.
-  const preflight = buildPreflight({ config, configPath, appRoot, repoRoot: layout.repoRoot, platform });
+  const preflight = buildPreflight({ config, configPath, appRoot, repoRoot: layout.repoRoot, platform, nativeLayout });
   const preflightBlockers = preflightFailures(preflight);
   if (preflightBlockers.length > 0) {
     fail(`preflight found ${preflightBlockers.length} blocking problem(s):\n${formatPreflight(preflightBlockers)}`);
@@ -256,7 +257,7 @@ try {
     tools: toolVersions,
     createdAt: new Date().toISOString(),
   };
-  const targetLink = path.join(appRoot, "src-tauri", "target");
+  const targetLink = nativeLayout.targetLink;
   // ownedRoot is the per-app cache parent holding every fingerprint dir, so a
   // link left by an earlier fingerprint is recognised as ours and repointed
   // instead of hard-stopping the build.
@@ -329,7 +330,7 @@ try {
         checkpoint(stateRoot, "hardened");
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, managedCargoTarget, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -369,19 +370,23 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, managedCargoTarget, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity }) {
+function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity }) {
   // Every app's right-release.config.mjs names installer/updater artifacts
-  // relative to the local `src-tauri/target`. On a broker-managed host that
+  // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
   // targetBridge.ensure() deliberately leaves a real local directory alone,
   // see target-bridge.mjs) so those paths must resolve against the broker's
   // own target root instead, or every managed build fails at seal after a
   // full compile, sign, and notarize.
   const targetPrefix = "src-tauri/target/";
+  const effectiveTargetPrefix = nativeLayout?.targetPrefix ?? targetPrefix;
   const resolveArtifactPath = (file) => {
     const normalized = file.replaceAll(path.win32.sep, "/");
     if (managedCargoTarget && normalized.startsWith(targetPrefix)) {
       return path.join(managedCargoTarget, normalized.slice(targetPrefix.length));
+    }
+    if (managedCargoTarget && effectiveTargetPrefix !== targetPrefix && normalized.startsWith(effectiveTargetPrefix)) {
+      return path.join(managedCargoTarget, normalized.slice(effectiveTargetPrefix.length));
     }
     return path.resolve(configRoot, file);
   };

@@ -13,6 +13,7 @@ import {
   resolveSharedCacheRoot,
 } from "./cache-policy.mjs";
 import { resolveReleaseLayout } from "./release-state.mjs";
+import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 
 // On a broker-managed host, CARGO_TARGET_DIR is not Cache V2's to own: the build
@@ -59,14 +60,16 @@ export async function runCacheCommand(args = process.argv.slice(2), { env = proc
     if (!config?.app) throw new Error("cache migrate config must expose app");
     const appRoot = path.dirname(configFile);
     const configuredTarget = config.targets?.[platform] ?? {};
-    const lockPath = path.join(appRoot, "src-tauri", "Cargo.lock");
-    const identity = resolveSharedCacheIdentity({ cargoLockPath: lockPath, cargoTomlPath: path.join(appRoot, "src-tauri", "Cargo.toml"), rustcVerbose: env.RIGHT_RELEASE_RUSTC_VERBOSE, targetTriple: configuredTarget.cargoTarget ?? configuredTarget.targetTriple ?? configuredTarget.rustTarget ?? env.TAURI_ENV_TARGET_TRIPLE, profile: configuredTarget.profile ?? "release" });
+    const nativeLayout = resolveNativeCargoLayout({ appRoot, config });
+    const lockPath = nativeLayout.lockPath;
+    if (!lockPath) throw new Error(`cache migrate could not find Cargo.lock for ${nativeLayout.manifestPath}`);
+    const identity = resolveSharedCacheIdentity({ cargoLockPath: lockPath, cargoTomlPath: nativeLayout.manifestPath, rustcVerbose: env.RIGHT_RELEASE_RUSTC_VERBOSE, targetTriple: configuredTarget.cargoTarget ?? configuredTarget.targetTriple ?? configuredTarget.rustTarget ?? env.TAURI_ENV_TARGET_TRIPLE, profile: configuredTarget.profile ?? "release" });
     const fingerprint = env.RIGHT_RELEASE_CACHE_KEY || identity.fingerprint;
     const layout = resolveCacheLayout({ cacheRoot, platform, architecture: identity.architecture, app: config.app, fingerprint, kind: "release" });
     const dryRun = !rest.includes("--apply");
-    const legacy = resolveReleaseLayout({ repoRoot: findRepoRoot(appRoot), configPath: configFile });
+    const legacy = resolveReleaseLayout({ repoRoot: findRepoRoot(appRoot), configPath: configFile, config, nativeLayout });
     const legacyTargetRoot = path.join(legacy.vaultRoot, "cache", "cargo-target", platform, fingerprint);
-    const result = migrateLegacyCache({ legacyRoot: path.join(appRoot, "src-tauri", "target"), legacyTargetRoot, legacyCargoHome: path.join(legacy.vaultRoot, "cache", "cargo-home"), legacyReleaseLockPath: path.join(legacy.vaultRoot, "locks", `${platform}.lock.json`), layout, app: config.app, dryRun });
+    const result = migrateLegacyCache({ legacyRoot: nativeLayout.targetLink, legacyTargetRoot, legacyCargoHome: path.join(legacy.vaultRoot, "cache", "cargo-home"), legacyReleaseLockPath: path.join(legacy.vaultRoot, "locks", `${platform}.lock.json`), layout, app: config.app, dryRun });
     return output({ schema: 1, command, cacheRoot, ...result }, json, stdout);
   }
   throw new Error("right-release cache: expected status, prune, or migrate");
