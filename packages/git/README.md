@@ -38,4 +38,4 @@ Node builtins only; no runtime dependencies.
 
 ## Profiles
 
-`profile` defaults to `node`. `rust-hybrid` requires `ci`, accepts optional `release-candidate`, installs pinned Node plus `rustup stable`, then runs product-owned package scripts. Candidate configuration is `{ buildScript, checkScript, artifactRoot }`; RightGit passes an isolated `RIGHT_GIT_ARTIFACT_ROOT`, checks it, & uploads it as an unsigned handoff. It never signs, finalizes, publishes releases, or receives signing credentials.
+`profile` defaults to `node`. `rust-hybrid` requires `ci`, accepts optional `release-candidate`, installs pinned Node plus Rust, then runs product-owned package scripts. Candidate configuration is `{ buildScript, checkScript, artifactRoot, os }`; `os` selects supported release hosts from main matrix. RightGit passes isolated `RIGHT_GIT_ARTIFACT_ROOT`, checks it, & uploads it as an unsigned handoff. It never signs, finalizes, publishes releases, or receives signing credentials.

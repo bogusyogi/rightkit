@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${OS_MATRIX}
+        os: ${CANDIDATE_OS_MATRIX}
         node: ${NODE_MATRIX}
     runs-on: ${{ matrix.os }}
     steps:

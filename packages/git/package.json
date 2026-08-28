@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/git",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

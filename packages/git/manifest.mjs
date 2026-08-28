@@ -141,7 +141,7 @@ export function validateManifest(manifest) {
       errors.push("candidate must be an object");
     } else {
       for (const key of Object.keys(candidate)) {
-        if (!["buildScript", "checkScript", "artifactRoot"].includes(key)) errors.push(`unknown candidate field: ${key}`);
+        if (!["buildScript", "checkScript", "artifactRoot", "os"].includes(key)) errors.push(`unknown candidate field: ${key}`);
       }
       for (const key of ["buildScript", "checkScript"]) {
         if (typeof candidate[key] !== "string" || !PACKAGE_SCRIPT_RE.test(candidate[key])) {
@@ -150,6 +150,11 @@ export function validateManifest(manifest) {
       }
       if (typeof candidate.artifactRoot !== "string" || !GATE_PATH_RE.test(candidate.artifactRoot)) {
         errors.push("candidate.artifactRoot must be one safe relative path");
+      }
+      if (!Array.isArray(candidate.os) || candidate.os.length === 0 || candidate.os.some((value) => typeof value !== "string" || !SAFE_MATRIX_VALUE_RE.test(value))) {
+        errors.push("candidate.os must be a non-empty array of safe runner labels");
+      } else if (candidate.os.some((value) => !manifest.matrix?.os?.includes(value))) {
+        errors.push("candidate.os entries must also exist in matrix.os");
       }
     }
   }
@@ -315,6 +320,7 @@ export function buildRenderContext(manifest, repoPath) {
     CANDIDATE_BUILD_SCRIPT: manifest.candidate?.buildScript,
     CANDIDATE_CHECK_SCRIPT: manifest.candidate?.checkScript,
     CANDIDATE_ARTIFACT_ROOT: manifest.candidate?.artifactRoot,
+    CANDIDATE_OS_MATRIX: yamlFlowStringList(manifest.candidate?.os ?? manifest.matrix.os),
   };
 
   if (manifest.publish?.npm) {

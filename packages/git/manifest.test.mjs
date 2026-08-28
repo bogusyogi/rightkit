@@ -26,11 +26,12 @@ test("rust-hybrid supports ci plus a configured unsigned release-candidate lane"
   const candidate = {
     ...valid,
     lanes: ["ci", "release-candidate"],
-    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "legion-unsigned" },
+    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "legion-unsigned", os: ["ubuntu-latest"] },
   };
   assert.equal(validateManifest(candidate).valid, true);
   assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, buildScript: "echo unsafe" } }).valid, false);
   assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, artifactRoot: "../escape" } }).valid, false);
+  assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, os: ["windows-latest"] } }).valid, false);
 });
 
 test("rejects non-object input", () => {

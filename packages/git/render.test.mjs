@@ -57,7 +57,7 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
     lanes: ["ci", "release-candidate"],
     profile: "rust-hybrid",
     gate: { path: "scripts/gate.sh" },
-    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "widgets-unsigned" },
+    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "widgets-unsigned", os: ["macos-latest", "windows-latest"] },
     templateVersion: "1.2.0",
   };
   const content = renderTemplate(
@@ -67,6 +67,7 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
   assert.match(content, /pnpm run ci:candidate/);
   assert.match(content, /pnpm run ci:candidate-check/);
   assert.match(content, /RIGHT_GIT_ARTIFACT_ROOT/);
+  assert.match(content, /os: \["macos-latest", "windows-latest"\]/);
   assert.match(content, /actions\/upload-artifact@[a-f0-9]{40}/);
   assert.doesNotMatch(content, /secrets\.|AZURE_|APPLE_|certificate|private.key/i);
 });
