@@ -619,9 +619,6 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
   if (policy !== "right-git-ci-only") {
     fail(`${appName} hosted workflow files are forbidden: ${workflows.join(", ")}`);
   }
-  if (workflows.length !== 1 || workflows[0] !== "ci.yml") {
-    fail(`${appName} right-git-ci-only policy permits only ci.yml, got: ${workflows.join(", ")}`);
-  }
   const manifestPath = path.join(root, ".rightgit.json");
   let manifest;
   try {
@@ -629,16 +626,30 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
   } catch {
     fail(`${appName} right-git-ci-only policy requires a valid .rightgit.json`);
   }
-  if (manifest?.schemaVersion !== 1 || JSON.stringify(manifest?.lanes) !== JSON.stringify(["ci"])) {
-    fail(`${appName} right-git-ci-only policy requires .rightgit.json lanes=["ci"]`);
+  const lanes = manifest?.lanes;
+  const safeLanes = new Set(["ci", "release-candidate"]);
+  if (manifest?.schemaVersion !== 1
+    || !Array.isArray(lanes)
+    || lanes.length === 0
+    || !lanes.includes("ci")
+    || new Set(lanes).size !== lanes.length
+    || lanes.some((lane) => !safeLanes.has(lane))) {
+    fail(`${appName} right-git-ci-only policy requires unique .rightgit.json lanes drawn from ["ci", "release-candidate"] and including "ci"`);
   }
-  const source = await readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
-  if (!source.startsWith("# Managed by right-git")) {
-    fail(`${appName} ci.yml is not marked as right-git managed`);
+  const expectedWorkflows = lanes.map((lane) => `${lane}.yml`).sort();
+  if (JSON.stringify(workflows) !== JSON.stringify(expectedWorkflows)) {
+    fail(`${appName} right-git-ci-only policy requires workflows declared by .rightgit.json; expected ${expectedWorkflows.join(", ")}, got: ${workflows.join(", ")}`);
   }
-  if (/^\s*(?:actions|attestations|contents|id-token|packages|security-events):\s*write\s*$/mi.test(source)
-    || /\bsecrets\s*\./i.test(source)) {
-    fail(`${appName} right-git managed ci.yml requests release-capable permissions or secrets`);
+  for (const workflow of expectedWorkflows) {
+    const source = await readFile(path.join(root, ".github", "workflows", workflow), "utf8");
+    if (!source.startsWith("# Managed by right-git")) {
+      fail(`${appName} ${workflow} is not marked as right-git managed`);
+    }
+    if (/^\s*permissions:\s*write-all\s*$/mi.test(source)
+      || /^\s*(?:actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):\s*write\s*$/mi.test(source)
+      || /\bsecrets\s*(?:\.|\[)/i.test(source)) {
+      fail(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets`);
+    }
   }
 }
 
