@@ -21,6 +21,7 @@ import { collectPreflight, formatPreflight, preflightFailures } from "./prefligh
 import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { terminateProcessTree } from "./heavy-command.mjs";
+import { materializeHardeningEvidence } from "./hardening-evidence.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -49,7 +50,6 @@ const opts = {
   install: false,
   dryRun: false,
   skipChecks: false,
-  skipHardening: false,
   doctor: false,
   tier: null,
 };
@@ -64,7 +64,7 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--install") opts.install = true;
   else if (arg === "--dry-run") opts.dryRun = true;
   else if (arg === "--skip-checks") opts.skipChecks = true;
-  else if (arg === "--skip-hardening") opts.skipHardening = true;
+  else if (arg === "--skip-hardening") fail("--skip-hardening is forbidden; use exact artifact/source-bound hardeningAllowances");
   else if (arg === "--doctor") opts.doctor = true;
   else if (arg === "--tier") opts.tier = args[++i];
   else if (arg.startsWith("--tier=")) opts.tier = arg.slice("--tier=".length);
@@ -279,10 +279,21 @@ if (target.postSign && opts.platform !== "win") {
   await runCommand(target.postSign, root);
 }
 
-if (!opts.skipHardening) {
+{
   const scanTargets = target.hardening ?? target.artifacts ?? [];
   if (scanTargets.length) {
-    await run("node", [HARDENING_SCAN, ...scanTargets.map((p) => path.resolve(root, p))], root);
+    let hardeningEvidence = null;
+    if (target.hardeningAllowances?.length) {
+      const receiptRoot = path.resolve(root, ".right-release", "receipts");
+      mkdirSync(receiptRoot, { recursive: true });
+      hardeningEvidence = path.join(receiptRoot, opts.platform + "-hardening-evidence.json");
+      materializeHardeningEvidence({ root, allowances: target.hardeningAllowances, outputPath: hardeningEvidence });
+    }
+    await run("node", [
+      HARDENING_SCAN,
+      ...(hardeningEvidence ? ["--allow-evidence", hardeningEvidence] : []),
+      ...scanTargets.map((p) => path.resolve(root, p)),
+    ], root);
   }
 }
 

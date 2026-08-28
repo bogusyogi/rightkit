@@ -223,6 +223,7 @@ export class ThinState {
       if (state.active) {
         const active = state.active;
         const reapResult = await Promise.resolve().then(() => reap(active.ownership)).catch((error) => ({ reaped: false, reason: error.message }));
+        const rotated = await this.rotate(identity.canonicalRoot, 'broker-restart-active-writer');
         const receipt = {
           id: active.id,
           state: 'ABANDONED',
@@ -232,18 +233,8 @@ export class ThinState {
           recoveredAt: this.#timestamp(),
           reap: reapResult
         };
-        let current;
-        if (reapResult.reaped === false) {
-          current = await this.rotate(identity.canonicalRoot, 'broker-restart-unreaped-writer');
-          await this.writeReceipt(active.id, receipt);
-        } else {
-          // Cargo already tolerates interrupted work in one target directory.
-          // Once process-tree death is proven, preserve that directory so a
-          // broker restart does not discard Cargo fingerprint warmth.
-          await this.finish(identity.canonicalRoot, active.id, receipt);
-          current = await this.workspace(identity.canonicalRoot);
-        }
-        recovered.push(Object.freeze({ workspaceKey: entry.name, mode: 'WRITER', active: Object.freeze(active), newGeneration: current.state.currentGeneration, reap: Object.freeze({ ...reapResult }) }));
+        await atomicJson(join(this.paths.receipts, `${receiptId(active.id)}.json`), receipt);
+        recovered.push(Object.freeze({ workspaceKey: entry.name, mode: 'WRITER', active: Object.freeze(active), newGeneration: rotated.state.currentGeneration, reap: Object.freeze({ ...reapResult }) }));
       }
       const currentState = await readJson(join(directory, STATE_FILE));
       for (const resident of residents(currentState)) {
@@ -329,21 +320,15 @@ export class ThinState {
       const generations = join(directory, 'generations');
       for (const generationEntry of await readdir(generations, { withFileTypes: true }).catch((error) => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
         if (!generationEntry.isDirectory() || !/^\d{6}$/.test(generationEntry.name)) continue;
-        const generation = Number(generationEntry.name); const path = join(generations, generationEntry.name);
-        const metadata = await lstat(path).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
-        if (!metadata) continue;
+        const generation = Number(generationEntry.name); const path = join(generations, generationEntry.name); const metadata = await lstat(path);
         const isCurrent = generation === state.currentGeneration;
         const isActive = generation === state.active?.generation || residents(state).some((resident) => resident.generation === generation);
         let sizeBytes;
-        // Never walk a target tree while Cargo may be mutating it. Reuse its
-        // last advisory measurement (or zero until first idle measurement);
-        // terminal maintenance will measure it after writer exclusion clears.
-        if (isActive) sizeBytes = state.lastMeasuredGeneration === generation && Number.isSafeInteger(state.lastMeasuredBytes) ? state.lastMeasuredBytes : 0;
-        else if (isCurrent && !state.sizeDirty && state.lastMeasuredGeneration === generation && Number.isSafeInteger(state.lastMeasuredBytes)) sizeBytes = state.lastMeasuredBytes;
+        if (isCurrent && !state.sizeDirty && state.lastMeasuredGeneration === generation && Number.isSafeInteger(state.lastMeasuredBytes)) sizeBytes = state.lastMeasuredBytes;
         else sizeBytes = await directorySize(path);
         total += sizeBytes;
         if (isCurrent) {
-          if (!isActive && (state.lastMeasuredGeneration !== generation || state.sizeDirty)) await this.recordMeasured(identity?.canonicalRoot ?? workspaceEntry.name, generation, sizeBytes).catch(() => null);
+          if (state.lastMeasuredGeneration !== generation || state.sizeDirty) await this.recordMeasured(identity?.canonicalRoot ?? workspaceEntry.name, generation, sizeBytes).catch(() => null);
           if (!isActive && identity?.canonicalRoot) idleCurrent.push({ workspaceKey: workspaceEntry.name, canonicalRoot: identity.canonicalRoot, generation, sizeBytes, lastUsedAt: state.lastUsedAt ?? null, updatedAt: state.updatedAt ?? null, modifiedMs: metadata.mtimeMs });
         } else if (!isActive) retired.push({ workspaceKey: workspaceEntry.name, generation, path, sizeBytes, modifiedMs: metadata.mtimeMs });
       }
@@ -352,10 +337,7 @@ export class ThinState {
     for (const candidate of retired.sort((left, right) => left.modifiedMs - right.modifiedMs || left.path.localeCompare(right.path))) {
       if (total <= capBytes) break;
       const trash = join(this.paths.trash, `${candidate.workspaceKey}-${generationName(candidate.generation)}-${randomUUID()}`);
-      const moved = await rename(candidate.path, trash).then(() => true).catch((error) => error.code === 'ENOENT' ? false : Promise.reject(error));
-      if (moved) await rm(trash, { recursive: true, force: true });
-      total -= candidate.sizeBytes;
-      if (!moved) continue;
+      await rename(candidate.path, trash); await rm(trash, { recursive: true, force: true }); total -= candidate.sizeBytes;
       deleted.push(Object.freeze({ workspaceKey: candidate.workspaceKey, generation: candidate.generation, sizeBytes: candidate.sizeBytes }));
     }
     if (total > capBytes && evictIdle) {
@@ -395,17 +377,12 @@ export class ThinState {
 export const thinWorkspaceKey = workspaceKey;
 export const thinGenerationName = generationName;
 
-export async function directorySize(root, { readDirectory = readdir, statPath = lstat } = {}) {
+async function directorySize(root) {
   let total = 0;
-  const entries = await readDirectory(root, { withFileTypes: true }).catch((error) => error.code === 'ENOENT' ? [] : Promise.reject(error));
-  for (const entry of entries) {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
-    try {
-      if (entry.isDirectory()) total += await directorySize(path, { readDirectory, statPath });
-      else if (entry.isFile()) total += (await statPath(path)).size;
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
+    if (entry.isDirectory()) total += await directorySize(path);
+    else if (entry.isFile()) total += (await lstat(path)).size;
   }
   return total;
 }

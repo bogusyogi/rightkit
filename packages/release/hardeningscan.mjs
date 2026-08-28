@@ -1,17 +1,44 @@
 #!/usr/bin/env node
-import { createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
+import { createReadStream, readFileSync, realpathSync } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { HARDENING_RULES } from "./hardening-evidence.mjs";
 
-const args = process.argv.slice(2);
-if (args.length === 0 || args.includes("-h") || args.includes("--help")) {
-  console.error("usage: node hardeningscan.mjs <artifact-path>...");
-  process.exit(args.length === 0 ? 2 : 0);
+const rawArgs = process.argv.slice(2);
+if (rawArgs.length === 0 || rawArgs.includes("-h") || rawArgs.includes("--help")) {
+  console.error("usage: node hardeningscan.mjs [--allow-evidence <json>] <artifact-path>...");
+  process.exit(rawArgs.length === 0 ? 2 : 0);
 }
+const allowIndex = rawArgs.indexOf("--allow-evidence");
+const allowEvidencePath = allowIndex >= 0 ? rawArgs[allowIndex + 1] : null;
+if (allowIndex >= 0 && !allowEvidencePath) throw new Error("--allow-evidence requires a JSON path");
+const args = rawArgs.filter((_, index) => index !== allowIndex && index !== allowIndex + 1);
+if (!args.length) throw new Error("at least one artifact path is required");
 
-const root = process.cwd();
+const root = realpathSync(process.cwd());
 const findings = [];
+const evidence = allowEvidencePath ? JSON.parse(readFileSync(allowEvidencePath, "utf8")) : { allowances: [] };
+if (allowEvidencePath && (evidence.schemaVersion !== 1 || evidence.kind !== "rightkit-hardening-evidence")) {
+  throw new Error("invalid hardening evidence");
+}
+const allowances = evidence.allowances ?? [];
+for (const allowance of allowances) {
+  const sourceMatch = typeof allowance.sourceEvidence === "string" ? /^(.*):([1-9]\d*)$/.exec(allowance.sourceEvidence) : null;
+  const knownRule = HARDENING_RULES[allowance.rule];
+  if (!knownRule || allowance.exact !== knownRule.exact || !sourceMatch || !/^[a-f0-9]{64}$/.test(allowance.artifactSha256 ?? "") || !/^[a-f0-9]{64}$/.test(allowance.sourceSha256 ?? "") || allowance.sourceLine !== Number(sourceMatch[2]) || typeof allowance.rationale !== "string" || allowance.rationale.trim().length < 12) {
+    throw new Error("invalid hardening allowance source binding");
+  }
+  const sourcePath = realpathSync(path.resolve(root, sourceMatch[1]));
+  const sourceRelative = path.relative(root, sourcePath);
+  if (sourceRelative === ".." || sourceRelative.startsWith("../") || sourceRelative.startsWith("..\\") || path.isAbsolute(sourceRelative)) {
+    throw new Error("hardening allowance source escapes release root");
+  }
+  const sourceBytes = readFileSync(sourcePath);
+  if (createHash("sha256").update(sourceBytes).digest("hex") !== allowance.sourceSha256) throw new Error("hardening allowance source digest mismatch");
+  const line = sourceBytes.toString("utf8").split(/\r?\n/)[allowance.sourceLine - 1];
+  if (typeof line !== "string" || !line.includes(allowance.exact)) throw new Error("hardening allowance source token mismatch");
+}
 
 const fileNameRules = [
   [/\.map$/i, "source map shipped"],
@@ -27,63 +54,64 @@ const fileNameRules = [
 ];
 
 const contentRules = [
-  [/\/Users\/adrdsouza\/claude/gi, "local source path leaked"],
-  [/\/Users\/adrdsouza\/\.cargo/gi, "local cargo path leaked"],
-  [/C:\\Users\\adrdsouza\\(?:claude|\.cargo)/gi, "local Windows source path leaked"],
-  [/docs\/experiments/gi, "experiment path leaked"],
-  [/l3_cleanup_prompt/gi, "L3 cleanup prompt marker leaked"],
-  [/SYSTEM_PROMPT/gi, "system prompt marker leaked"],
-  [/OPENAI_API_KEY|ANTHROPIC_API_KEY|APPLE_PASSWORD|NOTARY_PROFILE/gi, "secret/env key name leaked"],
-  [/--enable-gpl|--enable-nonfree/gi, "GPL/nonfree ffmpeg flag leaked"],
-  [/tdt_w15_p6/gi, "stale TDT p6 string leaked"],
-  [/Canary-Qwen|Nemotron|dqlstm|bias-experiments/gi, "experiment/model-history marker leaked"],
+  ["local-source-path", /\/Users\/adrdsouza\/claude/gi, "local source path leaked"],
+  ["local-cargo-path", /\/Users\/adrdsouza\/\.cargo/gi, "local cargo path leaked"],
+  ["local-windows-path", /C:\\Users\\adrdsouza\\(?:claude|\.cargo)/gi, "local Windows source path leaked"],
+  ["experiment-path", /docs\/experiments/gi, "experiment path leaked"],
+  ["cleanup-prompt-marker", /l3_cleanup_prompt/gi, "L3 cleanup prompt marker leaked"],
+  ["system-prompt-marker", /SYSTEM_PROMPT/gi, "system prompt marker leaked"],
+  ["secret-env-name", /OPENAI_API_KEY|ANTHROPIC_API_KEY|APPLE_PASSWORD|NOTARY_PROFILE/gi, "secret/env key name leaked"],
+  ["gpl-flag", /--enable-gpl|--enable-nonfree/gi, "GPL/nonfree ffmpeg flag leaked"],
+  ["stale-model", /tdt_w15_p6/gi, "stale TDT p6 string leaked"],
+  ["experiment-model", /Canary-Qwen|Nemotron|dqlstm|bias-experiments/gi, "experiment/model-history marker leaked"],
 ];
 
-const maxPatternLen = Math.max(...contentRules.map(([r]) => String(r).length), 256);
+const maxPatternLen = Math.max(...contentRules.map(([, rule]) => String(rule).length), 256);
 
 function add(kind, file, message, detail = "") {
-  findings.push({
-    kind,
-    file: path.relative(root, file) || file,
-    message,
-    detail,
-  });
+  findings.push({ kind, file: path.relative(root, file) || file, message, detail });
 }
 
-async function walk(p) {
-  const st = await lstat(p);
-  const normalized = p.split(path.sep).join("/");
-  for (const [rule, message] of fileNameRules) {
-    if (rule.test(normalized)) add("path", p, message);
-  }
+async function walk(target) {
+  const st = await lstat(target);
+  const normalized = target.split(path.sep).join("/");
+  for (const [rule, message] of fileNameRules) if (rule.test(normalized)) add("path", target, message);
   if (st.isDirectory()) {
-    const entries = await readdir(p);
-    await Promise.all(entries.map((name) => walk(path.join(p, name))));
+    const entries = await readdir(target);
+    await Promise.all(entries.map((name) => walk(path.join(target, name))));
     return;
   }
-  if (st.isFile()) await scanFile(p);
+  if (st.isFile()) await scanFile(target);
 }
 
 function scanFile(file) {
-  return new Promise((resolve) => {
+  return new Promise((resolveScan) => {
+    const artifactSha256 = createHash("sha256").update(readFileSync(file)).digest("hex");
     const stream = createReadStream(file, { highWaterMark: 256 * 1024 });
     let tail = "";
     stream.on("data", (chunk) => {
       const text = tail + chunk.toString("latin1");
-      for (const [rule, message] of contentRules) {
-        if (/ffmpeg-LICENSE\.txt$/i.test(file) && message === "GPL/nonfree ffmpeg flag leaked") {
-          continue;
-        }
+      for (const [ruleId, rule, message] of contentRules) {
+        if (/ffmpeg-LICENSE\.txt$/i.test(file) && ruleId === "gpl-flag") continue;
         rule.lastIndex = 0;
-        if (rule.test(text)) add("content", file, message, rule.source);
+        for (const match of text.matchAll(rule)) {
+          const allowed = allowances.some((allowance) =>
+            allowance.rule === ruleId &&
+            allowance.artifactSha256 === artifactSha256 &&
+            allowance.exact === match[0] &&
+            typeof allowance.sourceEvidence === "string" &&
+            typeof allowance.rationale === "string"
+          );
+          if (!allowed) add("content", file, message, rule.source);
+        }
       }
       tail = text.slice(-maxPatternLen);
     });
-    stream.on("error", (err) => {
-      add("read", file, "could not scan file", err.message);
-      resolve();
+    stream.on("error", (error) => {
+      add("read", file, "could not scan file", error.message);
+      resolveScan();
     });
-    stream.on("end", resolve);
+    stream.on("end", resolveScan);
   });
 }
 
@@ -91,25 +119,20 @@ for (const arg of args) {
   const target = path.resolve(arg);
   try {
     await walk(target);
-  } catch (err) {
-    add("target", target, "could not scan target", err.message);
+  } catch (error) {
+    add("target", target, "could not scan target", error.message);
   }
 }
 
 const unique = new Map();
-for (const finding of findings) {
-  unique.set(`${finding.kind}\0${finding.file}\0${finding.message}`, finding);
-}
-
-const deduped = [...unique.values()].sort((a, b) =>
-  `${a.file} ${a.message}`.localeCompare(`${b.file} ${b.message}`),
+for (const finding of findings) unique.set([finding.kind, finding.file, finding.message].join("\0"), finding);
+const deduped = [...unique.values()].sort((left, right) =>
+  (left.file + " " + left.message).localeCompare(right.file + " " + right.message),
 );
 
 if (deduped.length) {
-  console.error(`hardeningscan: ${deduped.length} finding(s)`);
-  for (const f of deduped) {
-    console.error(`- [${f.kind}] ${f.file}: ${f.message}`);
-  }
+  console.error("hardeningscan: " + deduped.length + " finding(s)");
+  for (const finding of deduped) console.error("- [" + finding.kind + "] " + finding.file + ": " + finding.message);
   process.exit(1);
 }
 

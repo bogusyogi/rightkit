@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { comparePackedTrees, verifyRegistryParity } from './registry-parity.mjs';
+import { comparePackedTrees, packedArchivePath, verifyRegistryParity } from './registry-parity.mjs';
+
+test('registry parity accepts current object and legacy array pnpm pack JSON', () => {
+  assert.equal(packedArchivePath('{"filename":"/tmp/rightkit-release.tgz"}'), '/tmp/rightkit-release.tgz');
+  assert.equal(packedArchivePath('[{"filename":"/tmp/rightkit-release.tgz"}]'), '/tmp/rightkit-release.tgz');
+  assert.throws(() => packedArchivePath('{}'), /omitted filename/);
+});
 
 test('registry parity rejects same-version packed-byte drift', () => {
   assert.deepEqual(comparePackedTrees([['build-release.mjs', 'new']], [['build-release.mjs', 'old']]), {
@@ -21,7 +27,7 @@ test('registry parity distinguishes an unpublished version from registry failure
   assert.deepEqual(await verifyRegistryParity({ allowUnpublished: true, fetchImpl: notFound }), {
     status: 'UNPUBLISHED',
     name: '@rightkit/release',
-    version: '0.2.71',
+    version: '0.2.73',
   });
   await assert.rejects(
     verifyRegistryParity({ fetchImpl: notFound }),

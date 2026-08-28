@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { canonicalAddonManifest, createAddonManifest } from "./addon-contract.mjs";
-import { prepareGitHubAddonRelease, prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
+import { prepareGitHubAddonRelease, prepareGitHubDirectRelease, prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
+import { RIGHTRELEASE_MANIFEST_SIGNER, verifyReleaseManifestCatalog } from "./sign-release-manifest.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -100,4 +101,100 @@ test("partial GitHub add-on release uploads only missing assets then verifies al
   };
   const result = publishGitHubRelease({ kind: "addon", manifest: { files: [] }, sealedDir: root, tag: "immutable", assets: [first, second], manifestUrl: "https://example.test/manifest" }, { repo: "Orthic-Labs/Membrane", run });
   assert.equal(result.status, "resumed-verified"); assert.deepEqual(uploads, ["second"]);
+});
+
+test("direct GitHub plan publishes archive plus manifest authority and evidence without installer", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-direct-github-"));
+  const archive = path.join(root, "cutright-windows-x86_64.zip");
+  const provenance = path.join(root, "cutright-windows-x86_64.intoto.jsonl");
+  const sbom = path.join(root, "cutright-windows-x86_64.cdx.json");
+  const manifest = path.join(root, "release-manifest.json");
+  const signature = path.join(root, "release-manifest.cat");
+  const checksums = path.join(root, "checksums.json");
+  writeFileSync(archive, "archive");
+  writeFileSync(provenance, "provenance");
+  writeFileSync(sbom, "sbom");
+  const archiveDigest = sha256("archive");
+  const provenanceDigest = sha256("provenance");
+  const sbomDigest = sha256("sbom");
+  const checksumsText = `${JSON.stringify({ schemaVersion: 1, algorithm: "sha256", assets: { [path.basename(archive)]: archiveDigest, [path.basename(provenance)]: provenanceDigest, [path.basename(sbom)]: sbomDigest } })}\n`;
+  writeFileSync(checksums, checksumsText);
+  writeFileSync(manifest, JSON.stringify({
+    schemaVersion: 1,
+    kind: "rightkit-direct-release-manifest",
+    product: "cutright",
+    version: "1.2.3",
+    tag: "v1.2.3",
+    sourceCommit: "a".repeat(40),
+    signingKeyId: RIGHTRELEASE_MANIFEST_SIGNER.id,
+    signatureAlgorithm: RIGHTRELEASE_MANIFEST_SIGNER.algorithm,
+    checksumsSha256: sha256(checksumsText),
+    assets: [{ name: path.basename(archive), size: statSync(archive).size, sha256: archiveDigest, provenanceName: path.basename(provenance), provenanceSha256: provenanceDigest, sbomName: path.basename(sbom), sbomSha256: sbomDigest }],
+  }));
+  writeFileSync(signature, "catalog");
+  const signer = { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: "f".repeat(64) };
+  const catalogCommandRunner = (_command, args) => {
+    assert.equal(args[0], "-NoProfile");
+    return { status: 0, stdout: JSON.stringify({ verified: true, subject: signer.subject, certificateSha256: signer.certificateSha256 }), stderr: "" };
+  };
+  const plan = prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums, archivePaths: [archive], provenancePaths: [provenance], sbomPaths: [sbom], signing: { signer }, catalogCommandRunner, catalogPlatform: "win32" });
+  assert.equal(plan.kind, "direct-release");
+  assert.equal(plan.assets.length, 6);
+  assert.ok(plan.assets.some((file) => file.endsWith(".zip")));
+  assert.equal(plan.assets.some((file) => /setup|installer/i.test(path.basename(file))), false);
+  writeFileSync(archive, "tampered");
+  assert.throws(() => prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums, archivePaths: [archive], provenancePaths: [provenance], sbomPaths: [sbom], signing: { signer }, catalogCommandRunner, catalogPlatform: "win32" }), /archive size mismatch/);
+});
+
+test("shared catalog verifier rejects invalid Authenticode catalogs", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-catalog-invalid-"));
+  const manifest = path.join(root, "release-manifest.json");
+  const signature = path.join(root, "release-manifest.cat");
+  writeFileSync(manifest, "manifest"); writeFileSync(signature, "not-catalog");
+  const signer = { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: "f".repeat(64) };
+  assert.throws(() => verifyReleaseManifestCatalog({ manifestPath: manifest, catalogPath: signature, expectedSigner: signer, platform: "win32", commandRunner: () => ({ status: 1, stderr: "catalog invalid" }) }), /catalog verification failed/);
+});
+
+test("shared catalog verifier binds exact Azure subject, fingerprint, and manifest bytes", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-catalog-valid-"));
+  const manifest = path.join(root, "release-manifest.json");
+  const signature = path.join(root, "release-manifest.cat");
+  writeFileSync(manifest, "manifest"); writeFileSync(signature, "catalog-bytes");
+  const signer = { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: "f".repeat(64) };
+  let verifierSource = "";
+  const result = verifyReleaseManifestCatalog({
+    manifestPath: manifest,
+    catalogPath: signature,
+    expectedSigner: signer,
+    platform: "win32",
+    commandRunner: (_command, args) => {
+      verifierSource = readFileSync(args[2], "utf8");
+      return { status: 0, stdout: JSON.stringify({ verified: true, subject: signer.subject, certificateSha256: signer.certificateSha256 }) };
+    },
+  });
+  assert.equal(result.signer.certificateSha256, signer.certificateSha256);
+  assert.match(verifierSource, /Get-AuthenticodeSignature/);
+  assert.match(verifierSource, /Test-FileCatalog/);
+});
+
+test("shared catalog verifier rejects Azure subject or fingerprint mismatch", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-catalog-mismatch-"));
+  const manifest = path.join(root, "release-manifest.json");
+  const signature = path.join(root, "release-manifest.cat");
+  writeFileSync(manifest, "manifest"); writeFileSync(signature, "catalog-bytes");
+  const signer = { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: "f".repeat(64) };
+  const run = (_command, _args) => ({ status: 0, stdout: JSON.stringify({ verified: true, subject: "CN=Unexpected", certificateSha256: "0".repeat(64) }) });
+  assert.throws(() => verifyReleaseManifestCatalog({ manifestPath: manifest, catalogPath: signature, expectedSigner: signer, platform: "win32", commandRunner: run }), /catalog signer subject mismatch/);
+});
+
+test("direct GitHub publication accepts only strict stable SemVer", () => {
+  for (const version of ["1.2.3-beta.1", "01.2.3"]) {
+    const root = mkdtempSync(path.join(os.tmpdir(), "right-release-semver-"));
+    const manifest = path.join(root, "release-manifest.json");
+    const signature = path.join(root, "release-manifest.cat");
+    const checksums = path.join(root, "checksums.json");
+    writeFileSync(manifest, JSON.stringify({ schemaVersion: 1, kind: "rightkit-direct-release-manifest", product: "cutright", version, tag: `v${version}` }));
+    writeFileSync(signature, "catalog"); writeFileSync(checksums, "{}");
+    assert.throws(() => prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums }), /stable SemVer/);
+  }
 });
