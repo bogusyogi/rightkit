@@ -71,7 +71,9 @@ test("release asset binds archive, provenance, and SBOM as immutable GitHub asse
 test("manifest authority identity and bound checksums are fixed", () => {
   const result = buildReleaseManifest({ ...manifestInput, checksumsDigest: "f".repeat(64) });
   assert.equal(result.signingKeyId, RIGHTRELEASE_MANIFEST_SIGNER.id);
-  assert.equal(result.signatureAlgorithm, "cms-sha256");
+  assert.equal(result.signatureAlgorithm, "authenticode-catalog-sha256");
+  assert.equal(result.signatureProvider, "windows-authenticode-catalog");
+  assert.equal(result.signatureProviderVersion, 1);
   assert.equal(result.checksumsSha256.length, 64);
   assert.deepEqual(buildChecksums([asset]).assets, {
     [asset.name]: digest,
@@ -129,20 +131,22 @@ test("generated bootstrap supports current-path activation and product-specific 
   assert.match(script, /Replace\('\{current\}', \$Current\)/);
 });
 
-test("shared Azure signer owns detached CMS invocation without product private keys", () => {
-  const dir = mkdtempSync(join(tmpdir(), "rightrelease-cms-"));
+test("shared Azure signer owns detached manifest catalog without product private keys", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rightrelease-catalog-"));
   const manifestPath = join(dir, "release-manifest.json");
-  const signaturePath = join(dir, "release-manifest.sig");
+  const signaturePath = join(dir, "release-manifest.cat");
   writeFileSync(manifestPath, "{}\n");
   const calls = [];
   const runner = (command, args) => {
     calls.push({ command, args });
-    if (command === "signtool.exe") {
-      const out = args[args.indexOf("/p7") + 1];
-      writeFileSync(join(out, "release-manifest.json.p7"), "cms");
+    if (command === "pwsh" && String(args[2]).endsWith("create-catalog.ps1")) {
+      writeFileSync(join(args[4], "catalog.cat"), "catalog");
       return { status: 0, stdout: "", stderr: "" };
     }
-    return { status: 0, stdout: JSON.stringify({ subject: RIGHTRELEASE_MANIFEST_SIGNER.subject, certificateSha256: acceptedSigner.certificateSha256 }), stderr: "" };
+    if (command === "signtool.exe") {
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    return { status: 0, stdout: JSON.stringify({ verified: true, catalogStatus: "Valid", signatureStatus: "Valid", subject: RIGHTRELEASE_MANIFEST_SIGNER.subject, certificateSha256: acceptedSigner.certificateSha256 }), stderr: "" };
   };
   const signed = signReleaseManifestWithAzure({
     manifestPath,
@@ -153,10 +157,12 @@ test("shared Azure signer owns detached CMS invocation without product private k
     dlibPath: "azure.dlib",
     metadataPath: "metadata.json",
   });
-  assert.equal(readFileSync(signaturePath, "utf8"), "cms");
+  assert.equal(readFileSync(signaturePath, "utf8"), "catalog");
   assert.equal(signed.signer.id, RIGHTRELEASE_MANIFEST_SIGNER.id);
   assert.equal(signed.signer.certificateSha256, acceptedSigner.certificateSha256);
-  assert.ok(calls[0].args.includes("DetachedSignedData"));
+  const signingCall = calls.find((call) => call.command === "signtool.exe");
+  assert.ok(signingCall.args.includes("/dlib"));
+  assert.equal(signingCall.args.includes("/p7"), false);
 });
 
 test("manifest rejects R2 payload URLs", () => {

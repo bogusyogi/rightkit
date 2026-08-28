@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/release",
-  "version": "0.2.73",
+  "version": "0.2.74",
   "description": "Portable Right Suite release CLI/SDK: signed native archives, direct bootstrap transactions, immutable GitHub Release upload, R2 bootstrap publication, and add-on adoption.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -20,7 +20,8 @@
   "scripts": {
     "test": "node --test --test-concurrency=1 --test-force-exit *.test.mjs",
     "test:registry-parity": "node registry-parity.mjs --allow-unpublished",
-    "prepublishOnly": "pnpm test && pnpm test:registry-parity",
+    "test:signer:windows": "node sign-release-manifest.integration.mjs",
+    "prepublishOnly": "pnpm test && pnpm test:signer:windows && pnpm test:registry-parity",
     "doctor:all": "node --test right-suite-contract.test.mjs",
     "verify:standalone": "node standalone-clone-verify.mjs"
   },

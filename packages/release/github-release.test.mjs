@@ -7,7 +7,7 @@ import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { canonicalAddonManifest, createAddonManifest } from "./addon-contract.mjs";
 import { prepareGitHubAddonRelease, prepareGitHubDirectRelease, prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
-import { RIGHTRELEASE_MANIFEST_SIGNER, verifyDetachedCmsSignature } from "./sign-release-manifest.mjs";
+import { RIGHTRELEASE_MANIFEST_SIGNER, verifyManifestCatalogSignature } from "./sign-release-manifest.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -109,7 +109,7 @@ test("direct GitHub plan publishes archive plus manifest authority and evidence 
   const provenance = path.join(root, "cutright-windows-x86_64.intoto.jsonl");
   const sbom = path.join(root, "cutright-windows-x86_64.cdx.json");
   const manifest = path.join(root, "release-manifest.json");
-  const signature = path.join(root, "release-manifest.sig");
+  const signature = path.join(root, "release-manifest.cat");
   const checksums = path.join(root, "checksums.json");
   writeFileSync(archive, "archive");
   writeFileSync(provenance, "provenance");
@@ -128,74 +128,75 @@ test("direct GitHub plan publishes archive plus manifest authority and evidence 
     sourceCommit: "a".repeat(40),
     signingKeyId: RIGHTRELEASE_MANIFEST_SIGNER.id,
     signatureAlgorithm: RIGHTRELEASE_MANIFEST_SIGNER.algorithm,
+    signatureProvider: RIGHTRELEASE_MANIFEST_SIGNER.provider,
+    signatureProviderVersion: RIGHTRELEASE_MANIFEST_SIGNER.providerVersion,
     checksumsSha256: sha256(checksumsText),
     assets: [{ name: path.basename(archive), size: statSync(archive).size, sha256: archiveDigest, provenanceName: path.basename(provenance), provenanceSha256: provenanceDigest, sbomName: path.basename(sbom), sbomSha256: sbomDigest }],
   }));
-  writeFileSync(signature, "cms");
+  writeFileSync(signature, "catalog");
   const signer = { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: "f".repeat(64) };
-  const cmsCommandRunner = (_command, args) => {
+  const signatureCommandRunner = (_command, args) => {
     assert.equal(args[0], "-NoProfile");
-    return { status: 0, stdout: JSON.stringify({ verified: true, subject: signer.subject, certificateSha256: signer.certificateSha256 }), stderr: "" };
+    return { status: 0, stdout: JSON.stringify({ verified: true, catalogStatus: "Valid", signatureStatus: "Valid", subject: signer.subject, certificateSha256: signer.certificateSha256 }), stderr: "" };
   };
-  const plan = prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums, archivePaths: [archive], provenancePaths: [provenance], sbomPaths: [sbom], signing: { signer }, cmsCommandRunner, cmsPlatform: "win32" });
+  const plan = prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums, archivePaths: [archive], provenancePaths: [provenance], sbomPaths: [sbom], signing: { signer }, signatureCommandRunner, signaturePlatform: "win32" });
   assert.equal(plan.kind, "direct-release");
   assert.equal(plan.assets.length, 6);
   assert.ok(plan.assets.some((file) => file.endsWith(".zip")));
   assert.equal(plan.assets.some((file) => /setup|installer/i.test(path.basename(file))), false);
   writeFileSync(archive, "tampered");
-  assert.throws(() => prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums, archivePaths: [archive], provenancePaths: [provenance], sbomPaths: [sbom], signing: { signer }, cmsCommandRunner, cmsPlatform: "win32" }), /archive size mismatch/);
+  assert.throws(() => prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums, archivePaths: [archive], provenancePaths: [provenance], sbomPaths: [sbom], signing: { signer }, signatureCommandRunner, signaturePlatform: "win32" }), /archive size mismatch/);
 });
 
-test("shared CMS verifier rejects literal non-CMS signatures", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-cms-invalid-"));
+test("shared catalog verifier rejects invalid catalog signatures", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-catalog-invalid-"));
   const manifest = path.join(root, "release-manifest.json");
-  const signature = path.join(root, "release-manifest.sig");
-  writeFileSync(manifest, "manifest"); writeFileSync(signature, "not-cms");
+  const signature = path.join(root, "release-manifest.cat");
+  writeFileSync(manifest, "manifest"); writeFileSync(signature, "not-catalog");
   const signer = { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: "f".repeat(64) };
-  assert.throws(() => verifyDetachedCmsSignature({ manifestPath: manifest, signaturePath: signature, expectedSigner: signer, platform: "win32", commandRunner: () => ({ status: 1, stderr: "CMS parse failed" }) }), /CMS signature verification failed/);
+  assert.throws(() => verifyManifestCatalogSignature({ manifestPath: manifest, signaturePath: signature, expectedSigner: signer, platform: "win32", commandRunner: () => ({ status: 1, stderr: "catalog parse failed" }) }), /manifest catalog verification failed/);
 });
 
-test("shared CMS verifier binds exact Azure subject and fingerprint through system runner", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-cms-valid-"));
+test("shared catalog verifier binds exact Azure subject and fingerprint through system runner", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-catalog-valid-"));
   const manifest = path.join(root, "release-manifest.json");
-  const signature = path.join(root, "release-manifest.sig");
-  writeFileSync(manifest, "manifest"); writeFileSync(signature, "cms-bytes");
+  const signature = path.join(root, "release-manifest.cat");
+  writeFileSync(manifest, "manifest"); writeFileSync(signature, "catalog-bytes");
   const signer = { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: "f".repeat(64) };
   let verifierSource = "";
-  const result = verifyDetachedCmsSignature({
+  const result = verifyManifestCatalogSignature({
     manifestPath: manifest,
     signaturePath: signature,
     expectedSigner: signer,
     platform: "win32",
     commandRunner: (_command, args) => {
       verifierSource = readFileSync(args[2], "utf8");
-      return { status: 0, stdout: JSON.stringify({ verified: true, subject: signer.subject, certificateSha256: signer.certificateSha256 }) };
+      return { status: 0, stdout: JSON.stringify({ verified: true, catalogStatus: "Valid", signatureStatus: "Valid", subject: signer.subject, certificateSha256: signer.certificateSha256 }) };
     },
   });
   assert.equal(result.signer.certificateSha256, signer.certificateSha256);
-  assert.match(verifierSource, /SignedCms/);
-  assert.match(verifierSource, /CheckSignature\(\$true\)/);
-  assert.match(verifierSource, /ReadAllBytes\(\$ManifestPath\)/);
+  assert.match(verifierSource, /Test-FileCatalog/);
+  assert.match(verifierSource, /Get-AuthenticodeSignature/);
 });
 
-test("shared CMS verifier rejects Azure subject or fingerprint mismatch", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-cms-mismatch-"));
+test("shared catalog verifier rejects Azure subject or fingerprint mismatch", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-catalog-mismatch-"));
   const manifest = path.join(root, "release-manifest.json");
-  const signature = path.join(root, "release-manifest.sig");
-  writeFileSync(manifest, "manifest"); writeFileSync(signature, "cms-bytes");
+  const signature = path.join(root, "release-manifest.cat");
+  writeFileSync(manifest, "manifest"); writeFileSync(signature, "catalog-bytes");
   const signer = { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: "f".repeat(64) };
-  const run = (_command, _args) => ({ status: 0, stdout: JSON.stringify({ verified: true, subject: "CN=Unexpected", certificateSha256: "0".repeat(64) }) });
-  assert.throws(() => verifyDetachedCmsSignature({ manifestPath: manifest, signaturePath: signature, expectedSigner: signer, platform: "win32", commandRunner: run }), /CMS signer subject mismatch/);
+  const run = (_command, _args) => ({ status: 0, stdout: JSON.stringify({ verified: true, catalogStatus: "Valid", signatureStatus: "Valid", subject: "CN=Unexpected", certificateSha256: "0".repeat(64) }) });
+  assert.throws(() => verifyManifestCatalogSignature({ manifestPath: manifest, signaturePath: signature, expectedSigner: signer, platform: "win32", commandRunner: run }), /catalog signer subject mismatch/);
 });
 
 test("direct GitHub publication accepts only strict stable SemVer", () => {
   for (const version of ["1.2.3-beta.1", "01.2.3"]) {
     const root = mkdtempSync(path.join(os.tmpdir(), "right-release-semver-"));
     const manifest = path.join(root, "release-manifest.json");
-    const signature = path.join(root, "release-manifest.sig");
+    const signature = path.join(root, "release-manifest.cat");
     const checksums = path.join(root, "checksums.json");
     writeFileSync(manifest, JSON.stringify({ schemaVersion: 1, kind: "rightkit-direct-release-manifest", product: "cutright", version, tag: `v${version}` }));
-    writeFileSync(signature, "cms"); writeFileSync(checksums, "{}");
+    writeFileSync(signature, "catalog"); writeFileSync(checksums, "{}");
     assert.throws(() => prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums }), /stable SemVer/);
   }
 });

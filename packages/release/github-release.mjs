@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verifySealedRelease } from "./release-state.mjs";
 import { addonManifestSha256, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
-import { RIGHTRELEASE_MANIFEST_SIGNER, verifyDetachedCmsSignature } from "./sign-release-manifest.mjs";
+import { RIGHTRELEASE_MANIFEST_SIGNER, verifyManifestCatalogSignature } from "./sign-release-manifest.mjs";
 
 const REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const RELEASE_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/;
@@ -68,9 +68,13 @@ export function prepareGitHubDirectRelease({
   signing,
   signingResult,
   signer,
-  cmsCommandRunner = spawnSync,
-  cmsPlatform = process.platform,
+  signatureCommandRunner,
+  signaturePlatform,
+  cmsCommandRunner,
+  cmsPlatform,
 }) {
+  const effectiveSignatureRunner = signatureCommandRunner ?? cmsCommandRunner ?? spawnSync;
+  const effectiveSignaturePlatform = signaturePlatform ?? cmsPlatform ?? process.platform;
   if (!REPO_RE.test(repo)) throw new Error(`invalid GitHub repository: ${repo}`);
   const root = path.resolve(repoRoot ?? process.cwd());
   const manifestFile = path.resolve(root, manifestPath);
@@ -84,7 +88,7 @@ export function prepareGitHubDirectRelease({
   if (product && manifest.product !== product) throw new Error("direct release product mismatch");
   if (version && manifest.version !== version) throw new Error("direct release version mismatch");
   if (!STABLE_SEMVER_RE.test(manifest.version) || manifest.tag !== `v${manifest.version}`) throw new Error("direct release manifest tag is invalid stable SemVer");
-  if (manifest.signingKeyId !== RIGHTRELEASE_MANIFEST_SIGNER.id || manifest.signatureAlgorithm !== RIGHTRELEASE_MANIFEST_SIGNER.algorithm) throw new Error("direct release manifest signer contract is invalid");
+  if (manifest.signingKeyId !== RIGHTRELEASE_MANIFEST_SIGNER.id || manifest.signatureAlgorithm !== RIGHTRELEASE_MANIFEST_SIGNER.algorithm || manifest.signatureProvider !== RIGHTRELEASE_MANIFEST_SIGNER.provider || manifest.signatureProviderVersion !== RIGHTRELEASE_MANIFEST_SIGNER.providerVersion) throw new Error("direct release manifest signer contract is invalid");
   const declared = new Set((manifest.assets ?? []).map((asset) => asset.name));
   if (!declared.size) throw new Error("direct release manifest has no archive assets");
   if ([...declared].some((name) => /(?:installer|setup)\.(?:exe|dmg|pkg|msi)$/i.test(name))) throw new Error("direct release must not contain installer assets");
@@ -103,7 +107,7 @@ export function prepareGitHubDirectRelease({
     if (unique.has(path.basename(file)) && unique.get(path.basename(file)) !== file) throw new Error(`duplicate direct release payload name: ${path.basename(file)}`);
     unique.set(path.basename(file), file);
   }
-  const requiredEvidence = ["release-manifest.json", "release-manifest.sig", "checksums.json"];
+  const requiredEvidence = ["release-manifest.json", "release-manifest.cat", "checksums.json"];
   for (const name of requiredEvidence) if (![...unique.keys()].some((candidate) => candidate === name || candidate.endsWith(`-${name}`))) throw new Error(`direct release payload missing ${name}`);
   for (const name of declared) if (!unique.has(name)) throw new Error(`direct release archive is not attached: ${name}`);
   const releaseState = stateRoot ?? path.join(root, ".right-release", "state", "direct", manifest.product, manifest.version, "github");
@@ -124,10 +128,10 @@ export function prepareGitHubDirectRelease({
     notesFile,
     manifestUrl: `https://github.com/${repo}/releases/download/${manifest.tag}/${path.basename(manifestFile)}`,
     signer: expectedSigner,
-    cmsPlatform,
+    signaturePlatform: effectiveSignaturePlatform,
   };
-  Object.defineProperty(plan, "cmsCommandRunner", { value: cmsCommandRunner, enumerable: false });
-  validateGitHubDirectReleasePlan(plan, { commandRunner: cmsCommandRunner, platform: cmsPlatform });
+  Object.defineProperty(plan, "signatureCommandRunner", { value: effectiveSignatureRunner, enumerable: false });
+  validateGitHubDirectReleasePlan(plan, { commandRunner: effectiveSignatureRunner, platform: effectiveSignaturePlatform });
   return plan;
 }
 
@@ -139,7 +143,7 @@ export const prepareGitHubManifestRelease = prepareGitHubDirectRelease;
  * signed manifest remains authority; checksums.json is only a digest-bound
  * convenience index for archives and attached provenance/SBOM evidence.
  */
-export function validateGitHubDirectReleasePlan(plan, { commandRunner = plan?.cmsCommandRunner ?? spawnSync, platform = plan?.cmsPlatform ?? process.platform } = {}) {
+export function validateGitHubDirectReleasePlan(plan, { commandRunner = plan?.signatureCommandRunner ?? plan?.cmsCommandRunner ?? spawnSync, platform = plan?.signaturePlatform ?? plan?.cmsPlatform ?? process.platform } = {}) {
   if (!plan || plan.kind !== "direct-release") throw new Error("invalid direct GitHub release plan");
   if (!plan.manifestPath || !plan.signaturePath || !plan.checksumsPath || !Array.isArray(plan.assets)) throw new Error("direct GitHub release plan is incomplete");
   const manifestFile = path.resolve(plan.manifestPath);
@@ -154,8 +158,8 @@ export function validateGitHubDirectReleasePlan(plan, { commandRunner = plan?.cm
     throw new Error("invalid direct release manifest");
   }
   if (plan.tag !== manifest.tag) throw new Error("direct GitHub release tag does not match manifest");
-  if (manifest.signingKeyId !== RIGHTRELEASE_MANIFEST_SIGNER.id || manifest.signatureAlgorithm !== RIGHTRELEASE_MANIFEST_SIGNER.algorithm) throw new Error("direct release manifest signer contract is invalid");
-  verifyDetachedCmsSignature({ manifestPath: manifestFile, signaturePath: signatureFile, expectedSigner: plan.signer, commandRunner, platform });
+  if (manifest.signingKeyId !== RIGHTRELEASE_MANIFEST_SIGNER.id || manifest.signatureAlgorithm !== RIGHTRELEASE_MANIFEST_SIGNER.algorithm || manifest.signatureProvider !== RIGHTRELEASE_MANIFEST_SIGNER.provider || manifest.signatureProviderVersion !== RIGHTRELEASE_MANIFEST_SIGNER.providerVersion) throw new Error("direct release manifest signer contract is invalid");
+  verifyManifestCatalogSignature({ manifestPath: manifestFile, signaturePath: signatureFile, expectedSigner: plan.signer, commandRunner, platform });
   if (!SHA256.test(manifest.checksumsSha256 ?? "")) throw new Error("direct release checksums digest is missing");
   if (sha256(checksumsFile) !== manifest.checksumsSha256) throw new Error("checksums.json is not manifest-bound");
   const checksums = JSON.parse(readFileSync(checksumsFile, "utf8"));
@@ -171,7 +175,7 @@ export function validateGitHubDirectReleasePlan(plan, { commandRunner = plan?.cm
     if (payloadByName.has(name) && payloadByName.get(name) !== file) throw new Error(`duplicate direct release payload name: ${name}`);
     payloadByName.set(name, file);
   }
-  const requiredEvidence = ["release-manifest.json", "release-manifest.sig", "checksums.json"];
+  const requiredEvidence = ["release-manifest.json", "release-manifest.cat", "checksums.json"];
   for (const name of requiredEvidence) if (![...payloadByName.keys()].some((candidate) => candidate === name || candidate.endsWith(`-${name}`))) throw new Error(`direct release payload missing ${name}`);
   for (const file of [manifestFile, signatureFile, checksumsFile]) if (![...payloadByName.values()].includes(file)) throw new Error(`direct release authority file is not attached: ${path.basename(file)}`);
   const expected = new Map();
@@ -232,8 +236,8 @@ export function prepareGitHubAddonRelease({ repoRoot, config, configRoot = repoR
   };
 }
 
-export function publishGitHubRelease(plan, { repo, dryRun = false, run = runCommand, cmsCommandRunner = plan?.cmsCommandRunner, cmsPlatform = plan?.cmsPlatform ?? process.platform } = {}) {
-  if (plan.kind === "direct-release") validateGitHubDirectReleasePlan(plan, { commandRunner: cmsCommandRunner ?? spawnSync, platform: cmsPlatform });
+export function publishGitHubRelease(plan, { repo, dryRun = false, run = runCommand, signatureCommandRunner = plan?.signatureCommandRunner ?? plan?.cmsCommandRunner, signaturePlatform = plan?.signaturePlatform ?? plan?.cmsPlatform ?? process.platform } = {}) {
+  if (plan.kind === "direct-release") validateGitHubDirectReleasePlan(plan, { commandRunner: signatureCommandRunner ?? spawnSync, platform: signaturePlatform });
   const visibility = JSON.parse(run("gh", ["repo", "view", repo, "--json", "visibility"]));
   if (visibility.visibility !== "PUBLIC" && !(plan.kind !== "addon" && visibility.visibility === "PRIVATE")) {
     throw new Error(`GitHub releases require a public or private repository: ${repo}`);

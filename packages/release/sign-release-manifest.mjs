@@ -1,13 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 
 export const RIGHTRELEASE_MANIFEST_SIGNER = Object.freeze({
   id: "azure-artifact-signing-damned-ventures-v1",
   subject: "CN=Damned Ventures LLC",
-  algorithm: "cms-sha256",
+  algorithm: "authenticode-catalog-sha256",
+  provider: "windows-authenticode-catalog",
+  providerVersion: 1,
 });
 
 const EXCLUDE_CREDENTIALS = [
@@ -20,38 +21,30 @@ const EXCLUDE_CREDENTIALS = [
   "AzureDeveloperCliCredential",
   "InteractiveBrowserCredential",
 ];
-
 const CERTIFICATE_SHA256 = /^[a-f0-9]{64}$/i;
 
-/**
- * Verify detached CMS over exact manifest bytes & bind signer identity to the
- * shared Azure Artifact Signing result. `commandRunner` is an injectable
- * system-process seam; it cannot replace CMS verification because production
- * verification script/arguments are always issued here.
- */
-export function verifyDetachedCmsSignature({
+/** Verify Azure-signed catalog binding exact release-manifest bytes. */
+export function verifyManifestCatalogSignature({
   manifestPath,
   signaturePath,
   expectedSigner,
   commandRunner = spawnSync,
   platform = process.platform,
-  powershellPath = "powershell",
-  opensslPath = "openssl",
+  powershellPath = "pwsh",
 }) {
   const manifest = resolve(manifestPath);
   const signature = resolve(signaturePath);
-  if (!existsSync(manifest) || !statSync(manifest).isFile()) throw new Error("CMS manifest bytes are missing");
-  if (!existsSync(signature) || !statSync(signature).isFile() || statSync(signature).size < 1) throw new Error("detached CMS signature is missing");
-  if (!expectedSigner || expectedSigner.id !== RIGHTRELEASE_MANIFEST_SIGNER.id || expectedSigner.subject !== RIGHTRELEASE_MANIFEST_SIGNER.subject || expectedSigner.algorithm !== RIGHTRELEASE_MANIFEST_SIGNER.algorithm || !CERTIFICATE_SHA256.test(expectedSigner.certificateSha256 ?? "")) {
-    throw new Error("CMS verification requires exact Azure signer identity");
+  if (!existsSync(manifest) || !statSync(manifest).isFile()) throw new Error("manifest bytes are missing");
+  if (!existsSync(signature) || !statSync(signature).isFile() || statSync(signature).size < 1) throw new Error("detached manifest catalog signature is missing");
+  if (!expectedSigner || expectedSigner.id !== RIGHTRELEASE_MANIFEST_SIGNER.id || expectedSigner.subject !== RIGHTRELEASE_MANIFEST_SIGNER.subject || expectedSigner.algorithm !== RIGHTRELEASE_MANIFEST_SIGNER.algorithm || expectedSigner.provider !== RIGHTRELEASE_MANIFEST_SIGNER.provider || expectedSigner.providerVersion !== RIGHTRELEASE_MANIFEST_SIGNER.providerVersion || !CERTIFICATE_SHA256.test(expectedSigner.certificateSha256 ?? "")) {
+    throw new Error("catalog verification requires exact Azure signer identity");
   }
-  const inspection = platform === "win32"
-    ? verifyCmsWithPowerShell({ manifestPath: manifest, signaturePath: signature, commandRunner, powershellPath })
-    : verifyCmsWithOpenSsl({ manifestPath: manifest, signaturePath: signature, commandRunner, opensslPath });
-  if (!inspection.verified) throw new Error("detached CMS signature is invalid");
-  if (normalizeSubject(inspection.subject) !== normalizeSubject(expectedSigner.subject)) throw new Error("CMS signer subject mismatch");
+  if (platform !== "win32" && commandRunner === spawnSync) throw new Error("RightRelease catalog verification must run on Windows");
+  const inspection = inspectCatalog({ manifestPath: manifest, signaturePath: signature, commandRunner, powershellPath });
+  if (inspection.verified !== true || inspection.catalogStatus !== "Valid" || inspection.signatureStatus !== "Valid") throw new Error("manifest catalog signature is invalid");
+  if (normalizeSubject(inspection.subject) !== normalizeSubject(expectedSigner.subject)) throw new Error("catalog signer subject mismatch");
   const certificateSha256 = String(inspection.certificateSha256 ?? "").replaceAll(":", "").toLowerCase();
-  if (!CERTIFICATE_SHA256.test(certificateSha256) || certificateSha256 !== String(expectedSigner.certificateSha256).toLowerCase()) throw new Error("CMS signer certificate fingerprint mismatch");
+  if (!CERTIFICATE_SHA256.test(certificateSha256) || certificateSha256 !== String(expectedSigner.certificateSha256).toLowerCase()) throw new Error("catalog signer certificate fingerprint mismatch");
   return { verified: true, manifestPath: manifest, signaturePath: signature, signer: { ...expectedSigner, certificateSha256 } };
 }
 
@@ -63,17 +56,12 @@ export function signReleaseManifestWithAzure({
   signtoolPath,
   dlibPath,
   metadataPath,
+  powershellPath = "pwsh",
 }) {
-  if (process.platform !== "win32" && commandRunner === spawnSync) {
-    throw new Error("RightRelease manifest signing must run on protected Windows release host");
-  }
+  if (process.platform !== "win32" && commandRunner === spawnSync) throw new Error("RightRelease manifest signing must run on protected Windows release host");
   const userEnv = (name) => readUserEnvironment(name, commandRunner);
   const env = (name) => environment[name] || userEnv(name);
-  const signtool = signtoolPath || firstExisting([
-    env("AZURE_SIGNTOOL_PATH"),
-    env("SIGNTOOL_PATH"),
-    ...signtoolCandidates(env),
-  ]);
+  const signtool = signtoolPath || firstExisting([env("AZURE_SIGNTOOL_PATH"), env("SIGNTOOL_PATH"), ...signtoolCandidates(env)]);
   if (!signtool) throw new Error("RightRelease manifest signer could not find signtool.exe");
   const dlib = dlibPath || firstExisting([
     env("AZURE_CODESIGN_DLIB_PATH"),
@@ -86,97 +74,62 @@ export function signReleaseManifestWithAzure({
 
   const temp = mkdtempSync(join(tmpdir(), "rightrelease-manifest-sign-"));
   const metadata = metadataPath || materializeMetadata(temp, env);
-  const outputDir = join(temp, "signature");
-  mkdirSync(outputDir, { recursive: true });
-  try {
-    const result = commandRunner(signtool, [
-      "sign", "/v", "/fd", "SHA256", "/tr", "http://timestamp.acs.microsoft.com", "/td", "SHA256",
-      "/dlib", dlib, "/dmdf", metadata,
-      "/p7", outputDir, "/p7ce", "DetachedSignedData", "/p7co", "1.2.840.113549.1.7.1",
-      resolve(manifestPath),
-    ], { encoding: "utf8", windowsHide: true, env: environment });
-    if (result?.status !== 0) throw new Error(`RightRelease manifest signing failed: ${String(result?.stderr ?? "").trim()}`);
-    const generated = join(outputDir, `${basename(manifestPath)}.p7`);
-    if (!existsSync(generated)) throw new Error("RightRelease manifest signer did not produce detached CMS signature");
-    const inspector = join(temp, "inspect-signer.ps1");
-    writeFileSync(inspector, [
-      "param([string]$ManifestPath, [string]$SignaturePath)",
-      "Add-Type -AssemblyName System.Security",
-      "$Content = New-Object Security.Cryptography.Pkcs.ContentInfo(,[IO.File]::ReadAllBytes($ManifestPath))",
-      "$Cms = New-Object Security.Cryptography.Pkcs.SignedCms($Content, $true)",
-      "$Cms.Decode([IO.File]::ReadAllBytes($SignaturePath))",
-      "$Cms.CheckSignature($true)",
-      "if ($Cms.SignerInfos.Count -ne 1) { throw 'Expected exactly one manifest signer' }",
-      "$Certificate = $Cms.SignerInfos[0].Certificate",
-      "$Sha256 = [Security.Cryptography.SHA256]::Create()",
-      "try { $Fingerprint = ([BitConverter]::ToString($Sha256.ComputeHash($Certificate.RawData))).Replace('-','').ToLowerInvariant() } finally { $Sha256.Dispose() }",
-      "@{ subject=$Certificate.Subject; certificateSha256=$Fingerprint } | ConvertTo-Json -Compress",
-    ].join("\r\n") + "\r\n");
-    const inspection = commandRunner("powershell", ["-NoProfile", "-File", inspector, resolve(manifestPath), generated], { encoding: "utf8", windowsHide: true, env: environment });
-    if (inspection?.status !== 0) throw new Error(`RightRelease could not inspect manifest signer: ${String(inspection?.stderr ?? "").trim()}`);
-    let certificate;
-    try { certificate = JSON.parse(String(inspection.stdout ?? "").trim()); } catch { throw new Error("RightRelease manifest signer inspection returned invalid JSON"); }
-    if (certificate.subject !== RIGHTRELEASE_MANIFEST_SIGNER.subject || !/^[a-f0-9]{64}$/.test(certificate.certificateSha256 ?? "")) {
-      throw new Error("RightRelease manifest signer identity does not match protected Azure profile");
-    }
-    mkdirSync(dirname(signaturePath), { recursive: true });
-    writeFileSync(signaturePath, readFileSync(generated));
-    return { signaturePath: resolve(signaturePath), signer: { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: certificate.certificateSha256 } };
-  } finally {
-    rmSync(temp, { recursive: true, force: true });
-  }
-}
-
-function verifyCmsWithPowerShell({ manifestPath, signaturePath, commandRunner, powershellPath }) {
-  const temp = mkdtempSync(join(tmpdir(), "rightrelease-cms-verify-"));
-  const verifier = join(temp, "verify-cms.ps1");
-  writeFileSync(verifier, [
-    "param([string]$ManifestPath, [string]$SignaturePath)",
-    "Add-Type -AssemblyName System.Security",
-    "$Content = New-Object Security.Cryptography.Pkcs.ContentInfo(,[IO.File]::ReadAllBytes($ManifestPath))",
-    "$Cms = New-Object Security.Cryptography.Pkcs.SignedCms($Content, $true)",
-    "$Cms.Decode([IO.File]::ReadAllBytes($SignaturePath))",
-    "$Cms.CheckSignature($true)",
-    "if ($Cms.SignerInfos.Count -ne 1) { throw 'Expected exactly one manifest signer' }",
-    "$Certificate = $Cms.SignerInfos[0].Certificate",
-    "$Sha256 = [Security.Cryptography.SHA256]::Create()",
-    "try { $Fingerprint = ([BitConverter]::ToString($Sha256.ComputeHash($Certificate.RawData))).Replace('-','').ToLowerInvariant() } finally { $Sha256.Dispose() }",
-    "@{ verified=$true; subject=$Certificate.Subject; certificateSha256=$Fingerprint } | ConvertTo-Json -Compress",
+  const catalogDir = join(temp, "catalog");
+  mkdirSync(catalogDir, { recursive: true });
+  const catalog = join(catalogDir, "catalog.cat");
+  const generator = join(temp, "create-catalog.ps1");
+  writeFileSync(generator, [
+    "param([string]$ManifestPath, [string]$CatalogDirectory)",
+    "$ErrorActionPreference = 'Stop'",
+    "Import-Module Microsoft.PowerShell.Security -ErrorAction Stop",
+    "New-FileCatalog -Path $ManifestPath -CatalogFilePath $CatalogDirectory -CatalogVersion 2.0 | Out-Null",
   ].join("\r\n") + "\r\n");
   try {
-    const result = commandRunner(powershellPath, ["-NoProfile", "-File", verifier, manifestPath, signaturePath], { encoding: "utf8", windowsHide: true });
-    if (result?.status !== 0) throw new Error(`CMS signature verification failed: ${String(result?.stderr ?? "").trim()}`);
-    return parseCmsInspection(result?.stdout);
+    const generation = commandRunner(powershellPath, ["-NoProfile", "-File", generator, resolve(manifestPath), catalogDir], { encoding: "utf8", windowsHide: true, env: environment });
+    if (generation?.status !== 0) throw new Error(`RightRelease manifest catalog generation failed: ${String(generation?.stderr ?? "").trim()}`);
+    if (!existsSync(catalog) || !statSync(catalog).isFile()) throw new Error("RightRelease manifest catalog was not produced");
+    const result = commandRunner(signtool, [
+      "sign", "/v", "/fd", "SHA256", "/tr", "http://timestamp.acs.microsoft.com", "/td", "SHA256",
+      "/dlib", dlib, "/dmdf", metadata, catalog,
+    ], { encoding: "utf8", windowsHide: true, env: environment });
+    if (result?.status !== 0) throw new Error(`RightRelease manifest signing failed: ${String(result?.stderr ?? "").trim()}`);
+    const inspection = inspectCatalog({ manifestPath: resolve(manifestPath), signaturePath: catalog, commandRunner, powershellPath, environment });
+    if (inspection.verified !== true || inspection.catalogStatus !== "Valid" || inspection.signatureStatus !== "Valid") throw new Error("RightRelease manifest catalog verification failed");
+    if (normalizeSubject(inspection.subject) !== normalizeSubject(RIGHTRELEASE_MANIFEST_SIGNER.subject) || !CERTIFICATE_SHA256.test(inspection.certificateSha256 ?? "")) throw new Error("RightRelease manifest signer identity does not match protected Azure profile");
+    mkdirSync(dirname(signaturePath), { recursive: true });
+    copyFileSync(catalog, signaturePath);
+    return { signaturePath: resolve(signaturePath), signer: { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: inspection.certificateSha256.toLowerCase() } };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
 }
 
-function verifyCmsWithOpenSsl({ manifestPath, signaturePath, commandRunner, opensslPath }) {
-  const temp = mkdtempSync(join(tmpdir(), "rightrelease-cms-verify-"));
-  const verified = join(temp, "verified-manifest");
-  const certificate = join(temp, "signer.pem");
+function inspectCatalog({ manifestPath, signaturePath, commandRunner, powershellPath, environment = process.env }) {
+  const temp = mkdtempSync(join(tmpdir(), "rightrelease-catalog-verify-"));
+  const verifier = join(temp, "verify-catalog.ps1");
+  writeFileSync(verifier, [
+    "param([string]$ManifestPath, [string]$SignaturePath)",
+    "$ErrorActionPreference = 'Stop'",
+    "Import-Module Microsoft.PowerShell.Security -ErrorAction Stop",
+    "$Catalog = Test-FileCatalog -CatalogFilePath $SignaturePath -Path $ManifestPath -Detailed",
+    "$Signature = Get-AuthenticodeSignature -FilePath $SignaturePath",
+    "$Certificate = $Signature.SignerCertificate",
+    "if (-not $Certificate) { throw 'Catalog signer certificate is missing' }",
+    "$SimpleName = $Certificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)",
+    "$Sha256 = [Security.Cryptography.SHA256]::Create()",
+    "try { $Fingerprint = ([BitConverter]::ToString($Sha256.ComputeHash($Certificate.RawData))).Replace('-','').ToLowerInvariant() } finally { $Sha256.Dispose() }",
+    "@{ verified=([string]$Catalog.Status -eq 'Valid' -and [string]$Signature.Status -eq 'Valid'); catalogStatus=[string]$Catalog.Status; signatureStatus=[string]$Signature.Status; subject=('CN=' + $SimpleName); certificateSha256=$Fingerprint } | ConvertTo-Json -Compress",
+  ].join("\r\n") + "\r\n");
   try {
-    const result = commandRunner(opensslPath, ["cms", "-verify", "-binary", "-inform", "DER", "-in", signaturePath, "-content", manifestPath, "-noverify", "-certsout", certificate, "-out", verified], { encoding: "utf8", windowsHide: true });
-    if (result?.status !== 0) throw new Error(`CMS signature verification failed: ${String(result?.stderr ?? "").trim()}`);
-    if (!existsSync(verified) || !readFileSync(verified).equals(readFileSync(manifestPath))) throw new Error("CMS signature content does not match manifest bytes");
-    if (!existsSync(certificate)) throw new Error("CMS signer certificate is missing");
-    const inspection = commandRunner(opensslPath, ["x509", "-in", certificate, "-noout", "-subject", "-fingerprint", "-sha256"], { encoding: "utf8", windowsHide: true });
-    if (inspection?.status !== 0) throw new Error(`CMS signer inspection failed: ${String(inspection?.stderr ?? "").trim()}`);
-    const output = String(inspection?.stdout ?? "");
-    const subject = output.match(/^\s*subject\s*=\s*(.+)$/im)?.[1]?.trim();
-    const certificateSha256 = output.match(/^\s*sha256\s+Fingerprint\s*=\s*([0-9a-f:]+)\s*$/im)?.[1];
-    return parseCmsInspection(JSON.stringify({ verified: true, subject, certificateSha256 }));
+    const result = commandRunner(powershellPath, ["-NoProfile", "-File", verifier, manifestPath, signaturePath], { encoding: "utf8", windowsHide: true, env: environment });
+    if (result?.status !== 0) throw new Error(`manifest catalog verification failed: ${String(result?.stderr ?? "").trim()}`);
+    let inspection;
+    try { inspection = JSON.parse(String(result?.stdout ?? "").trim()); } catch { throw new Error("catalog verifier returned invalid JSON"); }
+    if (typeof inspection.subject !== "string" || typeof inspection.certificateSha256 !== "string") throw new Error("catalog verifier returned incomplete identity");
+    return inspection;
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
-}
-
-function parseCmsInspection(output) {
-  let inspection;
-  try { inspection = JSON.parse(String(output ?? "").trim()); } catch { throw new Error("CMS verifier returned invalid JSON"); }
-  if (inspection.verified !== true || typeof inspection.subject !== "string" || typeof inspection.certificateSha256 !== "string") throw new Error("CMS verifier returned incomplete identity");
-  return inspection;
 }
 
 function normalizeSubject(subject) {
@@ -192,9 +145,7 @@ function materializeMetadata(dir, env) {
   const Endpoint = env("AZURE_ARTIFACT_SIGNING_ENDPOINT") || env("AZURE_SIGNING_ENDPOINT") || env("AZURE_ENDPOINT");
   const CodeSigningAccountName = env("AZURE_ARTIFACT_SIGNING_ACCOUNT") || env("AZURE_SIGNING_ACCOUNT_NAME") || env("AZURE_ACCOUNT");
   const CertificateProfileName = env("AZURE_ARTIFACT_SIGNING_PROFILE") || env("AZURE_CERTIFICATE_PROFILE_NAME") || env("AZURE_PROFILE");
-  if (!Endpoint || !CodeSigningAccountName || !CertificateProfileName) {
-    throw new Error("RightRelease manifest signer requires existing Azure Artifact Signing configuration");
-  }
+  if (!Endpoint || !CodeSigningAccountName || !CertificateProfileName) throw new Error("RightRelease manifest signer requires existing Azure Artifact Signing configuration");
   const path = join(dir, "metadata.json");
   writeFileSync(path, `${JSON.stringify({ Endpoint, CodeSigningAccountName, CertificateProfileName, ExcludeCredentials: EXCLUDE_CREDENTIALS }, null, 2)}\n`);
   return path;
@@ -215,9 +166,6 @@ function firstExisting(candidates) {
 }
 
 function readUserEnvironment(name, commandRunner) {
-  const result = commandRunner("powershell", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable('${name.replaceAll("'", "''")}','User')`], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
+  const result = commandRunner("powershell", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable('${name.replaceAll("'", "''")}','User')`], { encoding: "utf8", windowsHide: true });
   return result?.status === 0 ? String(result.stdout ?? "").trim() : "";
 }
