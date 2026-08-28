@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, watch } from "node:fs";
 import path from "node:path";
 import { readCachePolicy, resolveCacheLayout } from "./cache-policy.mjs";
+import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 
 export function cacheFingerprint({ cargoLockSha256, rustc, target, architecture, features = [] }) {
   const payload = JSON.stringify({
@@ -15,14 +16,16 @@ export function cacheFingerprint({ cargoLockSha256, rustc, target, architecture,
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
 
-export function resolveReleaseLayout({ repoRoot, configPath }) {
+export function resolveReleaseLayout({ repoRoot, configPath, config, nativeLayout }) {
   const resolvedRepoRoot = path.resolve(repoRoot);
   const appRoot = path.dirname(path.resolve(configPath));
+  const resolvedNativeLayout = nativeLayout ?? resolveNativeCargoLayout({ appRoot, config });
   return {
     repoRoot: resolvedRepoRoot,
     appRoot,
     vaultRoot: path.join(resolvedRepoRoot, ".right-release"),
-    targetLink: path.join(appRoot, "src-tauri", "target"),
+    targetLink: resolvedNativeLayout.targetLink,
+    nativeLayout: resolvedNativeLayout,
   };
 }
 

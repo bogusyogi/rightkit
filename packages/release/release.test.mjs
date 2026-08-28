@@ -531,3 +531,20 @@ test("release lock is single-flight and is cleaned after success", () => {
   assert.match(result.stdout, /right-release: done/);
   assert.equal(existsSync(lockPath), false);
 });
+
+test("portable Windows targets gate NSIS validation by signing contract", () => {
+  const source = readFileSync(release, "utf8");
+  assert.match(source, /target\.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT/);
+  assert.match(source, /target\.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT/);
+  assert.doesNotMatch(source, /assertNsisInPlaceUpgradeContract/);
+});
+
+test("native finalization is ordered after raw signing and before packaging", () => {
+  const source = readFileSync(release, "utf8");
+  const signing = source.indexOf('await signWindows(rawFiles, "raw-exe", root);');
+  const finalization = source.indexOf("nativeFinalization = await runNativeFinalizer", signing);
+  const packaging = source.indexOf("await runCommand(command, root);", finalization);
+  assert.ok(signing >= 0, source);
+  assert.ok(finalization > signing, source);
+  assert.ok(packaging > finalization, source);
+});
