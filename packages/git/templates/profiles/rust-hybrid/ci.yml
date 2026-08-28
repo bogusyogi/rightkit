@@ -1,6 +1,6 @@
 # Managed by right-git — do not hand-edit. Run `right-git sync` to update.
 # Template: profiles/rust-hybrid/ci.yml | Template version: ${TEMPLATE_VERSION}
-name: legion-ci
+name: ${ARTIFACT_PREFIX}-ci
 on:
   pull_request:
   push:
