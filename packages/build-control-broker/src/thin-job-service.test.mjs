@@ -24,11 +24,11 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
   const state = await ThinState.open({ externalRoot: root }); const children = []; let pid = 300;
   if (gc) state.gc = gc;
-  const tools = new Map([['cargo', { id: 'cargo', path: cargoPath, sha256: digest }], ['rustc', { id: 'rustc', path: '/managed/rustc', sha256: digest }], ['rustdoc', { id: 'rustdoc', path: '/managed/rustdoc', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
+  const tools = new Map([['cargo', { id: 'cargo', path: cargoPath, sha256: digest }], ['rustc', { id: 'rustc', path: '/managed/rustc', sha256: digest }], ['rustdoc', { id: 'rustdoc', path: '/managed/rustdoc', sha256: digest }], ['rustup', { id: 'rustup', path: '/managed/rustup', sha256: digest }], ['cargo-outdated', { id: 'cargo-outdated', path: '/managed/cargo-outdated', sha256: digest }]]);
   const registry = { verify: async (id) => { const tool = tools.get(id); if (!tool) throw new Error(`missing ${id}`); return tool; } };
   const logger = { events: [], flushes: 0, append(event) { this.events.push(event); return Promise.resolve(event); }, flush() { this.flushes += 1; return Promise.resolve(); }, close: async () => {} };
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
-  const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
+  const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc', rustup: 'rustup' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
   const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
@@ -169,6 +169,33 @@ test('jobs select the rustup toolchain registered by Cargo path', async () => {
     const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['--version'])))).result;
     assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
     assert.equal(item.children.at(-1).environment.RUSTUP_TOOLCHAIN, toolchain);
+  } finally { await item.close(); }
+});
+
+test('registered target installation uses the Rustup home that owns registered Cargo', async () => {
+  const rustupHome = join('/managed', 'rustup-home');
+  const toolchain = 'stable-aarch64-apple-darwin';
+  const target = 'aarch64-apple-ios';
+  const item = await fixture({ cargoPath: join(rustupHome, 'toolchains', toolchain, 'bin', 'cargo'), targetTriples: ['aarch64-apple-darwin', target] });
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['target', 'add', target], { shim: 'rustup' })))).result;
+    await waitFor(item.service, submitted.id, ['RUNNING']);
+    const child = item.children.at(-1);
+    assert.equal(child.environment.RUSTUP_HOME, rustupHome);
+    assert.equal(child.environment.RUSTUP_TOOLCHAIN, toolchain);
+    assert.deepEqual(child.payload.argv, ['target', 'add', target]);
+    queueMicrotask(() => child.emit('close', 0, null));
+    assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
+  } finally { await item.close(); }
+});
+
+test('unregistered target installation is rejected before execution', async () => {
+  const item = await fixture({ targetTriples: ['aarch64-apple-darwin'] });
+  try {
+    const rejected = (await call(item.service, command('SUBMIT', message(item.workspace, ['target', 'add', 'aarch64-apple-ios'], { shim: 'rustup' })))).result;
+    assert.equal(rejected.status, 'REJECTED');
+    assert.equal(rejected.code, 'RK_TARGET_NOT_REGISTERED');
+    assert.equal(item.children.length, 0);
   } finally { await item.close(); }
 });
 

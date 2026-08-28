@@ -45,10 +45,32 @@ test("every known lane has a template file and renders without an unresolved pla
 test("rust-hybrid ci renders its pinned package manager and gate", () => {
   const manifest = { ...FULL_MANIFEST, lanes: ["ci"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" }, templateVersion: "1.1.0" };
   const content = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"), buildRenderContext(manifest, "/repos/widgets"));
-  assert.match(content, /uses: pnpm\/action-setup@v4/);
+  assert.match(content, /uses: pnpm\/action-setup@[a-f0-9]{40}/);
+  assert.match(content, /^name: widgets-ci$/m);
   assert.match(content, /version: 11\.24\.0/);
-  assert.match(content, /rustup toolchain install stable/);
+  assert.match(content, /toolchain: 1\.98\.0/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
+});
+
+test("rust-hybrid release candidate renders product scripts, artifact handoff, and no signing secret", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "widgets-unsigned", os: ["macos-latest", "windows-latest"] },
+    templateVersion: "1.2.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  assert.match(content, /pnpm run ci:candidate/);
+  assert.match(content, /pnpm run ci:candidate-check/);
+  assert.match(content, /RIGHT_GIT_ARTIFACT_ROOT/);
+  assert.match(content, /os: \["macos-latest", "windows-latest"\]/);
+  assert.match(content, /actions\/upload-artifact@[a-f0-9]{40}/);
+  assert.doesNotMatch(content, /secrets\.|AZURE_|APPLE_|certificate|private.key/i);
 });
 
 test("render determinism: same manifest renders byte-identical output every time", () => {
@@ -75,7 +97,7 @@ test("rendered workflows never request pnpm or yarn setup-node caching before pa
 test("rendered workflows bootstrap each declared package manager safely", () => {
   const pnpm = renderAllLanes({ ...FULL_MANIFEST, packageManager: "pnpm@11.24.0" }, "/repos/widgets");
   for (const content of Object.values(pnpm)) {
-    assert.match(content, /uses: pnpm\/action-setup@v4/);
+    assert.match(content, /uses: pnpm\/action-setup@[a-f0-9]{40}/);
     assert.match(content, /version: 11\.24\.0/);
     assert.doesNotMatch(content, /corepack enable/);
   }

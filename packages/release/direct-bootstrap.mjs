@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { RIGHTRELEASE_MANIFEST_SIGNER, signReleaseManifestCatalogWithAzure } from "./sign-release-manifest.mjs";
+import { RIGHTRELEASE_MANIFEST_SIGNER, signReleaseManifestWithAzure } from "./sign-release-manifest.mjs";
 import { validateCycloneDxSbom, validateInTotoSlsaProvenance } from "./supply-chain-evidence.mjs";
 
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -73,8 +73,18 @@ function assertGitHubAssetUrl(url) {
 
 export function createPortableArchive({ sourceDir, outputPath, commandRunner = spawnSync }) {
   const source = realpathSync(sourceDir);
-  mkdirSync(dirname(outputPath), { recursive: true });
-  const result = commandRunner("tar", ["-a", "-c", "-f", resolve(outputPath), "-C", source, "."], {
+  const outputDir = resolve(dirname(outputPath));
+  mkdirSync(outputDir, { recursive: true });
+  // On Windows, resolve the System32 bsdtar explicitly: PATH often finds GNU
+  // tar (Git Bash) first, which reads a colon in -f as a remote host spec and
+  // cannot write zip at all — its -a silently emits plain tar bytes for a
+  // .zip suffix. bsdtar writes a real zip. Run from the output directory with
+  // a bare filename so the invocation stays safe under either tar.
+  const tarProgram = process.platform === "win32"
+    ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+    : "tar";
+  const result = commandRunner(tarProgram, ["-a", "-c", "-f", basename(outputPath), "-C", source, "."], {
+    cwd: outputDir,
     encoding: "utf8",
     windowsHide: true,
   });
@@ -145,6 +155,8 @@ export function buildReleaseManifest({
     minimumBootstrapVersion,
     signingKeyId: RIGHTRELEASE_MANIFEST_SIGNER.id,
     signatureAlgorithm: RIGHTRELEASE_MANIFEST_SIGNER.algorithm,
+    signatureProvider: RIGHTRELEASE_MANIFEST_SIGNER.provider,
+    signatureProviderVersion: RIGHTRELEASE_MANIFEST_SIGNER.providerVersion,
     checksumsSha256: checksumsDigest,
     assets: normalizedAssets,
   };
@@ -162,14 +174,14 @@ export function materializeDirectRelease({ outputDir, manifestInput }) {
   });
   const manifestText = `${canonicalJson(manifest)}\n`;
   const manifestPath = join(outputDir, "release-manifest.json");
-  const catalogPath = join(outputDir, "release-manifest.cat");
+  const signaturePath = join(outputDir, "release-manifest.cat");
   writeFileSync(manifestPath, manifestText);
-  const signing = signReleaseManifestCatalogWithAzure({ manifestPath, catalogPath });
-  if (!statSync(catalogPath).isFile() || statSync(catalogPath).size < 1) throw new Error("release manifest catalog is missing");
+  const signing = signReleaseManifestWithAzure({ manifestPath, signaturePath });
+  if (!statSync(signaturePath).isFile() || statSync(signaturePath).size < 1) throw new Error("detached release manifest signature is missing");
   if (signing?.signer?.id !== RIGHTRELEASE_MANIFEST_SIGNER.id || signing.signer.subject !== RIGHTRELEASE_MANIFEST_SIGNER.subject || !/^[a-f0-9]{64}$/.test(signing.signer.certificateSha256 ?? "")) {
-    throw new Error("release manifest catalog signer is not RightRelease Azure authority");
+    throw new Error("detached release manifest signer is not RightRelease Azure authority");
   }
-  return { manifest, manifestPath, catalogPath, signaturePath: catalogPath, signing, checksums };
+  return { manifest, manifestPath, signaturePath, signing, checksums };
 }
 
 function psQuote(value) {
@@ -237,7 +249,8 @@ export function renderPowerShellBootstrap({
   };
   // Bind generated contract metadata so a caller cannot pass a marker plus an
   // arbitrary base64 payload and have it treated as a RightRelease bootstrap.
-  // This is a structural integrity fence for the executable bootstrap source itself.
+  // This is not a replacement for manifest catalog signing; it is a structural
+  // integrity fence for the executable bootstrap source itself.
   contract.contractSha256 = createHash("sha256").update(canonicalJson(contract)).digest("hex");
   const contractB64 = Buffer.from(JSON.stringify(contract)).toString("base64");
   const lines = [
@@ -266,18 +279,18 @@ export function renderPowerShellBootstrap({
     "$ReleaseBase = " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version",
     "$Work = Join-Path ([IO.Path]::GetTempPath()) (" + psQuote(product + "-install-") + " + [guid]::NewGuid())",
     "New-Item -ItemType Directory -Force -Path $Work | Out-Null",
-    "$ManifestPath = Join-Path $Work 'release-manifest.json'; $CatalogPath = Join-Path $Work 'release-manifest.cat'; $ChecksumsPath = Join-Path $Work 'checksums.json'",
+    "$ManifestPath = Join-Path $Work 'release-manifest.json'; $SignaturePath = Join-Path $Work 'release-manifest.cat'; $ChecksumsPath = Join-Path $Work 'checksums.json'",
     "Invoke-WebRequest ($ReleaseBase + '/release-manifest.json') -OutFile $ManifestPath",
-    "Invoke-WebRequest ($ReleaseBase + '/release-manifest.cat') -OutFile $CatalogPath",
-    "$ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath)",
-    "$CatalogSignature = Get-AuthenticodeSignature -FilePath $CatalogPath; if ($CatalogSignature.Status -ne 'Valid' -or $null -eq $CatalogSignature.SignerCertificate) { throw 'Release manifest catalog signature is invalid' }; $SignerCertificate = $CatalogSignature.SignerCertificate",
-    "$ManifestCatalogRoot = Join-Path $Work 'manifest-catalog'; New-Item -ItemType Directory -Force -Path $ManifestCatalogRoot | Out-Null; Copy-Item -LiteralPath $ManifestPath -Destination (Join-Path $ManifestCatalogRoot 'release-manifest.json')",
-    "$CatalogValidation = Test-FileCatalog -Path $ManifestCatalogRoot -CatalogFilePath $CatalogPath; if ([string]$CatalogValidation -ne 'Valid') { throw 'Release manifest catalog does not bind exact bytes' }",
+    "Invoke-WebRequest ($ReleaseBase + '/release-manifest.cat') -OutFile $SignaturePath",
+    "$ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath); Import-Module Microsoft.PowerShell.Security -ErrorAction Stop",
+    "$Catalog = Test-FileCatalog -CatalogFilePath $SignaturePath -Path $ManifestPath -Detailed; if ([string]$Catalog.Status -ne 'Valid') { throw 'Release manifest catalog binding is invalid' }",
+    "$CatalogSignature = Get-AuthenticodeSignature -FilePath $SignaturePath; if ([string]$CatalogSignature.Status -ne 'Valid' -or -not $CatalogSignature.SignerCertificate) { throw 'Release manifest signature is invalid' }; $SignerCertificate = $CatalogSignature.SignerCertificate",
+    "$SignerSubject = 'CN=' + $SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)",
     "$Sha256 = [Security.Cryptography.SHA256]::Create(); try { $SignerFingerprint = ([BitConverter]::ToString($Sha256.ComputeHash($SignerCertificate.RawData))).Replace('-','').ToLowerInvariant() } finally { $Sha256.Dispose() }",
-    "$VerifiedKeyId = $null; foreach ($KeyId in $AcceptedSigners.Keys) { $Accepted = $AcceptedSigners[$KeyId]; if ($SignerCertificate.Subject -eq [string]$Accepted.subject -and $SignerFingerprint -eq [string]$Accepted.certificateSha256) { $VerifiedKeyId = $KeyId; break } }",
+    "$VerifiedKeyId = $null; foreach ($KeyId in $AcceptedSigners.Keys) { $Accepted = $AcceptedSigners[$KeyId]; if ($SignerSubject -eq [string]$Accepted.subject -and $SignerFingerprint -eq [string]$Accepted.certificateSha256) { $VerifiedKeyId = $KeyId; break } }",
     "if (-not $VerifiedKeyId) { throw 'Release manifest signer is not accepted' }",
     "$Manifest = [Text.Encoding]::UTF8.GetString($ManifestBytes) | ConvertFrom-Json",
-    "if ($Manifest.signingKeyId -ne $VerifiedKeyId -or $Manifest.signatureAlgorithm -ne 'authenticode-catalog-sha256') { throw 'Release manifest signer identity mismatch' }",
+    "if ($Manifest.signingKeyId -ne $VerifiedKeyId -or $Manifest.signatureAlgorithm -ne 'authenticode-catalog-sha256' -or $Manifest.signatureProvider -ne 'windows-authenticode-catalog' -or $Manifest.signatureProviderVersion -ne 1) { throw 'Release manifest signer identity mismatch' }",
     "if ($Manifest.product -ne " + psQuote(product) + " -or $Manifest.version -ne $Version -or $Manifest.tag -ne ('v' + $Version)) { throw 'Release identity mismatch' }",
     "if ([version]$Contract.bootstrapVersion -lt [version]$Manifest.minimumBootstrapVersion) { throw 'Bootstrap update required' }",
     "$Machine = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); $Target = if ($Machine -eq 'Arm64') { 'windows-arm64' } elseif ($Machine -eq 'X64') { 'windows-x86_64' } else { throw ('Unsupported architecture: ' + $Machine) }",
@@ -334,9 +347,10 @@ export function renderPowerShellBootstrap({
 export function validatePowerShellBootstrap(script, expected = {}) {
   const required = [
     "# rightkit-direct-bootstrap:v1",
-    "Release manifest catalog signature is invalid",
+    "Release manifest signature is invalid",
     "certificateSha256",
     "Test-FileCatalog",
+    "Get-AuthenticodeSignature",
     "checksums.json is not manifest-bound",
     "Provenance checksum mismatch",
     "SBOM checksum mismatch",

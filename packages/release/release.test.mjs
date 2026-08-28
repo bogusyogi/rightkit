@@ -314,6 +314,37 @@ test("accepts one right-git managed CI workflow without granting hosted release 
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("accepts right-git managed CI and unsigned release-candidate workflows", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"] }));
+  const managedReadOnly = "# Managed by right-git — do not hand-edit.\npermissions:\n  contents: read\njobs: {}\n";
+  writeFileSync(path.join(workflowDir, "ci.yml"), managedReadOnly);
+  writeFileSync(path.join(workflowDir, "release-candidate.yml"), managedReadOnly);
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add managed candidate workflows");
+
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects workflows that do not exactly match right-git manifest lanes", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"] }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "omit declared candidate workflow");
+
+  const result = run(config, "--tier=patch");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /requires workflows declared by \.rightgit\.json/i);
+});
+
 test("rejects a self-labeled right-git workflow with release-capable authority", () => {
   const config = fixture({ hostedWorkflows: "right-git-ci-only" });
   const root = path.dirname(config);
@@ -327,6 +358,25 @@ test("rejects a self-labeled right-git workflow with release-capable authority",
   const result = run(config, "--tier=patch");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /release-capable permissions or secrets/i);
+});
+
+test("rejects managed candidate workflows with write-all or indexed secrets", () => {
+  for (const unsafe of ["permissions: write-all\n", "env:\n  TOKEN: ${{ secrets[\"TOKEN\"] }}\n"]) {
+    const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+    const root = path.dirname(config);
+    const workflowDir = path.join(root, ".github", "workflows");
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"] }));
+    const managedReadOnly = "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n";
+    writeFileSync(path.join(workflowDir, "ci.yml"), managedReadOnly);
+    writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git\n${unsafe}jobs: {}\n`);
+    git(root, "add", ".");
+    git(root, "commit", "-m", "add unsafe candidate workflow");
+
+    const result = run(config, "--tier=patch");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /release-capable permissions or secrets/i);
+  }
 });
 
 test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", () => {

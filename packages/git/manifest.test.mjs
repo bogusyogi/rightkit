@@ -16,13 +16,22 @@ test("accepts a minimal valid manifest", () => {
   assert.deepEqual(errors, []);
 });
 
-test("rust-hybrid requires only ci and a safe gate path", () => {
+test("rust-hybrid supports ci plus a configured unsigned release-candidate lane", () => {
   const valid = { ...VALID_MINIMAL, profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
   assert.equal(validateManifest(valid).valid, true);
   for (const path of ["/tmp/gate.sh", "../gate.sh", "scripts/gate sh", "${{ secrets.X }}", "scripts/gate;sh"]) {
     assert.equal(validateManifest({ ...valid, gate: { path } }).valid, false, path);
   }
   assert.equal(validateManifest({ ...valid, lanes: ["ci", "qualification"] }).valid, false);
+  const candidate = {
+    ...valid,
+    lanes: ["ci", "release-candidate"],
+    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "legion-unsigned", os: ["ubuntu-latest"] },
+  };
+  assert.equal(validateManifest(candidate).valid, true);
+  assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, buildScript: "echo unsafe" } }).valid, false);
+  assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, artifactRoot: "../escape" } }).valid, false);
+  assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, os: ["windows-latest"] } }).valid, false);
 });
 
 test("rejects non-object input", () => {

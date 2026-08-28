@@ -478,15 +478,28 @@ Tool provisioning that compiles Rust may have a different **priority**, but it s
 Examples:
 
 ```text
-rustup target add
-other registered Rust toolchain mutations
+rightkit rustup target add <registered-target>
 ```
 
 Properties:
 
 ```text
 globally exclusive
+uses Rustup home that owns digest-registered Cargo/rustc
+requested target must exist in broker targetTriples
 ```
+
+macOS bootstrap registers `aarch64-apple-darwin`,
+`x86_64-apple-darwin`, `aarch64-apple-ios`, &
+`aarch64-apple-ios-sim`. A new app targeting one of these needs no broker
+change: provision missing std through `rightkit rustup target add <target>`,
+then build through `rightkit cargo ... --target <target>`. Physical iPhone
+builds use `aarch64-apple-ios`; Apple Silicon Simulator builds use
+`aarch64-apple-ios-sim`.
+
+A genuinely new target requires one source-level allowlist change in host
+bootstrap, an exact generated-config test, an admission test, & guarded broker
+cutover. Never edit live `config.json`; next bootstrap overwrites it.
 
 Unknown commands fail closed.
 
