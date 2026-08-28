@@ -85,6 +85,16 @@
     "gate": {
       "type": "object", "required": ["path"], "additionalProperties": false,
       "properties": { "path": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$" } }
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["buildScript", "checkScript", "artifactRoot"],
+      "additionalProperties": false,
+      "properties": {
+        "buildScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+        "checkScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+        "artifactRoot": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$" }
+      }
     }
   }
 }

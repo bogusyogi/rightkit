@@ -51,6 +51,26 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
 });
 
+test("rust-hybrid release candidate renders product scripts, artifact handoff, and no signing secret", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "widgets-unsigned" },
+    templateVersion: "1.2.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  assert.match(content, /pnpm run ci:candidate/);
+  assert.match(content, /pnpm run ci:candidate-check/);
+  assert.match(content, /RIGHT_GIT_ARTIFACT_ROOT/);
+  assert.match(content, /actions\/upload-artifact@v4/);
+  assert.doesNotMatch(content, /secrets\.|AZURE_|APPLE_|certificate|private.key/i);
+});
+
 test("render determinism: same manifest renders byte-identical output every time", () => {
   const first = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
   const second = renderAllLanes(FULL_MANIFEST, "/repos/widgets");

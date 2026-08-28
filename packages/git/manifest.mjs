@@ -57,8 +57,10 @@ const TOP_LEVEL_KEYS = new Set([
   "templateVersion",
   "profile",
   "gate",
+  "candidate",
 ]);
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+const PACKAGE_SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
 
 /**
  * Validate a parsed manifest object against the right-git manifest contract.
@@ -123,12 +125,39 @@ export function validateManifest(manifest) {
   const profile = manifest.profile === undefined ? "node" : manifest.profile;
   if (profile !== "node" && profile !== "rust-hybrid") errors.push("profile must be 'node' or 'rust-hybrid'");
   if (profile === "rust-hybrid") {
-    if (lanes.length !== 1 || lanes[0] !== "ci") errors.push("profile 'rust-hybrid' supports only lane 'ci'");
+    if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate") || !lanes.includes("ci")) {
+      errors.push("profile 'rust-hybrid' requires lane 'ci' and supports optional lane 'release-candidate'");
+    }
     if (!manifest.gate || typeof manifest.gate !== "object" || Array.isArray(manifest.gate) || Object.keys(manifest.gate).some((key) => key !== "path") || typeof manifest.gate.path !== "string" || !GATE_PATH_RE.test(manifest.gate.path)) {
       errors.push("profile 'rust-hybrid' requires gate.path with a safe relative path");
     }
   } else if (manifest.gate !== undefined) {
     errors.push("gate is only valid for profile 'rust-hybrid'");
+  }
+
+  const candidate = manifest.candidate;
+  if (candidate !== undefined) {
+    if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
+      errors.push("candidate must be an object");
+    } else {
+      for (const key of Object.keys(candidate)) {
+        if (!["buildScript", "checkScript", "artifactRoot"].includes(key)) errors.push(`unknown candidate field: ${key}`);
+      }
+      for (const key of ["buildScript", "checkScript"]) {
+        if (typeof candidate[key] !== "string" || !PACKAGE_SCRIPT_RE.test(candidate[key])) {
+          errors.push(`candidate.${key} must be one safe package script name`);
+        }
+      }
+      if (typeof candidate.artifactRoot !== "string" || !GATE_PATH_RE.test(candidate.artifactRoot)) {
+        errors.push("candidate.artifactRoot must be one safe relative path");
+      }
+    }
+  }
+  if (profile === "rust-hybrid" && lanes.includes("release-candidate") && candidate === undefined) {
+    errors.push("rust-hybrid release-candidate lane requires candidate { buildScript, checkScript, artifactRoot }");
+  }
+  if (profile !== "rust-hybrid" && candidate !== undefined) {
+    errors.push("candidate is only valid for profile 'rust-hybrid'");
   }
 
   const publish = manifest.publish;
@@ -283,6 +312,9 @@ export function buildRenderContext(manifest, repoPath) {
     ARTIFACT_PREFIX: artifactPrefix,
     TEMPLATE_VERSION: manifest.templateVersion,
     GATE_PATH: manifest.gate?.path,
+    CANDIDATE_BUILD_SCRIPT: manifest.candidate?.buildScript,
+    CANDIDATE_CHECK_SCRIPT: manifest.candidate?.checkScript,
+    CANDIDATE_ARTIFACT_ROOT: manifest.candidate?.artifactRoot,
   };
 
   if (manifest.publish?.npm) {

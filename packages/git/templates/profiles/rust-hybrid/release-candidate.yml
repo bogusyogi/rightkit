@@ -1,0 +1,49 @@
+# Managed by right-git — do not hand-edit. Run `right-git sync` to update.
+# Template: profiles/rust-hybrid/release-candidate.yml | Template version: ${TEMPLATE_VERSION}
+# Public CI produces unsigned candidates only. Signing credentials, finalization,
+# release publication, & stable bootstrap publication remain protected-host work.
+name: release-candidate
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  private-repo-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse private repository
+        if: ${{ github.event.repository.private }}
+        run: exit 1
+  candidate:
+    needs: [private-repo-guard]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${OS_MATRIX}
+        node: ${NODE_MATRIX}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
+      - run: rustup toolchain install stable --profile minimal
+      - run: ${INSTALL_COMMAND}
+      - name: Build unsigned release candidate
+        run: ${PM_RUN} ${CANDIDATE_BUILD_SCRIPT}
+        env:
+          RIGHT_GIT_ARTIFACT_ROOT: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}
+      - name: Check unsigned release candidate
+        run: ${PM_RUN} ${CANDIDATE_CHECK_SCRIPT}
+        env:
+          RIGHT_GIT_ARTIFACT_ROOT: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}
+      - name: Upload unsigned candidate handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${ARTIFACT_PREFIX}-unsigned-${{ matrix.os }}-${{ matrix.node }}
+          path: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}/**
+          if-no-files-found: error
