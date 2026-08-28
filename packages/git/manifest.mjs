@@ -262,7 +262,7 @@ function parsePackageManager(spec) {
   }[name];
   const runPrefix = { pnpm: "pnpm run", npm: "npm run", yarn: "yarn run" }[name];
   const setup = {
-    pnpm: `      - uses: pnpm/action-setup@v4\n        with:\n          version: ${version}`,
+    pnpm: `      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10\n        with:\n          version: ${version}`,
     npm: "",
     yarn: `      - run: corepack enable && corepack prepare yarn@${version} --activate`,
   }[name];
