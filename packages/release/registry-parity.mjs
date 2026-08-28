@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = fileURLToPath(new URL('.', import.meta.url));
 
@@ -72,7 +72,7 @@ export async function verifyRegistryParity({ allowUnpublished = false, fetchImpl
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   verifyRegistryParity({ allowUnpublished: process.argv.includes('--allow-unpublished') })
     .then((result) => process.stdout.write(`${JSON.stringify(result)}\n`))
     .catch((error) => { process.stderr.write(`${error.message}\n`); process.exitCode = 1; });

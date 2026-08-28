@@ -170,6 +170,8 @@ export function collectPreflight({
   version,
   configPath,
   cargoLockPaths = [],
+  nativeLayout,
+  targetLink,
   minFreeGb = 25,
   env = process.env,
 } = {}) {
@@ -177,7 +179,8 @@ export function collectPreflight({
   const windows = platform === "win" || platform === "win32";
 
   if (appRoot) {
-    const target = path.join(appRoot, "src-tauri", "target");
+    const target = targetLink ?? nativeLayout?.targetLink ?? path.join(appRoot, "src-tauri", "target");
+    const targetLabel = nativeLayout?.targetPrefix || "src-tauri/target/";
     let entry = null;
     try {
       entry = lstatSync(target);
@@ -186,7 +189,7 @@ export function collectPreflight({
     }
     checks.push(
       !entry || entry.isSymbolicLink()
-        ? ok("target-bridge", entry ? "src-tauri/target is a symbolic link" : "src-tauri/target is ready for the shared cache bridge")
+        ? ok("target-bridge", entry ? `${targetLabel} is a symbolic link` : `${targetLabel} is ready for the shared cache bridge`)
         // A real directory here is not corruption on a broker-managed host: the
         // build broker owns CARGO_TARGET_DIR and this is its own output (or a
         // leftover from before it took ownership), not Cache V2's bridge target.
@@ -210,7 +213,7 @@ export function collectPreflight({
         ? fail(
             "version",
             `${app} ${version} is already sealed at ${sealedDir}; right-release will refuse to rebuild it`,
-            `bump to ${sealed.suggestion} in package.json, src-tauri/tauri.conf.json and src-tauri/Cargo.toml, then re-run the legal notices generator`,
+            `bump to ${sealed.suggestion} in package.json and ${nativeLayout?.manifestPrefix ?? "src-tauri/"}Cargo.toml, then re-run the legal notices generator`,
           )
         : ok("version", `${version} is free to build`),
     );

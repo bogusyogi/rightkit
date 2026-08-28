@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 
 function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
@@ -53,12 +54,18 @@ export function resolveConfiguredBuildInputs(config, target, label = "release co
 }
 
 export function resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target, env = process.env }) {
+  const nativeLayout = resolveNativeCargoLayout({
+    appRoot,
+    config,
+    requireManifest: true,
+    requireLock: true,
+  });
   const requiredInputs = [
     configPath,
     path.join(appRoot, "package.json"),
     path.join(appRoot, "pnpm-lock.yaml"),
-    path.join(appRoot, "src-tauri", "Cargo.toml"),
-    path.join(appRoot, "src-tauri", "Cargo.lock"),
+    nativeLayout.manifestPath,
+    nativeLayout.lockPath,
     ...(target?.preflight?.files ?? []).map((file) => path.resolve(appRoot, expandEnv(file, env))),
   ].filter((file, index, files) => files.indexOf(file) === index);
   for (const file of requiredInputs) {
@@ -77,6 +84,7 @@ export function resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, confi
 
   return {
     requiredInputs,
+    nativeLayout,
     buildInputs: {
       include: configured.include.map(qualify),
       exclude: (configured.exclude ?? []).map(qualify),

@@ -9,6 +9,14 @@ import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
+import {
+  canonicalPackageIdentity,
+  createNativeFinalizationReceipt,
+  mintNativeProvenance,
+  resolveNativeFinalizerConfig,
+  validateNativeFinalizationOutput,
+} from "./native-release-finalization.mjs";
 import { collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
@@ -92,6 +100,9 @@ if (config.schema !== 1) fail(`unsupported config schema: ${config.schema ?? "<m
 
 const root = path.dirname(configPath);
 const workdir = path.resolve(root, config.workdir ?? ".");
+const nativeLayout = resolveNativeCargoLayout({ appRoot: root, config });
+const nativeAssembly = config.nativeAssembly;
+const nativeFinalizer = resolveNativeFinalizerConfig(nativeAssembly);
 await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
 validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.basename(root));
 const target = config.targets?.[opts.platform];
@@ -118,7 +129,7 @@ if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.pl
  * Assemble preflight inputs from the app's own files. Kept here (not in
  * preflight.mjs) so the check module stays free of release.mjs's config shape.
  */
-function releasePreflight({ config, configPath, root, repoRoot, platform }) {
+function releasePreflight({ config, configPath, root, repoRoot, platform, nativeLayout: suppliedNativeLayout = nativeLayout }) {
   let version;
   try {
     version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
@@ -128,10 +139,9 @@ function releasePreflight({ config, configPath, root, repoRoot, platform }) {
   // Every Cargo.lock the build compiles from; a vendored-OpenSSL edge in any of
   // them means the build needs a real Windows Perl.
   const cargoLockPaths = [
-    path.join(root, "src-tauri", "Cargo.lock"),
-    path.join(root, "Cargo.lock"),
+    ...(suppliedNativeLayout?.lockCandidates ?? []),
     ...(config.cargoLocks ?? []).map((entry) => path.resolve(root, entry)),
-  ];
+  ].filter((entry, index, entries) => entries.indexOf(entry) === index);
   return collectPreflight({
     platform,
     appRoot: root,
@@ -140,11 +150,13 @@ function releasePreflight({ config, configPath, root, repoRoot, platform }) {
     version,
     configPath,
     cargoLockPaths,
+    nativeLayout: suppliedNativeLayout,
+    targetLink: suppliedNativeLayout?.targetLink,
   });
 }
 
 if (opts.doctor) {
-  const { buildInputs } = resolveReleaseBuildInputs({
+  const { buildInputs, nativeLayout: resolvedNativeLayout } = resolveReleaseBuildInputs({
     repoRoot: doctorInvocation.repoRoot,
     appRoot: root,
     configPath,
@@ -174,7 +186,7 @@ if (opts.doctor) {
 
   // Config above, MACHINE below. Printing config never told anyone whether this
   // box could finish a build; these checks do.
-  const checks = releasePreflight({ config, configPath, root, repoRoot: doctorInvocation.repoRoot, platform: opts.platform });
+  const checks = releasePreflight({ config, configPath, root, repoRoot: doctorInvocation.repoRoot, platform: opts.platform, nativeLayout: resolvedNativeLayout });
   console.log("preflight:");
   console.log(formatPreflight(checks));
   const failures = preflightFailures(checks);
@@ -200,6 +212,7 @@ if (!opts.skipChecks) {
   for (const script of config.checks ?? []) await runPackageScript(config.packageManager, script, workdir);
 }
 
+let nativeFinalization = null;
 let bundleMarkerReceipts = [];
 if (opts.platform === "win") {
   const rawFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
@@ -215,6 +228,29 @@ if (opts.platform === "win") {
     console.log(`right-release: bundle marker ${receipt.bundle} ${receipt.alreadyPatched ? "already applied" : "applied"} at offset ${receipt.offset} in ${path.basename(receipt.file)}`);
   }
   await signWindows(rawFiles, "raw-exe", root);
+  if (nativeAssembly?.packageHook && !hasNativeTargetSpecificPrePackage(target, nativeAssembly.packageHook)) {
+    await runCommand(nativeAssembly.packageHook, root);
+  }
+  if (nativeFinalizer) {
+    nativeFinalization = await runNativeFinalizer({
+      finalizer: nativeFinalizer,
+      nativeAssembly,
+      target,
+      root,
+      signedFiles: rawFiles,
+    });
+  }
+} else if (nativeAssembly) {
+  if (nativeAssembly.packageHook) await runCommand(nativeAssembly.packageHook, root);
+  if (nativeFinalizer) {
+    nativeFinalization = await runNativeFinalizer({
+      finalizer: nativeFinalizer,
+      nativeAssembly,
+      target,
+      root,
+      signedFiles: target.sign?.prePackageFiles ?? target.sign?.files ?? [],
+    });
+  }
 }
 
 await runCommand(command, root);
@@ -222,6 +258,8 @@ await runCommand(command, root);
 for (const rel of target.artifacts ?? []) {
   await mustExist(path.resolve(root, rel), `missing release artifact: ${rel}`);
 }
+
+if (nativeFinalization) await completeNativeFinalization(nativeFinalization, { root, target, nativeAssembly });
 
 if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT) {
   const files = target.sign.files.map((p) => path.resolve(root, p));
@@ -311,13 +349,180 @@ async function mustExist(file, message) {
   await access(file).catch(() => fail(message));
 }
 
+async function runNativeFinalizer({ finalizer, nativeAssembly, target, root, signedFiles }) {
+  if (!finalizer?.cmd) fail(`${config.app} ${opts.platform} nativeAssembly.finalizer must declare a command`);
+  const signedArtifacts = nativeSignedArtifacts(signedFiles, root);
+  const packageIdentity = nativePackageIdentity({ nativeAssembly, target });
+  const provenance = mintNativeProvenance({
+    app: config.app,
+    version: config.version,
+    platform: opts.platform,
+    architecture: target.selectedArchitecture ?? target.architecture ?? nativeAssembly?.architecture ?? process.arch,
+    targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget,
+    signedArtifacts,
+    packageIdentity,
+  });
+  const outputPath = nativeFinalizerOutputPath({ finalizer, target, root });
+  const finalizerCommand = {
+    ...finalizer,
+    args: finalizer.args.map((arg) => expandFinalizerToken(arg, { provenance, outputPath, packageIdentity })),
+  };
+  const stdout = await runCommand(finalizerCommand, root, {
+    captureStdout: true,
+    env: {
+      RIGHT_RELEASE_NATIVE_PROVENANCE: provenance,
+      RIGHT_RELEASE_NATIVE_FINALIZATION_RECEIPT: outputPath,
+      RIGHT_RELEASE_NATIVE_PACKAGE_IDENTITY: JSON.stringify(packageIdentity),
+      RIGHT_RELEASE_NATIVE_SIGNED_ARTIFACTS: JSON.stringify(signedArtifacts),
+    },
+  });
+  if (opts.dryRun) return { outputPath, provenance, signedArtifacts, packageIdentity, output: null };
+
+  let output = null;
+  if (existsSync(outputPath)) {
+    try { output = JSON.parse(readFileSync(outputPath, "utf8")); } catch (error) { fail(`native finalizer output is not valid JSON: ${outputPath}: ${error.message}`); }
+  } else if (stdout?.trim()) {
+    try { output = JSON.parse(stdout); } catch { fail(`native finalizer output missing: ${outputPath}`); }
+  } else {
+    fail(`native finalizer output missing: ${outputPath}`);
+  }
+  output = enrichNativeFinalizerOutput(output, root);
+  try {
+    output = validateNativeFinalizationOutput(output, { expectedProvenance: provenance });
+  } catch (error) {
+    fail(`invalid native finalizer output: ${error.message}`);
+  }
+  return { outputPath, provenance, signedArtifacts, packageIdentity, output };
+}
+
+function enrichNativeFinalizerOutput(output, root) {
+  if (output?.provenance) return output;
+  if (output?.runtime?.provenance) return { ...output, provenance: output.runtime.provenance };
+  if (!output?.output) return output;
+  const manifestPath = path.join(path.resolve(root, output.output), "share", "legion", "release.json");
+  if (!existsSync(manifestPath)) return output;
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const provenance = manifest.runtime?.provenance;
+    if (provenance) return { ...output, provenance };
+  } catch {
+    return output;
+  }
+  return output;
+}
+
+async function completeNativeFinalization(finalization, { root, target, nativeAssembly }) {
+  if (opts.dryRun) {
+    console.log(`dry-run: native finalization receipt binds archive identity at ${finalization.outputPath}`);
+    return;
+  }
+  const archivePath = nativeArchiveCandidates({ root, target, nativeAssembly }).find((file) => existsSync(file));
+  if (!archivePath) fail(`${config.app} ${opts.platform} native finalization cannot find final archive`);
+  let receipt;
+  try {
+    receipt = createNativeFinalizationReceipt({
+      app: config.app,
+      version: config.version,
+      platform: opts.platform,
+      architecture: target.selectedArchitecture ?? target.architecture ?? nativeAssembly?.architecture ?? process.arch,
+      targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget,
+      signedArtifacts: finalization.signedArtifacts,
+      packageIdentity: finalization.packageIdentity,
+      archivePath,
+      finalizerOutput: finalization.output,
+      root,
+    });
+  } catch (error) {
+    fail(`native finalization archive binding failed: ${error.message}`);
+  }
+  mkdirSync(path.dirname(finalization.outputPath), { recursive: true });
+  writeFileSync(finalization.outputPath, `${JSON.stringify(receipt, null, 2)}\n`);
+  console.log(`right-release: native finalization verified ${receipt.provenance} archive=${receipt.archiveSha256}`);
+}
+
+function nativeSignedArtifacts(files, root) {
+  const values = Array.isArray(files) ? files : [];
+  return values.map((value) => {
+    const declared = typeof value === "string" ? value : value?.path ?? value?.file;
+    if (!declared) fail("native finalizer signed artifact path is missing");
+    const absolute = path.resolve(root, declared);
+    if (opts.dryRun) return { path: path.relative(root, absolute).replaceAll("\\", "/") };
+    if (!existsSync(absolute)) fail(`native finalizer signed artifact missing: ${absolute}`);
+    return {
+      path: path.relative(root, absolute).replaceAll("\\", "/"),
+      sha256: createHash("sha256").update(readFileSync(absolute)).digest("hex"),
+      sizeBytes: readFileSync(absolute).length,
+    };
+  });
+}
+
+function nativePackageIdentity({ nativeAssembly, target }) {
+  const declared = nativeAssembly?.packageIdentity ?? target.packageIdentity;
+  if (declared) return canonicalPackageIdentity(declared);
+  const artifacts = [
+    ...(target.artifacts ?? []),
+    ...(target.installer?.artifacts ?? []).map((artifact) => artifact.file),
+    ...(target.updater?.artifacts ?? []).map((artifact) => artifact.file),
+  ].filter(Boolean);
+  return canonicalPackageIdentity({
+    kind: target.packageKind ?? "release",
+    platform: opts.platform,
+    architecture: target.selectedArchitecture ?? target.architecture ?? nativeAssembly?.architecture ?? process.arch,
+    ...(artifacts.length ? { artifacts } : {}),
+  });
+}
+
+function nativeArchiveCandidates({ root, target, nativeAssembly }) {
+  const declared = [
+    nativeAssembly?.archive,
+    nativeAssembly?.archivePath,
+    nativeAssembly?.packageIdentity?.path,
+    target.archive,
+    target.archivePath,
+    ...(target.artifacts ?? []),
+    ...(target.installer?.artifacts ?? []).map((artifact) => artifact.file),
+    ...(target.updater?.artifacts ?? []).map((artifact) => artifact.file),
+  ].filter((value) => typeof value === "string" && value.trim());
+  return [...new Set(declared.map((value) => path.resolve(root, value)))];
+}
+
+function nativeFinalizerOutputPath({ finalizer, target, root }) {
+  const declared = finalizer.output
+    ?? target.evidence?.provenance
+    ?? target.provenance
+    ?? `.right-release/receipts/native-finalization-${opts.platform}.json`;
+  return path.resolve(root, declared);
+}
+
+function expandFinalizerToken(value, { provenance, outputPath, packageIdentity }) {
+  const replacements = {
+    "{{provenance}}": provenance,
+    "{provenance}": provenance,
+    "${RIGHT_RELEASE_NATIVE_PROVENANCE}": provenance,
+    "$RIGHT_RELEASE_NATIVE_PROVENANCE": provenance,
+    "{{receipt}}": outputPath,
+    "{receipt}": outputPath,
+    "${RIGHT_RELEASE_NATIVE_FINALIZATION_RECEIPT}": outputPath,
+    "$RIGHT_RELEASE_NATIVE_FINALIZATION_RECEIPT": outputPath,
+    "{{packageIdentity}}": JSON.stringify(packageIdentity),
+    "{packageIdentity}": JSON.stringify(packageIdentity),
+  };
+  return Object.entries(replacements).reduce((result, [token, replacement]) => result.replaceAll(token, replacement), String(value));
+}
+
+function hasNativeTargetSpecificPrePackage(target, packageHook) {
+  if (!target?.prePackage || !packageHook || target.prePackage.cmd !== packageHook.cmd) return false;
+  const args = target.prePackage.args ?? [];
+  return args.some((arg) => ["--platform", "--architecture", "--target", "--out"].includes(arg));
+}
+
 // Post-release target/ hygiene: `cargo sweep --installed` deletes artifacts left
 // by toolchains rustup no longer has (each update orphans a multi-GB pile per
 // app) and never touches anything the current toolchains produced. Runs after
 // publish so it cannot race an artifact, and is best-effort: a missing
 // cargo-sweep or a sweep failure must never fail a release.
 function sweepStaleRustArtifacts() {
-  const candidates = [...new Set([root, workdir].flatMap((base) => [base, path.join(base, "src-tauri")]))];
+  const candidates = [...new Set([root, workdir, nativeLayout.manifestDir, nativeLayout.workspaceRoot])];
   const projects = candidates.filter((dir) => existsSync(path.join(dir, "target")));
   for (const dir of projects) {
     if (opts.dryRun) {
@@ -348,10 +553,11 @@ async function runPackageScript(pm, script, cwd) {
   await run(pm, ["run", script], cwd);
 }
 
-async function runCommand(command, root) {
+async function runCommand(command, root, { env = {}, captureStdout = false } = {}) {
   const cwd = path.resolve(root, command.cwd ?? ".");
-  await run(command.cmd, command.args ?? [], cwd, await commandEnv(command, root), {
+  return run(command.cmd, command.args ?? [], cwd, { ...(await commandEnv(command, root)), ...env }, {
     ...command,
+    captureStdout,
     timeoutMs: commandTimeoutMs(command),
   });
 }
@@ -550,7 +756,7 @@ function run(cmd, runArgs, cwd, env = {}, options = {}) {
     const timeout = options.timeoutMs ? ` timeout=${options.timeoutMs}ms` : "";
     const tier = opts.tier ? `RIGHT_RELEASE_TIER=${opts.tier} ` : "";
     console.log(`dry-run: (${cwd}) ${tier}${printable}${timeout}`);
-    return Promise.resolve();
+    return Promise.resolve("");
   }
   const started = Date.now();
   return new Promise((resolve) => {
@@ -558,10 +764,12 @@ function run(cmd, runArgs, cwd, env = {}, options = {}) {
     const child = spawn(cmd, runArgs, {
       cwd,
       env: { ...process.env, ...releaseEnv, ...env },
-      stdio: "inherit",
+      stdio: options.captureStdout ? ["inherit", "pipe", "inherit"] : "inherit",
       shell: useShell,
       windowsHide: true,
     });
+    let stdout = "";
+    if (options.captureStdout) child.stdout?.on("data", (chunk) => { stdout += String(chunk); });
     const timer = options.timeoutMs
       ? setTimeout(() => {
           killProcessTree(child.pid);
@@ -579,7 +787,7 @@ function run(cmd, runArgs, cwd, env = {}, options = {}) {
       if (timer) clearTimeout(timer);
       console.log(`right-release step: ${printable} (${Date.now() - started}ms)`);
       if (code !== 0) process.exit(code ?? 1);
-      resolve();
+      resolve(options.captureStdout ? stdout : "");
     });
   });
 }
