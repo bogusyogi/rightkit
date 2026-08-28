@@ -13,7 +13,7 @@
     "@rightkit/updates": "0.2.3"
   },
   "stagedNpm": {
-    "@rightkit/ax": "0.2.0",
+    "@rightkit/ax": "0.2.1",
     "@rightkit/git": "0.2.1",
     "@rightkit/hooks": "0.1.1",
     "@rightkit/legal": "0.3.1",
@@ -22,11 +22,14 @@
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.71",
+    "@rightkit/release": "0.2.72",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4"
   },
   "legacyNpm": {
+    "@rightkit/ax": [
+      "0.2.0"
+    ],
     "@rightkit/legal-ui": [
       "0.1.0"
     ],
@@ -66,7 +69,8 @@
       "0.2.67",
       "0.2.68",
       "0.2.69",
-      "0.2.70"
+      "0.2.70",
+      "0.2.71"
     ],
     "@rightkit/qa": [
       "0.1.0",

@@ -480,7 +480,7 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/tauri"], "0.1.0");
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
   assert.deepEqual(versions.stagedNpm, {
-    "@rightkit/ax": "0.2.0",
+    "@rightkit/ax": "0.2.1",
     "@rightkit/git": "0.2.1",
     "@rightkit/hooks": "0.1.1",
     "@rightkit/legal": "0.3.1",
@@ -489,21 +489,22 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.71",
+    "@rightkit/release": "0.2.72",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4",
   });
   assert.deepEqual(versions.legacyNpm, {
+    "@rightkit/ax": ["0.2.0"],
     "@rightkit/legal-ui": ["0.1.0"],
     "@rightkit/hooks": ["0.1.0"],
     "@rightkit/legal": ["0.3.0"],
     "@rightkit/license": ["0.1.6"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69", "0.2.70"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69", "0.2.70", "0.2.71"],
     "@rightkit/qa": ["0.1.0", "0.2.0"],
   });
   assert.ok(
     new Set([versions.npm["@rightkit/release"], ...versions.legacyNpm["@rightkit/release"]]).has("0.2.42"),
-    "previously published @rightkit/release versions must remain accepted during the 0.2.71 rollout",
+    "previously published @rightkit/release versions must remain accepted during the 0.2.72 rollout",
   );
   for (const [name, version] of Object.entries(versions.stagedNpm)) {
     const packageName = name.slice("@rightkit/".length);

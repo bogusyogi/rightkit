@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { canonicalAddonManifest, createAddonManifest } from "./addon-contract.mjs";
-import { prepareGitHubAddonRelease, prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
+import { prepareGitHubAddonRelease, prepareGitHubDirectRelease, prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -100,4 +100,40 @@ test("partial GitHub add-on release uploads only missing assets then verifies al
   };
   const result = publishGitHubRelease({ kind: "addon", manifest: { files: [] }, sealedDir: root, tag: "immutable", assets: [first, second], manifestUrl: "https://example.test/manifest" }, { repo: "Orthic-Labs/Membrane", run });
   assert.equal(result.status, "resumed-verified"); assert.deepEqual(uploads, ["second"]);
+});
+
+test("direct GitHub plan publishes archive plus manifest authority and evidence without installer", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-direct-github-"));
+  const archive = path.join(root, "cutright-windows-x86_64.zip");
+  const provenance = path.join(root, "cutright-windows-x86_64.intoto.jsonl");
+  const sbom = path.join(root, "cutright-windows-x86_64.cdx.json");
+  const manifest = path.join(root, "release-manifest.json");
+  const signature = path.join(root, "release-manifest.sig");
+  const checksums = path.join(root, "checksums.json");
+  writeFileSync(archive, "archive");
+  writeFileSync(provenance, "provenance");
+  writeFileSync(sbom, "sbom");
+  const archiveDigest = sha256("archive");
+  const provenanceDigest = sha256("provenance");
+  const sbomDigest = sha256("sbom");
+  const checksumsText = `${JSON.stringify({ schemaVersion: 1, algorithm: "sha256", assets: { [path.basename(archive)]: archiveDigest, [path.basename(provenance)]: provenanceDigest, [path.basename(sbom)]: sbomDigest } })}\n`;
+  writeFileSync(checksums, checksumsText);
+  writeFileSync(manifest, JSON.stringify({
+    schemaVersion: 1,
+    kind: "rightkit-direct-release-manifest",
+    product: "cutright",
+    version: "1.2.3",
+    tag: "v1.2.3",
+    sourceCommit: "a".repeat(40),
+    checksumsSha256: sha256(checksumsText),
+    assets: [{ name: path.basename(archive), size: statSync(archive).size, sha256: archiveDigest, provenanceName: path.basename(provenance), provenanceSha256: provenanceDigest, sbomName: path.basename(sbom), sbomSha256: sbomDigest }],
+  }));
+  writeFileSync(signature, "cms");
+  const plan = prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums, archivePaths: [archive], provenancePaths: [provenance], sbomPaths: [sbom] });
+  assert.equal(plan.kind, "direct-release");
+  assert.equal(plan.assets.length, 6);
+  assert.ok(plan.assets.some((file) => file.endsWith(".zip")));
+  assert.equal(plan.assets.some((file) => /setup|installer/i.test(path.basename(file))), false);
+  writeFileSync(archive, "tampered");
+  assert.throws(() => prepareGitHubDirectRelease({ repoRoot: root, repo: "Orthic-Labs/CutRight", manifestPath: manifest, signaturePath: signature, checksumsPath: checksums, archivePaths: [archive], provenancePaths: [provenance], sbomPaths: [sbom] }), /archive size mismatch/);
 });
