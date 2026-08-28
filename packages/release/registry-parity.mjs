@@ -39,6 +39,23 @@ export function comparePackedTrees(local, published) {
   return Object.freeze({ equal: false, differences: Object.freeze(differences) });
 }
 
+export function packedArchivePath(output) {
+  const parsed = typeof output === 'string' ? JSON.parse(output) : output;
+  const record = Array.isArray(parsed) ? parsed[0] : parsed;
+  if (typeof record?.filename !== 'string' || !record.filename.trim()) {
+    throw new Error('pnpm pack output omitted filename');
+  }
+  return record.filename;
+}
+
+function runPnpm(args, options = {}) {
+  const npmExecPath = process.env.npm_execpath;
+  if (typeof npmExecPath !== 'string' || !npmExecPath.trim()) {
+    throw new Error('registry parity must run through the pnpm package script');
+  }
+  return execFileSync(process.execPath, [npmExecPath, ...args], options);
+}
+
 async function extract(archive, destination) {
   await mkdir(destination, { recursive: true });
   execFileSync('tar', ['-xzf', archive, '-C', destination], { stdio: 'pipe' });
@@ -57,8 +74,8 @@ export async function verifyRegistryParity({ allowUnpublished = false, fetchImpl
   try {
     const localDir = join(root, 'local'); const publishedArchive = join(root, 'published.tgz');
     await mkdir(localDir, { recursive: true });
-    const packed = JSON.parse(execFileSync('pnpm', ['pack', '--pack-destination', localDir, '--json'], { cwd: packageRoot, encoding: 'utf8' }));
-    const localArchive = join(localDir, basename(packed[0]?.filename ?? ''));
+    const packed = runPnpm(['pack', '--pack-destination', localDir, '--json'], { cwd: packageRoot, encoding: 'utf8' });
+    const localArchive = join(localDir, basename(packedArchivePath(packed)));
     const response = await fetchImpl(record.dist.tarball);
     if (!response.ok) throw new Error(`registry tarball failed: HTTP ${response.status}`);
     await writeFile(publishedArchive, Buffer.from(await response.arrayBuffer()));

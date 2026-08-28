@@ -489,7 +489,7 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.72",
+    "@rightkit/release": "0.2.73",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4",
   });
@@ -504,7 +504,7 @@ test("RightKit exposes one current version manifest", () => {
   });
   assert.ok(
     new Set([versions.npm["@rightkit/release"], ...versions.legacyNpm["@rightkit/release"]]).has("0.2.42"),
-    "previously published @rightkit/release versions must remain accepted during the 0.2.72 rollout",
+    "previously published @rightkit/release versions must remain accepted during the 0.2.73 rollout",
   );
   for (const [name, version] of Object.entries(versions.stagedNpm)) {
     const packageName = name.slice("@rightkit/".length);
