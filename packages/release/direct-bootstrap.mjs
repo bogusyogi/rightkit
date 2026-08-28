@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { RIGHTRELEASE_MANIFEST_SIGNER, signReleaseManifestWithAzure } from "./sign-release-manifest.mjs";
 import { validateCycloneDxSbom, validateInTotoSlsaProvenance } from "./supply-chain-evidence.mjs";
@@ -73,8 +73,18 @@ function assertGitHubAssetUrl(url) {
 
 export function createPortableArchive({ sourceDir, outputPath, commandRunner = spawnSync }) {
   const source = realpathSync(sourceDir);
-  mkdirSync(dirname(outputPath), { recursive: true });
-  const result = commandRunner("tar", ["-a", "-c", "-f", resolve(outputPath), "-C", source, "."], {
+  const outputDir = resolve(dirname(outputPath));
+  mkdirSync(outputDir, { recursive: true });
+  // On Windows, resolve the System32 bsdtar explicitly: PATH often finds GNU
+  // tar (Git Bash) first, which reads a colon in -f as a remote host spec and
+  // cannot write zip at all — its -a silently emits plain tar bytes for a
+  // .zip suffix. bsdtar writes a real zip. Run from the output directory with
+  // a bare filename so the invocation stays safe under either tar.
+  const tarProgram = process.platform === "win32"
+    ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+    : "tar";
+  const result = commandRunner(tarProgram, ["-a", "-c", "-f", basename(outputPath), "-C", source, "."], {
+    cwd: outputDir,
     encoding: "utf8",
     windowsHide: true,
   });

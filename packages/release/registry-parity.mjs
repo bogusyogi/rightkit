@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = fileURLToPath(new URL('.', import.meta.url));
@@ -58,7 +58,10 @@ function runPnpm(args, options = {}) {
 
 async function extract(archive, destination) {
   await mkdir(destination, { recursive: true });
-  execFileSync('tar', ['-xzf', archive, '-C', destination], { stdio: 'pipe' });
+  // GNU tar reads the colon in an absolute Windows path (C:\...) as a remote
+  // host spec, and MSYS tar rejects absolute Windows -C targets; run from the
+  // destination with a relative archive path so no absolute path reaches tar.
+  execFileSync('tar', ['-xzf', relative(destination, archive)], { cwd: destination, stdio: 'pipe' });
   return join(destination, 'package');
 }
 
