@@ -75,10 +75,15 @@ export function createPortableArchive({ sourceDir, outputPath, commandRunner = s
   const source = realpathSync(sourceDir);
   const outputDir = resolve(dirname(outputPath));
   mkdirSync(outputDir, { recursive: true });
-  // GNU tar reads a colon in -f as a remote host spec, so an absolute
-  // Windows path (C:\...) fails with "Cannot connect to C:". Run from the
-  // output directory and pass a bare filename instead.
-  const result = commandRunner("tar", ["-a", "-c", "-f", basename(outputPath), "-C", source, "."], {
+  // On Windows, resolve the System32 bsdtar explicitly: PATH often finds GNU
+  // tar (Git Bash) first, which reads a colon in -f as a remote host spec and
+  // cannot write zip at all — its -a silently emits plain tar bytes for a
+  // .zip suffix. bsdtar writes a real zip. Run from the output directory with
+  // a bare filename so the invocation stays safe under either tar.
+  const tarProgram = process.platform === "win32"
+    ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+    : "tar";
+  const result = commandRunner(tarProgram, ["-a", "-c", "-f", basename(outputPath), "-C", source, "."], {
     cwd: outputDir,
     encoding: "utf8",
     windowsHide: true,
