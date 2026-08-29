@@ -90,6 +90,11 @@ test('Windows PID selection resolves an NVM junction before exact executable com
   const resolvePath = async () => 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe';
   assert.equal(await selectWindowsNodePidResolved(physical, 'C:\\nvm4w\\nodejs\\node.exe', resolvePath), 913);
   assert.equal(await selectWindowsNodePidResolved(junction, 'C:\\nvm4w\\nodejs\\node.exe', resolvePath), 914);
+  // Inverse direction: cutover launched with the physical versioned node while
+  // the broker task spawns through the junction. The observed ExecutablePath
+  // must be resolved too, or a healthy new broker is rejected & rolled back.
+  const resolveJunctionOnly = async (value) => value.startsWith('C:\\nvm4w') ? 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe' : value;
+  assert.equal(await selectWindowsNodePidResolved(junction, 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe', resolveJunctionOnly), 914);
 });
 
 test('fresh Windows cutover registers task & rollback ends registered candidate', async () => {

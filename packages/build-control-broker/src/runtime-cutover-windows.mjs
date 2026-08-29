@@ -92,8 +92,20 @@ export function selectWindowsNodePid(processes, nodePath) {
 export async function selectWindowsNodePidResolved(processes, nodePath, resolvePath = realpath) {
   const literalMatch = selectWindowsNodePid(processes, nodePath);
   if (literalMatch) return literalMatch;
-  const physicalNodePath = await Promise.resolve().then(() => resolvePath(nodePath)).catch(() => nodePath);
-  return selectWindowsNodePid(processes, physicalNodePath);
+  // Resolve BOTH sides: the broker task launches node through the nvm4w
+  // symlink (C:\nvm4w\nodejs\node.exe) while the cutover may run under the
+  // physical versioned path (or vice versa). Comparing a resolved expectation
+  // against an unresolved observed ExecutablePath rejected the healthy new
+  // broker & rolled every cutover back.
+  const resolveOrKeep = (value) => Promise.resolve().then(() => resolvePath(value)).catch(() => value);
+  const physicalNodePath = await resolveOrKeep(nodePath);
+  const direct = selectWindowsNodePid(processes, physicalNodePath);
+  if (direct) return direct;
+  const rows = Array.isArray(processes) ? processes : processes ? [processes] : [];
+  const resolvedRows = await Promise.all(rows.map(async (row) => typeof row?.ExecutablePath === 'string'
+    ? { ...row, ExecutablePath: await resolveOrKeep(row.ExecutablePath) }
+    : row));
+  return selectWindowsNodePid(resolvedRows, physicalNodePath);
 }
 
 export async function ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile = execDefault }) {
