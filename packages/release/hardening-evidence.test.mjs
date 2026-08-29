@@ -73,3 +73,15 @@ test("release CLI forbids complete hardening bypass", () => {
   assert.equal(release.status, 1);
   assert.match(release.stderr, /--skip-hardening is forbidden/);
 });
+
+test("hardeningscan without --allow-evidence keeps the first artifact path", () => {
+  // Regression: with no --allow-evidence flag, allowIndex is -1 and a filter
+  // on `index !== allowIndex + 1` dropped artifact index 0, so a lone
+  // artifact arg failed as "at least one artifact path is required".
+  const dir = mkdtempSync(join(tmpdir(), "hardeningscan-args-"));
+  const artifact = join(dir, "artifact.txt");
+  writeFileSync(artifact, "clean text artifact\n");
+  const scan = spawnSync(process.execPath, [join(import.meta.dirname, "hardeningscan.mjs"), artifact], { cwd: dir, encoding: "utf8" });
+  assert.equal(scan.status, 0, scan.stderr);
+  assert.match(scan.stdout + scan.stderr, /hardeningscan: clean/);
+});

@@ -13,7 +13,12 @@ if (rawArgs.length === 0 || rawArgs.includes("-h") || rawArgs.includes("--help")
 const allowIndex = rawArgs.indexOf("--allow-evidence");
 const allowEvidencePath = allowIndex >= 0 ? rawArgs[allowIndex + 1] : null;
 if (allowIndex >= 0 && !allowEvidencePath) throw new Error("--allow-evidence requires a JSON path");
-const args = rawArgs.filter((_, index) => index !== allowIndex && index !== allowIndex + 1);
+// Only strip the flag pair when the flag is present: with allowIndex = -1,
+// filtering out index `allowIndex + 1` would silently drop the first
+// artifact path (a lone artifact arg then failed as "no artifact path").
+const args = allowIndex >= 0
+  ? rawArgs.filter((_, index) => index !== allowIndex && index !== allowIndex + 1)
+  : rawArgs;
 if (!args.length) throw new Error("at least one artifact path is required");
 
 const root = realpathSync(process.cwd());

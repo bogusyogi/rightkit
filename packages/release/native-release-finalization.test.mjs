@@ -68,6 +68,29 @@ test("finalization receipt binds actual archive digest and provenance", () => {
   assert.equal(validateNativeFinalizationOutput(receipt, { requireArchive: true }).archiveSha256, receipt.archiveSha256);
 });
 
+test("validated output without declared signed artifacts stays undeclared through receipt creation", () => {
+  const root = fixture();
+  const archive = path.join(root, "dist", "fixture.zip");
+  writeFileSync(archive, "final signed package bytes\n");
+  const signedArtifacts = [{ path: "bin/fixture.exe", sha256: "a".repeat(64), sizeBytes: 10 }];
+  const provenance = mintNativeProvenance({
+    app: "fixture", version: "1.0.0", platform: "win", architecture: "x86_64",
+    signedArtifacts, packageIdentity: identity,
+  });
+  // A finalizer that never mentions signed artifacts (the Legion assemble
+  // shape). Validation must not inject `signedArtifacts: []`, or receipt
+  // creation reads it as a declared-empty identity and rejects the real set.
+  const validated = validateNativeFinalizationOutput({ status: "complete", provenance });
+  assert.equal("signedArtifacts" in validated, false);
+  const receipt = createNativeFinalizationReceipt({
+    app: "fixture", version: "1.0.0", platform: "win", architecture: "x86_64",
+    signedArtifacts, packageIdentity: identity, archivePath: archive, root,
+    finalizerOutput: validated,
+  });
+  assert.equal(receipt.status, "verified");
+  assert.deepEqual(receipt.signedArtifacts, signedArtifacts.map((a) => ({ ...a })));
+});
+
 test("placeholder or fabricated finalizer output is rejected", () => {
   assert.throws(
     () => validateNativeFinalizationOutput({ status: "complete", provenance: "rightkit-release://fixture/pending" }),

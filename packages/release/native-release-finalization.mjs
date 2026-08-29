@@ -227,7 +227,18 @@ export function validateNativeFinalizationOutput(output, {
     throw new Error("native finalizer archive digest mismatch");
   }
   if (output.archive?.path != null && PLACEHOLDER.test(String(output.archive.path))) throw new Error("native finalizer archive path is a placeholder");
-  return { ...output, provenance, signedArtifacts: signed, ...(archiveSha256 ? { archiveSha256 } : {}) };
+  // Echo the canonical signed set only when the finalizer actually declared
+  // one. Injecting `signedArtifacts: []` into an output that never mentioned
+  // signed artifacts turns "not declared" into a declared-empty identity,
+  // which createNativeFinalizationReceipt then rejects against the real
+  // signed set as an identity mismatch.
+  const declaredSigned = output.signedArtifacts != null || output.signed != null;
+  return {
+    ...output,
+    provenance,
+    ...(declaredSigned ? { signedArtifacts: signed } : {}),
+    ...(archiveSha256 ? { archiveSha256 } : {}),
+  };
 }
 
 export const validateNativeFinalization = validateNativeFinalizationOutput;
