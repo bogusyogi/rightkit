@@ -62,10 +62,16 @@ Implemented and live:
   propagation;
 - one global `CARGO_HOME`, one global sccache directory, client-side sccache,
   one shallow managed temp directory, and per-workspace target generations;
-- source bootstrap and immutable runtime cutover;
+- source bootstrap and immutable runtime cutover; a `--force` re-bootstrap
+  preserves operator-tuned `sccache.maxSizeBytes` & `bounds` from the existing
+  config (validated, with fallback to defaults) instead of silently resetting
+  them; the Windows cutover PID probe resolves both the expected and observed
+  node executable paths, so the nvm4w junction vs physical-path split cannot
+  reject a healthy activated broker;
 - native Windows Job Object containment with `KILL_ON_JOB_CLOSE`, synchronous
   launcher assignment before IPC START, creation-time process identity, cancellation, and
-  conditional crash-recovery generation rotation when process death is unproven;
+  conditional crash-recovery generation rotation only when process death is unproven
+  (a cleanly-reaped cache-unavailable cancellation keeps the warm generation);
 - runtime cutover admission fence plus live broker `DRAIN_STATUS` covering synchronous admissions
   and every queued/running root—including analysis—followed by active-root marker proof; service
   stop occurs only after both report zero; readiness-independent GC covers retired generations;
@@ -1124,8 +1130,11 @@ Use the following as the task instruction when continuing the work:
 > cache, one persistent warm target generation per Cargo workspace, one globally
 > bounded compile queue, per-workspace read/write exclusion, process-group / Job
 > Object cancellation, target-generation rotation only for unproven process
-> death or lost cache integrity, and truthful
-> structured receipts.
+> death, and truthful structured receipts. A job cancelled for
+> sccache-unavailability whose process tree reaped cleanly keeps its warm
+> generation: Cargo persists a crate's fingerprint only after its compile
+> succeeds, so the interrupted crate is simply rebuilt (2026-08-29 — rotating
+> on cache blips was the dominant cause of full dependency rebuilds).
 >
 > Cache policy changes (incremental compilation, `SCCACHE_BASEDIRS`) land only
 > behind their measured evidence gates. Do not invent a universal cache-hit
