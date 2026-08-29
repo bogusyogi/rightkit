@@ -168,7 +168,15 @@ try {
     // outlived the change that was supposed to retire them.
     pipeline: PIPELINE_FINGERPRINT,
     configSha256: hashFile(configPath),
-    receiptInputs: ["raw-exe", "installer", "embedding"].map((phase) => path.join(receiptRoot, `windows-${phase}.json`)),
+    // Resolve each phase receipt the same way signing does: the config's
+    // sign.receipt / sign.installerReceipt override wins, the default
+    // windows-<phase>.json name is only the fallback. Hardcoding the default
+    // here made the seal read a path the signer never wrote whenever a config
+    // (e.g. an architecture-qualified receipt) overrode it.
+    receiptInputs: ["raw-exe", "installer", "embedding"].map((phase) => {
+      const configured = phase === "raw-exe" ? target.sign?.receipt : phase === "installer" ? target.sign?.installerReceipt : undefined;
+      return configured ? path.resolve(appRoot, configured) : path.join(receiptRoot, `windows-${phase}.json`);
+    }),
   } : null;
   if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
   const cargoLock = nativeLayout.lockPath;
@@ -435,7 +443,15 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     commit,
     platform,
     cacheKey,
-    signing: signingIdentity ? { ...signingIdentity, receipts: signingIdentity.receiptInputs.map((file) => ({ file, sha256: hashFile(file) })) } : null,
+    // Portable contracts sign only raw executables — installer/embedding
+    // receipts legitimately never exist there. Seal every receipt that was
+    // produced, but never zero: a signed platform with no receipt at all is
+    // an unsound seal, not a portable release.
+    signing: signingIdentity ? { ...signingIdentity, receipts: (() => {
+      const present = signingIdentity.receiptInputs.filter((file) => existsSync(file));
+      if (present.length === 0) throw new Error(`no signing receipts found to seal; expected at least ${signingIdentity.receiptInputs[0]}`);
+      return present.map((file) => ({ file, sha256: hashFile(file) }));
+    })() } : null,
     files,
     routes,
     inputs: inputHashes,

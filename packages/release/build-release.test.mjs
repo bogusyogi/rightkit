@@ -131,7 +131,11 @@ test("Windows seal and cache identity bind the signing contract, config, and rec
   assert.match(source, /windows-\$\{phase\}\.json/);
   assert.match(source, /inputHashes\["\.right-release\/signing-identity\.json"\]/);
   assert.match(source, /cache: cacheIdentity\.fingerprint, signingIdentity/);
-  assert.match(source, /receipts: signingIdentity\.receiptInputs\.map/);
+  // The seal binds every produced receipt and refuses to seal with none;
+  // receipt paths honor the config's sign.receipt override, not only the
+  // default windows-<phase>.json name.
+  assert.match(source, /receiptInputs\.filter\(\(file\) => existsSync\(file\)\)/);
+  assert.match(source, /no signing receipts found to seal/);
   assert.match(readFileSync(new URL("./release.mjs", import.meta.url), "utf8"), /item\.after\?\.sha256 !== currentHashes/);
 });
 

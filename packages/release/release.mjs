@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { access, readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
@@ -378,6 +378,12 @@ async function runNativeFinalizer({ finalizer, nativeAssembly, target, root, sig
     ...finalizer,
     args: finalizer.args.map((arg) => expandFinalizerToken(arg, { provenance, outputPath, packageIdentity })),
   };
+  // A finalization receipt at outputPath from a PREVIOUS run must not
+  // survive into this one: the file is preferred over the finalizer's
+  // stdout below, and a stale receipt carries the prior run's provenance,
+  // which fails the identity check against this run's mint. Any file
+  // present after the finalizer returns was written by this run.
+  if (!opts.dryRun) rmSync(outputPath, { force: true });
   const stdout = await runCommand(finalizerCommand, root, {
     captureStdout: true,
     env: {
