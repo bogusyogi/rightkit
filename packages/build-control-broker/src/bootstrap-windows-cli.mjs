@@ -11,6 +11,7 @@ import { availableParallelism as cpuCount, totalmem } from 'node:os';
 import { dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runWindowsCutover } from './runtime-cutover-windows-cli.mjs';
+import { preserveOperatorTunedConfig, stripBom } from './config.mjs';
 
 const execFile = promisify(childExecFile);
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -236,8 +237,15 @@ async function main() {
 
   if (!existsSync(configPath) || options.force) {
     const config = await buildConfig({ externalRoot });
+    let preserved = [];
+    if (existsSync(configPath)) {
+      let previous = null;
+      try { previous = JSON.parse(stripBom(await readFile(configPath, 'utf8'))); } catch { /* unreadable previous config: regenerate from defaults */ }
+      preserved = preserveOperatorTunedConfig(config, previous);
+    }
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
     console.log(`bootstrap-windows: wrote ${configPath} (${config.tools.length} tools discovered)`);
+    if (preserved.length) console.log(`bootstrap-windows: preserved operator-tuned ${preserved.join(', ')} from existing config`);
   } else {
     console.log(`bootstrap-windows: ${configPath} already exists; pass --force to regenerate`);
   }

@@ -250,3 +250,24 @@ export async function loadBrokerConfig(path, { readFile = defaultReadFile } = {}
   try { parsed = JSON.parse(stripBom(await readFile(path, 'utf8'))); } catch (error) { throw new TypeError(`invalid broker config: ${error.message}`); }
   return validateBrokerConfig(parsed);
 }
+
+// A --force re-bootstrap regenerates config.json from source defaults, which
+// used to silently revert operator-tuned values (sccache.maxSizeBytes reset
+// 250 GB -> 20 GiB; hand-set bounds floors deleted). Carry those forward from
+// the previous config unless doing so would make the regenerated config
+// invalid, in which case the offending field falls back to the default.
+export function preserveOperatorTunedConfig(next, previous) {
+  if (!next || typeof next !== 'object' || !previous || typeof previous !== 'object') return [];
+  const preserved = [];
+  const maxSizeBytes = previous.sccache?.maxSizeBytes;
+  if (next.sccache && typeof next.sccache === 'object' && Number.isSafeInteger(maxSizeBytes) && maxSizeBytes >= 1 && maxSizeBytes !== next.sccache.maxSizeBytes) {
+    next.sccache.maxSizeBytes = maxSizeBytes;
+    preserved.push('sccache.maxSizeBytes');
+  }
+  if (previous.bounds && typeof previous.bounds === 'object' && !Array.isArray(previous.bounds)) {
+    const generatedBounds = next.bounds;
+    next.bounds = previous.bounds;
+    try { validateBrokerConfig(next); preserved.push('bounds'); } catch { next.bounds = generatedBounds; }
+  }
+  return preserved;
+}

@@ -538,10 +538,16 @@ export class ThinJobService {
   async #finish(job, status, details) {
     if (job.terminal) return job.terminal;
     if (job.deadline) clearTimeout(job.deadline);
+    // Rotation is only for uncertain writers (an unreaped process may still be
+    // writing into the tree). A cleanly-reaped job cancelled for
+    // sccache-unavailable leaves a trustworthy target: Cargo persists a crate's
+    // fingerprint only after its compile succeeds, so an interrupted compile is
+    // simply rebuilt. Rotating on cache loss discarded a warm target tree per
+    // gateway blip — the dominant cause of full dep rebuilds (4 of 7 observed
+    // rotations, 2026-08-29 telemetry).
     const uncertainWriter = job.capability.artifactWrite && !job.residentAt && details.reap && details.reap.reaped === false;
-    const cacheIntegrityLost = job.capability.artifactWrite && job.cancelReason === 'sccache-unavailable';
-    const invalidWriter = uncertainWriter || cacheIntegrityLost;
-    if (invalidWriter) job.workspace = await this.#state.rotate(job.workspaceRoot, cacheIntegrityLost ? 'sccache-unavailable' : 'process-tree-unreaped');
+    const invalidWriter = uncertainWriter;
+    if (invalidWriter) job.workspace = await this.#state.rotate(job.workspaceRoot, 'process-tree-unreaped');
     const terminalAt = this.#now();
     // Roll delegated compiler children up into their admitted root so the root
     // receipt carries one authoritative compiler process & round-trip count and
@@ -589,9 +595,9 @@ export class ThinJobService {
       ownership: job.ownership ?? null, reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(),
       output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') }
     });
-    if (job.capability.artifactWrite && (!uncertainWriter || cacheIntegrityLost)) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
+    if (job.capability.artifactWrite && !uncertainWriter) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
     job.state = status; job.terminal = Object.freeze({ type: 'RESULT', id: job.id, exitCode: receipt.exitCode, status, receipt });
-    await this.#log({ type: 'TERMINAL', id: job.id, status, exitCode: receipt.exitCode, signal: receipt.signal, queueMs: receipt.queueMs, runMs: receipt.runMs, cache: receipt.cache, generation: receipt.generation, uncertainWriter, cacheIntegrityLost });
+    await this.#log({ type: 'TERMINAL', id: job.id, status, exitCode: receipt.exitCode, signal: receipt.signal, queueMs: receipt.queueMs, runMs: receipt.runMs, cache: receipt.cache, generation: receipt.generation, uncertainWriter });
     this.#publish(job, job.terminal); job.resolveDone(job.terminal);
     // Terminal artifact writes mark the workspace size dirty (v2.8 §10.6):
     // schedule a detached maintenance GC so the target-cache budget stays

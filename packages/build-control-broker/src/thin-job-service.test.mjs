@@ -501,3 +501,23 @@ test('eviction never retires a generation with an active writer', async () => {
     await waitFor(item.service, submitted.id, ['CANCELLED']);
   } finally { await item.close(); }
 });
+
+test('cleanly-reaped sccache-unavailable cancellation keeps the warm generation', async () => {
+  const item = await fixture();
+  try {
+    const first = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, first.id, ['RUNNING']);
+    item.service.cacheUnavailable({ reason: 'health-lease-expired' });
+    const terminal = (await call(item.service, command('WATCH', first.id))).result;
+    assert.equal(terminal.status, 'CANCELLED');
+    assert.equal(terminal.receipt.reap.reaped, true);
+    // The reaped writer left a trustworthy tree: the next build must resolve to
+    // the SAME generation instead of a rotated empty one.
+    const followup = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, followup.id, ['RUNNING']);
+    const child = item.children.at(-1);
+    assert.match(child.environment.CARGO_TARGET_DIR, /generations[\\/]000001[\\/]/);
+    await call(item.service, command('CANCEL', followup.id));
+    await call(item.service, command('WATCH', followup.id));
+  } finally { await item.close(); }
+});

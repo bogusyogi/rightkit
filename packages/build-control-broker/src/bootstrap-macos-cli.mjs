@@ -12,6 +12,7 @@ import { availableParallelism as cpuCount, homedir, totalmem } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
+import { preserveOperatorTunedConfig, stripBom } from './config.mjs';
 
 const execFile = promisify(childExecFile);
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -311,8 +312,15 @@ async function main() {
 
   if (!existsSync(configPath) || options.force) {
     const config = await buildConfig({ externalRoot });
+    let preserved = [];
+    if (existsSync(configPath)) {
+      let previous = null;
+      try { previous = JSON.parse(stripBom(readFileSync(configPath, 'utf8'))); } catch { /* unreadable previous config: regenerate from defaults */ }
+      preserved = preserveOperatorTunedConfig(config, previous);
+    }
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
     console.log(`bootstrap-macos: wrote ${configPath} (${config.tools.length} tools discovered)`);
+    if (preserved.length) console.log(`bootstrap-macos: preserved operator-tuned ${preserved.join(', ')} from existing config`);
   } else {
     console.log(`bootstrap-macos: ${configPath} already exists; pass --force to regenerate`);
   }

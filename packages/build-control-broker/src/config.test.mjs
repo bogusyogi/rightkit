@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import test from 'node:test';
-import { loadBrokerConfig, validateBrokerConfig } from './config.mjs';
+import { loadBrokerConfig, preserveOperatorTunedConfig, validateBrokerConfig } from './config.mjs';
 
 function fixture(root = '/managed') {
   return {
@@ -79,4 +79,16 @@ test('config loader strips UTF-8 BOM & wraps malformed JSON', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rk-config-')); const path = join(root, 'config.json');
   try { await writeFile(path, `﻿${JSON.stringify(fixture(root))}`); assert.equal((await loadBrokerConfig(path)).schemaVersion, 2); await writeFile(path, '{'); await assert.rejects(loadBrokerConfig(path), /invalid broker config/); }
   finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('force re-bootstrap preserves operator-tuned maxSizeBytes & valid bounds, drops invalid bounds', () => {
+  const next = fixture(); const previous = fixture();
+  previous.sccache.maxSizeBytes = 268_435_456_000; previous.bounds.buildConcurrency = 3;
+  assert.deepEqual(preserveOperatorTunedConfig(next, previous), ['sccache.maxSizeBytes', 'bounds']);
+  assert.equal(next.sccache.maxSizeBytes, 268_435_456_000); assert.equal(next.bounds.buildConcurrency, 3);
+  const invalid = fixture(); const badPrevious = fixture(); badPrevious.sccache.maxSizeBytes = -1; badPrevious.bounds.buildConcurrency = 0;
+  const generatedBounds = invalid.bounds;
+  assert.deepEqual(preserveOperatorTunedConfig(invalid, badPrevious), []);
+  assert.equal(invalid.sccache.maxSizeBytes, 20_000); assert.equal(invalid.bounds, generatedBounds);
+  assert.deepEqual(preserveOperatorTunedConfig(fixture(), null), []);
 });
