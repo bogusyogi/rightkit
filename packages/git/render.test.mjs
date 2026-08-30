@@ -50,6 +50,8 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /version: 11\.24\.0/);
   assert.match(content, /toolchain: 1\.98\.0/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
+  assert.match(content, /os: \["windows-2025"\]/);
+  assert.doesNotMatch(content, /ubuntu-latest|macos-latest/);
 });
 
 test("rust-hybrid release candidate renders product scripts, artifact handoff, and no signing secret", () => {
@@ -67,6 +69,7 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
   );
   assert.match(content, /pnpm run ci:candidate/);
   assert.match(content, /pnpm run ci:candidate-check/);
+  assert.ok(content.indexOf("bash ./scripts/gate.sh") < content.indexOf("Build unsigned release candidate"));
   assert.match(content, /RIGHT_GIT_ARTIFACT_ROOT/);
   assert.match(content, /os: "macos-latest"/);
   assert.match(content, /platform: "windows"/);
@@ -162,6 +165,8 @@ test("rust-hybrid multi-architecture candidates bind every native target to exac
     assert.match(content, new RegExp(`targetTriple: ${JSON.stringify(triple).replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`));
   }
   assert.match(content, /targets: \$\{\{ matrix\.targetTriple \}\}/);
+  assert.equal((content.match(/bash \.\/scripts\/gate\.sh/g) ?? []).length, 1);
+  assert.ok(content.indexOf("bash ./scripts/gate.sh") < content.indexOf("Build unsigned release candidate"));
   assert.match(content, /windows-sign:[\s\S]*matrix:[\s\S]*windows-11-arm/);
   assert.match(content, /macos-sign:[\s\S]*matrix:[\s\S]*macos-15-intel/);
   assert.match(content, /name: widgets-unsigned-\$\{\{ matrix\.platform \}\}-\$\{\{ matrix\.architecture \}\}-22\.23\.2/);
