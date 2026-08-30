@@ -130,6 +130,46 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
   assert.doesNotMatch(content, /pull_request_target/);
 });
 
+test("rust-hybrid multi-architecture candidates bind every native target to exact artifacts and signing", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    matrix: { os: ["ubuntu-24.04"], node: ["22.23.2"] },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "windows-11-arm", "macos-15", "macos-15-intel"],
+      targets: [
+        { os: "windows-2025", platform: "windows", architecture: "x86_64" },
+        { os: "windows-11-arm", platform: "windows", architecture: "arm64" },
+        { os: "macos-15", platform: "macos", architecture: "arm64" },
+        { os: "macos-15-intel", platform: "macos", architecture: "x86_64" },
+      ],
+      signWindows: true,
+      signMacos: true,
+    },
+    templateVersion: "1.5.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  for (const [runner, triple] of [["windows-2025", "x86_64-pc-windows-msvc"], ["windows-11-arm", "aarch64-pc-windows-msvc"], ["macos-15", "aarch64-apple-darwin"], ["macos-15-intel", "x86_64-apple-darwin"]]) {
+    assert.match(content, new RegExp(`os: ${JSON.stringify(runner).replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`));
+    assert.match(content, new RegExp(`targetTriple: ${JSON.stringify(triple).replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`));
+  }
+  assert.match(content, /targets: \$\{\{ matrix\.targetTriple \}\}/);
+  assert.match(content, /windows-sign:[\s\S]*matrix:[\s\S]*windows-11-arm/);
+  assert.match(content, /macos-sign:[\s\S]*matrix:[\s\S]*macos-15-intel/);
+  assert.match(content, /name: widgets-unsigned-\$\{\{ matrix\.platform \}\}-\$\{\{ matrix\.architecture \}\}-22\.23\.2/);
+  assert.match(content, /name: widgets-signed-windows-\$\{\{ matrix\.architecture \}\}-22\.23\.2/);
+  assert.match(content, /name: widgets-signed-macos-\$\{\{ matrix\.architecture \}\}-22\.23\.2/);
+  assert.equal((content.match(/RIGHT_GIT_RELEASE_ARCHITECTURE: \$\{\{ matrix\.architecture \}\}/g) ?? []).length, 4);
+});
+
 test("rust-hybrid release chain preserves signed candidate, installed qualification, then publish", () => {
   const manifest = {
     ...FULL_MANIFEST,

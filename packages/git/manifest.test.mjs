@@ -62,6 +62,35 @@ test("rust-hybrid supports ci plus a configured unsigned release-candidate lane"
   assert.equal(validateManifest({ ...releaseChain, candidate: { ...releaseChain.candidate, releaseChain: { ...releaseChain.candidate.releaseChain, publishSecrets: ["TOKEN", "TOKEN"] } } }).valid, false);
 });
 
+test("candidate targets permit native multi-architecture matrices independent of normal CI runners", () => {
+  const multiArchitecture = {
+    ...VALID_MINIMAL,
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    lanes: ["ci", "release-candidate"],
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "windows-11-arm", "macos-15", "macos-15-intel"],
+      targets: [
+        { os: "windows-2025", platform: "windows", architecture: "x86_64" },
+        { os: "windows-11-arm", platform: "windows", architecture: "arm64" },
+        { os: "macos-15", platform: "macos", architecture: "arm64" },
+        { os: "macos-15-intel", platform: "macos", architecture: "x86_64" },
+      ],
+      signWindows: true,
+      signMacos: true,
+    },
+  };
+  assert.equal(validateManifest(multiArchitecture).valid, true, JSON.stringify(validateManifest(multiArchitecture).errors));
+  assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, targets: [{ os: "windows-2025", platform: "windows", architecture: "riscv64" }] } }).valid, false);
+  assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, targets: [{ os: "windows-11-arm", platform: "windows", architecture: "x86_64" }] } }).valid, false);
+  assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, targets: [{ os: "ubuntu-24.04", platform: "windows", architecture: "x86_64" }] } }).valid, false);
+  assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, targets: [{ os: "${{ secrets.X }}", platform: "windows", architecture: "x86_64" }] } }).valid, false);
+  assert.equal(validateManifest({ ...multiArchitecture, candidate: { ...multiArchitecture.candidate, releaseChain: { windowsFinalizeScript: "release:finalize:win", macosFinalizeScript: "release:finalize:mac", installedQualificationScript: "release:qualify", publishScript: "release:publish", qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL" } } }).valid, false);
+});
+
 test("rejects non-object input", () => {
   for (const bad of [null, undefined, "not an object", 42, ["array"]]) {
     const { valid, errors } = validateManifest(bad);

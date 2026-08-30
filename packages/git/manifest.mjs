@@ -62,6 +62,23 @@ const TOP_LEVEL_KEYS = new Set([
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const PACKAGE_SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
 const GITHUB_VARIABLE_RE = /^[A-Z][A-Z0-9_]*$/;
+const RELEASE_PLATFORMS = new Set(["windows", "macos", "linux"]);
+const RELEASE_ARCHITECTURES = new Set(["x86_64", "arm64"]);
+const NATIVE_RUNNER_TARGETS = new Map([
+  ["windows-2025", ["windows", "x86_64"]],
+  ["windows-11-arm", ["windows", "arm64"]],
+  ["macos-15", ["macos", "arm64"]],
+  ["macos-15-intel", ["macos", "x86_64"]],
+]);
+
+function inferredTarget(os) {
+  const platform = /^windows-/i.test(os) ? "windows" : /^macos-/i.test(os) ? "macos" : "linux";
+  return { os, platform, architecture: platform === "macos" ? "arm64" : "x86_64" };
+}
+
+function candidateTargets(candidate) {
+  return Array.isArray(candidate?.targets) ? candidate.targets : (candidate?.os ?? []).map(inferredTarget);
+}
 
 /**
  * Validate a parsed manifest object against the right-git manifest contract.
@@ -142,7 +159,7 @@ export function validateManifest(manifest) {
       errors.push("candidate must be an object");
     } else {
       for (const key of Object.keys(candidate)) {
-        if (!["buildScript", "checkScript", "artifactRoot", "os", "signWindows", "signMacos", "releaseChain"].includes(key)) errors.push(`unknown candidate field: ${key}`);
+        if (!["buildScript", "checkScript", "artifactRoot", "os", "targets", "signWindows", "signMacos", "releaseChain"].includes(key)) errors.push(`unknown candidate field: ${key}`);
       }
       for (const key of ["buildScript", "checkScript"]) {
         if (typeof candidate[key] !== "string" || !PACKAGE_SCRIPT_RE.test(candidate[key])) {
@@ -154,20 +171,52 @@ export function validateManifest(manifest) {
       }
       if (!Array.isArray(candidate.os) || candidate.os.length === 0 || candidate.os.some((value) => typeof value !== "string" || !SAFE_MATRIX_VALUE_RE.test(value))) {
         errors.push("candidate.os must be a non-empty array of safe runner labels");
-      } else if (candidate.os.some((value) => !manifest.matrix?.os?.includes(value))) {
+      } else if (candidate.targets === undefined && candidate.os.some((value) => !manifest.matrix?.os?.includes(value))) {
         errors.push("candidate.os entries must also exist in matrix.os");
       }
+      if (candidate.targets !== undefined) {
+        if (!Array.isArray(candidate.targets) || candidate.targets.length === 0) {
+          errors.push("candidate.targets must be a non-empty array");
+        } else {
+          const targetKeys = new Set();
+          for (const target of candidate.targets) {
+            if (target === null || typeof target !== "object" || Array.isArray(target)) {
+              errors.push("candidate.targets entries must be objects");
+              continue;
+            }
+            if (Object.keys(target).some((key) => !["os", "platform", "architecture"].includes(key))) errors.push("candidate.targets entries may only contain os, platform, architecture");
+            if (typeof target.os !== "string" || !SAFE_MATRIX_VALUE_RE.test(target.os)) errors.push("candidate.targets[].os must be a safe runner label");
+            if (!RELEASE_PLATFORMS.has(target.platform)) errors.push("candidate.targets[].platform must be windows, macos, or linux");
+            if (!RELEASE_ARCHITECTURES.has(target.architecture)) errors.push("candidate.targets[].architecture must be x86_64 or arm64");
+            const nativeTarget = NATIVE_RUNNER_TARGETS.get(target.os);
+            if (nativeTarget && (target.platform !== nativeTarget[0] || target.architecture !== nativeTarget[1])) {
+              errors.push(`candidate.targets[] must declare ${target.os} as ${nativeTarget[0]}/${nativeTarget[1]}`);
+            }
+            if ((target.platform === "windows" && !/^windows-/i.test(target.os)) || (target.platform === "macos" && !/^macos-/i.test(target.os))) {
+              errors.push("candidate.targets[].os must match its Windows or macOS platform");
+            }
+            const targetKey = `${target.os}|${target.platform}|${target.architecture}`;
+            if (targetKeys.has(targetKey)) errors.push("candidate.targets entries must be unique");
+            targetKeys.add(targetKey);
+          }
+          const targetOs = new Set(candidate.targets.map((target) => target?.os));
+          if (candidate.os.some((os) => !targetOs.has(os)) || targetOs.size !== new Set(candidate.os).size || candidate.os.length !== new Set(candidate.os).size) {
+            errors.push("candidate.os must contain exactly candidate.targets runner labels");
+          }
+        }
+      }
+      const targets = candidateTargets(candidate);
       if (candidate.signWindows !== undefined && typeof candidate.signWindows !== "boolean") {
         errors.push("candidate.signWindows must be a boolean");
       }
-      if (candidate.signWindows === true && candidate.os.filter((value) => /^windows-/i.test(value)).length !== 1) {
-        errors.push("candidate.signWindows requires exactly one Windows runner in candidate.os");
+      if (candidate.signWindows === true && targets.filter((target) => target?.platform === "windows").length === 0) {
+        errors.push("candidate.signWindows requires at least one Windows target");
       }
       if (candidate.signMacos !== undefined && typeof candidate.signMacos !== "boolean") {
         errors.push("candidate.signMacos must be a boolean");
       }
-      if (candidate.signMacos === true && candidate.os.filter((value) => /^macos-/i.test(value)).length !== 1) {
-        errors.push("candidate.signMacos requires exactly one macOS runner in candidate.os");
+      if (candidate.signMacos === true && targets.filter((target) => target?.platform === "macos").length === 0) {
+        errors.push("candidate.signMacos requires at least one macOS target");
       }
       if ((candidate.signWindows === true || candidate.signMacos === true) && manifest.matrix?.node?.length !== 1) {
         errors.push("candidate signing requires exactly one matrix.node version");
@@ -196,6 +245,9 @@ export function validateManifest(manifest) {
             errors.push("candidate.releaseChain.publishSecrets must be unique uppercase GitHub secret names");
           }
           if (candidate.signWindows !== true) errors.push("candidate.releaseChain requires candidate.signWindows=true");
+          if (targets.filter((target) => target?.platform === "windows").length !== 1 || targets.filter((target) => target?.platform === "macos").length > 1) {
+            errors.push("candidate.releaseChain requires at most one target per signing platform; multi-target aggregation is not supported");
+          }
           if (candidate.signMacos === true && !chain.macosFinalizeScript) errors.push("candidate.releaseChain with candidate.signMacos=true requires macosFinalizeScript");
           if (chain.macosFinalizeScript && candidate.signMacos !== true) errors.push("candidate.releaseChain.macosFinalizeScript requires candidate.signMacos=true");
         }
@@ -324,10 +376,8 @@ function yamlFlowStringList(values) {
 
 function candidateMatrix(manifest) {
   const entries = [];
-  for (const os of manifest.candidate?.os ?? manifest.matrix.os) {
-    const platform = /^windows-/i.test(os) ? "windows" : /^macos-/i.test(os) ? "macos" : "linux";
-    const architecture = platform === "macos" ? "arm64" : "x86_64";
-    for (const node of manifest.matrix.node) entries.push({ os, node, platform, architecture });
+  for (const target of candidateTargets(manifest.candidate ?? { os: manifest.matrix.os })) {
+    for (const node of manifest.matrix.node) entries.push({ ...target, node, targetTriple: targetTriple(target) });
   }
   return [
     "        include:",
@@ -336,6 +386,31 @@ function candidateMatrix(manifest) {
       `            node: ${JSON.stringify(entry.node)}`,
       `            platform: ${JSON.stringify(entry.platform)}`,
       `            architecture: ${JSON.stringify(entry.architecture)}`,
+      `            targetTriple: ${JSON.stringify(entry.targetTriple)}`,
+    ]),
+  ].join("\n");
+}
+
+function targetTriple(target) {
+  const rustArchitecture = target.architecture === "arm64" ? "aarch64" : target.architecture;
+  if (target.platform === "windows") return `${rustArchitecture}-pc-windows-msvc`;
+  if (target.platform === "macos") return `${rustArchitecture}-apple-darwin`;
+  return `${rustArchitecture}-unknown-linux-gnu`;
+}
+
+function signingMatrix(manifest, platform) {
+  const node = String(manifest.matrix.node[0]);
+  const entries = candidateTargets(manifest.candidate)
+    .filter((target) => target.platform === platform)
+    .map((target) => ({ ...target, node, targetTriple: targetTriple(target) }));
+  return [
+    "        include:",
+    ...entries.flatMap((entry) => [
+      `          - os: ${JSON.stringify(entry.os)}`,
+      `            platform: ${JSON.stringify(entry.platform)}`,
+      `            architecture: ${JSON.stringify(entry.architecture)}`,
+      `            targetTriple: ${JSON.stringify(entry.targetTriple)}`,
+      `            node: ${JSON.stringify(entry.node)}`,
     ]),
   ].join("\n");
 }
@@ -350,7 +425,6 @@ const WINDOWS_SDK_BUILD_TOOLS_SHA256 = "180DEB372659029864C10A0C04787833234D64AA
 
 function windowsSigningJob(manifest, pm, artifactPrefix) {
   if (manifest.candidate?.signWindows !== true) return "";
-  const windowsRunner = manifest.candidate.os.find((value) => /^windows-/i.test(value));
   const nodeVersion = String(manifest.matrix.node[0]);
   const releaseChain = manifest.candidate.releaseChain;
   const finalizeCommand = releaseChain
@@ -370,7 +444,11 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
     needs: [candidate]
     if: \${{ startsWith(github.ref, 'refs/tags/v') }}
     environment: release
-    runs-on: ${windowsRunner}
+    strategy:
+      fail-fast: false
+      matrix:
+${signingMatrix(manifest, "windows")}
+    runs-on: \${{ matrix.os }}
     permissions:
       contents: read
       id-token: write
@@ -387,11 +465,12 @@ ${pm.setup}
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         with:
           toolchain: 1.98.0
+          targets: \${{ matrix.targetTriple }}
       - run: ${pm.installCommand}
       - name: Download exact unsigned Windows candidate
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-unsigned-${windowsRunner}-${nodeVersion}
+          name: ${artifactPrefix}-unsigned-\${{ matrix.platform }}-\${{ matrix.architecture }}-${nodeVersion}
           path: \${{ runner.temp }}/unsigned-windows-candidate
       - name: Authenticate to Azure with GitHub OIDC
         uses: azure/login@${AZURE_LOGIN_SHA} # v3
@@ -419,13 +498,15 @@ ${pm.setup}
         run: ${finalizeCommand}
         env:
 ${finalizeEnvironment}
+          RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
           AZURE_ARTIFACT_SIGNING_ENDPOINT: \${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
           AZURE_ARTIFACT_SIGNING_ACCOUNT: \${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
           AZURE_ARTIFACT_SIGNING_PROFILE: \${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
       - name: Upload signed Windows candidate
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
-          name: ${artifactPrefix}-signed-windows-${nodeVersion}
+          name: ${artifactPrefix}-signed-windows-\${{ matrix.architecture }}-${nodeVersion}
           path: |
 ${uploadPath}
           if-no-files-found: error
@@ -434,7 +515,6 @@ ${uploadPath}
 
 function macosSigningJob(manifest, pm, artifactPrefix) {
   if (manifest.candidate?.signMacos !== true) return "";
-  const macosRunner = manifest.candidate.os.find((value) => /^macos-/i.test(value));
   const nodeVersion = String(manifest.matrix.node[0]);
   const releaseChain = manifest.candidate.releaseChain;
   const finalizeCommand = releaseChain
@@ -454,7 +534,11 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
     needs: [candidate]
     if: \${{ startsWith(github.ref, 'refs/tags/v') }}
     environment: release
-    runs-on: ${macosRunner}
+    strategy:
+      fail-fast: false
+      matrix:
+${signingMatrix(manifest, "macos")}
+    runs-on: \${{ matrix.os }}
     permissions:
       contents: read
     steps:
@@ -470,11 +554,12 @@ ${pm.setup}
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         with:
           toolchain: 1.98.0
+          targets: \${{ matrix.targetTriple }}
       - run: ${pm.installCommand}
       - name: Download exact unsigned macOS candidate
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-unsigned-${macosRunner}-${nodeVersion}
+          name: ${artifactPrefix}-unsigned-\${{ matrix.platform }}-\${{ matrix.architecture }}-${nodeVersion}
           path: \${{ runner.temp }}/unsigned-macos-candidate
       - name: Install Apple signing identity in temporary keychain
         shell: bash
@@ -501,13 +586,15 @@ ${pm.setup}
         run: ${finalizeCommand}
         env:
 ${finalizeEnvironment}
+          RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
           APPLE_DEVELOPER_ID: \${{ vars.APPLE_DEVELOPER_ID }}
           APPLE_API_KEY: \${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: \${{ secrets.APPLE_API_ISSUER }}
       - name: Upload signed & notarized macOS candidate
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
-          name: ${artifactPrefix}-signed-macos-${nodeVersion}
+          name: ${artifactPrefix}-signed-macos-\${{ matrix.architecture }}-${nodeVersion}
           path: |
 ${uploadPath}
           if-no-files-found: error
@@ -523,7 +610,10 @@ ${uploadPath}
 function releaseChainJobs(manifest, pm, artifactPrefix) {
   const chain = manifest.candidate?.releaseChain;
   if (!chain) return "";
-  const windowsRunner = manifest.candidate.os.find((value) => /^windows-/i.test(value));
+  const windowsTarget = candidateTargets(manifest.candidate).find((target) => target.platform === "windows");
+  const windowsRunner = windowsTarget.os;
+  const windowsArchitecture = windowsTarget.architecture;
+  const macosTarget = candidateTargets(manifest.candidate).find((target) => target.platform === "macos");
   const nodeVersion = String(manifest.matrix.node[0]);
   const macosDependency = manifest.candidate.signMacos === true ? ", macos-sign" : "";
   const macosSuccess = manifest.candidate.signMacos === true ? " && needs.macos-sign.result == 'success'" : "";
@@ -531,7 +621,7 @@ function releaseChainJobs(manifest, pm, artifactPrefix) {
     ? `      - name: Download same-run signed & notarized macOS release
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-signed-macos-${nodeVersion}
+          name: ${artifactPrefix}-signed-macos-${macosTarget.architecture}-${nodeVersion}
           path: \${{ runner.temp }}/right-git-release/macos`
     : "";
   const publishSecretEnvironment = (chain.publishSecrets ?? [])
@@ -555,7 +645,7 @@ function releaseChainJobs(manifest, pm, artifactPrefix) {
       - name: Download same-run finalized Windows release
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-signed-windows-${nodeVersion}
+          name: ${artifactPrefix}-signed-windows-${windowsArchitecture}-${nodeVersion}
           path: \${{ runner.temp }}/right-git-release/windows
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -590,7 +680,7 @@ ${pm.setup}
       - name: Download same-run finalized Windows release
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-signed-windows-${nodeVersion}
+          name: ${artifactPrefix}-signed-windows-${windowsArchitecture}-${nodeVersion}
           path: \${{ runner.temp }}/right-git-release/windows
 ${macosDownload}
       - name: Download same-run installed qualification evidence
