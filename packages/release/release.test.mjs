@@ -417,18 +417,33 @@ test("rejects managed candidate workflows with write-all or indexed secrets", ()
   }
 });
 
-test("permits only declared Apple signing secrets in a macOS signed candidate lane", () => {
+test("permits only declared Apple signing secrets in an explicit signed qualification lane", () => {
   const config = fixture({ hostedWorkflows: "right-git-ci-only" });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
   writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
   writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
-  writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  macos-sign:\n    needs: [candidate]\n    if: ${{ startsWith(github.ref, 'refs/tags/v') }}\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
+  writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  macos-sign:\n    needs: [candidate]\n    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.signed_qualification == true) }}\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
   git(root, "add", ".");
   git(root, "commit", "-m", "add signed mac candidate workflow");
   const result = run(config, "--tier=patch");
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects broad manual dispatch authority for Apple signing", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  macos-sign:\n    needs: [candidate]\n    if: ${{ github.event_name == 'workflow_dispatch' }}\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add broad manual mac candidate workflow");
+  const result = run(config, "--tier=patch");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release-capable permissions or secrets/i);
 });
 
 test("rejects undeclared Apple secrets or pull_request_target in candidate lane", () => {

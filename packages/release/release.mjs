@@ -695,10 +695,10 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const publishSource = publishSpan ? source.slice(publishSpan.start, publishSpan.end) : "";
     const protectedWindowsSigning = workflow === "release-candidate.yml"
       && manifest?.candidate?.signWindows === true
-      && /windows-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/.test(windowsSource);
+      && /windows-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| \(github\.event_name == 'workflow_dispatch' && inputs\.signed_qualification == true\) \}\}/.test(windowsSource);
     const protectedMacosSigning = workflow === "release-candidate.yml"
       && manifest?.candidate?.signMacos === true
-      && /macos-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/.test(macosSource);
+      && /macos-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| \(github\.event_name == 'workflow_dispatch' && inputs\.signed_qualification == true\) \}\}/.test(macosSource);
     const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
     const allowedReleaseSecrets = new Set(releaseChain?.publishSecrets ?? []);
     const writePermissions = [...source.matchAll(/^\s*(actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):\s*write\s*$/gmi)].map((match) => ({ name: match[1].toLowerCase(), index: match.index }));
