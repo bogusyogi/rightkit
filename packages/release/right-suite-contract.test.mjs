@@ -481,7 +481,7 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
   assert.deepEqual(versions.stagedNpm, {
     "@rightkit/ax": "0.2.1",
-    "@rightkit/git": "0.2.14",
+    "@rightkit/git": "0.2.15",
     "@rightkit/hooks": "0.1.1",
     "@rightkit/legal": "0.3.1",
     "@rightkit/legal-ui": "0.1.1",
@@ -489,7 +489,7 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.88",
+    "@rightkit/release": "0.2.90",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4",
   });

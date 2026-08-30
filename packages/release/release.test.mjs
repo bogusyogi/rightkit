@@ -314,17 +314,31 @@ test("rejects Git, path, or link RightKit app dependencies before release work s
   assert.match(result.stderr, /right-release bin|published npm package/i);
 });
 
-test("accepts the installed @rightkit/git 0.2.13 release-chain consumer", () => {
+test("accepts the installed @rightkit/git 0.2.15 release-chain consumer", () => {
   const result = run(fixture({
     packageJson: {
       name: "fixture",
       packageManager: versions.packageManager,
       scripts: { "release:patch:win": "right-release --platform win --tier patch" },
-      dependencies: { "@rightkit/git": "0.2.13" },
+      dependencies: { "@rightkit/git": "0.2.15" },
       devDependencies: { "@rightkit/release": versions.stagedNpm["@rightkit/release"] },
     },
   }));
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
+  const result = run(fixture({
+    packageJson: {
+      name: "fixture",
+      packageManager: versions.packageManager,
+      scripts: { "release:patch:win": "right-release --platform win --tier patch" },
+      dependencies: { "@rightkit/git": "0.2.16" },
+      devDependencies: { "@rightkit/release": versions.stagedNpm["@rightkit/release"] },
+    },
+  }));
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.2\.16/i);
 });
 
 test("rejects hosted workflow files before release work starts", () => {
