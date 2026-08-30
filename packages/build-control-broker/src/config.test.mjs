@@ -82,10 +82,12 @@ test('config loader strips UTF-8 BOM & wraps malformed JSON', async () => {
 });
 
 test('force re-bootstrap preserves operator-tuned maxSizeBytes & valid bounds, drops invalid bounds', () => {
-  const next = fixture(); const previous = fixture();
+  const next = fixture(); const previous = fixture(); next.bounds.workspaceDiscoveryTimeoutMs = 30_000;
   previous.sccache.maxSizeBytes = 268_435_456_000; previous.bounds.buildConcurrency = 3;
   assert.deepEqual(preserveOperatorTunedConfig(next, previous), ['sccache.maxSizeBytes', 'bounds']);
-  assert.equal(next.sccache.maxSizeBytes, 268_435_456_000); assert.equal(next.bounds.buildConcurrency, 3);
+  assert.equal(next.sccache.maxSizeBytes, 268_435_456_000); assert.equal(next.bounds.buildConcurrency, 3); assert.equal(next.bounds.workspaceDiscoveryTimeoutMs, 30_000);
+  const tuned = fixture(); const tunedPrevious = fixture(); tuned.bounds.workspaceDiscoveryTimeoutMs = 30_000; tunedPrevious.bounds.workspaceDiscoveryTimeoutMs = 7_500;
+  assert.deepEqual(preserveOperatorTunedConfig(tuned, tunedPrevious), ['bounds']); assert.equal(tuned.bounds.workspaceDiscoveryTimeoutMs, 7_500);
   const invalid = fixture(); const badPrevious = fixture(); badPrevious.sccache.maxSizeBytes = -1; badPrevious.bounds.buildConcurrency = 0;
   const generatedBounds = invalid.bounds;
   assert.deepEqual(preserveOperatorTunedConfig(invalid, badPrevious), []);

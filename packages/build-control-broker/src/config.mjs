@@ -265,8 +265,11 @@ export function preserveOperatorTunedConfig(next, previous) {
     preserved.push('sccache.maxSizeBytes');
   }
   if (previous.bounds && typeof previous.bounds === 'object' && !Array.isArray(previous.bounds)) {
-    const generatedBounds = next.bounds;
-    next.bounds = previous.bounds;
+    const generatedBounds = next.bounds; const preservedBounds = { ...previous.bounds };
+    // Migrate known shipped discovery defaults while retaining genuine
+    // operator tuning in every other bound. Mac shipped 10s; Windows 2s.
+    if ([2_000, 10_000].includes(preservedBounds.workspaceDiscoveryTimeoutMs) && Number.isSafeInteger(generatedBounds?.workspaceDiscoveryTimeoutMs)) preservedBounds.workspaceDiscoveryTimeoutMs = generatedBounds.workspaceDiscoveryTimeoutMs;
+    next.bounds = preservedBounds;
     try { validateBrokerConfig(next); preserved.push('bounds'); } catch { next.bounds = generatedBounds; }
   }
   return preserved;
