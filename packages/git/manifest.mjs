@@ -333,6 +333,9 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Resolve checked-out source revision
+        shell: pwsh
+        run: '"RIGHT_GIT_SOURCE_REVISION=$(git rev-parse HEAD)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${nodeVersion}
@@ -373,7 +376,7 @@ ${pm.setup}
         run: pnpm exec right-release build --platform win --skip-checks
         env:
           LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-windows-candidate
-          LEGION_SOURCE_REVISION: \${{ github.sha }}
+          LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}
           AZURE_ARTIFACT_SIGNING_ENDPOINT: \${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
           AZURE_ARTIFACT_SIGNING_ACCOUNT: \${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
           AZURE_ARTIFACT_SIGNING_PROFILE: \${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
@@ -401,6 +404,9 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Resolve checked-out source revision
+        shell: bash
+        run: printf 'RIGHT_GIT_SOURCE_REVISION=%s\\n' "$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${nodeVersion}
@@ -440,7 +446,7 @@ ${pm.setup}
         run: pnpm exec right-release build --platform mac --skip-checks
         env:
           LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-macos-candidate
-          LEGION_SOURCE_REVISION: \${{ github.sha }}
+          LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}
           APPLE_DEVELOPER_ID: \${{ vars.APPLE_DEVELOPER_ID }}
           APPLE_API_KEY: \${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: \${{ secrets.APPLE_API_ISSUER }}

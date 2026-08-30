@@ -95,6 +95,9 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
   assert.match(content, /vars\.AZURE_CLIENT_ID/);
   assert.match(content, /right-release build --platform win --skip-checks/);
   assert.match(content, /Artifact Signing client hash mismatch/);
+  assert.match(content, /RIGHT_GIT_SOURCE_REVISION=\$\(git rev-parse HEAD\)/);
+  assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
+  assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(content, /secrets\.|client-secret|private.key/i);
 });
 
@@ -118,6 +121,9 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
   assert.match(content, /temporary keychain/i);
   assert.match(content, /right-release build --platform mac --skip-checks/);
   assert.match(content, /secrets\.APPLE_API_KEY_BASE64/);
+  assert.match(content, /RIGHT_GIT_SOURCE_REVISION=%s\\n.*git rev-parse HEAD/);
+  assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
+  assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.match(content, /security delete-keychain/);
   assert.doesNotMatch(content, /pull_request_target/);
 });
