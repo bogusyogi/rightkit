@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/release",
-  "version": "0.2.87",
+  "version": "0.2.88",
   "description": "Portable Right Suite release CLI/SDK: signed native archives, direct bootstrap transactions, immutable GitHub Release upload, R2 bootstrap publication, and add-on adoption.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
