@@ -641,7 +641,8 @@ function releaseChainJobs(manifest, pm, artifactPrefix) {
       - name: Fail closed when protected finalization is absent
         if: \${{ needs.windows-sign.result != 'success' }}
         shell: pwsh
-        run: throw 'installed_qualification_failed { reason: prerequisites_absent, detail: "same-run Windows signing/finalization did not succeed" }'
+        run: |
+          throw 'installed_qualification_failed { reason: prerequisites_absent, detail: "same-run Windows signing/finalization did not succeed" }'
       - name: Download same-run finalized Windows release
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:

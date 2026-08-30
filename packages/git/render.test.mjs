@@ -203,6 +203,8 @@ test("rust-hybrid release chain preserves signed candidate, installed qualificat
   assert.match(content, /macos-sign:[\s\S]*pnpm run release:finalize:mac/);
   assert.match(content, /installed-qualification:\n    needs: \[candidate, windows-sign\]/);
   assert.match(content, /installed_qualification_failed/);
+  assert.match(content, /shell: pwsh\n        run: \|\n          throw 'installed_qualification_failed \{ reason: prerequisites_absent, detail: "same-run Windows signing\/finalization did not succeed" \}'/);
+  assert.doesNotMatch(content, /^        run: throw 'installed_qualification_failed .*detail: /m);
   assert.match(content, /pnpm run release:qualify:installed/);
   assert.match(content, /publish:\n    needs: \[installed-qualification, macos-sign\]/);
   assert.match(content, /needs\.macos-sign\.result == 'success'/);
