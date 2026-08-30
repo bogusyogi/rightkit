@@ -93,7 +93,7 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
     buildRenderContext(manifest, "/repos/widgets"),
   );
   assert.match(content, /environment: release/);
-  assert.match(content, /windows-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
+  assert.match(content, /windows-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| \(github\.event_name == 'workflow_dispatch' && inputs\.signed_qualification == true\) \}\}/);
   assert.match(content, /id-token: write/);
   assert.match(content, /azure\/login@[a-f0-9]{40}/);
   assert.match(content, /vars\.AZURE_CLIENT_ID/);
@@ -120,7 +120,7 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
     buildRenderContext(manifest, "/repos/widgets"),
   );
   assert.match(content, /macos-sign:/);
-  assert.match(content, /macos-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
+  assert.match(content, /macos-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| \(github\.event_name == 'workflow_dispatch' && inputs\.signed_qualification == true\) \}\}/);
   assert.match(content, /environment: release/);
   assert.match(content, /secrets\.APPLE_CERTIFICATE_BASE64/);
   assert.match(content, /temporary keychain/i);
@@ -205,12 +205,18 @@ test("rust-hybrid release chain preserves signed candidate, installed qualificat
   );
   assert.match(content, /windows-sign:[\s\S]*pnpm run release:finalize:win/);
   assert.match(content, /macos-sign:[\s\S]*pnpm run release:finalize:mac/);
+  assert.match(content, /signed_qualification:\n        description: Run protected signing & installed qualification without publishing/);
+  assert.match(content, /windows-sign:[\s\S]*inputs\.signed_qualification == true/);
+  assert.match(content, /macos-sign:[\s\S]*inputs\.signed_qualification == true/);
   assert.match(content, /installed-qualification:\n    needs: \[candidate, windows-sign\]/);
+  assert.match(content, /installed-qualification:[\s\S]*inputs\.signed_qualification == true/);
   assert.match(content, /installed_qualification_failed/);
   assert.match(content, /shell: pwsh\n        run: \|\n          throw 'installed_qualification_failed \{ reason: prerequisites_absent, detail: "same-run Windows signing\/finalization did not succeed" \}'/);
   assert.doesNotMatch(content, /^        run: throw 'installed_qualification_failed .*detail: /m);
   assert.match(content, /pnpm run release:qualify:installed/);
   assert.match(content, /publish:\n    needs: \[installed-qualification, macos-sign\]/);
+  assert.match(content, /publish:[\s\S]*startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.doesNotMatch(content.slice(content.indexOf("  publish:")), /inputs\.signed_qualification/);
   assert.match(content, /needs\.macos-sign\.result == 'success'/);
   assert.match(content, /contents: write/);
   assert.match(content, /pnpm run release:publish:qualified/);

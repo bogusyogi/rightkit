@@ -5,6 +5,12 @@
 name: release-candidate
 on:
   workflow_dispatch:
+    inputs:
+      signed_qualification:
+        description: Run protected signing & installed qualification without publishing
+        required: false
+        type: boolean
+        default: false
   push:
     tags: ['v*']
 permissions:

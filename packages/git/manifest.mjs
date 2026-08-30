@@ -442,7 +442,7 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
   return `
   windows-sign:
     needs: [candidate]
-    if: \${{ startsWith(github.ref, 'refs/tags/v') }}
+    if: \${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.signed_qualification == true) }}
     environment: release
     strategy:
       fail-fast: false
@@ -532,7 +532,7 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
   return `
   macos-sign:
     needs: [candidate]
-    if: \${{ startsWith(github.ref, 'refs/tags/v') }}
+    if: \${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.signed_qualification == true) }}
     environment: release
     strategy:
       fail-fast: false
@@ -630,7 +630,7 @@ function releaseChainJobs(manifest, pm, artifactPrefix) {
   return `
   installed-qualification:
     needs: [candidate, windows-sign]
-    if: \${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.candidate.result == 'success' }}
+    if: \${{ always() && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.signed_qualification == true)) && needs.candidate.result == 'success' }}
     environment: release
     runs-on: \${{ vars.${chain.qualificationRunnerVariable} || '${windowsRunner}' }}
     steps:
