@@ -671,14 +671,43 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     if (!source.startsWith("# Managed by right-git")) {
       fail(`${appName} ${workflow} is not marked as right-git managed`);
     }
-    const requestedSecrets = [...source.matchAll(/\bsecrets\.([A-Z0-9_]+)/gi)].map((match) => match[1]);
+    const jobSpan = (jobName) => {
+      const marker = `\n  ${jobName}:\n`;
+      const start = source.indexOf(marker);
+      if (start < 0) return null;
+      const remainder = source.slice(start + marker.length);
+      const next = /\n  [A-Za-z0-9_-]+:\n/.exec(remainder);
+      return { start, end: next ? start + marker.length + next.index : source.length };
+    };
+    const inside = (index, span) => span && index >= span.start && index < span.end;
+    const requestedSecrets = [...source.matchAll(/\bsecrets\.([A-Z0-9_]+)/gi)].map((match) => ({ name: match[1], index: match.index }));
     const allowedMacosSecrets = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD", "APPLE_API_KEY_BASE64", "APPLE_API_KEY", "APPLE_API_ISSUER"]);
-    const macosSigningAllowed = workflow === "release-candidate.yml" && manifest?.candidate?.signMacos === true;
+    const windowsSpan = jobSpan("windows-sign");
+    const macosSpan = jobSpan("macos-sign");
+    const publishSpan = jobSpan("publish");
+    const windowsSource = windowsSpan ? source.slice(windowsSpan.start, windowsSpan.end) : "";
+    const macosSource = macosSpan ? source.slice(macosSpan.start, macosSpan.end) : "";
+    const publishSource = publishSpan ? source.slice(publishSpan.start, publishSpan.end) : "";
+    const protectedWindowsSigning = workflow === "release-candidate.yml"
+      && manifest?.candidate?.signWindows === true
+      && /windows-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/.test(windowsSource);
+    const protectedMacosSigning = workflow === "release-candidate.yml"
+      && manifest?.candidate?.signMacos === true
+      && /macos-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/.test(macosSource);
+    const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
+    const allowedReleaseSecrets = new Set(releaseChain?.publishSecrets ?? []);
+    const writePermissions = [...source.matchAll(/^\s*(actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):\s*write\s*$/gmi)].map((match) => ({ name: match[1].toLowerCase(), index: match.index }));
+    const protectedReleasePublish = releaseChain
+      && /publish:\n    needs: \[[^\n]*installed-qualification[^\n]*\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) && needs\.installed-qualification\.result == 'success'/.test(publishSource)
+      && /\n    permissions:\n      contents: write\n/.test(publishSource);
     if (/^\s*permissions:\s*write-all\s*$/mi.test(source)
-      || /^\s*(?:actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):\s*write\s*$/mi.test(source)
+      || writePermissions.some(({ name, index }) => name === "id-token"
+        ? !(protectedWindowsSigning && inside(index, windowsSpan))
+        : name !== "contents" || !protectedReleasePublish || !inside(index, publishSpan))
       || /pull_request_target\s*:/i.test(source)
       || /\bsecrets\s*\[/i.test(source)
-      || requestedSecrets.some((name) => !macosSigningAllowed || !allowedMacosSecrets.has(name))) {
+      || requestedSecrets.some(({ name, index }) => !(protectedMacosSigning && inside(index, macosSpan) && allowedMacosSecrets.has(name))
+        && !(protectedReleasePublish && inside(index, publishSpan) && allowedReleaseSecrets.has(name)))) {
       fail(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets`);
     }
   }

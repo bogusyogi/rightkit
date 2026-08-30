@@ -61,6 +61,7 @@ const TOP_LEVEL_KEYS = new Set([
 ]);
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const PACKAGE_SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
+const GITHUB_VARIABLE_RE = /^[A-Z][A-Z0-9_]*$/;
 
 /**
  * Validate a parsed manifest object against the right-git manifest contract.
@@ -141,7 +142,7 @@ export function validateManifest(manifest) {
       errors.push("candidate must be an object");
     } else {
       for (const key of Object.keys(candidate)) {
-        if (!["buildScript", "checkScript", "artifactRoot", "os", "signWindows", "signMacos"].includes(key)) errors.push(`unknown candidate field: ${key}`);
+        if (!["buildScript", "checkScript", "artifactRoot", "os", "signWindows", "signMacos", "releaseChain"].includes(key)) errors.push(`unknown candidate field: ${key}`);
       }
       for (const key of ["buildScript", "checkScript"]) {
         if (typeof candidate[key] !== "string" || !PACKAGE_SCRIPT_RE.test(candidate[key])) {
@@ -170,6 +171,34 @@ export function validateManifest(manifest) {
       }
       if ((candidate.signWindows === true || candidate.signMacos === true) && manifest.matrix?.node?.length !== 1) {
         errors.push("candidate signing requires exactly one matrix.node version");
+      }
+      if (candidate.releaseChain !== undefined) {
+        const chain = candidate.releaseChain;
+        const allowedChainKeys = ["windowsFinalizeScript", "macosFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable", "publishSecrets"];
+        if (chain === null || typeof chain !== "object" || Array.isArray(chain)) {
+          errors.push("candidate.releaseChain must be an object");
+        } else {
+          for (const key of Object.keys(chain)) {
+            if (!allowedChainKeys.includes(key)) errors.push(`unknown candidate.releaseChain field: ${key}`);
+          }
+          for (const key of ["windowsFinalizeScript", "installedQualificationScript", "publishScript"]) {
+            if (typeof chain[key] !== "string" || !PACKAGE_SCRIPT_RE.test(chain[key])) {
+              errors.push(`candidate.releaseChain.${key} must be one safe package script name`);
+            }
+          }
+          if (chain.macosFinalizeScript !== undefined && (typeof chain.macosFinalizeScript !== "string" || !PACKAGE_SCRIPT_RE.test(chain.macosFinalizeScript))) {
+            errors.push("candidate.releaseChain.macosFinalizeScript must be one safe package script name");
+          }
+          if (typeof chain.qualificationRunnerVariable !== "string" || !GITHUB_VARIABLE_RE.test(chain.qualificationRunnerVariable)) {
+            errors.push("candidate.releaseChain.qualificationRunnerVariable must be one uppercase GitHub variable name");
+          }
+          if (chain.publishSecrets !== undefined && (!Array.isArray(chain.publishSecrets) || new Set(chain.publishSecrets).size !== chain.publishSecrets.length || chain.publishSecrets.some((value) => typeof value !== "string" || !GITHUB_VARIABLE_RE.test(value)))) {
+            errors.push("candidate.releaseChain.publishSecrets must be unique uppercase GitHub secret names");
+          }
+          if (candidate.signWindows !== true) errors.push("candidate.releaseChain requires candidate.signWindows=true");
+          if (candidate.signMacos === true && !chain.macosFinalizeScript) errors.push("candidate.releaseChain with candidate.signMacos=true requires macosFinalizeScript");
+          if (chain.macosFinalizeScript && candidate.signMacos !== true) errors.push("candidate.releaseChain.macosFinalizeScript requires candidate.signMacos=true");
+        }
       }
     }
   }
@@ -323,9 +352,23 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
   if (manifest.candidate?.signWindows !== true) return "";
   const windowsRunner = manifest.candidate.os.find((value) => /^windows-/i.test(value));
   const nodeVersion = String(manifest.matrix.node[0]);
+  const releaseChain = manifest.candidate.releaseChain;
+  const finalizeCommand = releaseChain
+    ? `${pm.runPrefix} ${releaseChain.windowsFinalizeScript}`
+    : "pnpm exec right-release build --platform win --skip-checks";
+  const finalizeEnvironment = releaseChain
+    ? `          RIGHT_GIT_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-windows-candidate
+          RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/finalized-windows
+          RIGHT_GIT_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`
+    : `          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-windows-candidate
+          LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`;
+  const uploadPath = releaseChain
+    ? "            ${{ runner.temp }}/finalized-windows/**"
+    : "            dist/releases/windows/**\n            .right-release/receipts/windows-*.json";
   return `
   windows-sign:
     needs: [candidate]
+    if: \${{ startsWith(github.ref, 'refs/tags/v') }}
     environment: release
     runs-on: ${windowsRunner}
     permissions:
@@ -373,10 +416,9 @@ ${pm.setup}
           "AZURE_ARTIFACT_SIGNING_DLIB_PATH=$tools\\client\\bin\\x64\\Azure.CodeSigning.Dlib.dll" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "AZURE_SIGNTOOL_PATH=$tools\\sdk\\bin\\10.0.26100.0\\x64\\signtool.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Sign & finalize Windows candidate
-        run: pnpm exec right-release build --platform win --skip-checks
+        run: ${finalizeCommand}
         env:
-          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-windows-candidate
-          LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}
+${finalizeEnvironment}
           AZURE_ARTIFACT_SIGNING_ENDPOINT: \${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
           AZURE_ARTIFACT_SIGNING_ACCOUNT: \${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
           AZURE_ARTIFACT_SIGNING_PROFILE: \${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
@@ -385,8 +427,7 @@ ${pm.setup}
         with:
           name: ${artifactPrefix}-signed-windows-${nodeVersion}
           path: |
-            dist/releases/windows/**
-            .right-release/receipts/windows-*.json
+${uploadPath}
           if-no-files-found: error
 `.trimEnd();
 }
@@ -395,9 +436,23 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
   if (manifest.candidate?.signMacos !== true) return "";
   const macosRunner = manifest.candidate.os.find((value) => /^macos-/i.test(value));
   const nodeVersion = String(manifest.matrix.node[0]);
+  const releaseChain = manifest.candidate.releaseChain;
+  const finalizeCommand = releaseChain
+    ? `${pm.runPrefix} ${releaseChain.macosFinalizeScript}`
+    : "pnpm exec right-release build --platform mac --skip-checks";
+  const finalizeEnvironment = releaseChain
+    ? `          RIGHT_GIT_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-macos-candidate
+          RIGHT_GIT_FINALIZED_MACOS_ROOT: \${{ runner.temp }}/finalized-macos
+          RIGHT_GIT_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`
+    : `          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-macos-candidate
+          LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`;
+  const uploadPath = releaseChain
+    ? "            ${{ runner.temp }}/finalized-macos/**"
+    : "            dist/releases/mac/**\n            .right-release/receipts/macos-*.json";
   return `
   macos-sign:
     needs: [candidate]
+    if: \${{ startsWith(github.ref, 'refs/tags/v') }}
     environment: release
     runs-on: ${macosRunner}
     permissions:
@@ -443,10 +498,9 @@ ${pm.setup}
           security list-keychain -d user -s "$keychain_path"
           printf 'APPLE_API_KEY_PATH=%s\\n' "$key_path" >> "$GITHUB_ENV"
       - name: Sign, notarize & finalize macOS candidate
-        run: pnpm exec right-release build --platform mac --skip-checks
+        run: ${finalizeCommand}
         env:
-          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-macos-candidate
-          LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}
+${finalizeEnvironment}
           APPLE_DEVELOPER_ID: \${{ vars.APPLE_DEVELOPER_ID }}
           APPLE_API_KEY: \${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: \${{ secrets.APPLE_API_ISSUER }}
@@ -455,8 +509,7 @@ ${pm.setup}
         with:
           name: ${artifactPrefix}-signed-macos-${nodeVersion}
           path: |
-            dist/releases/mac/**
-            .right-release/receipts/macos-*.json
+${uploadPath}
           if-no-files-found: error
       - name: Remove Apple signing material
         if: \${{ always() }}
@@ -464,6 +517,102 @@ ${pm.setup}
         run: |
           security delete-keychain "$RUNNER_TEMP/apple-signing.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/apple-signing.p12" "$RUNNER_TEMP/AuthKey.p8"
+`.trimEnd();
+}
+
+function releaseChainJobs(manifest, pm, artifactPrefix) {
+  const chain = manifest.candidate?.releaseChain;
+  if (!chain) return "";
+  const windowsRunner = manifest.candidate.os.find((value) => /^windows-/i.test(value));
+  const nodeVersion = String(manifest.matrix.node[0]);
+  const macosDependency = manifest.candidate.signMacos === true ? ", macos-sign" : "";
+  const macosSuccess = manifest.candidate.signMacos === true ? " && needs.macos-sign.result == 'success'" : "";
+  const macosDownload = manifest.candidate.signMacos === true
+    ? `      - name: Download same-run signed & notarized macOS release
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${artifactPrefix}-signed-macos-${nodeVersion}
+          path: \${{ runner.temp }}/right-git-release/macos`
+    : "";
+  const publishSecretEnvironment = (chain.publishSecrets ?? [])
+    .map((name) => `          ${name}: \${{ secrets.${name} }}`)
+    .join("\n");
+  return `
+  installed-qualification:
+    needs: [candidate, windows-sign]
+    if: \${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.candidate.result == 'success' }}
+    environment: release
+    runs-on: \${{ vars.${chain.qualificationRunnerVariable} || '${windowsRunner}' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Resolve checked-out source revision
+        shell: pwsh
+        run: '"RIGHT_GIT_SOURCE_REVISION=$(git rev-parse HEAD)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+      - name: Fail closed when protected finalization is absent
+        if: \${{ needs.windows-sign.result != 'success' }}
+        shell: pwsh
+        run: throw 'installed_qualification_failed { reason: prerequisites_absent, detail: "same-run Windows signing/finalization did not succeed" }'
+      - name: Download same-run finalized Windows release
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${artifactPrefix}-signed-windows-${nodeVersion}
+          path: \${{ runner.temp }}/right-git-release/windows
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${nodeVersion}
+          package-manager-cache: false
+${pm.setup}
+      - run: ${pm.installCommand}
+      - name: Run installed-artifact qualification
+        run: ${pm.runPrefix} ${chain.installedQualificationScript}
+        env:
+          RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/right-git-release/windows
+          RIGHT_GIT_QUALIFICATION_EVIDENCE_ROOT: \${{ runner.temp }}/right-git-release/qualification
+          RIGHT_GIT_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}
+      - name: Upload installed qualification evidence
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
+        with:
+          name: ${artifactPrefix}-installed-qualification-${nodeVersion}
+          path: \${{ runner.temp }}/right-git-release/qualification/**
+          if-no-files-found: error
+  publish:
+    needs: [installed-qualification${macosDependency}]
+    if: \${{ startsWith(github.ref, 'refs/tags/v') && needs.installed-qualification.result == 'success'${macosSuccess} }}
+    environment: release
+    runs-on: \${{ vars.${chain.qualificationRunnerVariable} || '${windowsRunner}' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Resolve checked-out source revision
+        shell: pwsh
+        run: '"RIGHT_GIT_SOURCE_REVISION=$(git rev-parse HEAD)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+      - name: Download same-run finalized Windows release
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${artifactPrefix}-signed-windows-${nodeVersion}
+          path: \${{ runner.temp }}/right-git-release/windows
+${macosDownload}
+      - name: Download same-run installed qualification evidence
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${artifactPrefix}-installed-qualification-${nodeVersion}
+          path: \${{ runner.temp }}/right-git-release/qualification
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${nodeVersion}
+          package-manager-cache: false
+${pm.setup}
+      - run: ${pm.installCommand}
+      - name: Publish qualified signed release
+        run: ${pm.runPrefix} ${chain.publishScript}
+        env:
+          GH_TOKEN: \${{ github.token }}
+          RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/right-git-release/windows
+          RIGHT_GIT_FINALIZED_MACOS_ROOT: \${{ runner.temp }}/right-git-release/macos
+          RIGHT_GIT_QUALIFICATION_EVIDENCE_ROOT: \${{ runner.temp }}/right-git-release/qualification
+          RIGHT_GIT_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}
+${publishSecretEnvironment}
 `.trimEnd();
 }
 
@@ -513,6 +662,7 @@ export function buildRenderContext(manifest, repoPath) {
     CANDIDATE_MATRIX: candidateMatrix(manifest),
     WINDOWS_SIGNING_JOB: windowsSigningJob(manifest, pm, artifactPrefix),
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
+    RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
   };
 
   if (manifest.publish?.npm) {

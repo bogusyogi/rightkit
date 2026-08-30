@@ -411,7 +411,7 @@ test("permits only declared Apple signing secrets in a macOS signed candidate la
   mkdirSync(workflowDir, { recursive: true });
   writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
   writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
-  writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  mac:\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
+  writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  macos-sign:\n    needs: [candidate]\n    if: ${{ startsWith(github.ref, 'refs/tags/v') }}\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
   git(root, "add", ".");
   git(root, "commit", "-m", "add signed mac candidate workflow");
   const result = run(config, "--tier=patch");
@@ -429,6 +429,70 @@ test("rejects undeclared Apple secrets or pull_request_target in candidate lane"
     writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git\n${unsafe}\npermissions:\n  contents: read\njobs: {}\n`);
     git(root, "add", ".");
     git(root, "commit", "-m", "add unsafe mac candidate workflow");
+    const result = run(config, "--tier=patch");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /release-capable permissions or secrets/i);
+  }
+});
+
+test("permits declared release-chain publish secret & contents write only behind tag qualification gate", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({
+    schemaVersion: 1,
+    lanes: ["ci", "release-candidate"],
+    candidate: {
+      signWindows: true,
+      releaseChain: { publishSecrets: ["CLOUDFLARE_API_TOKEN"] },
+    },
+  }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git
+permissions:
+  contents: read
+jobs:
+  publish:
+    needs: [installed-qualification]
+    if: \${{ startsWith(github.ref, 'refs/tags/v') && needs.installed-qualification.result == 'success' }}
+    permissions:
+      contents: write
+    steps:
+      - run: publish
+        env:
+          TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+`);
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add protected release chain");
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects release-chain publish authority without exact tag qualification gate", () => {
+  for (const unsafe of [
+    "if: ${{ github.event_name == 'workflow_dispatch' }}",
+    "if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.installed-qualification.result == 'success' }}\n    env:\n      TOKEN: ${{ secrets.UNRELATED }}",
+  ]) {
+    const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+    const root = path.dirname(config);
+    const workflowDir = path.join(root, ".github", "workflows");
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signWindows: true, releaseChain: { publishSecrets: ["CLOUDFLARE_API_TOKEN"] } } }));
+    writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+    writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git
+permissions:
+  contents: read
+jobs:
+  publish:
+    needs: [installed-qualification]
+    ${unsafe}
+    permissions:
+      contents: write
+    steps: []
+`);
+    git(root, "add", ".");
+    git(root, "commit", "-m", "add unsafe release chain");
     const result = run(config, "--tier=patch");
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /release-capable permissions or secrets/i);

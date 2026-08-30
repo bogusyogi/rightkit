@@ -23,7 +23,7 @@ Sync records exact prior bytes, refuses unmanaged same-name workflows, & preflig
 
 ## Credential posture (read before enabling package-manager publishing)
 
-- **Signing credentials stay environment-scoped.** Opt-in Windows candidates use GitHub OIDC with Azure Artifact Signing. Opt-in macOS candidates use a temporary runner keychain plus Apple API-key notarization. npm publishing uses short-lived OIDC.
+- **Signing credentials stay environment-scoped.** Opt-in Windows candidates use GitHub OIDC with Azure Artifact Signing. Opt-in macOS candidates use a temporary runner keychain plus Apple API-key notarization. Signing jobs run only for `v*` tag refs; manual dispatch produces unsigned candidates only. npm publishing uses short-lived OIDC.
 - **Exception, disclosed:** the optional, opt-in `publish-package-managers` lane *does* require two owner-provisioned, long-lived tokens in GitHub Actions `secrets.*` (`HOMEBREW_TAP_TOKEN`, `WINGET_CREATE_GITHUB_TOKEN`) to open tap/manifest PRs. These are real bearer tokens, public-repo-scoped by the visibility gate but not zero-exposure. The "no signing credential in CI" invariant is specifically about code-signing material; it does not mean "no credential of any kind."
 
 Manifest input is treated as untrusted: every field flowing into rendered YAML is charset-allowlisted, so a manifest cannot inject `${{ secrets.* }}` or shell/expression syntax.
@@ -38,4 +38,6 @@ Node builtins only; no runtime dependencies.
 
 ## Profiles
 
-`profile` defaults to `node`. `rust-hybrid` requires `ci`, accepts optional `release-candidate`, installs pinned Node plus Rust, then runs product-owned package scripts. Candidate configuration is `{ buildScript, checkScript, artifactRoot, os, signWindows?, signMacos? }`; `os` selects supported release hosts from main matrix. RightGit always uploads an unsigned handoff. `signWindows: true` adds Azure OIDC signing. `signMacos: true` adds Developer ID signing plus notarization from protected environment secrets. Both use product-owned RightRelease finalization & never publish releases.
+`profile` defaults to `node`. `rust-hybrid` requires `ci`, accepts optional `release-candidate`, installs pinned Node plus Rust, then runs product-owned package scripts. Candidate configuration is `{ buildScript, checkScript, artifactRoot, os, signWindows?, signMacos?, releaseChain? }`; `os` selects supported release hosts from main matrix. RightGit always uploads an unsigned handoff. `signWindows: true` adds Azure OIDC signing. `signMacos: true` adds Developer ID signing plus notarization from protected environment secrets.
+
+`releaseChain` lets RightGit own full protected DAG while product scripts own artifact semantics: `{ windowsFinalizeScript, macosFinalizeScript?, installedQualificationScript, publishScript, qualificationRunnerVariable, publishSecrets? }`. Generated ordering is unsigned candidate → platform signing/finalization → installed qualification → publication. Every protected job is tag-gated, publication needs successful installed qualification plus macOS finalization when enabled, & only publish job receives declared publication secrets plus `contents: write`.

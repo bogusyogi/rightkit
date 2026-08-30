@@ -96,7 +96,24 @@
         "artifactRoot": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$" },
         "os": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
         "signWindows": { "type": "boolean" },
-        "signMacos": { "type": "boolean" }
+        "signMacos": { "type": "boolean" },
+        "releaseChain": {
+          "type": "object",
+          "required": ["windowsFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable"],
+          "additionalProperties": false,
+          "properties": {
+            "windowsFinalizeScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+            "macosFinalizeScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+            "installedQualificationScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+            "publishScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+            "qualificationRunnerVariable": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+            "publishSecrets": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+            }
+          }
+        }
       }
     }
   }

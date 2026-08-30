@@ -58,3 +58,4 @@ ${PACKAGE_MANAGER_SETUP}
           if-no-files-found: error
 ${WINDOWS_SIGNING_JOB}
 ${MACOS_SIGNING_JOB}
+${RELEASE_CHAIN_JOBS}

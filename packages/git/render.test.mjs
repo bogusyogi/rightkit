@@ -90,6 +90,7 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
     buildRenderContext(manifest, "/repos/widgets"),
   );
   assert.match(content, /environment: release/);
+  assert.match(content, /windows-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
   assert.match(content, /id-token: write/);
   assert.match(content, /azure\/login@[a-f0-9]{40}/);
   assert.match(content, /vars\.AZURE_CLIENT_ID/);
@@ -116,6 +117,7 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
     buildRenderContext(manifest, "/repos/widgets"),
   );
   assert.match(content, /macos-sign:/);
+  assert.match(content, /macos-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
   assert.match(content, /environment: release/);
   assert.match(content, /secrets\.APPLE_CERTIFICATE_BASE64/);
   assert.match(content, /temporary keychain/i);
@@ -126,6 +128,50 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.match(content, /security delete-keychain/);
   assert.doesNotMatch(content, /pull_request_target/);
+});
+
+test("rust-hybrid release chain preserves signed candidate, installed qualification, then publish", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "macos-15"],
+      signWindows: true,
+      signMacos: true,
+      releaseChain: {
+        windowsFinalizeScript: "release:finalize:win",
+        macosFinalizeScript: "release:finalize:mac",
+        installedQualificationScript: "release:qualify:installed",
+        publishScript: "release:publish:qualified",
+        qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL",
+        publishSecrets: ["CLOUDFLARE_API_TOKEN"],
+      },
+    },
+    matrix: { os: ["ubuntu-24.04", "windows-2025", "macos-15"], node: ["22.23.2"] },
+    templateVersion: "1.4.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  assert.match(content, /windows-sign:[\s\S]*pnpm run release:finalize:win/);
+  assert.match(content, /macos-sign:[\s\S]*pnpm run release:finalize:mac/);
+  assert.match(content, /installed-qualification:\n    needs: \[candidate, windows-sign\]/);
+  assert.match(content, /installed_qualification_failed/);
+  assert.match(content, /pnpm run release:qualify:installed/);
+  assert.match(content, /publish:\n    needs: \[installed-qualification, macos-sign\]/);
+  assert.match(content, /needs\.macos-sign\.result == 'success'/);
+  assert.match(content, /contents: write/);
+  assert.match(content, /pnpm run release:publish:qualified/);
+  assert.match(content, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+  assert.equal((content.match(/RIGHT_GIT_SOURCE_REVISION=\$\(git rev-parse HEAD\)/g) ?? []).length, 3);
+  assert.doesNotMatch(content, /RIGHT_GIT_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(content.slice(0, content.indexOf("  windows-sign:")), /secrets\.|id-token: write|contents: write/);
 });
 
 test("render determinism: same manifest renders byte-identical output every time", () => {

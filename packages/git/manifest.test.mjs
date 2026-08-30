@@ -41,6 +41,25 @@ test("rust-hybrid supports ci plus a configured unsigned release-candidate lane"
   assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, buildScript: "echo unsafe" } }).valid, false);
   assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, artifactRoot: "../escape" } }).valid, false);
   assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, os: ["windows-latest"] } }).valid, false);
+
+  const releaseChain = {
+    ...windowsCandidate,
+    candidate: {
+      ...windowsCandidate.candidate,
+      releaseChain: {
+        windowsFinalizeScript: "release:finalize:win",
+        installedQualificationScript: "release:qualify:installed",
+        publishScript: "release:publish:qualified",
+        qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL",
+        publishSecrets: ["CLOUDFLARE_API_TOKEN"],
+      },
+    },
+  };
+  assert.equal(validateManifest(releaseChain).valid, true);
+  assert.equal(validateManifest({ ...releaseChain, candidate: { ...releaseChain.candidate, signWindows: false } }).valid, false);
+  assert.equal(validateManifest({ ...releaseChain, candidate: { ...releaseChain.candidate, releaseChain: { ...releaseChain.candidate.releaseChain, publishScript: "echo unsafe" } } }).valid, false);
+  assert.equal(validateManifest({ ...releaseChain, candidate: { ...releaseChain.candidate, releaseChain: { ...releaseChain.candidate.releaseChain, qualificationRunnerVariable: "${{ secrets.X }}" } } }).valid, false);
+  assert.equal(validateManifest({ ...releaseChain, candidate: { ...releaseChain.candidate, releaseChain: { ...releaseChain.candidate.releaseChain, publishSecrets: ["TOKEN", "TOKEN"] } } }).valid, false);
 });
 
 test("rejects non-object input", () => {
