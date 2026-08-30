@@ -58,9 +58,10 @@ export function managedBuildViolation(command) {
   if (typeof command !== 'string') throw new TypeError('command must be a string');
   const executableText = withoutHeredocBodies(command);
   const trimmed = executableText.trim();
-  // RightKit is permitted only as one uncomposed request: no chained shell,
-  // redirect, substitution, or nested command can piggyback on its allow.
-  if (/^rightkit(?:\s|$)/.test(trimmed) && !/[;&|$()`<>\n]/.test(trimmed)) return null;
+  // Sanctioned RightKit subcommands remain safe inside ordinary shell wrappers,
+  // pipes, redirects, & cwd setup. Remove only their managed-tool token, then
+  // scan every remaining executable token so appended bare Cargo still blocks.
+  const withoutSanctionedRightkit = executableText.replace(/\brightkit\s+(cargo|rustc|rustdoc)\b/gi, (match, tool) => match.replace(tool, '__rightkit_managed_tool__'));
   // The managed shims are reached through PATH, so redirecting PATH shadows
   // them and every later check. packageManagerInvocation already refused such a
   // command, but refusing it only fell through to a scan that does not list the
@@ -70,9 +71,8 @@ export function managedBuildViolation(command) {
   // managed Cargo shim from PATH; denying their command line would prevent
   // that routing while also blocking non-Rust package-manager work.
   if (packageManagerInvocation(trimmed)) return null;
-  if (/(?:^|[;&|]\s*)rightkit\s+(?:cargo|rustc|rustdoc)\b/i.test(trimmed)) return 'rightkit-composition';
-  if (/\brustup\s+run\b[^;&|()\n]*\b(cargo|rustc|rustdoc)\b/i.test(executableText)) return 'rustup-run';
-  if (/\balias\s+[A-Za-z_][A-Za-z0-9_]*=.?[^\s;&|()]*\b(?:cargo|rustc|rustdoc)\b/i.test(executableText)) return 'alias';
+  if (/\brustup\s+run\b[^;&|()\n]*\b(cargo|rustc|rustdoc)\b/i.test(withoutSanctionedRightkit)) return 'rustup-run';
+  if (/\balias\s+[A-Za-z_][A-Za-z0-9_]*=.?[^\s;&|()]*\b(?:cargo|rustc|rustdoc)\b/i.test(withoutSanctionedRightkit)) return 'alias';
   // A quote character is not a command boundary the way `;`/`|` is — it
   // delimits a string argument, and text inside one is normally never
   // executed. The previous tokenizer treated every quote as a delimiter,
@@ -88,15 +88,12 @@ export function managedBuildViolation(command) {
   // spans are left untouched so the scan still reaches inside them; every
   // other quoted span is stripped before the token scan ever sees it.
   const shellScriptFlag = /(?:^|[\s;&|()`])(?:-c|-lc|\/c|-command|-encodedcommand)\s*$/i;
-  const withoutInertQuotedSpans = executableText.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (match, offset, full) => shellScriptFlag.test(full.slice(0, offset)) ? match : '""');
+  const withoutInertQuotedSpans = withoutSanctionedRightkit.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (match, offset, full) => shellScriptFlag.test(full.slice(0, offset)) ? match : '""');
   for (const word of withoutInertQuotedSpans.matchAll(/(?:^|[\s;&|()$`"'])(\/?[^\s;&|()$`"']+)/g)) { const name = basename(word[1]); if (tools.has(name)) return name; }
   return null;
 }
 
-function denialMessage(blocked) {
-  if (blocked === 'rightkit-composition') return '[HOOK:rightkit-managed-build:block]\nWhy: Sanctioned RightKit entrypoint was combined with shell chaining, redirection, or piping.\nRequired: Run bare `rightkit ...` as the sole command; set cwd through the tool and inspect detached output with `rightkit list|status|attach`.';
-  return `[HOOK:rightkit-managed-build:block]\nWhy: Direct managed build tool forbidden: ${blocked}\nRequired: Use exact rightkit entrypoint.`;
-}
+function denialMessage(blocked) { return `[HOOK:rightkit-managed-build:block]\nWhy: Direct managed build tool forbidden: ${blocked}\nRequired: Use exact rightkit entrypoint.`; }
 
 export function claudeHookDecision(input) {
   const command = input?.tool_input?.command ?? input?.command;
