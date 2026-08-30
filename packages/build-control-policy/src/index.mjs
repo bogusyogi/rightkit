@@ -61,7 +61,11 @@ export function managedBuildViolation(command) {
   // Sanctioned RightKit subcommands remain safe inside ordinary shell wrappers,
   // pipes, redirects, & cwd setup. Remove only their managed-tool token, then
   // scan every remaining executable token so appended bare Cargo still blocks.
-  const withoutSanctionedRightkit = executableText.replace(/\brightkit\s+(cargo|rustc|rustdoc)\b/gi, (match, tool) => match.replace(tool, '__rightkit_managed_tool__'));
+  const pathAssignments = [...executableText.matchAll(/(?:^|\s)PATH=([^\s;&|]+)/gi)];
+  const rightkitCanResolveSafely = pathAssignments.every((match) => trustedAgentPath(match[1]));
+  const withoutSanctionedRightkit = rightkitCanResolveSafely
+    ? executableText.replace(/(^|[\s;&|()$`"'])rightkit(\s+)(cargo|rustc|rustdoc)\b/gim, '$1rightkit$2__rightkit_managed_tool__')
+    : executableText;
   // The managed shims are reached through PATH, so redirecting PATH shadows
   // them and every later check. packageManagerInvocation already refused such a
   // command, but refusing it only fell through to a scan that does not list the
