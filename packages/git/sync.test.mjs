@@ -54,6 +54,44 @@ test("sync reports manifest errors instead of writing files", async () => {
   assert.equal(result.stage, "manifest");
 });
 
+test("sync rejects a Membrane-like release chain without root @rightkit/release", async () => {
+  const manifest = {
+    schemaVersion: 1,
+    lanes: ["ci", "release-candidate"],
+    matrix: { os: ["windows-2025", "macos-15"], node: ["22.23.2"] },
+    packageManager: "pnpm@11.24.0",
+    templateVersion: "1.5.0",
+    profile: "rust-hybrid",
+    gate: { path: "scripts/ci/run-ci.sh" },
+    candidate: {
+      buildScript: "release:candidate:build",
+      checkScript: "release:candidate:check",
+      artifactRoot: "membrane-release-candidate",
+      os: ["windows-2025", "macos-15"],
+      signWindows: true,
+      signMacos: true,
+      releaseChain: {
+        windowsFinalizeScript: "release:finalize:windows",
+        macosFinalizeScript: "release:finalize:macos",
+        installedQualificationScript: "release:qualify:installed",
+        publishScript: "release:publish:qualified",
+        qualificationRunnerVariable: "MEMBRANE_QUALIFICATION_RUNNER_LABEL",
+      },
+    },
+  };
+  const dir = makeTempRepo(manifest, { packageJson: { name: "membrane", devDependencies: { "@rightkit/git": "0.2.13" } } });
+  const missing = await syncCommand(dir, { deps: PUBLIC_DEPS });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.stage, "dependency");
+  assert.match(missing.errors[0], /direct devDependency @rightkit\/release/);
+  assert.equal(fs.existsSync(path.join(dir, ".github", "workflows")), false);
+
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "membrane", devDependencies: { "@rightkit/git": "0.2.13", "@rightkit/release": "0.2.84" } }), "utf8");
+  const present = await syncCommand(dir, { deps: PUBLIC_DEPS });
+  assert.equal(present.ok, true);
+  assert.ok(fs.existsSync(path.join(dir, ".github", "workflows", "release-candidate.yml")));
+});
+
 test("sync refuses an unmanaged same-name workflow", async () => {
   const dir = makeTempRepo(SAMPLE_MANIFEST);
   const target = path.join(dir, ".github", "workflows", "ci.yml");

@@ -12,6 +12,22 @@ import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const TEMPLATES_DIR = path.join(packageRoot, "templates");
 const WORKFLOWS_SUBDIR = path.join(".github", "workflows");
+const PUBLISHED_NPM_VERSION = /^\d+\.\d+\.\d+$/;
+
+function releaseChainDependencyError(repoPath, manifest) {
+  if (!manifest.candidate?.releaseChain) return null;
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(repoPath, "package.json"), "utf8"));
+  } catch {
+    return "release-candidate releaseChain requires a readable package.json with direct devDependency @rightkit/release";
+  }
+  const version = pkg.devDependencies?.["@rightkit/release"];
+  if (typeof version !== "string" || !PUBLISHED_NPM_VERSION.test(version)) {
+    return "release-candidate releaseChain requires direct devDependency @rightkit/release pinned to a published npm version";
+  }
+  return null;
+}
 
 /** Render every lane declared in the manifest. Returns { lane, filename, content }[]. */
 export function renderLanes(manifest, repoPath) {
@@ -81,6 +97,10 @@ export async function planSync(repoPath, deps = {}, manifestOverride = null) {
     : { ok: true, manifest: manifestOverride };
   if (!loaded.ok) {
     return { ok: false, stage: "manifest", errors: loaded.errors, changes: [] };
+  }
+  const dependencyError = releaseChainDependencyError(repoPath, loaded.manifest);
+  if (dependencyError) {
+    return { ok: false, stage: "dependency", errors: [dependencyError], changes: [] };
   }
 
   const rendered = renderLanes(loaded.manifest, repoPath);
