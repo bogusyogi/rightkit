@@ -16,7 +16,7 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows } = {}) {
+function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -54,6 +54,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
           ...(publish ? { publish: { cmd: "node", args: ["publish-update.mjs"] } } : {}),
           artifacts: [],
           ...(platform === "win" ? { signingContract, prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles, files: signFiles } } : {}),
+          ...(platform === "mac" && macSigning ? { signingContract: "macos-developer-id-notarized-portable-v1", prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles: ["fixture"] }, notarize: { file: "fixture.zip" } } : {}),
           updater: { artifacts: [{ file: "fixture.exe", signature: "fixture.exe.sig", platform: "windows-x86_64", key: "fixture/fixture.exe" }] },
           hardening: [],
         },
@@ -123,6 +124,10 @@ function lockFixture() {
       targets: {
         mac: {
           signed: true,
+          signingContract: "macos-developer-id-notarized-portable-v1",
+          prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] },
+          sign: { prePackageFiles: ["fixture"] },
+          notarize: { file: "fixture.zip" },
           package: { cmd: "node", args: ["-e", "process.exit(0)"] },
           artifacts: [],
           hardening: [],
@@ -181,6 +186,7 @@ test("accepts a tier-neutral internal build", () => {
 test("notarization commands default to a bounded 30-minute timeout without changing explicit overrides", () => {
   const defaultResult = runRaw(fixture({
     platform: "mac",
+    macSigning: true,
     packageCommand: { cmd: "node", args: ["-e", "process.exit(0)", "--notarize"] },
   }), "--platform", "mac", "--dry-run");
   assert.equal(defaultResult.status, 0, defaultResult.stderr);
@@ -188,6 +194,7 @@ test("notarization commands default to a bounded 30-minute timeout without chang
 
   const explicitResult = runRaw(fixture({
     platform: "mac",
+    macSigning: true,
     packageCommand: { cmd: "node", args: ["-e", "process.exit(0)", "--notarize"], timeoutMs: 1234 },
   }), "--platform", "mac", "--dry-run");
   assert.equal(explicitResult.status, 0, explicitResult.stderr);
@@ -250,6 +257,24 @@ test("accepts portable Windows releases with multiple pre-package executables an
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /raw-exe/);
   assert.doesNotMatch(result.stdout, /bundle marker/);
+});
+
+test("macOS portable contract signs exact pre-package files then notarizes declared archive", () => {
+  const result = run(fixture({ platform: "mac", macSigning: true }), "--platform", "mac", "--tier=patch", "--dry-run");
+  assert.equal(result.status, 0, result.stderr);
+  const prepareAt = result.stdout.indexOf("node -e process.exit(0)");
+  const signingAt = result.stdout.indexOf("signing macOS Developer ID files");
+  const packageAt = result.stdout.indexOf("node -e process.exit(0)", prepareAt + 1);
+  const notarizeAt = result.stdout.indexOf("notarizing macOS archive");
+  assert.ok(prepareAt >= 0 && signingAt > prepareAt && packageAt > signingAt && notarizeAt > packageAt, result.stdout);
+  assert.match(result.stdout, /sign-macos\.mjs/);
+  assert.match(result.stdout, /notarize-macos\.mjs/);
+});
+
+test("macOS portable contract rejects missing signing or notarization declarations", () => {
+  const result = run(fixture({ platform: "mac" }), "--platform", "mac", "--tier=patch", "--dry-run");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /mac must declare signingContract/i);
 });
 
 test("uses a configured signing receipt path for portable architecture isolation", () => {
@@ -373,6 +398,37 @@ test("rejects managed candidate workflows with write-all or indexed secrets", ()
     git(root, "add", ".");
     git(root, "commit", "-m", "add unsafe candidate workflow");
 
+    const result = run(config, "--tier=patch");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /release-capable permissions or secrets/i);
+  }
+});
+
+test("permits only declared Apple signing secrets in a macOS signed candidate lane", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  mac:\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add signed mac candidate workflow");
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects undeclared Apple secrets or pull_request_target in candidate lane", () => {
+  for (const unsafe of ["TOKEN: ${{ secrets.UNRELATED }}", "on:\n  pull_request_target:"]) {
+    const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+    const root = path.dirname(config);
+    const workflowDir = path.join(root, ".github", "workflows");
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
+    writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+    writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git\n${unsafe}\npermissions:\n  contents: read\njobs: {}\n`);
+    git(root, "add", ".");
+    git(root, "commit", "-m", "add unsafe mac candidate workflow");
     const result = run(config, "--tier=patch");
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /release-capable permissions or secrets/i);
@@ -576,7 +632,7 @@ test("release skips the sweep when no target dir exists", () => {
 test("release lock is single-flight and is cleaned after success", () => {
   const { dir, config } = lockFixture();
   const lockPath = path.join(dir, ".cache", "right-release", "mac.lock.json");
-  const result = runRaw(config, "--platform", "mac", "--tier=patch");
+  const result = runRaw(config, "--platform", "mac", "--tier=patch", "--dry-run");
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /right-release: done/);
   assert.equal(existsSync(lockPath), false);

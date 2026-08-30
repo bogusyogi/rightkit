@@ -68,9 +68,58 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
   assert.match(content, /pnpm run ci:candidate/);
   assert.match(content, /pnpm run ci:candidate-check/);
   assert.match(content, /RIGHT_GIT_ARTIFACT_ROOT/);
-  assert.match(content, /os: \["macos-latest", "windows-latest"\]/);
+  assert.match(content, /os: "macos-latest"/);
+  assert.match(content, /platform: "windows"/);
+  assert.match(content, /RIGHT_GIT_RELEASE_ARCHITECTURE: \$\{\{ matrix\.architecture \}\}/);
   assert.match(content, /actions\/upload-artifact@[a-f0-9]{40}/);
   assert.doesNotMatch(content, /secrets\.|AZURE_|APPLE_|certificate|private.key/i);
+});
+
+test("rust-hybrid release candidate can opt into OIDC Windows signing without long-lived secrets", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "widgets-unsigned", os: ["windows-2025"], signWindows: true },
+    matrix: { os: ["ubuntu-24.04", "windows-2025"], node: ["22.23.2"] },
+    templateVersion: "1.3.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  assert.match(content, /environment: release/);
+  assert.match(content, /id-token: write/);
+  assert.match(content, /azure\/login@[a-f0-9]{40}/);
+  assert.match(content, /vars\.AZURE_CLIENT_ID/);
+  assert.match(content, /right-release build --platform win --skip-checks/);
+  assert.match(content, /Artifact Signing client hash mismatch/);
+  assert.doesNotMatch(content, /secrets\.|client-secret|private.key/i);
+});
+
+test("rust-hybrid release candidate can opt into protected macOS signing & notarization", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "widgets-unsigned", os: ["macos-15"], signMacos: true },
+    matrix: { os: ["ubuntu-24.04", "macos-15"], node: ["22.23.2"] },
+    templateVersion: "1.3.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  assert.match(content, /macos-sign:/);
+  assert.match(content, /environment: release/);
+  assert.match(content, /secrets\.APPLE_CERTIFICATE_BASE64/);
+  assert.match(content, /temporary keychain/i);
+  assert.match(content, /right-release build --platform mac --skip-checks/);
+  assert.match(content, /secrets\.APPLE_API_KEY_BASE64/);
+  assert.match(content, /security delete-keychain/);
+  assert.doesNotMatch(content, /pull_request_target/);
 });
 
 test("render determinism: same manifest renders byte-identical output every time", () => {

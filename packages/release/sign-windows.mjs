@@ -7,7 +7,6 @@ import { spawnSync } from "node:child_process";
 
 const EXCLUDE_CREDENTIALS = [
   "ManagedIdentityCredential",
-  "WorkloadIdentityCredential",
   "SharedTokenCacheCredential",
   "VisualStudioCredential",
   "VisualStudioCodeCredential",

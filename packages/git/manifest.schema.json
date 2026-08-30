@@ -94,7 +94,9 @@
         "buildScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
         "checkScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
         "artifactRoot": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$" },
-        "os": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+        "os": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "signWindows": { "type": "boolean" },
+        "signMacos": { "type": "boolean" }
       }
     }
   }

@@ -22,11 +22,14 @@ import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { terminateProcessTree } from "./heavy-command.mjs";
 import { materializeHardeningEvidence } from "./hardening-evidence.mjs";
+import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
 const UPLOAD_LARGE = path.resolve(TOOL_ROOT, "upload-large.mjs");
 const SIGN_WINDOWS = path.resolve(TOOL_ROOT, "sign-windows.mjs");
+const SIGN_MACOS = path.resolve(TOOL_ROOT, "sign-macos.mjs");
+const NOTARIZE_MACOS = path.resolve(TOOL_ROOT, "notarize-macos.mjs");
 const SIGN_UPDATER = path.resolve(TOOL_ROOT, "sign-updater.mjs");
 const RIGHTKIT_VERSIONS = JSON.parse(readFileSync(path.resolve(TOOL_ROOT, "rightkit-versions.json"), "utf8"));
 const VERSION = RIGHTKIT_VERSIONS.stagedNpm?.["@rightkit/release"] ?? RIGHTKIT_VERSIONS.npm["@rightkit/release"];
@@ -123,6 +126,12 @@ if (opts.platform === "win") {
   if (isNsis && !target.sign?.files?.length) fail(`${config.app ?? "app"} win NSIS must declare sign.files for installer signing`);
   if (isNsis && target.sign.prePackageFiles.some((file) => target.sign.files.includes(file))) fail(`${config.app ?? "app"} win raw EXE and installer signing files must be distinct`);
   if (isPortable && target.sign?.files?.length) fail(`${config.app ?? "app"} win portable release must sign every executable through sign.prePackageFiles and omit sign.files`);
+}
+if (opts.platform === "mac") {
+  if (target.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT) fail(`${config.app ?? "app"} mac must declare signingContract: ${MACOS_PORTABLE_SIGNING_CONTRACT}`);
+  if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} mac must declare prePackage to materialize Developer ID signing files`);
+  if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} mac must declare at least one sign.prePackageFiles`);
+  if (!target.notarize?.file) fail(`${config.app ?? "app"} mac must declare notarize.file`);
 }
 if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
@@ -240,6 +249,11 @@ if (opts.platform === "win") {
       signedFiles: rawFiles,
     });
   }
+} else if (opts.platform === "mac") {
+  const signingFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
+  await runCommand(target.prePackage, root);
+  for (const file of signingFiles) await mustExist(file, `missing macOS Developer ID signing artifact: ${file}`);
+  await signMacos(signingFiles, root);
 } else if (nativeAssembly) {
   if (nativeAssembly.packageHook) await runCommand(nativeAssembly.packageHook, root);
   if (nativeFinalizer) {
@@ -277,6 +291,12 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
 
 if (target.postSign && opts.platform !== "win") {
   await runCommand(target.postSign, root);
+}
+
+if (opts.platform === "mac") {
+  const archive = path.resolve(root, target.notarize.file);
+  await mustExist(archive, `missing macOS notarization archive: ${archive}`);
+  await notarizeMacos(archive, root);
 }
 
 {
@@ -651,9 +671,14 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     if (!source.startsWith("# Managed by right-git")) {
       fail(`${appName} ${workflow} is not marked as right-git managed`);
     }
+    const requestedSecrets = [...source.matchAll(/\bsecrets\.([A-Z0-9_]+)/gi)].map((match) => match[1]);
+    const allowedMacosSecrets = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD", "APPLE_API_KEY_BASE64", "APPLE_API_KEY", "APPLE_API_ISSUER"]);
+    const macosSigningAllowed = workflow === "release-candidate.yml" && manifest?.candidate?.signMacos === true;
     if (/^\s*permissions:\s*write-all\s*$/mi.test(source)
       || /^\s*(?:actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):\s*write\s*$/mi.test(source)
-      || /\bsecrets\s*(?:\.|\[)/i.test(source)) {
+      || /pull_request_target\s*:/i.test(source)
+      || /\bsecrets\s*\[/i.test(source)
+      || requestedSecrets.some((name) => !macosSigningAllowed || !allowedMacosSecrets.has(name))) {
       fail(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets`);
     }
   }
@@ -703,6 +728,58 @@ function windowsReceiptPath(root, phase) {
   const configured = phase === "raw-exe" ? target.sign?.receipt : target.sign?.installerReceipt;
   if (configured) return path.resolve(root, configured);
   return path.join(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `windows-${phase}.json`);
+}
+
+async function signMacos(files, root) {
+  const receipt = macosReceiptPath(root, "signing");
+  const args = [SIGN_MACOS];
+  if (opts.dryRun) args.push("--dry-run");
+  args.push("--receipt", receipt, ...files);
+  if (!opts.dryRun && existsSync(receipt)) unlinkSync(receipt);
+  console.log("right-release: signing macOS Developer ID files");
+  await run("node", args, root);
+  if (!opts.dryRun) verifyMacosSigningReceipt(receipt, files);
+}
+
+async function notarizeMacos(archive, root) {
+  const receipt = macosReceiptPath(root, "notarization");
+  const args = [NOTARIZE_MACOS];
+  if (opts.dryRun) args.push("--dry-run");
+  args.push("--receipt", receipt);
+  if (target.notarize.profile) args.push("--profile", target.notarize.profile);
+  args.push(archive);
+  if (!opts.dryRun && existsSync(receipt)) unlinkSync(receipt);
+  console.log("right-release: notarizing macOS archive");
+  await run("node", args, root);
+  if (!opts.dryRun) verifyMacosNotarizationReceipt(receipt, archive);
+}
+
+function macosReceiptPath(root, phase) {
+  const configured = phase === "signing" ? target.sign?.receipt : target.notarize?.receipt;
+  if (configured) return path.resolve(root, configured);
+  return path.join(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `macos-${phase}.json`);
+}
+
+function verifyMacosSigningReceipt(receipt, files) {
+  if (!existsSync(receipt)) fail(`missing macOS Developer ID signing receipt: ${receipt}`);
+  let evidence;
+  try { evidence = JSON.parse(readFileSync(receipt, "utf8")); } catch { fail(`invalid macOS Developer ID signing receipt: ${receipt}`); }
+  const expectedIdentity = process.env.APPLE_DEVELOPER_ID?.trim();
+  const expected = files.map((file) => path.resolve(file)).sort();
+  const actual = Array.isArray(evidence.files) ? evidence.files.map((item) => path.resolve(item.file)).sort() : [];
+  const hashes = new Map(files.map((file) => [path.resolve(file), createHash("sha256").update(readFileSync(file)).digest("hex")]));
+  if (evidence.schema !== 1 || evidence.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT || !expectedIdentity || evidence.identity !== expectedIdentity
+    || JSON.stringify(expected) !== JSON.stringify(actual)
+    || evidence.files.some((item) => item.codesign !== "strict-valid" || item.identity !== expectedIdentity || item.timestampPresent !== true || item.after?.sha256 !== hashes.get(path.resolve(item.file)))) fail(`invalid macOS Developer ID signing receipt evidence: ${receipt}`);
+}
+
+function verifyMacosNotarizationReceipt(receipt, archive) {
+  if (!existsSync(receipt)) fail(`missing macOS notarization receipt: ${receipt}`);
+  let evidence;
+  try { evidence = JSON.parse(readFileSync(receipt, "utf8")); } catch { fail(`invalid macOS notarization receipt: ${receipt}`); }
+  const sha256 = createHash("sha256").update(readFileSync(archive)).digest("hex");
+  if (evidence.schema !== 1 || evidence.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT || path.resolve(evidence.archive?.file ?? "") !== archive
+    || evidence.archive?.sha256 !== sha256 || evidence.notarization?.status !== "Accepted") fail(`invalid macOS notarization receipt evidence: ${receipt}`);
 }
 
 /**

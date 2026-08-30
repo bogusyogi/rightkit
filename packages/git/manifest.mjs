@@ -141,7 +141,7 @@ export function validateManifest(manifest) {
       errors.push("candidate must be an object");
     } else {
       for (const key of Object.keys(candidate)) {
-        if (!["buildScript", "checkScript", "artifactRoot", "os"].includes(key)) errors.push(`unknown candidate field: ${key}`);
+        if (!["buildScript", "checkScript", "artifactRoot", "os", "signWindows", "signMacos"].includes(key)) errors.push(`unknown candidate field: ${key}`);
       }
       for (const key of ["buildScript", "checkScript"]) {
         if (typeof candidate[key] !== "string" || !PACKAGE_SCRIPT_RE.test(candidate[key])) {
@@ -155,6 +155,21 @@ export function validateManifest(manifest) {
         errors.push("candidate.os must be a non-empty array of safe runner labels");
       } else if (candidate.os.some((value) => !manifest.matrix?.os?.includes(value))) {
         errors.push("candidate.os entries must also exist in matrix.os");
+      }
+      if (candidate.signWindows !== undefined && typeof candidate.signWindows !== "boolean") {
+        errors.push("candidate.signWindows must be a boolean");
+      }
+      if (candidate.signWindows === true && candidate.os.filter((value) => /^windows-/i.test(value)).length !== 1) {
+        errors.push("candidate.signWindows requires exactly one Windows runner in candidate.os");
+      }
+      if (candidate.signMacos !== undefined && typeof candidate.signMacos !== "boolean") {
+        errors.push("candidate.signMacos must be a boolean");
+      }
+      if (candidate.signMacos === true && candidate.os.filter((value) => /^macos-/i.test(value)).length !== 1) {
+        errors.push("candidate.signMacos requires exactly one macOS runner in candidate.os");
+      }
+      if ((candidate.signWindows === true || candidate.signMacos === true) && manifest.matrix?.node?.length !== 1) {
+        errors.push("candidate signing requires exactly one matrix.node version");
       }
     }
   }
@@ -278,6 +293,174 @@ function yamlFlowStringList(values) {
   return `[${values.map((v) => JSON.stringify(String(v))).join(", ")}]`;
 }
 
+function candidateMatrix(manifest) {
+  const entries = [];
+  for (const os of manifest.candidate?.os ?? manifest.matrix.os) {
+    const platform = /^windows-/i.test(os) ? "windows" : /^macos-/i.test(os) ? "macos" : "linux";
+    const architecture = platform === "macos" ? "arm64" : "x86_64";
+    for (const node of manifest.matrix.node) entries.push({ os, node, platform, architecture });
+  }
+  return [
+    "        include:",
+    ...entries.flatMap((entry) => [
+      `          - os: ${JSON.stringify(entry.os)}`,
+      `            node: ${JSON.stringify(entry.node)}`,
+      `            platform: ${JSON.stringify(entry.platform)}`,
+      `            architecture: ${JSON.stringify(entry.architecture)}`,
+    ]),
+  ].join("\n");
+}
+
+const AZURE_LOGIN_SHA = "7ddb5af1ef8758cf1353cf3b42f940aee27ba21c"; // v3
+const DOWNLOAD_ARTIFACT_SHA = "d3f86a106a0bac45b974a628896c90dbdf5c8093"; // v4.3.0
+const UPLOAD_ARTIFACT_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"; // v4
+const ARTIFACT_SIGNING_CLIENT_VERSION = "1.0.128";
+const ARTIFACT_SIGNING_CLIENT_SHA256 = "74BD7D27E6CE1051409C38D9B46BC8DF0400ECD643D51FFBF2AC00869061E40B";
+const WINDOWS_SDK_BUILD_TOOLS_VERSION = "10.0.26100.4188";
+const WINDOWS_SDK_BUILD_TOOLS_SHA256 = "180DEB372659029864C10A0C04787833234D64AACD1D2C0661D2C00295D8E022";
+
+function windowsSigningJob(manifest, pm, artifactPrefix) {
+  if (manifest.candidate?.signWindows !== true) return "";
+  const windowsRunner = manifest.candidate.os.find((value) => /^windows-/i.test(value));
+  const nodeVersion = String(manifest.matrix.node[0]);
+  return `
+  windows-sign:
+    needs: [candidate]
+    environment: release
+    runs-on: ${windowsRunner}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${nodeVersion}
+          package-manager-cache: false
+${pm.setup}
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+        with:
+          toolchain: 1.98.0
+      - run: ${pm.installCommand}
+      - name: Download exact unsigned Windows candidate
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${artifactPrefix}-unsigned-${windowsRunner}-${nodeVersion}
+          path: \${{ runner.temp }}/unsigned-windows-candidate
+      - name: Authenticate to Azure with GitHub OIDC
+        uses: azure/login@${AZURE_LOGIN_SHA} # v3
+        with:
+          client-id: \${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: \${{ vars.AZURE_TENANT_ID }}
+          subscription-id: \${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Install pinned Artifact Signing client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tools = Join-Path $env:RUNNER_TEMP 'artifact-signing-tools'
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          $client = Join-Path $tools 'client.zip'
+          $sdk = Join-Path $tools 'sdk.zip'
+          Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/${ARTIFACT_SIGNING_CLIENT_VERSION}/microsoft.artifactsigning.client.${ARTIFACT_SIGNING_CLIENT_VERSION}.nupkg' -OutFile $client
+          Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/${WINDOWS_SDK_BUILD_TOOLS_VERSION}/microsoft.windows.sdk.buildtools.${WINDOWS_SDK_BUILD_TOOLS_VERSION}.nupkg' -OutFile $sdk
+          if ((Get-FileHash $client -Algorithm SHA256).Hash -ne '${ARTIFACT_SIGNING_CLIENT_SHA256}') { throw 'Artifact Signing client hash mismatch' }
+          if ((Get-FileHash $sdk -Algorithm SHA256).Hash -ne '${WINDOWS_SDK_BUILD_TOOLS_SHA256}') { throw 'Windows SDK Build Tools hash mismatch' }
+          Expand-Archive $client (Join-Path $tools 'client')
+          Expand-Archive $sdk (Join-Path $tools 'sdk')
+          "AZURE_ARTIFACT_SIGNING_DLIB_PATH=$tools\\client\\bin\\x64\\Azure.CodeSigning.Dlib.dll" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "AZURE_SIGNTOOL_PATH=$tools\\sdk\\bin\\10.0.26100.0\\x64\\signtool.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Sign & finalize Windows candidate
+        run: pnpm exec right-release build --platform win --skip-checks
+        env:
+          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-windows-candidate
+          LEGION_SOURCE_REVISION: \${{ github.sha }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: \${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: \${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_PROFILE: \${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+      - name: Upload signed Windows candidate
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
+        with:
+          name: ${artifactPrefix}-signed-windows-${nodeVersion}
+          path: |
+            dist/releases/windows/**
+            .right-release/receipts/windows-*.json
+          if-no-files-found: error
+`.trimEnd();
+}
+
+function macosSigningJob(manifest, pm, artifactPrefix) {
+  if (manifest.candidate?.signMacos !== true) return "";
+  const macosRunner = manifest.candidate.os.find((value) => /^macos-/i.test(value));
+  const nodeVersion = String(manifest.matrix.node[0]);
+  return `
+  macos-sign:
+    needs: [candidate]
+    environment: release
+    runs-on: ${macosRunner}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${nodeVersion}
+          package-manager-cache: false
+${pm.setup}
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+        with:
+          toolchain: 1.98.0
+      - run: ${pm.installCommand}
+      - name: Download exact unsigned macOS candidate
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${artifactPrefix}-unsigned-${macosRunner}-${nodeVersion}
+          path: \${{ runner.temp }}/unsigned-macos-candidate
+      - name: Install Apple signing identity in temporary keychain
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_BASE64: \${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: \${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: \${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_API_KEY_BASE64: \${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          certificate_path="$RUNNER_TEMP/apple-signing.p12"
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          keychain_path="$RUNNER_TEMP/apple-signing.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$key_path"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security list-keychain -d user -s "$keychain_path"
+          printf 'APPLE_API_KEY_PATH=%s\\n' "$key_path" >> "$GITHUB_ENV"
+      - name: Sign, notarize & finalize macOS candidate
+        run: pnpm exec right-release build --platform mac --skip-checks
+        env:
+          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-macos-candidate
+          LEGION_SOURCE_REVISION: \${{ github.sha }}
+          APPLE_DEVELOPER_ID: \${{ vars.APPLE_DEVELOPER_ID }}
+          APPLE_API_KEY: \${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: \${{ secrets.APPLE_API_ISSUER }}
+      - name: Upload signed & notarized macOS candidate
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
+        with:
+          name: ${artifactPrefix}-signed-macos-${nodeVersion}
+          path: |
+            dist/releases/mac/**
+            .right-release/receipts/macos-*.json
+          if-no-files-found: error
+      - name: Remove Apple signing material
+        if: \${{ always() }}
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/apple-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/apple-signing.p12" "$RUNNER_TEMP/AuthKey.p8"
+`.trimEnd();
+}
+
 /**
  * Derive one project name from the target repo's package.json, falling back
  * to the repo directory's basename. Never throws.
@@ -321,6 +504,9 @@ export function buildRenderContext(manifest, repoPath) {
     CANDIDATE_CHECK_SCRIPT: manifest.candidate?.checkScript,
     CANDIDATE_ARTIFACT_ROOT: manifest.candidate?.artifactRoot,
     CANDIDATE_OS_MATRIX: yamlFlowStringList(manifest.candidate?.os ?? manifest.matrix.os),
+    CANDIDATE_MATRIX: candidateMatrix(manifest),
+    WINDOWS_SIGNING_JOB: windowsSigningJob(manifest, pm, artifactPrefix),
+    MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
   };
 
   if (manifest.publish?.npm) {

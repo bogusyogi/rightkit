@@ -1,7 +1,7 @@
 # Managed by right-git — do not hand-edit. Run `right-git sync` to update.
 # Template: profiles/rust-hybrid/release-candidate.yml | Template version: ${TEMPLATE_VERSION}
-# Public CI produces unsigned candidates only. Signing credentials, finalization,
-# release publication, & stable bootstrap publication remain protected-host work.
+# Public CI always produces unsigned candidates. Opt-in finalization signs Windows
+# through Azure OIDC & macOS through environment-scoped Apple credentials.
 name: release-candidate
 on:
   workflow_dispatch:
@@ -21,8 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${CANDIDATE_OS_MATRIX}
-        node: ${NODE_MATRIX}
+${CANDIDATE_MATRIX}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,13 +42,19 @@ ${PACKAGE_MANAGER_SETUP}
         run: ${PM_RUN} ${CANDIDATE_BUILD_SCRIPT}
         env:
           RIGHT_GIT_ARTIFACT_ROOT: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}
+          RIGHT_GIT_RELEASE_PLATFORM: ${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
       - name: Check unsigned release candidate
         run: ${PM_RUN} ${CANDIDATE_CHECK_SCRIPT}
         env:
           RIGHT_GIT_ARTIFACT_ROOT: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}
+          RIGHT_GIT_RELEASE_PLATFORM: ${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
       - name: Upload unsigned candidate handoff
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${ARTIFACT_PREFIX}-unsigned-${{ matrix.os }}-${{ matrix.node }}
           path: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}/**
           if-no-files-found: error
+${WINDOWS_SIGNING_JOB}
+${MACOS_SIGNING_JOB}

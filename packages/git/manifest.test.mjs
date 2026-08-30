@@ -29,6 +29,15 @@ test("rust-hybrid supports ci plus a configured unsigned release-candidate lane"
     candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "legion-unsigned", os: ["ubuntu-latest"] },
   };
   assert.equal(validateManifest(candidate).valid, true);
+  assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, signWindows: true } }).valid, false);
+  assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, signMacos: true } }).valid, false);
+  const windowsCandidate = { ...candidate, matrix: { ...candidate.matrix, os: ["ubuntu-latest", "windows-2025"] }, candidate: { ...candidate.candidate, os: ["windows-2025"], signWindows: true } };
+  assert.equal(validateManifest(windowsCandidate).valid, true);
+  assert.equal(validateManifest({ ...windowsCandidate, candidate: { ...windowsCandidate.candidate, signWindows: "yes" } }).valid, false);
+  const macCandidate = { ...candidate, matrix: { ...candidate.matrix, os: ["ubuntu-latest", "macos-15"] }, candidate: { ...candidate.candidate, os: ["macos-15"], signMacos: true } };
+  assert.equal(validateManifest(macCandidate).valid, true);
+  assert.equal(validateManifest({ ...macCandidate, candidate: { ...macCandidate.candidate, signMacos: "yes" } }).valid, false);
+  assert.equal(validateManifest({ ...macCandidate, matrix: { ...macCandidate.matrix, node: ["22", "24"] } }).valid, false);
   assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, buildScript: "echo unsafe" } }).valid, false);
   assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, artifactRoot: "../escape" } }).valid, false);
   assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, os: ["windows-latest"] } }).valid, false);

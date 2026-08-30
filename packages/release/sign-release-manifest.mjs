@@ -13,7 +13,6 @@ export const RIGHTRELEASE_MANIFEST_SIGNER = Object.freeze({
 
 const EXCLUDE_CREDENTIALS = [
   "ManagedIdentityCredential",
-  "WorkloadIdentityCredential",
   "SharedTokenCacheCredential",
   "VisualStudioCredential",
   "VisualStudioCodeCredential",

@@ -42,7 +42,7 @@ import { cancelAndReapManagedRequest, firstManagedRequestId, releaseProgressLimi
 // These four files are the ones whose behaviour the cached target directory can
 // outlive.
 
-const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
+const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "notarize-macos.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
 const PIPELINE_FINGERPRINT = createHash("sha256")
   .update(PIPELINE_FINGERPRINT_SOURCES.map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
   .digest("hex")
@@ -177,6 +177,17 @@ try {
       const configured = phase === "raw-exe" ? target.sign?.receipt : phase === "installer" ? target.sign?.installerReceipt : undefined;
       return configured ? path.resolve(appRoot, configured) : path.join(receiptRoot, `windows-${phase}.json`);
     }),
+  } : platform === "mac" ? {
+    contract: target.signingContract ?? "<missing>",
+    pipeline: PIPELINE_FINGERPRINT,
+    configSha256: hashFile(configPath),
+    // Mac portable releases produce one Developer ID receipt before packaging
+    // and one Accepted notarization receipt after. Both must be part of cache
+    // identity and seal evidence, including configured receipt overrides.
+    receiptInputs: [
+      target.sign?.receipt ? path.resolve(appRoot, target.sign.receipt) : path.join(receiptRoot, "macos-signing.json"),
+      target.notarize?.receipt ? path.resolve(appRoot, target.notarize.receipt) : path.join(receiptRoot, "macos-notarization.json"),
+    ],
   } : null;
   if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
   const cargoLock = nativeLayout.lockPath;

@@ -124,11 +124,16 @@ test("a broker-managed host forces broker cacheMode so Cache V2's lease/prune/fl
   assert.doesNotMatch(source, /if \(cacheModeRequested === "shared"\) \{\s*\n\s*suiteSlot/);
 });
 
-test("Windows seal and cache identity bind the signing contract, config, and receipts", () => {
+test("Windows & macOS seals and cache identity bind signing contracts, config, and receipts", () => {
   assert.match(source, /signingIdentity = platform === "win"/);
+  assert.match(source, /platform === "mac"/);
   assert.match(source, /contract: target\.signingContract/);
   assert.match(source, /configSha256: hashFile\(configPath\)/);
   assert.match(source, /windows-\$\{phase\}\.json/);
+  assert.match(source, /macos-signing\.json/);
+  assert.match(source, /macos-notarization\.json/);
+  assert.match(source, /sign-macos\.mjs/);
+  assert.match(source, /notarize-macos\.mjs/);
   assert.match(source, /inputHashes\["\.right-release\/signing-identity\.json"\]/);
   assert.match(source, /cache: cacheIdentity\.fingerprint, signingIdentity/);
   // The seal binds every produced receipt and refuses to seal with none;
