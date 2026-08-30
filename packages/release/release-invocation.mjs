@@ -15,7 +15,7 @@ function canonical(file) {
   return path.normalize(realpathSync(file)).toLowerCase();
 }
 
-export function assertPrimaryReleaseCheckout(repoRoot) {
+export function assertPrimaryReleaseCheckout(repoRoot, env = process.env) {
   const worktrees = git(repoRoot, ["worktree", "list", "--porcelain"]);
   const gitDir = git(repoRoot, ["rev-parse", "--git-dir"]).trim();
   const configured = spawnSync("git", ["config", "--path", "--get", "core.worktree"], {
@@ -32,7 +32,35 @@ export function assertPrimaryReleaseCheckout(repoRoot) {
     throw new Error(`right-release must be invoked from the primary Git worktree: ${primary}`);
   }
   const branch = spawnSync("git", ["symbolic-ref", "--quiet", "HEAD"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
-  if (branch.status !== 0) throw new Error("right-release requires a branch-attached primary Git checkout; detached HEAD is forbidden");
+  if (branch.status !== 0 && !isVerifiedGithubActionsTagCheckout(repoRoot, env)) {
+    throw new Error("right-release requires a branch-attached primary Git checkout; detached HEAD is forbidden");
+  }
+}
+
+function isVerifiedGithubActionsTagCheckout(repoRoot, env) {
+  const ref = env.GITHUB_REF;
+  const sha = env.GITHUB_SHA;
+  if (
+    env.GITHUB_ACTIONS !== "true"
+    || env.GITHUB_EVENT_NAME !== "push"
+    || env.GITHUB_REF_TYPE !== "tag"
+    || !/^refs\/tags\/v.+$/.test(ref ?? "")
+    || !/^[a-f0-9]{40}$/.test(sha ?? "")
+    || !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(env.GITHUB_REPOSITORY ?? "")
+  ) return false;
+  const head = git(repoRoot, ["rev-parse", "HEAD"]).trim();
+  if (head !== sha) return false;
+  let tagCommit;
+  let origin;
+  try {
+    tagCommit = git(repoRoot, ["rev-parse", `${ref}^{commit}`]).trim();
+    origin = git(repoRoot, ["remote", "get-url", "origin"]).trim();
+  } catch {
+    return false;
+  }
+  if (tagCommit !== head) return false;
+  const repository = origin.match(/(?:github\.com[/:])([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i)?.[1];
+  return repository?.toLowerCase() === env.GITHUB_REPOSITORY.toLowerCase();
 }
 
 export function resolvePrimaryWorktree({ repoRoot, worktrees, gitDir, coreWorktree }) {

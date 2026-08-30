@@ -489,7 +489,7 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.85",
+    "@rightkit/release": "0.2.86",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4",
   });

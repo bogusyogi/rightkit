@@ -16,6 +16,7 @@ function makeRepo() {
   git(root, "init", "--initial-branch", "main");
   git(root, "config", "user.email", "release-test@example.com");
   git(root, "config", "user.name", "Release Test");
+  git(root, "remote", "add", "origin", "https://github.com/Orthic-Labs/legion.git");
   mkdirSync(path.join(root, "src"));
   mkdirSync(path.join(root, "tests"));
   mkdirSync(path.join(root, "docs"));
@@ -61,6 +62,53 @@ test("rejects a detached HEAD even in the primary Git checkout", () => {
     () => assertPrimaryReleaseCheckout(primary),
     /detached HEAD is forbidden/i,
   );
+});
+
+function tagEnv(root, tag) {
+  return {
+    ...process.env,
+    GITHUB_ACTIONS: "true",
+    GITHUB_EVENT_NAME: "push",
+    GITHUB_REF_TYPE: "tag",
+    GITHUB_REF: `refs/tags/${tag}`,
+    GITHUB_SHA: git(root, "rev-parse", "HEAD"),
+    GITHUB_REPOSITORY: "Orthic-Labs/legion",
+  };
+}
+
+test("allows detached GitHub Actions lightweight and annotated v-tag checkouts only", () => {
+  for (const annotated of [false, true]) {
+    const root = makeRepo();
+    const tag = annotated ? "v1.0.1" : "v1.0.0";
+    git(root, "tag", ...(annotated ? ["-a", tag, "-m", tag] : [tag]));
+    git(root, "checkout", "--detach", tag);
+    assert.doesNotThrow(() => assertPrimaryReleaseCheckout(root, tagEnv(root, tag)));
+  }
+});
+
+for (const [label, mutate] of [
+  ["SHA mismatch", (env) => ({ ...env, GITHUB_SHA: "b".repeat(40) })],
+  ["branch ref", (env) => ({ ...env, GITHUB_REF_TYPE: "branch", GITHUB_REF: "refs/heads/main" })],
+  ["pull request", (env) => ({ ...env, GITHUB_EVENT_NAME: "pull_request" })],
+  ["manual event", (env) => ({ ...env, GITHUB_EVENT_NAME: "workflow_dispatch" })],
+  ["non-v tag", (env) => ({ ...env, GITHUB_REF: "refs/tags/release-1.0.0" })],
+  ["repository mismatch", (env) => ({ ...env, GITHUB_REPOSITORY: "Orthic-Labs/other" })],
+]) {
+  test(`rejects detached GitHub Actions checkout with ${label}`, () => {
+    const root = makeRepo();
+    git(root, "tag", "v1.0.0");
+    git(root, "checkout", "--detach", "v1.0.0");
+    assert.throws(() => assertPrimaryReleaseCheckout(root, mutate(tagEnv(root, "v1.0.0"))), /detached HEAD is forbidden/i);
+  });
+}
+
+test("rejects a tag that does not resolve to detached HEAD", () => {
+  const root = makeRepo();
+  git(root, "tag", "v1.0.0");
+  writeFileSync(path.join(root, "src", "app.js"), "export const app = false;\n");
+  git(root, "commit", "-am", "next");
+  git(root, "checkout", "--detach", "HEAD");
+  assert.throws(() => assertPrimaryReleaseCheckout(root, tagEnv(root, "v1.0.0")), /detached HEAD is forbidden/i);
 });
 
 test("reports a dirty tracked file declared as a build input", () => {
