@@ -50,8 +50,18 @@ test("macOS and Windows builds default to Cache V2 while explicit legacy mode re
 test("production builds package from the real primary app checkout", () => {
   assert.match(source, /const configPath = path\.resolve\(configName\)/);
   assert.match(source, /const appRoot = path\.dirname\(configPath\)/);
-  assert.match(source, /\[WORKER, "--config", configPath, "--platform", platform, "--no-upload"\]/);
+  assert.match(source, /\[WORKER, "--config", configPath, "--platform", platform, "--no-upload", \.\.\.\(skipChecks \? \["--skip-checks"\] : \[\]\)\]/);
   assert.match(source, /sealRelease\(\{ configRoot: appRoot,/);
+});
+
+test("build forwards --skip-checks only to configured package checks", () => {
+  const worker = readFileSync(new URL("./release.mjs", import.meta.url), "utf8");
+  assert.match(source, /let skipChecks = false;/);
+  assert.match(source, /else if \(arg === "--skip-checks"\) skipChecks = true;/);
+  assert.match(source, /\.\.\.\(skipChecks \? \["--skip-checks"\] : \[\]\)/);
+  assert.match(worker, /if \(!opts\.skipChecks\) \{\s*for \(const script of config\.checks \?\? \[\]\) await runPackageScript/s);
+  assert.match(source, /const preflight = buildPreflight\(/);
+  assert.match(worker, /await signWindows\(|await signMacos\(/);
 });
 
 test("Windows native executables preserve arguments containing spaces", () => {

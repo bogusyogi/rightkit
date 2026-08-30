@@ -19,6 +19,11 @@ test("CLI routes build and release only to the build state machine", () => {
   assert.match(source, /\["release",\s*"build-release\.mjs"\]/);
 });
 
+test("CLI advertises build-only --skip-checks", () => {
+  const source = readFileSync(cli, "utf8");
+  assert.match(source, /build \[--platform mac\|win\] \[--skip-checks\]/);
+});
+
 test("CLI routes upload and legacy publish only to the upload state machine", () => {
   const source = readFileSync(cli, "utf8");
   assert.match(source, /\["upload",\s*"upload-release\.mjs"\]/);
@@ -61,12 +66,14 @@ test("upload requires an explicit patch or update tier before reading a release"
   assert.match(result.stderr, /tier is required.*patch\|update/i);
 });
 
-test("Windows upload trust verification uses signtool instead of PowerShell modules", () => {
+test("GitHub upload delegates platform trust verification to the shared release lane", () => {
   const uploadSource = readFileSync(upload, "utf8");
+  const githubSource = readFileSync(path.join(root, "github-release.mjs"), "utf8");
   const signingSource = readFileSync(signWindows, "utf8");
-  assert.match(uploadSource, /SIGN_WINDOWS/);
-  assert.match(uploadSource, /--verify-only/);
-  assert.doesNotMatch(uploadSource, /Get-AuthenticodeSignature/);
+  assert.match(uploadSource, /publishGitHubRelease/);
+  assert.match(githubSource, /sign-windows\.mjs/);
+  assert.match(githubSource, /--verify-only/);
+  assert.doesNotMatch(uploadSource, /CLOUDFLARE_API_TOKEN|wrangler|R2/i);
   assert.match(signingSource, /verifyOnly/);
   assert.match(signingSource, /\["verify", "\/pa", "\/v", file\]/);
 });
@@ -101,8 +108,17 @@ test("Windows signer verification accepts CRLF subjects and retains identity che
   );
 });
 
-test("upload uses only the pinned pnpm runner", () => {
+test("upload uses GitHub CLI and never invokes the R2 runner", () => {
   const source = readFileSync(upload, "utf8");
-  assert.match(source, /spawnSync\("pnpm", \["dlx", "wrangler@4"/);
+  const githubSource = readFileSync(path.join(root, "github-release.mjs"), "utf8");
+  assert.match(githubSource, /run\("gh", \["release", "upload"/);
+  assert.doesNotMatch(source, /wrangler|CLOUDFLARE_API_TOKEN|RIGHTAPPS_API_URL/i);
   assert.doesNotMatch(source, /\bnpx\b/);
+});
+
+test("upload accepts only GitHub Releases as configured product distribution", () => {
+  const source = readFileSync(upload, "utf8");
+  assert.match(source, /distribution\.provider/);
+  assert.match(source, /github-releases/);
+  assert.match(source, /releaseConfig\?\.distribution\?\.repository/);
 });

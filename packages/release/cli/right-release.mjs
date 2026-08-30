@@ -127,7 +127,7 @@ function printHelp() {
   console.log(`right-release <command> [options]
 
 Commands:
-  build [--platform mac|win]                         Build, sign/notarize, harden, and seal; never uploads
+  build [--platform mac|win] [--skip-checks]         Build, sign/notarize, harden, and seal; never uploads
   upload --release <id> --platform mac|win --tier patch|update
                                                       Upload one sealed release; never builds
   release                                             Compatibility alias for build

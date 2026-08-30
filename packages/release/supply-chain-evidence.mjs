@@ -122,8 +122,9 @@ export function materializeInTotoSlsaProvenance({
   sourceCommit,
   sourceRepository,
   subjects,
-  startedAt,
-  finishedAt = new Date().toISOString(),
+  now = () => new Date().toISOString(),
+  startedAt = now(),
+  finishedAt = now(),
 }) {
   assertIdentity({ product, version, target, sourceCommit });
   if (!outputPath.endsWith(".intoto.jsonl")) throw new Error("in-toto output must end in .intoto.jsonl");

@@ -38,6 +38,35 @@ test("materializes conforming CycloneDX 1.6 and in-toto SLSA v1 evidence", () =>
   assert.equal(readFileSync(provenance, "utf8").trim().split(/\r?\n/).length, 1);
 });
 
+test("provenance defaults an omitted startedAt from its injected UTC clock", () => {
+  const root = mkdtempSync(join(tmpdir(), "rightrelease-supply-chain-"));
+  const provenance = join(root, "legion.intoto.jsonl");
+  const now = () => startedAt;
+  const statement = materializeInTotoSlsaProvenance({
+    outputPath: provenance,
+    ...identity,
+    sourceRepository: "https://github.com/Orthic-Labs/legion",
+    subjects: [file],
+    now,
+    finishedAt,
+  });
+  assert.equal(statement.predicate.runDetails.metadata.startedOn, startedAt);
+  assert.equal(validateInTotoSlsaProvenance(provenance).predicate.runDetails.metadata.startedOn, startedAt);
+});
+
+test("provenance rejects an invalid explicit startedAt even with an injected clock", () => {
+  const root = mkdtempSync(join(tmpdir(), "rightrelease-supply-chain-"));
+  assert.throws(() => materializeInTotoSlsaProvenance({
+    outputPath: join(root, "legion.intoto.jsonl"),
+    ...identity,
+    sourceRepository: "https://github.com/Orthic-Labs/legion",
+    subjects: [file],
+    now: () => startedAt,
+    startedAt: "not-a-timestamp",
+    finishedAt,
+  }), /SLSA startedAt must be exact ISO-8601 UTC/);
+});
+
 test("validators reject renamed arbitrary JSON and unbound evidence", () => {
   const root = mkdtempSync(join(tmpdir(), "rightrelease-supply-chain-"));
   const fakeSbom = join(root, "fake.cdx.json");

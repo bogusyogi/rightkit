@@ -76,12 +76,14 @@ const args = process.argv.slice(2);
 let configName = "right-release.config.mjs";
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
 let dryRun = false;
+let skipChecks = false;
 
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
   if (arg === "--config") configName = args[++i];
   else if (arg === "--platform") platform = args[++i];
   else if (arg === "--dry-run") dryRun = true;
+  else if (arg === "--skip-checks") skipChecks = true;
   else if (arg === "--tier" || arg.startsWith("--tier=")) fail("build is tier-neutral; select patch or update only during upload");
   else if (arg === "-h" || arg === "--help") usage(0);
   else fail(`unknown argument: ${arg}`);
@@ -337,7 +339,7 @@ try {
         throwIfInterrupted();
         await runProgress(
           process.execPath,
-          [WORKER, "--config", configPath, "--platform", platform, "--no-upload"],
+          [WORKER, "--config", configPath, "--platform", platform, "--no-upload", ...(skipChecks ? ["--skip-checks"] : [])],
           appRoot,
           env,
           [managedCargoTarget ?? env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
