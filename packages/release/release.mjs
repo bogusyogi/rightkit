@@ -23,6 +23,7 @@ import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { terminateProcessTree } from "./heavy-command.mjs";
 import { materializeHardeningEvidence } from "./hardening-evidence.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
+import { runConfiguredChecks } from "./release-checks.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -217,9 +218,13 @@ const started = Date.now();
 console.log(`right-release ${VERSION}: ${config.app ?? path.basename(root)} ${opts.platform} ${mode} tier=${opts.tier ?? "neutral"}`);
 
 if (opts.install) await runInstall(config.packageManager, workdir);
-if (!opts.skipChecks) {
-  for (const script of config.checks ?? []) await runPackageScript(config.packageManager, script, workdir);
-}
+await runConfiguredChecks({
+  packageManager: config.packageManager,
+  checks: config.checks,
+  workdir,
+  skipChecks: opts.skipChecks,
+  run: runPackageScript,
+});
 
 let nativeFinalization = null;
 let bundleMarkerReceipts = [];

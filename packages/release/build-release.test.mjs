@@ -59,7 +59,7 @@ test("build forwards --skip-checks only to configured package checks", () => {
   assert.match(source, /let skipChecks = false;/);
   assert.match(source, /else if \(arg === "--skip-checks"\) skipChecks = true;/);
   assert.match(source, /\.\.\.\(skipChecks \? \["--skip-checks"\] : \[\]\)/);
-  assert.match(worker, /if \(!opts\.skipChecks\) \{\s*for \(const script of config\.checks \?\? \[\]\) await runPackageScript/s);
+  assert.match(worker, /await runConfiguredChecks\(\{[\s\S]*skipChecks: opts\.skipChecks,[\s\S]*run: runPackageScript,/);
   assert.match(source, /const preflight = buildPreflight\(/);
   assert.match(worker, /await signWindows\(|await signMacos\(/);
 });
