@@ -61,7 +61,7 @@ export async function proveBrokerRequestsDrained(externalRoot, endpoint, { loadI
     throw error;
   }
   if (!Number.isSafeInteger(status.open) || !Array.isArray(status.inFlight)) throw new Error('broker returned invalid cutover drain status');
-  if (status.open !== 0) throw new Error(`cannot activate while ${status.open} broker request(s) are in flight: ${status.inFlight.map(({ id }) => id).join(', ')}`);
+  if (status.open !== 0) throw new Error(`cannot activate while ${status.open} broker request(s) are in flight: ${status.inFlight.map(({ id, state, command, elapsedMs }) => `${id} (${state ?? 'UNKNOWN'}, ${elapsedMs ?? 0}ms, ${command ?? 'command pending'})`).join('; ')}. Inspect with 'rightkit list' or 'rightkit status <request-id>'.`);
   return Object.freeze({ present: true, open: 0, inFlight: Object.freeze([]), runtime: runtimeIdentity });
 }
 
@@ -91,7 +91,7 @@ export function contained(path, root) { const value = relative(root, path); retu
  * OpenProcess + a liveness check internally, no real signal delivered, same
  * ESRCH-on-absent contract as POSIX. */
 /** Prove no thin root owns a process before service replacement. */
-export async function proveThinRequestsDrained(externalRoot, { list = readdir, load = readFile } = {}) {
+export async function proveThinRequestsDrained(externalRoot, { list = readdir, load = readFile, now = Date.now } = {}) {
   const activeDirectory = join(resolve(externalRoot), 'rightkit-build-control', 'global', 'active');
   let entries;
   try { entries = await list(activeDirectory, { withFileTypes: true }); }
@@ -107,8 +107,9 @@ export async function proveThinRequestsDrained(externalRoot, { list = readdir, l
     let marker;
     try { marker = JSON.parse(await load(join(activeDirectory, file), 'utf8')); }
     catch { marker = null; }
-    inFlight.push(Object.freeze({ id: marker?.id ?? file.slice(0, -5), workspaceKey: marker?.workspaceKey ?? null }));
+    const startedAt = marker?.startedAt ?? null; const startedMs = typeof startedAt === 'string' ? Date.parse(startedAt) : NaN;
+    inFlight.push(Object.freeze({ id: marker?.id ?? file.slice(0, -5), workspaceKey: marker?.workspaceKey ?? null, command: marker?.command ?? null, startedAt, elapsedMs: Number.isFinite(startedMs) ? Math.max(0, now() - startedMs) : null }));
   }
-  if (inFlight.length) throw new Error(`cannot activate while ${inFlight.length} thin request(s) are in flight: ${inFlight.map(({ id }) => id).join(', ')}`);
+  if (inFlight.length) throw new Error(`cannot activate while ${inFlight.length} thin request(s) are in flight: ${inFlight.map(({ id, command, elapsedMs }) => `${id} (${elapsedMs ?? 0}ms, ${command ?? 'command unavailable'})`).join('; ')}. Inspect with 'rightkit list' or 'rightkit status <request-id>'.`);
   return Object.freeze({ activeDirectory, open: 0, present: true, inFlight: Object.freeze([]) });
 }

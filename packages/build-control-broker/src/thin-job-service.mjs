@@ -86,11 +86,19 @@ function brokerOwnedRuntimeEnvironment(environment, endpoint) {
   return runtime;
 }
 
-export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env, timeoutMs = 2_000 } = {}) {
+export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFile, environment = process.env, timeoutMs = 30_000 } = {}) {
   if (typeof workspace !== 'string' || !isAbsolute(workspace) || typeof cargoPath !== 'string' || !cargoPath) throw new TypeError('absolute workspace & cargoPath are required');
   const executionCwd = await realpath(workspace);
   const startedAt = Date.now();
-  const result = await run(cargoPath, ['locate-project', '--workspace', '--message-format', 'plain'], { cwd: executionCwd, env: environment, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 });
+  let result;
+  try {
+    result = await run(cargoPath, ['locate-project', '--workspace', '--message-format', 'plain'], { cwd: executionCwd, env: environment, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 64 * 1024 });
+  } catch (error) {
+    const timedOut = error?.killed === true || error?.signal === 'SIGTERM' || error?.code === 'ETIMEDOUT';
+    if (timedOut) throw Object.assign(new Error(`Cargo workspace discovery exceeded ${timeoutMs}ms for ${executionCwd}`), { code: 'RK_WORKSPACE_DISCOVERY_TIMEOUT', timeoutMs, workspace: executionCwd, cause: error });
+    const detail = String(error?.stderr ?? error?.message ?? '').trim().slice(0, 2_048);
+    throw Object.assign(new Error(`Cargo workspace discovery failed for ${executionCwd}${detail ? `: ${detail}` : ''}`), { code: 'RK_WORKSPACE_DISCOVERY_FAILED', workspace: executionCwd, cause: error });
+  }
   const manifest = String(result?.stdout ?? result).trim();
   if (!isAbsolute(manifest) || basename(manifest) !== 'Cargo.toml') throw Object.assign(new Error('Cargo workspace root could not be resolved'), { code: 'RK_WORKSPACE_UNRESOLVED' });
   return Object.freeze({ executionCwd, workspaceRoot: await realpath(dirname(manifest)), workspaceDiscoveryMs: Date.now() - startedAt });
@@ -102,9 +110,9 @@ export async function resolveCargoWorkspace(workspace, { cargoPath, run = execFi
 // timeout bounds any single invocation. Empty/negative TTL disables caching.
 export class CachedWorkspaceResolver {
   #next; #ttlMs; #timeoutMs; #concurrency; #active = 0; #waiting = []; #inflight = new Map(); #stats;
-  constructor({ ttlMs = 10 * 60_000, timeoutMs = 2_000, concurrency = 4, now = Date.now, resolver = resolveCargoWorkspace } = {}) {
+  constructor({ ttlMs = 10 * 60_000, timeoutMs = 30_000, concurrency = 4, now = Date.now, resolver = resolveCargoWorkspace } = {}) {
     this.#ttlMs = Number.isSafeInteger(ttlMs) && ttlMs > 0 ? ttlMs : 0;
-    this.#timeoutMs = Number.isSafeInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 2_000;
+    this.#timeoutMs = Number.isSafeInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30_000;
     this.#concurrency = Number.isSafeInteger(concurrency) && concurrency > 0 ? concurrency : 4;
     this.#stats = { lookup: 0, hit: 0, miss: 0, error: 0 };
     if (typeof resolver !== 'function') throw new TypeError('workspace resolver must be a function');
@@ -225,7 +233,7 @@ export class ThinJobService {
       // Bound, cache & make observable the CONTROL-class workspace discovery.
       const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
         ? workspaceResolver
-        : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 2_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
+        : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 30_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
       const rustupContext = registeredRustupContext(cargoTool.path);
       service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: rustupContext.toolchain, rustupHome: rustupContext.home, compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, statfs, now, platform });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1), platform }) });
@@ -313,7 +321,13 @@ export class ThinJobService {
     if (this.#stopping) return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: 'RightKit broker is stopping' });
     const submittedMessage = message.type === 'SUBMIT' ? message.job : message.type === 'MANAGED_AGENT' ? message : null;
     const rootAdmissionId = submittedMessage && submittedMessage.execution?.mode !== 'NESTED' ? randomUUID() : null;
-    if (rootAdmissionId) this.#admissions.set(rootAdmissionId, Object.freeze({ id: rootAdmissionId, state: 'ADMITTING' }));
+    if (rootAdmissionId) this.#admissions.set(rootAdmissionId, Object.freeze({
+      id: rootAdmissionId,
+      state: 'ADMITTING',
+      command: `${submittedMessage.shim} ${(submittedMessage.request?.argv ?? []).join(' ')}`.trim(),
+      workspace: submittedMessage.request?.workspace ?? null,
+      submittedAt: this.#now()
+    }));
     if (await this.#activationPending()) {
       if (rootAdmissionId) this.#admissions.delete(rootAdmissionId);
       if (message.type === 'STATUS' && message.id === 'runtime-health-probe') return this.#emit(emit, { type: 'STATUS', id: message.id, state: 'ACTIVATION_PENDING', runtime: this.#runtime });
@@ -321,10 +335,13 @@ export class ThinJobService {
     }
     if (rootAdmissionId && await cutoverDrainPending(this.#config.broker.externalRoot.path)) {
       this.#admissions.delete(rootAdmissionId);
-      return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: 'runtime cutover drain is pending', code: 'RK_CUTOVER_DRAIN_PENDING' });
+      const inFlight = this.#inFlight();
+      const detail = inFlight.length ? `; active broker work: ${this.#describeJobs(inFlight)}` : '';
+      return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', error: `runtime cutover drain is pending${detail}; inspect with 'rightkit list' or 'rightkit status <request-id>'`, code: 'RK_CUTOVER_DRAIN_PENDING', inFlight });
     }
     try {
       if (message.type === 'DRAIN_STATUS') return this.#drainStatus(emit);
+      if (message.type === 'LIST') return this.#list(emit);
       if (message.type === 'SUBMIT') return await this.#submit(message.job, emit, rootAdmissionId);
       if (message.type === 'WATCH') return this.#watch(message.id, emit, onDisconnect);
       if (message.type === 'STATUS') return await this.#status(message.id, emit);
@@ -680,16 +697,53 @@ export class ThinJobService {
     });
   }
 
+  #jobSummary(job) {
+    const now = this.#now(); const anchor = job.startedAt ?? job.submittedAt; const receipt = job.terminal?.receipt;
+    return Object.freeze({
+      id: job.id,
+      state: job.state,
+      command: job.command ?? null,
+      workspace: job.workspaceRoot ?? job.workspace ?? null,
+      lane: job.capability?.lane ?? null,
+      priority: job.priority ?? null,
+      submittedAt: typeof job.submittedAt === 'number' ? new Date(job.submittedAt).toISOString() : job.submittedAt ?? null,
+      startedAt: job.startedAt ? new Date(job.startedAt).toISOString() : null,
+      elapsedMs: Number.isSafeInteger(receipt?.totalMs) ? receipt.totalMs : typeof anchor === 'number' ? Math.max(0, now - anchor) : null,
+      queueMs: Number.isSafeInteger(receipt?.queueMs) ? receipt.queueMs : job.startedAt ? Math.max(0, job.startedAt - job.submittedAt) : typeof job.submittedAt === 'number' ? Math.max(0, now - job.submittedAt) : null,
+      outputBytes: job.outputBytes ?? 0,
+      lastOutputAt: job.lastOutputAt ? new Date(job.lastOutputAt).toISOString() : null,
+      attachedClients: job.watchers?.size ?? 0
+    });
+  }
+
+  #inFlight() {
+    const admitting = [...this.#admissions.values()].map((job) => this.#jobSummary(job));
+    const active = [...this.#jobs.values()].filter((job) => !job.parentId && !job.terminal).map((job) => this.#jobSummary(job));
+    return Object.freeze([...admitting, ...active]);
+  }
+
+  #describeJobs(jobs) {
+    return jobs.map((job) => `${job.id} (${job.state}, ${job.elapsedMs ?? 0}ms, ${job.command ?? 'command pending'})`).join('; ');
+  }
+
   #status(id, emit) {
     const live = this.#jobs.get(id);
-    if (live) return this.#emit(emit, { type: 'STATUS', id, state: live.state, receipt: live.terminal?.receipt ?? null });
+    if (live) return this.#emit(emit, { type: 'STATUS', ...this.#jobSummary(live), receipt: live.terminal?.receipt ?? null });
     return this.#state.receipt(id).then((receipt) => { if (!receipt) throw Object.assign(new Error('job not found'), { code: 'RK_JOB_NOT_FOUND' }); return this.#emit(emit, { type: 'STATUS', id, state: receipt.state, receipt }); });
   }
 
+  #list(emit) {
+    const inFlight = this.#inFlight();
+    const recent = [...this.#jobs.values()]
+      .filter((job) => !job.parentId && job.terminal)
+      .sort((left, right) => (right.terminal?.receipt?.terminalAt ?? '').localeCompare(left.terminal?.receipt?.terminalAt ?? ''))
+      .slice(0, 20)
+      .map((job) => this.#jobSummary(job));
+    return this.#emit(emit, { type: 'LIST', inFlight, recent: Object.freeze(recent) });
+  }
+
   #drainStatus(emit) {
-    const active = [...this.#jobs.values()].filter((job) => !job.parentId && !job.terminal).map((job) => Object.freeze({ id: job.id, state: job.state }));
-    const admitting = [...this.#admissions.values()];
-    const inFlight = Object.freeze([...admitting, ...active]);
+    const inFlight = this.#inFlight();
     return this.#emit(emit, { type: 'DRAIN_STATUS', open: inFlight.length, inFlight });
   }
 

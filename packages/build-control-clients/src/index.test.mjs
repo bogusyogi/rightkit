@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { BUILD_CONTROL_PROTOCOL, MANAGED_RUST_ENVIRONMENT_KEYS, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
-import { adapterRegistry, brokerEndpoint, cancelManagedAgentJob, createClientRequest, createJobCommand, createManagedAgentRequest, createNestedManagedAgentRequest, createRightkitRequest, installAgentShims, INSTALLED_MANAGED_SHIMS, JOB_REQUEST_TYPES, MAX_BROKER_LINE_BYTES, loadRuntimeIdentity, sendManagedAgentRequest, shimManifest, statusManagedAgentJob, submitManagedAgentJob, ToolChangedError, watchManagedAgentJob } from './index.mjs';
+import { adapterRegistry, brokerEndpoint, cancelManagedAgentJob, createClientRequest, createJobCommand, createManagedAgentRequest, createNestedManagedAgentRequest, createRightkitRequest, installAgentShims, INSTALLED_MANAGED_SHIMS, JOB_REQUEST_TYPES, listManagedAgentJobs, MAX_BROKER_LINE_BYTES, loadRuntimeIdentity, sendManagedAgentRequest, shimManifest, statusManagedAgentJob, submitManagedAgentJob, ToolChangedError, watchManagedAgentJob } from './index.mjs';
 
 const cleanProcessEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !MANAGED_RUST_ENVIRONMENT_KEYS.includes(key.toUpperCase()) && key !== 'RIGHTKIT_BUILD_BROKER_SOCKET'));
 const sourcePackagesRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -242,6 +242,7 @@ test('job API submits, watches, reads status, cancels, & preserves detached work
     if (command.type === 'SUBMIT') { socket.once('close', () => { submitObserverClosed = true; resolveSubmitObserverClosed(); }); return socket.end(`${JSON.stringify({ type: 'SUBMITTED', id: 'job-42', state: 'QUEUED' })}\n`); }
     await submitObserverClosedPromise; assert.equal(submitObserverClosed, true);
     if (command.type === 'STATUS') return socket.end(`${JSON.stringify({ type: 'STATUS', id: command.id, state: 'RUNNING' })}\n`);
+    if (command.type === 'LIST') return socket.end(`${JSON.stringify({ type: 'LIST', inFlight: [{ id: 'job-42', state: 'RUNNING' }], recent: [] })}\n`);
     if (command.type === 'CANCEL') return socket.end(`${JSON.stringify({ type: 'CANCEL_REQUESTED', id: command.id, state: 'REAPING' })}\n`);
     socket.write(`${JSON.stringify({ type: 'JOB_EVENT', id: command.id, event: { type: 'STDOUT', data: 'still running\\n' } })}\n`);
     socket.end(`${JSON.stringify({ type: 'RESULT', id: command.id, exitCode: 0, status: 'SUCCEEDED' })}\n`);
@@ -249,10 +250,11 @@ test('job API submits, watches, reads status, cancels, & preserves detached work
   await new Promise((resolve) => server.listen(endpoint, resolve));
   assert.deepEqual(await submitManagedAgentJob(message, { endpoint }), { type: 'SUBMITTED', id: 'job-42', state: 'QUEUED' });
   assert.deepEqual(await statusManagedAgentJob('job-42', { endpoint }), { type: 'STATUS', id: 'job-42', state: 'RUNNING' });
+  assert.deepEqual(await listManagedAgentJobs({ endpoint }), { type: 'LIST', inFlight: [{ id: 'job-42', state: 'RUNNING' }], recent: [] });
   const events = []; assert.equal((await watchManagedAgentJob('job-42', { endpoint, onEvent: (event) => events.push(event) })).status, 'SUCCEEDED');
-  assert.deepEqual(seen.map((command) => command.type), ['SUBMIT', 'STATUS', 'WATCH']);
+  assert.deepEqual(seen.map((command) => command.type), ['SUBMIT', 'STATUS', 'LIST', 'WATCH']);
   assert.deepEqual(await cancelManagedAgentJob('job-42', { endpoint }), { type: 'CANCEL_REQUESTED', id: 'job-42', state: 'REAPING' });
-  assert.deepEqual(seen.map((command) => command.type), ['SUBMIT', 'STATUS', 'WATCH', 'CANCEL']);
+  assert.deepEqual(seen.map((command) => command.type), ['SUBMIT', 'STATUS', 'LIST', 'WATCH', 'CANCEL']);
   assert.equal(seen[0].job.type, 'MANAGED_AGENT'); assert.equal(seen[1].id, 'job-42'); assert.equal(events[1].type, 'JOB_EVENT');
   await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
 });
@@ -260,6 +262,7 @@ test('job API submits, watches, reads status, cancels, & preserves detached work
 test('cancel command carries only an explicit typed provenance source', () => {
   assert.equal(createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id: 'job-1', source: 'CLIENT_SIGNAL' }).source, 'CLIENT_SIGNAL');
   assert.throws(() => createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id: 'job-1', source: 'BROKER_SHUTDOWN' }), /cancellation source/);
+  assert.deepEqual(createJobCommand(JOB_REQUEST_TYPES.LIST), { type: 'LIST', protocol: BUILD_CONTROL_PROTOCOL, runtime: SOURCE_RUNTIME_IDENTITY });
   assert.deepEqual(createJobCommand(JOB_REQUEST_TYPES.DRAIN_STATUS), { type: 'DRAIN_STATUS', protocol: BUILD_CONTROL_PROTOCOL, runtime: SOURCE_RUNTIME_IDENTITY });
 });
 
@@ -316,6 +319,21 @@ test('rightkit CLI exposes status, attach, & cancel by detached request id', asy
   let stdout = ''; child.stdout.on('data', (chunk) => { stdout += chunk; });
   assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }), 0);
   assert.deepEqual(JSON.parse(stdout), { type: 'STATUS', id: 'job-cli', state: 'QUEUED' });
+  await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
+});
+
+test('rightkit CLI lists in-flight & recent detached jobs without a request id', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-client-')); const endpoint = endpointFor(root);
+  const server = net.createServer((socket) => socket.on('data', (data) => {
+    const command = JSON.parse(data.toString()); assert.equal(command.type, 'LIST');
+    socket.write(handshake({ runtime: command.runtime }));
+    socket.end(`${JSON.stringify({ type: 'LIST', inFlight: [{ id: 'live-job', state: 'RUNNING', elapsedMs: 90_000 }], recent: [{ id: 'done-job', state: 'SUCCEEDED' }] })}\n`);
+  }));
+  await new Promise((resolve) => server.listen(endpoint, resolve));
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./rightkit.mjs', import.meta.url)), 'list'], { cwd: root, env: { ...cleanProcessEnvironment(), RIGHTKIT_BUILD_BROKER_SOCKET: endpoint } });
+  let stdout = ''; child.stdout.on('data', (chunk) => { stdout += chunk; });
+  assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); }), 0);
+  assert.deepEqual(JSON.parse(stdout).inFlight[0], { id: 'live-job', state: 'RUNNING', elapsedMs: 90_000 });
   await new Promise((resolve) => server.close(resolve)); await rm(root, { recursive: true, force: true });
 });
 

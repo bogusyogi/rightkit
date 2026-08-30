@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
-import { brokerEndpointForPlatform, CachedWorkspaceResolver, ThinJobService, createThinJobServer } from './thin-job-service.mjs';
+import { brokerEndpointForPlatform, CachedWorkspaceResolver, ThinJobService, createThinJobServer, resolveCargoWorkspace } from './thin-job-service.mjs';
 import { ThinState } from './thin-state.mjs';
 import { beginCutoverDrain, endCutoverDrain } from './cutover-shared.mjs';
 
@@ -100,7 +100,7 @@ test('workspace discovery is bounded, deduplicated, cached & reports hit timing'
   const root = await mkdtemp(join(tmpdir(), 'rightkit-workspace-resolver-'));
   let calls = 0; let release;
   const gate = new Promise((resolve) => { release = resolve; });
-  const resolver = new CachedWorkspaceResolver({ concurrency: 1, resolver: async (cwd, options) => { calls += 1; assert.equal(options.timeoutMs, 2_000); await gate; return { executionCwd: cwd, workspaceRoot: cwd, workspaceDiscoveryMs: 8 }; } });
+  const resolver = new CachedWorkspaceResolver({ concurrency: 1, resolver: async (cwd, options) => { calls += 1; assert.equal(options.timeoutMs, 30_000); await gate; return { executionCwd: cwd, workspaceRoot: cwd, workspaceDiscoveryMs: 8 }; } });
   try {
     const first = resolver.resolve(root); const duplicate = resolver.resolve(root);
     for (let attempt = 0; attempt < 20 && calls === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 1));
@@ -113,6 +113,20 @@ test('workspace discovery is bounded, deduplicated, cached & reports hit timing'
     assert.equal(cached.workspaceDiscoveryCache, 'HIT'); assert.equal(cached.workspaceDiscoveryMs, 0);
     assert.equal(resolver.stats.lookup, 3); assert.equal(resolver.stats.hit + resolver.stats.miss, 3);
     assert.deepEqual({ error: resolver.stats.error, active: resolver.stats.active, queued: resolver.stats.queued, inflight: resolver.stats.inflight }, { error: 0, active: 0, queued: 0, inflight: 0 });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('workspace discovery reports timeout & Cargo failure explicitly', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-workspace-errors-'));
+  try {
+    await assert.rejects(
+      resolveCargoWorkspace(root, { cargoPath: '/managed/cargo', timeoutMs: 17_000, run: async () => { throw Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' }); } }),
+      (error) => error.code === 'RK_WORKSPACE_DISCOVERY_TIMEOUT' && error.timeoutMs === 17_000 && error.message.includes(root),
+    );
+    await assert.rejects(
+      resolveCargoWorkspace(root, { cargoPath: '/managed/cargo', run: async () => { throw Object.assign(new Error('Command failed'), { stderr: 'could not find Cargo.toml' }); } }),
+      (error) => error.code === 'RK_WORKSPACE_DISCOVERY_FAILED' && error.message.includes('could not find Cargo.toml') && error.message.includes(root),
+    );
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -312,10 +326,18 @@ test('cutover fence rejects new roots while drain status exposes active analysis
     await waitFor(item.service, root.id, ['RUNNING']);
     const draining = (await call(item.service, command('DRAIN_STATUS'))).result;
     assert.equal(draining.open, 1);
-    assert.deepEqual(draining.inFlight, [{ id: root.id, state: 'RUNNING' }]);
+    assert.equal(draining.inFlight[0].id, root.id);
+    assert.equal(draining.inFlight[0].state, 'RUNNING');
+    assert.equal(draining.inFlight[0].command, 'cargo outdated');
+    assert.equal(draining.inFlight[0].workspace, item.workspace);
+    assert.ok(draining.inFlight[0].elapsedMs >= 0);
     fence = await beginCutoverDrain(item.root);
     const rejected = (await call(item.service, command('SUBMIT', message(item.workspace, ['outdated'])))).result;
     assert.equal(rejected.code, 'RK_CUTOVER_DRAIN_PENDING');
+    assert.match(rejected.error, new RegExp(root.id));
+    assert.match(rejected.error, /cargo outdated/);
+    assert.match(rejected.error, /rightkit list/);
+    assert.equal(rejected.inFlight[0].id, root.id);
     item.children.at(-1).emit('close', 0, null);
     await call(item.service, command('WATCH', root.id));
     assert.equal((await call(item.service, command('DRAIN_STATUS'))).result.open, 0);
@@ -323,6 +345,33 @@ test('cutover fence rejects new roots while drain status exposes active analysis
     if (fence) await endCutoverDrain(fence);
     await item.close();
   }
+});
+
+test('list & status preserve observable detached results after client loss', async () => {
+  const item = await fixture();
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['test'])))).result;
+    await waitFor(item.service, submitted.id, ['RUNNING']);
+    const child = item.children.at(-1); child.stdout.emit('data', Buffer.from('252 passed; 0 failed\n'));
+    const active = (await call(item.service, command('LIST'))).result;
+    assert.equal(active.inFlight[0].id, submitted.id);
+    assert.match(active.inFlight[0].command, /^cargo test --target aarch64-apple-darwin --target-dir /);
+    assert.equal(active.inFlight[0].outputBytes, 21);
+    assert.ok(active.inFlight[0].elapsedMs >= 0);
+    const running = (await call(item.service, command('STATUS', submitted.id))).result;
+    assert.equal(running.command, active.inFlight[0].command);
+    assert.equal(running.receipt, null);
+    child.emit('close', 0, null);
+    const terminal = (await call(item.service, command('WATCH', submitted.id))).result;
+    assert.equal(terminal.status, 'SUCCEEDED');
+    const listed = (await call(item.service, command('LIST'))).result;
+    assert.equal(listed.inFlight.length, 0);
+    assert.equal(listed.recent[0].id, submitted.id);
+    assert.equal(listed.recent[0].state, 'SUCCEEDED');
+    const recovered = (await call(item.service, command('STATUS', submitted.id))).result;
+    assert.equal(recovered.receipt.state, 'SUCCEEDED');
+    assert.match(recovered.receipt.output.head, /252 passed; 0 failed/);
+  } finally { await item.close(); }
 });
 
 test('Cargo BUILD delegates nested rustc without a second permit or output rewrite', async () => {

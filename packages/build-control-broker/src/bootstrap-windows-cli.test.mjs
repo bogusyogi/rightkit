@@ -87,6 +87,7 @@ test('defaultBounds matches the same doc-mandated shape shipped on macOS', () =>
   const bounds = defaultBounds();
   assert.equal(bounds.jobDeadlineMs, 0);
   assert.equal(bounds.buildConcurrency, 3);
+  assert.equal(bounds.workspaceDiscoveryTimeoutMs, 30_000);
   assert.ok(bounds.targetCacheCapBytes > 0);
   assert.equal(bounds.maintenanceConcurrency, undefined);
 });

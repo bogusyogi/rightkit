@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cancelManagedAgentJob, createRightkitRequest, loadRuntimeIdentity, statusManagedAgentJob, submitAndWatchManagedAgentJob, watchManagedAgentJob } from './index.mjs';
+import { cancelManagedAgentJob, createRightkitRequest, listManagedAgentJobs, loadRuntimeIdentity, statusManagedAgentJob, submitAndWatchManagedAgentJob, watchManagedAgentJob } from './index.mjs';
 import { createRemoteCoordinator } from './remote-coordinator.mjs';
 
 const write = (value, stream) => { if (typeof value === 'string' && value) stream.write(value); };
@@ -25,6 +25,9 @@ try {
     } else {
       throw new TypeError('usage: rightkit remote windows cargo <check|clippy|test|build> [args...] | rightkit remote <status|cancel> <request-id>');
     }
+  } else if (argv[0] === 'list') {
+    if (argv.length !== 1) throw new TypeError('usage: rightkit list');
+    process.stdout.write(`${JSON.stringify(await listManagedAgentJobs({ runtimeIdentity }))}\n`);
   } else if (['status', 'attach', 'cancel'].includes(argv[0])) {
     if (argv.length !== 2) throw new TypeError(`usage: rightkit ${argv[0]} <request-id>`);
     const operation = argv[0] === 'status' ? statusManagedAgentJob : argv[0] === 'attach' ? watchManagedAgentJob : cancelManagedAgentJob;

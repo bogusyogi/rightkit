@@ -1089,7 +1089,7 @@ Keep:
 RightKit broker
 agent shims
 direct-Cargo enforcement
-client protocol / status / cancel / attach
+client protocol / list / status / cancel / attach
 runtime identity handshake unless deliberately replaced
 one command-policy source of truth
 shared CARGO_HOME
@@ -1107,6 +1107,14 @@ simple retired-generation GC
 ```
 
 These are the actual product.
+
+`rightkit list` is one-shot discovery for in-flight roots plus recent terminal
+requests. Live summaries include request ID, command, workspace, state, elapsed
+time, output bytes, last output time, & attached-client count. `rightkit status
+<request-id>` returns same live context or durable terminal receipt;
+`rightkit attach <request-id>` replays bounded broker output and returns terminal
+result. Client disconnect never cancels broker ownership or discards receipt.
+Agents must recover detached work through these commands rather than resubmit.
 
 ---
 

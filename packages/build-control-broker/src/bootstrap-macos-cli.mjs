@@ -201,7 +201,7 @@ export function defaultBounds() {
     heartbeatIntervalMs: 5_000, processGraceMs: 5_000, jobDeadlineMs: 0,
     outputBufferBytes: 8 * 1024 * 1024, outputHeadBytes: 16_384, outputTailBytes: 16_384,
     controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 3, workspaceWriteConcurrency: 4, targetCacheCapBytes: 150 * 1024 ** 3,
-    workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 10_000,
+    workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 30_000,
   };
 }
 

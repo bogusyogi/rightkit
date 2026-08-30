@@ -21,8 +21,8 @@ export const FRONTEND_SHIMS = Object.freeze({ cargo: 'cargo', swiftpm: 'swift', 
 export const INSTALLED_MANAGED_SHIMS = Object.freeze(['cargo', 'rustc', 'rustdoc', 'rustup']);
 export const MAX_BROKER_LINE_BYTES = 1024 * 1024;
 export const BUILD_PRIORITIES = Object.freeze(['INSTALLER', 'INTERACTIVE', 'BATCH']);
-export const JOB_REQUEST_TYPES = Object.freeze({ SUBMIT: 'SUBMIT', WATCH: 'WATCH', STATUS: 'STATUS', CANCEL: 'CANCEL', DRAIN_STATUS: 'DRAIN_STATUS' });
-export const JOB_RESPONSE_TYPES = Object.freeze({ SUBMITTED: 'SUBMITTED', STATUS: 'STATUS', CANCEL_REQUESTED: 'CANCEL_REQUESTED', DRAIN_STATUS: 'DRAIN_STATUS' });
+export const JOB_REQUEST_TYPES = Object.freeze({ SUBMIT: 'SUBMIT', WATCH: 'WATCH', STATUS: 'STATUS', CANCEL: 'CANCEL', LIST: 'LIST', DRAIN_STATUS: 'DRAIN_STATUS' });
+export const JOB_RESPONSE_TYPES = Object.freeze({ SUBMITTED: 'SUBMITTED', STATUS: 'STATUS', CANCEL_REQUESTED: 'CANCEL_REQUESTED', LIST: 'LIST', DRAIN_STATUS: 'DRAIN_STATUS' });
 
 export class ToolChangedError extends Error {
   constructor(event) {
@@ -58,7 +58,7 @@ export function createJobCommand(type, { message, id, runtimeIdentity, source } 
     if (normalizedMessage.runtime.version !== runtime.version || normalizedMessage.runtime.clientDigest !== runtime.clientDigest || normalizedMessage.runtime.brokerDigest !== runtime.brokerDigest) throw new TypeError('job & managed-agent runtime identities must match');
     return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime, job: normalizedMessage });
   }
-  if (type === JOB_REQUEST_TYPES.DRAIN_STATUS) return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime });
+  if ([JOB_REQUEST_TYPES.LIST, JOB_REQUEST_TYPES.DRAIN_STATUS].includes(type)) return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime });
   if (type === JOB_REQUEST_TYPES.CANCEL && source !== undefined && !['USER_CANCEL', 'OPERATOR_CANCEL', 'CLIENT_SIGNAL', 'RELEASE_PRIORITY_CANCEL'].includes(source)) throw new TypeError('registered cancellation source is required');
   return Object.freeze({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime, id: jobId(id), ...(type === JOB_REQUEST_TYPES.CANCEL && source ? { source } : {}) });
 }
@@ -249,6 +249,7 @@ export async function sendJobCommand(command, { endpoint = brokerEndpoint(), con
 export function submitManagedAgentJob(message, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.SUBMIT, { message }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.SUBMITTED, 'RESULT']) }); }
 export function watchManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.WATCH, { id, runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set(['RESULT']) }); }
 export function statusManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.STATUS, { id, runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.STATUS]) }); }
+export function listManagedAgentJobs(options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.LIST, { runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.LIST]) }); }
 export function cancelManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id, runtimeIdentity: options.runtimeIdentity, source: options.source }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.CANCEL_REQUESTED]) }); }
 export async function submitAndWatchManagedAgentJob(message, options = {}) {
   const submitted = await submitManagedAgentJob(message, options);

@@ -21,9 +21,9 @@ test('broker drain proof rejects every admitting, queued, or running root', asyn
   const loadIdentity = async () => SOURCE_RUNTIME_IDENTITY;
   const send = async (command) => {
     assert.equal(command.type, 'DRAIN_STATUS');
-    return { type: 'DRAIN_STATUS', open: 1, inFlight: [{ id: 'analysis-1', state: 'RUNNING' }] };
+    return { type: 'DRAIN_STATUS', open: 1, inFlight: [{ id: 'analysis-1', state: 'RUNNING', command: 'cargo test', elapsedMs: 75_000 }] };
   };
-  await assert.rejects(proveBrokerRequestsDrained('/tmp/rightkit', '/tmp/broker.sock', { loadIdentity, send }), /analysis-1/);
+  await assert.rejects(proveBrokerRequestsDrained('/tmp/rightkit', '/tmp/broker.sock', { loadIdentity, send }), /analysis-1 \(RUNNING, 75000ms, cargo test\).*rightkit list/);
   const result = await proveBrokerRequestsDrained('/tmp/rightkit', '/tmp/broker.sock', { loadIdentity, send: async () => ({ type: 'DRAIN_STATUS', open: 0, inFlight: [] }) });
   assert.equal(result.open, 0); assert.equal(result.present, true);
   const absent = await proveBrokerRequestsDrained('/tmp/rightkit', '/tmp/broker.sock', { loadIdentity, send: async () => { throw new Error('RightKit broker unavailable: connect ENOENT'); } });

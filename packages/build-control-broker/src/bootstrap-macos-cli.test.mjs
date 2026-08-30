@@ -155,7 +155,7 @@ test('defaultBounds matches the doc-mandated shape (one field per bound, no drif
   const bounds = defaultBounds();
   assert.equal(bounds.jobDeadlineMs, 0, 'the broker itself has no build timeout; right-release owns that');
   assert.equal(bounds.buildConcurrency, 3);
-  assert.equal(bounds.workspaceDiscoveryTimeoutMs, 10_000);
+  assert.equal(bounds.workspaceDiscoveryTimeoutMs, 30_000);
   assert.ok(bounds.targetCacheCapBytes > 0);
   assert.equal(bounds.maintenanceConcurrency, undefined);
 });
