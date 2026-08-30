@@ -320,3 +320,9 @@ test("renderTemplate never substitutes inside GitHub Actions double-brace expres
   const out = renderTemplate("run: echo ${{ github.repository }}\nname: ${TEMPLATE_VERSION}\n", { TEMPLATE_VERSION: "1.0.0" });
   assert.equal(out, "run: echo ${{ github.repository }}\nname: 1.0.0\n");
 });
+
+test("renderTemplate normalizes an empty final release-chain fragment to one newline", () => {
+  const out = renderTemplate("jobs:\n${RELEASE_CHAIN_JOBS}\n", { RELEASE_CHAIN_JOBS: "" });
+  assert.equal(out, "jobs:\n");
+  assert.equal((out.match(/\n/g) ?? []).length, 1);
+});

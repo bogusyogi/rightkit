@@ -31,5 +31,8 @@ export function renderTemplate(templateText, context) {
   if (leftover) {
     throw new Error(`render: unresolved placeholder ${leftover[0]} remained after substitution`);
   }
-  return rendered;
+  // Optional final job fragments may expand to an empty string. Normalize
+  // template EOF after substitution so managed workflows remain byte-stable
+  // with exactly one terminating newline.
+  return `${rendered.replace(/(?:\r\n|\r|\n)+$/, "")}\n`;
 }
