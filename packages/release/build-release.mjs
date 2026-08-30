@@ -28,6 +28,7 @@ import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBui
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
+import { resolveReleaseCacheMode } from "./release-cache-mode.mjs";
 import { resolveTargetRoot } from "./cargo-target.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
@@ -203,8 +204,7 @@ try {
   const managedCargoTarget = brokerManagedHost(process.env) ? resolveTargetRoot(cargoToml) : null;
   const cacheIdentity = resolveSharedCacheIdentity({ cargoLockPath: cargoLock, cargoTomlPath: cargoToml, rustcVerbose: toolVersions.rustc, targetTriple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? toolVersions.rustHost, profile: target.profile ?? "release" });
   const cacheKey = hashFileText(JSON.stringify({ cache: cacheIdentity.fingerprint, signingIdentity })).slice(0, 16);
-  const cacheModeRequested = process.env.RIGHT_RELEASE_CACHE_MODE ?? (platform === "mac" || platform === "win" ? "shared" : "legacy");
-  if (cacheModeRequested !== "legacy" && cacheModeRequested !== "shared") fail("RIGHT_RELEASE_CACHE_MODE must be legacy or shared");
+  const cacheModeRequested = resolveReleaseCacheMode({ requested: process.env.RIGHT_RELEASE_CACHE_MODE, platform, env: process.env });
   // On a broker-managed host, Cache V2's lease/slot/prune/floor/mark chain is not
   // running against the directory that will actually hold build output — the
   // broker owns CARGO_TARGET_DIR unconditionally (see managedCargoTarget above).

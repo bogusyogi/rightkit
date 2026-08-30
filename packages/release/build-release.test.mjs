@@ -22,12 +22,11 @@ test("general build dry-run is filesystem-pure and never starts its package comm
   assert.deepEqual(readdirSync(root).sort(), before);
 });
 
-test("macOS and Windows builds default to Cache V2 while explicit legacy mode remains available", () => {
+test("native local builds retain Cache V2 while CI & explicit legacy use safe fallback", () => {
   assert.match(source, /assertCleanSource/);
   assert.match(source, /right-release build/);
   assert.match(source, /RIGHT_RELEASE_CACHE_MODE/);
-  assert.match(source, /platform === "mac" \|\| platform === "win" \? "shared" : "legacy"/);
-  assert.match(source, /cacheModeRequested !== "legacy" && cacheModeRequested !== "shared"/);
+  assert.match(source, /resolveReleaseCacheMode/);
   assert.match(source, /resolveSharedCacheRoot/);
   assert.match(source, /acquireSuiteBuildSlot/);
   assert.match(source, /acquireHeavyWorkSlot/);
@@ -62,6 +61,13 @@ test("build forwards --skip-checks only to configured package checks", () => {
   assert.match(worker, /await runConfiguredChecks\(\{[\s\S]*skipChecks: opts\.skipChecks,[\s\S]*run: runPackageScript,/);
   assert.match(source, /const preflight = buildPreflight\(/);
   assert.match(worker, /await signWindows\(|await signMacos\(/);
+});
+
+test("CI cache fallback avoids shared-cache prerequisites before signing", () => {
+  assert.match(source, /resolveReleaseCacheMode\(\{ requested: process\.env\.RIGHT_RELEASE_CACHE_MODE, platform, env: process\.env \}\)/);
+  assert.match(source, /const sharedCacheRoot = cacheMode === "shared" \? resolveSharedCacheRoot/);
+  assert.match(source, /if \(cacheMode === "shared"\) assertSccacheVersion/);
+  assert.match(source, /if \(cacheMode !== "shared" && !commandExists\("sccache"\)\) delete env\.RUSTC_WRAPPER;/);
 });
 
 test("Windows native executables preserve arguments containing spaces", () => {
