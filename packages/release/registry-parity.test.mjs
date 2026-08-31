@@ -27,7 +27,7 @@ test('registry parity distinguishes an unpublished version from registry failure
   assert.deepEqual(await verifyRegistryParity({ allowUnpublished: true, fetchImpl: notFound }), {
     status: 'UNPUBLISHED',
     name: '@rightkit/release',
-    version: '0.2.93',
+    version: '0.2.94',
   });
   await assert.rejects(
     verifyRegistryParity({ fetchImpl: notFound }),
