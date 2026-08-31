@@ -756,9 +756,12 @@ export function buildRenderContext(manifest, repoPath) {
   const projectName = deriveProjectName(repoPath);
   const artifactPrefix = projectName.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
   const rustWorkspaces = manifest.rustCache?.workspaces ?? ["engine"];
+  const configuredWindowsRunner = manifest.matrix.os.find((runner) => runner.startsWith("windows-"));
+  const ciOs = configuredWindowsRunner ?? manifest.matrix.os[0];
 
   const context = {
     OS_MATRIX: yamlFlowStringList(manifest.matrix.os),
+    CI_OS_MATRIX: yamlFlowStringList([ciOs]),
     NODE_MATRIX: yamlFlowStringList(manifest.matrix.node),
     NODE_PUBLISH_VERSION: JSON.stringify(String(manifest.matrix.node[0])),
     PM_NAME: pm.name,

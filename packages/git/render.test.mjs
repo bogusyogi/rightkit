@@ -50,8 +50,24 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /version: 11\.24\.0/);
   assert.match(content, /toolchain: 1\.98\.0/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
-  assert.match(content, /os: \["windows-2025"\]/);
+  assert.match(content, /os: \["windows-latest"\]/);
   assert.doesNotMatch(content, /ubuntu-latest|macos-latest/);
+});
+
+test("rust-hybrid ci preserves a declared macOS-only lane", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    matrix: { os: ["macos-14"], node: ["26.8.1"] },
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  assert.match(content, /os: \["macos-14"\]/);
+  assert.doesNotMatch(content, /windows-2025/);
 });
 
 test("rust-hybrid release candidate renders product scripts, artifact handoff, and no signing secret", () => {
