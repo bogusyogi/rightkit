@@ -214,6 +214,7 @@ test("rust-hybrid release chain preserves signed candidate, installed qualificat
   assert.match(content, /shell: pwsh\n        run: \|\n          throw 'installed_qualification_failed \{ reason: prerequisites_absent, detail: "same-run Windows signing\/finalization did not succeed" \}'/);
   assert.doesNotMatch(content, /^        run: throw 'installed_qualification_failed .*detail: /m);
   assert.match(content, /pnpm run release:qualify:installed/);
+  assert.match(content, /installed-qualification:[\s\S]*GH_TOKEN: \$\{\{ github\.token \}\}/);
   assert.match(content, /publish:\n    needs: \[installed-qualification, macos-sign\]/);
   assert.match(content, /publish:[\s\S]*startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   assert.doesNotMatch(content.slice(content.indexOf("  publish:")), /inputs\.signed_qualification/);

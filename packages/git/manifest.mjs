@@ -657,6 +657,7 @@ ${pm.setup}
       - name: Run installed-artifact qualification
         run: ${pm.runPrefix} ${chain.installedQualificationScript}
         env:
+          GH_TOKEN: \${{ github.token }}
           RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/right-git-release/windows
           RIGHT_GIT_QUALIFICATION_EVIDENCE_ROOT: \${{ runner.temp }}/right-git-release/qualification
           RIGHT_GIT_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}
