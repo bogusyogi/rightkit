@@ -24,6 +24,9 @@ jobs:
         run: exit 1
   candidate:
     needs: [private-repo-guard]
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     strategy:
       fail-fast: false
       matrix:
@@ -43,7 +46,15 @@ ${PACKAGE_MANAGER_SETUP}
           targets: ${{ matrix.targetTriple }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          workspaces: engine
+          workspaces: |
+${RUST_CACHE_WORKSPACES}
+          shared-key: ${ARTIFACT_PREFIX}-rust
+          add-job-id-key: false
+          cache-workspace-crates: false
+          save-if: true
+      - uses: Mozilla-Actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.16.0"
       - run: ${INSTALL_COMMAND}
       - name: Build unsigned release candidate
         run: ${PM_RUN} ${CANDIDATE_BUILD_SCRIPT}

@@ -57,9 +57,11 @@ const TOP_LEVEL_KEYS = new Set([
   "templateVersion",
   "profile",
   "gate",
+  "rustCache",
   "candidate",
 ]);
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+const RUST_WORKSPACE_PATH_RE = /^(?:\.|(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
 const PACKAGE_SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
 const GITHUB_VARIABLE_RE = /^[A-Z][A-Z0-9_]*$/;
 const RELEASE_PLATFORMS = new Set(["windows", "macos", "linux"]);
@@ -151,6 +153,26 @@ export function validateManifest(manifest) {
     }
   } else if (manifest.gate !== undefined) {
     errors.push("gate is only valid for profile 'rust-hybrid'");
+  }
+
+  const rustCache = manifest.rustCache;
+  if (rustCache !== undefined) {
+    if (profile !== "rust-hybrid") {
+      errors.push("rustCache is only valid for profile 'rust-hybrid'");
+    } else if (rustCache === null || typeof rustCache !== "object" || Array.isArray(rustCache)) {
+      errors.push("rustCache must be an object");
+    } else {
+      for (const key of Object.keys(rustCache)) {
+        if (key !== "workspaces") errors.push(`unknown rustCache field: ${key}`);
+      }
+      if (!Array.isArray(rustCache.workspaces) || rustCache.workspaces.length === 0) {
+        errors.push("rustCache.workspaces must be a non-empty array");
+      } else if (rustCache.workspaces.some((value) => typeof value !== "string" || !RUST_WORKSPACE_PATH_RE.test(value))) {
+        errors.push("rustCache.workspaces entries must be safe relative paths");
+      } else if (new Set(rustCache.workspaces).size !== rustCache.workspaces.length) {
+        errors.push("rustCache.workspaces entries must be unique");
+      }
+    }
   }
 
   const candidate = manifest.candidate;
@@ -733,6 +755,7 @@ export function buildRenderContext(manifest, repoPath) {
   const pm = parsePackageManager(manifest.packageManager);
   const projectName = deriveProjectName(repoPath);
   const artifactPrefix = projectName.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+  const rustWorkspaces = manifest.rustCache?.workspaces ?? ["engine"];
 
   const context = {
     OS_MATRIX: yamlFlowStringList(manifest.matrix.os),
@@ -747,6 +770,7 @@ export function buildRenderContext(manifest, repoPath) {
     ARTIFACT_PREFIX: artifactPrefix,
     TEMPLATE_VERSION: manifest.templateVersion,
     GATE_PATH: manifest.gate?.path,
+    RUST_CACHE_WORKSPACES: rustWorkspaces.map((workspace) => `            ${workspace} -> target`).join("\n"),
     CANDIDATE_BUILD_SCRIPT: manifest.candidate?.buildScript,
     CANDIDATE_CHECK_SCRIPT: manifest.candidate?.checkScript,
     CANDIDATE_ARTIFACT_ROOT: manifest.candidate?.artifactRoot,

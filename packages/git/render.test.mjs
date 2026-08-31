@@ -69,6 +69,8 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
   );
   assert.match(content, /pnpm run ci:candidate/);
   assert.match(content, /pnpm run ci:candidate-check/);
+  assert.match(content, /Mozilla-Actions\/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba/);
+  assert.match(content, /shared-key: widgets-rust/);
   assert.doesNotMatch(content, /bash \.\/scripts\/gate\.sh/);
   assert.match(content, /RIGHT_GIT_ARTIFACT_ROOT/);
   assert.match(content, /os: "macos-latest"/);
@@ -76,6 +78,25 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
   assert.match(content, /RIGHT_GIT_RELEASE_ARCHITECTURE: \$\{\{ matrix\.architecture \}\}/);
   assert.match(content, /actions\/upload-artifact@[a-f0-9]{40}/);
   assert.doesNotMatch(content, /secrets\.|AZURE_|APPLE_|certificate|private.key/i);
+});
+
+test("rust-hybrid cache contract renders every declared Cargo workspace", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    rustCache: { workspaces: [".", "apps/studio/src-tauri"] },
+    matrix: { os: ["windows-2025"], node: ["22.23.2"] },
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  assert.match(content, /workspaces: \|\n            \. -> target\n            apps\/studio\/src-tauri -> target/);
+  assert.match(content, /add-job-id-key: false/);
+  assert.match(content, /cache-workspace-crates: false/);
+  assert.match(content, /RUSTC_WRAPPER: "sccache"/);
 });
 
 test("rust-hybrid release candidate can opt into OIDC Windows signing without long-lived secrets", () => {
