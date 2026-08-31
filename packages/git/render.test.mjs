@@ -51,9 +51,17 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /version: 11\.24\.0/);
   assert.match(content, /components: rustfmt, clippy/);
   assert.doesNotMatch(content, /toolchain:/);
+  assert.match(content, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/);
+  assert.match(content, /cancel-in-progress: true/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
   assert.match(content, /os: \["windows-latest"\]/);
   assert.doesNotMatch(content, /ubuntu-latest|macos-latest/);
+});
+
+test("ordinary CI templates cancel superseded runs on the same ref", () => {
+  const generic = renderAllLanes(FULL_MANIFEST, "/repos/widgets").ci;
+  assert.match(generic, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/);
+  assert.match(generic, /cancel-in-progress: true/);
 });
 
 test("rust-hybrid ci preserves a declared macOS-only lane", () => {

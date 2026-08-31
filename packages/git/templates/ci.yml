@@ -7,6 +7,9 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 # F5 fix: `private-repo-guard` carries no job-level `if`, so it always runs.
 # Its one step's own `if` fires only when the repo is private, and `exit 1`
 # then fails the JOB (loud, visible, non-zero) rather than the previous
