@@ -333,12 +333,12 @@ test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
       name: "fixture",
       packageManager: versions.packageManager,
       scripts: { "release:patch:win": "right-release --platform win --tier patch" },
-      dependencies: { "@rightkit/git": "0.2.17" },
+      dependencies: { "@rightkit/git": "0.2.18" },
       devDependencies: { "@rightkit/release": versions.stagedNpm["@rightkit/release"] },
     },
   }));
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.2\.17/i);
+  assert.match(result.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.2\.18/i);
 });
 
 test("rejects hosted workflow files before release work starts", () => {
