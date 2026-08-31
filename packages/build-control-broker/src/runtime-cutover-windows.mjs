@@ -46,11 +46,6 @@ export function renderTaskDefinition({ taskName, nodePath, brokerScript, configP
   <Principals>
     <Principal id="Author">
       <UserId>${escape(userId)}</UserId>
-      <!-- S4U: run in a non-interactive session with no stored password.
-           InteractiveToken made node.exe a visible console window on the
-           user's desktop, which operators closed -- killing the broker
-           (STATUS_CONTROL_C_EXIT). A build broker serving a named pipe and
-           local filesystem needs no interactive desktop at all. -->
       <LogonType>S4U</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
