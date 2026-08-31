@@ -70,7 +70,7 @@ test('cutover refuses named-pipe drift before activation', async () => {
 
 test('task definition uses current-user interactive token & logon restart policy', () => {
   const xml = renderTaskDefinition({ taskName: 'RightKitBuildControl', nodePath: 'C:\\node\\node.exe', brokerScript: 'C:\\rightkit\\broker.mjs', configPath: 'C:\\rightkit\\config.json' });
-  assert.match(xml, /<LogonType>InteractiveToken<\/LogonType>/); assert.doesNotMatch(xml, /<LogonType>S4U<\/LogonType>/); assert.match(xml, /<Hidden>true<\/Hidden>/); assert.match(xml, /<RestartOnFailure>[\s\S]*<Count>999<\/Count>/); assert.doesNotMatch(xml, /<BootTrigger>/); assert.match(xml, /<LogonTrigger>/);
+  assert.match(xml, /<LogonType>S4U<\/LogonType>/); assert.doesNotMatch(xml, /<LogonType>InteractiveToken<\/LogonType>/); assert.match(xml, /<UserId>[^<]+<\/UserId>/); assert.match(xml, /<Hidden>true<\/Hidden>/); assert.match(xml, /<RestartOnFailure>[\s\S]*<Count>999<\/Count>/); assert.doesNotMatch(xml, /<BootTrigger>/); assert.match(xml, /<LogonTrigger>/);
 });
 
 test('task definition escapes XML & temporary file uses UTF-16LE BOM', async () => {

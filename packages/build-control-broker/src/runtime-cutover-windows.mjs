@@ -30,7 +30,7 @@ export async function installManagedRuntimeWindows(options = {}) {
  * clients with EPERM, so the broker must inherit the user's interactive token.
  * schtasks.exe's own flags cannot express restart policy; only Task Scheduler
  * XML can. */
-export function renderTaskDefinition({ taskName, nodePath, brokerScript, configPath, author = 'RightKit' }) {
+export function renderTaskDefinition({ taskName, nodePath, brokerScript, configPath, author = 'RightKit', userId = (process.env.USERDOMAIN ?? '.') + '\\' + (process.env.USERNAME ?? '') }) {
   const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -45,7 +45,13 @@ export function renderTaskDefinition({ taskName, nodePath, brokerScript, configP
   </Triggers>
   <Principals>
     <Principal id="Author">
-      <LogonType>InteractiveToken</LogonType>
+      <UserId>${escape(userId)}</UserId>
+      <!-- S4U: run in a non-interactive session with no stored password.
+           InteractiveToken made node.exe a visible console window on the
+           user's desktop, which operators closed -- killing the broker
+           (STATUS_CONTROL_C_EXIT). A build broker serving a named pipe and
+           local filesystem needs no interactive desktop at all. -->
+      <LogonType>S4U</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
   </Principals>
