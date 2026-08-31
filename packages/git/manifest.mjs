@@ -188,9 +188,17 @@ export function validateManifest(manifest) {
       errors.push("candidate must be an object");
     } else {
       for (const key of Object.keys(candidate)) {
-        if (!["buildScript", "checkScript", "artifactRoot", "os", "targets", "signWindows", "signMacos", "releaseChain"].includes(key)) errors.push(`unknown candidate field: ${key}`);
+        if (!["buildScript", "checkScript", "admissionScript", "stageSummaryScript", "artifactRoot", "os", "targets", "signWindows", "signMacos", "releaseChain"].includes(key)) errors.push(`unknown candidate field: ${key}`);
       }
-      for (const key of ["buildScript", "checkScript"]) {
+      // admissionScript & stageSummaryScript are required for EVERY release-candidate
+      // lane, not just signed/full-releaseChain ones: the tag-last workflow's
+      // `admission` job (dispatch-envelope validation) and the `candidate` job's
+      // stage-summary init/finalize steps are unconditional parts of the rendered
+      // template, independent of candidate.signWindows/signMacos/releaseChain. If
+      // either script were only required inside the optional releaseChain object,
+      // an unsigned release-candidate manifest (no releaseChain at all) would still
+      // render those unconditional steps with an unresolved script name.
+      for (const key of ["buildScript", "checkScript", "admissionScript", "stageSummaryScript"]) {
         if (typeof candidate[key] !== "string" || !PACKAGE_SCRIPT_RE.test(candidate[key])) {
           errors.push(`candidate.${key} must be one safe package script name`);
         }
@@ -252,14 +260,18 @@ export function validateManifest(manifest) {
       }
       if (candidate.releaseChain !== undefined) {
         const chain = candidate.releaseChain;
-        const allowedChainKeys = ["admissionScript", "stageSummaryScript", "evidenceVerificationScript", "windowsFinalizeScript", "macosFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable", "publishSecrets"];
+        // admissionScript & stageSummaryScript live on candidate directly (see
+        // above) — the full signed release chain adds evidenceVerificationScript
+        // (runs before publish, verifying aggregated same-run evidence) plus the
+        // finalize/qualify/publish scripts.
+        const allowedChainKeys = ["evidenceVerificationScript", "windowsFinalizeScript", "macosFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable", "publishSecrets"];
         if (chain === null || typeof chain !== "object" || Array.isArray(chain)) {
           errors.push("candidate.releaseChain must be an object");
         } else {
           for (const key of Object.keys(chain)) {
             if (!allowedChainKeys.includes(key)) errors.push(`unknown candidate.releaseChain field: ${key}`);
           }
-          for (const key of ["admissionScript", "stageSummaryScript", "evidenceVerificationScript", "windowsFinalizeScript", "installedQualificationScript", "publishScript"]) {
+          for (const key of ["evidenceVerificationScript", "windowsFinalizeScript", "installedQualificationScript", "publishScript"]) {
             if (typeof chain[key] !== "string" || !PACKAGE_SCRIPT_RE.test(chain[key])) {
               errors.push(`candidate.releaseChain.${key} must be one safe package script name`);
             }
@@ -496,7 +508,7 @@ ${pm.setup}
           targets: \${{ matrix.targetTriple }}
       - run: ${pm.installCommand}
       - name: Initialize Windows signing stage summary
-        run: ${pm.runPrefix} ${releaseChain?.stageSummaryScript}
+        run: ${pm.runPrefix} ${manifest.candidate.stageSummaryScript}
         env:
           RIGHT_GIT_STAGE_ACTION: init
           RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
@@ -547,7 +559,7 @@ ${finalizeEnvironment}
           AZURE_ARTIFACT_SIGNING_PROFILE: \${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
       - name: Finalize Windows signing stage summary
         if: \${{ always() }}
-        run: ${pm.runPrefix} ${releaseChain?.stageSummaryScript}
+        run: ${pm.runPrefix} ${manifest.candidate.stageSummaryScript}
         env:
           RIGHT_GIT_STAGE_ACTION: finalize
           RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
@@ -623,7 +635,7 @@ ${pm.setup}
           targets: \${{ matrix.targetTriple }}
       - run: ${pm.installCommand}
       - name: Initialize macOS signing stage summary
-        run: ${pm.runPrefix} ${releaseChain?.stageSummaryScript}
+        run: ${pm.runPrefix} ${manifest.candidate.stageSummaryScript}
         env:
           RIGHT_GIT_STAGE_ACTION: init
           RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
@@ -673,7 +685,7 @@ ${finalizeEnvironment}
           APPLE_API_ISSUER: \${{ secrets.APPLE_API_ISSUER }}
       - name: Finalize macOS signing stage summary
         if: \${{ always() }}
-        run: ${pm.runPrefix} ${releaseChain?.stageSummaryScript}
+        run: ${pm.runPrefix} ${manifest.candidate.stageSummaryScript}
         env:
           RIGHT_GIT_STAGE_ACTION: finalize
           RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
@@ -719,30 +731,71 @@ function releaseChainJobs(manifest, pm, artifactPrefix) {
   const windowsRunner = windowsTarget.os;
   const windowsArchitecture = windowsTarget.architecture;
   const macosTarget = candidateTargets(manifest.candidate).find((target) => target.platform === "macos");
-  const nodeVersion = String(manifest.matrix.node[0]);
-  const macosDependency = manifest.candidate.signMacos === true ? ", macos-sign" : "";
-  const macosSuccess = manifest.candidate.signMacos === true ? " && needs.macos-sign.result == 'success'" : "";
-  const macosDownload = manifest.candidate.signMacos === true
+  const signMacos = manifest.candidate.signMacos === true;
+  const macosDependency = signMacos ? ", macos-sign" : "";
+  const macosSuccess = signMacos ? " && needs.macos-sign.result == 'success'" : "";
+  // Run- and identity-bound: matches exactly what windows-sign/macos-sign
+  // uploaded (see windowsSigningJob/macosSigningJob) — no matrix context is
+  // available in these non-matrixed jobs, so the platform architecture is a
+  // literal derived from the manifest's single windows/macos target.
+  const VERSION = "${{ needs.admission.outputs.version }}";
+  const SOURCE_REVISION = "${{ needs.admission.outputs.source_revision }}";
+  const windowsSignedArtifact = `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-windows-${windowsArchitecture}-${VERSION}-${SOURCE_REVISION}`;
+  const windowsSummaryArtifact = `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-windows-sign-${windowsArchitecture}-${VERSION}-${SOURCE_REVISION}`;
+  const macosSignedArtifact = signMacos ? `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-macos-${macosTarget.architecture}-${VERSION}-${SOURCE_REVISION}` : "";
+  const macosSummaryArtifact = signMacos ? `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-macos-sign-${macosTarget.architecture}-${VERSION}-${SOURCE_REVISION}` : "";
+  // Candidate stage summaries are per (platform, architecture) — see the
+  // `Upload candidate stage summary` step in the template. releaseChain
+  // requires at most one target per signing platform (validateManifest), so
+  // exactly one candidate-windows summary and at most one candidate-macos
+  // summary exist for this manifest.
+  const candidateWindowsSummaryArtifact = `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-candidate-windows-${windowsArchitecture}-${VERSION}-${SOURCE_REVISION}`;
+  const candidateMacosSummaryArtifact = signMacos ? `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-candidate-macos-${macosTarget.architecture}-${VERSION}-${SOURCE_REVISION}` : "";
+  const qualificationArtifact = `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-installed-qualification-${VERSION}-${SOURCE_REVISION}`;
+  const qualificationSummaryArtifact = `${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-installed-qualification-${VERSION}-${SOURCE_REVISION}`;
+  const macosDownload = signMacos
     ? `      - name: Download same-run signed & notarized macOS release
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-signed-macos-${macosTarget.architecture}-${nodeVersion}
+          name: ${macosSignedArtifact}
           path: \${{ runner.temp }}/right-git-release/macos`
     : "";
+  const macosSummaryDownload = signMacos
+    ? `      - name: Download same-run macOS signing stage summary
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${macosSummaryArtifact}
+          path: \${{ runner.temp }}/right-git-release/stage-summaries/macos-sign`
+    : "";
+  const candidateMacosSummaryDownload = signMacos
+    ? `      - name: Download same-run candidate (macOS) stage summary
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${candidateMacosSummaryArtifact}
+          path: \${{ runner.temp }}/right-git-release/stage-summaries/candidate-macos`
+    : "";
+  const finalizedMacosEnv = signMacos ? `\n          RIGHT_GIT_FINALIZED_MACOS_ROOT: \${{ runner.temp }}/right-git-release/macos` : "";
+  // Evidence must be bound to this exact run — not merely this
+  // version+source_revision — so a stale artifact from a different run
+  // cannot satisfy verification. Every job/step from installed-qualification
+  // onward carries RIGHT_GIT_RUN_ID/RIGHT_GIT_RUN_ATTEMPT alongside version
+  // and source_revision.
+  const runIdentityEnv = `          RIGHT_GIT_RUN_ID: \${{ github.run_id }}
+          RIGHT_GIT_RUN_ATTEMPT: \${{ github.run_attempt }}`;
   const publishSecretEnvironment = (chain.publishSecrets ?? [])
     .map((name) => `          ${name}: \${{ secrets.${name} }}`)
     .join("\n");
   return `
   installed-qualification:
-    needs: [candidate, windows-sign]
-    if: \${{ always() && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.signed_qualification == true)) && needs.candidate.result == 'success' }}
+    needs: [admission, candidate, windows-sign]
+    if: \${{ always() && needs.admission.outputs.signed_qualification == 'true' && needs.candidate.result == 'success' }}
     environment: release
     runs-on: \${{ vars.${chain.qualificationRunnerVariable} || '${windowsRunner}' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Resolve checked-out source revision
-        shell: pwsh
-        run: '"RIGHT_GIT_SOURCE_REVISION=$(git rev-parse HEAD)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+        with:
+          ref: \${{ needs.admission.outputs.source_revision }}
+          persist-credentials: false
       - name: Fail closed when protected finalization is absent
         if: \${{ needs.windows-sign.result != 'success' }}
         shell: pwsh
@@ -751,64 +804,127 @@ function releaseChainJobs(manifest, pm, artifactPrefix) {
       - name: Download same-run finalized Windows release
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-signed-windows-${windowsArchitecture}-${nodeVersion}
+          name: ${windowsSignedArtifact}
           path: \${{ runner.temp }}/right-git-release/windows
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${nodeVersion}
+          node-version: ${String(manifest.matrix.node[0])}
           package-manager-cache: false
 ${pm.setup}
       - run: ${pm.installCommand}
+      - name: Initialize installed-qualification stage summary
+        run: ${pm.runPrefix} ${manifest.candidate.stageSummaryScript}
+        env:
+          RIGHT_GIT_STAGE_ACTION: init
+          RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
+          RIGHT_GIT_STAGE_EVIDENCE_ROOT: \${{ runner.temp }}/right-git-release/qualification
+          RIGHT_GIT_STAGE: installed-qualification
+          RIGHT_GIT_STAGE_PRODUCER: installed-qualification
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+${runIdentityEnv}
       - name: Run installed-artifact qualification
         run: ${pm.runPrefix} ${chain.installedQualificationScript}
         env:
           GH_TOKEN: \${{ github.token }}
           RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/right-git-release/windows
           RIGHT_GIT_QUALIFICATION_EVIDENCE_ROOT: \${{ runner.temp }}/right-git-release/qualification
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
           RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+      - name: Finalize installed-qualification stage summary
+        if: \${{ always() }}
+        run: ${pm.runPrefix} ${manifest.candidate.stageSummaryScript}
+        env:
+          RIGHT_GIT_STAGE_ACTION: finalize
+          RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
+          RIGHT_GIT_STAGE_EVIDENCE_ROOT: \${{ runner.temp }}/right-git-release/qualification
+          RIGHT_GIT_STAGE: installed-qualification
+          RIGHT_GIT_STAGE_PRODUCER: installed-qualification
+          RIGHT_GIT_STAGE_STATUS: \${{ job.status == 'success' && 'SUCCEEDED' || 'FAILED' }}
+          RIGHT_GIT_STAGE_EXIT_CODE: \${{ job.status == 'success' && '0' || '1' }}
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+${runIdentityEnv}
       - name: Upload installed qualification evidence
+        if: \${{ always() }}
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
-          name: ${artifactPrefix}-installed-qualification-${nodeVersion}
+          name: ${qualificationArtifact}
           path: \${{ runner.temp }}/right-git-release/qualification/**
           if-no-files-found: error
+      - name: Upload installed-qualification stage summary
+        if: \${{ always() }}
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
+        with:
+          name: ${qualificationSummaryArtifact}
+          path: \${{ runner.temp }}/right-git-stage-summary/stage-summary.json
+          if-no-files-found: error
   publish:
-    needs: [installed-qualification${macosDependency}]
-    if: \${{ startsWith(github.ref, 'refs/tags/v') && needs.installed-qualification.result == 'success'${macosSuccess} }}
+    needs: [admission, installed-qualification${macosDependency}]
+    if: \${{ needs.admission.outputs.publish == 'true' && needs.installed-qualification.result == 'success'${macosSuccess} }}
     environment: release
     runs-on: \${{ vars.${chain.qualificationRunnerVariable} || '${windowsRunner}' }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Resolve checked-out source revision
-        shell: pwsh
-        run: '"RIGHT_GIT_SOURCE_REVISION=$(git rev-parse HEAD)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+        with:
+          ref: \${{ needs.admission.outputs.source_revision }}
+          persist-credentials: false
       - name: Download same-run finalized Windows release
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-signed-windows-${windowsArchitecture}-${nodeVersion}
+          name: ${windowsSignedArtifact}
           path: \${{ runner.temp }}/right-git-release/windows
 ${macosDownload}
       - name: Download same-run installed qualification evidence
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-installed-qualification-${nodeVersion}
+          name: ${qualificationArtifact}
           path: \${{ runner.temp }}/right-git-release/qualification
+      - name: Download same-run candidate (Windows) stage summary
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${candidateWindowsSummaryArtifact}
+          path: \${{ runner.temp }}/right-git-release/stage-summaries/candidate-windows
+${candidateMacosSummaryDownload}
+      - name: Download same-run Windows signing stage summary
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${windowsSummaryArtifact}
+          path: \${{ runner.temp }}/right-git-release/stage-summaries/windows-sign
+${macosSummaryDownload}
+      - name: Download same-run installed-qualification stage summary
+        uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
+        with:
+          name: ${qualificationSummaryArtifact}
+          path: \${{ runner.temp }}/right-git-release/stage-summaries/installed-qualification
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${nodeVersion}
+          node-version: ${String(manifest.matrix.node[0])}
           package-manager-cache: false
 ${pm.setup}
       - run: ${pm.installCommand}
+      - name: Verify aggregated release evidence
+        run: ${pm.runPrefix} ${chain.evidenceVerificationScript}
+        env:
+          GH_TOKEN: \${{ github.token }}
+          RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/right-git-release/windows${finalizedMacosEnv}
+          RIGHT_GIT_QUALIFICATION_EVIDENCE_ROOT: \${{ runner.temp }}/right-git-release/qualification
+          RIGHT_GIT_STAGE_SUMMARY_ROOT: \${{ runner.temp }}/right-git-release/stage-summaries
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+${runIdentityEnv}
       - name: Publish qualified signed release
         run: ${pm.runPrefix} ${chain.publishScript}
         env:
           GH_TOKEN: \${{ github.token }}
-          RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/right-git-release/windows
-          RIGHT_GIT_FINALIZED_MACOS_ROOT: \${{ runner.temp }}/right-git-release/macos
+          RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/right-git-release/windows${finalizedMacosEnv}
           RIGHT_GIT_QUALIFICATION_EVIDENCE_ROOT: \${{ runner.temp }}/right-git-release/qualification
-          RIGHT_GIT_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}
+          RIGHT_GIT_STAGE_SUMMARY_ROOT: \${{ runner.temp }}/right-git-release/stage-summaries
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+${runIdentityEnv}
 ${publishSecretEnvironment}
 `.trimEnd();
 }
@@ -855,21 +971,38 @@ export function buildRenderContext(manifest, repoPath) {
     PACKAGE_MANAGER_SETUP: pm.setup,
     ARTIFACT_PREFIX: artifactPrefix,
     TEMPLATE_VERSION: manifest.templateVersion,
-    GATE_PATH: manifest.gate?.path,
     RUST_CACHE_WORKSPACES: rustWorkspaces.map((workspace) => `            ${workspace} -> target`).join("\n"),
     RUST_REQUIRED_FOR_GATE: manifest.rustCache?.requiredForGate === true ? "true" : "false",
-    CANDIDATE_BUILD_SCRIPT: manifest.candidate?.buildScript,
-    CANDIDATE_CHECK_SCRIPT: manifest.candidate?.checkScript,
-    CANDIDATE_ARTIFACT_ROOT: manifest.candidate?.artifactRoot,
-    CANDIDATE_OS_MATRIX: yamlFlowStringList(manifest.candidate?.os ?? manifest.matrix.os),
-    CANDIDATE_MATRIX: candidateMatrix(manifest),
-    RELEASE_ADMISSION_SCRIPT: manifest.candidate?.releaseChain?.admissionScript,
-    RELEASE_STAGE_SUMMARY_SCRIPT: manifest.candidate?.releaseChain?.stageSummaryScript,
-    RELEASE_EVIDENCE_VERIFICATION_SCRIPT: manifest.candidate?.releaseChain?.evidenceVerificationScript,
     WINDOWS_SIGNING_JOB: windowsSigningJob(manifest, pm, artifactPrefix),
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
   };
+
+  // Every key below is populated ONLY when its source manifest section is
+  // actually present — mirroring the publish.npm/homebrew/winget pattern.
+  // This keeps the fail-closed check just below honest: a key that is
+  // legitimately inapplicable to this manifest (e.g. CANDIDATE_* for a
+  // non-rust-hybrid manifest, GATE_PATH for a non-rust-hybrid profile) is
+  // simply ABSENT from the context rather than present-with-undefined, so
+  // render.mjs's own `Object.hasOwn` check does the right thing if a
+  // template ever references a token this manifest didn't opt into.
+  if (manifest.gate) {
+    context.GATE_PATH = manifest.gate.path;
+  }
+  if (manifest.candidate) {
+    context.CANDIDATE_BUILD_SCRIPT = manifest.candidate.buildScript;
+    context.CANDIDATE_CHECK_SCRIPT = manifest.candidate.checkScript;
+    context.CANDIDATE_ARTIFACT_ROOT = manifest.candidate.artifactRoot;
+    context.CANDIDATE_OS_MATRIX = yamlFlowStringList(manifest.candidate.os ?? manifest.matrix.os);
+    context.CANDIDATE_MATRIX = candidateMatrix(manifest);
+    // admissionScript & stageSummaryScript are required candidate fields
+    // (see validateManifest) whenever release-candidate is configured at
+    // all — the admission job and the candidate job's stage-summary steps
+    // are unconditional parts of the rendered template, independent of
+    // signing/releaseChain.
+    context.RELEASE_ADMISSION_SCRIPT = manifest.candidate.admissionScript;
+    context.RELEASE_STAGE_SUMMARY_SCRIPT = manifest.candidate.stageSummaryScript;
+  }
 
   if (manifest.publish?.npm) {
     context.NPM_PROVENANCE_FLAG = manifest.publish.npm.provenance ? " --provenance" : "";
@@ -880,6 +1013,22 @@ export function buildRenderContext(manifest, repoPath) {
   }
   if (manifest.publish?.winget) {
     context.WINGET_PACKAGE_IDENTIFIER = manifest.publish.winget.packageIdentifier;
+  }
+
+  // F-undefined-script fix: render.mjs's `Object.hasOwn` check only proves a
+  // key EXISTS in the context — it does not prove the key resolved to a real
+  // value. Every field above that is sourced from an optional manifest path
+  // (candidate.*, candidate.releaseChain.* via the job-builder functions,
+  // gate.path) must resolve to a real string once its guarding `if` above
+  // decided the section applies; a bug in one of those guards (or a
+  // mis-nested manifest field) must fail the render loudly here rather than
+  // silently emit a literal "undefined" into a workflow file that GitHub
+  // Actions will then try to execute as a real step (e.g. `run: pnpm run
+  // undefined`).
+  for (const [key, value] of Object.entries(context)) {
+    if (value === undefined || value === null) {
+      throw new Error(`buildRenderContext: placeholder \${${key}} resolved to ${value} — check the manifest's candidate/releaseChain/gate/publish configuration`);
+    }
   }
 
   return context;

@@ -101,7 +101,14 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
     lanes: ["ci", "release-candidate"],
     profile: "rust-hybrid",
     gate: { path: "scripts/gate.sh" },
-    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "widgets-unsigned", os: ["macos-latest", "windows-latest"] },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["macos-latest", "windows-latest"],
+    },
     templateVersion: "1.2.0",
   };
   const content = renderTemplate(
@@ -110,6 +117,8 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
   );
   assert.match(content, /pnpm run ci:candidate/);
   assert.match(content, /pnpm run ci:candidate-check/);
+  assert.match(content, /pnpm run release:admit/);
+  assert.match(content, /pnpm run release:stage-summary/);
   assert.match(content, /Mozilla-Actions\/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba/);
   assert.match(content, /shared-key: widgets-rust/);
   assert.doesNotMatch(content, /bash \.\/scripts\/gate\.sh/);
@@ -122,6 +131,12 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
   assert.doesNotMatch(content, /rust-changes|RIGHT_GIT_RUST_CHANGED/);
   assert.doesNotMatch(content, /if: steps\.rust-changes/);
   assert.match(content, /uses: dtolnay\/rust-toolchain@[a-f0-9]{40}\n        with:/);
+  // workflow_dispatch tag-last envelope: no windows-sign/macos-sign/release
+  // chain jobs render at all when signing is not configured.
+  assert.match(content, /^on:\n  workflow_dispatch:/m);
+  assert.doesNotMatch(content, /^ {2}(?:windows-sign|macos-sign|installed-qualification|publish):\s*$/m);
+  assert.doesNotMatch(content, /run: (?:pnpm|npm|yarn) run undefined\b/);
+  assert.doesNotMatch(content, /\$\{\{\s*github\.output\s*\}\}/);
 });
 
 test("rust-hybrid cache contract renders every declared Cargo workspace", () => {
@@ -151,7 +166,15 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
     lanes: ["ci", "release-candidate"],
     profile: "rust-hybrid",
     gate: { path: "scripts/gate.sh" },
-    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "widgets-unsigned", os: ["windows-2025"], signWindows: true },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025"],
+      signWindows: true,
+    },
     matrix: { os: ["ubuntu-24.04", "windows-2025"], node: ["22.23.2"] },
     templateVersion: "1.3.0",
   };
@@ -160,16 +183,26 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
     buildRenderContext(manifest, "/repos/widgets"),
   );
   assert.match(content, /environment: release/);
-  assert.match(content, /windows-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| \(github\.event_name == 'workflow_dispatch' && inputs\.signed_qualification == true\) \}\}/);
+  // Tag-last contract: signing is gated on the admitted, same-run
+  // signed_qualification OUTPUT of the `admission` job — never on a ref/tag
+  // and never on the raw workflow_dispatch input directly.
+  assert.match(content, /windows-sign:\n    needs: \[admission, candidate\]\n    if: \$\{\{ needs\.admission\.outputs\.signed_qualification == 'true' \}\}/);
+  assert.doesNotMatch(content, /startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   assert.match(content, /id-token: write/);
   assert.match(content, /azure\/login@[a-f0-9]{40}/);
   assert.match(content, /vars\.AZURE_CLIENT_ID/);
   assert.match(content, /right-release build --platform win --skip-checks/);
   assert.match(content, /Artifact Signing client hash mismatch/);
-  assert.match(content, /RIGHT_GIT_SOURCE_REVISION=\$\(git rev-parse HEAD\)/);
+  // Every downstream job (admission, candidate, and windows-sign here) checks
+  // out the exact admitted revision by SHA, never by resolving HEAD after a
+  // ref-triggered checkout.
+  assert.match(content, /windows-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+persist-credentials: false/);
+  assert.doesNotMatch(content, /git rev-parse HEAD/);
   assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(content, /secrets\.|client-secret|private.key/i);
+  assert.doesNotMatch(content, /run: (?:pnpm|npm|yarn) run undefined\b/);
+  assert.doesNotMatch(content, /\$\{\{\s*github\.output\s*\}\}/);
 });
 
 test("rust-hybrid release candidate can opt into protected macOS signing & notarization", () => {
@@ -178,7 +211,15 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
     lanes: ["ci", "release-candidate"],
     profile: "rust-hybrid",
     gate: { path: "scripts/gate.sh" },
-    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "widgets-unsigned", os: ["macos-15"], signMacos: true },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["macos-15"],
+      signMacos: true,
+    },
     matrix: { os: ["ubuntu-24.04", "macos-15"], node: ["22.23.2"] },
     templateVersion: "1.3.0",
   };
@@ -187,17 +228,21 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
     buildRenderContext(manifest, "/repos/widgets"),
   );
   assert.match(content, /macos-sign:/);
-  assert.match(content, /macos-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| \(github\.event_name == 'workflow_dispatch' && inputs\.signed_qualification == true\) \}\}/);
+  assert.match(content, /macos-sign:\n    needs: \[admission, candidate\]\n    if: \$\{\{ needs\.admission\.outputs\.signed_qualification == 'true' \}\}/);
+  assert.doesNotMatch(content, /startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   assert.match(content, /environment: release/);
   assert.match(content, /secrets\.APPLE_CERTIFICATE_BASE64/);
   assert.match(content, /temporary keychain/i);
   assert.match(content, /right-release build --platform mac --skip-checks/);
   assert.match(content, /secrets\.APPLE_API_KEY_BASE64/);
-  assert.match(content, /RIGHT_GIT_SOURCE_REVISION=%s\\n.*git rev-parse HEAD/);
+  assert.match(content, /macos-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+persist-credentials: false/);
+  assert.doesNotMatch(content, /git rev-parse HEAD/);
   assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.match(content, /security delete-keychain/);
   assert.doesNotMatch(content, /pull_request_target/);
+  assert.doesNotMatch(content, /run: (?:pnpm|npm|yarn) run undefined\b/);
+  assert.doesNotMatch(content, /\$\{\{\s*github\.output\s*\}\}/);
 });
 
 test("rust-hybrid multi-architecture candidates bind every native target to exact artifacts and signing", () => {
@@ -210,6 +255,8 @@ test("rust-hybrid multi-architecture candidates bind every native target to exac
     candidate: {
       buildScript: "ci:candidate",
       checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
       artifactRoot: "widgets-unsigned",
       os: ["windows-2025", "windows-11-arm", "macos-15", "macos-15-intel"],
       targets: [
@@ -235,10 +282,15 @@ test("rust-hybrid multi-architecture candidates bind every native target to exac
   assert.doesNotMatch(content, /bash \.\/scripts\/gate\.sh/);
   assert.match(content, /windows-sign:[\s\S]*matrix:[\s\S]*windows-11-arm/);
   assert.match(content, /macos-sign:[\s\S]*matrix:[\s\S]*macos-15-intel/);
-  assert.match(content, /name: widgets-unsigned-\$\{\{ matrix\.platform \}\}-\$\{\{ matrix\.architecture \}\}-22\.23\.2/);
-  assert.match(content, /name: widgets-signed-windows-\$\{\{ matrix\.architecture \}\}-22\.23\.2/);
-  assert.match(content, /name: widgets-signed-macos-\$\{\{ matrix\.architecture \}\}-22\.23\.2/);
-  assert.equal((content.match(/RIGHT_GIT_RELEASE_ARCHITECTURE: \$\{\{ matrix\.architecture \}\}/g) ?? []).length, 4);
+  // Every artifact name is run- and identity-bound: <prefix>-<run_id>-<run_attempt>-<kind>-...-<version>-<source_revision>.
+  assert.match(content, /name: widgets-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-candidate-\$\{\{ matrix\.platform \}\}-\$\{\{ matrix\.architecture \}\}-\$\{\{ needs\.admission\.outputs\.version \}\}-\$\{\{ needs\.admission\.outputs\.source_revision \}\}/);
+  assert.match(content, /name: widgets-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-signed-windows-\$\{\{ matrix\.architecture \}\}-\$\{\{ needs\.admission\.outputs\.version \}\}-\$\{\{ needs\.admission\.outputs\.source_revision \}\}/);
+  assert.match(content, /name: widgets-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}-signed-macos-\$\{\{ matrix\.architecture \}\}-\$\{\{ needs\.admission\.outputs\.version \}\}-\$\{\{ needs\.admission\.outputs\.source_revision \}\}/);
+  // Exact-count regression guard across the candidate job's build/check/
+  // stage-summary steps and the windows-sign/macos-sign stage-summary steps.
+  assert.equal((content.match(/RIGHT_GIT_RELEASE_ARCHITECTURE: \$\{\{ matrix\.architecture \}\}/g) ?? []).length, 10);
+  assert.doesNotMatch(content, /run: (?:pnpm|npm|yarn) run undefined\b/);
+  assert.doesNotMatch(content, /\$\{\{\s*github\.output\s*\}\}/);
 });
 
 test("rust-hybrid release chain preserves signed candidate, installed qualification, then publish", () => {
@@ -250,11 +302,14 @@ test("rust-hybrid release chain preserves signed candidate, installed qualificat
     candidate: {
       buildScript: "ci:candidate",
       checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
       artifactRoot: "widgets-unsigned",
       os: ["windows-2025", "macos-15"],
       signWindows: true,
       signMacos: true,
       releaseChain: {
+        evidenceVerificationScript: "release:verify-evidence",
         windowsFinalizeScript: "release:finalize:win",
         macosFinalizeScript: "release:finalize:mac",
         installedQualificationScript: "release:qualify:installed",
@@ -272,26 +327,202 @@ test("rust-hybrid release chain preserves signed candidate, installed qualificat
   );
   assert.match(content, /windows-sign:[\s\S]*pnpm run release:finalize:win/);
   assert.match(content, /macos-sign:[\s\S]*pnpm run release:finalize:mac/);
-  assert.match(content, /signed_qualification:\n        description: Run protected signing & installed qualification without publishing/);
-  assert.match(content, /windows-sign:[\s\S]*inputs\.signed_qualification == true/);
-  assert.match(content, /macos-sign:[\s\S]*inputs\.signed_qualification == true/);
-  assert.match(content, /installed-qualification:\n    needs: \[candidate, windows-sign\]/);
-  assert.match(content, /installed-qualification:[\s\S]*inputs\.signed_qualification == true/);
+  // Tag-last contract: every gate reads the ADMITTED, same-run outputs of
+  // the `admission` job — never the raw workflow_dispatch input directly,
+  // and never a ref/tag.
+  assert.match(content, /signed_qualification:\n        description: Run protected signing, installed qualification, & evidence verification/);
+  assert.doesNotMatch(content, /inputs\.signed_qualification == true/);
+  assert.doesNotMatch(content, /startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.match(content, /windows-sign:\n    needs: \[admission, candidate\]\n    if: \$\{\{ needs\.admission\.outputs\.signed_qualification == 'true' \}\}/);
+  assert.match(content, /macos-sign:\n    needs: \[admission, candidate\]\n    if: \$\{\{ needs\.admission\.outputs\.signed_qualification == 'true' \}\}/);
+  assert.match(content, /installed-qualification:\n    needs: \[admission, candidate, windows-sign\]/);
+  assert.match(content, /installed-qualification:[\s\S]*?if: \$\{\{ always\(\) && needs\.admission\.outputs\.signed_qualification == 'true' && needs\.candidate\.result == 'success' \}\}/);
   assert.match(content, /installed_qualification_failed/);
   assert.match(content, /shell: pwsh\n        run: \|\n          throw 'installed_qualification_failed \{ reason: prerequisites_absent, detail: "same-run Windows signing\/finalization did not succeed" \}'/);
   assert.doesNotMatch(content, /^        run: throw 'installed_qualification_failed .*detail: /m);
   assert.match(content, /pnpm run release:qualify:installed/);
   assert.match(content, /installed-qualification:[\s\S]*GH_TOKEN: \$\{\{ github\.token \}\}/);
-  assert.match(content, /publish:\n    needs: \[installed-qualification, macos-sign\]/);
-  assert.match(content, /publish:[\s\S]*startsWith\(github\.ref, 'refs\/tags\/v'\)/);
-  assert.doesNotMatch(content.slice(content.indexOf("  publish:")), /inputs\.signed_qualification/);
-  assert.match(content, /needs\.macos-sign\.result == 'success'/);
+  assert.match(content, /publish:\n    needs: \[admission, installed-qualification, macos-sign\]/);
+  assert.match(content, /publish:[\s\S]*?if: \$\{\{ needs\.admission\.outputs\.publish == 'true' && needs\.installed-qualification\.result == 'success' && needs\.macos-sign\.result == 'success' \}\}/);
+  const publishJobIndex = content.search(/^ {2}publish:\n {4}needs:/m);
+  assert.ok(publishJobIndex >= 0, "publish job must be present");
+  assert.doesNotMatch(content.slice(publishJobIndex), /inputs\.signed_qualification|inputs\.publish/);
   assert.match(content, /contents: write/);
+  // Publish is the sole creator of the tag/release: it must not require a
+  // pre-existing tag anywhere in its gate.
+  assert.doesNotMatch(content.slice(publishJobIndex), /refs\/tags/);
+  assert.match(content, /pnpm run release:verify-evidence/);
+  assert.match(content, /Verify aggregated release evidence[\s\S]*?pnpm run release:verify-evidence/);
   assert.match(content, /pnpm run release:publish:qualified/);
   assert.match(content, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
-  assert.equal((content.match(/RIGHT_GIT_SOURCE_REVISION=\$\(git rev-parse HEAD\)/g) ?? []).length, 3);
+  // The old ref-triggered "resolve HEAD after checkout" trick is gone
+  // entirely for the releaseChain path — every job instead checks out the
+  // exact admitted SHA from the admission job's own output.
+  assert.doesNotMatch(content, /git rev-parse HEAD/);
   assert.doesNotMatch(content, /RIGHT_GIT_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
+  // windows-sign, macos-sign, installed-qualification, publish all check out
+  // the admitted revision directly followed by persist-credentials: false;
+  // candidate does too but with a fetch-depth: 0 line between them (matched
+  // separately below), and admission checks out ${{ inputs.source_revision }}
+  // (it IS the admission job — there is no needs.admission yet).
+  assert.equal((content.match(/ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+persist-credentials: false/g) ?? []).length, 4, "windows-sign, macos-sign, installed-qualification, publish should all pin the admitted revision");
+  assert.match(content, /ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/, "candidate must also pin the admitted revision");
+  assert.match(content, /ref: \$\{\{ inputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/, "admission must check out the exact dispatch-supplied revision");
   assert.doesNotMatch(content.slice(0, content.indexOf("  windows-sign:")), /secrets\.|id-token: write|contents: write/);
+  // Downstream download-artifact names must match exactly what windows-sign/
+  // macos-sign uploaded (see the multi-architecture test) — this is the
+  // regression guard for the artifact-name mismatch bug.
+  const windowsSignedArtifact = "widgets-${{ github.run_id }}-${{ github.run_attempt }}-signed-windows-x86_64-${{ needs.admission.outputs.version }}-${{ needs.admission.outputs.source_revision }}";
+  const macosSignedArtifact = "widgets-${{ github.run_id }}-${{ github.run_attempt }}-signed-macos-arm64-${{ needs.admission.outputs.version }}-${{ needs.admission.outputs.source_revision }}";
+  assert.equal((content.match(new RegExp(windowsSignedArtifact.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length, 2, "windows-sign upload + installed-qualification/publish download must share one artifact name");
+  assert.ok(content.includes(macosSignedArtifact), "publish must download the exact macOS artifact macos-sign uploaded");
+  assert.doesNotMatch(content, /run: (?:pnpm|npm|yarn) run undefined\b/);
+  assert.doesNotMatch(content, /\$\{\{\s*github\.output\s*\}\}/);
+});
+
+// Part E regression guard: every `run: <pm> run <script>` line in a
+// rendered full release-chain workflow must name a script the manifest
+// actually declares. This is the general form of the `pnpm run undefined`
+// class of bug — it would also catch a typo'd or stale script reference
+// even when it resolves to a real (but wrong) string, which the fail-closed
+// undefined/null check in buildRenderContext cannot.
+test("every 'run <script>' in a full release-chain workflow names a script the manifest declares", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "macos-15"],
+      signWindows: true,
+      signMacos: true,
+      releaseChain: {
+        evidenceVerificationScript: "release:verify-evidence",
+        windowsFinalizeScript: "release:finalize:win",
+        macosFinalizeScript: "release:finalize:mac",
+        installedQualificationScript: "release:qualify:installed",
+        publishScript: "release:publish:qualified",
+        qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL",
+        publishSecrets: ["CLOUDFLARE_API_TOKEN"],
+      },
+    },
+    matrix: { os: ["ubuntu-24.04", "windows-2025", "macos-15"], node: ["22.23.2"] },
+    templateVersion: "1.4.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  const declaredScripts = new Set([
+    manifest.candidate.buildScript,
+    manifest.candidate.checkScript,
+    manifest.candidate.admissionScript,
+    manifest.candidate.stageSummaryScript,
+    manifest.candidate.releaseChain.evidenceVerificationScript,
+    manifest.candidate.releaseChain.windowsFinalizeScript,
+    manifest.candidate.releaseChain.macosFinalizeScript,
+    manifest.candidate.releaseChain.installedQualificationScript,
+    manifest.candidate.releaseChain.publishScript,
+  ]);
+  const runLines = content.match(/run: (?:pnpm|npm|yarn) run \S+/g) ?? [];
+  assert.ok(runLines.length > 0, "expected at least one package-script run line");
+  for (const line of runLines) {
+    const script = line.split(" run ").pop();
+    assert.ok(declaredScripts.has(script), `rendered step runs undeclared script: ${line}`);
+  }
+});
+
+// Downstream-consumer gap fix: the evidence verifier can only prove a stage
+// ran and succeeded if that stage produces a stage summary AND the publish
+// job actually downloads it. This test proves all four authoritative
+// stages (candidate, windows-sign, macos-sign, installed-qualification)
+// produce a summary, that installed-qualification wraps itself in
+// init/finalize like every other stage, that publish downloads the
+// complete same-run set into distinct subdirectories (no collisions
+// between candidate's two platform legs), and that evidence is bound to
+// this exact run (not merely version+source_revision) via RIGHT_GIT_RUN_ID/
+// RIGHT_GIT_RUN_ATTEMPT on both the verification and publish steps.
+test("release chain: installed-qualification has a stage summary and publish downloads the complete same-run evidence set", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "macos-15"],
+      signWindows: true,
+      signMacos: true,
+      releaseChain: {
+        evidenceVerificationScript: "release:verify-evidence",
+        windowsFinalizeScript: "release:finalize:win",
+        macosFinalizeScript: "release:finalize:mac",
+        installedQualificationScript: "release:qualify:installed",
+        publishScript: "release:publish:qualified",
+        qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL",
+        publishSecrets: ["CLOUDFLARE_API_TOKEN"],
+      },
+    },
+    matrix: { os: ["ubuntu-24.04", "windows-2025", "macos-15"], node: ["22.23.2"] },
+    templateVersion: "1.4.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  const installedQualificationJob = content.slice(
+    content.search(/^ {2}installed-qualification:\n {4}needs:/m),
+    content.search(/^ {2}publish:\n {4}needs:/m),
+  );
+
+  // Point 1: installed-qualification wraps itself in stage-summary
+  // init/finalize like candidate/windows-sign/macos-sign, with the correct
+  // authoritative stage identifier, and finalize runs unconditionally.
+  assert.match(installedQualificationJob, /name: Initialize installed-qualification stage summary\n\s+run: pnpm run release:stage-summary\n\s+env:\n\s+RIGHT_GIT_STAGE_ACTION: init/);
+  assert.match(installedQualificationJob, /RIGHT_GIT_STAGE: installed-qualification/);
+  assert.match(installedQualificationJob, /name: Finalize installed-qualification stage summary\n\s+if: \$\{\{ always\(\) \}\}\n\s+run: pnpm run release:stage-summary\n\s+env:\n\s+RIGHT_GIT_STAGE_ACTION: finalize/);
+  assert.equal((installedQualificationJob.match(/RIGHT_GIT_STAGE: installed-qualification/g) ?? []).length, 2, "both init and finalize must carry the installed-qualification stage id");
+  assert.match(installedQualificationJob, /name: Upload installed-qualification stage summary\n\s+if: \$\{\{ always\(\) \}\}/);
+
+  const publishJob = content.slice(content.search(/^ {2}publish:\n {4}needs:/m));
+
+  // Point 2: publish downloads the complete same-run evidence set — both
+  // candidate legs (windows + macos) in distinct subdirectories, plus
+  // windows-sign, macos-sign, and installed-qualification summaries.
+  assert.match(publishJob, /Download same-run candidate \(Windows\) stage summary[\s\S]*?path: \$\{\{ runner\.temp \}\}\/right-git-release\/stage-summaries\/candidate-windows/);
+  assert.match(publishJob, /Download same-run candidate \(macOS\) stage summary[\s\S]*?path: \$\{\{ runner\.temp \}\}\/right-git-release\/stage-summaries\/candidate-macos/);
+  assert.match(publishJob, /Download same-run Windows signing stage summary[\s\S]*?path: \$\{\{ runner\.temp \}\}\/right-git-release\/stage-summaries\/windows-sign/);
+  assert.match(publishJob, /Download same-run macOS signing stage summary[\s\S]*?path: \$\{\{ runner\.temp \}\}\/right-git-release\/stage-summaries\/macos-sign/);
+  assert.match(publishJob, /Download same-run installed-qualification stage summary[\s\S]*?path: \$\{\{ runner\.temp \}\}\/right-git-release\/stage-summaries\/installed-qualification/);
+  // Distinct subdirectories: no two downloads share a path.
+  const downloadPaths = [...publishJob.matchAll(/path: (\$\{\{ runner\.temp \}\}\/right-git-release\/stage-summaries\/\S+)/g)].map((m) => m[1]);
+  assert.equal(downloadPaths.length, 5);
+  assert.equal(new Set(downloadPaths).size, 5, "every stage-summary download must use a distinct subdirectory");
+
+  // Point 3: both the evidence-verification step and the publish step carry
+  // the full run-identity contract (RIGHT_GIT_STAGE_SUMMARY_ROOT, run id,
+  // run attempt) alongside version/source_revision — evidence is bound to
+  // THIS run, not merely reusable across runs of the same version+SHA.
+  const verifyStep = publishJob.slice(publishJob.indexOf("Verify aggregated release evidence"), publishJob.indexOf("Publish qualified signed release"));
+  assert.match(verifyStep, /RIGHT_GIT_STAGE_SUMMARY_ROOT: \$\{\{ runner\.temp \}\}\/right-git-release\/stage-summaries/);
+  assert.match(verifyStep, /RIGHT_GIT_RUN_ID: \$\{\{ github\.run_id \}\}/);
+  assert.match(verifyStep, /RIGHT_GIT_RUN_ATTEMPT: \$\{\{ github\.run_attempt \}\}/);
+  const publishStep = publishJob.slice(publishJob.indexOf("Publish qualified signed release"));
+  assert.match(publishStep, /RIGHT_GIT_STAGE_SUMMARY_ROOT: \$\{\{ runner\.temp \}\}\/right-git-release\/stage-summaries/);
+  assert.match(publishStep, /RIGHT_GIT_RUN_ID: \$\{\{ github\.run_id \}\}/);
+  assert.match(publishStep, /RIGHT_GIT_RUN_ATTEMPT: \$\{\{ github\.run_attempt \}\}/);
+
+  assert.doesNotMatch(content, /run: (?:pnpm|npm|yarn) run undefined\b/);
+  assert.doesNotMatch(content, /\$\{\{\s*github\.output\s*\}\}/);
 });
 
 test("render determinism: same manifest renders byte-identical output every time", () => {

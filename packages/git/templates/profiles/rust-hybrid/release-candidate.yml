@@ -77,7 +77,6 @@ ${PACKAGE_MANAGER_SETUP}
           RIGHT_GIT_PUBLISH: ${{ inputs.publish }}
           RIGHT_GIT_WORKFLOW_REF: ${{ github.ref }}
           RIGHT_GIT_RUN_ATTEMPT: ${{ github.run_attempt }}
-          RIGHT_GIT_OUTPUT: ${{ github.output }}
   candidate:
     needs: [admission]
     env:

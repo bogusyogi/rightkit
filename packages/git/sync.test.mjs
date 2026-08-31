@@ -67,11 +67,14 @@ test("sync rejects a Membrane-like release chain without root @rightkit/release"
     candidate: {
       buildScript: "release:candidate:build",
       checkScript: "release:candidate:check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
       artifactRoot: "membrane-release-candidate",
       os: ["windows-2025", "macos-15"],
       signWindows: true,
       signMacos: true,
       releaseChain: {
+        evidenceVerificationScript: "release:verify-evidence",
         windowsFinalizeScript: "release:finalize:windows",
         macosFinalizeScript: "release:finalize:macos",
         installedQualificationScript: "release:qualify:installed",

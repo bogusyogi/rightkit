@@ -32,7 +32,14 @@ test("rust-hybrid supports ci plus a configured unsigned release-candidate lane"
   const candidate = {
     ...valid,
     lanes: ["ci", "release-candidate"],
-    candidate: { buildScript: "ci:candidate", checkScript: "ci:candidate-check", artifactRoot: "legion-unsigned", os: ["ubuntu-latest"] },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "legion-unsigned",
+      os: ["ubuntu-latest"],
+    },
   };
   assert.equal(validateManifest(candidate).valid, true);
   assert.equal(validateManifest({ ...candidate, candidate: { ...candidate.candidate, signWindows: true } }).valid, false);
@@ -53,6 +60,7 @@ test("rust-hybrid supports ci plus a configured unsigned release-candidate lane"
     candidate: {
       ...windowsCandidate.candidate,
       releaseChain: {
+        evidenceVerificationScript: "release:verify-evidence",
         windowsFinalizeScript: "release:finalize:win",
         installedQualificationScript: "release:qualify:installed",
         publishScript: "release:publish:qualified",
@@ -68,6 +76,103 @@ test("rust-hybrid supports ci plus a configured unsigned release-candidate lane"
   assert.equal(validateManifest({ ...releaseChain, candidate: { ...releaseChain.candidate, releaseChain: { ...releaseChain.candidate.releaseChain, publishSecrets: ["TOKEN", "TOKEN"] } } }).valid, false);
 });
 
+// Part B fix: admissionScript & stageSummaryScript were moved OUT of the
+// optional candidate.releaseChain object and onto candidate directly,
+// because the admission job and the candidate job's stage-summary
+// init/finalize steps are unconditional parts of the rendered
+// release-candidate template — present for every release-candidate lane,
+// signed or not. This test proves each is independently required with a
+// specific, actionable error, and that the full releaseChain contract
+// (now minus those two promoted fields) is validated key-by-key.
+test("rust-hybrid release-candidate requires admissionScript & stageSummaryScript independent of signing", () => {
+  const base = {
+    ...VALID_MINIMAL,
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    lanes: ["ci", "release-candidate"],
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["ubuntu-latest"],
+    },
+  };
+  assert.equal(validateManifest(base).valid, true, JSON.stringify(validateManifest(base).errors));
+
+  const { admissionScript, ...withoutAdmission } = base.candidate;
+  const missingAdmission = validateManifest({ ...base, candidate: withoutAdmission });
+  assert.equal(missingAdmission.valid, false);
+  assert.ok(missingAdmission.errors.includes("candidate.admissionScript must be one safe package script name"));
+
+  const { stageSummaryScript, ...withoutStageSummary } = base.candidate;
+  const missingStageSummary = validateManifest({ ...base, candidate: withoutStageSummary });
+  assert.equal(missingStageSummary.valid, false);
+  assert.ok(missingStageSummary.errors.includes("candidate.stageSummaryScript must be one safe package script name"));
+
+  // Neither field is accepted inside releaseChain any more.
+  const windows = {
+    ...base,
+    matrix: { ...base.matrix, os: ["ubuntu-latest", "windows-2025"] },
+    candidate: { ...base.candidate, os: ["windows-2025"], signWindows: true },
+  };
+  const misplaced = validateManifest({
+    ...windows,
+    candidate: {
+      ...windows.candidate,
+      releaseChain: {
+        admissionScript: "release:admit",
+        evidenceVerificationScript: "release:verify-evidence",
+        windowsFinalizeScript: "release:finalize:win",
+        installedQualificationScript: "release:qualify:installed",
+        publishScript: "release:publish:qualified",
+        qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL",
+      },
+    },
+  });
+  assert.equal(misplaced.valid, false);
+  assert.ok(misplaced.errors.includes("unknown candidate.releaseChain field: admissionScript"));
+});
+
+// Part B fix: evidenceVerificationScript is the one new script that DOES
+// stay inside releaseChain (it runs in the `publish` job, verifying
+// aggregated same-run evidence before the publish step) — required
+// whenever releaseChain is configured, with its own specific error.
+test("candidate.releaseChain requires evidenceVerificationScript with a specific error", () => {
+  const windows = {
+    ...VALID_MINIMAL,
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    lanes: ["ci", "release-candidate"],
+    matrix: { ...VALID_MINIMAL.matrix, os: ["ubuntu-latest", "windows-2025"] },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025"],
+      signWindows: true,
+      releaseChain: {
+        windowsFinalizeScript: "release:finalize:win",
+        installedQualificationScript: "release:qualify:installed",
+        publishScript: "release:publish:qualified",
+        qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL",
+      },
+    },
+  };
+  const result = validateManifest(windows);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.includes("candidate.releaseChain.evidenceVerificationScript must be one safe package script name"));
+
+  const fixed = {
+    ...windows,
+    candidate: { ...windows.candidate, releaseChain: { ...windows.candidate.releaseChain, evidenceVerificationScript: "release:verify-evidence" } },
+  };
+  assert.equal(validateManifest(fixed).valid, true, JSON.stringify(validateManifest(fixed).errors));
+});
+
 test("candidate targets permit native multi-architecture matrices independent of normal CI runners", () => {
   const multiArchitecture = {
     ...VALID_MINIMAL,
@@ -77,6 +182,8 @@ test("candidate targets permit native multi-architecture matrices independent of
     candidate: {
       buildScript: "ci:candidate",
       checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
       artifactRoot: "widgets-unsigned",
       os: ["windows-2025", "windows-11-arm", "macos-15", "macos-15-intel"],
       targets: [

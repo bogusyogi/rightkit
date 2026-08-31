@@ -105,11 +105,21 @@
     },
     "candidate": {
       "type": "object",
-      "required": ["buildScript", "checkScript", "artifactRoot", "os"],
+      "required": ["buildScript", "checkScript", "admissionScript", "stageSummaryScript", "artifactRoot", "os"],
       "additionalProperties": false,
       "properties": {
         "buildScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
         "checkScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+        "admissionScript": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$",
+          "description": "Runs in the unconditional `admission` job (workflow_dispatch envelope validation). Required for every release-candidate lane, signed or not."
+        },
+        "stageSummaryScript": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$",
+          "description": "Runs (init/finalize) in the `candidate` job and, when configured, the windows-sign/macos-sign jobs. Required for every release-candidate lane, signed or not."
+        },
         "artifactRoot": { "type": "string", "pattern": "^(?!.*\\.\\.)(?!.*\\s)[A-Za-z0-9][A-Za-z0-9._/-]*$" },
         "os": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
         "targets": {
@@ -130,12 +140,14 @@
         "signMacos": { "type": "boolean" },
         "releaseChain": {
           "type": "object",
-          "required": ["admissionScript", "stageSummaryScript", "evidenceVerificationScript", "windowsFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable"],
+          "required": ["evidenceVerificationScript", "windowsFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable"],
           "additionalProperties": false,
           "properties": {
-            "admissionScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
-            "stageSummaryScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
-            "evidenceVerificationScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+            "evidenceVerificationScript": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$",
+              "description": "Runs in the `publish` job before the publish step, verifying the aggregated same-run signed/qualification evidence."
+            },
             "windowsFinalizeScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
             "macosFinalizeScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
             "installedQualificationScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
