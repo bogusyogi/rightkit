@@ -1,18 +1,31 @@
 # Managed by right-git — do not hand-edit. Run `right-git sync` to update.
 # Template: profiles/rust-hybrid/release-candidate.yml | Template version: ${TEMPLATE_VERSION}
-# Public CI always produces unsigned candidates. Opt-in finalization signs Windows
-# through Azure OIDC & macOS through environment-scoped Apple credentials.
+# Dispatch-only release chain binds every stage to one admitted main revision.
 name: release-candidate
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: Stable SemVer to qualify or publish
+        required: true
+        type: string
+      source_revision:
+        description: Exact 40-character lowercase main commit SHA
+        required: true
+        type: string
       signed_qualification:
-        description: Run protected signing & installed qualification without publishing
+        description: Run protected signing, installed qualification, & evidence verification
         required: false
         type: boolean
         default: false
-  push:
-    tags: ['v*']
+      publish:
+        description: Publish only after same-run signed qualification verifies
+        required: false
+        type: boolean
+        default: false
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
@@ -22,8 +35,51 @@ jobs:
       - name: Refuse private repository
         if: ${{ github.event.repository.private }}
         run: exit 1
-  candidate:
+  admission:
     needs: [private-repo-guard]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.admit.outputs.version }}
+      source_revision: ${{ steps.admit.outputs.source_revision }}
+      signed_qualification: ${{ steps.admit.outputs.signed_qualification }}
+      publish: ${{ steps.admit.outputs.publish }}
+    steps:
+      - name: Validate immutable dispatch envelope
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$GITHUB_RUN_ATTEMPT" == "1" ]]
+          [[ "${{ inputs.version }}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "${{ inputs.source_revision }}" =~ ^[a-f0-9]{40}$ ]]
+          if [[ "${{ inputs.publish }}" == "true" ]]; then [[ "${{ inputs.signed_qualification }}" == "true" ]]; fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_revision }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${NODE_PUBLISH_VERSION}
+          package-manager-cache: false
+${PACKAGE_MANAGER_SETUP}
+      - run: ${INSTALL_COMMAND}
+      - name: Admit exact main revision & version
+        id: admit
+        run: ${PM_RUN} ${RELEASE_ADMISSION_SCRIPT}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RIGHT_GIT_RELEASE_VERSION: ${{ inputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: ${{ inputs.source_revision }}
+          RIGHT_GIT_SIGNED_QUALIFICATION: ${{ inputs.signed_qualification }}
+          RIGHT_GIT_PUBLISH: ${{ inputs.publish }}
+          RIGHT_GIT_WORKFLOW_REF: ${{ github.ref }}
+          RIGHT_GIT_RUN_ATTEMPT: ${{ github.run_attempt }}
+          RIGHT_GIT_OUTPUT: ${{ github.output }}
+  candidate:
+    needs: [admission]
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -35,7 +91,9 @@ ${CANDIDATE_MATRIX}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.admission.outputs.source_revision }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
@@ -58,23 +116,64 @@ ${RUST_CACHE_WORKSPACES}
         with:
           version: "v0.16.0"
       - run: ${INSTALL_COMMAND}
+      - name: Initialize candidate stage summary
+        run: ${PM_RUN} ${RELEASE_STAGE_SUMMARY_SCRIPT}
+        env:
+          RIGHT_GIT_STAGE_ACTION: init
+          RIGHT_GIT_STAGE_ROOT: ${{ runner.temp }}/right-git-stage-summary
+          RIGHT_GIT_STAGE_EVIDENCE_ROOT: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}
+          RIGHT_GIT_STAGE: candidate
+          RIGHT_GIT_STAGE_PRODUCER: candidate-${{ matrix.platform }}-${{ matrix.architecture }}
+          RIGHT_GIT_RELEASE_VERSION: ${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}
+          RIGHT_GIT_RELEASE_PLATFORM: ${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
+          RIGHT_GIT_RUN_ID: ${{ github.run_id }}
+          RIGHT_GIT_RUN_ATTEMPT: ${{ github.run_attempt }}
       - name: Build unsigned release candidate
         run: ${PM_RUN} ${CANDIDATE_BUILD_SCRIPT}
         env:
           RIGHT_GIT_ARTIFACT_ROOT: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}
           RIGHT_GIT_RELEASE_PLATFORM: ${{ matrix.platform }}
           RIGHT_GIT_RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
+          RIGHT_GIT_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}
       - name: Check unsigned release candidate
         run: ${PM_RUN} ${CANDIDATE_CHECK_SCRIPT}
         env:
           RIGHT_GIT_ARTIFACT_ROOT: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}
           RIGHT_GIT_RELEASE_PLATFORM: ${{ matrix.platform }}
           RIGHT_GIT_RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
+          RIGHT_GIT_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}
+      - name: Finalize candidate stage summary
+        if: ${{ always() }}
+        run: ${PM_RUN} ${RELEASE_STAGE_SUMMARY_SCRIPT}
+        env:
+          RIGHT_GIT_STAGE_ACTION: finalize
+          RIGHT_GIT_STAGE_ROOT: ${{ runner.temp }}/right-git-stage-summary
+          RIGHT_GIT_STAGE_EVIDENCE_ROOT: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}
+          RIGHT_GIT_STAGE: candidate
+          RIGHT_GIT_STAGE_PRODUCER: candidate-${{ matrix.platform }}-${{ matrix.architecture }}
+          RIGHT_GIT_STAGE_STATUS: ${{ job.status == 'success' && 'SUCCEEDED' || 'FAILED' }}
+          RIGHT_GIT_STAGE_EXIT_CODE: ${{ job.status == 'success' && '0' || '1' }}
+          RIGHT_GIT_RELEASE_VERSION: ${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: ${{ needs.admission.outputs.source_revision }}
+          RIGHT_GIT_RELEASE_PLATFORM: ${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
+          RIGHT_GIT_RUN_ID: ${{ github.run_id }}
+          RIGHT_GIT_RUN_ATTEMPT: ${{ github.run_attempt }}
       - name: Upload unsigned candidate handoff
+        if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${ARTIFACT_PREFIX}-unsigned-${{ matrix.platform }}-${{ matrix.architecture }}-${{ matrix.node }}
+          name: ${ARTIFACT_PREFIX}-${{ github.run_id }}-${{ github.run_attempt }}-candidate-${{ matrix.platform }}-${{ matrix.architecture }}-${{ needs.admission.outputs.version }}-${{ needs.admission.outputs.source_revision }}
           path: ${{ runner.temp }}/${CANDIDATE_ARTIFACT_ROOT}/**
+          if-no-files-found: error
+      - name: Upload candidate stage summary
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${ARTIFACT_PREFIX}-${{ github.run_id }}-${{ github.run_attempt }}-summary-candidate-${{ matrix.platform }}-${{ matrix.architecture }}-${{ needs.admission.outputs.version }}-${{ needs.admission.outputs.source_revision }}
+          path: ${{ runner.temp }}/right-git-stage-summary/stage-summary.json
           if-no-files-found: error
 ${WINDOWS_SIGNING_JOB}
 ${MACOS_SIGNING_JOB}

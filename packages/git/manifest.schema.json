@@ -130,9 +130,12 @@
         "signMacos": { "type": "boolean" },
         "releaseChain": {
           "type": "object",
-          "required": ["windowsFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable"],
+          "required": ["admissionScript", "stageSummaryScript", "evidenceVerificationScript", "windowsFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable"],
           "additionalProperties": false,
           "properties": {
+            "admissionScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+            "stageSummaryScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
+            "evidenceVerificationScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
             "windowsFinalizeScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
             "macosFinalizeScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },
             "installedQualificationScript": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]*$" },

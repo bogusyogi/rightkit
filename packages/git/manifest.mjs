@@ -252,14 +252,14 @@ export function validateManifest(manifest) {
       }
       if (candidate.releaseChain !== undefined) {
         const chain = candidate.releaseChain;
-        const allowedChainKeys = ["windowsFinalizeScript", "macosFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable", "publishSecrets"];
+        const allowedChainKeys = ["admissionScript", "stageSummaryScript", "evidenceVerificationScript", "windowsFinalizeScript", "macosFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable", "publishSecrets"];
         if (chain === null || typeof chain !== "object" || Array.isArray(chain)) {
           errors.push("candidate.releaseChain must be an object");
         } else {
           for (const key of Object.keys(chain)) {
             if (!allowedChainKeys.includes(key)) errors.push(`unknown candidate.releaseChain field: ${key}`);
           }
-          for (const key of ["windowsFinalizeScript", "installedQualificationScript", "publishScript"]) {
+          for (const key of ["admissionScript", "stageSummaryScript", "evidenceVerificationScript", "windowsFinalizeScript", "installedQualificationScript", "publishScript"]) {
             if (typeof chain[key] !== "string" || !PACKAGE_SCRIPT_RE.test(chain[key])) {
               errors.push(`candidate.releaseChain.${key} must be one safe package script name`);
             }
@@ -462,7 +462,7 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
   const finalizeEnvironment = releaseChain
     ? `          RIGHT_GIT_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-windows-candidate
           RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/finalized-windows
-          RIGHT_GIT_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}`
     : `          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-windows-candidate
           LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`;
   const uploadPath = releaseChain
@@ -470,8 +470,8 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
     : "            dist/releases/windows/**\n            .right-release/receipts/windows-*.json";
   return `
   windows-sign:
-    needs: [candidate]
-    if: \${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.signed_qualification == true) }}
+    needs: [admission, candidate]
+    if: \${{ needs.admission.outputs.signed_qualification == 'true' }}
     environment: release
     strategy:
       fail-fast: false
@@ -483,9 +483,9 @@ ${signingMatrix(manifest, "windows")}
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Resolve checked-out source revision
-        shell: pwsh
-        run: '"RIGHT_GIT_SOURCE_REVISION=$(git rev-parse HEAD)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+        with:
+          ref: \${{ needs.admission.outputs.source_revision }}
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${nodeVersion}
@@ -495,10 +495,24 @@ ${pm.setup}
         with:
           targets: \${{ matrix.targetTriple }}
       - run: ${pm.installCommand}
+      - name: Initialize Windows signing stage summary
+        run: ${pm.runPrefix} ${releaseChain?.stageSummaryScript}
+        env:
+          RIGHT_GIT_STAGE_ACTION: init
+          RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
+          RIGHT_GIT_STAGE_EVIDENCE_ROOT: \${{ runner.temp }}/finalized-windows
+          RIGHT_GIT_STAGE: windows-sign
+          RIGHT_GIT_STAGE_PRODUCER: windows-sign-\${{ matrix.architecture }}
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+          RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
+          RIGHT_GIT_RUN_ID: \${{ github.run_id }}
+          RIGHT_GIT_RUN_ATTEMPT: \${{ github.run_attempt }}
       - name: Download exact unsigned Windows candidate
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-unsigned-\${{ matrix.platform }}-\${{ matrix.architecture }}-${nodeVersion}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-candidate-\${{ matrix.platform }}-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
           path: \${{ runner.temp }}/unsigned-windows-candidate
       - name: Authenticate to Azure with GitHub OIDC
         uses: azure/login@${AZURE_LOGIN_SHA} # v3
@@ -531,12 +545,37 @@ ${finalizeEnvironment}
           AZURE_ARTIFACT_SIGNING_ENDPOINT: \${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
           AZURE_ARTIFACT_SIGNING_ACCOUNT: \${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
           AZURE_ARTIFACT_SIGNING_PROFILE: \${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+      - name: Finalize Windows signing stage summary
+        if: \${{ always() }}
+        run: ${pm.runPrefix} ${releaseChain?.stageSummaryScript}
+        env:
+          RIGHT_GIT_STAGE_ACTION: finalize
+          RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
+          RIGHT_GIT_STAGE_EVIDENCE_ROOT: \${{ runner.temp }}/finalized-windows
+          RIGHT_GIT_STAGE: windows-sign
+          RIGHT_GIT_STAGE_PRODUCER: windows-sign-\${{ matrix.architecture }}
+          RIGHT_GIT_STAGE_STATUS: \${{ job.status == 'success' && 'SUCCEEDED' || 'FAILED' }}
+          RIGHT_GIT_STAGE_EXIT_CODE: \${{ job.status == 'success' && '0' || '1' }}
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+          RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
+          RIGHT_GIT_RUN_ID: \${{ github.run_id }}
+          RIGHT_GIT_RUN_ATTEMPT: \${{ github.run_attempt }}
       - name: Upload signed Windows candidate
+        if: \${{ always() }}
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
-          name: ${artifactPrefix}-signed-windows-\${{ matrix.architecture }}-${nodeVersion}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-windows-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
           path: |
 ${uploadPath}
+          if-no-files-found: error
+      - name: Upload Windows signing stage summary
+        if: \${{ always() }}
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
+        with:
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-windows-sign-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
+          path: \${{ runner.temp }}/right-git-stage-summary/stage-summary.json
           if-no-files-found: error
 `.trimEnd();
 }
@@ -551,7 +590,7 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
   const finalizeEnvironment = releaseChain
     ? `          RIGHT_GIT_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-macos-candidate
           RIGHT_GIT_FINALIZED_MACOS_ROOT: \${{ runner.temp }}/finalized-macos
-          RIGHT_GIT_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}`
     : `          LEGION_UNSIGNED_CANDIDATE_ROOT: \${{ runner.temp }}/unsigned-macos-candidate
           LEGION_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}`;
   const uploadPath = releaseChain
@@ -559,8 +598,8 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
     : "            dist/releases/mac/**\n            .right-release/receipts/macos-*.json";
   return `
   macos-sign:
-    needs: [candidate]
-    if: \${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.signed_qualification == true) }}
+    needs: [admission, candidate]
+    if: \${{ needs.admission.outputs.signed_qualification == 'true' }}
     environment: release
     strategy:
       fail-fast: false
@@ -571,9 +610,9 @@ ${signingMatrix(manifest, "macos")}
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Resolve checked-out source revision
-        shell: bash
-        run: printf 'RIGHT_GIT_SOURCE_REVISION=%s\\n' "$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+        with:
+          ref: \${{ needs.admission.outputs.source_revision }}
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${nodeVersion}
@@ -583,10 +622,24 @@ ${pm.setup}
         with:
           targets: \${{ matrix.targetTriple }}
       - run: ${pm.installCommand}
+      - name: Initialize macOS signing stage summary
+        run: ${pm.runPrefix} ${releaseChain?.stageSummaryScript}
+        env:
+          RIGHT_GIT_STAGE_ACTION: init
+          RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
+          RIGHT_GIT_STAGE_EVIDENCE_ROOT: \${{ runner.temp }}/finalized-macos
+          RIGHT_GIT_STAGE: macos-sign
+          RIGHT_GIT_STAGE_PRODUCER: macos-sign-\${{ matrix.architecture }}
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+          RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
+          RIGHT_GIT_RUN_ID: \${{ github.run_id }}
+          RIGHT_GIT_RUN_ATTEMPT: \${{ github.run_attempt }}
       - name: Download exact unsigned macOS candidate
         uses: actions/download-artifact@${DOWNLOAD_ARTIFACT_SHA} # v4.3.0
         with:
-          name: ${artifactPrefix}-unsigned-\${{ matrix.platform }}-\${{ matrix.architecture }}-${nodeVersion}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-candidate-\${{ matrix.platform }}-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
           path: \${{ runner.temp }}/unsigned-macos-candidate
       - name: Install Apple signing identity in temporary keychain
         shell: bash
@@ -618,12 +671,37 @@ ${finalizeEnvironment}
           APPLE_DEVELOPER_ID: \${{ vars.APPLE_DEVELOPER_ID }}
           APPLE_API_KEY: \${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: \${{ secrets.APPLE_API_ISSUER }}
+      - name: Finalize macOS signing stage summary
+        if: \${{ always() }}
+        run: ${pm.runPrefix} ${releaseChain?.stageSummaryScript}
+        env:
+          RIGHT_GIT_STAGE_ACTION: finalize
+          RIGHT_GIT_STAGE_ROOT: \${{ runner.temp }}/right-git-stage-summary
+          RIGHT_GIT_STAGE_EVIDENCE_ROOT: \${{ runner.temp }}/finalized-macos
+          RIGHT_GIT_STAGE: macos-sign
+          RIGHT_GIT_STAGE_PRODUCER: macos-sign-\${{ matrix.architecture }}
+          RIGHT_GIT_STAGE_STATUS: \${{ job.status == 'success' && 'SUCCEEDED' || 'FAILED' }}
+          RIGHT_GIT_STAGE_EXIT_CODE: \${{ job.status == 'success' && '0' || '1' }}
+          RIGHT_GIT_RELEASE_VERSION: \${{ needs.admission.outputs.version }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
+          RIGHT_GIT_RELEASE_PLATFORM: \${{ matrix.platform }}
+          RIGHT_GIT_RELEASE_ARCHITECTURE: \${{ matrix.architecture }}
+          RIGHT_GIT_RUN_ID: \${{ github.run_id }}
+          RIGHT_GIT_RUN_ATTEMPT: \${{ github.run_attempt }}
       - name: Upload signed & notarized macOS candidate
+        if: \${{ always() }}
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
-          name: ${artifactPrefix}-signed-macos-\${{ matrix.architecture }}-${nodeVersion}
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-signed-macos-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
           path: |
 ${uploadPath}
+          if-no-files-found: error
+      - name: Upload macOS signing stage summary
+        if: \${{ always() }}
+        uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
+        with:
+          name: ${artifactPrefix}-\${{ github.run_id }}-\${{ github.run_attempt }}-summary-macos-sign-\${{ matrix.architecture }}-\${{ needs.admission.outputs.version }}-\${{ needs.admission.outputs.source_revision }}
+          path: \${{ runner.temp }}/right-git-stage-summary/stage-summary.json
           if-no-files-found: error
       - name: Remove Apple signing material
         if: \${{ always() }}
@@ -687,7 +765,7 @@ ${pm.setup}
           GH_TOKEN: \${{ github.token }}
           RIGHT_GIT_FINALIZED_WINDOWS_ROOT: \${{ runner.temp }}/right-git-release/windows
           RIGHT_GIT_QUALIFICATION_EVIDENCE_ROOT: \${{ runner.temp }}/right-git-release/qualification
-          RIGHT_GIT_SOURCE_REVISION: \${{ env.RIGHT_GIT_SOURCE_REVISION }}
+          RIGHT_GIT_SOURCE_REVISION: \${{ needs.admission.outputs.source_revision }}
       - name: Upload installed qualification evidence
         uses: actions/upload-artifact@${UPLOAD_ARTIFACT_SHA} # v4
         with:
@@ -785,6 +863,9 @@ export function buildRenderContext(manifest, repoPath) {
     CANDIDATE_ARTIFACT_ROOT: manifest.candidate?.artifactRoot,
     CANDIDATE_OS_MATRIX: yamlFlowStringList(manifest.candidate?.os ?? manifest.matrix.os),
     CANDIDATE_MATRIX: candidateMatrix(manifest),
+    RELEASE_ADMISSION_SCRIPT: manifest.candidate?.releaseChain?.admissionScript,
+    RELEASE_STAGE_SUMMARY_SCRIPT: manifest.candidate?.releaseChain?.stageSummaryScript,
+    RELEASE_EVIDENCE_VERIFICATION_SCRIPT: manifest.candidate?.releaseChain?.evidenceVerificationScript,
     WINDOWS_SIGNING_JOB: windowsSigningJob(manifest, pm, artifactPrefix),
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
