@@ -486,7 +486,6 @@ ${signingMatrix(manifest, "windows")}
 ${pm.setup}
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         with:
-          toolchain: 1.98.0
           targets: \${{ matrix.targetTriple }}
       - run: ${pm.installCommand}
       - name: Download exact unsigned Windows candidate
@@ -575,7 +574,6 @@ ${signingMatrix(manifest, "macos")}
 ${pm.setup}
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         with:
-          toolchain: 1.98.0
           targets: \${{ matrix.targetTriple }}
       - run: ${pm.installCommand}
       - name: Download exact unsigned macOS candidate

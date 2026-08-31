@@ -46,9 +46,11 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   const manifest = { ...FULL_MANIFEST, lanes: ["ci"], profile: "rust-hybrid", gate: { path: "scripts/gate.sh" }, templateVersion: "1.1.0" };
   const content = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"), buildRenderContext(manifest, "/repos/widgets"));
   assert.match(content, /uses: pnpm\/action-setup@[a-f0-9]{40}/);
+  assert.match(content, /fetch-depth: 0/);
   assert.match(content, /^name: widgets-ci$/m);
   assert.match(content, /version: 11\.24\.0/);
-  assert.match(content, /toolchain: 1\.98\.0/);
+  assert.match(content, /components: rustfmt, clippy/);
+  assert.doesNotMatch(content, /toolchain:/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
   assert.match(content, /os: \["windows-latest"\]/);
   assert.doesNotMatch(content, /ubuntu-latest|macos-latest/);

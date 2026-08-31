@@ -327,13 +327,13 @@ test("accepts the installed @rightkit/git 0.2.15 release-chain consumer", () => 
   assert.equal(result.status, 0, result.stderr);
 });
 
-test("accepts the current @rightkit/git 0.2.18 release-chain consumer", () => {
+test("accepts the current @rightkit/git 0.2.19 release-chain consumer", () => {
   const result = run(fixture({
     packageJson: {
       name: "fixture",
       packageManager: versions.packageManager,
       scripts: { "release:patch:win": "right-release --platform win --tier patch" },
-      dependencies: { "@rightkit/git": "0.2.18" },
+      dependencies: { "@rightkit/git": "0.2.19" },
       devDependencies: { "@rightkit/release": versions.stagedNpm["@rightkit/release"] },
     },
   }));
@@ -346,12 +346,12 @@ test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
       name: "fixture",
       packageManager: versions.packageManager,
       scripts: { "release:patch:win": "right-release --platform win --tier patch" },
-      dependencies: { "@rightkit/git": "0.2.19" },
+      dependencies: { "@rightkit/git": "0.2.20" },
       devDependencies: { "@rightkit/release": versions.stagedNpm["@rightkit/release"] },
     },
   }));
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.2\.19/i);
+  assert.match(result.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.2\.20/i);
 });
 
 test("rejects hosted workflow files before release work starts", () => {
