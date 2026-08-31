@@ -14,7 +14,7 @@
   },
   "stagedNpm": {
     "@rightkit/ax": "0.2.1",
-    "@rightkit/git": "0.2.22",
+    "@rightkit/git": "0.2.23",
     "@rightkit/hooks": "0.1.1",
     "@rightkit/legal": "0.3.1",
     "@rightkit/legal-ui": "0.1.1",
@@ -50,7 +50,8 @@
       "0.2.18",
       "0.2.19",
       "0.2.20",
-      "0.2.21"
+      "0.2.21",
+      "0.2.22"
     ],
     "@rightkit/legal-ui": [
       "0.1.0"
