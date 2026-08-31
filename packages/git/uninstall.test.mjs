@@ -78,12 +78,12 @@ test("install validates before it creates a manifest", async () => {
   assert.equal(fs.existsSync(path.join(dir, MANIFEST_FILENAME)), false);
 });
 
-test("install emits GitHub-Actions-only policy at template 1.7.0", async () => {
+test("install emits GitHub-Actions-only policy at template 1.8.0", async () => {
   const dir = makeTempRepo(null);
   const result = await installCommand(dir, { lanes: ["ci"] }, PUBLIC_DEPS);
   assert.equal(result.ok, true);
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, MANIFEST_FILENAME), "utf8"));
   assert.equal(manifest.compile, "github-actions-only");
-  assert.equal(DEFAULT_TEMPLATE_VERSION, "1.7.0");
+  assert.equal(DEFAULT_TEMPLATE_VERSION, "1.8.0");
   assert.equal(manifest.templateVersion, DEFAULT_TEMPLATE_VERSION);
 });

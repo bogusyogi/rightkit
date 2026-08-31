@@ -167,7 +167,7 @@ export function validateManifest(manifest) {
       errors.push("rustCache must be an object");
     } else {
       for (const key of Object.keys(rustCache)) {
-        if (key !== "workspaces") errors.push(`unknown rustCache field: ${key}`);
+        if (key !== "workspaces" && key !== "requiredForGate") errors.push(`unknown rustCache field: ${key}`);
       }
       if (!Array.isArray(rustCache.workspaces) || rustCache.workspaces.length === 0) {
         errors.push("rustCache.workspaces must be a non-empty array");
@@ -175,6 +175,9 @@ export function validateManifest(manifest) {
         errors.push("rustCache.workspaces entries must be safe relative paths");
       } else if (new Set(rustCache.workspaces).size !== rustCache.workspaces.length) {
         errors.push("rustCache.workspaces entries must be unique");
+      }
+      if (rustCache.requiredForGate !== undefined && typeof rustCache.requiredForGate !== "boolean") {
+        errors.push("rustCache.requiredForGate must be a boolean");
       }
     }
   }
@@ -776,6 +779,7 @@ export function buildRenderContext(manifest, repoPath) {
     TEMPLATE_VERSION: manifest.templateVersion,
     GATE_PATH: manifest.gate?.path,
     RUST_CACHE_WORKSPACES: rustWorkspaces.map((workspace) => `            ${workspace} -> target`).join("\n"),
+    RUST_REQUIRED_FOR_GATE: manifest.rustCache?.requiredForGate === true ? "true" : "false",
     CANDIDATE_BUILD_SCRIPT: manifest.candidate?.buildScript,
     CANDIDATE_CHECK_SCRIPT: manifest.candidate?.checkScript,
     CANDIDATE_ARTIFACT_ROOT: manifest.candidate?.artifactRoot,

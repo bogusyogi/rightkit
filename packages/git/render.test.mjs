@@ -61,9 +61,10 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /--diff-filter=ACDMRTUXB/, "deleted Rust inputs must trigger Rust setup");
   assert.match(content, /\*\.rs\|Cargo\.toml[\s\S]*scripts\/gate\.sh/);
   assert.match(content, /\.rightgit\.json\|\.github\/workflows\/\*\.yml\|\.github\/workflows\/\*\.yaml/);
-  assert.equal((content.match(/if: steps\.rust-changes\.outputs\.changed == 'true'/g) ?? []).length, 3);
+  assert.equal((content.match(/if: steps\.rust-changes\.outputs\.required == 'true'/g) ?? []).length, 3);
   assert.match(content, /RIGHT_GIT_RUST_CHANGED: \$\{\{ steps\.rust-changes\.outputs\.changed \}\}/);
-  assert.match(content, /RUSTC_WRAPPER: \$\{\{ steps\.rust-changes\.outputs\.changed == 'true' && 'sccache' \|\| '' \}\}/);
+  assert.match(content, /RIGHT_GIT_RUST_REQUIRED: \$\{\{ steps\.rust-changes\.outputs\.required \}\}/);
+  assert.match(content, /RUSTC_WRAPPER: \$\{\{ steps\.rust-changes\.outputs\.required == 'true' && 'sccache' \|\| '' \}\}/);
   assert.match(content, /CARGO_INCREMENTAL: "0"/);
   assert.match(content, /CARGO_PROFILE_DEV_DEBUG: "0"/);
   assert.match(content, /CARGO_PROFILE_TEST_DEBUG: "0"/);
@@ -129,7 +130,7 @@ test("rust-hybrid cache contract renders every declared Cargo workspace", () => 
     lanes: ["ci"],
     profile: "rust-hybrid",
     gate: { path: "scripts/gate.sh" },
-    rustCache: { workspaces: [".", "apps/studio/src-tauri"] },
+    rustCache: { workspaces: [".", "apps/studio/src-tauri"], requiredForGate: true },
     matrix: { os: ["windows-2025"], node: ["22.23.2"] },
   };
   const content = renderTemplate(
@@ -140,7 +141,8 @@ test("rust-hybrid cache contract renders every declared Cargo workspace", () => 
   assert.match(content, /add-job-id-key: false/);
   assert.match(content, /cache-workspace-crates: false/);
   assert.match(content, /cache-on-failure: true/);
-  assert.match(content, /RUSTC_WRAPPER: \$\{\{ steps\.rust-changes\.outputs\.changed == 'true' && 'sccache' \|\| '' \}\}/);
+  assert.match(content, /if \[\[ "true" == "true" \]\]; then[\s\S]*required=true/);
+  assert.match(content, /RUSTC_WRAPPER: \$\{\{ steps\.rust-changes\.outputs\.required == 'true' && 'sccache' \|\| '' \}\}/);
 });
 
 test("rust-hybrid release candidate can opt into OIDC Windows signing without long-lived secrets", () => {
