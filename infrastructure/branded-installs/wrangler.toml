@@ -1,0 +1,14 @@
+name = "rightapps-branded-installs"
+main = "worker.mjs"
+compatibility_date = "2026-08-31"
+workers_dev = false
+
+routes = [
+  { pattern = "legion.orthiclabs.com", custom_domain = true },
+  { pattern = "membrane.orthiclabs.com", custom_domain = true },
+]
+
+[[r2_buckets]]
+binding = "INSTALL_BUCKET"
+bucket_name = "rightapps-downloads"
+
