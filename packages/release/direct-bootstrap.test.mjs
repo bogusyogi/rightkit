@@ -131,6 +131,77 @@ test("generated bootstrap supports current-path activation and product-specific 
   assert.match(script, /Replace\('\{current\}', \$Current\)/);
 });
 
+test("opt-in local release root reuses verified install transaction without network acquisition", () => {
+  const script = renderPowerShellBootstrap({
+    product: "membrane",
+    repository: "Orthic-Labs/membrane",
+    bootstrapVersion: "0.1.0",
+    acceptedManifestSigners: [acceptedSigner],
+    installRootSubdir: "Orthic Labs\\Membrane",
+    executablePath: "bin/membrane.exe",
+    activationArgs: ["activate", "--install-root", "{current}"],
+    statusArgs: ["activate", "--install-root", "{current}", "--dry-run"],
+    expectedStatusKind: "membrane-status",
+    allowLocalReleaseRoot: true,
+  });
+  assert.deepEqual(validatePowerShellBootstrap(script, {
+    product: "membrane",
+    acceptedSignerIds: [RIGHTRELEASE_MANIFEST_SIGNER.id],
+    allowLocalReleaseRoot: true,
+  }), { valid: true, errors: [] });
+  const encoded = script.match(/FromBase64String\('([^']+)'\)/)[1];
+  const contract = JSON.parse(Buffer.from(encoded, "base64").toString());
+  assert.equal(contract.allowLocalReleaseRoot, true);
+  assert.match(script, /param\(\[string\]\$Version, \[switch\]\$AllowDowngrade, \[string\]\$ReleaseRoot\)/);
+  assert.match(script, /if \(-not \$Version -and -not \$LocalReleaseRoot\)/);
+  assert.match(script, /Copy-Item -LiteralPath \$Source -Destination \$Destination/);
+  assert.match(script, /Receive-ReleaseFile 'release-manifest\.json' \$ManifestPath/);
+  assert.match(script, /Receive-ReleaseFile 'release-manifest\.cat' \$SignaturePath/);
+  assert.match(script, /Receive-ReleaseFile 'checksums\.json' \$ChecksumsPath/);
+  assert.match(script, /Receive-ReleaseFile \(\[string\]\$Asset\.name\) \$Archive/);
+  assert.match(script, /Receive-ReleaseFile \(\[string\]\$Asset\.provenanceName\) \$ProvenancePath/);
+  assert.match(script, /Receive-ReleaseFile \(\[string\]\$Asset\.sbomName\) \$SbomPath/);
+  assert.equal((script.match(/Invoke-WebRequest/g) ?? []).length, 1);
+  assert.ok(script.indexOf("Test-FileCatalog") < script.indexOf("$Manifest ="));
+  assert.ok(script.indexOf("$Manifest =") < script.indexOf("if (-not $Version) { $Version = [string]$Manifest.version }"));
+  assert.ok(script.indexOf("Archive checksum mismatch") < script.indexOf("New-Item -ItemType Junction"));
+  assert.ok(script.indexOf("SBOM checksum mismatch") < script.indexOf("New-Item -ItemType Junction"));
+  assert.ok(script.indexOf("New-Item -ItemType Junction") < script.indexOf("Activation failed"));
+  assert.ok(script.indexOf("Activation failed") < script.indexOf("Prior health was not restored"));
+  const scriptPath = join(mkdtempSync(join(tmpdir(), "rightrelease-local-ps-")), "install.ps1");
+  writeFileSync(scriptPath, script);
+  const escapedScriptPath = scriptPath.replaceAll("'", "''");
+  const parsed = spawnSync("pwsh", ["-NoProfile", "-Command", `$e=@();$t=@();[System.Management.Automation.Language.Parser]::ParseFile('${escapedScriptPath}',[ref]$t,[ref]$e)|Out-Null;if($e.Count){$e|% Message;exit 1}`], { encoding: "utf8", windowsHide: true });
+  assert.equal(parsed.status, 0, parsed.stderr || parsed.stdout);
+});
+
+test("network bootstrap excludes local release root unless generator opts in", () => {
+  const script = renderPowerShellBootstrap({
+    product: "legion",
+    repository: "Orthic-Labs/legion",
+    bootstrapVersion: "0.1.0",
+    acceptedManifestSigners: [acceptedSigner],
+    installRootSubdir: "Orthic Labs\\Legion",
+    executablePath: "bin/legion.exe",
+    activationArgs: ["setup"],
+    statusArgs: ["status"],
+    expectedStatusKind: "legion-setup-status",
+  });
+  assert.doesNotMatch(script, /\$ReleaseRoot|Receive-ReleaseFile|allowLocalReleaseRoot/);
+  assert.throws(() => renderPowerShellBootstrap({
+    product: "legion",
+    repository: "Orthic-Labs/legion",
+    bootstrapVersion: "0.1.0",
+    acceptedManifestSigners: [acceptedSigner],
+    installRootSubdir: "Orthic Labs\\Legion",
+    executablePath: "bin/legion.exe",
+    activationArgs: ["setup"],
+    statusArgs: ["status"],
+    expectedStatusKind: "legion-setup-status",
+    allowLocalReleaseRoot: "yes",
+  }), /must be boolean/);
+});
+
 test("shared Azure signer owns detached manifest catalog without product private keys", () => {
   const dir = mkdtempSync(join(tmpdir(), "rightrelease-catalog-"));
   const manifestPath = join(dir, "release-manifest.json");

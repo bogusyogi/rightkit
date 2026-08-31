@@ -205,9 +205,11 @@ export function renderPowerShellBootstrap({
   expectedStatus = "complete",
   healthAssertions = null,
   preflightArgs = [],
+  allowLocalReleaseRoot = false,
 }) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("invalid GitHub repository");
   if (!VERSION.test(bootstrapVersion)) throw new Error("invalid bootstrap version");
+  if (typeof allowLocalReleaseRoot !== "boolean") throw new Error("allowLocalReleaseRoot must be boolean");
   assertRelativeFile(executablePath, "executable path");
   if (!Array.isArray(acceptedManifestSigners) || !acceptedManifestSigners.length) throw new Error("accepted manifest signers are required");
   const signers = {};
@@ -246,6 +248,7 @@ export function renderPowerShellBootstrap({
     statusArgs,
     healthAssertions: assertions,
     preflightArgs,
+    ...(allowLocalReleaseRoot ? { allowLocalReleaseRoot: true } : {}),
   };
   // Bind generated contract metadata so a caller cannot pass a marker plus an
   // arbitrary base64 payload and have it treated as a RightRelease bootstrap.
@@ -256,7 +259,9 @@ export function renderPowerShellBootstrap({
   const lines = [
     "# rightkit-direct-bootstrap:v1",
     "# generated contract: generator=rightkit-direct-bootstrap contractSha256-bound",
-    "[CmdletBinding()] param([string]$Version, [switch]$AllowDowngrade)",
+    allowLocalReleaseRoot
+      ? "[CmdletBinding()] param([string]$Version, [switch]$AllowDowngrade, [string]$ReleaseRoot)"
+      : "[CmdletBinding()] param([string]$Version, [switch]$AllowDowngrade)",
     "$ErrorActionPreference = 'Stop'",
     "$ProgressPreference = 'SilentlyContinue'",
     "$Contract = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(" + psQuote(contractB64) + ")) | ConvertFrom-Json",
@@ -270,18 +275,32 @@ export function renderPowerShellBootstrap({
     "function Expand-BootstrapArgs($Values, $ActiveVersionRoot, $ActiveVersion) { foreach ($Value in $Values) { ([string]$Value).Replace('{current}', $Current).Replace('{installRoot}', $InstallRoot).Replace('{versionRoot}', $ActiveVersionRoot).Replace('{version}', $ActiveVersion) } }",
     "function Resolve-HealthPath($Value, [string]$JsonPath) { $CurrentValue = $Value; foreach ($Segment in $JsonPath.Split('.')) { if ($Segment -match '^\\d+$') { $Index = [int]$Segment; if ($null -eq $CurrentValue -or $Index -ge @($CurrentValue).Count) { throw ('Health path is missing: ' + $JsonPath) }; $CurrentValue = @($CurrentValue)[$Index] } else { $Property = $CurrentValue.PSObject.Properties[$Segment]; if ($null -eq $Property) { throw ('Health path is missing: ' + $JsonPath) }; $CurrentValue = $Property.Value } }; return $CurrentValue }",
     "function Assert-Health($Health, [string]$ActiveVersion) { foreach ($Assertion in $Contract.healthAssertions) { $Actual = Resolve-HealthPath $Health ([string]$Assertion.path); if ($Assertion.PSObject.Properties.Name -contains 'equals') { $Expected = $Assertion.equals; if ($Expected -is [string]) { $Expected = $Expected.Replace('{version}', $ActiveVersion).Replace('{current}', $Current).Replace('{installRoot}', $InstallRoot) }; if ($Actual -ne $Expected) { throw ('Health assertion failed: ' + $Assertion.path) } } elseif ($Assertion.nonempty -eq $true) { if ($null -eq $Actual -or ([string]$Actual).Trim().Length -eq 0) { throw ('Health assertion failed: ' + $Assertion.path) } } elseif (@($Actual).Count -lt [int]$Assertion.minCount) { throw ('Health assertion failed: ' + $Assertion.path) } } }",
-    "New-Item -ItemType Directory -Force -Path $VersionsRoot | Out-Null",
-    "if (-not $Version) { $Version = ((Invoke-RestMethod " + psQuote("https://api.github.com/repos/" + repository + "/releases/latest") + ").tag_name -replace '^v','') }",
-    "if ($Version -notmatch '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$') { throw 'Invalid stable release version' }",
-    "$PriorTarget = $null; if (Test-Path $Current) { $PriorTarget = (Get-Item $Current).Target }",
-    "$PriorVersion = if ($PriorTarget) { ((Split-Path ([string]$PriorTarget) -Leaf) -split '-')[0] } else { $null }",
-    "if ($PriorVersion -and -not $AllowDowngrade -and ([version]$Version -lt [version]$PriorVersion)) { throw 'Downgrade requires -AllowDowngrade' }",
-    "$ReleaseBase = " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version",
-    "$Work = Join-Path ([IO.Path]::GetTempPath()) (" + psQuote(product + "-install-") + " + [guid]::NewGuid())",
-    "New-Item -ItemType Directory -Force -Path $Work | Out-Null",
-    "$ManifestPath = Join-Path $Work 'release-manifest.json'; $SignaturePath = Join-Path $Work 'release-manifest.cat'; $ChecksumsPath = Join-Path $Work 'checksums.json'",
-    "Invoke-WebRequest ($ReleaseBase + '/release-manifest.json') -OutFile $ManifestPath",
-    "Invoke-WebRequest ($ReleaseBase + '/release-manifest.cat') -OutFile $SignaturePath",
+    ...(allowLocalReleaseRoot ? [
+      "New-Item -ItemType Directory -Force -Path $VersionsRoot | Out-Null",
+      "$LocalReleaseRoot = $null; if ($ReleaseRoot) { $LocalReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot); if (-not (Test-Path -LiteralPath $LocalReleaseRoot -PathType Container)) { throw 'Local release root is missing' } }",
+      "if (-not $Version -and -not $LocalReleaseRoot) { $Version = ((Invoke-RestMethod " + psQuote("https://api.github.com/repos/" + repository + "/releases/latest") + ").tag_name -replace '^v','') }",
+      "if ($Version -and $Version -notmatch '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$') { throw 'Invalid stable release version' }",
+      "$ReleaseBase = if ($Version) { " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version } else { $null }",
+      "$Work = Join-Path ([IO.Path]::GetTempPath()) (" + psQuote(product + "-install-") + " + [guid]::NewGuid())",
+      "New-Item -ItemType Directory -Force -Path $Work | Out-Null",
+      "$ManifestPath = Join-Path $Work 'release-manifest.json'; $SignaturePath = Join-Path $Work 'release-manifest.cat'; $ChecksumsPath = Join-Path $Work 'checksums.json'",
+      "function Receive-ReleaseFile([string]$Name, [string]$Destination) { if ($LocalReleaseRoot) { $RootPrefix = $LocalReleaseRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar; $Source = [IO.Path]::GetFullPath((Join-Path $LocalReleaseRoot $Name)); if (-not $Source.StartsWith($RootPrefix, [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $Source -PathType Leaf)) { throw ('Local release asset is missing or escapes root: ' + $Name) }; Copy-Item -LiteralPath $Source -Destination $Destination } else { Invoke-WebRequest ($ReleaseBase + '/' + $Name) -OutFile $Destination } }",
+      "Receive-ReleaseFile 'release-manifest.json' $ManifestPath",
+      "Receive-ReleaseFile 'release-manifest.cat' $SignaturePath",
+    ] : [
+      "New-Item -ItemType Directory -Force -Path $VersionsRoot | Out-Null",
+      "if (-not $Version) { $Version = ((Invoke-RestMethod " + psQuote("https://api.github.com/repos/" + repository + "/releases/latest") + ").tag_name -replace '^v','') }",
+      "if ($Version -notmatch '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$') { throw 'Invalid stable release version' }",
+      "$PriorTarget = $null; if (Test-Path $Current) { $PriorTarget = (Get-Item $Current).Target }",
+      "$PriorVersion = if ($PriorTarget) { ((Split-Path ([string]$PriorTarget) -Leaf) -split '-')[0] } else { $null }",
+      "if ($PriorVersion -and -not $AllowDowngrade -and ([version]$Version -lt [version]$PriorVersion)) { throw 'Downgrade requires -AllowDowngrade' }",
+      "$ReleaseBase = " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version",
+      "$Work = Join-Path ([IO.Path]::GetTempPath()) (" + psQuote(product + "-install-") + " + [guid]::NewGuid())",
+      "New-Item -ItemType Directory -Force -Path $Work | Out-Null",
+      "$ManifestPath = Join-Path $Work 'release-manifest.json'; $SignaturePath = Join-Path $Work 'release-manifest.cat'; $ChecksumsPath = Join-Path $Work 'checksums.json'",
+      "Invoke-WebRequest ($ReleaseBase + '/release-manifest.json') -OutFile $ManifestPath",
+      "Invoke-WebRequest ($ReleaseBase + '/release-manifest.cat') -OutFile $SignaturePath",
+    ]),
     "$ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath); Import-Module Microsoft.PowerShell.Security -ErrorAction Stop",
     "$Catalog = Test-FileCatalog -CatalogFilePath $SignaturePath -Path $ManifestPath -Detailed; if ([string]$Catalog.Status -ne 'Valid') { throw 'Release manifest catalog binding is invalid' }",
     "$CatalogSignature = Get-AuthenticodeSignature -FilePath $SignaturePath; if ([string]$CatalogSignature.Status -ne 'Valid' -or -not $CatalogSignature.SignerCertificate) { throw 'Release manifest signature is invalid' }; $SignerCertificate = $CatalogSignature.SignerCertificate",
@@ -290,20 +309,34 @@ export function renderPowerShellBootstrap({
     "$VerifiedKeyId = $null; foreach ($KeyId in $AcceptedSigners.Keys) { $Accepted = $AcceptedSigners[$KeyId]; if ($SignerSubject -eq [string]$Accepted.subject -and $SignerFingerprint -eq [string]$Accepted.certificateSha256) { $VerifiedKeyId = $KeyId; break } }",
     "if (-not $VerifiedKeyId) { throw 'Release manifest signer is not accepted' }",
     "$Manifest = [Text.Encoding]::UTF8.GetString($ManifestBytes) | ConvertFrom-Json",
+    ...(allowLocalReleaseRoot ? [
+      "if (-not $Version) { $Version = [string]$Manifest.version }",
+      "if ($Version -notmatch '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$') { throw 'Invalid stable release version' }",
+      "$ReleaseBase = " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version",
+      "$PriorTarget = $null; if (Test-Path $Current) { $PriorTarget = (Get-Item $Current).Target }",
+      "$PriorVersion = if ($PriorTarget) { ((Split-Path ([string]$PriorTarget) -Leaf) -split '-')[0] } else { $null }",
+      "if ($PriorVersion -and -not $AllowDowngrade -and ([version]$Version -lt [version]$PriorVersion)) { throw 'Downgrade requires -AllowDowngrade' }",
+    ] : []),
     "if ($Manifest.signingKeyId -ne $VerifiedKeyId -or $Manifest.signatureAlgorithm -ne 'authenticode-catalog-sha256' -or $Manifest.signatureProvider -ne 'windows-authenticode-catalog' -or $Manifest.signatureProviderVersion -ne 1) { throw 'Release manifest signer identity mismatch' }",
     "if ($Manifest.product -ne " + psQuote(product) + " -or $Manifest.version -ne $Version -or $Manifest.tag -ne ('v' + $Version)) { throw 'Release identity mismatch' }",
     "if ([version]$Contract.bootstrapVersion -lt [version]$Manifest.minimumBootstrapVersion) { throw 'Bootstrap update required' }",
     "$Machine = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString(); $Target = if ($Machine -eq 'Arm64') { 'windows-arm64' } elseif ($Machine -eq 'X64') { 'windows-x86_64' } else { throw ('Unsupported architecture: ' + $Machine) }",
     "$Matches = @($Manifest.assets | Where-Object { $_.target -eq $Target }); if ($Matches.Count -ne 1) { throw 'Release has no unique exact target' }; $Asset = $Matches[0]",
     "if ($Asset.url -ne ($ReleaseBase + '/' + $Asset.name)) { throw 'Asset URL is not exact immutable GitHub release URL' }",
-    "Invoke-WebRequest ($ReleaseBase + '/checksums.json') -OutFile $ChecksumsPath",
+    allowLocalReleaseRoot
+      ? "Receive-ReleaseFile 'checksums.json' $ChecksumsPath"
+      : "Invoke-WebRequest ($ReleaseBase + '/checksums.json') -OutFile $ChecksumsPath",
     "$ChecksumHash = (Get-FileHash -Algorithm SHA256 $ChecksumsPath).Hash.ToLowerInvariant(); if ($ChecksumHash -ne $Manifest.checksumsSha256) { throw 'checksums.json is not manifest-bound' }",
     "$Checksums = Get-Content -Raw $ChecksumsPath | ConvertFrom-Json; if ($Checksums.assets.($Asset.name) -ne $Asset.sha256) { throw 'Asset checksum differs from bound checksums' }",
-    "$Archive = Join-Path $Work $Asset.name; Invoke-WebRequest $Asset.url -OutFile $Archive",
+    allowLocalReleaseRoot
+      ? "$Archive = Join-Path $Work $Asset.name; Receive-ReleaseFile ([string]$Asset.name) $Archive"
+      : "$Archive = Join-Path $Work $Asset.name; Invoke-WebRequest $Asset.url -OutFile $Archive",
     "if ((Get-FileHash -Algorithm SHA256 $Archive).Hash.ToLowerInvariant() -ne $Asset.sha256) { throw 'Archive checksum mismatch' }",
     "if ($Checksums.assets.($Asset.provenanceName) -ne $Asset.provenanceSha256 -or $Checksums.assets.($Asset.sbomName) -ne $Asset.sbomSha256) { throw 'Bound provenance/SBOM checksums are missing' }",
     "$ProvenancePath = Join-Path $Work $Asset.provenanceName; $SbomPath = Join-Path $Work $Asset.sbomName",
-    "Invoke-WebRequest $Asset.provenanceUrl -OutFile $ProvenancePath; Invoke-WebRequest $Asset.sbomUrl -OutFile $SbomPath",
+    allowLocalReleaseRoot
+      ? "Receive-ReleaseFile ([string]$Asset.provenanceName) $ProvenancePath; Receive-ReleaseFile ([string]$Asset.sbomName) $SbomPath"
+      : "Invoke-WebRequest $Asset.provenanceUrl -OutFile $ProvenancePath; Invoke-WebRequest $Asset.sbomUrl -OutFile $SbomPath",
     "if ((Get-FileHash -Algorithm SHA256 $ProvenancePath).Hash.ToLowerInvariant() -ne $Asset.provenanceSha256) { throw 'Provenance checksum mismatch' }",
     "if ((Get-FileHash -Algorithm SHA256 $SbomPath).Hash.ToLowerInvariant() -ne $Asset.sbomSha256) { throw 'SBOM checksum mismatch' }",
     "$Stage = Join-Path $Work 'stage'; New-Item -ItemType Directory -Force -Path $Stage | Out-Null",
@@ -383,6 +416,7 @@ export function validatePowerShellBootstrap(script, expected = {}) {
       statusArgs: contract.statusArgs,
       healthAssertions: contract.healthAssertions,
       preflightArgs: contract.preflightArgs,
+      allowLocalReleaseRoot: contract.allowLocalReleaseRoot === true,
     });
     if (regenerated !== script) errors.push("bootstrap source does not match canonical generated output");
   } catch {
@@ -392,6 +426,7 @@ export function validatePowerShellBootstrap(script, expected = {}) {
   const markerOffset = script.lastIndexOf("# source-sha256:");
   if (!sourceMarker || markerOffset < 0 || createHash("sha256").update(script.slice(0, markerOffset)).digest("hex") !== sourceMarker[1]) errors.push("bootstrap source digest is missing or tampered");
   if (expected.product && contract.product !== expected.product) errors.push("bootstrap product identity missing");
+  if (expected.allowLocalReleaseRoot === true && contract.allowLocalReleaseRoot !== true) errors.push("local release root support missing");
   if (expected.acceptedSignerIds) for (const id of expected.acceptedSignerIds) if (!Object.hasOwn(contract.acceptedManifestSigners ?? {}, id)) errors.push("accepted manifest signer missing: " + id);
   return { valid: errors.length === 0, errors };
 }
