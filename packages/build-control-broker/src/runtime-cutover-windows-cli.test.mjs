@@ -73,11 +73,11 @@ test('task definition uses current-user interactive token & logon restart policy
   assert.match(xml, /<LogonType>InteractiveToken<\/LogonType>/); assert.doesNotMatch(xml, /<LogonType>S4U<\/LogonType>/); assert.match(xml, /<UserId>[^<]+<\/UserId>/);
   // Launcher mode: the task must exec wscript with the hidden-window VBS, and
   // the rendered VBS must run node with window style 0.
-  const launched = renderTaskDefinition({ taskName: 'RightKitBuildControl', nodePath: 'C:\node\node.exe', brokerScript: 'C:\rightkit\broker.mjs', configPath: 'C:\rightkit\config.json', launcherScript: 'D:\.rightkit-managed\broker-launch.vbs' });
+  const launched = renderTaskDefinition({ taskName: 'RightKitBuildControl', nodePath: 'C:/node/node.exe', brokerScript: 'C:/rightkit/broker.mjs', configPath: 'C:/rightkit/config.json', launcherScript: 'D:/managed/broker-launch.vbs' });
   assert.match(launched, /wscript\.exe<\/Command>/);
   assert.match(launched, /broker-launch\.vbs/);
-  assert.doesNotMatch(launched, /<Command>C:\node\node\.exe<\/Command>/);
-  const vbs = renderBrokerLauncherVbs({ nodePath: 'C:\node\node.exe', brokerScript: 'C:\rightkit\broker.mjs', configPath: 'C:\rightkit\config.json' });
+  assert.doesNotMatch(launched, /node\.exe<\/Command>/);
+  const vbs = renderBrokerLauncherVbs({ nodePath: 'C:/node/node.exe', brokerScript: 'C:/rightkit/broker.mjs', configPath: 'C:/rightkit/config.json' });
   assert.match(vbs, /, 0, False/);
   assert.match(vbs, /node\.exe/); assert.match(xml, /<Hidden>true<\/Hidden>/); assert.match(xml, /<RestartOnFailure>[\s\S]*<Count>999<\/Count>/); assert.doesNotMatch(xml, /<BootTrigger>/); assert.match(xml, /<LogonTrigger>/);
 });
