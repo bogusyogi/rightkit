@@ -114,6 +114,7 @@ test("rust-hybrid cache contract renders every declared Cargo workspace", () => 
   assert.match(content, /workspaces: \|\n            \. -> target\n            apps\/studio\/src-tauri -> target/);
   assert.match(content, /add-job-id-key: false/);
   assert.match(content, /cache-workspace-crates: false/);
+  assert.match(content, /cache-on-failure: true/);
   assert.match(content, /RUSTC_WRAPPER: "sccache"/);
 });
 
