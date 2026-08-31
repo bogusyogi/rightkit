@@ -2,10 +2,10 @@
 import { execFile as childExecFile } from 'node:child_process';
 import net from 'node:net';
 import { promisify } from 'node:util';
-import { realpath, stat } from 'node:fs/promises';
+import { realpath, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { loadBrokerConfig } from './config.mjs';
-import { installManagedRuntimeWindows, quotePowerShell, renderTaskDefinition, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
+import { installManagedRuntimeWindows, quotePowerShell, renderBrokerLauncherVbs, renderTaskDefinition, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
 import { absoluteHostPath as absolute, assertDirectory, assertFile, beginCutoverDrain, contained, endCutoverDrain, proveBrokerRequestsDrained, proveThinRequestsDrained } from './cutover-shared.mjs';
 
 const execDefault = promisify(childExecFile);
@@ -101,7 +101,12 @@ export async function runWindowsCutover(input, dependencies = {}) {
     const brokerDrain = await proveBrokerDrain(externalRoot, options.endpoint);
     const thinDrain = await proveThinDrain(externalRoot);
     const stopProof = await stopManaged({ taskName: options.taskName, endpoint: options.endpoint, configPath, brokerScript: runtimeScript, execFile });
-    const definition = renderTaskDefinition({ taskName: options.taskName, nodePath, brokerScript: runtimeScript, configPath });
+    // Persist the hidden-window launcher the task action references; every
+    // start (including logon-trigger starts) goes through it so no console
+    // window ever appears on the operator's desktop.
+    const launcherScript = resolve(externalRoot, 'broker-launch.vbs');
+    await writeFile(launcherScript, renderBrokerLauncherVbs({ nodePath, brokerScript: runtimeScript, configPath }), 'utf8');
+    const definition = renderTaskDefinition({ taskName: options.taskName, nodePath, brokerScript: runtimeScript, configPath, launcherScript });
     const result = await withTaskDefinitionFile(definition, (taskXmlPath) => install({
       externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, taskName: options.taskName, endpoint: options.endpoint,
       configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs, taskXmlPath,

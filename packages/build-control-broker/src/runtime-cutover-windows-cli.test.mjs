@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { parseWindowsCutoverArgs, proveThinRequestsDrained, runWindowsCutover, stopManagedTask } from './runtime-cutover-windows-cli.mjs';
-import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderTaskDefinition, selectWindowsNodePid, selectWindowsNodePidResolved, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
+import { createWindowsRuntimeCallbacks, ensureWindowsTaskRegistered, renderBrokerLauncherVbs, renderTaskDefinition, selectWindowsNodePid, selectWindowsNodePidResolved, withTaskDefinitionFile } from './runtime-cutover-windows.mjs';
 
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-win-cutover-cli-')));
@@ -57,7 +57,7 @@ test('cutover proves input selection & rechecks thin drain', async () => {
   const item = await fixture();
   try {
     let options;
-    const receipt = await runWindowsCutover(input(item), { ...drainDependencies, platform: 'win32', stopManaged: async () => ({ stopped: true }), install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); assert.match(await readFile(candidate.taskXmlPath, 'utf16le'), new RegExp(process.execPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))); return { taskName: 'RightKitBuildControl' }; } });
+    const receipt = await runWindowsCutover(input(item), { ...drainDependencies, platform: 'win32', stopManaged: async () => ({ stopped: true }), install: async (candidate) => { options = candidate; assert.equal((await candidate.drainProbe()).open, 0); assert.match(await readFile(candidate.taskXmlPath, 'utf16le'), /wscript\.exe/); assert.match(await readFile(join(item.external, 'broker-launch.vbs'), 'utf8'), new RegExp(process.execPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))); return { taskName: 'RightKitBuildControl' }; } });
     assert.equal(receipt.thinDrain.open, 0); assert.equal(options.externalRoot, item.external); assert.equal(options.nodePath, process.execPath); assert.equal(options.taskXmlPath.endsWith('.xml'), true);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });
@@ -70,7 +70,16 @@ test('cutover refuses named-pipe drift before activation', async () => {
 
 test('task definition uses current-user interactive token & logon restart policy', () => {
   const xml = renderTaskDefinition({ taskName: 'RightKitBuildControl', nodePath: 'C:\\node\\node.exe', brokerScript: 'C:\\rightkit\\broker.mjs', configPath: 'C:\\rightkit\\config.json' });
-  assert.match(xml, /<LogonType>S4U<\/LogonType>/); assert.doesNotMatch(xml, /<LogonType>InteractiveToken<\/LogonType>/); assert.match(xml, /<UserId>[^<]+<\/UserId>/); assert.match(xml, /<Hidden>true<\/Hidden>/); assert.match(xml, /<RestartOnFailure>[\s\S]*<Count>999<\/Count>/); assert.doesNotMatch(xml, /<BootTrigger>/); assert.match(xml, /<LogonTrigger>/);
+  assert.match(xml, /<LogonType>InteractiveToken<\/LogonType>/); assert.doesNotMatch(xml, /<LogonType>S4U<\/LogonType>/); assert.match(xml, /<UserId>[^<]+<\/UserId>/);
+  // Launcher mode: the task must exec wscript with the hidden-window VBS, and
+  // the rendered VBS must run node with window style 0.
+  const launched = renderTaskDefinition({ taskName: 'RightKitBuildControl', nodePath: 'C:\node\node.exe', brokerScript: 'C:\rightkit\broker.mjs', configPath: 'C:\rightkit\config.json', launcherScript: 'D:\.rightkit-managed\broker-launch.vbs' });
+  assert.match(launched, /wscript\.exe<\/Command>/);
+  assert.match(launched, /broker-launch\.vbs/);
+  assert.doesNotMatch(launched, /<Command>C:\node\node\.exe<\/Command>/);
+  const vbs = renderBrokerLauncherVbs({ nodePath: 'C:\node\node.exe', brokerScript: 'C:\rightkit\broker.mjs', configPath: 'C:\rightkit\config.json' });
+  assert.match(vbs, /, 0, False/);
+  assert.match(vbs, /node\.exe/); assert.match(xml, /<Hidden>true<\/Hidden>/); assert.match(xml, /<RestartOnFailure>[\s\S]*<Count>999<\/Count>/); assert.doesNotMatch(xml, /<BootTrigger>/); assert.match(xml, /<LogonTrigger>/);
 });
 
 test('task definition escapes XML & temporary file uses UTF-16LE BOM', async () => {
