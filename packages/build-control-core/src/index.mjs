@@ -48,10 +48,32 @@ function directoryFrom(value) {
   catch { return selected; }
 }
 
+// A repository is Orthic-Labs public only when its OWN origin remote points
+// there. Testing the whole `.git/config` text misclassifies any private
+// repository that merely mentions an Orthic-Labs URL elsewhere -- a submodule,
+// a secondary remote, an insteadOf rule. `D:\Claude` (private,
+// `bogusyogi/claude`) carries Orthic-Labs submodule URLs for Membrane, Tether,
+// Roundtable, Adapt & Cortex, and matching those made every repository beneath
+// it inherit `compile: github-actions-only`, blocking all local compile.
 function gitRemoteIsOrthicPublic(root) {
   const config = join(root, '.git', 'config');
   if (!existsSync(config)) return false;
-  try { return /github\.com(?::|\/)Orthic-Labs\//i.test(readFileSync(config, 'utf8')); }
+  try {
+    const text = readFileSync(config, 'utf8');
+    // Walk INI sections and inspect only `[remote "origin"]`'s url/pushurl.
+    let inOrigin = false;
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (line.startsWith('[')) {
+        inOrigin = /^\[remote\s+"origin"\]$/i.test(line);
+        continue;
+      }
+      if (!inOrigin) continue;
+      const match = /^(url|pushurl)\s*=\s*(.+)$/i.exec(line);
+      if (match && /github\.com(?::|\/)Orthic-Labs\//i.test(match[2])) return true;
+    }
+    return false;
+  }
   catch { return false; }
 }
 
