@@ -14,7 +14,7 @@ const API_BASE = process.env.RIGHTAPPS_API_URL || "https://api.spoares.com";
 const DOWNLOAD_BASE = process.env.RIGHTAPPS_UPDATE_DOWNLOAD_BASE || "https://rightapps-license-gate.adrdsouza.workers.dev";
 const PUBLIC_BASE = process.env.RIGHTAPPS_PUBLIC_DOWNLOAD_BASE || "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev";
 const PIPELINE_VERSION = JSON.parse(await readFile(path.join(TOOL_ROOT, "package.json"), "utf8")).version;
-const tier = process.env.RIGHT_RELEASE_TIER || "";
+let tier = process.env.RIGHT_RELEASE_TIER || "";
 const args = process.argv.slice(2);
 let configName = "right-release.config.mjs";
 let platform = process.platform === "win32" ? "win" : "mac";
@@ -24,17 +24,20 @@ for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (arg === "--config") configName = args[++i];
   else if (arg === "--platform") platform = args[++i];
+  else if (arg === "--tier") tier = args[++i];
+  else if (arg.startsWith("--tier=")) tier = arg.slice("--tier=".length);
   else if (arg === "--dry-run") dryRun = true;
   else fail(`unknown argument: ${arg}`);
 }
 
-if (tier !== "patch" && tier !== "update") {
-  fail("RIGHT_RELEASE_TIER is required (patch|update)");
-}
+if (tier !== "patch" && tier !== "update") fail("tier is required (--tier patch|update or RIGHT_RELEASE_TIER)");
 
 const configPath = path.resolve(configName);
 const root = path.dirname(configPath);
 const config = (await import(pathToFileURL(configPath))).default;
+if (config?.distribution?.provider !== "r2-rightapps") {
+  fail("release config distribution.provider must be r2-rightapps");
+}
 const target = config?.targets?.[platform];
 const artifacts = target?.updater?.artifacts ?? [];
 const installers = target?.installer?.artifacts ?? [];

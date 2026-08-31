@@ -11,6 +11,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const cli = path.join(root, "cli", "right-release.mjs");
 const build = path.join(root, "build-release.mjs");
 const upload = path.join(root, "upload-release.mjs");
+const publishUpdate = path.join(root, "publish-update.mjs");
 const signWindows = path.join(root, "sign-windows.mjs");
 
 test("CLI routes build and release only to the build state machine", () => {
@@ -31,9 +32,10 @@ test("CLI routes upload and legacy publish only to the upload state machine", ()
   assert.doesNotMatch(source, /first === "publish"[\s\S]{0,500}run\("release\.mjs"/);
 });
 
-test("upload dry-run cannot write a verified marker", () => {
+test("upload dry-run cannot write a provider-bound verified marker", () => {
   const source = readFileSync(upload, "utf8");
   assert.match(source, /if \(!dryRun\)\s+writeJson\(verifiedMarker,/);
+  assert.match(source, /verified-\$\{tier\}-github-releases\.json/);
 });
 
 test("build is tier-neutral and rejects a tier before touching a repository", () => {
@@ -116,9 +118,16 @@ test("upload uses GitHub CLI and never invokes the R2 runner", () => {
   assert.doesNotMatch(source, /\bnpx\b/);
 });
 
-test("upload accepts only GitHub Releases as configured product distribution", () => {
+test("upload accepts only explicit GitHub Releases product distribution", () => {
   const source = readFileSync(upload, "utf8");
-  assert.match(source, /distribution\.provider/);
-  assert.match(source, /github-releases/);
-  assert.match(source, /releaseConfig\?\.distribution\?\.repository/);
+  assert.match(source, /distribution\?\.provider !== "github-releases"/);
+  assert.match(source, /distribution\.repository is required for github-releases/);
+  assert.doesNotMatch(source, /repositoryFromRemote/);
+});
+
+test("R2 publisher accepts only explicit private RightApps distribution", () => {
+  const source = readFileSync(publishUpdate, "utf8");
+  assert.match(source, /distribution\?\.provider !== "r2-rightapps"/);
+  assert.match(source, /distribution\.provider must be r2-rightapps/);
+  assert.doesNotMatch(source, /github-releases/);
 });

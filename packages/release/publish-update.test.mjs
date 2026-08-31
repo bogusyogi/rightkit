@@ -15,6 +15,7 @@ function fixture({ materialize = false } = {}) {
     schema: 1,
     app: "fixture",
     version: "1.2.3",
+    distribution: { provider: "r2-rightapps" },
     targets: {
       win: {
         installer: { artifacts: [{ file: "Fixture-Setup.exe", key: "fixture/installers/windows/current/Fixture-Setup.exe" }] },
@@ -42,6 +43,7 @@ function versionedFixture() {
     schema: 1,
     app: "fixture",
     version: "1.2.3",
+    distribution: { provider: "r2-rightapps" },
     targets: {
       win: {
         installer: { artifacts: [{ file: "Fixture-Setup.exe", key: "fixture/installers/windows/1.2.3/Fixture-Setup.exe" }] },
@@ -63,6 +65,7 @@ function installerOnlyFixture() {
     schema: 1,
     app: "fixture",
     version: "1.2.3",
+    distribution: { provider: "r2-rightapps" },
     targets: {
       win: {
         installer: { artifacts: [{ file: "Fixture-Setup.exe", key: "fixture/installers/windows/current/Fixture-Setup.exe" }] },
@@ -164,7 +167,31 @@ test("allows an installer-only patch without registering an updater manifest", (
 test("refuses to publish without a valid tier", () => {
   const result = run("");
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /RIGHT_RELEASE_TIER.*patch\|update/);
+  assert.match(result.stderr, /tier is required.*patch\|update/);
+});
+
+test("accepts portable --tier argument", () => {
+  const config = installerOnlyFixture();
+  const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--tier", "patch", "--dry-run"], {
+    encoding: "utf8",
+    env: { ...process.env, RIGHT_RELEASE_TIER: "" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /UPLOAD public\/fixture\/installers\/windows\/current\/Fixture-Setup\.exe/);
+});
+
+test("refuses GitHub distribution before R2 publication", () => {
+  const config = fixture();
+  writeFileSync(config, `export default ${JSON.stringify({
+    schema: 1,
+    app: "fixture",
+    version: "1.2.3",
+    distribution: { provider: "github-releases", repository: "Orthic-Labs/Fixture" },
+    targets: { win: { installer: { artifacts: [] }, updater: { artifacts: [] } } },
+  })};\n`);
+  const result = spawnSync(process.execPath, [publisher, "--config", config, "--platform", "win", "--tier", "patch", "--dry-run"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /distribution\.provider must be r2-rightapps/);
 });
 
 test("refuses versioned R2 object keys that would accumulate old releases", () => {

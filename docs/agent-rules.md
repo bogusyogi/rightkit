@@ -24,11 +24,13 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Run every release from the application primary checkout.
 - Keep `right-release build` upload-free & `right-release upload` build-free.
 - Require explicit patch or update tier for upload.
-- Keep R2 replace-only and signatures in manifests.
+- Route product publication only through explicit config: public products use GitHub Releases; private products use R2 + RightApps.
+- Keep add-on adoption bound to version, full manifest SHA-256, immutable URL, and target-qualified aliases.
+- Never run browser login, `az login`, Azure enrollment, or signing setup; use native-host provisioned signers.
 - Publish Cargo crates only through the RightKit release command.
 - Upload no unsigned or test artifact.
 
 ## Verification
 - Run focused package tests before the release contract suite.
 - Verify versions & standalone-install portability across all five desktop apps.
-- Compare sealed artifacts with uploaded stable objects after an explicitly requested publication.
+- Compare every remote asset with sealed hashes & verify provider-specific registration after publication.
