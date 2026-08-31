@@ -94,10 +94,23 @@ export function extractNsisEntry(installer, entryName, { sevenZip = resolveSeven
   const destination = path.join(tempRoot, `right-nsis-${process.pid}-${Math.random().toString(16).slice(2)}`);
   mkdirSync(destination, { recursive: true });
   try {
-    // `e` flattens the entry to the destination root, so the extracted path is
-    // known regardless of how deep the entry sits inside the payload.
-    const result = run(sevenZip, ["e", "-tnsis", "-y", `-o${destination}`, "--", resolvedInstaller, base]);
-    const extracted = path.join(destination, base);
+    // NSIS entries may live below `$PLUGINSDIR/release`. A basename-only 7-Zip
+    // filter then reports `No files to process`, so resolve the actual archive
+    // member first & extract that exact path.
+    const requested = String(entryName).replace(/\\/g, "/");
+    const members = listNsisPayload(resolvedInstaller, { sevenZip, run });
+    const exact = members.filter((member) => member.name.toLowerCase() === requested.toLowerCase());
+    const matches = exact.length > 0
+      ? exact
+      : members.filter((member) => path.posix.basename(member.name).toLowerCase() === base.toLowerCase());
+    if (matches.length === 0) {
+      throw new Error(`could not extract ${base} from ${resolvedInstaller}: no such payload entry`);
+    }
+    if (matches.length !== 1) {
+      throw new Error(`could not uniquely identify ${base} in ${resolvedInstaller}: found ${matches.length} payload entries`);
+    }
+    const result = run(sevenZip, ["e", "-tnsis", "-y", `-o${destination}`, "--", resolvedInstaller, matches[0].name]);
+    const extracted = path.join(destination, path.posix.basename(matches[0].name));
     if (result.status !== 0 || !existsSync(extracted)) {
       throw new Error(
         `could not extract ${base} from ${resolvedInstaller}: ${(result.stderr || result.stdout || "no such entry").trim()}`,

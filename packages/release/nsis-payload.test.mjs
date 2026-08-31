@@ -36,6 +36,21 @@ const LISTING = [
   "",
 ].join("\n");
 
+function listingFor(...entries) {
+  return [
+    "Path = D:\\out\\setup.exe",
+    "Type = Nsis",
+    "",
+    "----------",
+    ...entries.flatMap((entry) => [
+      `Path = ${entry.replace(/\//g, "\\")}`,
+      "Size = 123",
+      "Attributes = A",
+      "",
+    ]),
+  ].join("\n");
+}
+
 test("parses 7-Zip technical listings, including blank dates and spaced names", () => {
   const entries = parseSevenZipListing(LISTING);
   assert.deepEqual(entries.map((entry) => entry.name), [
@@ -73,7 +88,10 @@ test("verifyNsisEmbeddedBinary accepts a payload whose bytes match the signed EX
     expectedSha256: sha256,
     sevenZip: "7z",
     run: (_command, args) => {
+      if (args[0] === "l") return { status: 0, stdout: listingFor("$PLUGINSDIR/release/app.exe"), stderr: "" };
       const destination = args.find((arg) => arg.startsWith("-o")).slice(2);
+      assert.equal(args[0], "e");
+      assert.equal(args.at(-1), "$PLUGINSDIR/release/app.exe");
       writeFileSync(path.join(destination, "app.exe"), payload);
       return { status: 0, stdout: "Everything is Ok", stderr: "" };
     },
@@ -95,6 +113,7 @@ test("verifyNsisEmbeddedBinary rejects a payload that drifted from the signed EX
       expectedSha256: createHash("sha256").update("signed-executable-bytes").digest("hex"),
       sevenZip: "7z",
       run: (_command, args) => {
+        if (args[0] === "l") return { status: 0, stdout: listingFor("$PLUGINSDIR/release/app.exe"), stderr: "" };
         const destination = args.find((arg) => arg.startsWith("-o")).slice(2);
         writeFileSync(path.join(destination, "app.exe"), "rewritten-after-signing");
         return { status: 0, stdout: "Everything is Ok", stderr: "" };
@@ -113,9 +132,24 @@ test("verifyNsisEmbeddedBinary fails when the entry is absent rather than passin
       entryName: "app.exe",
       expectedSha256: "a".repeat(64),
       sevenZip: "7z",
-      run: () => ({ status: 2, stdout: "", stderr: "No files to process" }),
+      run: () => ({ status: 0, stdout: listingFor("other.exe"), stderr: "" }),
     }),
     /could not extract app\.exe/,
+  );
+});
+
+test("verifyNsisEmbeddedBinary rejects ambiguous payload basenames", () => {
+  const installer = path.join(workspace, "setup-ambiguous.exe");
+  writeFileSync(installer, "installer-container");
+  assert.throws(
+    () => verifyNsisEmbeddedBinary({
+      installer,
+      entryName: "app.exe",
+      expectedSha256: "a".repeat(64),
+      sevenZip: "7z",
+      run: () => ({ status: 0, stdout: listingFor("one/app.exe", "two/app.exe"), stderr: "" }),
+    }),
+    /could not uniquely identify app\.exe.*found 2 payload entries/s,
   );
 });
 
