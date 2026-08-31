@@ -4,11 +4,17 @@ import { validateManifest } from "./manifest.mjs";
 
 const VALID_MINIMAL = {
   schemaVersion: 1,
+  compile: "github-actions-only",
   lanes: ["ci"],
   matrix: { os: ["ubuntu-latest"], node: ["22.13"] },
   packageManager: "pnpm@11.24.0",
   templateVersion: "1.0.0",
 };
+
+test("requires GitHub Actions only compilation", () => {
+  assert.equal(validateManifest({ ...VALID_MINIMAL, compile: undefined }).valid, false);
+  assert.equal(validateManifest({ ...VALID_MINIMAL, compile: "local" }).valid, false);
+});
 
 test("accepts a minimal valid manifest", () => {
   const { valid, errors } = validateManifest(VALID_MINIMAL);

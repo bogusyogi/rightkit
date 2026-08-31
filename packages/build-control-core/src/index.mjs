@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { lstat as defaultLstat, readdir as defaultReaddir } from 'node:fs/promises';
-import { basename, isAbsolute, join, normalize, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, parse, relative, resolve, sep } from 'node:path';
 
 export const FRONTENDS = Object.freeze(['cargo', 'swiftpm', 'node-pnpm', 'node-gyp', 'cmake', 'make', 'raw-compiler']);
 export const BUILD_CONTROL_PROTOCOL = 'rightkit.build-control.client.v2';
@@ -12,6 +13,8 @@ export const SOURCE_RUNTIME_IDENTITY = Object.freeze({
   brokerDigest: createHash('sha256').update('rightkit-build-control-broker-source-v2').digest('hex')
 });
 export const PROFILES = Object.freeze({ MANAGED_AGENT: 'MANAGED_AGENT', STRICT_SYSTEM: 'STRICT_SYSTEM' });
+export const GITHUB_ACTIONS_ONLY = 'github-actions-only';
+export const GITHUB_ACTIONS_ONLY_ERROR = 'RK_GITHUB_ACTIONS_ONLY';
 export const LOCAL_OUTPUT_SCAN_POLICY = Object.freeze({
   forbiddenNames: Object.freeze(['target', '.cargo-target', '.build', 'build', 'build-output', 'CMakeFiles', '.pnpm-store', '.rightkit-build', 'DerivedData']),
   skippedDirectoryNames: Object.freeze(['.git', 'node_modules', 'vendor', 'third_party', 'deps', 'Pods']),
@@ -38,6 +41,51 @@ export const MANAGED_REQUEST_ENVIRONMENT_KEYS = Object.freeze([
 ]);
 const managedRequestEnvironment = new Set(MANAGED_REQUEST_ENVIRONMENT_KEYS);
 const delegatedCompilerAmbientEnvironment = /^__CF_USER_TEXT_ENCODING$/i;
+
+function directoryFrom(value) {
+  const selected = resolve(value ?? process.cwd());
+  try { return statSync(selected).isDirectory() ? realpathSync(selected) : dirname(realpathSync(selected)); }
+  catch { return selected; }
+}
+
+function gitRemoteIsOrthicPublic(root) {
+  const config = join(root, '.git', 'config');
+  if (!existsSync(config)) return false;
+  try { return /github\.com(?::|\/)Orthic-Labs\//i.test(readFileSync(config, 'utf8')); }
+  catch { return false; }
+}
+
+export function repositoryExecutionPolicy(workspace = process.cwd()) {
+  let cursor = directoryFrom(workspace);
+  const filesystemRoot = parse(cursor).root;
+  for (;;) {
+    const manifestPath = join(cursor, '.rightgit.json');
+    if (existsSync(manifestPath)) {
+      let manifest;
+      try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')); }
+      catch (error) {
+        throw Object.assign(new Error(`invalid public repository execution policy: ${manifestPath}: ${error.message}`), { code: 'RK_EXECUTION_POLICY_INVALID' });
+      }
+      if (gitRemoteIsOrthicPublic(cursor) && manifest.compile !== GITHUB_ACTIONS_ONLY) {
+        throw Object.assign(new Error(`Orthic Labs public repository requires compile=${GITHUB_ACTIONS_ONLY}: ${manifestPath}`), { code: 'RK_EXECUTION_POLICY_MISSING' });
+      }
+      return Object.freeze({ root: cursor, manifestPath, compile: manifest.compile ?? null, orthicPublic: gitRemoteIsOrthicPublic(cursor) });
+    }
+    if (gitRemoteIsOrthicPublic(cursor)) {
+      throw Object.assign(new Error(`Orthic Labs public repository requires .rightgit.json with compile=${GITHUB_ACTIONS_ONLY}: ${cursor}`), { code: 'RK_EXECUTION_POLICY_MISSING' });
+    }
+    if (cursor === filesystemRoot) return Object.freeze({ root: null, manifestPath: null, compile: null, orthicPublic: false });
+    cursor = dirname(cursor);
+  }
+}
+
+export function assertRepositoryExecutionAllowed({ workspace = process.cwd(), environment = process.env, operation = 'build' } = {}) {
+  const policy = repositoryExecutionPolicy(workspace);
+  if (policy.compile === GITHUB_ACTIONS_ONLY && environment?.GITHUB_ACTIONS !== 'true') {
+    throw Object.assign(new Error(`${operation} is GitHub Actions only for ${policy.root}; push changes & use managed CI`), { code: GITHUB_ACTIONS_ONLY_ERROR });
+  }
+  return policy;
+}
 const delegatedCompilerRuntimeEnvironment = /^(?:PATH|HOME|USER|LOGNAME|SHELL|PWD|OLDPWD|SHLVL|_|LANG|LC_.+|TMPDIR|TMP|TEMP|RIGHTKIT_.+|SCCACHE_.+|CARGO_MAKEFLAGS|MAKEFLAGS|MFLAGS)$/i;
 const forbiddenRequestEnvironment = /^(?:DYLD_(?:INSERT_LIBRARIES|LIBRARY_PATH|FALLBACK_LIBRARY_PATH|FRAMEWORK_PATH|FALLBACK_FRAMEWORK_PATH)|LD_(?:PRELOAD|LIBRARY_PATH|AUDIT|DEBUG)|NODE_OPTIONS|RUSTC|RUSTC_(?:BOOTSTRAP|FORCE_UNSTABLE)|RUSTDOC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTFLAGS|RUSTDOCFLAGS|CARGO_(?:HOME|TARGET_DIR|BUILD_(?:TARGET|TARGET_DIR|BUILD_DIR|RUSTC|RUSTDOC|RUSTC_WRAPPER|RUSTC_WORKSPACE_WRAPPER|RUSTFLAGS)|ENCODED_RUSTFLAGS|INSTALL_ROOT)|CARGO_TARGET_.+_(?:LINKER|RUNNER|RUSTFLAGS)|(?:CC|CXX|AR|AS|LD|RANLIB|STRIP|OBJC|OBJCXX|LINK|CL|RC|CMAKE_.+|SWIFTC|SDKROOT|DEVELOPER_DIR))$/i;
 const redirectArgument = /^(?:--(?:target-dir|config|cache-dir|build-dir|toolchain|temp-dir)(?:=|$)|-Z(?:build-std|config)(?:=|$))/;

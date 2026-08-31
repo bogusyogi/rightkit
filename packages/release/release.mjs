@@ -660,12 +660,13 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
   const lanes = manifest?.lanes;
   const safeLanes = new Set(["ci", "release-candidate"]);
   if (manifest?.schemaVersion !== 1
+    || manifest?.compile !== "github-actions-only"
     || !Array.isArray(lanes)
     || lanes.length === 0
     || !lanes.includes("ci")
     || new Set(lanes).size !== lanes.length
     || lanes.some((lane) => !safeLanes.has(lane))) {
-    fail(`${appName} right-git-ci-only policy requires unique .rightgit.json lanes drawn from ["ci", "release-candidate"] and including "ci"`);
+    fail(`${appName} right-git-ci-only policy requires compile=github-actions-only plus unique .rightgit.json lanes drawn from ["ci", "release-candidate"] and including "ci"`);
   }
   const expectedWorkflows = lanes.map((lane) => `${lane}.yml`).sort();
   if (JSON.stringify(workflows) !== JSON.stringify(expectedWorkflows)) {

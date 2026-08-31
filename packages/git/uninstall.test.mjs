@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { syncCommand } from "./sync.mjs";
-import { installCommand } from "./install.mjs";
+import { DEFAULT_TEMPLATE_VERSION, installCommand } from "./install.mjs";
 import { uninstallCommand } from "./uninstall.mjs";
 import { listManagedFiles } from "./sync.mjs";
 import { MANIFEST_FILENAME } from "./manifest.mjs";
@@ -76,4 +76,14 @@ test("install validates before it creates a manifest", async () => {
   const result = await installCommand(dir, { lanes: ["not-a-lane"] }, PUBLIC_DEPS);
   assert.equal(result.stage, "manifest-invalid");
   assert.equal(fs.existsSync(path.join(dir, MANIFEST_FILENAME)), false);
+});
+
+test("install emits GitHub-Actions-only policy at template 1.7.0", async () => {
+  const dir = makeTempRepo(null);
+  const result = await installCommand(dir, { lanes: ["ci"] }, PUBLIC_DEPS);
+  assert.equal(result.ok, true);
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, MANIFEST_FILENAME), "utf8"));
+  assert.equal(manifest.compile, "github-actions-only");
+  assert.equal(DEFAULT_TEMPLATE_VERSION, "1.7.0");
+  assert.equal(manifest.templateVersion, DEFAULT_TEMPLATE_VERSION);
 });

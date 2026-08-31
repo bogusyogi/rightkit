@@ -50,6 +50,7 @@ const WINGET_PACKAGE_IDENTIFIER_RE = /^[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9][
 
 const TOP_LEVEL_KEYS = new Set([
   "schemaVersion",
+  "compile",
   "lanes",
   "matrix",
   "packageManager",
@@ -99,6 +100,9 @@ export function validateManifest(manifest) {
 
   if (manifest.schemaVersion !== 1) {
     errors.push("schemaVersion must be exactly 1");
+  }
+  if (manifest.compile !== "github-actions-only") {
+    errors.push("compile must be exactly 'github-actions-only' for public repositories");
   }
 
   let lanes = [];

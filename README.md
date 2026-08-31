@@ -17,13 +17,26 @@ Shared, platform-neutral primitives for every Right Suite app.
 | [`@rightkit/logs`](packages/logs) | TypeScript + Rust payload | Durable local JSONL logging and privacy-safe diagnostics bundles |
 | [`@rightkit/platform-ui`](packages/platform-ui) | TypeScript + React | Platform detection, shortcut rendering, capabilities, and headless window controls |
 | [`@rightkit/qa`](packages/qa) | Node CLI | Cross-platform desktop QA gates |
-| [`@rightkit/release`](packages/release) | Node CLI | Native-host signed release, hardening, explicit public GitHub or private R2 + RightApps publication, and add-on adoption |
+| [`@rightkit/release`](packages/release) | Node CLI | Native-host signed release, hardening, explicit GitHub/R2 distribution, and add-on adoption |
 | [`@rightkit/tauri`](packages/tauri) | TypeScript | Typed Tauri host adapter for license and device commands |
 | [`@rightkit/updates`](packages/updates) | TypeScript | Runtime update policy helper |
 
 This is the only source home for shared RightKit packages and crates in the
 Claude repo. Apps consume the published npm packages; they do not depend on
 this checkout, Git URLs, or sibling paths.
+
+## Public-repository build boundary
+
+Public `Orthic-Labs` repositories set `"compile": "github-actions-only"` in `.rightgit.json`. Each task receives one binding:
+
+- `local-static-only`: edit or inspect source/docs/config; run only formatting, lint, schema, manifest, workflow-drift, syntax, or doctor checks guaranteed not to compile, test, package, sign, qualify, install, or release.
+- `github-build`: compile, link, test, execute built code, package, sign, notarize, staple, qualify, installed-smoke, finalize, or publish. Push source & run generated `right-git` workflow on target-native GitHub runner.
+
+Wrong or missing public manifest policy fails validation. `right-release` also exits `125` outside GitHub Actions for build/release/package entrypoints, signing or updater creation, Cargo target resolution, add-on builds, & Cargo/Swift publication. A local broker, cross-host shell, package-manager wrapper, direct binary, or dry run cannot change task binding.
+
+Fast Rust templates cancel superseded jobs, check out full history for change-aware gates, share Cargo caches, run `sccache`, & set `cache-on-failure: true`. Keep LTO & `codegen-units=1` out of fast-build policy. Current coverage is CutRight, Legion, Membrane, Citadel, ScreenRight, & static `orthic-labs.github.io`; static repositories add no compile workflow until dynamic work exists. Policy automatically covers future public `Orthic-Labs` repos.
+
+Private repositories use no GitHub Actions. They build, test, package, sign, qualify, & release locally on native hosts through RightKit.
 
 ## @rightkit/license
 

@@ -26,6 +26,7 @@ export const PRIVATE_DEPS = ghDeps("PRIVATE");
 
 export const SAMPLE_MANIFEST = {
   schemaVersion: 1,
+  compile: "github-actions-only",
   lanes: ["ci", "package-smoke"],
   matrix: { os: ["ubuntu-latest"], node: ["22.13"] },
   packageManager: "pnpm@11.24.0",

@@ -2,6 +2,7 @@
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { assertReleaseExecutionAllowed } from "../execution-policy.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commands = new Map([
@@ -25,6 +26,19 @@ const commands = new Map([
 
 const args = process.argv.slice(2);
 const first = args[0];
+const githubBuildCommands = new Set(["release", "build", "package", "sign-windows", "sign-updater", "create-mac-updater", "cargo-target"]);
+
+try {
+  if (githubBuildCommands.has(first)
+    || first?.startsWith("-")
+    || (first === "addon" && args[1] === "build")
+    || (first === "publish" && ["cargo", "swift"].includes(args[1]))) {
+    assertReleaseExecutionAllowed({ command: `right-release ${args.join(" ")}`.trim() });
+  }
+} catch (error) {
+  console.error(`right-release: ${error.message}`);
+  process.exit(125);
+}
 
 if (!first || first === "-h" || first === "--help") {
   printHelp();

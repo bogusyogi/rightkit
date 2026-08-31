@@ -57,6 +57,7 @@ test("sync reports manifest errors instead of writing files", async () => {
 test("sync rejects a Membrane-like release chain without root @rightkit/release", async () => {
   const manifest = {
     schemaVersion: 1,
+    compile: "github-actions-only",
     lanes: ["ci", "release-candidate"],
     matrix: { os: ["windows-2025", "macos-15"], node: ["22.23.2"] },
     packageManager: "pnpm@11.24.0",

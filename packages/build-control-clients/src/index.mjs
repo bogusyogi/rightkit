@@ -1,4 +1,4 @@
-import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, normalizeRuntimeIdentity, validateManagedRustupInvocation } from '@rightkit/build-control-core';
+import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, assertRepositoryExecutionAllowed, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, normalizeRuntimeIdentity, validateManagedRustupInvocation } from '@rightkit/build-control-core';
 import net from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -71,6 +71,7 @@ export function shimName(argv0) {
 
 export function createManagedAgentRequest({ argv0, argv = [], workspace = process.cwd(), environment = {}, runtimeIdentity = SOURCE_RUNTIME_IDENTITY }) {
   const shim = shimName(argv0);
+  if (INSTALLED_MANAGED_SHIMS.includes(shim)) assertRepositoryExecutionAllowed({ workspace, environment, operation: shim });
   const frontend = SHIM_ALIASES[shim];
   const invocation = normalizedInvocation(frontend, argv, resolve(workspace));
   validateManagedRustupInvocation(shim, invocation.argv);

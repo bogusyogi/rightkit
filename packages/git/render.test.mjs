@@ -11,6 +11,7 @@ const templatesDir = path.join(packageRoot, "templates");
 
 const FULL_MANIFEST = {
   schemaVersion: 1,
+  compile: "github-actions-only",
   lanes: [...KNOWN_LANES],
   matrix: { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] },
   packageManager: "pnpm@11.24.0",
@@ -54,6 +55,19 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/);
   assert.match(content, /cancel-in-progress: true/);
   assert.match(content, /bash \.\/scripts\/gate\.sh/);
+  assert.match(content, /name: Detect Rust-affecting changes\n        id: rust-changes/);
+  assert.match(content, /RIGHT_GIT_DIFF_BASE: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha \|\| github\.event\.before \}\}/);
+  assert.match(content, /changed=true[\s\S]*\^0\{40\}\$[\s\S]*git cat-file -e[\s\S]*git diff --name-only --diff-filter=ACDMRTUXB/);
+  assert.match(content, /--diff-filter=ACDMRTUXB/, "deleted Rust inputs must trigger Rust setup");
+  assert.match(content, /\*\.rs\|Cargo\.toml[\s\S]*scripts\/gate\.sh/);
+  assert.match(content, /\.rightgit\.json\|\.github\/workflows\/\*\.yml\|\.github\/workflows\/\*\.yaml/);
+  assert.equal((content.match(/if: steps\.rust-changes\.outputs\.changed == 'true'/g) ?? []).length, 3);
+  assert.match(content, /RIGHT_GIT_RUST_CHANGED: \$\{\{ steps\.rust-changes\.outputs\.changed \}\}/);
+  assert.match(content, /RUSTC_WRAPPER: \$\{\{ steps\.rust-changes\.outputs\.changed == 'true' && 'sccache' \|\| '' \}\}/);
+  assert.match(content, /CARGO_INCREMENTAL: "0"/);
+  assert.match(content, /CARGO_PROFILE_DEV_DEBUG: "0"/);
+  assert.match(content, /CARGO_PROFILE_TEST_DEBUG: "0"/);
+  assert.doesNotMatch(content, /opt-level|codegen-units|\blto\b|strip\s*=/i);
   assert.match(content, /os: \["windows-latest"\]/);
   assert.doesNotMatch(content, /ubuntu-latest|macos-latest/);
 });
@@ -104,6 +118,9 @@ test("rust-hybrid release candidate renders product scripts, artifact handoff, a
   assert.match(content, /RIGHT_GIT_RELEASE_ARCHITECTURE: \$\{\{ matrix\.architecture \}\}/);
   assert.match(content, /actions\/upload-artifact@[a-f0-9]{40}/);
   assert.doesNotMatch(content, /secrets\.|AZURE_|APPLE_|certificate|private.key/i);
+  assert.doesNotMatch(content, /rust-changes|RIGHT_GIT_RUST_CHANGED/);
+  assert.doesNotMatch(content, /if: steps\.rust-changes/);
+  assert.match(content, /uses: dtolnay\/rust-toolchain@[a-f0-9]{40}\n        with:/);
 });
 
 test("rust-hybrid cache contract renders every declared Cargo workspace", () => {
@@ -123,7 +140,7 @@ test("rust-hybrid cache contract renders every declared Cargo workspace", () => 
   assert.match(content, /add-job-id-key: false/);
   assert.match(content, /cache-workspace-crates: false/);
   assert.match(content, /cache-on-failure: true/);
-  assert.match(content, /RUSTC_WRAPPER: "sccache"/);
+  assert.match(content, /RUSTC_WRAPPER: \$\{\{ steps\.rust-changes\.outputs\.changed == 'true' && 'sccache' \|\| '' \}\}/);
 });
 
 test("rust-hybrid release candidate can opt into OIDC Windows signing without long-lived secrets", () => {

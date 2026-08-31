@@ -13,7 +13,7 @@ import { applyPlan, planSync } from "./sync.mjs";
 
 export const DEFAULT_MATRIX = { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] };
 export const DEFAULT_PACKAGE_MANAGER = "pnpm@11.24.0";
-export const DEFAULT_TEMPLATE_VERSION = "1.1.0";
+export const DEFAULT_TEMPLATE_VERSION = "1.7.0";
 
 /**
  * opts: { lanes: string[], matrix?, packageManager?, templateVersion?,
@@ -38,6 +38,7 @@ export async function installCommand(repoPath, opts = {}, deps = {}) {
 
   const manifest = {
     schemaVersion: 1,
+    compile: "github-actions-only",
     lanes,
     matrix: opts.matrix || DEFAULT_MATRIX,
     packageManager: opts.packageManager || DEFAULT_PACKAGE_MANAGER,

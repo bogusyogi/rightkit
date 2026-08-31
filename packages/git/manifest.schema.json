@@ -4,11 +4,14 @@
   "title": "right-git per-repo manifest (.rightgit.json)",
   "description": "Declares which right-git lanes a public repo installs and how templates should be parameterized. Hand-validated by manifest.mjs — this file documents the contract, it is not fed to a JSON Schema validator at runtime.",
   "type": "object",
-  "required": ["schemaVersion", "lanes", "matrix", "packageManager", "templateVersion"],
+  "required": ["schemaVersion", "compile", "lanes", "matrix", "packageManager", "templateVersion"],
   "additionalProperties": false,
   "properties": {
     "schemaVersion": {
       "const": 1
+    },
+    "compile": {
+      "const": "github-actions-only"
     },
     "lanes": {
       "type": "array",

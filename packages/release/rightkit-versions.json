@@ -14,7 +14,7 @@
   },
   "stagedNpm": {
     "@rightkit/ax": "0.2.1",
-    "@rightkit/git": "0.2.21",
+    "@rightkit/git": "0.2.22",
     "@rightkit/hooks": "0.1.1",
     "@rightkit/legal": "0.3.1",
     "@rightkit/legal-ui": "0.1.1",
@@ -22,7 +22,7 @@
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.97",
+    "@rightkit/release": "0.2.98",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4"
   },
@@ -49,7 +49,8 @@
       "0.2.16",
       "0.2.18",
       "0.2.19",
-      "0.2.20"
+      "0.2.20",
+      "0.2.21"
     ],
     "@rightkit/legal-ui": [
       "0.1.0"
@@ -103,7 +104,8 @@
       "0.2.92",
       "0.2.94",
       "0.2.95",
-      "0.2.96"
+      "0.2.96",
+      "0.2.97"
     ],
     "@rightkit/qa": [
       "0.1.0",

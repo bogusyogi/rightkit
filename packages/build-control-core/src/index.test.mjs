@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, parse } from 'node:path';
-import { BUILD_CONTROL_PROTOCOL, LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, RUNTIME_MANIFEST_SCHEMA, SOURCE_RUNTIME_IDENTITY, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, externalRoots, immutableToolRoot, injectBrokerEnvironment, normalizeBuildRequest, normalizeCargoTargetArgv, normalizeCompilerOutputArgv, normalizeDelegatedCompilerEnvironment, normalizeManagedAgentRequest, normalizeRequestEnvironment, normalizeRuntimeIdentity, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
+import { BUILD_CONTROL_PROTOCOL, GITHUB_ACTIONS_ONLY, GITHUB_ACTIONS_ONLY_ERROR, LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, RUNTIME_MANIFEST_SCHEMA, SOURCE_RUNTIME_IDENTITY, assertRepositoryExecutionAllowed, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, externalRoots, immutableToolRoot, injectBrokerEnvironment, normalizeBuildRequest, normalizeCargoTargetArgv, normalizeCompilerOutputArgv, normalizeDelegatedCompilerEnvironment, normalizeManagedAgentRequest, normalizeRequestEnvironment, normalizeRuntimeIdentity, repositoryExecutionPolicy, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
 
 const fixturePath = (...segments) => join(parse(tmpdir()).root, ...segments);
 
@@ -11,6 +11,19 @@ test('v2 runtime identity requires immutable client & broker digests', () => {
   assert.equal(BUILD_CONTROL_PROTOCOL, 'rightkit.build-control.client.v2'); assert.equal(SOURCE_RUNTIME_IDENTITY.schema, RUNTIME_MANIFEST_SCHEMA);
   assert.deepEqual(normalizeRuntimeIdentity(SOURCE_RUNTIME_IDENTITY), SOURCE_RUNTIME_IDENTITY);
   assert.throws(() => normalizeRuntimeIdentity({ ...SOURCE_RUNTIME_IDENTITY, clientDigest: 'mutable' }), /runtime v2 identity/);
+});
+
+test('Orthic public repositories fail closed outside GitHub Actions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-public-policy-'));
+  try {
+    await mkdir(join(root, '.git'));
+    await writeFile(join(root, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/Orthic-Labs/example.git\n');
+    assert.throws(() => repositoryExecutionPolicy(root), (error) => error.code === 'RK_EXECUTION_POLICY_MISSING');
+    await writeFile(join(root, '.rightgit.json'), `${JSON.stringify({ compile: GITHUB_ACTIONS_ONLY })}\n`);
+    assert.equal(repositoryExecutionPolicy(root).compile, GITHUB_ACTIONS_ONLY);
+    assert.throws(() => assertRepositoryExecutionAllowed({ workspace: root, environment: {}, operation: 'cargo test' }), (error) => error.code === GITHUB_ACTIONS_ONLY_ERROR);
+    assert.equal(assertRepositoryExecutionAllowed({ workspace: root, environment: { GITHUB_ACTIONS: 'true' } }).compile, GITHUB_ACTIONS_ONLY);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('normalizes registered request without executable authority', () => {

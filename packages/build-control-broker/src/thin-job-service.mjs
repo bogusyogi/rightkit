@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import {
   BUILD_CONTROL_PROTOCOL,
   SOURCE_RUNTIME_IDENTITY,
+  assertRepositoryExecutionAllowed,
   injectBrokerEnvironment,
   normalizeCargoTargetArgv,
   normalizeCompilerOutputArgv,
@@ -404,6 +405,9 @@ export class ThinJobService {
     this.#assertRuntime(message.runtime);
     const request = normalizeManagedAgentRequest(message.request);
     validateManagedRustupInvocation(message.shim, request.argv);
+    if (['cargo', 'rustc', 'rustdoc', 'rustup'].includes(message.shim)) {
+      assertRepositoryExecutionAllowed({ workspace: request.workspace, environment: process.env, operation: message.shim });
+    }
     const parentId = message.execution?.mode === 'NESTED' ? message.execution.parentId : null;
     if (message.execution && !parentId) throw new TypeError('nested execution requires parentId');
     const parent = parentId ? this.#jobs.get(parentId) : null;
