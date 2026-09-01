@@ -129,13 +129,17 @@ test("generated bootstrap supports current-path activation and product-specific 
   const contract = JSON.parse(Buffer.from(encoded, "base64").toString());
   assert.equal(contract.healthAssertions[2].path, "service.serviceId");
   assert.match(script, /Replace\('\{current\}', \$Current\)/);
-  assert.match(script, /\[IO\.Directory\]::Move\(\$NextLink, \$Current\)/);
-  assert.match(script, /\[IO\.Directory\]::Move\(\$PreviousLink, \$Current\)/);
+  assert.match(script, /Rename-Item -LiteralPath \$NextLink -NewName \(Split-Path -Leaf \$Current\)/);
+  assert.match(script, /Rename-Item -LiteralPath \$PreviousLink -NewName \(Split-Path -Leaf \$Current\)/);
+  assert.match(script, /function Remove-StableJunction/);
+  assert.match(script, /\[IO\.Directory\]::Delete\(\$Path\)/);
   assert.doesNotMatch(script, /Move-Item \$(?:NextLink|PreviousLink|Current)/);
+  assert.doesNotMatch(script, /Remove-Item -Force \$(?:NextLink|PreviousLink|Current)/);
+  assert.doesNotMatch(script, /\[IO\.Directory\]::Move/);
 });
 
 test("generated Windows junction cutover preserves stable current path", { skip: process.platform !== "win32" }, () => {
-  const root = mkdtempSync(join(tmpdir(), "rightrelease-junction-cutover-"));
+  const root = mkdtempSync(join(tmpdir(), "rightrelease junction cutover-"));
   const versionRoot = join(root, "versions", "0.1.0-test");
   const next = join(root, ".current-next");
   const current = join(root, "current");
@@ -150,7 +154,7 @@ test("generated Windows junction cutover preserves stable current path", { skip:
     statusArgs: ["activate", "--install-root", "{current}", "--dry-run"],
     expectedStatusKind: "membrane-status",
   });
-  const cutover = script.split(/\r?\n/).find((line) => line.includes("[IO.Directory]::Move($NextLink, $Current)"));
+  const cutover = script.split(/\r?\n/).find((line) => line.includes("Rename-Item -LiteralPath $NextLink"));
   assert.ok(cutover, "generated bootstrap must contain native junction rename");
   try {
     const command = [

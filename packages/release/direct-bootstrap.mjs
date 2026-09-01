@@ -273,6 +273,7 @@ export function renderPowerShellBootstrap({
     "$NextLink = Join-Path $InstallRoot '.current-next'",
     "$Journal = Join-Path $InstallRoot 'integration-journal.json'",
     "function Expand-BootstrapArgs($Values, $ActiveVersionRoot, $ActiveVersion) { foreach ($Value in $Values) { ([string]$Value).Replace('{current}', $Current).Replace('{installRoot}', $InstallRoot).Replace('{versionRoot}', $ActiveVersionRoot).Replace('{version}', $ActiveVersion) } }",
+    "function Remove-StableJunction([string]$Path) { $Item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue; if ($null -eq $Item) { return }; if ($Item.LinkType -ne 'Junction') { throw ('Stable pointer path is not a junction: ' + $Path) }; [IO.Directory]::Delete($Path) }",
     "function Resolve-HealthPath($Value, [string]$JsonPath) { $CurrentValue = $Value; foreach ($Segment in $JsonPath.Split('.')) { if ($Segment -match '^\\d+$') { $Index = [int]$Segment; if ($null -eq $CurrentValue -or $Index -ge @($CurrentValue).Count) { throw ('Health path is missing: ' + $JsonPath) }; $CurrentValue = @($CurrentValue)[$Index] } else { $Property = $CurrentValue.PSObject.Properties[$Segment]; if ($null -eq $Property) { throw ('Health path is missing: ' + $JsonPath) }; $CurrentValue = $Property.Value } }; return $CurrentValue }",
     "function Assert-Health($Health, [string]$ActiveVersion) { foreach ($Assertion in $Contract.healthAssertions) { $Actual = Resolve-HealthPath $Health ([string]$Assertion.path); if ($Assertion.PSObject.Properties.Name -contains 'equals') { $Expected = $Assertion.equals; if ($Expected -is [string]) { $Expected = $Expected.Replace('{version}', $ActiveVersion).Replace('{current}', $Current).Replace('{installRoot}', $InstallRoot) }; if ($Actual -ne $Expected) { throw ('Health assertion failed: ' + $Assertion.path) } } elseif ($Assertion.nonempty -eq $true) { if ($null -eq $Actual -or ([string]$Actual).Trim().Length -eq 0) { throw ('Health assertion failed: ' + $Assertion.path) } } elseif (@($Actual).Count -lt [int]$Assertion.minCount) { throw ('Health assertion failed: ' + $Assertion.path) } } }",
     ...(allowLocalReleaseRoot ? [
@@ -352,11 +353,11 @@ export function renderPowerShellBootstrap({
     "$PriorStatus = $null; if ($PriorTarget) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); try { $PriorStatus = (& $PriorExe @PriorStatusArgs | Out-String).Trim() } catch {} }",
     "@{ schemaVersion=1; priorTarget=$PriorTarget; priorVersion=$PriorVersion; targetVersion=$Version; priorStatus=$PriorStatus } | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $Journal",
     "if ($PreflightArgs.Count) { & $VersionExe @PreflightArgs; if ($LASTEXITCODE -ne 0) { throw 'Activation preflight failed' } }",
-    "if (Test-Path $NextLink) { Remove-Item -Force $NextLink }; if (Test-Path $PreviousLink) { Remove-Item -Force $PreviousLink }",
+    "Remove-StableJunction $NextLink; Remove-StableJunction $PreviousLink",
     "New-Item -ItemType Junction -Path $NextLink -Target $VersionRoot | Out-Null",
     "$Switched = $false; $PriorDetached = $false",
     "try {",
-    "  if (Test-Path $Current) { [IO.Directory]::Move($Current, $PreviousLink); $PriorDetached = $true }; [IO.Directory]::Move($NextLink, $Current); $Switched = $true",
+    "  if (Test-Path $Current) { Rename-Item -LiteralPath $Current -NewName (Split-Path -Leaf $PreviousLink); $PriorDetached = $true }; Rename-Item -LiteralPath $NextLink -NewName (Split-Path -Leaf $Current); $Switched = $true",
     "  $StableExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")),
     "  $ActivationArgs = @(Expand-BootstrapArgs $ActivationArgsTemplate $VersionRoot $Version); $StatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate $VersionRoot $Version)",
     "  & $StableExe @ActivationArgs; if ($LASTEXITCODE -ne 0) { throw 'Activation failed' }",
@@ -365,9 +366,9 @@ export function renderPowerShellBootstrap({
     "  $StableBin = Split-Path $StableExe -Parent; $UserPath = [Environment]::GetEnvironmentVariable('Path','User'); if (-not (($UserPath -split ';') -contains $StableBin)) { [Environment]::SetEnvironmentVariable('Path', (($UserPath.TrimEnd(';') + ';' + $StableBin).Trim(';')), 'User') }",
     // Journal cleanup must succeed before discarding the prior pointer. If
     // cleanup fails, catch still has a rollback anchor to restore.
-    "  Remove-Item -Force $Journal; if (Test-Path $PreviousLink) { Remove-Item -Force $PreviousLink }; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
+    "  Remove-Item -Force $Journal; Remove-StableJunction $PreviousLink; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
     "} catch {",
-    "  if (($Switched -or $PriorDetached) -and (Test-Path $Current)) { Remove-Item -Force $Current }; if ($PriorDetached -and (Test-Path $PreviousLink)) { [IO.Directory]::Move($PreviousLink, $Current) }",
+    "  if ($Switched -or $PriorDetached) { Remove-StableJunction $Current }; if ($PriorDetached -and (Test-Path $PreviousLink)) { Rename-Item -LiteralPath $PreviousLink -NewName (Split-Path -Leaf $Current) }",
     "  if ($PriorTarget -and (Test-Path $Current)) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorActivationArgs = @(Expand-BootstrapArgs $ActivationArgsTemplate ([string]$PriorTarget) $PriorVersion); $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); & $PriorExe @PriorActivationArgs; if ($LASTEXITCODE -ne 0) { throw 'Rollback activation failed' }; $PriorHealthText = (& $PriorExe @PriorStatusArgs | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Rollback health failed' }; $PriorHealth = $PriorHealthText | ConvertFrom-Json; try { Assert-Health $PriorHealth $PriorVersion } catch { throw 'Prior health was not restored' } }",
     "  if (Test-Path $VersionRoot) { Remove-Item -Recurse -Force $VersionRoot }; throw",
     "} finally { if (Test-Path $Work) { Remove-Item -Recurse -Force $Work } }",
