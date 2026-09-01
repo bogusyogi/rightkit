@@ -19,3 +19,27 @@ test("worker serves only GET or HEAD with PowerShell content type", async () => 
   assert.equal(post.status, 405);
 });
 
+
+test("plain HTTP is redirected to HTTPS", async () => {
+  const res = await worker.fetch(new Request("http://legion.orthiclabs.com/install.ps1"), {});
+  assert.equal(res.status, 301);
+  assert.equal(res.headers.get("location"), "https://legion.orthiclabs.com/install.ps1");
+});
+
+test("every HTTPS response carries HSTS", async () => {
+  const env = { INSTALL_BUCKET: { async get(key) { return key === "legion/install.ps1" ? { body: "ok\n", httpEtag: '"sha"' } : null; } } };
+  const expected = "max-age=63072000; includeSubDomains; preload";
+  const ok = await worker.fetch(new Request("https://legion.orthiclabs.com/install.ps1"), env);
+  assert.equal(ok.headers.get("strict-transport-security"), expected);
+  const missing = await worker.fetch(new Request("https://membrane.orthiclabs.com/install.ps1"), env);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.headers.get("strict-transport-security"), expected);
+  const denied = await worker.fetch(new Request("https://legion.orthiclabs.com/install.ps1", { method: "POST" }), env);
+  assert.equal(denied.status, 405);
+  assert.equal(denied.headers.get("allow"), "GET, HEAD");
+  assert.equal(denied.headers.get("strict-transport-security"), expected);
+  const root = await worker.fetch(new Request("https://legion.orthiclabs.com/"), env);
+  assert.equal(root.status, 302);
+  assert.equal(root.headers.get("location"), "https://legion.orthiclabs.com/install.ps1");
+  assert.equal(root.headers.get("strict-transport-security"), expected);
+});
