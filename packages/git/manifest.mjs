@@ -264,7 +264,7 @@ export function validateManifest(manifest) {
         // above) — the full signed release chain adds evidenceVerificationScript
         // (runs before publish, verifying aggregated same-run evidence) plus the
         // finalize/qualify/publish scripts.
-        const allowedChainKeys = ["evidenceVerificationScript", "windowsFinalizeScript", "macosFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable", "publishSecrets"];
+        const allowedChainKeys = ["evidenceVerificationScript", "windowsFinalizeScript", "macosFinalizeScript", "installedQualificationScript", "publishScript", "qualificationRunnerVariable", "publishSecrets", "environments"];
         if (chain === null || typeof chain !== "object" || Array.isArray(chain)) {
           errors.push("candidate.releaseChain must be an object");
         } else {
@@ -277,6 +277,19 @@ export function validateManifest(manifest) {
             }
           }
           if (chain.macosFinalizeScript !== undefined && (typeof chain.macosFinalizeScript !== "string" || !PACKAGE_SCRIPT_RE.test(chain.macosFinalizeScript))) {
+          if (chain.environments !== undefined) {
+            const environments = chain.environments;
+            if (environments === null || typeof environments !== "object" || Array.isArray(environments)) {
+              errors.push("candidate.releaseChain.environments must be an object");
+            } else {
+              for (const key of Object.keys(environments)) {
+                if (!["signing", "qualification", "publication"].includes(key)) errors.push(`unknown candidate.releaseChain.environments field: ${key}`);
+                else if (typeof environments[key] !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(environments[key])) {
+                  errors.push(`candidate.releaseChain.environments.${key} must be one safe GitHub environment name`);
+                }
+              }
+            }
+          }
             errors.push("candidate.releaseChain.macosFinalizeScript must be one safe package script name");
           }
           if (typeof chain.qualificationRunnerVariable !== "string" || !GITHUB_VARIABLE_RE.test(chain.qualificationRunnerVariable)) {
@@ -464,6 +477,15 @@ const ARTIFACT_SIGNING_CLIENT_SHA256 = "74BD7D27E6CE1051409C38D9B46BC8DF0400ECD6
 const WINDOWS_SDK_BUILD_TOOLS_VERSION = "10.0.26100.4188";
 const WINDOWS_SDK_BUILD_TOOLS_SHA256 = "180DEB372659029864C10A0C04787833234D64AACD1D2C0661D2C00295D8E022";
 
+// Signing and publication credentials must be reachable behind distinct
+// protected environments, so a job that may sign cannot also publish. Products
+// opt in per environment; absent configuration keeps the single `release`
+// environment they use today, so enabling the split cannot strand secrets.
+function releaseEnvironment(manifest, role) {
+	const configured = manifest?.candidate?.releaseChain?.environments?.[role];
+	return typeof configured === "string" && configured.length > 0 ? configured : "release";
+}
+
 function windowsSigningJob(manifest, pm, artifactPrefix) {
   if (manifest.candidate?.signWindows !== true) return "";
   const nodeVersion = String(manifest.matrix.node[0]);
@@ -484,7 +506,7 @@ function windowsSigningJob(manifest, pm, artifactPrefix) {
   windows-sign:
     needs: [admission, candidate]
     if: \${{ needs.admission.outputs.signed_qualification == 'true' }}
-    environment: release
+    environment: ${releaseEnvironment(manifest, "signing")}
     strategy:
       fail-fast: false
       matrix:
@@ -613,7 +635,7 @@ function macosSigningJob(manifest, pm, artifactPrefix) {
   macos-sign:
     needs: [admission, candidate]
     if: \${{ needs.admission.outputs.signed_qualification == 'true' }}
-    environment: release
+    environment: ${releaseEnvironment(manifest, "signing")}
     strategy:
       fail-fast: false
       matrix:
@@ -791,7 +813,7 @@ function releaseChainJobs(manifest, pm, artifactPrefix) {
   installed-qualification:
     needs: [admission, candidate, windows-sign]
     if: \${{ always() && needs.admission.outputs.signed_qualification == 'true' && needs.candidate.result == 'success' }}
-    environment: release
+    environment: ${releaseEnvironment(manifest, "qualification")}
     runs-on: \${{ vars.${chain.qualificationRunnerVariable} || '${windowsRunner}' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -865,7 +887,7 @@ ${runIdentityEnv}
   publish:
     needs: [admission, installed-qualification${macosDependency}]
     if: \${{ needs.admission.outputs.publish == 'true' && needs.installed-qualification.result == 'success'${macosSuccess} }}
-    environment: release
+    environment: ${releaseEnvironment(manifest, "publication")}
     runs-on: \${{ vars.${chain.qualificationRunnerVariable} || '${windowsRunner}' }}
     permissions:
       contents: write

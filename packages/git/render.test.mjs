@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
-import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES } from "./manifest.mjs";
+import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES, validateManifest } from "./manifest.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const templatesDir = path.join(packageRoot, "templates");
@@ -692,4 +692,74 @@ test("every job checking out an admitted revision fetches full history", () => {
     const checkout = body.split(/^ {6}- uses: actions\/checkout@/m)[1]?.split(/^ {6}- /m)[0] ?? "";
     assert.match(checkout, /fetch-depth: 0/, `${job} must check out with full history`);
   }
+});
+
+// Correction 11: Windows signing, macOS signing, installed qualification and
+// publication all shared one `release` environment, so no signing/publication
+// grant separation existed. The split is opt-in per product because the secrets
+// live in the existing environment until an operator moves them.
+function environmentManifest(environments) {
+  const manifest = {
+    schemaVersion: 1,
+    compile: "github-actions-only",
+    lanes: ["ci", "release-candidate"],
+    packageManager: "pnpm@11.24.0",
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admit",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "macos-15"],
+      targets: [
+        { os: "windows-2025", platform: "windows", architecture: "x86_64" },
+        { os: "macos-15", platform: "macos", architecture: "arm64" },
+      ],
+      signWindows: true,
+      signMacos: true,
+      releaseChain: {
+        windowsFinalizeScript: "release:finalize-windows",
+        macosFinalizeScript: "release:finalize-macos",
+        installedQualificationScript: "release:qualify-installed",
+        publishScript: "release:publish-qualified",
+        qualificationRunnerVariable: "WIDGETS_QUALIFICATION_RUNNER",
+      },
+    },
+    matrix: { os: ["ubuntu-24.04", "windows-2025"], node: ["22.23.2"] },
+    templateVersion: "1.8.0",
+  };
+  if (environments) manifest.candidate.releaseChain.environments = environments;
+  return manifest;
+}
+
+function renderRelease(manifest) {
+  return renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+}
+
+test("release environments default to the single release environment", () => {
+  const content = renderRelease(environmentManifest(null));
+  assert.ok((content.match(/environment: release$/gm) ?? []).length >= 2);
+  assert.doesNotMatch(content, /environment: signing-authorized/);
+});
+
+test("signing and publication split into distinct protected environments", () => {
+  const content = renderRelease(environmentManifest({
+    signing: "signing-authorized",
+    publication: "release-authorized",
+    qualification: "qualification",
+  }));
+  assert.equal((content.match(/environment: signing-authorized$/gm) ?? []).length, 2);
+  assert.equal((content.match(/environment: release-authorized$/gm) ?? []).length, 1);
+  // A job that may sign must never also be the job that publishes.
+  assert.doesNotMatch(content, /environment: release$/m);
+});
+
+test("an unsafe or unknown release environment is rejected", () => {
+  assert.equal(validateManifest(environmentManifest({ signing: "bad name!" })).valid, false);
+  assert.equal(validateManifest(environmentManifest({ promotion: "x" })).valid, false);
 });
