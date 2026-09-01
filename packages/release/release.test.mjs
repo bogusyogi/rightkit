@@ -346,12 +346,12 @@ test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
       name: "fixture",
       packageManager: versions.packageManager,
       scripts: { "release:patch:win": "right-release --platform win --tier patch" },
-      dependencies: { "@rightkit/git": "0.2.22" },
+      dependencies: { "@rightkit/git": "0.2.26" },
       devDependencies: { "@rightkit/release": versions.stagedNpm["@rightkit/release"] },
     },
   }));
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.2\.22/i);
+  assert.match(result.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.2\.26/i);
 });
 
 test("rejects hosted workflow files before release work starts", () => {
@@ -370,7 +370,7 @@ test("accepts one right-git managed CI workflow without granting hosted release 
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
-  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci"] }));
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"] }));
   writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git — do not hand-edit.\npermissions:\n  contents: read\njobs: {}\n");
   git(root, "add", ".");
   git(root, "commit", "-m", "add managed ci");
@@ -384,7 +384,7 @@ test("accepts right-git managed CI and unsigned release-candidate workflows", ()
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
-  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"] }));
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"] }));
   const managedReadOnly = "# Managed by right-git — do not hand-edit.\npermissions:\n  contents: read\njobs: {}\n";
   writeFileSync(path.join(workflowDir, "ci.yml"), managedReadOnly);
   writeFileSync(path.join(workflowDir, "release-candidate.yml"), managedReadOnly);
@@ -400,7 +400,7 @@ test("rejects workflows that do not exactly match right-git manifest lanes", () 
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
-  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"] }));
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"] }));
   writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
   git(root, "add", ".");
   git(root, "commit", "-m", "omit declared candidate workflow");
@@ -415,7 +415,7 @@ test("rejects a self-labeled right-git workflow with release-capable authority",
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
-  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci"] }));
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"] }));
   writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  id-token: write\njobs: {}\n");
   git(root, "add", ".");
   git(root, "commit", "-m", "add unsafe ci");
@@ -431,7 +431,7 @@ test("rejects managed candidate workflows with write-all or indexed secrets", ()
     const root = path.dirname(config);
     const workflowDir = path.join(root, ".github", "workflows");
     mkdirSync(workflowDir, { recursive: true });
-    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"] }));
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"] }));
     const managedReadOnly = "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n";
     writeFileSync(path.join(workflowDir, "ci.yml"), managedReadOnly);
     writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git\n${unsafe}jobs: {}\n`);
@@ -449,7 +449,7 @@ test("permits only declared Apple signing secrets in an explicit signed qualific
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
-  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
   writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
   writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  macos-sign:\n    needs: [candidate]\n    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.signed_qualification == true) }}\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
   git(root, "add", ".");
@@ -463,7 +463,7 @@ test("permits only declared Apple signing secrets in a legacy tag-only lane", ()
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
-  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
   writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
   writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  macos-sign:\n    needs: [candidate]\n    if: ${{ startsWith(github.ref, 'refs/tags/v') }}\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
   git(root, "add", ".");
@@ -472,12 +472,41 @@ test("permits only declared Apple signing secrets in a legacy tag-only lane", ()
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("permits only declared Apple signing secrets in an admission-gated tag-last lane", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  macos-sign:\n    needs: [admission, candidate]\n    if: ${{ needs.admission.outputs.signed_qualification == 'true' }}\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add admission-gated tag-last mac candidate workflow");
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects broad manual dispatch authority for Apple signing in the tag-last lane", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  macos-sign:\n    needs: [admission, candidate]\n    if: ${{ github.event_name == 'workflow_dispatch' }}\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add broad tag-last manual mac candidate workflow");
+  const result = run(config, "--tier=patch");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release-capable permissions or secrets/i);
+});
+
 test("rejects broad manual dispatch authority for Apple signing", () => {
   const config = fixture({ hostedWorkflows: "right-git-ci-only" });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
-  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
   writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
   writeFileSync(path.join(workflowDir, "release-candidate.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs:\n  macos-sign:\n    needs: [candidate]\n    if: ${{ github.event_name == 'workflow_dispatch' }}\n    env:\n      CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n      PASS: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}\n      KEYCHAIN: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}\n      KEY: ${{ secrets.APPLE_API_KEY_BASE64 }}\n      KEY_ID: ${{ secrets.APPLE_API_KEY }}\n      ISSUER: ${{ secrets.APPLE_API_ISSUER }}\n");
   git(root, "add", ".");
@@ -493,7 +522,7 @@ test("rejects undeclared Apple secrets or pull_request_target in candidate lane"
     const root = path.dirname(config);
     const workflowDir = path.join(root, ".github", "workflows");
     mkdirSync(workflowDir, { recursive: true });
-    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"], candidate: { signMacos: true } }));
     writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
     writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git\n${unsafe}\npermissions:\n  contents: read\njobs: {}\n`);
     git(root, "add", ".");
@@ -504,13 +533,14 @@ test("rejects undeclared Apple secrets or pull_request_target in candidate lane"
   }
 });
 
-test("permits declared release-chain publish secret & contents write only behind tag qualification gate", () => {
+test("permits declared release-chain publish secret & contents write in a legacy tag-only lane", () => {
   const config = fixture({ hostedWorkflows: "right-git-ci-only" });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
   writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({
     schemaVersion: 1,
+    compile: "github-actions-only",
     lanes: ["ci", "release-candidate"],
     candidate: {
       signWindows: true,
@@ -538,7 +568,7 @@ jobs:
   assert.equal(result.status, 0, result.stderr);
 });
 
-test("rejects release-chain publish authority without exact tag qualification gate", () => {
+test("rejects release-chain publish authority without exact tag qualification gate in the legacy lane", () => {
   for (const unsafe of [
     "if: ${{ github.event_name == 'workflow_dispatch' }}",
     "if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.installed-qualification.result == 'success' }}\n    env:\n      TOKEN: ${{ secrets.UNRELATED }}",
@@ -547,7 +577,7 @@ test("rejects release-chain publish authority without exact tag qualification ga
     const root = path.dirname(config);
     const workflowDir = path.join(root, ".github", "workflows");
     mkdirSync(workflowDir, { recursive: true });
-    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, lanes: ["ci", "release-candidate"], candidate: { signWindows: true, releaseChain: { publishSecrets: ["CLOUDFLARE_API_TOKEN"] } } }));
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"], candidate: { signWindows: true, releaseChain: { publishSecrets: ["CLOUDFLARE_API_TOKEN"] } } }));
     writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
     writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git
 permissions:
@@ -562,6 +592,77 @@ jobs:
 `);
     git(root, "add", ".");
     git(root, "commit", "-m", "add unsafe release chain");
+    const result = run(config, "--tier=patch");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /release-capable permissions or secrets/i);
+  }
+});
+
+test("permits declared release-chain publish secret & contents write behind an admission-gated tag-last qualification gate", () => {
+  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({
+    schemaVersion: 1,
+    compile: "github-actions-only",
+    lanes: ["ci", "release-candidate"],
+    candidate: {
+      signWindows: true,
+      signMacos: true,
+      releaseChain: { publishSecrets: ["CLOUDFLARE_API_TOKEN"] },
+    },
+  }));
+  writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+  writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git
+permissions:
+  contents: read
+jobs:
+  publish:
+    needs: [admission, installed-qualification, macos-sign]
+    if: \${{ needs.admission.outputs.publish == 'true' && needs.installed-qualification.result == 'success' && needs.macos-sign.result == 'success' }}
+    permissions:
+      contents: write
+    steps:
+      - run: publish
+        env:
+          TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+`);
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add admission-gated tag-last release chain");
+  const result = run(config, "--tier=patch");
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects release-chain publish authority without exact qualification gate in the tag-last lane", () => {
+  for (const unsafe of [
+    // No proof this run's admission actually requested publication.
+    "if: ${{ github.event_name == 'workflow_dispatch' }}",
+    // Windows installed-qualification is proven, but macOS signing success is not —
+    // publish must be unreachable unless BOTH signed qualification paths verified.
+    "if: ${{ needs.admission.outputs.publish == 'true' && needs.installed-qualification.result == 'success' }}",
+    // Every clause present, but riding in on an undeclared secret.
+    "if: ${{ needs.admission.outputs.publish == 'true' && needs.installed-qualification.result == 'success' && needs.macos-sign.result == 'success' }}\n    env:\n      TOKEN: ${{ secrets.UNRELATED }}",
+  ]) {
+    const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+    const root = path.dirname(config);
+    const workflowDir = path.join(root, ".github", "workflows");
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release-candidate"], candidate: { signWindows: true, signMacos: true, releaseChain: { publishSecrets: ["CLOUDFLARE_API_TOKEN"] } } }));
+    writeFileSync(path.join(workflowDir, "ci.yml"), "# Managed by right-git\npermissions:\n  contents: read\njobs: {}\n");
+    writeFileSync(path.join(workflowDir, "release-candidate.yml"), `# Managed by right-git
+permissions:
+  contents: read
+jobs:
+  publish:
+    needs: [admission, installed-qualification, macos-sign]
+    ${unsafe}
+    permissions:
+      contents: write
+    steps: []
+`);
+    git(root, "add", ".");
+    git(root, "commit", "-m", "add unsafe tag-last release chain");
     const result = run(config, "--tier=patch");
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /release-capable permissions or secrets/i);

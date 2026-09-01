@@ -32,7 +32,11 @@ export function assertPrimaryReleaseCheckout(repoRoot, env = process.env) {
     throw new Error(`right-release must be invoked from the primary Git worktree: ${primary}`);
   }
   const branch = spawnSync("git", ["symbolic-ref", "--quiet", "HEAD"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
-  if (branch.status !== 0 && !isVerifiedGithubActionsTagCheckout(repoRoot, env)) {
+  if (
+    branch.status !== 0
+    && !isVerifiedGithubActionsTagCheckout(repoRoot, env)
+    && !isVerifiedGithubActionsAdmittedDispatch(repoRoot, env)
+  ) {
     throw new Error("right-release requires a branch-attached primary Git checkout; detached HEAD is forbidden");
   }
 }
@@ -61,6 +65,48 @@ function isVerifiedGithubActionsTagCheckout(repoRoot, env) {
   if (tagCommit !== head) return false;
   const repository = origin.match(/(?:github\.com[/:])([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i)?.[1];
   return repository?.toLowerCase() === env.GITHUB_REPOSITORY.toLowerCase();
+}
+
+// A tag-last release chain never has a tag to check out: the whole point is that
+// publication mints the tag only after qualification passes. Every stage instead
+// checks out one exact commit SHA admitted from the default branch, which leaves
+// HEAD detached. Refusing that would force the retired tag-first shape back.
+//
+// This exemption is deliberately STRICTER than the tag one above. A tag proves
+// only that some ref points at this commit; here the commit must additionally be
+// the exact revision this run was admitted against AND be genuinely reachable
+// from the remote branch the dispatch came from, so a detached HEAD parked on an
+// arbitrary, orphaned, or force-pushed commit is still refused.
+function isVerifiedGithubActionsAdmittedDispatch(repoRoot, env) {
+  const sha = env.GITHUB_SHA;
+  const admitted = env.RIGHT_GIT_SOURCE_REVISION;
+  if (
+    env.GITHUB_ACTIONS !== "true"
+    || env.GITHUB_EVENT_NAME !== "workflow_dispatch"
+    || env.GITHUB_REF_TYPE !== "branch"
+    || !/^refs\/heads\/.+$/.test(env.GITHUB_REF ?? "")
+    || !/^[a-f0-9]{40}$/.test(sha ?? "")
+    || !/^[a-f0-9]{40}$/.test(admitted ?? "")
+    || !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(env.GITHUB_REPOSITORY ?? "")
+  ) return false;
+  // The checkout must be the exact revision the admission stage bound this run
+  // to — not merely some commit the dispatch happened to land on.
+  const head = git(repoRoot, ["rev-parse", "HEAD"]).trim();
+  if (head !== admitted) return false;
+  let origin;
+  try {
+    origin = git(repoRoot, ["remote", "get-url", "origin"]).trim();
+  } catch {
+    return false;
+  }
+  const repository = origin.match(/(?:github\.com[/:])([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i)?.[1];
+  if (repository?.toLowerCase() !== env.GITHUB_REPOSITORY.toLowerCase()) return false;
+  // Reachability from the remote branch that was dispatched. A shallow or
+  // ref-less checkout cannot prove this, and so does not get the exemption.
+  const dispatchBranch = (env.GITHUB_REF ?? "").replace(/^refs\/heads\//, "");
+  const remoteRef = `refs/remotes/origin/${dispatchBranch}`;
+  if (spawnSync("git", ["rev-parse", "--verify", "--quiet", remoteRef], { cwd: repoRoot, windowsHide: true }).status !== 0) return false;
+  return spawnSync("git", ["merge-base", "--is-ancestor", head, remoteRef], { cwd: repoRoot, windowsHide: true }).status === 0;
 }
 
 export function resolvePrimaryWorktree({ repoRoot, worktrees, gitDir, coreWorktree }) {

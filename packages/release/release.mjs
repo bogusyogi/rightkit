@@ -694,17 +694,41 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
     const windowsSource = windowsSpan ? source.slice(windowsSpan.start, windowsSpan.end) : "";
     const macosSource = macosSpan ? source.slice(macosSpan.start, macosSpan.end) : "";
     const publishSource = publishSpan ? source.slice(publishSpan.start, publishSpan.end) : "";
+    // Two release-chain shapes are accepted: the retired tag-first lane (a pushed
+    // `refs/tags/v*` — or, for signing only, an explicit manual `signed_qualification`
+    // dispatch — gates signing/publish) and the current tag-last lane (one admitted
+    // dispatch binds every stage to an exact main commit; an `admission` job validates
+    // the dispatch envelope and publication itself mints the tag last). Both must prove
+    // the same thing — signing is unreachable without qualification actually being
+    // requested for this run, and publish is unreachable unless that qualification
+    // verified success in this same run — only the mechanism differs.
+    const legacySigningGate = (job) => new RegExp(
+      `${job}:\\n    needs: \\[candidate\\]\\n    if: \\$\\{\\{ startsWith\\(github\\.ref, 'refs\\/tags\\/v'\\)(?: \\|\\| \\(github\\.event_name == 'workflow_dispatch' && inputs\\.signed_qualification == true\\))? \\}\\}`,
+    );
+    const admittedSigningGate = (job) => new RegExp(
+      `${job}:\\n    needs: \\[admission, candidate\\]\\n    if: \\$\\{\\{ needs\\.admission\\.outputs\\.signed_qualification == 'true' \\}\\}`,
+    );
     const protectedWindowsSigning = workflow === "release-candidate.yml"
       && manifest?.candidate?.signWindows === true
-      && /windows-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\)(?: \|\| \(github\.event_name == 'workflow_dispatch' && inputs\.signed_qualification == true\))? \}\}/.test(windowsSource);
+      && (legacySigningGate("windows-sign").test(windowsSource) || admittedSigningGate("windows-sign").test(windowsSource));
     const protectedMacosSigning = workflow === "release-candidate.yml"
       && manifest?.candidate?.signMacos === true
-      && /macos-sign:\n    needs: \[candidate\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\)(?: \|\| \(github\.event_name == 'workflow_dispatch' && inputs\.signed_qualification == true\))? \}\}/.test(macosSource);
+      && (legacySigningGate("macos-sign").test(macosSource) || admittedSigningGate("macos-sign").test(macosSource));
     const releaseChain = workflow === "release-candidate.yml" ? manifest?.candidate?.releaseChain : undefined;
     const allowedReleaseSecrets = new Set(releaseChain?.publishSecrets ?? []);
     const writePermissions = [...source.matchAll(/^\s*(actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):\s*write\s*$/gmi)].map((match) => ({ name: match[1].toLowerCase(), index: match.index }));
+    // Legacy: publish requires a pushed tag AND same-run installed-qualification
+    // success — the tag is the sole gate because tag-first signing already proved
+    // qualification before the tag existed. Tag-last: there is no tag to check;
+    // instead publish requires the admission job's `publish` output (which itself
+    // implies `signed_qualification` was requested — see the admission job's own
+    // envelope validation) AND same-run success of BOTH installed-qualification
+    // (Windows) and macos-sign (macOS), so publish is unreachable unless every
+    // signing/qualification stage actually verified in this exact run.
+    const legacyReleasePublishGate = /publish:\n    needs: \[[^\n]*installed-qualification[^\n]*\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) && needs\.installed-qualification\.result == 'success'/.test(publishSource);
+    const admittedReleasePublishGate = /publish:\n    needs: \[(?=[^\n]*\badmission\b)(?=[^\n]*\binstalled-qualification\b)(?=[^\n]*\bmacos-sign\b)[^\n]*\]\n    if: \$\{\{ needs\.admission\.outputs\.publish == 'true' && needs\.installed-qualification\.result == 'success' && needs\.macos-sign\.result == 'success' \}\}/.test(publishSource);
     const protectedReleasePublish = releaseChain
-      && /publish:\n    needs: \[[^\n]*installed-qualification[^\n]*\]\n    if: \$\{\{ startsWith\(github\.ref, 'refs\/tags\/v'\) && needs\.installed-qualification\.result == 'success'/.test(publishSource)
+      && (legacyReleasePublishGate || admittedReleasePublishGate)
       && /\n    permissions:\n      contents: write\n/.test(publishSource);
     if (/^\s*permissions:\s*write-all\s*$/mi.test(source)
       || writePermissions.some(({ name, index }) => name === "id-token"

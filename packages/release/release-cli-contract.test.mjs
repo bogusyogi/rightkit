@@ -29,7 +29,12 @@ test("CLI routes upload and legacy publish only to the upload state machine", ()
   const source = readFileSync(cli, "utf8");
   assert.match(source, /\["upload",\s*"upload-release\.mjs"\]/);
   assert.match(source, /\["publish",\s*"upload-release\.mjs"\]/);
-  assert.doesNotMatch(source, /first === "publish"[\s\S]{0,500}run\("release\.mjs"/);
+  // Anchor to the actual `publish` routing branch, not the earlier
+  // `assertReleaseExecutionAllowed` gate condition (also spelled
+  // `first === "publish"`, a few lines above `run("release.mjs", ...)` for
+  // the unrelated `--version` branch) — a loose match on the bare condition
+  // text produced a false positive there.
+  assert.doesNotMatch(source, /\}\s*else if \(first === "publish"\) \{[\s\S]{0,500}run\("release\.mjs"/);
 });
 
 test("upload dry-run cannot write a provider-bound verified marker", () => {

@@ -196,7 +196,7 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
   // Every downstream job (admission, candidate, and windows-sign here) checks
   // out the exact admitted revision by SHA, never by resolving HEAD after a
   // ref-triggered checkout.
-  assert.match(content, /windows-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+persist-credentials: false/);
+  assert.match(content, /windows-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
   assert.doesNotMatch(content, /git rev-parse HEAD/);
   assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
@@ -235,7 +235,7 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
   assert.match(content, /temporary keychain/i);
   assert.match(content, /right-release build --platform mac --skip-checks/);
   assert.match(content, /secrets\.APPLE_API_KEY_BASE64/);
-  assert.match(content, /macos-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+persist-credentials: false/);
+  assert.match(content, /macos-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
   assert.doesNotMatch(content, /git rev-parse HEAD/);
   assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
@@ -360,13 +360,13 @@ test("rust-hybrid release chain preserves signed candidate, installed qualificat
   // exact admitted SHA from the admission job's own output.
   assert.doesNotMatch(content, /git rev-parse HEAD/);
   assert.doesNotMatch(content, /RIGHT_GIT_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
-  // windows-sign, macos-sign, installed-qualification, publish all check out
-  // the admitted revision directly followed by persist-credentials: false;
-  // candidate does too but with a fetch-depth: 0 line between them (matched
-  // separately below), and admission checks out ${{ inputs.source_revision }}
-  // (it IS the admission job — there is no needs.admission yet).
-  assert.equal((content.match(/ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+persist-credentials: false/g) ?? []).length, 4, "windows-sign, macos-sign, installed-qualification, publish should all pin the admitted revision");
-  assert.match(content, /ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/, "candidate must also pin the admitted revision");
+  // candidate, windows-sign, macos-sign, installed-qualification and publish all
+  // check out the admitted revision with full history; admission checks out
+  // ${{ inputs.source_revision }} (it IS the admission job — there is no
+  // needs.admission yet). Full history is load-bearing, not cosmetic: see
+  // "every job checking out an admitted revision fetches full history".
+  assert.equal((content.match(/ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/g) ?? []).length, 5, "candidate, windows-sign, macos-sign, installed-qualification & publish should all pin the admitted revision with full history");
+  assert.doesNotMatch(content, /ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+persist-credentials: false/, "no admitted-revision checkout may be shallow");
   assert.match(content, /ref: \$\{\{ inputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/, "admission must check out the exact dispatch-supplied revision");
   assert.doesNotMatch(content.slice(0, content.indexOf("  windows-sign:")), /secrets\.|id-token: write|contents: write/);
   // Downstream download-artifact names must match exactly what windows-sign/
@@ -636,4 +636,60 @@ test("renderTemplate normalizes an empty final release-chain fragment to one new
   const out = renderTemplate("jobs:\n${RELEASE_CHAIN_JOBS}\n", { RELEASE_CHAIN_JOBS: "" });
   assert.equal(out, "jobs:\n");
   assert.equal((out.match(/\n/g) ?? []).length, 1);
+});
+
+// Tag-last has no tag to check out, so every stage checks out one exact admitted
+// commit SHA and HEAD is always detached. @rightkit/release only exempts a
+// detached HEAD when it can prove the commit is reachable from the dispatched
+// remote branch — and proving reachability needs history plus the
+// remote-tracking ref. A default shallow checkout has neither, so the signing,
+// qualification, and publish jobs would be refused. Every job that checks out an
+// admitted revision must therefore ask for full history.
+test("every job checking out an admitted revision fetches full history", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admission",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "macos-15"],
+      signWindows: true,
+      signMacos: true,
+      releaseChain: {
+        evidenceVerificationScript: "release:verify:evidence",
+        windowsFinalizeScript: "release:finalize:win",
+        macosFinalizeScript: "release:finalize:mac",
+        installedQualificationScript: "release:qualify:installed",
+        publishScript: "release:publish:qualified",
+        qualificationRunnerVariable: "QUALIFICATION_RUNNER_LABEL",
+        publishSecrets: ["CLOUDFLARE_API_TOKEN"],
+      },
+    },
+    matrix: { os: ["ubuntu-24.04", "windows-2025", "macos-15"], node: ["22.23.2"] },
+    templateVersion: "1.9.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  const checkouts = content
+    .split(/^ {6}- uses: actions\/checkout@/m)
+    .slice(1)
+    .map((step) => step.split(/^ {6}- /m)[0]);
+  assert.ok(checkouts.length >= 6, `expected every stage to check out; found ${checkouts.length}`);
+  for (const step of checkouts) {
+    if (!/ref: \$\{\{ (needs\.admission\.outputs\.source_revision|inputs\.source_revision) \}\}/.test(step)) continue;
+    assert.match(step, /fetch-depth: 0/, `a checkout of an admitted revision must fetch full history:\n${step}`);
+  }
+  // The four downstream stages specifically — these were the ones shipping shallow.
+  for (const job of ["windows-sign", "macos-sign", "installed-qualification", "publish"]) {
+    const body = content.split(new RegExp(`^  ${job}:$`, "m"))[1] ?? "";
+    const checkout = body.split(/^ {6}- uses: actions\/checkout@/m)[1]?.split(/^ {6}- /m)[0] ?? "";
+    assert.match(checkout, /fetch-depth: 0/, `${job} must check out with full history`);
+  }
 });
