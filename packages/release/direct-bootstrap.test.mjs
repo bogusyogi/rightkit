@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -129,6 +129,48 @@ test("generated bootstrap supports current-path activation and product-specific 
   const contract = JSON.parse(Buffer.from(encoded, "base64").toString());
   assert.equal(contract.healthAssertions[2].path, "service.serviceId");
   assert.match(script, /Replace\('\{current\}', \$Current\)/);
+  assert.match(script, /\[IO\.Directory\]::Move\(\$NextLink, \$Current\)/);
+  assert.match(script, /\[IO\.Directory\]::Move\(\$PreviousLink, \$Current\)/);
+  assert.doesNotMatch(script, /Move-Item \$(?:NextLink|PreviousLink|Current)/);
+});
+
+test("generated Windows junction cutover preserves stable current path", { skip: process.platform !== "win32" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "rightrelease-junction-cutover-"));
+  const versionRoot = join(root, "versions", "0.1.0-test");
+  const next = join(root, ".current-next");
+  const current = join(root, "current");
+  const script = renderPowerShellBootstrap({
+    product: "membrane",
+    repository: "Orthic-Labs/membrane",
+    bootstrapVersion: "0.1.0",
+    acceptedManifestSigners: [acceptedSigner],
+    installRootSubdir: "Orthic Labs\\Membrane",
+    executablePath: "membrane.exe",
+    activationArgs: ["activate", "--install-root", "{current}"],
+    statusArgs: ["activate", "--install-root", "{current}", "--dry-run"],
+    expectedStatusKind: "membrane-status",
+  });
+  const cutover = script.split(/\r?\n/).find((line) => line.includes("[IO.Directory]::Move($NextLink, $Current)"));
+  assert.ok(cutover, "generated bootstrap must contain native junction rename");
+  try {
+    const command = [
+      `$VersionRoot='${versionRoot.replaceAll("'", "''")}'`,
+      `$NextLink='${next.replaceAll("'", "''")}'`,
+      `$Current='${current.replaceAll("'", "''")}'`,
+      "$PreviousLink=Join-Path (Split-Path -Parent $Current) '.current-previous'",
+      "$PriorDetached=$false; $Switched=$false",
+      "New-Item -ItemType Directory -Force -Path $VersionRoot | Out-Null",
+      "Set-Content -LiteralPath (Join-Path $VersionRoot 'probe.txt') -Value 'ok'",
+      "New-Item -ItemType Junction -Path $NextLink -Target $VersionRoot | Out-Null",
+      cutover,
+      "if ((Get-Item -Force -LiteralPath $Current).LinkType -ne 'Junction') { exit 2 }",
+      "if ((Get-Content -Raw -LiteralPath (Join-Path $Current 'probe.txt')).Trim() -ne 'ok') { exit 3 }",
+    ].join("; ");
+    const result = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", command], { encoding: "utf8", windowsHide: true });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("opt-in local release root reuses verified install transaction without network acquisition", () => {
