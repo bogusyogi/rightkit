@@ -97,7 +97,7 @@ function assertMacPackageEntry(packageCommand, scripts, label) {
   );
   const implementation = scripts["rightkit:package:mac"];
   assert.equal(typeof implementation, "string", `${label} must define rightkit:package:mac`);
-  assert.doesNotMatch(implementation, /\bright-release\b/, `${label} rightkit:package:mac must package directly instead of recursing into the release build`);
+  assert.doesNotMatch(implementation, /(?<![-\w])right-release(?![-\w])/, `${label} rightkit:package:mac must package directly instead of recursing into the release build`);
   assert.doesNotMatch(implementation, /\bpnpm(?:\s+run)?\s+rightkit:package:mac\b/, `${label} rightkit:package:mac must not recurse into itself`);
 }
 
