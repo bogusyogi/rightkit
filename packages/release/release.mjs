@@ -24,6 +24,7 @@ import { terminateProcessTree } from "./heavy-command.mjs";
 import { materializeHardeningEvidence } from "./hardening-evidence.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { runConfiguredChecks } from "./release-checks.mjs";
+import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -56,6 +57,8 @@ const opts = {
   skipChecks: false,
   doctor: false,
   tier: null,
+  resume: false,
+  resumeFrom: null,
 };
 
 for (let i = 0; i < args.length; i++) {
@@ -70,6 +73,8 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--skip-checks") opts.skipChecks = true;
   else if (arg === "--skip-hardening") fail("--skip-hardening is forbidden; use exact artifact/source-bound hardeningAllowances");
   else if (arg === "--doctor") opts.doctor = true;
+  else if (arg === "--resume") opts.resume = true;
+  else if (arg === "--resume-from") { opts.resume = true; opts.resumeFrom = args[++i]; }
   else if (arg === "--tier") opts.tier = args[++i];
   else if (arg.startsWith("--tier=")) opts.tier = arg.slice("--tier=".length);
   else if (arg === "--version") {
@@ -82,6 +87,8 @@ for (let i = 0; i < args.length; i++) {
 
 if (opts.upload) fail("combined build+upload was removed; run right-release build, then right-release upload --release <id> --tier patch|update");
 if (opts.tier && !TIERS.has(opts.tier)) usage(2, `invalid --tier: ${opts.tier} (expected patch|update)`);
+const MAC_RESUME_PHASES = ["prepackage", "sign", "package", "post-sign", "harden"];
+if (opts.resumeFrom && !MAC_RESUME_PHASES.includes(opts.resumeFrom)) usage(2, `invalid --resume-from: ${opts.resumeFrom}`);
 const sccacheVersion = assertSharedSccachePrerequisite();
 
 const requestedConfigPath = path.resolve(opts.config);
@@ -216,6 +223,8 @@ if (opts.upload && !target.publish && !target.upload) {
 
 const started = Date.now();
 console.log(`right-release ${VERSION}: ${config.app ?? path.basename(root)} ${opts.platform} ${mode} tier=${opts.tier ?? "neutral"}`);
+const macResumeAt = opts.platform === "mac" && opts.resumeFrom ? MAC_RESUME_PHASES.indexOf(opts.resumeFrom) : 0;
+const runMacPhase = (phase) => opts.platform !== "mac" || !opts.resumeFrom || MAC_RESUME_PHASES.indexOf(phase) >= macResumeAt;
 
 if (opts.install) await runInstall(config.packageManager, workdir);
 await runConfiguredChecks({
@@ -256,9 +265,9 @@ if (opts.platform === "win") {
   }
 } else if (opts.platform === "mac") {
   const signingFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
-  await runCommand(target.prePackage, root);
+  if (runMacPhase("prepackage")) await runCommand(target.prePackage, root);
   for (const file of signingFiles) await mustExist(file, `missing macOS Developer ID signing artifact: ${file}`);
-  await signMacos(signingFiles, root);
+  if (runMacPhase("sign")) await signMacos(signingFiles, root);
 } else if (nativeAssembly) {
   if (nativeAssembly.packageHook) await runCommand(nativeAssembly.packageHook, root);
   if (nativeFinalizer) {
@@ -272,7 +281,7 @@ if (opts.platform === "win") {
   }
 }
 
-await runCommand(command, root);
+if (opts.platform !== "mac" || runMacPhase("package")) await runCommand(command, root);
 
 for (const rel of target.artifacts ?? []) {
   await mustExist(path.resolve(root, rel), `missing release artifact: ${rel}`);
@@ -294,7 +303,7 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
-if (target.postSign && opts.platform !== "win") {
+if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || runMacPhase("post-sign"))) {
   await runCommand(target.postSign, root);
 }
 
@@ -304,7 +313,7 @@ if (opts.platform === "mac") {
   await notarizeMacos(archive, root);
 }
 
-{
+if (opts.platform !== "mac" || runMacPhase("harden")) {
   const scanTargets = target.hardening ?? target.artifacts ?? [];
   if (scanTargets.length) {
     let hardeningEvidence = null;
@@ -823,7 +832,8 @@ function verifyMacosSigningReceipt(receipt, files) {
   if (!existsSync(receipt)) fail(`missing macOS Developer ID signing receipt: ${receipt}`);
   let evidence;
   try { evidence = JSON.parse(readFileSync(receipt, "utf8")); } catch { fail(`invalid macOS Developer ID signing receipt: ${receipt}`); }
-  const expectedIdentity = process.env.APPLE_DEVELOPER_ID?.trim();
+  let expectedIdentity;
+  try { expectedIdentity = resolveMacosDeveloperIdIdentity(); } catch (error) { fail(error.message); }
   const expected = files.map((file) => path.resolve(file)).sort();
   const actual = Array.isArray(evidence.files) ? evidence.files.map((item) => path.resolve(item.file)).sort() : [];
   const hashes = new Map(files.map((file) => [path.resolve(file), createHash("sha256").update(readFileSync(file)).digest("hex")]));

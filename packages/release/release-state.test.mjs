@@ -90,6 +90,33 @@ test("nested app configs keep the vault at repo root and build from the app root
   assert.equal(layout.targetLink, path.resolve("D:/suite/heardright/tauri-app-next/src-tauri/target"));
 });
 
+test("pre-seal hook runs after hardening and before immutable sealing", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "right-release-pre-seal-"));
+  const calls = [];
+  const result = await runBuildStateMachine({
+    root,
+    app: "fixture",
+    version: "1.0.0",
+    commit: "abcdef1234567890",
+    platform: "mac",
+    ops: {
+      preflight: async () => calls.push("preflight"),
+      prepare: async () => calls.push("prepare"),
+      build: async () => calls.push("build"),
+      sign: async () => calls.push("sign"),
+      harden: async () => calls.push("harden"),
+      preSeal: async ({ sealedDir }) => {
+        calls.push(`pre-seal:${path.basename(sealedDir)}`);
+      },
+      seal: async () => calls.push("seal"),
+    },
+  });
+  assert.equal(result.status, "sealed");
+  assert.deepEqual(calls, ["preflight", "prepare", "build", "sign", "harden", "pre-seal:mac", "seal"]);
+  assert.equal(calls.at(-2), "pre-seal:mac");
+  assert.equal(calls.at(-3), "harden");
+});
+
 test("shared release environment is isolated from the app vault", () => {
   const env = releaseEnvironment({
     root: "/suite/.right-release",

@@ -182,6 +182,7 @@ export async function runBuildStateMachine({
   await ops.build?.({ root, app, version, commit, platform, releaseId });
   await ops.sign?.({ root, app, version, commit, platform, releaseId });
   await ops.harden?.({ root, app, version, commit, platform, releaseId });
+  await ops.preSeal?.({ root, app, version, commit, platform, releaseId, sealedDir });
   await ops.seal?.({ root, app, version, commit, platform, releaseId, sealedDir });
   return { status: "sealed", resumed: false, releaseId, sealedDir };
 }

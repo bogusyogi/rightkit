@@ -9,6 +9,7 @@ import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs"
 import { brokerManagedHost } from "./cargo-contract.mjs";
 
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8");
+const stateMachine = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "release-state.mjs"), "utf8");
 const build = path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs");
 
 test("general build dry-run is filesystem-pure and never starts its package command", () => {
@@ -49,8 +50,19 @@ test("native local builds retain Cache V2 while CI & explicit legacy use safe fa
 test("production builds package from the real primary app checkout", () => {
   assert.match(source, /const configPath = path\.resolve\(configName\)/);
   assert.match(source, /const appRoot = path\.dirname\(configPath\)/);
-  assert.match(source, /\[WORKER, "--config", configPath, "--platform", platform, "--no-upload", \.\.\.\(skipChecks \? \["--skip-checks"\] : \[\]\)\]/);
+  assert.match(source, /\[WORKER, "--config", configPath, "--platform", platform, "--no-upload", "--resume"/);
   assert.match(source, /sealRelease\(\{ configRoot: appRoot,/);
+});
+
+test("product preSeal checks run after hardening and before immutable sealing", () => {
+  const hardening = source.indexOf('checkpoint(stateRoot, "hardened")');
+  const preSeal = source.indexOf('preSeal: async ({ sealedDir })');
+  const seal = source.indexOf('seal: async ({ sealedDir })');
+  assert.ok(hardening >= 0 && preSeal > hardening, "preSeal must follow hardening");
+  assert.ok(seal > preSeal, "preSeal must precede seal");
+  assert.match(source, /RIGHT_RELEASE_SEALED_DIR: sealedDir/);
+  assert.match(source, /runConfiguredReleaseCheck\(target\.preSeal/);
+  assert.match(stateMachine, /await ops\.preSeal\?\.\(\{ root, app, version, commit, platform, releaseId, sealedDir \}\)/);
 });
 
 test("build forwards --skip-checks only to configured package checks", () => {
@@ -61,6 +73,12 @@ test("build forwards --skip-checks only to configured package checks", () => {
   assert.match(worker, /await runConfiguredChecks\(\{[\s\S]*skipChecks: opts\.skipChecks,[\s\S]*run: runPackageScript,/);
   assert.match(source, /const preflight = buildPreflight\(/);
   assert.match(worker, /await signWindows\(|await signMacos\(/);
+});
+
+test("build exposes explicit macOS phase resume without rebuilding earlier phases", () => {
+  assert.match(source, /--resume-from/);
+  assert.match(source, /RIGHT_RELEASE_STATE_ROOT/);
+  assert.match(source, /\[WORKER, "--config", configPath, "--platform", platform, "--no-upload", "--resume"/);
 });
 
 test("CI cache fallback avoids shared-cache prerequisites before signing", () => {

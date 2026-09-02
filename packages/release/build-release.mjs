@@ -78,6 +78,7 @@ let configName = "right-release.config.mjs";
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
 let dryRun = false;
 let skipChecks = false;
+let resumeFrom = null;
 
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
@@ -85,11 +86,13 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === "--platform") platform = args[++i];
   else if (arg === "--dry-run") dryRun = true;
   else if (arg === "--skip-checks") skipChecks = true;
+  else if (arg === "--resume-from") resumeFrom = args[++i];
   else if (arg === "--tier" || arg.startsWith("--tier=")) fail("build is tier-neutral; select patch or update only during upload");
   else if (arg === "-h" || arg === "--help") usage(0);
   else fail(`unknown argument: ${arg}`);
 }
 if (platform !== "win" && platform !== "mac") fail("--platform must be win or mac");
+if (resumeFrom && !["prepackage", "sign", "package", "post-sign", "harden"].includes(resumeFrom)) fail("--resume-from must be prepackage, sign, package, post-sign, or harden");
 
 const configPath = path.resolve(configName);
 const invocationRoot = path.dirname(configPath);
@@ -265,6 +268,7 @@ try {
   const platformDir = platform === "win" ? "windows" : "mac";
   const buildRoot = managedCargoTarget ? null : path.join(vaultRoot, "build", config.app, config.version, shortCommit, platformDir);
   const stateRoot = path.join(vaultRoot, "state", releaseId, platformDir);
+  env.RIGHT_RELEASE_STATE_ROOT = stateRoot;
   const lockPayload = {
     schema: 1,
     releaseId,
@@ -339,7 +343,7 @@ try {
         throwIfInterrupted();
         await runProgress(
           process.execPath,
-          [WORKER, "--config", configPath, "--platform", platform, "--no-upload", ...(skipChecks ? ["--skip-checks"] : [])],
+          [WORKER, "--config", configPath, "--platform", platform, "--no-upload", "--resume", ...(resumeFrom ? ["--resume-from", resumeFrom] : []), ...(skipChecks ? ["--skip-checks"] : [])],
           appRoot,
           env,
           [managedCargoTarget ?? env.CARGO_TARGET_DIR, path.join(appRoot, ".cache")],
@@ -349,6 +353,21 @@ try {
         checkpoint(stateRoot, "build_complete");
         checkpoint(stateRoot, "signed");
         checkpoint(stateRoot, "hardened");
+      },
+      // Product-specific checks that must run after the signed/hardened bytes
+      // exist but before they become immutable. This is intentionally a small
+      // hook: Right Release still owns signing, hardening, and sealing; apps
+      // may only inspect their candidate and emit a pass/fail result.
+      preSeal: async ({ sealedDir }) => {
+        if (!target.preSeal) return;
+        await runConfiguredReleaseCheck(target.preSeal, {
+          root: appRoot,
+          env: {
+            RIGHT_RELEASE_SEALED_DIR: sealedDir,
+            RIGHT_RELEASE_RELEASE_ID: releaseId,
+            RIGHT_RELEASE_PLATFORM: platform,
+          },
+        });
       },
       seal: async ({ sealedDir }) => {
         sealRelease({ configRoot: appRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity });
@@ -669,6 +688,23 @@ function commandOutputAt(cmd, runArgs, cwd) {
 function runChecked(cmd, runArgs, cwd, env = process.env) {
   const result = spawnSync(cmd, runArgs, { cwd, env, stdio: "inherit", windowsHide: true, shell: false });
   if (result.status !== 0) fail(`${cmd} exited ${result.status}`);
+}
+
+function runConfiguredReleaseCheck(command, { root, env }) {
+  if (!command) return;
+  if (typeof command.cmd !== "string" || !command.cmd.trim()) {
+    fail("release preSeal check must declare a command");
+  }
+  const args = Array.isArray(command.args) ? command.args.map(String) : [];
+  const cwd = path.resolve(root, command.cwd ?? ".");
+  const result = spawnSync(command.cmd, args, {
+    cwd,
+    env: { ...process.env, ...env },
+    stdio: "inherit",
+    windowsHide: true,
+    shell: false,
+  });
+  if (result.status !== 0) fail(`release preSeal check failed: ${command.cmd} ${args.join(" ")}`);
 }
 
 function killTree(pid) {

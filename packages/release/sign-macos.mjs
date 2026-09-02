@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
+import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
@@ -20,8 +21,8 @@ if (dryRun) {
   process.exit(0);
 }
 if (process.platform !== "darwin") fail("macOS signing must run on macOS");
-const identity = process.env.APPLE_DEVELOPER_ID?.trim();
-if (!identity) fail("set APPLE_DEVELOPER_ID to an installed Developer ID Application signing identity");
+let identity;
+try { identity = resolveMacosDeveloperIdIdentity(); } catch (error) { fail(error.message); }
 for (const file of files) if (!existsSync(file)) fail(`missing file: ${file}`);
 
 const evidence = [];
