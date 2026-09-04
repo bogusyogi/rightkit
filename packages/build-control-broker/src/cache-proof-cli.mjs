@@ -42,16 +42,16 @@ export function provesCacheableReuse(reuse) {
 }
 
 async function liveFixtureLayout(managedRoot, fixtureWorkspace) {
-  const workspaceStore = join(managedRoot, 'rightkit-build-control', 'workspaces');
+  const workspaceStore = join(managedRoot, 'rightkit-build-control', 'ws');
   const canonical = await realpath(fixtureWorkspace);
   for (const entry of await readdir(workspaceStore, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !/^[a-f0-9]{32}$/.test(entry.name)) continue;
+    if (!entry.isDirectory() || !/^[a-f0-9]{12}$/.test(entry.name)) continue;
     const directory = join(workspaceStore, entry.name);
     const identity = await readFile(join(directory, 'identity.json'), 'utf8').then(JSON.parse).catch(() => null);
     if (identity?.canonicalRoot !== canonical) continue;
     const state = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
     if (!Number.isSafeInteger(state.currentGeneration) || state.currentGeneration < 1 || state.active || (state.residents?.length ?? 0) > 0) throw new Error('fixture workspace is not idle');
-    return { target: join(directory, 'generations', String(state.currentGeneration).padStart(6, '0'), 'target'), state };
+    return { target: join(directory, 'g', String(state.currentGeneration).padStart(3, '0'), 'target'), state };
   }
   throw new Error('managed fixture workspace has no broker generation; run one RightKit Cargo command first');
 }

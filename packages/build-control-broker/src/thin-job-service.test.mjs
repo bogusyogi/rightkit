@@ -220,7 +220,7 @@ test('registered explicit Cargo target overrides host default within persistent 
     await waitFor(item.service, submitted.id, ['RUNNING']);
     const child = item.children.at(-1);
     assert.deepEqual(child.payload.argv.slice(0, 3), ['build', '--target=x86_64-apple-darwin', '--target-dir']);
-    assert.ok(child.payload.argv[3].endsWith(join('generations', '000001', 'target')));
+    assert.ok(child.payload.argv[3].endsWith(join('g', '001', 'target')));
     child.emit('close', 0, null);
     const result = (await call(item.service, command('WATCH', submitted.id))).result;
     assert.equal(result.status, 'SUCCEEDED');
@@ -264,7 +264,7 @@ test('cache preparation receives broker-owned repository, workspace & active-gen
     assert.equal(prepared.length, 1);
     assert.equal(prepared[0].repositoryRoot, item.repository);
     assert.equal(prepared[0].workspaceRoot, item.workspace);
-    assert.match(prepared[0].layout.root, /generations[\\/]000001$/);
+    assert.match(prepared[0].layout.root, /g[\\/]001$/);
   } finally { await item.close(); }
 });
 
@@ -526,7 +526,7 @@ test('idle-current-generation eviction holds workspace write exclusion & a queue
     item.children[0].emit('close', 0, null);
     await waitFor(item.service, second.id, ['RUNNING']);
     const child = item.children[1];
-    assert.ok(child.environment.CARGO_TARGET_DIR.includes(join('generations', '000002', 'target')), `build targeted ${child.environment.CARGO_TARGET_DIR}`);
+    assert.ok(child.environment.CARGO_TARGET_DIR.includes(join('g', '002', 'target')), `build targeted ${child.environment.CARGO_TARGET_DIR}`);
     child.emit('close', 0, null);
     const terminal = (await call(item.service, command('WATCH', second.id))).result;
     assert.equal(terminal.status, 'SUCCEEDED');
@@ -565,7 +565,7 @@ test('cleanly-reaped sccache-unavailable cancellation keeps the warm generation'
     const followup = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
     await waitFor(item.service, followup.id, ['RUNNING']);
     const child = item.children.at(-1);
-    assert.match(child.environment.CARGO_TARGET_DIR, /generations[\\/]000001[\\/]/);
+    assert.match(child.environment.CARGO_TARGET_DIR, /g[\\/]001[\\/]/);
     await call(item.service, command('CANCEL', followup.id));
     await call(item.service, command('WATCH', followup.id));
   } finally { await item.close(); }

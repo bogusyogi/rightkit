@@ -17,11 +17,11 @@ export function assertCacheProofTarget({ target, expectedTarget, managedRoot, fi
   if (comparable(fixtureWorkspace, platform) !== comparable(join(managedRoot, 'fixture-rust'), platform)) throw new Error('cache proof workspace must be managed fixture-rust');
   const protectedRoots = [managedRoot, fixtureWorkspace, dirname(managedRoot), resolve(managedRoot, sep)];
   if (protectedRoots.some((value) => selected === comparable(value, platform))) throw new Error('cache proof cleanup refuses protected root');
-  const workspaceStore = join(managedRoot, 'rightkit-build-control', 'workspaces');
+  const workspaceStore = join(managedRoot, 'rightkit-build-control', 'ws');
   const segments = relative(workspaceStore, target).split(/[\\/]/);
-  if (segments.length !== 5 || !/^[a-f0-9]{32}$/.test(segments[0]) || segments[1] !== 'generations' || !/^\d{6}$/.test(segments[2]) || segments[3] !== 'target' || segments[4] !== '') {
+  if (segments.length !== 5 || !/^[a-f0-9]{12}$/.test(segments[0]) || segments[1] !== 'g' || !/^\d{3}$/.test(segments[2]) || segments[3] !== 'target' || segments[4] !== '') {
     // path.relative never retains a trailing empty segment; accept canonical 4-part shape.
-    if (segments.length !== 4 || !/^[a-f0-9]{32}$/.test(segments[0]) || segments[1] !== 'generations' || !/^\d{6}$/.test(segments[2]) || segments[3] !== 'target') throw new Error('cache proof cleanup target is outside managed fixture target layout');
+    if (segments.length !== 4 || !/^[a-f0-9]{12}$/.test(segments[0]) || segments[1] !== 'g' || !/^\d{3}$/.test(segments[2]) || segments[3] !== 'target') throw new Error('cache proof cleanup target is outside managed fixture target layout');
   }
   if (basename(target) !== 'target') throw new Error('cache proof cleanup target must be target directory');
   return Object.freeze({ target: normalize(target), fixtureWorkspace: normalize(fixtureWorkspace), managedRoot: normalize(managedRoot) });

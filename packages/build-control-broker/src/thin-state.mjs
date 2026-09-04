@@ -16,7 +16,7 @@ function requireAbsolute(value, label) {
 
 function generationName(value) {
   if (!Number.isSafeInteger(value) || value < 1) throw new TypeError('generation must be a positive integer');
-  return String(value).padStart(6, '0');
+  return String(value).padStart(3, '0');
 }
 
 async function readJson(path, { missing = null } = {}) {
@@ -50,8 +50,18 @@ export async function atomicJson(path, value, { platform = process.platform, ren
   }
 }
 
+// Windows caps a path at 260 chars (MAX_PATH) and Strawberry Perl — the perl
+// OpenSSL's Configure runs under — is not long-path aware. A vendored-OpenSSL
+// compile nests ~96 chars of openssl-src tree under CARGO_TARGET_DIR, so the
+// managed target root must stay under ~163 chars. The old
+// `workspaces/<32 hex>/generations/000001` layout spent 60 of them on segment
+// names and a needlessly wide key, and every vendored-OpenSSL build on Windows
+// failed with "There are files missing" from files that were plainly present.
+// `ws/<12 hex>/g/001` spends 19. 48 bits stays collision-proof across one
+// host's repository set; build-control-core's `externalRoots` carries the same
+// reasoning for its own namespace.
 function workspaceKey(canonicalRoot) {
-  return createHash('sha256').update(canonicalRoot).digest('hex').slice(0, 32);
+  return createHash('sha256').update(canonicalRoot).digest('hex').slice(0, 12);
 }
 
 function receiptId(value) {
@@ -96,7 +106,7 @@ export class ThinState {
       temporary: join(dirname(this.#base), 'tmp'),
       tools: join(this.#base, 'global', 'tools'),
       active: join(this.#base, 'global', 'active'),
-      workspaces: join(this.#base, 'workspaces'),
+      workspaces: join(this.#base, 'ws'),
       trash: join(this.#base, 'trash'),
       logs: join(this.#base, 'logs'),
       receipts: join(this.#base, 'receipts')
@@ -317,9 +327,9 @@ export class ThinState {
       const directory = join(this.paths.workspaces, workspaceEntry.name); const state = await readJson(join(directory, STATE_FILE), { missing: null });
       if (!state) continue;
       const identity = await readJson(join(directory, IDENTITY_FILE), { missing: null });
-      const generations = join(directory, 'generations');
+      const generations = join(directory, 'g');
       for (const generationEntry of await readdir(generations, { withFileTypes: true }).catch((error) => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
-        if (!generationEntry.isDirectory() || !/^\d{6}$/.test(generationEntry.name)) continue;
+        if (!generationEntry.isDirectory() || !/^\d{3}$/.test(generationEntry.name)) continue;
         const generation = Number(generationEntry.name); const path = join(generations, generationEntry.name); const metadata = await lstat(path);
         const isCurrent = generation === state.currentGeneration;
         const isActive = generation === state.active?.generation || residents(state).some((resident) => resident.generation === generation);
@@ -355,7 +365,7 @@ export class ThinState {
   }
 
   #layout(workspace, generation) {
-    const root = join(workspace.directory, 'generations', generationName(generation));
+    const root = join(workspace.directory, 'g', generationName(generation));
     return Object.freeze({ generation, root, target: join(root, 'target'), temp: this.paths.temporary });
   }
 

@@ -259,7 +259,7 @@ test('crash window between state transition and rename is harmless: orphaned old
     const fs = await import('node:fs/promises');
     const statePath = workspace.statePath;
     const state = JSON.parse(await readFile(statePath, 'utf8'));
-    await fs.mkdir(join(workspace.directory, 'generations', '000002', 'target'), { recursive: true });
+    await fs.mkdir(join(workspace.directory, 'g', '002', 'target'), { recursive: true });
     await (await import('node:fs/promises')).writeFile(statePath, JSON.stringify({ ...state, currentGeneration: 2, active: null, updatedAt: state.updatedAt }));
     // The next GC must treat the leftover generation 1 as a retired candidate
     // (not current, not active) and reclaim it over cap.

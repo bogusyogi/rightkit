@@ -4,7 +4,7 @@ import test from 'node:test';
 import { defaultThinCacheTimeoutMs, ThinCache, ThinCacheUnavailableError, thinCacheStatsDelta } from './thin-cache.mjs';
 
 const paths = { cargoHome: '/managed/cargo-home', compilerCache: '/managed/compiler-cache', temporary: '/managed/tmp' };
-const layout = { target: '/managed/workspace/generations/000001/target', temp: '/managed/workspace/generations/000001/tmp' };
+const layout = { target: '/managed/workspace/g/001/target', temp: '/managed/workspace/g/001/tmp' };
 
 function fakeChild(pid = 41) {
   const child = new EventEmitter();
@@ -173,8 +173,8 @@ test('stats collection is independent telemetry from owned gateway', async () =>
 
 test('basedirs gate uses broker-trusted roots with platform deduplication', async () => {
   const { cache } = harness({ basedirsEnabled: true, basedirs: ['/operator/root'], platform: 'linux' });
-  const prepared = await cache.prepare({ layout: { ...layout, root: '/managed/workspace/generations/000001' }, repositoryRoot: '/repo', workspaceRoot: '/repo/app' });
-  assert.equal(prepared.environment.SCCACHE_BASEDIRS, '/repo:/repo/app:/managed/workspace/generations/000001:/operator/root');
+  const prepared = await cache.prepare({ layout: { ...layout, root: '/managed/workspace/g/001' }, repositoryRoot: '/repo', workspaceRoot: '/repo/app' });
+  assert.equal(prepared.environment.SCCACHE_BASEDIRS, '/repo:/repo/app:/managed/workspace/g/001:/operator/root');
   assert.equal(cache.basedirsActive, true);
   await cache.close();
 });
