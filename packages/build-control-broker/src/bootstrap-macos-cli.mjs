@@ -363,4 +363,4 @@ export function resolveRelative(root, target) {
   return rel.replaceAll('\\', '/');
 }
 
-if (isDirectMain()) main().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });
+if (isDirectMain({ moduleUrl: import.meta.url })) main().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });
