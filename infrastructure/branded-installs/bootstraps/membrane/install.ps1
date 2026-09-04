@@ -29,6 +29,8 @@ function Invoke-BoundedCommand([string]$Executable, [string[]]$Arguments, [strin
   $StderrPath = Join-Path $Work ($Phase + '-stderr.txt')
   Write-BootstrapLifecycle $Phase 'started' ($Code + '_STARTED')
   $Process = Start-Process -FilePath $Executable -ArgumentList $Arguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdoutPath -RedirectStandardError $StderrPath
+  # Cache the process handle so ExitCode is populated after exit (Windows PowerShell 5.1 returns $null otherwise).
+  $null = $Process.Handle
   if (-not $Process.WaitForExit($CommandTimeoutSeconds * 1000)) {
     try { $Process.Kill() } catch {}
     Write-BootstrapLifecycle $Phase 'failed' ($Code + '_TIMEOUT') "command exceeded $CommandTimeoutSeconds seconds"

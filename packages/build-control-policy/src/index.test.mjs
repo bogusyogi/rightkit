@@ -114,6 +114,44 @@ test('github-actions-only policy permits static local work, exact inert install 
   }
 });
 
+test('declared local verification runs through the managed shim; producing artifacts still does not', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-hook-verify-'));
+  try {
+    await writeFile(
+      join(root, '.rightgit.json'),
+      '{"compile":"github-actions-only","localVerification":["check","clippy","test"]}\n',
+    );
+    for (const command of [
+      'rightkit cargo check --workspace',
+      'rightkit cargo clippy --all-targets',
+      'rightkit cargo test -p membrane-blueprint',
+      'cd engine && rightkit cargo check',
+    ]) {
+      assert.equal(githubActionsOnlyViolation(command, { cwd: root, environment: {} }), null, command);
+    }
+    // Artifacts stay bound to GitHub even when verification is declared.
+    for (const command of ['rightkit cargo build --release', 'rightkit cargo package', 'rightkit cargo publish']) {
+      assert.match(githubActionsOnlyViolation(command, { cwd: root, environment: {} }), /^github-actions-only:/, command);
+    }
+    // Only the managed form qualifies: bare cargo keeps the broker out of the
+    // loop, so it stays refused no matter what the repository declares.
+    assert.match(githubActionsOnlyViolation('cargo check --workspace', { cwd: root, environment: {} }), /^github-actions-only:/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a repository that declares no local verification keeps every cargo subcommand on GitHub', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-hook-noverify-'));
+  try {
+    await writeFile(join(root, '.rightgit.json'), '{"compile":"github-actions-only"}\n');
+    assert.match(githubActionsOnlyViolation('rightkit cargo check', { cwd: root, environment: {} }), /^github-actions-only:/);
+    assert.match(githubActionsOnlyViolation('rightkit cargo test', { cwd: root, environment: {} }), /^github-actions-only:/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('Orthic public remotes fail dynamic work closed when policy is absent, wrong or invalid', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-hook-orthic-'));
   try {
