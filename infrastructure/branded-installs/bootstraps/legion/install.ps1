@@ -4,9 +4,9 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$Version = '0.3.12'
-$Uri = 'https://github.com/Orthic-Labs/legion/releases/download/v0.3.12/Legion-0.3.12-windows-x86_64-setup.exe'
-$ExpectedSha256 = 'd9a8b90c58d1758363eb0ad94559dc4e0629a7c5966ad2b2b7b5cec35c333d3a'
+$Version = '0.3.11'
+$Uri = 'https://github.com/Orthic-Labs/legion/releases/download/v0.3.11/Legion-0.3.11-windows-x86_64-setup.exe'
+$ExpectedSha256 = 'b9389938378428d6178e7da3b6c5192d85f05e8ab5ffdc498bd7827b657dc84b'
 $ExpectedSigner = 'CN=Damned Ventures LLC'
 $CommandTimeoutSeconds = 300
 $Work = Join-Path ([IO.Path]::GetTempPath()) ('legion-install-' + [Guid]::NewGuid().ToString('N'))
@@ -29,8 +29,6 @@ function Invoke-BoundedCommand([string]$Executable, [string[]]$Arguments, [strin
   $StderrPath = Join-Path $Work ($Phase + '-stderr.txt')
   Write-BootstrapLifecycle $Phase 'started' ($Code + '_STARTED')
   $Process = Start-Process -FilePath $Executable -ArgumentList $Arguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $StdoutPath -RedirectStandardError $StderrPath
-  # Cache the process handle so ExitCode is populated after exit (Windows PowerShell 5.1 returns $null otherwise).
-  $null = $Process.Handle
   if (-not $Process.WaitForExit($CommandTimeoutSeconds * 1000)) {
     try { $Process.Kill() } catch {}
     Write-BootstrapLifecycle $Phase 'failed' ($Code + '_TIMEOUT') "command exceeded $CommandTimeoutSeconds seconds"

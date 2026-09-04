@@ -6,8 +6,8 @@ const legion = readFileSync(new URL("./bootstraps/legion/install.ps1", import.me
 const membrane = readFileSync(new URL("./bootstraps/membrane/install.ps1", import.meta.url), "utf8");
 
 test("Legion bootstrap binds signed installer to stable current repair, status, & bounded doctor", () => {
-  assert.match(legion, /releases\/download\/v0\.3\.12\/Legion-0\.3\.12-windows-x86_64-setup\.exe/);
-  assert.match(legion, /d9a8b90c58d1758363eb0ad94559dc4e0629a7c5966ad2b2b7b5cec35c333d3a/);
+  assert.match(legion, /releases\/download\/v0\.3\.11\/Legion-0\.3\.11-windows-x86_64-setup\.exe/);
+  assert.match(legion, /b9389938378428d6178e7da3b6c5192d85f05e8ab5ffdc498bd7827b657dc84b/);
   assert.match(legion, /Get-AuthenticodeSignature/);
   assert.match(legion, /Orthic Labs\\Legion\\current/);
   assert.match(legion, /bin\\legion\.exe/);

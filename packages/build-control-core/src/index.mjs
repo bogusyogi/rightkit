@@ -91,19 +91,7 @@ export function repositoryExecutionPolicy(workspace = process.cwd()) {
       if (gitRemoteIsOrthicPublic(cursor) && manifest.compile !== GITHUB_ACTIONS_ONLY) {
         throw Object.assign(new Error(`Orthic Labs public repository requires compile=${GITHUB_ACTIONS_ONLY}: ${manifestPath}`), { code: 'RK_EXECUTION_POLICY_MISSING' });
       }
-      return Object.freeze({
-        root: cursor,
-        manifestPath,
-        compile: manifest.compile ?? null,
-        // Subcommands the repository accepts locally. Verification only: an
-        // artifact is still produced on GitHub.
-        localVerification: Object.freeze(
-          Array.isArray(manifest.localVerification)
-            ? manifest.localVerification.filter((value) => typeof value === 'string').map((value) => value.toLowerCase())
-            : [],
-        ),
-        orthicPublic: gitRemoteIsOrthicPublic(cursor),
-      });
+      return Object.freeze({ root: cursor, manifestPath, compile: manifest.compile ?? null, orthicPublic: gitRemoteIsOrthicPublic(cursor) });
     }
     if (gitRemoteIsOrthicPublic(cursor)) {
       throw Object.assign(new Error(`Orthic Labs public repository requires .rightgit.json with compile=${GITHUB_ACTIONS_ONLY}: ${cursor}`), { code: 'RK_EXECUTION_POLICY_MISSING' });
@@ -113,24 +101,9 @@ export function repositoryExecutionPolicy(workspace = process.cwd()) {
   }
 }
 
-/// The first non-flag token of a managed invocation — the cargo subcommand.
-function requestedSubcommand(argv) {
-  if (!Array.isArray(argv)) return null;
-  const token = argv.find((value) => typeof value === 'string' && !value.startsWith('-'));
-  return token ? token.toLowerCase() : null;
-}
-
-export function assertRepositoryExecutionAllowed({ workspace = process.cwd(), environment = process.env, operation = 'build', argv = null } = {}) {
+export function assertRepositoryExecutionAllowed({ workspace = process.cwd(), environment = process.env, operation = 'build' } = {}) {
   const policy = repositoryExecutionPolicy(workspace);
   if (policy.compile === GITHUB_ACTIONS_ONLY && environment?.GITHUB_ACTIONS !== 'true') {
-    // A repository may declare the verification subcommands it accepts
-    // locally. Compiling to check types or run a test is how a change is
-    // proven before it costs a CI round trip; producing a distributable
-    // artifact is not, so build, package, sign and release stay on GitHub.
-    // The broker still owns caches, targets, quotas and receipts, because
-    // this path is only reachable through the managed shim.
-    const subcommand = requestedSubcommand(argv);
-    if (subcommand && policy.localVerification.includes(subcommand)) return policy;
     throw Object.assign(new Error(`${operation} is GitHub Actions only for ${policy.root}; push changes & use managed CI`), { code: GITHUB_ACTIONS_ONLY_ERROR });
   }
   return policy;

@@ -81,17 +81,7 @@ function repositoryCompilePolicy(cwd) {
     if (existsSync(manifestPath)) {
       try {
         const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-        return Object.freeze({
-          root: cursor,
-          compile: manifest.compile ?? null,
-          localVerification: Object.freeze(
-            Array.isArray(manifest.localVerification)
-              ? manifest.localVerification.filter((value) => typeof value === 'string').map((value) => value.toLowerCase())
-              : [],
-          ),
-          invalid: false,
-          orthicPublic,
-        });
+        return Object.freeze({ root: cursor, compile: manifest.compile ?? null, invalid: false, orthicPublic });
       } catch {
         return Object.freeze({ root: cursor, compile: null, invalid: true, orthicPublic });
       }
@@ -140,26 +130,6 @@ function dynamicCommandOperation(command) {
   return null;
 }
 
-/// The cargo subcommand of a sanctioned `rightkit cargo <sub>` invocation.
-///
-/// Deliberately narrow: only the managed shim form is recognised, so a bare
-/// `cargo check` stays blocked and the broker keeps owning caches, targets and
-/// receipts. Anything else returns null and the caller falls through to the
-/// ordinary github-actions-only decision.
-function managedCargoSubcommand(command) {
-  const words = withoutHeredocBodies(command)
-    .split(/[\s;&|()$`<>]+/)
-    .filter(Boolean)
-    .map((word) => word.replace(/^['"]|['"]$/g, ''));
-  for (let index = 0; index < words.length; index += 1) {
-    if (basename(words[index]) !== 'rightkit') continue;
-    if (words[index + 1]?.toLowerCase() !== 'cargo') continue;
-    const subcommand = words[index + 2]?.toLowerCase();
-    return subcommand && /^[a-z][a-z-]*$/.test(subcommand) ? subcommand : null;
-  }
-  return null;
-}
-
 export function githubActionsOnlyViolation(command, { cwd = process.cwd(), environment = process.env } = {}) {
   if (typeof command !== 'string') throw new TypeError('command must be a string');
   const operation = dynamicCommandOperation(command);
@@ -168,14 +138,6 @@ export function githubActionsOnlyViolation(command, { cwd = process.cwd(), envir
   if (!policy.root) return null;
   if (policy.invalid) return `github-actions-only:invalid-policy:${operation}`;
   if (policy.compile !== githubActionsOnly && !policy.orthicPublic) return `github-actions-only:missing-policy:${operation}`;
-  // A repository may declare which verification subcommands it accepts
-  // locally. Compiling to check types or run a test is how a change is proven
-  // before it costs a CI round trip; producing an artifact is not, so build,
-  // package, sign and release stay bound to GitHub regardless. Only the
-  // managed `rightkit cargo` form qualifies, so the broker still owns caches,
-  // targets and receipts.
-  const subcommand = managedCargoSubcommand(command);
-  if (subcommand && policy.localVerification.includes(subcommand)) return null;
   return `github-actions-only:${operation}`;
 }
 

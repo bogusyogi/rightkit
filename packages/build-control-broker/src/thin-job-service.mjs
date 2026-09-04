@@ -406,7 +406,7 @@ export class ThinJobService {
     const request = normalizeManagedAgentRequest(message.request);
     validateManagedRustupInvocation(message.shim, request.argv);
     if (['cargo', 'rustc', 'rustdoc', 'rustup'].includes(message.shim)) {
-      assertRepositoryExecutionAllowed({ workspace: request.workspace, environment: process.env, operation: message.shim, argv: request.argv });
+      assertRepositoryExecutionAllowed({ workspace: request.workspace, environment: process.env, operation: message.shim });
     }
     const parentId = message.execution?.mode === 'NESTED' ? message.execution.parentId : null;
     if (message.execution && !parentId) throw new TypeError('nested execution requires parentId');
