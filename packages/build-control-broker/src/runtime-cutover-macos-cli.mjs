@@ -7,6 +7,9 @@ import { isAbsolute, resolve } from 'node:path';
 import { loadBrokerConfig } from './config.mjs';
 import { installManagedRuntimeMacOS } from './runtime-cutover-macos.mjs';
 import { absoluteHostPath as absolute, assertDirectory, assertFile, beginCutoverDrain, contained, endCutoverDrain, proveBrokerRequestsDrained, proveThinRequestsDrained } from './cutover-shared.mjs';
+// A `file://${process.argv[1]}` comparison never matches on Windows, where
+// argv[1] is a drive path: the CLI exited 0 having silently done nothing.
+import { isDirectMain } from './bootstrap-windows-cli.mjs';
 
 const execDefault = promisify(childExecFile);
 
@@ -119,4 +122,4 @@ async function main() {
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });
+if (isDirectMain()) main().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });

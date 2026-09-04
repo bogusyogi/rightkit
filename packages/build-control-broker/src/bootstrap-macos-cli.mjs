@@ -13,6 +13,9 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
 import { preserveOperatorTunedConfig, stripBom } from './config.mjs';
+// A `file://${process.argv[1]}` comparison never matches on Windows, where
+// argv[1] is a drive path: the CLI exited 0 having silently done nothing.
+import { isDirectMain } from './bootstrap-windows-cli.mjs';
 
 const execFile = promisify(childExecFile);
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -360,4 +363,4 @@ export function resolveRelative(root, target) {
   return rel.replaceAll('\\', '/');
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });
+if (isDirectMain()) main().catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });
