@@ -11,7 +11,7 @@ import { availableParallelism as cpuCount, totalmem } from 'node:os';
 import { dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runWindowsCutover } from './runtime-cutover-windows-cli.mjs';
-import { preserveOperatorTunedConfig, stripBom } from './config.mjs';
+import { deriveCompileBudgetUnits, preserveOperatorTunedConfig, stripBom } from './config.mjs';
 
 const execFile = promisify(childExecFile);
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -165,18 +165,6 @@ export function defaultBounds() {
     controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 3, workspaceWriteConcurrency: 4, targetCacheCapBytes: 150 * 1024 ** 3,
     workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 30_000,
   };
-}
-
-/** Aggregate compiler-budget sizing (dual-host routing §5): one host budget
- * unit derived from logical CPUs & memory. A 64 GiB / >=8-logical-CPU i9-class
- * workstation yields 12 units — exactly three analysis roots, two test roots,
- * or one heavy build, plus mixtures. Smaller hosts derive a proportionally
- * smaller budget; the floor keeps at least one compile-heavy root admissible.
- * macOS bootstrap deliberately omits this field and keeps v2.8 lane behavior. */
-export function deriveCompileBudgetUnits({ cpus = cpuCount(), totalMemoryBytes = totalmem() } = {}) {
-  const logical = Number.isSafeInteger(cpus) && cpus > 0 ? cpus : 1;
-  const memoryGiB = Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 2;
-  return Math.max(4, Math.min(12, logical, Math.floor(memoryGiB / 4)));
 }
 
 // Windows host policy: high-memory x86 workstations may use up to 16 Cargo

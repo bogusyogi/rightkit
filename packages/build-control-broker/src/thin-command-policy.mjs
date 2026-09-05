@@ -14,6 +14,19 @@ export class DeniedThinCommandError extends Error {
   }
 }
 
+// Forensics found 18 successful `cargo clean` calls across the fleet, each
+// deleting warm Cargo target artifacts & causing a 20-60 minute rebuild. `clean`
+// stays reachable for an operator who genuinely needs it, but an agent can no
+// longer run it by default — it fails closed until the broker's own
+// environment carries the opt-in, which an agent invocation does not control.
+export class CleanRequiresOptInError extends Error {
+  constructor() {
+    super('cargo clean is denied by default: it deletes warm Cargo target artifacts and causes a costly rebuild. It does not clear the shared sccache store. An operator who genuinely needs it must set RIGHTKIT_ALLOW_CARGO_CLEAN=1 in the broker process environment (not the agent invocation) & restart the broker.');
+    this.name = 'CleanRequiresOptInError';
+    this.code = 'RK_CLEAN_REQUIRES_OPT_IN';
+  }
+}
+
 const commandCapability = (lane, workspaceAccess, { compile = false, artifactWrite = false, cache = false, residentAfterBuild = false } = {}) =>
   Object.freeze({ lane, workspaceAccess, compile, artifactWrite, cache, residentAfterBuild });
 
@@ -85,7 +98,7 @@ function hasFlag(argv, flag) {
   return argv.slice(0, end < 0 ? argv.length : end).includes(flag);
 }
 
-function cargoCapability(command, argv) {
+function cargoCapability(command, argv, { allowClean = false } = {}) {
   if (DENIED_CARGO_COMMANDS.has(command)) throw new DeniedThinCommandError('cargo', command, DENIED_CARGO_COMMANDS.get(command));
   if (['--version', '-V', '-vV', 'version', 'help', 'locate-project', 'read-manifest'].includes(command)) return CONTROL;
   if (command === 'metadata' || command === 'tree') return hasFlag(argv, '--locked') || hasFlag(argv, '--frozen') ? ANALYSIS : WORKSPACE_WRITE;
@@ -94,7 +107,7 @@ function cargoCapability(command, argv) {
   if (command === 'fix') return BUILD;
   if (command === 'fmt') return hasFlag(argv, '--check') ? ANALYSIS : WORKSPACE_WRITE;
   if (['update', 'vendor', 'generate-lockfile', 'add', 'remove'].includes(command)) return WORKSPACE_WRITE;
-  if (command === 'clean') return ARTIFACT_WRITE;
+  if (command === 'clean') { if (!allowClean) throw new CleanRequiresOptInError(); return ARTIFACT_WRITE; }
   if (command === 'run') return CARGO_RUN;
   if (['build', 'check', 'test', 'bench', 'clippy', 'doc', 'rustc', 'rustdoc'].includes(command)) return BUILD;
   return null;
@@ -133,9 +146,17 @@ function externalRegistrations(entries = []) {
   return map;
 }
 
+// Single source of truth for the opt-in: read once, here, from the broker's own
+// process environment. An agent's shim invocation has no way to set the
+// broker's environment, so this cannot be satisfied from the agent side.
+const allowCargoCleanFromEnv = () => process.env.RIGHTKIT_ALLOW_CARGO_CLEAN === '1';
+
 export class ThinCommandPolicy {
-  #external;
-  constructor({ externalCommands = [] } = {}) { this.#external = externalRegistrations(externalCommands); }
+  #external; #allowClean;
+  constructor({ externalCommands = [], allowCargoClean = allowCargoCleanFromEnv() } = {}) {
+    this.#external = externalRegistrations(externalCommands);
+    this.#allowClean = Boolean(allowCargoClean);
+  }
 
   classify(shim, argv = []) {
     if (typeof shim !== 'string' || !shim || !Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) throw new TypeError('shim and string argv are required');
@@ -143,7 +164,7 @@ export class ThinCommandPolicy {
     let command = null;
     if (shim === 'cargo') {
       command = commandForCargo(argv);
-      selected = cargoCapability(command, argv) ?? this.#external.get(command) ?? null;
+      selected = cargoCapability(command, argv, { allowClean: this.#allowClean }) ?? this.#external.get(command) ?? null;
       if (command === 'machete' && selected?.external) selected = hasFlag(argv, '--fix') ? { ...selected, ...WORKSPACE_WRITE } : selected;
     } else if (shim === 'rustup') {
       command = argv[0] ?? null;

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import test from 'node:test';
-import { loadBrokerConfig, preserveOperatorTunedConfig, validateBrokerConfig } from './config.mjs';
+import { deriveCompileBudgetUnits, loadBrokerConfig, preserveOperatorTunedConfig, validateBrokerConfig } from './config.mjs';
 
 function fixture(root = '/managed') {
   return {
@@ -30,6 +30,30 @@ test('config accepts aggregate compile budget units & rejects invalid values', (
   assert.throws(() => validateBrokerConfig(zero), /compileBudgetUnits/);
   const fractional = fixture(); fractional.bounds.compileBudgetUnits = 1.5;
   assert.throws(() => validateBrokerConfig(fractional), /compileBudgetUnits/);
+});
+
+test('deriveCompileBudgetUnits sizes shared by both bootstrap CLIs', () => {
+  // Windows/macOS reference workstation: 64 GiB, >=12 logical CPUs -> ceiling of 12.
+  assert.equal(deriveCompileBudgetUnits({ cpus: 12, totalMemoryBytes: 64 * 1024 ** 3 }), 12);
+  assert.equal(deriveCompileBudgetUnits({ cpus: 16, totalMemoryBytes: 128 * 1024 ** 3 }), 12);
+  // The macOS host this fix targets: 8 cores / 8 GiB -> memory floor of 2 (8/4).
+  assert.equal(deriveCompileBudgetUnits({ cpus: 8, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
+  // Smaller hosts still get at least the floor of 4.
+  assert.equal(deriveCompileBudgetUnits({ cpus: 1, totalMemoryBytes: 1 * 1024 ** 3 }), 4);
+  assert.equal(deriveCompileBudgetUnits({ cpus: NaN, totalMemoryBytes: NaN }), 4);
+});
+
+test('loadBrokerConfig defaults compileBudgetUnits for existing configs that predate the bound', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rk-config-')); const path = join(root, 'config.json');
+  try {
+    await writeFile(path, JSON.stringify(fixture(root)));
+    const loaded = await loadBrokerConfig(path, { deriveCompileBudget: () => 7 });
+    assert.equal(loaded.bounds.compileBudgetUnits, 7);
+    const value = fixture(root); value.bounds.compileBudgetUnits = 9;
+    await writeFile(path, JSON.stringify(value));
+    const explicit = await loadBrokerConfig(path, { deriveCompileBudget: () => 7 });
+    assert.equal(explicit.bounds.compileBudgetUnits, 9);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('config rejects predecessor workflow, reservation, & maintenance concepts', () => {

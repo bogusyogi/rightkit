@@ -12,7 +12,7 @@ import { availableParallelism as cpuCount, homedir, totalmem } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
-import { preserveOperatorTunedConfig, stripBom } from './config.mjs';
+import { deriveCompileBudgetUnits, preserveOperatorTunedConfig, stripBom } from './config.mjs';
 // A `file://${process.argv[1]}` comparison never matches on Windows, where
 // argv[1] is a drive path: the CLI exited 0 having silently done nothing.
 import { isDirectMain } from './bootstrap-windows-cli.mjs';
@@ -259,7 +259,7 @@ export async function buildConfig({ externalRoot }) {
     // gateway health so a slow stats query cannot cancel active builds.
     sccache: { mode: managedSccache ? 'managed' : 'disabled', clientSide: managedSccache, lifecycleOwner: managedSccache ? 'broker' : null, requireOwnershipProof: managedSccache, ...(managedSccache ? { expectedVersion: expectedSccacheVersion } : {}), maxSizeBytes: 20 * 1024 ** 3, gatewayPort: 4_227, healthLeaseMs: 10_000, recoveryTimeoutMs: 10_000, statsIntervalMs: 60_000 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
-    bounds: defaultBounds(),
+    bounds: { ...defaultBounds(), compileBudgetUnits: deriveCompileBudgetUnits() },
   };
 }
 

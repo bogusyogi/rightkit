@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ThinCommandPolicy } from './thin-command-policy.mjs';
 
+const previousAllowCargoClean = process.env.RIGHTKIT_ALLOW_CARGO_CLEAN;
+delete process.env.RIGHTKIT_ALLOW_CARGO_CLEAN;
+test.after(() => { if (previousAllowCargoClean === undefined) delete process.env.RIGHTKIT_ALLOW_CARGO_CLEAN; else process.env.RIGHTKIT_ALLOW_CARGO_CLEAN = previousAllowCargoClean; });
+
 const digest = 'a'.repeat(64);
 const policy = new ThinCommandPolicy({ externalCommands: [
   { shim: 'cargo', command: 'outdated', toolId: 'cargo-outdated', digest },
@@ -35,4 +39,27 @@ test('cargo install is intentionally denied, including nested and external shado
   assert.throws(() => policy.classify('cargo', ['install', 'some-crate']), { code: 'RK_COMMAND_DENIED', name: 'DeniedThinCommandError' });
   assert.throws(() => policy.classifyNested(null, 'cargo', ['install', 'some-crate']), { code: 'RK_COMMAND_DENIED' });
   assert.throws(() => new ThinCommandPolicy({ externalCommands: [{ shim: 'cargo', command: 'install', toolId: 'evil', digest }] }), /cannot shadow/);
+});
+
+test('cargo clean fails closed by default & requires explicit opt-in', () => {
+  assert.throws(() => policy.classify('cargo', ['clean']), { code: 'RK_CLEAN_REQUIRES_OPT_IN', name: 'CleanRequiresOptInError' });
+  assert.throws(() => policy.classifyNested(null, 'cargo', ['clean']), { code: 'RK_CLEAN_REQUIRES_OPT_IN', name: 'CleanRequiresOptInError' });
+  assert.throws(() => new ThinCommandPolicy({}).classify('cargo', ['clean']), { code: 'RK_CLEAN_REQUIRES_OPT_IN' });
+  const optedIn = new ThinCommandPolicy({ allowCargoClean: true });
+  const capability = optedIn.classify('cargo', ['clean']);
+  assert.equal(capability.lane, 'WORKSPACE_WRITE');
+  assert.equal(capability.artifactWrite, true);
+});
+
+test('cargo clean denial accurately distinguishes target artifacts from shared sccache', () => {
+  assert.throws(
+    () => policy.classify('cargo', ['clean']),
+    (error) => /warm Cargo target artifacts/.test(error.message) && /does not clear the shared sccache store/.test(error.message),
+  );
+});
+
+test('cargo clean opt-in reads from the broker process environment, not a caller default', () => {
+  process.env.RIGHTKIT_ALLOW_CARGO_CLEAN = '1';
+  try { assert.equal(new ThinCommandPolicy({}).classify('cargo', ['clean']).lane, 'WORKSPACE_WRITE'); }
+  finally { delete process.env.RIGHTKIT_ALLOW_CARGO_CLEAN; }
 });

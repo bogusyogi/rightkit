@@ -140,10 +140,15 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 try {
   throwIfInterrupted();
   const commit = git(repoRoot, ["rev-parse", "HEAD"]);
-  assertCleanSource({
-    status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-    commandId: "right-release build",
-  });
+  // A phase-resume never reads unrelated source. Its later build-input gate
+  // remains strict, but requiring a globally clean mono-workspace here would
+  // turn an already-built, signed installer into a needless full rebuild.
+  if (!resumeFrom) {
+    assertCleanSource({
+      status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+      commandId: "right-release build",
+    });
+  }
   mkdirSync(path.join(vaultRoot, "locks"), { recursive: true });
   lock = acquireLock(path.join(vaultRoot, "locks", `${platform}.lock.json`));
   const shortCommit = commit.slice(0, 8);
