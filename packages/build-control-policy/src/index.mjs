@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, parse, resolve } from 'node:path';
+import { localDevelopmentPolicy, localDevelopmentCargoAllowed } from '../../build-control-core/src/local-development.mjs';
 
 const tools = new Set(['cargo', 'rustc', 'rustdoc']);
 const githubActionsOnly = 'github-actions-only';
@@ -130,13 +131,26 @@ function dynamicCommandOperation(command) {
   return null;
 }
 
-export function githubActionsOnlyViolation(command, { cwd = process.cwd(), environment = process.env } = {}) {
+export function githubActionsOnlyViolation(command, { cwd = process.cwd(), environment = process.env, platform = process.platform } = {}) {
   if (typeof command !== 'string') throw new TypeError('command must be a string');
   const operation = dynamicCommandOperation(command);
   if (!operation || environment?.GITHUB_ACTIONS === 'true') return null;
   const policy = repositoryCompilePolicy(cwd);
   if (!policy.root) return null;
   if (policy.invalid) return `github-actions-only:invalid-policy:${operation}`;
+  if (policy.compile === githubActionsOnly && localDevelopmentPolicy(policy.root, platform)
+    && !/[;&|$()`<>\n]/.test(command)) {
+    const text = command.trim();
+    const hub = resolve(policy.root, 'apps/membrane-hub');
+    if (resolve(cwd) === policy.root && /^pnpm(?:\.cmd)? --dir apps[\\/]membrane-hub run release:build:win:unsigned$/.test(text)) return null;
+    if (resolve(cwd) === hub && (/^pnpm(?:\.cmd)? run release:build:win:unsigned$/.test(text)
+      || /^node scripts[\\/]release-build-windows\.mjs --unsigned$/.test(text))) return null;
+    const managed = /^(?:pnpm(?:\.cmd)? exec )?rightkit(?:\.cmd)? (cargo|rustc|rustdoc) (.+)$/.exec(text);
+    if (managed) {
+      const argv = managed[2].match(/"[^"]*"|'[^']*'|[^\s]+/g)?.map((arg) => arg.replace(/^["']|["']$/g, '')) ?? [];
+      if (localDevelopmentCargoAllowed({ root: policy.root, workspace: cwd, operation: managed[1], argv, platform })) return null;
+    }
+  }
   if (policy.compile !== githubActionsOnly && !policy.orthicPublic) return `github-actions-only:missing-policy:${operation}`;
   return `github-actions-only:${operation}`;
 }

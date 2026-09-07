@@ -71,9 +71,9 @@ export function shimName(argv0) {
 
 export function createManagedAgentRequest({ argv0, argv = [], workspace = process.cwd(), environment = {}, runtimeIdentity = SOURCE_RUNTIME_IDENTITY }) {
   const shim = shimName(argv0);
-  if (INSTALLED_MANAGED_SHIMS.includes(shim)) assertRepositoryExecutionAllowed({ workspace, environment, operation: shim });
   const frontend = SHIM_ALIASES[shim];
   const invocation = normalizedInvocation(frontend, argv, resolve(workspace));
+  if (INSTALLED_MANAGED_SHIMS.includes(shim)) assertRepositoryExecutionAllowed({ workspace: invocation.workspace, environment, operation: shim, argv: invocation.argv, nested: environment.RIGHTKIT_PARENT_REQUEST_ID !== undefined });
   validateManagedRustupInvocation(shim, invocation.argv);
   const observedEnvironment = captureManagedRustEnvironment(environment);
   const parentId = environment.RIGHTKIT_PARENT_REQUEST_ID;

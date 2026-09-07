@@ -129,3 +129,20 @@ test('Orthic public remotes fail dynamic work closed when policy is absent, wron
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('Membrane local declaration admits only its unsigned Windows installer entry', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-membrane-local-'));
+  try {
+    await mkdir(join(root, '.git'));
+    await writeFile(join(root, '.git/config'), '[remote "origin"]\n url = https://github.com/Orthic-Labs/Membrane.git\n');
+    await writeFile(join(root, '.rightgit.json'), '{"compile":"github-actions-only"}');
+    await writeFile(join(root, '.rightkit-local-development.json'), JSON.stringify({ schemaVersion: 1, repository: 'Orthic-Labs/Membrane', platform: 'win32', purpose: 'unsigned-installer' }));
+    const unsigned = 'pnpm --dir apps/membrane-hub run release:build:win:unsigned';
+    const options = { cwd: root, environment: {}, platform: 'win32' };
+    assert.equal(githubActionsOnlyViolation(unsigned, options), null);
+    assert.match(githubActionsOnlyViolation(unsigned, { ...options, platform: 'darwin' }), /^github-actions-only:/);
+    for (const command of ['pnpm run release:build:win', 'pnpm exec right-release sign-windows', 'pnpm run release:qualify:win', `${unsigned}; pnpm run release:build:win`]) {
+      assert.match(githubActionsOnlyViolation(command, options), /^github-actions-only:/);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

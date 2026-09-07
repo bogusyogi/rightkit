@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { lstat as defaultLstat, readdir as defaultReaddir } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, parse, relative, resolve, sep } from 'node:path';
+import { localDevelopmentCargoAllowed } from './local-development.mjs';
 
 export const FRONTENDS = Object.freeze(['cargo', 'swiftpm', 'node-pnpm', 'node-gyp', 'cmake', 'make', 'raw-compiler']);
 export const BUILD_CONTROL_PROTOCOL = 'rightkit.build-control.client.v2';
@@ -103,9 +104,10 @@ export function repositoryExecutionPolicy(workspace = process.cwd()) {
   }
 }
 
-export function assertRepositoryExecutionAllowed({ workspace = process.cwd(), environment = process.env, operation = 'build' } = {}) {
+export function assertRepositoryExecutionAllowed({ workspace = process.cwd(), environment = process.env, operation = 'build', argv = [], nested = false, platform = process.platform } = {}) {
   const policy = repositoryExecutionPolicy(workspace);
-  if (policy.compile === GITHUB_ACTIONS_ONLY && environment?.GITHUB_ACTIONS !== 'true') {
+  if (policy.compile === GITHUB_ACTIONS_ONLY && environment?.GITHUB_ACTIONS !== 'true'
+    && !localDevelopmentCargoAllowed({ root: policy.root, workspace, operation, argv, nested, platform })) {
     throw Object.assign(new Error(`${operation} is GitHub Actions only for ${policy.root}; push changes & use managed CI`), { code: GITHUB_ACTIONS_ONLY_ERROR });
   }
   return policy;

@@ -75,6 +75,8 @@ async function sourceFixture() {
 
 test('staging creates content-addressed immutable provenance-bound bundle without activation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
+    await mkdir(join(fixture.packages, 'unrelated-release'));
+    await writeFile(join(fixture.packages, 'unrelated-release', 'draft.mjs'), 'uncommitted unrelated work');
     const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon });
     assert.equal(staged.version, 'release-a');
     assert.equal(staged.manifest.sourceRevision, fixture.revision); assert.equal(staged.manifest.sourceTreeDigest, fixture.tree);

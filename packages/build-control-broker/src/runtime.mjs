@@ -176,7 +176,10 @@ async function verifySourceProvenance(sourcePackagesRoot, { sourceRevision, sour
   const repository = resolve(await gitAt(sourcePackagesRoot, ['rev-parse', '--show-toplevel'])); const packages = resolve(sourcePackagesRoot); const filesystemScopedPath = relative(repository, packages);
   if (!filesystemScopedPath || filesystemScopedPath === '.' || pathEscapesRoot(repository, packages)) throw new Error('runtime source packages root must be a committed repository subdirectory');
   const scopedPath = normalizeGitScopedPath(filesystemScopedPath);
-  const status = await gitAt(repository, ['status', '--porcelain=v1', '--untracked-files=all', '--', scopedPath]);
+  // Only these packages are staged. Unrelated RightKit release/app work must
+  // not block promotion of a fully committed managed runtime.
+  const runtimePaths = packageNames.map((name) => `${scopedPath}/${name}`);
+  const status = await gitAt(repository, ['status', '--porcelain=v1', '--untracked-files=all', '--', ...runtimePaths]);
   if (status) throw new Error(`runtime source packages root is dirty or contains untracked files: ${scopedPath}`);
   const actualRevision = await gitAt(repository, ['rev-parse', 'HEAD']); const actualTree = await gitAt(repository, ['rev-parse', `HEAD:${scopedPath}`]);
   if (sourceRevision !== undefined && sourceRevision !== actualRevision) throw new Error('runtime source revision does not match verified HEAD');

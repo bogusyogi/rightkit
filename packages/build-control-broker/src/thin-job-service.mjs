@@ -405,9 +405,6 @@ export class ThinJobService {
     this.#assertRuntime(message.runtime);
     const request = normalizeManagedAgentRequest(message.request);
     validateManagedRustupInvocation(message.shim, request.argv);
-    if (['cargo', 'rustc', 'rustdoc', 'rustup'].includes(message.shim)) {
-      assertRepositoryExecutionAllowed({ workspace: request.workspace, environment: process.env, operation: message.shim });
-    }
     const parentId = message.execution?.mode === 'NESTED' ? message.execution.parentId : null;
     if (message.execution && !parentId) throw new TypeError('nested execution requires parentId');
     const parent = parentId ? this.#jobs.get(parentId) : null;
@@ -420,6 +417,9 @@ export class ThinJobService {
     if (parent) {
       const supplied = Buffer.from(message.execution?.capabilityToken ?? ''); const expected = Buffer.from(parent.rootToken);
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw Object.assign(new Error('nested capability token is invalid'), { code: 'RK_PARENT_CAPABILITY_INVALID' });
+    }
+    if (['cargo', 'rustc', 'rustdoc', 'rustup'].includes(message.shim)) {
+      assertRepositoryExecutionAllowed({ workspace: request.workspace, environment: process.env, operation: message.shim, argv: request.argv, nested: delegatedCompiler });
     }
     const cargoTool = await this.#registry.verify(this.#config.shims?.cargo);
     if (message.shim === 'cargo' && capability.workspaceAccess !== 'none') await rejectWorkspaceCargoConfiguration(request.workspace);
