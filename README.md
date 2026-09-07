@@ -27,6 +27,11 @@ this checkout, Git URLs, or sibling paths.
 
 ## Public-repository build boundary
 
+Membrane alone has an authorized native Windows unsigned-installer development
+exception, declared in `.rightkit-local-development.json` & enforced by managed
+client, broker & command policy. See `docs/rules/rightkit.md` in workspace root.
+The default public policy below still owns signing, publication & qualification.
+
 Public `Orthic-Labs` repositories set `"compile": "github-actions-only"` in `.rightgit.json`. Each task receives one binding:
 
 - `local-static-only`: edit or inspect source/docs/config; run only formatting, lint, schema, manifest, workflow-drift, syntax, or doctor checks guaranteed not to compile, test, package, sign, qualify, install, or release.
