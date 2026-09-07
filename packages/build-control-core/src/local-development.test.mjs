@@ -24,6 +24,10 @@ test('local development binds exact repository, Windows, native target & build-o
     assert.equal(fixtureAdmits(['input.rs'], { operation: 'rustc' }), false);
     assert.equal(fixtureAdmits(['input.rs'], { operation: 'rustc', nested: true }), true);
     assert.equal(fixtureAdmits(['-vV'], { operation: 'rustc' }), true);
+    assert.equal(fixtureAdmits(['target', 'list'], { operation: 'rustup' }), true);
+    assert.equal(fixtureAdmits(['target', 'add', 'x86_64-pc-windows-msvc'], { operation: 'rustup' }), false);
+    assert.equal(fixtureAdmits(['run', 'stable', 'cargo', 'build'], { operation: 'rustup' }), false);
+    assert.equal(fixtureAdmits(['target', 'list', '--toolchain', 'foreign'], { operation: 'rustup' }), false);
     renameSync(join(root, '.git'), join(root, 'git-storage'));
     writeFileSync(join(root, '.git'), 'gitdir: git-storage\n');
     assert.notEqual(localDevelopmentPolicy(root, 'win32'), null, 'existing nested checkout gitfile resolves origin');

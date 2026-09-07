@@ -33,6 +33,8 @@ export function localDevelopmentCargoAllowed({ root, workspace, operation, argv 
   if (!localDevelopmentPolicy(root, platform) || !Array.isArray(argv)) return false;
   const targets = argv.flatMap((arg, index) => arg === '--target' ? [argv[index + 1]] : arg.startsWith('--target=') ? [arg.slice(9)] : []);
   if (targets.some((target) => target !== 'x86_64-pc-windows-msvc')) return false;
+  // Tauri discovers installed targets before it submits the managed build.
+  if (operation === 'rustup') return argv.length === 2 && argv[0] === 'target' && argv[1] === 'list';
   if (['rustc', 'rustdoc'].includes(operation)) {
     return nested || argv.every((arg) => ['-vV', '-V', '--version', '--verbose'].includes(arg)) && argv.length > 0;
   }
