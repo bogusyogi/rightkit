@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { localDevelopmentCargoAllowed, localDevelopmentPolicy } from './local-development.mjs';
@@ -24,6 +24,11 @@ test('local development binds exact repository, Windows, native target & build-o
     assert.equal(fixtureAdmits(['input.rs'], { operation: 'rustc' }), false);
     assert.equal(fixtureAdmits(['input.rs'], { operation: 'rustc', nested: true }), true);
     assert.equal(fixtureAdmits(['-vV'], { operation: 'rustc' }), true);
+    renameSync(join(root, '.git'), join(root, 'git-storage'));
+    writeFileSync(join(root, '.git'), 'gitdir: git-storage\n');
+    assert.notEqual(localDevelopmentPolicy(root, 'win32'), null, 'existing nested checkout gitfile resolves origin');
+    rmSync(join(root, '.git'));
+    renameSync(join(root, 'git-storage'), join(root, '.git'));
     writeFileSync(join(root, '.git/config'), '[remote "origin"]\n url = https://github.com/Orthic-Labs/Other.git\n');
     assert.equal(localDevelopmentPolicy(root, 'win32'), null);
     writeFileSync(join(root, '.git/config'), '[remote "upstream"]\n url = https://github.com/Orthic-Labs/Membrane.git\n');

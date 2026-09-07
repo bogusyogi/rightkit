@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync, existsSync } from 'node:fs';
 import { join, relative, resolve, isAbsolute } from 'node:path';
 
 export const LOCAL_DEVELOPMENT_FILE = '.rightkit-local-development.json';
@@ -10,7 +10,15 @@ export function localDevelopmentPolicy(root, platform = process.platform) {
     const policy = JSON.parse(readFileSync(join(root, LOCAL_DEVELOPMENT_FILE), 'utf8'));
     if (Object.keys(policy).length !== Object.keys(expected).length
       || Object.entries(expected).some(([key, value]) => policy[key] !== value)) return null;
-    const config = readFileSync(join(root, '.git/config'), 'utf8');
+    const gitEntry = join(root, '.git');
+    let gitDir = gitEntry;
+    if (!statSync(gitEntry).isDirectory()) {
+      const pointer = /^gitdir:\s*(.+)\s*$/m.exec(readFileSync(gitEntry, 'utf8'));
+      if (!pointer) return null;
+      gitDir = resolve(root, pointer[1].trim());
+    }
+    if (existsSync(join(gitDir, 'commondir'))) gitDir = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim());
+    const config = readFileSync(join(gitDir, 'config'), 'utf8');
     let origin = false;
     for (const raw of config.split(/\r?\n/)) {
       const line = raw.trim();
