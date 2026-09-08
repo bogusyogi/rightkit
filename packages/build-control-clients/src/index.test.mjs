@@ -48,7 +48,10 @@ test('ambient Rust/Cargo overrides are captured & rejected instead of silently d
     { RUSTC_WRAPPER: '/tmp/wrapper' },
     { RUSTFLAGS: '-C target-dir=/tmp/escape' }
   ]) assert.deepEqual(createRightkitRequest({ argv: ['cargo', 'build'], workspace: '/external/work', environment }).observedEnvironment, environment);
-  assert.deepEqual(createRightkitRequest({ argv: ['cargo', 'build'], workspace: '/external/work', environment: { PATH: '/usr/bin', CI: '1' } }).observedEnvironment, {});
+  const safeBuildInput = createRightkitRequest({ argv: ['cargo', 'build'], workspace: '/external/work', environment: { PATH: '/usr/bin', CI: '1', CFLAGS: '-unsafe', IPHONEOS_DEPLOYMENT_TARGET: '18.0' } });
+  assert.deepEqual(safeBuildInput.observedEnvironment, {});
+  assert.deepEqual(safeBuildInput.request.environment, { CI: '1', IPHONEOS_DEPLOYMENT_TARGET: '18.0' });
+  assert.throws(() => createRightkitRequest({ argv: ['cargo', 'build'], workspace: '/external/work', environment: { IPHONEOS_DEPLOYMENT_TARGET: '18; unsafe' } }), /dotted numeric Apple deployment target/);
 });
 
 test('build priority is explicitly allowlisted instead of forwarded from ambient environment', () => {

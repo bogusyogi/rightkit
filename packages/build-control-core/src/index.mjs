@@ -37,9 +37,11 @@ export const MANAGED_RUST_ENVIRONMENT_KEYS = Object.freeze([
  */
 export const MANAGED_REQUEST_ENVIRONMENT_KEYS = Object.freeze([
   'CI', 'CARGO_TERM_COLOR', 'NO_COLOR', 'RUST_BACKTRACE', 'RUST_LOG',
-  'SOURCE_DATE_EPOCH', 'TERM', 'TZ', '__CF_USER_TEXT_ENCODING'
+  'SOURCE_DATE_EPOCH', 'TERM', 'TZ', '__CF_USER_TEXT_ENCODING',
+  'IPHONEOS_DEPLOYMENT_TARGET'
 ]);
 const managedRequestEnvironment = new Set(MANAGED_REQUEST_ENVIRONMENT_KEYS);
+const appleDeploymentTarget = /^(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)(?:\.(?:0|[1-9]\d?))?$/;
 const delegatedCompilerAmbientEnvironment = /^__CF_USER_TEXT_ENCODING$/i;
 
 function directoryFrom(value) {
@@ -191,9 +193,21 @@ export function normalizeRequestEnvironment(environment = {}) {
     if (forbiddenRequestEnvironment.test(canonical)) throw new TypeError(`request environment cannot set broker-controlled ${canonical}`);
     if (!managedRequestEnvironment.has(canonical)) throw new TypeError(`request environment key is not allowlisted: ${key}`);
     if (Object.hasOwn(normalized, canonical)) throw new TypeError(`request environment has duplicate key: ${canonical}`);
-    normalized[canonical] = environmentValue(canonical, value, 'request environment');
+    const selected = environmentValue(canonical, value, 'request environment');
+    if (canonical === 'IPHONEOS_DEPLOYMENT_TARGET' && !appleDeploymentTarget.test(selected)) throw new TypeError('request environment IPHONEOS_DEPLOYMENT_TARGET must be a dotted numeric Apple deployment target');
+    normalized[canonical] = selected;
   }
   return Object.freeze(normalized);
+}
+
+/**
+ * Capture only broker-approved root build inputs from ambient client state.
+ * Tool, path, cache, loader, and compiler flags remain outside this channel.
+ */
+export function captureManagedRequestEnvironment(environment = {}) {
+  const input = environmentObject(environment, 'environment');
+  const selected = Object.fromEntries(Object.entries(input).filter(([key, value]) => managedRequestEnvironment.has(key.toUpperCase()) && value !== undefined));
+  return normalizeRequestEnvironment(selected);
 }
 
 export function captureDelegatedCompilerEnvironment(environment = {}) {

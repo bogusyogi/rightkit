@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, parse } from 'node:path';
-import { BUILD_CONTROL_PROTOCOL, GITHUB_ACTIONS_ONLY, GITHUB_ACTIONS_ONLY_ERROR, LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, RUNTIME_MANIFEST_SCHEMA, SOURCE_RUNTIME_IDENTITY, assertRepositoryExecutionAllowed, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, externalRoots, immutableToolRoot, injectBrokerEnvironment, normalizeBuildRequest, normalizeCargoTargetArgv, normalizeCompilerOutputArgv, normalizeDelegatedCompilerEnvironment, normalizeManagedAgentRequest, normalizeRequestEnvironment, normalizeRuntimeIdentity, repositoryExecutionPolicy, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
+import { BUILD_CONTROL_PROTOCOL, GITHUB_ACTIONS_ONLY, GITHUB_ACTIONS_ONLY_ERROR, LOCAL_OUTPUT_SCAN_POLICY, MANAGED_RUST_ENVIRONMENT_KEYS, PROFILES, RUNTIME_MANIFEST_SCHEMA, SOURCE_RUNTIME_IDENTITY, assertRepositoryExecutionAllowed, captureDelegatedCompilerEnvironment, captureManagedRequestEnvironment, captureManagedRustEnvironment, externalRoots, immutableToolRoot, injectBrokerEnvironment, normalizeBuildRequest, normalizeCargoTargetArgv, normalizeCompilerOutputArgv, normalizeDelegatedCompilerEnvironment, normalizeManagedAgentRequest, normalizeRequestEnvironment, normalizeRuntimeIdentity, repositoryExecutionPolicy, scanForbiddenLocalOutputs, scanWorkspaceForUnmanagedOutputReceipt, scanWorkspaceForUnmanagedOutputs, validateManagedRustEnvironment, validateManagedRustupInvocation } from './index.mjs';
 
 const fixturePath = (...segments) => join(parse(tmpdir()).root, ...segments);
 
@@ -75,7 +75,9 @@ test('captures every controlled Rust/Cargo override for fail-closed admission', 
 });
 
 test('request environment is allowlisted while broker runtime injection wins', () => {
-  assert.deepEqual(normalizeRequestEnvironment({ ci: '1', RUST_LOG: 'warn', TERM: 'xterm-256color', __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0' }), { CI: '1', RUST_LOG: 'warn', TERM: 'xterm-256color', __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0' });
+  assert.deepEqual(normalizeRequestEnvironment({ ci: '1', RUST_LOG: 'warn', TERM: 'xterm-256color', __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0', iphoneos_deployment_target: '18.0' }), { CI: '1', RUST_LOG: 'warn', TERM: 'xterm-256color', __CF_USER_TEXT_ENCODING: '0x1F5:0x0:0x0', IPHONEOS_DEPLOYMENT_TARGET: '18.0' });
+  assert.deepEqual(captureManagedRequestEnvironment({ PATH: '/untrusted', CFLAGS: '-unsafe', IPHONEOS_DEPLOYMENT_TARGET: '18.0' }), { IPHONEOS_DEPLOYMENT_TARGET: '18.0' });
+  for (const value of ['', '18', '18.x', '18.0;touch /tmp/pwn', '-1.0', '100.0']) assert.throws(() => normalizeRequestEnvironment({ IPHONEOS_DEPLOYMENT_TARGET: value }), /dotted numeric Apple deployment target/);
   for (const key of ['DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'LD_PRELOAD', 'LD_AUDIT', 'NODE_OPTIONS', 'RUSTC_WRAPPER', 'RUSTC', 'RUSTFLAGS', 'CARGO_BUILD_RUSTC', 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER', 'CC', 'CXX', 'AR', 'PATH', 'HOME', 'TOKEN_FILE']) {
     assert.throws(() => normalizeRequestEnvironment({ [key]: '/untrusted' }), /broker-controlled|allowlisted/);
   }

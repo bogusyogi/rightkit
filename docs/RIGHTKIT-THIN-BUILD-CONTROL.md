@@ -52,6 +52,9 @@ Implemented and live:
 - Cargo compiler environment forwarding preserves package/build-script inputs
   while broker-owned tool, path, cache, loader, and unstable-feature authority
   remains stripped and broker-injected;
+- root Cargo requests may forward a strictly numeric
+  `IPHONEOS_DEPLOYMENT_TARGET`; arbitrary compiler flags remain denied, so
+  vendored C and assembly honor an app's registered iOS compatibility floor;
 - macOS Rust tools receive a broker-owned fallback loader path, while bootstrap
   repairs Rust 1.98's missing target-tool `libLLVM.dylib` companion link so
   compiler grandchildren work without accepting client loader overrides;

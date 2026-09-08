@@ -156,6 +156,21 @@ test('macOS jobs override stale cache loader state with broker-owned Rust toolch
   } finally { await item.close(); }
 });
 
+test('root Cargo jobs receive validated iPhone deployment target without compiler flag authority', async () => {
+  const item = await fixture({ platform: 'darwin' });
+  try {
+    const requested = message(item.workspace, ['--version']);
+    requested.request.environment = { IPHONEOS_DEPLOYMENT_TARGET: '18.0' };
+    const submitted = (await call(item.service, command('SUBMIT', requested))).result;
+    assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
+    assert.equal(item.children.at(-1).environment.IPHONEOS_DEPLOYMENT_TARGET, '18.0');
+    requested.request.environment = { IPHONEOS_DEPLOYMENT_TARGET: '18.0', CFLAGS: '-arch unsafe' };
+    const rejected = (await call(item.service, command('SUBMIT', requested))).result;
+    assert.equal(rejected.status, 'REJECTED');
+    assert.match(rejected.error, /request environment key is not allowlisted: CFLAGS/);
+  } finally { await item.close(); }
+});
+
 test('external Cargo tools inherit validated broker endpoint with broker-owned precedence', async () => {
   const unixSocket = '/validated/rightkit.sock'; const windowsPipe = '\\\\.\\pipe\\rightkit-validated';
   assert.equal(brokerEndpointForPlatform({ unixSocket, windowsPipe }, 'darwin'), unixSocket);
