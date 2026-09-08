@@ -8,6 +8,7 @@ truth for the pieces every app would otherwise reimplement and let drift.
 | `RightKitLicense` | Verifies Ed25519 entitlement tokens against the same `contracts/license-v2.json` vector the Rust and TypeScript verifiers use, so a token accepted on one platform is accepted on all. |
 | `RightKitDiagnostics` | Bounded JSONL diagnostics with a privacy redactor (never logs keys, tokens, or device ids). |
 | `RightKitArtifacts` | Checksummed artifact install with staging, atomic replace, rollback, and archive-traversal/symlink/expansion guards. |
+| `RightKitUI` | Generic adaptive-glass surface primitive: regular/clear native Liquid Glass + ConcentricRectangle on iOS/macOS 26, material fallback on older OS versions, and opaque accessibility fallback. Product radii, colors, layout, motion, and behavior stay app-local. |
 
 ## Consuming it
 
@@ -25,6 +26,7 @@ dependencies: [
 targets: [
     .target(name: "YourApp", dependencies: [
         .product(name: "RightKitLicense", package: "rightkit-swift"),
+        .product(name: "RightKitUI", package: "rightkit-swift"),
     ]),
 ]
 ```
