@@ -21,7 +21,7 @@ host.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", from: "0.1.0"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.1.1"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -37,7 +37,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit-swift.git
-    from: "0.1.0"
+    exactVersion: "0.1.1"
 ```
 
 A clone of a consuming app resolves this straight from GitHub — no workspace

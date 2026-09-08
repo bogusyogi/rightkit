@@ -1,8 +1,8 @@
 # RightKitSwift extraction contract
 
-Status: **extracted, built, published (0.1.0)** on macOS. `RightKitSwift/` is the
+Status: **extracted, built, published (0.1.1)** on macOS. `RightKitSwift/` is the
 canonical package source (builds + tests 16/16); it is published as a private git
-package at `github.com/bogusyogi/rightkit-swift` (tag `0.1.0`) and consumed by apps
+package at `github.com/bogusyogi/rightkit-swift` (tag `0.1.1`) and consumed by apps
 via git URL + version tag — see `RightKitSwift/README.md` for how, and
 `docs/RIGHTKIT-SHARED-PACKAGES.md` for why git-URL rather than a registry. The
 table below is the original extraction contract, kept as the record of what moved
