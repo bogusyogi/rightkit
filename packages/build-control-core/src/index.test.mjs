@@ -21,7 +21,14 @@ test('Orthic public repositories fail closed outside GitHub Actions', async () =
     assert.throws(() => repositoryExecutionPolicy(root), (error) => error.code === 'RK_EXECUTION_POLICY_MISSING');
     await writeFile(join(root, '.rightgit.json'), `${JSON.stringify({ compile: GITHUB_ACTIONS_ONLY })}\n`);
     assert.equal(repositoryExecutionPolicy(root).compile, GITHUB_ACTIONS_ONLY);
-    assert.throws(() => assertRepositoryExecutionAllowed({ workspace: root, environment: {}, operation: 'cargo test' }), (error) => error.code === GITHUB_ACTIONS_ONLY_ERROR);
+    assert.throws(
+      () => assertRepositoryExecutionAllowed({ workspace: root, environment: {}, operation: 'cargo test' }),
+      (error) => error.code === GITHUB_ACTIONS_ONLY_ERROR
+        && /direct Cargo is blocked/.test(error.message)
+        && /local unsigned-installer command/.test(error.message)
+        && /\.rightkit-local-development\.json/.test(error.message)
+        && /managed CI/.test(error.message)
+    );
     assert.equal(assertRepositoryExecutionAllowed({ workspace: root, environment: { GITHUB_ACTIONS: 'true' } }).compile, GITHUB_ACTIONS_ONLY);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

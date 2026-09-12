@@ -108,7 +108,7 @@ export function assertRepositoryExecutionAllowed({ workspace = process.cwd(), en
   const policy = repositoryExecutionPolicy(workspace);
   if (policy.compile === GITHUB_ACTIONS_ONLY && environment?.GITHUB_ACTIONS !== 'true'
     && !localDevelopmentCargoAllowed({ root: policy.root, workspace, operation, argv, nested, platform })) {
-    throw Object.assign(new Error(`${operation} is GitHub Actions only for ${policy.root}; push changes & use managed CI`), { code: GITHUB_ACTIONS_ONLY_ERROR });
+    throw Object.assign(new Error(`${operation} is GitHub Actions only for ${policy.root}; direct Cargo is blocked. Use this repository's documented local unsigned-installer command when .rightkit-local-development.json authorizes it; otherwise push changes & use managed CI`), { code: GITHUB_ACTIONS_ONLY_ERROR });
   }
   return policy;
 }
