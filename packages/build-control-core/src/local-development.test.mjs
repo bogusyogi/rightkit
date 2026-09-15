@@ -17,6 +17,8 @@ test('local development binds exact repository, Windows, native target & approve
     for (const command of ['check', 'build', 'test']) assert.equal(fixtureAdmits([command, '--target', 'x86_64-pc-windows-msvc']), true);
     assert.equal(fixtureAdmits(['metadata', '--offline', '--no-deps']), true);
     for (const command of ['outdated', 'upgrade']) assert.equal(fixtureAdmits([command, '--manifest-path', 'Cargo.toml']), true);
+    assert.equal(fixtureAdmits(['update'], { nested: true }), true);
+    assert.equal(fixtureAdmits(['update']), false);
     for (const command of ['publish', 'install', 'run', 'clean']) assert.equal(fixtureAdmits([command, '--target', 'x86_64-pc-windows-msvc']), false);
     assert.equal(fixtureAdmits(['build']), false);
     assert.equal(fixtureAdmits(['build', '--target', 'aarch64-apple-darwin']), false);
@@ -54,6 +56,8 @@ test('Legion local development binds exact repository, Windows, native target & 
     for (const command of ['check', 'build', 'test']) assert.equal(fixtureAdmits([command, '--target', 'x86_64-pc-windows-msvc']), true);
     assert.equal(fixtureAdmits(['metadata', '--offline', '--no-deps']), true);
     for (const command of ['outdated', 'upgrade']) assert.equal(fixtureAdmits([command, '--manifest-path', 'Cargo.toml']), true);
+    assert.equal(fixtureAdmits(['update'], { nested: true }), true);
+    assert.equal(fixtureAdmits(['update']), false);
     for (const command of ['publish', 'install', 'run', 'clean']) assert.equal(fixtureAdmits([command, '--target', 'x86_64-pc-windows-msvc']), false);
     assert.equal(fixtureAdmits(['build']), false);
     assert.equal(fixtureAdmits(['build', '--target', 'aarch64-apple-darwin']), false);

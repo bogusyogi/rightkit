@@ -46,8 +46,8 @@ export function localDevelopmentCargoAllowed({ root, workspace, operation, argv 
   if (argv.length === 1 && ['-V', '--version'].includes(argv[0])) return true;
   const args = argv[0] === '--' ? argv.slice(1) : argv;
   const command = args[0];
-  const dependencyMaintenance = ['outdated', 'upgrade'].includes(command);
-  if (!['check', 'build', 'test', 'metadata', 'outdated', 'upgrade'].includes(command)) return false;
+  const dependencyMaintenance = ['outdated', 'upgrade'].includes(command) || command === 'update' && nested;
+  if (!['check', 'build', 'test', 'metadata', 'outdated', 'upgrade'].includes(command) && !(command === 'update' && nested)) return false;
   if (!dependencyMaintenance && command !== 'metadata' && targets.length !== 1) return false;
   const manifestIndex = args.indexOf('--manifest-path');
   const manifestArg = manifestIndex >= 0 ? args[manifestIndex + 1] : args.find((arg) => arg.startsWith('--manifest-path='))?.slice(16);
