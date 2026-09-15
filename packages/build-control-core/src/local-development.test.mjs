@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { localDevelopmentCargoAllowed, localDevelopmentPolicy } from './local-development.mjs';
 
-test('local development binds exact repository, Windows, native target & build-only commands', () => {
+test('local development binds exact repository, Windows, native target & approved commands', () => {
   const root = mkdtempSync(join(tmpdir(), 'rightkit-local-dev-'));
   try {
     mkdirSync(join(root, '.git')); mkdirSync(join(root, 'engine'));
@@ -16,6 +16,7 @@ test('local development binds exact repository, Windows, native target & build-o
     const fixtureAdmits = (argv, overrides = {}) => localDevelopmentCargoAllowed({ root, workspace: join(root, 'engine'), operation: 'cargo', platform: 'win32', argv, ...overrides });
     for (const command of ['check', 'build', 'test']) assert.equal(fixtureAdmits([command, '--target', 'x86_64-pc-windows-msvc']), true);
     assert.equal(fixtureAdmits(['metadata', '--offline', '--no-deps']), true);
+    for (const command of ['outdated', 'upgrade']) assert.equal(fixtureAdmits([command, '--manifest-path', 'Cargo.toml']), true);
     for (const command of ['publish', 'install', 'run', 'clean']) assert.equal(fixtureAdmits([command, '--target', 'x86_64-pc-windows-msvc']), false);
     assert.equal(fixtureAdmits(['build']), false);
     assert.equal(fixtureAdmits(['build', '--target', 'aarch64-apple-darwin']), false);
@@ -41,7 +42,7 @@ test('local development binds exact repository, Windows, native target & build-o
     assert.equal(localDevelopmentPolicy(root, 'win32'), null);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
-test('Legion local development binds exact repository, Windows, native target & build-only commands', () => {
+test('Legion local development binds exact repository, Windows, native target & approved commands', () => {
   const root = mkdtempSync(join(tmpdir(), 'rightkit-local-dev-'));
   try {
     mkdirSync(join(root, '.git')); mkdirSync(join(root, 'engine'));
@@ -52,6 +53,7 @@ test('Legion local development binds exact repository, Windows, native target & 
     const fixtureAdmits = (argv, overrides = {}) => localDevelopmentCargoAllowed({ root, workspace: join(root, 'engine'), operation: 'cargo', platform: 'win32', argv, ...overrides });
     for (const command of ['check', 'build', 'test']) assert.equal(fixtureAdmits([command, '--target', 'x86_64-pc-windows-msvc']), true);
     assert.equal(fixtureAdmits(['metadata', '--offline', '--no-deps']), true);
+    for (const command of ['outdated', 'upgrade']) assert.equal(fixtureAdmits([command, '--manifest-path', 'Cargo.toml']), true);
     for (const command of ['publish', 'install', 'run', 'clean']) assert.equal(fixtureAdmits([command, '--target', 'x86_64-pc-windows-msvc']), false);
     assert.equal(fixtureAdmits(['build']), false);
     assert.equal(fixtureAdmits(['build', '--target', 'aarch64-apple-darwin']), false);
