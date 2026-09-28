@@ -22,6 +22,23 @@ export function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+// The RightRelease PowerShell bootstrap is still generated and published to R2
+// as the branded installer's outer verifier. It must not be embedded into the
+// Membrane Tauri NSIS installer resource set: Section Install now lays the
+// versioned payload down and runs `membrane activate` directly (see
+// docs/MEMBRANE-INSTALLER-SIMPLIFICATION-CONTRACT-2026-09-02.md). This guard
+// throws loudly if anyone re-wires the payload into that resource set.
+export function assertBootstrapNotEmbeddedInNsis(product, resourceNames) {
+  if (product !== "membrane") return;
+  const embedded = [...(resourceNames ?? [])].filter((name) => /(^|[\\/])install\.ps1$/i.test(String(name)));
+  if (embedded.length) {
+    throw new Error(
+      `RightRelease bootstrap install.ps1 must not be embedded into the Membrane NSIS installer (${embedded.join(", ")}); ` +
+        "Section Install activates the release directly. See MEMBRANE-INSTALLER-SIMPLIFICATION-CONTRACT-2026-09-02.",
+    );
+  }
+}
+
 export function collectReleaseAsset({
   target,
   name,
@@ -276,6 +293,7 @@ export function renderPowerShellBootstrap({
     "function Remove-StableJunction([string]$Path) { $Item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue; if ($null -eq $Item) { return }; if ($Item.LinkType -ne 'Junction') { throw ('Stable pointer path is not a junction: ' + $Path) }; [IO.Directory]::Delete($Path) }",
     "function Resolve-HealthPath($Value, [string]$JsonPath) { $CurrentValue = $Value; foreach ($Segment in $JsonPath.Split('.')) { if ($Segment -match '^\\d+$') { $Index = [int]$Segment; if ($null -eq $CurrentValue -or $Index -ge @($CurrentValue).Count) { throw ('Health path is missing: ' + $JsonPath) }; $CurrentValue = @($CurrentValue)[$Index] } else { $Property = $CurrentValue.PSObject.Properties[$Segment]; if ($null -eq $Property) { throw ('Health path is missing: ' + $JsonPath) }; $CurrentValue = $Property.Value } }; return $CurrentValue }",
     "function Assert-Health($Health, [string]$ActiveVersion) { foreach ($Assertion in $Contract.healthAssertions) { $Actual = Resolve-HealthPath $Health ([string]$Assertion.path); if ($Assertion.PSObject.Properties.Name -contains 'equals') { $Expected = $Assertion.equals; if ($Expected -is [string]) { $Expected = $Expected.Replace('{version}', $ActiveVersion).Replace('{current}', $Current).Replace('{installRoot}', $InstallRoot) }; if ($Actual -ne $Expected) { throw ('Health assertion failed: ' + $Assertion.path) } } elseif ($Assertion.nonempty -eq $true) { if ($null -eq $Actual -or ([string]$Actual).Trim().Length -eq 0) { throw ('Health assertion failed: ' + $Assertion.path) } } elseif (@($Actual).Count -lt [int]$Assertion.minCount) { throw ('Health assertion failed: ' + $Assertion.path) } } }",
+    "function Resolve-PriorVersion($PriorExePath, $PriorLeaf) { if ($PriorExePath -and (Test-Path -LiteralPath $PriorExePath -PathType Leaf)) { $Info = (Get-Item -LiteralPath $PriorExePath).VersionInfo; $Candidate = [string]$Info.ProductVersion; if ([string]::IsNullOrWhiteSpace($Candidate)) { $Candidate = [string]$Info.FileVersion }; $Match = [regex]::Match($Candidate, '(\\d+\\.\\d+\\.\\d+)'); if ($Match.Success) { return $Match.Groups[1].Value } }; if ($PriorLeaf) { $LeafMatch = [regex]::Match([string]$PriorLeaf, '^(\\d+\\.\\d+\\.\\d+)(?:-|$)'); if ($LeafMatch.Success) { return $LeafMatch.Groups[1].Value } }; return $null }",
     ...(allowLocalReleaseRoot ? [
       "New-Item -ItemType Directory -Force -Path $VersionsRoot | Out-Null",
       "$LocalReleaseRoot = $null; if ($ReleaseRoot) { $LocalReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot); if (-not (Test-Path -LiteralPath $LocalReleaseRoot -PathType Container)) { throw 'Local release root is missing' } }",
@@ -293,7 +311,7 @@ export function renderPowerShellBootstrap({
       "if (-not $Version) { $Version = ((Invoke-RestMethod " + psQuote("https://api.github.com/repos/" + repository + "/releases/latest") + ").tag_name -replace '^v','') }",
       "if ($Version -notmatch '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$') { throw 'Invalid stable release version' }",
       "$PriorTarget = $null; if (Test-Path $Current) { $PriorTarget = (Get-Item $Current).Target }",
-      "$PriorVersion = if ($PriorTarget) { ((Split-Path ([string]$PriorTarget) -Leaf) -split '-')[0] } else { $null }",
+      "$PriorVersion = if ($PriorTarget) { Resolve-PriorVersion (Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + ") (Split-Path ([string]$PriorTarget) -Leaf) } else { $null }",
       "if ($PriorVersion -and -not $AllowDowngrade -and ([version]$Version -lt [version]$PriorVersion)) { throw 'Downgrade requires -AllowDowngrade' }",
       "$ReleaseBase = " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version",
       "$Work = Join-Path ([IO.Path]::GetTempPath()) (" + psQuote(product + "-install-") + " + [guid]::NewGuid())",
@@ -302,7 +320,7 @@ export function renderPowerShellBootstrap({
       "Invoke-WebRequest ($ReleaseBase + '/release-manifest.json') -OutFile $ManifestPath",
       "Invoke-WebRequest ($ReleaseBase + '/release-manifest.cat') -OutFile $SignaturePath",
     ]),
-    "$ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath); Import-Module Microsoft.PowerShell.Security -ErrorAction Stop",
+    "$ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath); Import-Module Microsoft.PowerShell.Security -ErrorAction SilentlyContinue",
     "$Catalog = Test-FileCatalog -CatalogFilePath $SignaturePath -Path $ManifestPath -Detailed; if ([string]$Catalog.Status -ne 'Valid') { throw 'Release manifest catalog binding is invalid' }",
     "$CatalogSignature = Get-AuthenticodeSignature -FilePath $SignaturePath; if ([string]$CatalogSignature.Status -ne 'Valid' -or -not $CatalogSignature.SignerCertificate) { throw 'Release manifest signature is invalid' }; $SignerCertificate = $CatalogSignature.SignerCertificate",
     "$SignerSubject = 'CN=' + $SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)",
@@ -315,7 +333,7 @@ export function renderPowerShellBootstrap({
       "if ($Version -notmatch '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$') { throw 'Invalid stable release version' }",
       "$ReleaseBase = " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version",
       "$PriorTarget = $null; if (Test-Path $Current) { $PriorTarget = (Get-Item $Current).Target }",
-      "$PriorVersion = if ($PriorTarget) { ((Split-Path ([string]$PriorTarget) -Leaf) -split '-')[0] } else { $null }",
+      "$PriorVersion = if ($PriorTarget) { Resolve-PriorVersion (Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + ") (Split-Path ([string]$PriorTarget) -Leaf) } else { $null }",
       "if ($PriorVersion -and -not $AllowDowngrade -and ([version]$Version -lt [version]$PriorVersion)) { throw 'Downgrade requires -AllowDowngrade' }",
     ] : []),
     "if ($Manifest.signingKeyId -ne $VerifiedKeyId -or $Manifest.signatureAlgorithm -ne 'authenticode-catalog-sha256' -or $Manifest.signatureProvider -ne 'windows-authenticode-catalog' -or $Manifest.signatureProviderVersion -ne 1) { throw 'Release manifest signer identity mismatch' }",
@@ -363,7 +381,7 @@ export function renderPowerShellBootstrap({
     "  & $StableExe @ActivationArgs; if ($LASTEXITCODE -ne 0) { throw 'Activation failed' }",
     "  $HealthText = (& $StableExe @StatusArgs | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Health command failed' }; $Health = $HealthText | ConvertFrom-Json",
     "  Assert-Health $Health $Version",
-    "  $StableBin = Split-Path $StableExe -Parent; $UserPath = [Environment]::GetEnvironmentVariable('Path','User'); if (-not (($UserPath -split ';') -contains $StableBin)) { [Environment]::SetEnvironmentVariable('Path', (($UserPath.TrimEnd(';') + ';' + $StableBin).Trim(';')), 'User') }",
+    "  $StableBin = Split-Path $StableExe -Parent; $InstallRootResolved = [IO.Path]::GetFullPath($InstallRoot).TrimEnd([IO.Path]::DirectorySeparatorChar); $UserPath = [Environment]::GetEnvironmentVariable('Path','User'); $Kept = @($UserPath -split ';' | Where-Object { $Entry = $_.Trim(); $Entry -ne '' -and -not ($Entry.TrimEnd([IO.Path]::DirectorySeparatorChar).StartsWith(($InstallRootResolved + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -and -not $Entry.TrimEnd([IO.Path]::DirectorySeparatorChar).Equals($StableBin.TrimEnd([IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) }); $NewPath = ((@($StableBin) + $Kept) -join ';'); if ($NewPath -ne $UserPath) { [Environment]::SetEnvironmentVariable('Path', $NewPath, 'User') }",
     // Journal cleanup must succeed before discarding the prior pointer. If
     // cleanup fails, catch still has a rollback anchor to restore.
     "  Remove-Item -Force $Journal; Remove-StableJunction $PreviousLink; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
