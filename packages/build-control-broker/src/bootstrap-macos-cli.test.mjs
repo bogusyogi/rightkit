@@ -148,6 +148,12 @@ test('renderPlist escapes reserved XML characters in every substituted value', (
   assert.equal(args.length, 3);
 });
 
+test('launchd does not clamp user-requested compiler children to Background QoS', () => {
+  const xml = renderPlist({ nodePath: '/node', brokerScript: '/broker', configPath: '/config.json', home: '/home' });
+  assert.match(xml, /<key>ProcessType<\/key>\s*<string>Standard<\/string>/);
+  assert.doesNotMatch(xml, /<key>(?:LowPriorityIO|LowPriorityBackgroundIO)<\/key>\s*<true\s*\/>/);
+});
+
 test('resolveVolumeId & rustcVersionTriple degrade to a safe default instead of throwing', async () => {
   const volumeId = await resolveVolumeId('/definitely/not/a/real/volume/path/xyz');
   assert.ok(volumeId === null || typeof volumeId === 'string');

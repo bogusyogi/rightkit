@@ -264,6 +264,8 @@ export async function buildConfig({ externalRoot }) {
 }
 
 export function renderPlist({ nodePath, brokerScript, configPath, home }) {
+  // Build workers inherit launchd's QoS. User-requested compilation must not
+  // inherit Background throttling; broker admission still bounds concurrency.
   const logs = join(home, 'Library', 'Logs', 'RightKit');
   const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -282,7 +284,7 @@ export function renderPlist({ nodePath, brokerScript, configPath, home }) {
 \t<key>Label</key>
 \t<string>${escape(LABEL)}</string>
 \t<key>ProcessType</key>
-\t<string>Background</string>
+\t<string>Standard</string>
 \t<key>ProgramArguments</key>
 \t<array>
 \t\t<string>${escape(nodePath)}</string>
