@@ -20,7 +20,7 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 
 export const PREFLIGHT_OK = "ok";

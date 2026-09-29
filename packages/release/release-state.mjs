@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { existsSync, readFileSync, readdirSync, watch } from "node:fs";
 import path from "node:path";
 import { readCachePolicy, resolveCacheLayout } from "./cache-policy.mjs";

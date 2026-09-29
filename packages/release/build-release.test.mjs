@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "./background-process.mjs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs";

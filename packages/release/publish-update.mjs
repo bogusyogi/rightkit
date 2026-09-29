@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { access, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn } from "./background-process.mjs";
 import { pruneReleaseObjects } from "./prune-r2.mjs";
 import { loadReleaseToken } from "./release-token.mjs";
 import { registerRightAppsRelease } from "./rightapps-register.mjs";

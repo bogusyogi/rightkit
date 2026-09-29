@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { scanCrateForSecrets } from "./publish-cargo.mjs";
 
 const IDENTIFIER = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/i;

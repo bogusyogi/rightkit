@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "n
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./background-process.mjs";
 import { canonicalAddonManifest, createAddonManifest } from "./addon-contract.mjs";
 import { prepareGitHubAddonRelease, prepareGitHubDirectRelease, prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
 import { RIGHTRELEASE_MANIFEST_SIGNER, verifyManifestCatalogSignature } from "./sign-release-manifest.mjs";

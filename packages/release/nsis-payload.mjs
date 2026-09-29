@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 
 const SEVEN_ZIP_CANDIDATES = [
   "C:\\Program Files\\7-Zip\\7z.exe",

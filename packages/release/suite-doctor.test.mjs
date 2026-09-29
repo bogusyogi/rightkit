@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";

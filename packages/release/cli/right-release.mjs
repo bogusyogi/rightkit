@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn } from "../background-process.mjs";
 import { fileURLToPath } from "node:url";
 import { assertReleaseExecutionAllowed } from "../execution-policy.mjs";
 

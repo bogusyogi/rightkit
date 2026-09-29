@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verifySealedRelease } from "./release-state.mjs";
 import { addonManifestSha256, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";

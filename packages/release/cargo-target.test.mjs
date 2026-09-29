@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 

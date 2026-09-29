@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_APPS = Object.freeze([

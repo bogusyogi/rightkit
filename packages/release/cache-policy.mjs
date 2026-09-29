@@ -17,7 +17,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 
 export const CACHE_SCHEMA = 1;
 export const DEFAULT_TARGET_MAX_BYTES = 12 * 1024 ** 3;

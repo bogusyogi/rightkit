@@ -9,7 +9,7 @@
 // (see cargo-contract.mjs) remains a separate, cache-policy-only decision:
 // whether Cache V2's lease/slot/prune/floor machinery should run at all, not
 // where the target directory lives.
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./background-process.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile } from "./background-process.mjs";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

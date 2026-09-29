@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";

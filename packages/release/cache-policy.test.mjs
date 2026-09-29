@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, s
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { spawn } from "node:child_process";
+import { spawn } from "./background-process.mjs";
 import { once } from "node:events";
 
 import {

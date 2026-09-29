@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { accessSync, statSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 
 const ACCOUNT_ID = "03ae77ccd7a07bcbb2dcfde47fa7ba3a";
 const BUCKETS = new Map([

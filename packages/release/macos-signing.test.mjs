@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { test } from "node:test";
 
 test("macOS notarizer dry-run does not execute signer import side effects", () => {

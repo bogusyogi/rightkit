@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 
 /**
  * Total CPU seconds reported by `ps` for a process group, summed across every

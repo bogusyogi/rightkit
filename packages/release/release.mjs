@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "./background-process.mjs";
 import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn } from "./background-process.mjs";
 
 const MANAGED_REQUEST_PATTERN = /\brightkit(?: managed-agent)?: request ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/gi;
 export const RELEASE_LIVENESS_OWNER_MARGIN_MS = 5 * 60 * 1000;

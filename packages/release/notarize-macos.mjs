@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { notarytoolAuthArgs } from "./notary-auth.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 

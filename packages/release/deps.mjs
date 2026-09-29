@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { existsSync } from "node:fs";
 
 const args = process.argv.slice(2);

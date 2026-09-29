@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { addonManifestSha256, addonRoutes, canonicalAddonManifest, createAddonManifest, downloadImmutableAddOn, immutableAddonManifestUrl, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";

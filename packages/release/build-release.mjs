@@ -20,7 +20,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";

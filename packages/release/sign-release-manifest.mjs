@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { signingEnv } from "./signing-env.mjs";
 
 export const RIGHTRELEASE_MANIFEST_SIGNER = Object.freeze({

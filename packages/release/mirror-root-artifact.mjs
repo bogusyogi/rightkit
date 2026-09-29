@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { copyFileSync, mkdirSync, realpathSync, renameSync, rmSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "./background-process.mjs";
 import path from "node:path";
 
 const args = parseArgs(process.argv.slice(2));

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { RIGHTRELEASE_MANIFEST_SIGNER, signReleaseManifestWithAzure } from "./sign-release-manifest.mjs";
 import { validateCycloneDxSbom, validateInTotoSlsaProvenance } from "./supply-chain-evidence.mjs";
 

@@ -2,7 +2,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { createAddonManifest, addonManifestSha256, canonicalAddonManifest, downloadImmutableAddOn, immutableAddonManifestUrl } from "./addon-contract.mjs";

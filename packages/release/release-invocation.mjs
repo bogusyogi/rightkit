@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";

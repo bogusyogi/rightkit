@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { pathToFileURL } from "node:url";
 import { prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
