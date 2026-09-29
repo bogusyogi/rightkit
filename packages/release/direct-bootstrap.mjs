@@ -222,11 +222,13 @@ export function renderPowerShellBootstrap({
   expectedStatus = "complete",
   healthAssertions = null,
   preflightArgs = [],
+  priorExecutableMinVersion = null,
   allowLocalReleaseRoot = false,
 }) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("invalid GitHub repository");
   if (!VERSION.test(bootstrapVersion)) throw new Error("invalid bootstrap version");
   if (typeof allowLocalReleaseRoot !== "boolean") throw new Error("allowLocalReleaseRoot must be boolean");
+  if (priorExecutableMinVersion !== null && !VERSION.test(priorExecutableMinVersion)) throw new Error("priorExecutableMinVersion must be a semantic version");
   assertRelativeFile(executablePath, "executable path");
   if (!Array.isArray(acceptedManifestSigners) || !acceptedManifestSigners.length) throw new Error("accepted manifest signers are required");
   const signers = {};
@@ -265,6 +267,7 @@ export function renderPowerShellBootstrap({
     statusArgs,
     healthAssertions: assertions,
     preflightArgs,
+    ...(priorExecutableMinVersion ? { priorExecutableMinVersion } : {}),
     ...(allowLocalReleaseRoot ? { allowLocalReleaseRoot: true } : {}),
   };
   // Bind generated contract metadata so a caller cannot pass a marker plus an
@@ -372,7 +375,12 @@ export function renderPowerShellBootstrap({
     "$StatusArgsTemplate = " + psArray(statusArgs),
     "$PreflightArgsTemplate = " + psArray(preflightArgs),
     "$PreflightArgs = @(Expand-BootstrapArgs $PreflightArgsTemplate $VersionRoot $Version)",
-    "$PriorStatus = $null; if ($PriorTarget) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); try { $PriorStatus = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 60) | Out-String).Trim() } catch {} }",
+    // A prior executable predating the installer verb surface (statusArgs /
+    // activationArgs) must never be invoked: legacy binaries can fall through
+    // to an interactive UI whose startup side effects (services, daemons,
+    // resident workers) corrupt the new install's own probes.
+    "$PriorCliCapable = $true; if ($Contract.priorExecutableMinVersion) { $PriorCliCapable = ($null -ne $PriorVersion -and ([version]$PriorVersion -ge [version]$Contract.priorExecutableMinVersion)) }",
+    "$PriorStatus = $null; if ($PriorTarget -and $PriorCliCapable) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); try { $PriorStatus = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 60) | Out-String).Trim() } catch {} }",
     "@{ schemaVersion=1; priorTarget=$PriorTarget; priorVersion=$PriorVersion; targetVersion=$Version; priorStatus=$PriorStatus } | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $Journal",
     "if ($PreflightArgs.Count) { Invoke-BoundedExe $VersionExe $PreflightArgs 120 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Activation preflight failed' } }",
     "Remove-StableJunction $NextLink; Remove-StableJunction $PreviousLink",
@@ -391,7 +399,7 @@ export function renderPowerShellBootstrap({
     "  Remove-Item -Force $Journal; Remove-StableJunction $PreviousLink; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
     "} catch {",
     "  if ($Switched -or $PriorDetached) { Remove-StableJunction $Current }; if ($PriorDetached -and (Test-Path $PreviousLink)) { Rename-Item -LiteralPath $PreviousLink -NewName (Split-Path -Leaf $Current) }",
-    "  if ($PriorTarget -and (Test-Path $Current)) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorActivationArgs = @(Expand-BootstrapArgs $ActivationArgsTemplate ([string]$PriorTarget) $PriorVersion); $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); Invoke-BoundedExe $PriorExe $PriorActivationArgs 240 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Rollback activation failed' }; $PriorHealthText = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 120) | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Rollback health failed' }; $PriorHealth = $PriorHealthText | ConvertFrom-Json; try { Assert-Health $PriorHealth $PriorVersion } catch { throw 'Prior health was not restored' } }",
+    "  if ($PriorTarget -and (Test-Path $Current) -and $PriorCliCapable) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorActivationArgs = @(Expand-BootstrapArgs $ActivationArgsTemplate ([string]$PriorTarget) $PriorVersion); $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); Invoke-BoundedExe $PriorExe $PriorActivationArgs 240 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Rollback activation failed' }; $PriorHealthText = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 120) | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Rollback health failed' }; $PriorHealth = $PriorHealthText | ConvertFrom-Json; try { Assert-Health $PriorHealth $PriorVersion } catch { throw 'Prior health was not restored' } }",
     "  if (Test-Path $VersionRoot) { Remove-Item -Recurse -Force $VersionRoot }; throw",
     "} finally { if (Test-Path $Work) { Remove-Item -Recurse -Force $Work } }",
   ];
@@ -439,6 +447,7 @@ export function validatePowerShellBootstrap(script, expected = {}) {
       statusArgs: contract.statusArgs,
       healthAssertions: contract.healthAssertions,
       preflightArgs: contract.preflightArgs,
+      priorExecutableMinVersion: contract.priorExecutableMinVersion ?? null,
       allowLocalReleaseRoot: contract.allowLocalReleaseRoot === true,
     });
     if (regenerated !== script) errors.push("bootstrap source does not match canonical generated output");

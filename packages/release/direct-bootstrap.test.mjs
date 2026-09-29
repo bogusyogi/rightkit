@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
+  assertBootstrapNotEmbeddedInNsis,
   buildChecksums,
   buildReleaseManifest,
   canonicalJson,
@@ -248,6 +249,55 @@ test("network bootstrap excludes local release root unless generator opts in", (
   }), /must be boolean/);
 });
 
+test("prior executable capability floor gates legacy probes and rollback invocation", () => {
+  const script = renderPowerShellBootstrap({
+    product: "coderight",
+    repository: "bogusyogi/coderight",
+    bootstrapVersion: "0.1.87",
+    acceptedManifestSigners: [acceptedSigner],
+    installRootSubdir: "CodeRight",
+    executablePath: "coderight.exe",
+    activationArgs: ["service", "install"],
+    statusArgs: ["status", "--json"],
+    healthAssertions: [{ path: "running", equals: true }],
+    priorExecutableMinVersion: "0.1.84",
+    allowLocalReleaseRoot: true,
+  });
+  const encoded = script.match(/FromBase64String\('([^']+)'\)/)[1];
+  const contract = JSON.parse(Buffer.from(encoded, "base64").toString());
+  assert.equal(contract.priorExecutableMinVersion, "0.1.84");
+  assert.match(script, /\$PriorCliCapable = \$true; if \(\$Contract\.priorExecutableMinVersion\)/);
+  assert.match(script, /if \(\$PriorTarget -and \$PriorCliCapable\)/);
+  assert.match(script, /if \(\$PriorTarget -and \(Test-Path \$Current\) -and \$PriorCliCapable\)/);
+  assert.deepEqual(validatePowerShellBootstrap(script, { product: "coderight", allowLocalReleaseRoot: true, acceptedSignerIds: [RIGHTRELEASE_MANIFEST_SIGNER.id] }), { valid: true, errors: [] });
+  const ungated = renderPowerShellBootstrap({
+    product: "coderight",
+    repository: "bogusyogi/coderight",
+    bootstrapVersion: "0.1.87",
+    acceptedManifestSigners: [acceptedSigner],
+    installRootSubdir: "CodeRight",
+    executablePath: "coderight.exe",
+    activationArgs: ["service", "install"],
+    statusArgs: ["status", "--json"],
+    healthAssertions: [{ path: "running", equals: true }],
+  });
+  assert.match(ungated, /if \(\$PriorTarget -and \$PriorCliCapable\)/);
+  const ungatedContract = JSON.parse(Buffer.from(ungated.match(/FromBase64String\('([^']+)'\)/)[1], "base64").toString());
+  assert.equal(Object.hasOwn(ungatedContract, "priorExecutableMinVersion"), false);
+  assert.throws(() => renderPowerShellBootstrap({
+    product: "coderight",
+    repository: "bogusyogi/coderight",
+    bootstrapVersion: "0.1.87",
+    acceptedManifestSigners: [acceptedSigner],
+    installRootSubdir: "CodeRight",
+    executablePath: "coderight.exe",
+    activationArgs: ["service", "install"],
+    statusArgs: ["status", "--json"],
+    healthAssertions: [{ path: "running", equals: true }],
+    priorExecutableMinVersion: "0.1",
+  }), /priorExecutableMinVersion must be a semantic version/);
+});
+
 test("shared Azure signer owns detached manifest catalog without product private keys", () => {
   const dir = mkdtempSync(join(tmpdir(), "rightrelease-catalog-"));
   const manifestPath = join(dir, "release-manifest.json");
@@ -358,6 +408,20 @@ test("bootstrap validation rejects executable substitution even when both digest
   const validation = validatePowerShellBootstrap(forged, { product: "legion" });
   assert.equal(validation.valid, false);
   assert.ok(validation.errors.includes("bootstrap source does not match canonical generated output"));
+});
+
+test("Membrane NSIS resource set may not re-embed the generated install.ps1 payload", () => {
+  assert.throws(
+    () => assertBootstrapNotEmbeddedInNsis("membrane", ["release-manifest.json", "checksums.json", "install.ps1"]),
+    /must not be embedded into the Membrane NSIS installer/,
+  );
+  assert.throws(
+    () => assertBootstrapNotEmbeddedInNsis("membrane", ["installer-release/install.ps1"]),
+    /MEMBRANE-INSTALLER-SIMPLIFICATION-CONTRACT-2026-09-02/,
+  );
+  // Other products still publish the bootstrap; only the Membrane NSIS set is fenced.
+  assert.doesNotThrow(() => assertBootstrapNotEmbeddedInNsis("membrane", ["release-manifest.json", "membrane-1.2.3-windows-x86_64.zip"]));
+  assert.doesNotThrow(() => assertBootstrapNotEmbeddedInNsis("legion", ["install.ps1"]));
 });
 
 test("install transaction restores pointer and integrations on failed health", async () => {
