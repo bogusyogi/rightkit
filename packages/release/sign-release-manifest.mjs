@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { signingEnv } from "./signing-env.mjs";
 
 export const RIGHTRELEASE_MANIFEST_SIGNER = Object.freeze({
   id: "azure-artifact-signing-damned-ventures-v1",
@@ -73,6 +74,7 @@ export function signReleaseManifestWithAzure({
 
   const temp = mkdtempSync(join(tmpdir(), "rightrelease-manifest-sign-"));
   const metadata = metadataPath || materializeMetadata(temp, env);
+  const signingEnvironment = signingEnv(environment, env);
   const catalogDir = join(temp, "catalog");
   mkdirSync(catalogDir, { recursive: true });
   const catalog = join(catalogDir, "catalog.cat");
@@ -84,15 +86,15 @@ export function signReleaseManifestWithAzure({
     "New-FileCatalog -Path $ManifestPath -CatalogFilePath $CatalogDirectory -CatalogVersion 2.0 | Out-Null",
   ].join("\r\n") + "\r\n");
   try {
-    const generation = commandRunner(powershellPath, ["-NoProfile", "-File", generator, resolve(manifestPath), catalogDir], { encoding: "utf8", windowsHide: true, env: environment });
+    const generation = commandRunner(powershellPath, ["-NoProfile", "-File", generator, resolve(manifestPath), catalogDir], { encoding: "utf8", windowsHide: true, env: signingEnvironment });
     if (generation?.status !== 0) throw new Error(`RightRelease manifest catalog generation failed: ${String(generation?.stderr ?? "").trim()}`);
     if (!existsSync(catalog) || !statSync(catalog).isFile()) throw new Error("RightRelease manifest catalog was not produced");
     const result = commandRunner(signtool, [
       "sign", "/v", "/fd", "SHA256", "/tr", "http://timestamp.acs.microsoft.com", "/td", "SHA256",
       "/dlib", dlib, "/dmdf", metadata, catalog,
-    ], { encoding: "utf8", windowsHide: true, env: environment });
-    if (result?.status !== 0) throw new Error(`RightRelease manifest signing failed: ${String(result?.stderr ?? "").trim()}`);
-    const inspection = inspectCatalog({ manifestPath: resolve(manifestPath), signaturePath: catalog, commandRunner, powershellPath, environment });
+    ], { encoding: "utf8", windowsHide: true, env: signingEnvironment });
+    if (result?.status !== 0) throw new Error(`RightRelease manifest signing failed: ${String(result?.stderr ?? "").trim()}\n${String(result?.stdout ?? "").slice(-1200)}`);
+    const inspection = inspectCatalog({ manifestPath: resolve(manifestPath), signaturePath: catalog, commandRunner, powershellPath, environment: signingEnvironment });
     if (inspection.verified !== true || inspection.catalogStatus !== "Valid" || inspection.signatureStatus !== "Valid") throw new Error("RightRelease manifest catalog verification failed");
     if (normalizeSubject(inspection.subject) !== normalizeSubject(RIGHTRELEASE_MANIFEST_SIGNER.subject) || !CERTIFICATE_SHA256.test(inspection.certificateSha256 ?? "")) throw new Error("RightRelease manifest signer identity does not match protected Azure profile");
     mkdirSync(dirname(signaturePath), { recursive: true });

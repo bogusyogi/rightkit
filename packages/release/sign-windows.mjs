@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { azureCliCandidates, signingEnv } from "./signing-env.mjs";
 
 const EXCLUDE_CREDENTIALS = [
   "ManagedIdentityCredential",
@@ -34,7 +35,7 @@ if (dryRun) {
 if (process.platform !== "win32") fail("Windows signing must run on Windows");
 for (const file of files) if (!existsSync(file)) fail(`missing file: ${file}`);
 
-const childEnv = signingEnv();
+const childEnv = signingEnv(process.env, env);
 const signtool = findFirst([env("AZURE_SIGNTOOL_PATH"), env("SIGNTOOL_PATH"), ...signtoolCandidates()]);
 if (!signtool) fail("signtool.exe not found; set AZURE_SIGNTOOL_PATH or install Windows SDK Build Tools");
 if (verifyOnly) {
@@ -84,19 +85,6 @@ function metadataPath(dir) {
   const file = path.join(dir, "metadata.json");
   writeFileSync(file, `${JSON.stringify({ Endpoint, CodeSigningAccountName, CertificateProfileName, ExcludeCredentials: EXCLUDE_CREDENTIALS }, null, 2)}\n`);
   return file;
-}
-
-function signingEnv() {
-  const paths = [path.dirname(findFirst(azureCliCandidates()) ?? ""), env("PATH")].filter(Boolean);
-  return { ...process.env, PATH: paths.join(path.delimiter) };
-}
-
-function azureCliCandidates() {
-  return [
-    path.join(env("LOCALAPPDATA") || "", "AzureCLI", "bin", "az.cmd"),
-    path.join(env("ProgramFiles(x86)") || "C:\\Program Files (x86)", "Microsoft SDKs", "Azure", "CLI2", "wbin", "az.cmd"),
-    path.join(env("ProgramFiles") || "C:\\Program Files", "Microsoft SDKs", "Azure", "CLI2", "wbin", "az.cmd"),
-  ];
 }
 
 function signtoolCandidates() {
