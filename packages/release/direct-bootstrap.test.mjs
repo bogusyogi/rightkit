@@ -268,7 +268,7 @@ test("prior executable capability floor gates legacy probes and rollback invocat
   assert.equal(contract.priorExecutableMinVersion, "0.1.84");
   assert.match(script, /\$PriorCliCapable = \$true; if \(\$Contract\.priorExecutableMinVersion\)/);
   assert.match(script, /if \(\$PriorTarget -and \$PriorCliCapable\)/);
-  assert.match(script, /if \(\$PriorTarget -and \(Test-Path \$Current\) -and \$PriorCliCapable\)/);
+  assert.match(script, /if \(\$PriorTarget -and \(Test-Path \$Current\) -and \$PriorCliCapable -and /);
   assert.deepEqual(validatePowerShellBootstrap(script, { product: "coderight", allowLocalReleaseRoot: true, acceptedSignerIds: [RIGHTRELEASE_MANIFEST_SIGNER.id] }), { valid: true, errors: [] });
   const ungated = renderPowerShellBootstrap({
     product: "coderight",

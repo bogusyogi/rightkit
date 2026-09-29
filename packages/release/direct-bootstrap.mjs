@@ -300,7 +300,51 @@ export function renderPowerShellBootstrap({
     // Every executable the installer invokes (prior probes, activation,
     // health) runs through one bounded launcher: a hung or TUI-launching
     // legacy binary must never stall installation or rollback forever.
-    "function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) { $Out = Join-Path ([IO.Path]::GetTempPath()) ('rkexe-' + [guid]::NewGuid() + '.out'); $Err = \"$Out.err\"; try { $Proc = Start-Process -FilePath $Path -ArgumentList $Arguments -NoNewWindow -PassThru -RedirectStandardOutput $Out -RedirectStandardError $Err; if (-not $Proc.WaitForExit($TimeoutSeconds * 1000)) { try { Stop-Process -Id $Proc.Id -Force } catch {}; throw ('Timed out after ' + $TimeoutSeconds + 's: ' + $Path) }; $Global:LASTEXITCODE = $Proc.ExitCode; if (Test-Path $Out) { return ([IO.File]::ReadAllText($Out)) }; return '' } finally { Remove-Item -Force $Out,$Err -ErrorAction SilentlyContinue } }",
+    String.raw`function ConvertTo-NativeArgument([AllowEmptyString()][string]$Value) {
+  # Start-Process joins ArgumentList with spaces; quote each argv element for
+  # the Windows native command-line parser, including empty/trailing-slash args.
+  return ('"' + [regex]::Replace([regex]::Replace($Value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"')
+}
+function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
+  $Out = Join-Path ([IO.Path]::GetTempPath()) ('rkexe-' + [guid]::NewGuid() + '.out'); $Err = "$Out.err"
+  $Proc = $null; $ExitCode = $null; $Failure = $null; $TimedOut = $false; $Stdout = ''; $Stderr = ''
+  try {
+    $StartOptions = @{ FilePath=$Path; NoNewWindow=$true; PassThru=$true; RedirectStandardOutput=$Out; RedirectStandardError=$Err }
+    if ($Arguments.Count) { $StartOptions.ArgumentList = (($Arguments | ForEach-Object { ConvertTo-NativeArgument $_ }) -join ' ') }
+    $Proc = Start-Process @StartOptions
+    # Windows PowerShell 5.1 must acquire the handle before waiting; otherwise
+    # ExitCode can remain null even after a successful native process exits.
+    $NativeProcessHandle = $Proc.Handle
+    if (-not $Proc.WaitForExit($TimeoutSeconds * 1000)) {
+      $TimedOut = $true
+      try { Stop-Process -Id $Proc.Id -Force -ErrorAction Stop; $null = $Proc.WaitForExit(2000) } catch {}
+      $Failure = 'Timed out after ' + $TimeoutSeconds + 's: ' + $Path
+    } else {
+      $ExitCode = $Proc.ExitCode
+      if ($null -eq $ExitCode) { $Failure = 'Native exit code unavailable: ' + $Path }
+      elseif ($ExitCode -ne 0) { $Failure = 'Command failed (exit ' + $ExitCode + '): ' + $Path }
+    }
+  } catch { $Failure = $_.Exception.Message }
+  finally {
+    try {
+      if (Test-Path -LiteralPath $Out) { $Stdout = [IO.File]::ReadAllText($Out) }
+      if (Test-Path -LiteralPath $Err) { $Stderr = [IO.File]::ReadAllText($Err) }
+    } finally {
+      if ($null -ne $Proc) { $Proc.Dispose() }
+      Remove-Item -LiteralPath $Out,$Err -Force -ErrorAction SilentlyContinue
+    }
+  }
+  $Global:LASTEXITCODE = $ExitCode
+  if ($Failure) {
+    $Newline = [Environment]::NewLine
+    $Exception = New-Object System.Exception ($Failure + $Newline + 'stdout:' + $Newline + $Stdout + $Newline + 'stderr:' + $Newline + $Stderr)
+    $Exception.Data['Path'] = $Path; $Exception.Data['Arguments'] = $Arguments
+    $Exception.Data['ExitCode'] = $ExitCode; $Exception.Data['TimedOut'] = $TimedOut
+    $Exception.Data['Stdout'] = $Stdout; $Exception.Data['Stderr'] = $Stderr
+    throw $Exception
+  }
+  return $Stdout
+}`,
     ...(allowLocalReleaseRoot ? [
       "New-Item -ItemType Directory -Force -Path $VersionsRoot | Out-Null",
       "$LocalReleaseRoot = $null; if ($ReleaseRoot) { $LocalReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot); if (-not (Test-Path -LiteralPath $LocalReleaseRoot -PathType Container)) { throw 'Local release root is missing' } }",
@@ -398,10 +442,24 @@ export function renderPowerShellBootstrap({
     // cleanup fails, catch still has a rollback anchor to restore.
     "  Remove-Item -Force $Journal; Remove-StableJunction $PreviousLink; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
     "} catch {",
-    "  if ($Switched -or $PriorDetached) { Remove-StableJunction $Current }; if ($PriorDetached -and (Test-Path $PreviousLink)) { Rename-Item -LiteralPath $PreviousLink -NewName (Split-Path -Leaf $Current) }",
-    "  if ($PriorTarget -and (Test-Path $Current) -and $PriorCliCapable) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorActivationArgs = @(Expand-BootstrapArgs $ActivationArgsTemplate ([string]$PriorTarget) $PriorVersion); $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); Invoke-BoundedExe $PriorExe $PriorActivationArgs 240 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Rollback activation failed' }; $PriorHealthText = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 120) | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Rollback health failed' }; $PriorHealth = $PriorHealthText | ConvertFrom-Json; try { Assert-Health $PriorHealth $PriorVersion } catch { throw 'Prior health was not restored' } }",
-    "  if (Test-Path $VersionRoot) { Remove-Item -Recurse -Force $VersionRoot }; throw",
-    "} finally { if (Test-Path $Work) { Remove-Item -Recurse -Force $Work } }",
+    "  $InstallError = $_; $RollbackErrors = New-Object 'System.Collections.Generic.List[string]'",
+    "  try { if ($Switched -or $PriorDetached) { Remove-StableJunction $Current }; if ($PriorDetached -and (Test-Path $PreviousLink)) { Rename-Item -LiteralPath $PreviousLink -NewName (Split-Path -Leaf $Current) } } catch { $RollbackErrors.Add($_.Exception.Message) }",
+    "  try { if ($PriorTarget -and (Test-Path $Current) -and $PriorCliCapable -and ([string](Get-Item -LiteralPath $Current).Target -eq [string]$PriorTarget)) { $PriorExe = Join-Path $Current " + psQuote(executablePath.replaceAll("/", "\\")) + "; $PriorActivationArgs = @(Expand-BootstrapArgs $ActivationArgsTemplate ([string]$PriorTarget) $PriorVersion); $PriorStatusArgs = @(Expand-BootstrapArgs $StatusArgsTemplate ([string]$PriorTarget) $PriorVersion); Invoke-BoundedExe $PriorExe $PriorActivationArgs 240 | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'Rollback activation failed' }; $PriorHealthText = ((Invoke-BoundedExe $PriorExe $PriorStatusArgs 120) | Out-String).Trim(); if ($LASTEXITCODE -ne 0) { throw 'Rollback health failed' }; $PriorHealth = $PriorHealthText | ConvertFrom-Json; try { Assert-Health $PriorHealth $PriorVersion } catch { throw ('Prior health was not restored: ' + $_.Exception.Message) } } } catch { $RollbackErrors.Add($_.Exception.Message) }",
+    String.raw`  try {
+    $CandidatePath = [IO.Path]::GetFullPath($VersionRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $VersionsPrefix = [IO.Path]::GetFullPath($VersionsRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $ActiveTarget = if (Test-Path -LiteralPath $Current) { [string](Get-Item -LiteralPath $Current).Target } else { $null }
+    if ($ActiveTarget -and -not [IO.Path]::IsPathRooted($ActiveTarget)) { $ActiveTarget = Join-Path (Split-Path -Parent $Current) $ActiveTarget }
+    if (-not $CandidatePath.StartsWith($VersionsPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Failed version cleanup escapes versions root' }
+    if ($ActiveTarget -and [IO.Path]::GetFullPath($ActiveTarget).TrimEnd([IO.Path]::DirectorySeparatorChar).Equals($CandidatePath, [StringComparison]::OrdinalIgnoreCase)) { throw 'Failed version is still active; preserved for recovery' }
+    if (Test-Path -LiteralPath $CandidatePath) { Remove-Item -LiteralPath $CandidatePath -Recurse -Force }
+  } catch { $RollbackErrors.Add($_.Exception.Message) }
+  if ($RollbackErrors.Count) {
+    $InstallError.Exception.Data['RollbackErrors'] = $RollbackErrors.ToArray()
+    Write-Warning ('Rollback/cleanup also failed: ' + ($RollbackErrors -join '; '))
+  }
+  throw $InstallError
+} finally { try { if (Test-Path -LiteralPath $Work) { Remove-Item -LiteralPath $Work -Recurse -Force } } catch { Write-Warning ('Installer work cleanup failed: ' + $_.Exception.Message) } }`,
   ];
   const body = lines.join("\r\n") + "\r\n";
   const sourceSha256 = createHash("sha256").update(body).digest("hex");
