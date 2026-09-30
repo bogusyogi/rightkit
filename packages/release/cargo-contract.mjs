@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
 
 const SKIP_DIRECTORIES = new Set([".audit", ".cache", ".git", ".claude", ".right-release", ".worktrees", "node_modules", "target", "vendor"]);
 const CRATES_IO_SOURCES = new Set([
@@ -28,7 +29,7 @@ export function managedCargoShimOnPath(env = process.env, platform = process.pla
 }
 
 export function brokerManagedHost(env = process.env, platform = process.platform, exists = existsSync) {
-  return Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET) || managedCargoShimOnPath(env, platform, exists);
+  return Boolean(managedRuntimeClient(env, platform, exists)) || Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET) || managedCargoShimOnPath(env, platform, exists);
 }
 
 export function isolatedCargoMetadataEnv(cargoHome, env = process.env, platform = process.platform, exists = existsSync) {
@@ -101,8 +102,7 @@ export function assertNoRightKitCargoOverrides(manifestPath, repoRoot, label) {
 }
 
 function readCargoManifestDependencies(manifestPath, cargoHome, label) {
-  const result = spawnSync(
-    cargoExecutable(),
+  const result = runCargoSync(
     cargoArguments(["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", manifestPath]),
     {
       cwd: path.dirname(manifestPath),

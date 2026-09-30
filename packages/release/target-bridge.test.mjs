@@ -150,7 +150,7 @@ test("fails closed and preserves a real target directory with user content", asy
   assert.equal(readFileSync(path.join(fx.link, "user.txt"), "utf8"), "keep\n");
 });
 
-test("rejecting a real target does not create the shared cache destination", () => {
+test("unmanaged target migration rejects a real target without creating the shared cache destination", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-target-bridge-pure-"));
   const target = path.join(root, "shared", "target");
   const link = path.join(root, "app", "src-tauri", "target");

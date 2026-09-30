@@ -46,6 +46,19 @@ test("accepts a template that skips maintenance UI for same-version repair and u
   assert.match(result.templatePath, /installer\.nsi$/);
 });
 
+test("accepts a template with no maintenance page at all", () => {
+  const root = fixture(`
+    !define RIGHTKIT_AUTOMATIC_IN_PLACE_UPGRADE
+    !insertmacro MUI_PAGE_WELCOME
+    !insertmacro MUI_PAGE_INSTFILES
+    Section Install
+      CopyFiles /SILENT "$PLUGINSDIR\\release\\*.*" "$INSTDIR\\versions\\1.0.0"
+    SectionEnd
+  `);
+  const result = assertNsisInPlaceUpgradeContract(root);
+  assert.equal(result.shape, "no-maintenance-page");
+});
+
 test("rejects a marker without executable skip-page logic", () => {
   const root = fixture(`
     !define RIGHTKIT_AUTOMATIC_IN_PLACE_UPGRADE

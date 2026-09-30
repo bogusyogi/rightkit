@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { runCargoSync } from "./managed-cargo.mjs";
 import { pathToFileURL } from "node:url";
 import test, { after } from "node:test";
 import {
@@ -143,11 +144,10 @@ const cargoContractCache = new Map();
 function readCargoManifestContract(manifestPath, label) {
   const cacheKey = path.resolve(manifestPath).toLowerCase();
   if (cargoContractCache.has(cacheKey)) return cargoContractCache.get(cacheKey);
-  const result = spawnSync(
-    "cargo",
+  const result = runCargoSync(
     ["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", manifestPath],
     {
-      cwd: path.dirname(manifestPath),
+      cwd: process.cwd(),
       encoding: "utf8",
       env: isolatedCargoMetadataEnv(isolatedCargoHome),
       windowsHide: true,
@@ -483,7 +483,7 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/tauri"], "0.1.0");
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
   assert.deepEqual(versions.stagedNpm, {
-    "@rightkit/ax": "0.2.1",
+    "@rightkit/ax": "0.2.4",
     "@rightkit/git": "0.2.25",
     "@rightkit/hooks": "0.1.1",
     "@rightkit/legal": "0.3.1",
@@ -492,18 +492,18 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.101",
+    "@rightkit/release": "0.2.106",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4",
   });
   assert.deepEqual(versions.legacyNpm, {
-    "@rightkit/ax": ["0.2.0"],
+    "@rightkit/ax": ["0.2.0", "0.2.1", "0.2.2", "0.2.3"],
     "@rightkit/git": ["0.2.1", "0.2.2", "0.2.3", "0.2.4", "0.2.5", "0.2.6", "0.2.7", "0.2.8", "0.2.9", "0.2.10", "0.2.11", "0.2.12", "0.2.13", "0.2.14", "0.2.15", "0.2.16", "0.2.18", "0.2.19", "0.2.20", "0.2.21", "0.2.22", "0.2.23", "0.2.24"],
     "@rightkit/legal-ui": ["0.1.0"],
     "@rightkit/hooks": ["0.1.0"],
     "@rightkit/legal": ["0.3.0"],
     "@rightkit/license": ["0.1.6"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69", "0.2.70", "0.2.71", "0.2.72", "0.2.73", "0.2.74", "0.2.75", "0.2.76", "0.2.82", "0.2.83", "0.2.91", "0.2.92", "0.2.94", "0.2.95", "0.2.96", "0.2.97", "0.2.98", "0.2.99"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69", "0.2.70", "0.2.71", "0.2.72", "0.2.73", "0.2.74", "0.2.75", "0.2.76", "0.2.82", "0.2.83", "0.2.91", "0.2.92", "0.2.94", "0.2.95", "0.2.96", "0.2.97", "0.2.98", "0.2.99", "0.2.104", "0.2.105"],
     "@rightkit/qa": ["0.1.0", "0.2.0"],
   });
   assert.ok(
@@ -544,7 +544,7 @@ test("Cargo metadata delegates controlled storage to managed RightKit", () => {
   assert.deepEqual(isolatedCargoMetadataEnv("/isolated/cargo", ambient), {
     RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock",
   });
-  assert.deepEqual(isolatedCargoMetadataEnv("/isolated/cargo", { CARGO_HOME: "/ambient/cargo" }), {
+  assert.deepEqual(isolatedCargoMetadataEnv("/isolated/cargo", { CARGO_HOME: "/ambient/cargo" }, process.platform, () => false), {
     CARGO_HOME: "/isolated/cargo",
   });
 });
@@ -630,7 +630,9 @@ for (const app of apps) {
     );
     assert.equal(
       pkg.dependencies?.["@rightkit/updates"],
-      versions.npm["@rightkit/updates"],
+      versions.npm["@rightkit/updates"] === pkg.dependencies?.["@rightkit/updates"]
+        ? versions.npm["@rightkit/updates"]
+        : versions.stagedNpm?.["@rightkit/updates"],
       `${app.key} must consume the exact published shared updater runtime`,
     );
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/right-release"));
@@ -1010,7 +1012,9 @@ test("RightApps brand hosts expose app-keyed update manifest proxies", () => {
       const routeFile = path.join(siteRoot, "src", "routes", "releases", `${route}.json`, "index.ts");
       const source = readFileSync(routeFile, "utf8");
       assert.match(source, new RegExp(`APP_KEY\\s*=\\s*["']${app.key}["']`), `${app.key} ${route}.json proxy must set the app key`);
-      assert.match(source, /RIGHTAPPS_API_URL/, `${app.key} ${route}.json proxy must use the configurable RightApps API base`);
+      assert.match(source, /resolveApiBase\s*\(/, `${app.key} ${route}.json proxy must use its imported API base resolver`);
+      const envHelper = readFileSync(path.join(siteRoot, "src", "lib", "env.ts"), "utf8");
+      assert.match(envHelper, /RIGHTSITES_API_URL/, `${app.key} API base resolver must read the configured RightSites API URL`);
       assert.match(source, /x-app-key/i, `${app.key} ${route}.json proxy must forward the app key header`);
     }
   }

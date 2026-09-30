@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 
 export function resolveMacosDeveloperIdIdentity({ env = process.env, run = spawnSync } = {}) {
   const configured = env.APPLE_DEVELOPER_ID?.trim();

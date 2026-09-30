@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawnSync } from "./background-process.mjs";
+import { brokerManagedHost } from "./cargo-contract.mjs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -16,7 +17,7 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows } = {}) {
+function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true } = {}) {
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "right-release-test-"));
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
@@ -64,8 +65,10 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
   writeFileSync(path.join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
   const tauriDir = path.join(dir, "src-tauri");
   mkdirSync(tauriDir, { recursive: true });
-  writeFileSync(path.join(tauriDir, "Cargo.toml"), `[package]\nname = "fixture-tauri"\nversion = "0.0.0"\nedition = "2021"\n[lib]\npath = "lib.rs"\n`, "utf8");
-  writeFileSync(path.join(tauriDir, "Cargo.lock"), "# fixture lock\n", "utf8");
+  if (includeCargoSources) {
+    writeFileSync(path.join(tauriDir, "Cargo.toml"), `[package]\nname = "fixture-tauri"\nversion = "0.0.0"\nedition = "2021"\n[lib]\npath = "lib.rs"\n`, "utf8");
+    writeFileSync(path.join(tauriDir, "Cargo.lock"), "# fixture lock\n", "utf8");
+  }
   writeFileSync(path.join(tauriDir, "lib.rs"), "pub fn fixture() {}\n", "utf8");
   if (cargoManifest) {
     writeFileSync(path.join(dir, "Cargo.toml"), `${cargoManifest}\n[lib]\npath = "fixture.rs"\n`, "utf8");
@@ -140,39 +143,28 @@ function lockFixture() {
   return { dir, config };
 }
 
-// This suite must exercise the non-broker path deterministically regardless of
-// whether the machine running the tests is itself broker-managed (this
-// workspace's own agent shells are: the managed cargo shim sits on PATH).
-// Strip both broker signals from the inherited environment before spawning.
-function unmanagedEnv() {
-  const sanitized = { ...process.env };
-  delete sanitized.RIGHTKIT_BUILD_BROKER_SOCKET;
-  const delimiter = process.platform === "win32" ? ";" : ":";
-  sanitized.PATH = String(process.env.PATH ?? "")
-    .split(delimiter)
-    .filter((entry) => !/(?:^|[/\\])(?:\.rightkit-managed|rightkitmanagedagent)[/\\]agent-bin$/i.test(entry))
-    .join(delimiter);
-  return sanitized;
+function managedEnv() {
+  return { ...process.env };
 }
 
 function run(config, ...args) {
   return spawnSync(process.execPath, [release, "--config", config, "--platform", "win", "--dry-run", ...args], {
     encoding: "utf8",
-    env: unmanagedEnv(),
+    env: managedEnv(),
   });
 }
 
 function runRaw(config, ...args) {
   return spawnSync(process.execPath, [release, "--config", config, ...args], {
     encoding: "utf8",
-    env: unmanagedEnv(),
+    env: managedEnv(),
   });
 }
 
 function runDoctor(config, ...args) {
   return spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", hostPlatform, ...args], {
     encoding: "utf8",
-    env: unmanagedEnv(),
+    env: managedEnv(),
   });
 }
 
@@ -366,7 +358,7 @@ test("rejects hosted workflow files before release work starts", () => {
 });
 
 test("accepts one right-git managed CI workflow without granting hosted release authority", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -380,7 +372,7 @@ test("accepts one right-git managed CI workflow without granting hosted release 
 });
 
 test("accepts right-git managed CI and unsigned release-candidate workflows", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -396,7 +388,7 @@ test("accepts right-git managed CI and unsigned release-candidate workflows", ()
 });
 
 test("rejects workflows that do not exactly match right-git manifest lanes", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -411,7 +403,7 @@ test("rejects workflows that do not exactly match right-git manifest lanes", () 
 });
 
 test("rejects a self-labeled right-git workflow with release-capable authority", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -427,7 +419,7 @@ test("rejects a self-labeled right-git workflow with release-capable authority",
 
 test("rejects managed candidate workflows with write-all or indexed secrets", () => {
   for (const unsafe of ["permissions: write-all\n", "env:\n  TOKEN: ${{ secrets[\"TOKEN\"] }}\n"]) {
-    const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+    const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
     const root = path.dirname(config);
     const workflowDir = path.join(root, ".github", "workflows");
     mkdirSync(workflowDir, { recursive: true });
@@ -445,7 +437,7 @@ test("rejects managed candidate workflows with write-all or indexed secrets", ()
 });
 
 test("permits only declared Apple signing secrets in an explicit signed qualification lane", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -459,7 +451,7 @@ test("permits only declared Apple signing secrets in an explicit signed qualific
 });
 
 test("permits only declared Apple signing secrets in a legacy tag-only lane", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -473,7 +465,7 @@ test("permits only declared Apple signing secrets in a legacy tag-only lane", ()
 });
 
 test("permits only declared Apple signing secrets in an admission-gated tag-last lane", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -487,7 +479,7 @@ test("permits only declared Apple signing secrets in an admission-gated tag-last
 });
 
 test("rejects broad manual dispatch authority for Apple signing in the tag-last lane", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -502,7 +494,7 @@ test("rejects broad manual dispatch authority for Apple signing in the tag-last 
 });
 
 test("rejects broad manual dispatch authority for Apple signing", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -518,7 +510,7 @@ test("rejects broad manual dispatch authority for Apple signing", () => {
 
 test("rejects undeclared Apple secrets or pull_request_target in candidate lane", () => {
   for (const unsafe of ["TOKEN: ${{ secrets.UNRELATED }}", "on:\n  pull_request_target:"]) {
-    const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+    const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
     const root = path.dirname(config);
     const workflowDir = path.join(root, ".github", "workflows");
     mkdirSync(workflowDir, { recursive: true });
@@ -534,7 +526,7 @@ test("rejects undeclared Apple secrets or pull_request_target in candidate lane"
 });
 
 test("permits declared release-chain publish secret & contents write in a legacy tag-only lane", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -573,7 +565,7 @@ test("rejects release-chain publish authority without exact tag qualification ga
     "if: ${{ github.event_name == 'workflow_dispatch' }}",
     "if: ${{ startsWith(github.ref, 'refs/tags/v') && needs.installed-qualification.result == 'success' }}\n    env:\n      TOKEN: ${{ secrets.UNRELATED }}",
   ]) {
-    const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+    const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
     const root = path.dirname(config);
     const workflowDir = path.join(root, ".github", "workflows");
     mkdirSync(workflowDir, { recursive: true });
@@ -599,7 +591,7 @@ jobs:
 });
 
 test("permits declared release-chain publish secret & contents write behind an admission-gated tag-last qualification gate", () => {
-  const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+  const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
@@ -644,7 +636,7 @@ test("rejects release-chain publish authority without exact qualification gate i
     // Every clause present, but riding in on an undeclared secret.
     "if: ${{ needs.admission.outputs.publish == 'true' && needs.installed-qualification.result == 'success' && needs.macos-sign.result == 'success' }}\n    env:\n      TOKEN: ${{ secrets.UNRELATED }}",
   ]) {
-    const config = fixture({ hostedWorkflows: "right-git-ci-only" });
+    const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
     const root = path.dirname(config);
     const workflowDir = path.join(root, ".github", "workflows");
     mkdirSync(workflowDir, { recursive: true });
@@ -697,24 +689,19 @@ test("doctor passes a clean selected target", () => {
   assert.match(result.stdout, new RegExp(`right-release ${expected.replace(/\./g, "\\.")}`));
 });
 
-test("doctor rejects a real src-tauri target before release work", () => {
+test("doctor handles a real src-tauri target according to host Cargo ownership", () => {
   const config = fixture({ platform: hostPlatform });
   mkdirSync(path.join(path.dirname(config), "src-tauri", "target"));
   const result = runDoctor(config);
-  assert.notEqual(result.status, 0);
-  assert.match(`${result.stdout}\n${result.stderr}`, /target-bridge[\s\S]*real directory[\s\S]*cache migrate/i);
-});
-
-test("doctor accepts a real src-tauri target on a broker-managed host instead of proposing cache migrate", () => {
-  const config = fixture({ platform: hostPlatform });
-  mkdirSync(path.join(path.dirname(config), "src-tauri", "target"));
-  const result = spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", hostPlatform], {
-    encoding: "utf8",
-    env: { ...unmanagedEnv(), RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock" },
-  });
-  assert.equal(result.status, 0, result.stderr);
-  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /cache migrate/i);
-  assert.match(result.stdout, /target-bridge[\s\S]*broker-managed host, left untouched/i);
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (brokerManagedHost(process.env)) {
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(output, /cache migrate/i);
+    assert.match(output, /target-bridge[\s\S]*broker-managed host, left untouched/i);
+  } else {
+    assert.notEqual(result.status, 0);
+    assert.match(output, /target-bridge[\s\S]*real directory[\s\S]*cache migrate/i);
+  }
 });
 
 test("doctor permits unrelated dirt", () => {

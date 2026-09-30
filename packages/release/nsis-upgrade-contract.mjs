@@ -33,16 +33,22 @@ export function assertNsisInPlaceUpgradeContract(appRoot, options = {}) {
       "Windows NSIS template must declare the RightKit automatic in-place upgrade policy; uninstall/reinstall maintenance choices add unnecessary friction",
     );
   }
-  if (
-    !/\$\{If\}\s+\$WixMode\s*=\s*0[\s\S]{0,160}\$\{AndIf\}\s+\$R0\s*>=\s*0[\s\S]{0,80}\bAbort\b/.test(
+  // Two acceptable shapes:
+  //  - legacy: Tauri's reinstall page is present but skipped for same-version
+  //    repair and in-place upgrades (the $WixMode / $R0 skip logic);
+  //  - no maintenance surface at all: the template declares no reinstall page,
+  //    no components page and no custom page, so there is nothing to skip.
+  const legacySkipLogic =
+    /\$\{If\}\s+\$WixMode\s*=\s*0[\s\S]{0,160}\$\{AndIf\}\s+\$R0\s*>=\s*0[\s\S]{0,80}\bAbort\b/.test(
       source,
-    )
-  ) {
+    );
+  const maintenanceSurface = /\bPageReinstall\b|MUI_PAGE_COMPONENTS|^\s*Page\s+custom\b/m.test(source);
+  if (!legacySkipLogic && maintenanceSurface) {
     throw new Error(
-      "Windows NSIS template is missing skip-page logic for same-version repair and in-place upgrades",
+      "Windows NSIS template has a reinstall or maintenance page without skip-page logic for same-version repair and in-place upgrades",
     );
   }
-  return { templatePath };
+  return { templatePath, shape: legacySkipLogic ? "legacy-skip-page" : "no-maintenance-page" };
 }
 
 function readJson(file, label) {
