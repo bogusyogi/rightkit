@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,43 @@ function fixture() {
   writeFileSync(join(root, "plugin.json"), JSON.stringify({ name: "legion", version: "0.1.0" }));
   return { root, source, output: join(root, "output") };
 }
+
+test("ships the hooks manifest when one is declared", () => {
+  // A core without hooks leaves every declared hook event unregistered, which
+  // reads to a user as the guard being absent rather than degraded.
+  const f = fixture();
+  const hooks = join(f.root, "hooks.json");
+  writeFileSync(hooks, JSON.stringify({ description: "guard", hooks: { SessionStart: [] } }));
+  const contract = assemblePortableCore({
+    outputDir: f.output,
+    pluginManifestPath: join(f.root, "plugin.json"),
+    hooksManifestPath: hooks,
+    skills: [{ id: "audit", visibility: "public", sourceRoot: f.source, sourceDir: join(f.source, "audit") }],
+    clientProjections: Object.fromEntries(Object.entries(CLIENT_PROJECTION_KINDS).map(([id, declaration]) => [id, declaration])),
+  });
+  assert.ok(contract.publicFiles.includes("hooks/hooks.json"));
+  assert.deepEqual(validatePortableCore(f.output).errors, [], "a core carrying hooks validates");
+});
+
+test("ships declared agents alongside skills", () => {
+  // A core that carries only skills leaves agent-only roles unreachable: that
+  // is how Legion's sage, alchemist and covenant-seat never reached any client
+  // while oracle worked, because oracle is also a skill.
+  const f = fixture();
+  mkdirSync(join(f.source, "agents"), { recursive: true });
+  writeFileSync(join(f.source, "agents", "sage.md"), "# Sage" + String.fromCharCode(10));
+  const contract = assemblePortableCore({
+    outputDir: f.output,
+    pluginManifestPath: join(f.root, "plugin.json"),
+    skills: [{ id: "audit", visibility: "public", sourceRoot: f.source, sourceDir: join(f.source, "audit") }],
+    agents: [{ name: "sage", sourceRoot: f.source, sourceFile: join(f.source, "agents", "sage.md") }],
+    clientProjections: Object.fromEntries(Object.entries(CLIENT_PROJECTION_KINDS).map(([id, declaration]) => [id, declaration])),
+  });
+  assert.deepEqual(contract.publicAgents, ["sage"]);
+  assert.ok(contract.publicFiles.includes("agents/sage.md"));
+  assert.equal(readFileSync(join(f.output, "agents", "sage.md"), "utf8"), "# Sage" + String.fromCharCode(10));
+  assert.deepEqual(validatePortableCore(f.output).errors, [], "an assembled core with agents validates");
+});
 
 test("assembles declared public skills and exact client boundaries", () => {
   const f = fixture();

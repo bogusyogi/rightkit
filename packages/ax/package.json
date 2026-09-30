@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/ax",
-  "version": "0.2.1",
+  "version": "0.2.4",
   "description": "Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

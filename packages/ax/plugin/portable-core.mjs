@@ -17,6 +17,7 @@ export const PORTABLE_CORE_SCHEMA = Object.freeze({
   properties: {
     schemaVersion: { const: PORTABLE_CORE_SCHEMA_VERSION }, kind: { const: PORTABLE_CORE_KIND }, plugin: { type: "string", minLength: 1 },
     publicSkills: { type: "array", minItems: 1, items: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
+    publicAgents: { type: "array", items: { type: "string", pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
     publicFiles: { type: "array", minItems: 2, items: { type: "string", minLength: 1 } }, privateWorkspaceContent: { const: false },
     clientProjections: { type: "object", additionalProperties: { type: "object" } },
   },
@@ -108,14 +109,63 @@ export function validatePortableCoreContract(contract) {
   } return { valid: findings.length === 0, findings, errors: findings.map((item) => item.message), contract };
 }
 
-export function assemblePortableCore({ outputDir, pluginManifestPath, mcpManifestPath = null, skills, clientProjections }) {
+
+// One agent per public markdown file, named by its own file stem so a host can
+// address it. Sources are validated the same way skills are: real regular
+// files, contained under a declared root, no links.
+function normalizeAgents(agents) {
+  if (agents === null || agents === undefined) return [];
+  if (!Array.isArray(agents)) throw new Error("portable core agents must be an array");
+  const seen = new Set();
+  return agents.map((agent) => {
+    const name = String(agent?.name ?? "").trim();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) throw new Error(`invalid public agent name: ${agent?.name}`);
+    if (seen.has(name)) throw new Error(`duplicate public agent: ${name}`);
+    seen.add(name);
+    const source = assertContained(agent.sourceRoot, agent.sourceFile, `agent ${name}`);
+    assertRegularPublicFile(source, `agent ${name}`);
+    return { name, source };
+  }).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function assemblePortableCore({ outputDir, pluginManifestPath, mcpManifestPath = null, hooksManifestPath = null, skills, agents = [], clientProjections }) {
   if (!outputDir || !pluginManifestPath) throw new Error("outputDir & pluginManifestPath are required"); assertRegularPublicFile(pluginManifestPath, "plugin manifest"); const plugin = readJson(pluginManifestPath); const manifestFindings = scanPublicValue(plugin, "plugin.json"); if (manifestFindings.length) throw new Error(manifestFindings[0].message);
   let mcp = null; if (mcpManifestPath) { assertRegularPublicFile(mcpManifestPath, "MCP manifest"); mcp = readJson(mcpManifestPath); const findings = scanPublicValue(mcp, "mcp.json"); if (findings.length) throw new Error(findings[0].message); }
   if (typeof plugin.name !== "string" || !plugin.name.trim()) throw new Error("plugin.json requires name"); if (!Array.isArray(skills) || skills.length === 0) throw new Error("portable core requires explicit public skills"); const seen = new Set();
   const normalizedSkills = skills.map((skill) => { assertSkillId(skill.id); if (seen.has(skill.id)) throw new Error(`duplicate public skill ID: ${skill.id}`); seen.add(skill.id); if (skill.visibility !== "public") throw new Error(`portable core rejects non-public skill: ${skill.id}`); if (skill.personal === true || skill.private === true) throw new Error(`portable core rejects private/personal skill: ${skill.id}`); const source = assertContained(skill.sourceRoot, skill.sourceDir, `skill ${skill.id}`); if (!existsSync(join(source, "SKILL.md"))) throw new Error(`skill ${skill.id} lacks SKILL.md`); return { id: skill.id, source }; }).sort((left, right) => left.id.localeCompare(right.id));
-  const projections = normalizeClientProjections(clientProjections); rmSync(outputDir, { recursive: true, force: true }); mkdirSync(join(outputDir, "skills"), { recursive: true }); cpSync(pluginManifestPath, join(outputDir, "plugin.json")); const publicFiles = ["plugin.json"]; if (mcpManifestPath) { cpSync(mcpManifestPath, join(outputDir, "mcp.json")); publicFiles.push("mcp.json"); }
+  const projections = normalizeClientProjections(clientProjections); rmSync(outputDir, { recursive: true, force: true }); mkdirSync(join(outputDir, "skills"), { recursive: true }); cpSync(pluginManifestPath, join(outputDir, "plugin.json")); const publicFiles = ["plugin.json"]; if (mcpManifestPath) {
+    cpSync(mcpManifestPath, join(outputDir, "mcp.json"));
+    publicFiles.push("mcp.json");
+    // Client descriptor aliases. Claude Code reads `.claude-plugin/plugin.json`
+    // and `.mcp.json`; Antigravity reads `mcp_config.json`. Carrying them here
+    // makes every client's plugin root byte-identical to this core, which is
+    // what lets a root be a link to one installed tree instead of a private
+    // copy per harness that upgrades never reach.
+    mkdirSync(join(outputDir, ".claude-plugin"), { recursive: true });
+    cpSync(pluginManifestPath, join(outputDir, ".claude-plugin", "plugin.json"));
+    cpSync(mcpManifestPath, join(outputDir, ".mcp.json"));
+    cpSync(mcpManifestPath, join(outputDir, "mcp_config.json"));
+    publicFiles.push(".claude-plugin/plugin.json", ".mcp.json", "mcp_config.json");
+  }
+  // Hooks are part of the surface a host loads. A core that omits them
+  // leaves every declared hook event unregistered, which reads to the user
+  // as the guard being absent rather than degraded.
+  if (hooksManifestPath) { assertRegularPublicFile(hooksManifestPath, "hooks manifest"); const hooks = readJson(hooksManifestPath); const findings = scanPublicValue(hooks, "hooks/hooks.json"); if (findings.length) throw new Error(findings[0].message); mkdirSync(join(outputDir, "hooks"), { recursive: true }); cpSync(hooksManifestPath, join(outputDir, "hooks", "hooks.json")); publicFiles.push("hooks/hooks.json"); }
   for (const skill of normalizedSkills) { const destination = join(outputDir, "skills", skill.id); mkdirSync(destination, { recursive: true }); publicFiles.push(...copyTreeNoLinks(skill.source, destination, `skills/${skill.id}`)); }
-  const publicFileSet = new Set(publicFiles); const contract = { schemaVersion: PORTABLE_CORE_SCHEMA_VERSION, kind: PORTABLE_CORE_KIND, plugin: plugin.name, publicSkills: normalizedSkills.map(({ id }) => id), publicFiles, privateWorkspaceContent: false, clientProjections: projections }; writeFileSync(join(outputDir, "rightax-portable-core.json"), `${JSON.stringify(contract, null, 2)}\n`);
+  // Agents are part of the plugin surface a host loads, not an optional extra:
+  // a core that ships only skills leaves every agent-only role unreachable,
+  // which is exactly how Legion's sage, alchemist and covenant-seat never
+  // reached any client while oracle worked because it is also a skill.
+  const normalizedAgents = normalizeAgents(agents);
+  if (normalizedAgents.length) {
+    mkdirSync(join(outputDir, "agents"), { recursive: true });
+    for (const agent of normalizedAgents) {
+      const relative = `agents/${agent.name}.md`;
+      cpSync(agent.source, join(outputDir, relative));
+      publicFiles.push(relative);
+    }
+  }
+  const publicFileSet = new Set(publicFiles); const contract = { schemaVersion: PORTABLE_CORE_SCHEMA_VERSION, kind: PORTABLE_CORE_KIND, plugin: plugin.name, publicSkills: normalizedSkills.map(({ id }) => id), publicAgents: normalizedAgents.map(({ name }) => name), publicFiles, privateWorkspaceContent: false, clientProjections: projections }; writeFileSync(join(outputDir, "rightax-portable-core.json"), `${JSON.stringify(contract, null, 2)}\n`);
   const closure = validateResourceClosure(outputDir, publicFileSet); if (mcp) validateMcpClosure(mcp, outputDir, publicFileSet, closure); const outputCheck = enumerateFiles(outputDir); const unexpected = outputCheck.files.filter((path) => path !== "rightax-portable-core.json" && !publicFileSet.has(path)); if (closure.length || outputCheck.findings.length || unexpected.length) throw new Error([...closure, ...outputCheck.findings, ...unexpected.map((path) => finding(`undeclared output file: ${path}`))][0].message); return contract;
 }
 
