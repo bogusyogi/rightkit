@@ -2,37 +2,27 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "./background-process.mjs";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { runCacheCommand } from "./cache-command.mjs";
 
-const root = path.dirname(fileURLToPath(import.meta.url));
-const cli = path.join(root, "cli", "right-release.mjs");
-
-// This suite must exercise the non-broker cache-command path deterministically,
-// regardless of whether the machine running the tests is itself broker-managed
-// (this workspace's own agent shells are: the managed cargo shim sits on PATH).
-// Strip both broker signals from the inherited environment so "unmanaged host"
-// tests stay unmanaged; individual tests opt back into broker signals explicitly.
-function unmanagedEnv(base = process.env) {
-  const sanitized = { ...base };
-  delete sanitized.RIGHTKIT_BUILD_BROKER_SOCKET;
-  const delimiter = process.platform === "win32" ? ";" : ":";
-  sanitized.PATH = String(base.PATH ?? "")
-    .split(delimiter)
-    .filter((entry) => !/(?:^|[/\\])(?:\.rightkit-managed|rightkitmanagedagent)[/\\]agent-bin$/i.test(entry))
-    .join(delimiter);
-  return sanitized;
+async function run(args, cacheRoot, env = {}, isBrokerHost = () => false) {
+  let stdout = "";
+  let stderr = "";
+  try {
+    await runCacheCommand(args, {
+      env: { ...process.env, RIGHT_RELEASE_CACHE_ROOT: cacheRoot, ...env }, isBrokerHost,
+      stdout: (value) => { stdout += `${value}\n`; }, stderr: (value) => { stderr += `${value}\n`; },
+    });
+    return { status: 0, stdout, stderr };
+  } catch (error) {
+    return { status: 2, stdout, stderr: `${stderr}${error.message}\n` };
+  }
 }
 
-function run(args, cacheRoot, env = {}) {
-  return spawnSync(process.execPath, [cli, "cache", ...args], { encoding: "utf8", env: { ...unmanagedEnv(), RIGHT_RELEASE_CACHE_ROOT: cacheRoot, ...env } });
-}
-
-test("cache status has human and schema-stable JSON output", () => {
+test("cache status has human and schema-stable JSON output", async () => {
   const cacheRoot = mkdtempSync(path.join(os.tmpdir(), "rightkit-cache-command-"));
-  const human = run(["status"], cacheRoot);
-  const json = run(["status", "--json"], cacheRoot);
+  const human = await run(["status"], cacheRoot);
+  const json = await run(["status", "--json"], cacheRoot);
   assert.equal(human.status, 0, human.stderr);
   assert.match(human.stdout, /RightKit cache root:/);
   assert.match(human.stdout, /Backups: 0 bytes/);
@@ -40,33 +30,33 @@ test("cache status has human and schema-stable JSON output", () => {
   assert.equal(JSON.parse(json.stdout).schema, 1);
 });
 
-test("cache prune defaults to dry-run and only apply can mutate an admitted temporary entry", () => {
+test("cache prune defaults to dry-run and only apply can mutate an admitted temporary entry", async () => {
   const cacheRoot = mkdtempSync(path.join(os.tmpdir(), "rightkit-cache-command-"));
   const target = path.join(cacheRoot, "targets", "mac", "fixture", "1111111111111111");
   mkdirSync(target, { recursive: true });
   writeFileSync(path.join(target, "payload"), "payload");
   writeFileSync(path.join(target, ".rightkit-cache-entry.json"), JSON.stringify({ schema: 1, id: "target:mac:fixture:1111111111111111", kind: "release", platform: "mac", architecture: "aarch64", app: "fixture", fingerprint: "1111111111111111", createdAt: "2020-01-01T00:00:00.000Z", lastUsedAt: "2020-01-01T00:00:00.000Z", lastSuccessfulBuildAt: "2020-01-01T00:00:00.000Z", toolchain: {} }));
-  const dry = run(["prune", "--dry-run", "--json"], cacheRoot);
+  const dry = await run(["prune", "--dry-run", "--json"], cacheRoot);
   assert.equal(dry.status, 0, dry.stderr);
   assert.equal(JSON.parse(dry.stdout).dryRun, true);
-  assert.equal(run(["prune", "--apply", "--json"], cacheRoot).status, 0);
+  assert.equal((await run(["prune", "--apply", "--json"], cacheRoot)).status, 0);
 });
 
-test("cache rejects unknown commands and migration requires a config", () => {
+test("cache rejects unknown commands and migration requires a config", async () => {
   const cacheRoot = mkdtempSync(path.join(os.tmpdir(), "rightkit-cache-command-"));
-  assert.notEqual(run(["unknown"], cacheRoot).status, 0);
-  assert.notEqual(run(["migrate"], cacheRoot).status, 0);
+  assert.notEqual((await run(["unknown"], cacheRoot)).status, 0);
+  assert.notEqual((await run(["migrate"], cacheRoot)).status, 0);
 });
 
-test("status and prune dry-run do not create a cache root or lock file", () => {
+test("status and prune dry-run do not create a cache root or lock file", async () => {
   const parent = mkdtempSync(path.join(os.tmpdir(), "rightkit-cache-command-"));
   const cacheRoot = path.join(parent, "never-created");
-  assert.equal(run(["status", "--json"], cacheRoot).status, 0);
-  assert.equal(run(["prune", "--dry-run", "--json"], cacheRoot).status, 0);
+  assert.equal((await run(["status", "--json"], cacheRoot)).status, 0);
+  assert.equal((await run(["prune", "--dry-run", "--json"], cacheRoot)).status, 0);
   assert.equal(existsSync(cacheRoot), false);
 });
 
-test("cache migrate uses the repository vault Cargo home, not an app-local lookalike", () => {
+test("cache migrate uses the repository vault Cargo home, not an app-local lookalike", async () => {
   const sandbox = mkdtempSync(path.join(os.tmpdir(), "rightkit-cache-command-"));
   const repo = path.join(sandbox, "repo"); const app = path.join(repo, "app"); const cacheRoot = path.join(sandbox, "shared-cache");
   const config = path.join(app, "right-release.config.mjs"); const fingerprint = "abcdef0123456789";
@@ -83,36 +73,35 @@ test("cache migrate uses the repository vault Cargo home, not an app-local looka
   symlinkSync(target, path.join(app, "src-tauri", "target"));
   mkdirSync(vaultCargoHome, { recursive: true }); writeFileSync(path.join(vaultCargoHome, "registry"), "vault");
   mkdirSync(appCargoHome, { recursive: true }); writeFileSync(path.join(appCargoHome, "registry"), "app-local");
-  const result = run(["migrate", "--config", config, "--apply", "--json"], cacheRoot, { RIGHT_RELEASE_PLATFORM: "mac", RIGHT_RELEASE_RUSTC_VERBOSE: "rustc 1.91.0\nhost: aarch64-apple-darwin", RIGHT_RELEASE_CACHE_KEY: fingerprint });
+  const result = await run(["migrate", "--config", config, "--apply", "--json"], cacheRoot, { RIGHT_RELEASE_PLATFORM: "mac", RIGHT_RELEASE_RUSTC_VERBOSE: "rustc 1.91.0\nhost: aarch64-apple-darwin", RIGHT_RELEASE_CACHE_KEY: fingerprint });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).cargoHomeMoved, true);
   assert.equal(readFileSync(path.join(cacheRoot, "cargo-home", "registry"), "utf8"), "vault");
   assert.equal(readFileSync(path.join(appCargoHome, "registry"), "utf8"), "app-local");
 });
 
-test("status, prune, and migrate short-circuit cleanly on a broker-managed host without proposing a repair", () => {
+test("status, prune, and migrate short-circuit cleanly on a broker-managed host without proposing a repair", async () => {
   const cacheRoot = mkdtempSync(path.join(os.tmpdir(), "rightkit-cache-command-"));
-  const brokerEnv = { RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock" };
-
-  const status = run(["status", "--json"], cacheRoot, brokerEnv);
+  const fixtureBrokerHost = () => true;
+  const status = await run(["status", "--json"], cacheRoot, {}, fixtureBrokerHost);
   assert.equal(status.status, 0, status.stderr);
   const statusBody = JSON.parse(status.stdout);
   assert.equal(statusBody.brokerManaged, true);
   assert.match(statusBody.message, /broker-managed host/);
   assert.doesNotMatch(status.stdout + status.stderr, /warn|repair|corrupt/i);
 
-  const prune = run(["prune", "--dry-run", "--json"], cacheRoot, brokerEnv);
+  const prune = await run(["prune", "--dry-run", "--json"], cacheRoot, {}, fixtureBrokerHost);
   assert.equal(prune.status, 0, prune.stderr);
   assert.equal(JSON.parse(prune.stdout).brokerManaged, true);
 
   // migrate short-circuits before even requiring --config, since a broker host has
   // nothing under Cache V2's target layout for it to migrate into.
-  const migrate = run(["migrate", "--json"], cacheRoot, brokerEnv);
+  const migrate = await run(["migrate", "--json"], cacheRoot, {}, fixtureBrokerHost);
   assert.equal(migrate.status, 0, migrate.stderr);
   assert.equal(JSON.parse(migrate.stdout).brokerManaged, true);
 
   // Non-broker host: unchanged behaviour.
-  const unmanaged = run(["status", "--json"], cacheRoot);
+  const unmanaged = await run(["status", "--json"], cacheRoot);
   assert.equal(unmanaged.status, 0, unmanaged.stderr);
   assert.equal(JSON.parse(unmanaged.stdout).brokerManaged, undefined);
 });

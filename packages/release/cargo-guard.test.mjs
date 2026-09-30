@@ -68,6 +68,7 @@ test("Cargo guard injects project-keyed target and sccache directories", async (
   let guarded;
   await runCargoGuard(["build"], {
     env: cacheEnv(), resolveCargo: () => "/real/cargo", resolveRustc: () => "/real/rustc",
+    isBrokerHost: () => false,
     runHeavy: async (_args, config) => { guarded = config.env; return 0; },
   });
   assert.match(guarded.CARGO_TARGET_DIR, /dev-targets[/\\][^/\\]+-[a-f0-9]{12}$/);
@@ -78,6 +79,7 @@ test("Cargo guard injects project-keyed target and sccache directories", async (
 test("Cargo guard rejects cache escapes and alternate compiler wrappers", async () => {
   const run = (args, overrides) => runCargoGuard(args, {
     env: cacheEnv(overrides), resolveCargo: () => "/real/cargo", resolveRustc: () => "/real/rustc",
+    isBrokerHost: () => false,
     runHeavy: async () => 0,
   });
   await assert.rejects(run(["build"], { CARGO_TARGET_DIR: path.resolve("outside-target") }), /CARGO_TARGET_DIR/);
@@ -124,6 +126,7 @@ test("Cargo guard routes heavy and light commands without recursion", async () =
     policyOptions: { exists: () => false },
     resolveCargo: () => "/real/cargo",
     resolveRustc: () => "/real/rustc",
+    isBrokerHost: () => false,
     runHeavy: async (args, config) => { calls.push(["heavy", args, config.env]); return 0; },
     runLight: async (command, args, env) => { calls.push(["light", command, args, env]); return 0; },
   };

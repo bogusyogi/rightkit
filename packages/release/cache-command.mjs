@@ -25,12 +25,12 @@ import { brokerManagedHost } from "./cargo-contract.mjs";
 const BROKER_MANAGED_MESSAGE = "broker-managed host: the build broker owns CARGO_TARGET_DIR; Cache V2 target checks skipped";
 const BROKER_GATED_COMMANDS = new Set(["status", "prune", "migrate"]);
 
-export async function runCacheCommand(args = process.argv.slice(2), { env = process.env, stdout = console.log, stderr = console.error } = {}) {
+export async function runCacheCommand(args = process.argv.slice(2), { env = process.env, stdout = console.log, stderr = console.error, isBrokerHost = brokerManagedHost } = {}) {
   const [command, ...rest] = args;
   const json = rest.includes("--json");
   const platform = platformFrom(env);
   const cacheRoot = resolveSharedCacheRoot({ platform, env });
-  if (BROKER_GATED_COMMANDS.has(command) && brokerManagedHost(env)) {
+  if (BROKER_GATED_COMMANDS.has(command) && isBrokerHost(env)) {
     const result = { schema: 1, command, cacheRoot, brokerManaged: true, skipped: true, message: BROKER_MANAGED_MESSAGE };
     if (json) stdout(JSON.stringify(result));
     else stdout(BROKER_MANAGED_MESSAGE);

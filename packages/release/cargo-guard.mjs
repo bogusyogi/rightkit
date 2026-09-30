@@ -178,7 +178,7 @@ function assertInsideCache(candidate, cacheRoot, label, { cwd, platform }) {
 }
 
 export function cargoCacheEnvironment(args, {
-  env = process.env, cwd = process.cwd(), platform = process.platform, exists = existsSync,
+  env = process.env, cwd = process.cwd(), platform = process.platform, exists = existsSync, isBrokerHost = brokerManagedHost,
 } = {}) {
   const paths = pathApi(platform);
   const cacheRoot = resolveSharedCacheRoot({ platform, env });
@@ -195,7 +195,7 @@ export function cargoCacheEnvironment(args, {
   // outside the shared cache root, so asserting it stays inside cacheRoot is a
   // spurious failure, not a real violation. Pass the broker's own value through
   // untouched instead of rejecting it.
-  const broker = brokerManagedHost(env, platform, exists);
+  const broker = isBrokerHost(env, platform, exists);
   if (explicitTarget && !broker) assertInsideCache(explicitTarget, cacheRoot, "--target-dir", { cwd, platform });
   const targetDir = broker
     ? (env.CARGO_TARGET_DIR ?? explicitTarget ?? defaultTarget)
@@ -243,7 +243,7 @@ export async function runCargoGuard(args, { env = process.env, policyOptions = {
   }
   const cargo = resolveCargo({ env });
   if (shouldGuardCargo(args)) {
-    const guarded = cargoCacheEnvironment(args, { env });
+    const guarded = cargoCacheEnvironment(args, { env, isBrokerHost });
     // Pin RUSTC on every platform, not just Windows: cargo otherwise resolves
     // bare `rustc` from its child PATH, and on this Mac that reached a stale
     // 1.78.0 shim while cargo 1.97 passed --check-cfg — failing any crate
