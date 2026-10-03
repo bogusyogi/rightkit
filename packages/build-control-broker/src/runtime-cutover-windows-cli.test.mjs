@@ -93,6 +93,24 @@ test('Windows PID selection rejects shell/self matches', () => {
   assert.equal(selectWindowsNodePid(processes, 'C:\\Program Files\\nodejs\\node.exe'), 913); assert.equal(selectWindowsNodePid(processes[0], 'C:\\Program Files\\nodejs\\node.exe'), null);
 });
 
+test('Windows process proof excludes cutover CLI sharing node executable & config', async () => {
+  const externalRoot = join(tmpdir(), 'rightkit-pid-test');
+  const configPath = join(externalRoot, 'config.json');
+  const runtime = join(externalRoot, 'runtime-candidate');
+  const brokerScript = join(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
+  const brokerCommand = `"${process.execPath}" "${brokerScript}" "${configPath}"`;
+  const processes = [
+    { ProcessId: 38192, Name: 'node.exe', ExecutablePath: process.execPath, CommandLine: `"${process.execPath}" runtime-cutover-windows-cli.mjs --config "${configPath}"` },
+    { ProcessId: 15392, Name: 'node.exe', ExecutablePath: process.execPath, CommandLine: brokerCommand },
+  ];
+  const callbacks = createWindowsRuntimeCallbacks({
+    taskName: 'RightKitTest', externalRoot, configPath, endpoint: '\\\\.\\pipe\\rightkit-test', drainProbe: async () => ({ open: 0 }),
+    execFile: async (_command, args) => ({ stdout: args.at(-1).includes('-ExpandProperty CommandLine') ? brokerCommand : JSON.stringify(processes) }),
+  });
+  assert.deepEqual(await callbacks.processProbe({ pid: 15392, runtime }), { alive: true, runtimePath: runtime, scriptPath: join(runtime, 'build-control-broker', 'src', 'broker.mjs') });
+  assert.deepEqual(await callbacks.processProbe({ pid: 38192, runtime }), { alive: false });
+});
+
 test('Windows PID selection resolves an NVM junction before exact executable comparison', async () => {
   const physical = [{ ProcessId: 913, Name: 'node.exe', ExecutablePath: 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe' }];
   const junction = [{ ProcessId: 914, Name: 'node.exe', ExecutablePath: 'C:\\nvm4w\\nodejs\\node.exe' }];
