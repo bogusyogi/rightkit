@@ -36,6 +36,29 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
 async function call(service, value) { const events = []; const result = await service.dispatch(value, (event) => { events.push(event); return true; }); return { result, events }; }
 async function waitFor(service, id, states) { let last; for (let attempt = 0; attempt < 100; attempt += 1) { const { result } = await call(service, command('STATUS', id)); last = result; if (states.includes(result.state)) return result; if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(result.state)) break; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error(`job ${id} did not reach ${states}: ${JSON.stringify(last)}`); }
 
+test('Cargo iteration cache mode follows profile flags before executable arguments', async () => {
+  const prepared = [];
+  const cache = {
+    prepare: async (options) => { prepared.push(options); return { mode: 'sccache', status: 'OK', environment: {}, before: {} }; },
+    finish: async () => ({ mode: 'sccache', status: 'OK', delta: {} })
+  };
+  const item = await fixture({ cache });
+  try {
+    for (const [argv, expected] of [
+      [['build', '--profile', 'release-iterate'], 'release-iterate'],
+      [['build', '--profile=release-iterate'], 'release-iterate'],
+      [['build', '--release'], 'release'],
+      [['test', '--', '--profile=release-iterate'], 'release']
+    ]) {
+      const iterationRequest = (await call(item.service, command('SUBMIT', message(item.workspace, argv)))).result;
+      await waitFor(item.service, iterationRequest.id, ['RUNNING']);
+      assert.equal(prepared.at(-1).profile, expected);
+      item.children.at(-1).emit('close', 0, null);
+      await waitFor(item.service, iterationRequest.id, ['SUCCEEDED']);
+    }
+  } finally { await item.close(); }
+});
+
 test('broker readiness does not wait for retired-generation sizing', async () => {
   let release; let markGcStarted;
   const gate = new Promise((resolve) => { release = resolve; });

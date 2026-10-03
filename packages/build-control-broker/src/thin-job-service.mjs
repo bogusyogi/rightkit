@@ -43,6 +43,14 @@ const DEFAULT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const CANCELLATION_SOURCES = new Set(['USER_CANCEL', 'OPERATOR_CANCEL', 'CLIENT_SIGNAL', 'PARENT_CANCEL', 'BROKER_SHUTDOWN', 'DEADLINE', 'STORAGE_FLOOR', 'CONTAINMENT_FAILURE', 'RELEASE_PRIORITY_CANCEL', 'UNKNOWN']);
 const execFile = promisify(nodeExecFile);
 
+function cacheBuildProfile(shim, argv) {
+  if (shim !== 'cargo') return 'release';
+  const separator = argv.indexOf('--');
+  const cargoArgv = separator < 0 ? argv : argv.slice(0, separator);
+  return cargoCohort({ argv: cargoArgv, profile: 'release' }).profile === 'release-iterate'
+    ? 'release-iterate' : 'release';
+}
+
 const integer = (value, fallback, minimum = 0) => {
   const selected = value ?? fallback;
   if (!Number.isSafeInteger(selected) || selected < minimum) throw new TypeError(`integer >= ${minimum} is required`);
@@ -496,7 +504,7 @@ export class ThinJobService {
       job.rootSetupStartedAt ??= this.#now();
       if (job.capability.compile && !job.capability.skipRootServices) await this.#admitStorage(job);
       job.cachePrepared = (job.capability.compile && !job.capability.skipRootServices)
-        ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4, repositoryRoot: job.repositoryRoot, workspaceRoot: job.workspaceRoot, jobId: job.id })
+        ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4, repositoryRoot: job.repositoryRoot, workspaceRoot: job.workspaceRoot, jobId: job.id, profile: cacheBuildProfile(job.shim, job.invokeArgv) })
         : job.parentId
           ? { mode: 'sccache-inherited', status: 'OK', environment: { }, before: null }
           : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };

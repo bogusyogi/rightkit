@@ -136,15 +136,15 @@ export class ThinCache {
     await this.#event({ type: 'CACHE_GATEWAY_STOPPED', epoch: this.#epoch, endpoint: this.#endpoint.display });
   }
 
-  async prepare({ layout, cargoBuildJobs = 4, repositoryRoot = null, workspaceRoot = null, jobId = null } = {}) {
+  async prepare({ layout, cargoBuildJobs = 4, repositoryRoot = null, workspaceRoot = null, jobId = null, profile = 'release' } = {}) {
     if (!layout?.target || !layout?.temp) throw new TypeError('workspace generation layout is required');
+    if (profile !== 'release' && profile !== 'release-iterate') throw new TypeError('profile must be release or release-iterate');
     const base = Object.freeze({
       CARGO_HOME: this.#paths.cargoHome,
       CARGO_BUILD_JOBS: String(positive(cargoBuildJobs, 'cargoBuildJobs', 4)),
-      // Cargo dev/check/test defaults to incremental rustc output, which
-      // sccache explicitly refuses. Cross-target reuse requires cacheable,
-      // deterministic compiler invocations instead of per-target increments.
-      CARGO_INCREMENTAL: '0',
+      // Keep ordinary builds cacheable. Explicit iteration builds follow
+      // manifest incremental policy while dependencies still use sccache.
+      ...(profile === 'release' ? { CARGO_INCREMENTAL: '0' } : {}),
       TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp
     });
     if (!this.#enabled) throw new ThinCacheUnavailableError('sccache-disabled', 'DISABLED');

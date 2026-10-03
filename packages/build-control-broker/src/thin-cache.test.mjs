@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { join } from 'node:path';
 import { defaultThinCacheTimeoutMs, ThinCache, ThinCacheUnavailableError, thinCacheStatsDelta } from './thin-cache.mjs';
 
 const paths = { cargoHome: '/managed/cargo-home', compilerCache: '/managed/compiler-cache', temporary: '/managed/tmp' };
@@ -47,7 +48,7 @@ test('owns one gateway & injects strict cache environment with health proof', as
   assert.equal(prepared.environment.SCCACHE_NO_DAEMON, '1');
   assert.equal(prepared.environment.SCCACHE_IGNORE_SERVER_IO_ERROR, '0');
   assert.equal(prepared.environment.SCCACHE_LOCAL_RW_MODE, 'READ_WRITE');
-  assert.equal(prepared.environment.SCCACHE_SERVER_UDS, '/managed/tmp/sccache-gateway.sock');
+  assert.equal(prepared.environment.SCCACHE_SERVER_UDS, join('/managed/tmp', 'sccache-gateway.sock'));
   assert.equal(prepared.environment.CARGO_BUILD_JOBS, '4');
   assert.equal(prepared.environment.CARGO_INCREMENTAL, '0');
   assert.equal(prepared.health.gatewayPid, 42);
@@ -64,6 +65,23 @@ test('owns one gateway & injects strict cache environment with health proof', as
   assert.equal(finished.attribution.exact, true);
   assert.deepEqual(finished.delta, { compile_requests: 0 });
   await cache.close();
+});
+
+test('release iteration leaves Cargo incremental policy to manifest while retaining managed cache', async () => {
+  const { cache } = harness({ platform: 'linux' });
+  await cache.start();
+  const prepared = await cache.prepare({ layout, profile: 'release-iterate', jobId: 'iterate-job' });
+  assert.equal(prepared.environment.CARGO_INCREMENTAL, undefined);
+  assert.equal(prepared.environment.CARGO_HOME, paths.cargoHome);
+  assert.equal(prepared.environment.RUSTC_WRAPPER, '/managed/tools/sccache');
+  assert.equal(prepared.environment.SCCACHE_DIR, paths.compilerCache);
+  assert.equal(prepared.environment.SCCACHE_START_SERVER, '0');
+  await cache.close();
+});
+
+test('thin cache rejects unapproved iteration profiles', async () => {
+  const { cache } = harness();
+  await assert.rejects(cache.prepare({ layout, profile: 'debug' }), /profile must be release or release-iterate/);
 });
 
 test('Windows cache clients use broker-owned TCP gateway', async () => {
