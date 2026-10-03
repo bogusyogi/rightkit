@@ -121,20 +121,40 @@ static HANDLE UnwrapHandle(napi_env env, napi_value value) {
   return (HANDLE)data;
 }
 
-/** terminateJob(jobHandle: external) -> void
- * TerminateJobObject first (explicit, immediate), then close the handle —
- * relying on KILL_ON_JOB_CLOSE alone would still work, but calling
- * TerminateJobObject directly does not wait for GC-driven handle cleanup. */
+/** terminateJob(jobHandle: external, keepOpen?: boolean) -> void
+ * TerminateJobObject is explicit and immediate. Legacy callers close the
+ * handle here; telemetry callers pass keepOpen=true for final accounting. */
 static napi_value TerminateJob(napi_env env, napi_callback_info info) {
-  size_t argc = 1;
-  napi_value args[1];
+  size_t argc = 2;
+  napi_value args[2];
   if (napi_get_cb_info(env, info, &argc, args, NULL, NULL) != napi_ok || argc < 1) {
     napi_throw_type_error(env, NULL, "terminateJob(jobHandle) requires jobHandle");
     return NULL;
   }
   HANDLE job = UnwrapHandle(env, args[0]);
   if (!job) return NULL;
+  bool keepOpen = false;
+  if (argc >= 2 && napi_get_value_bool(env, args[1], &keepOpen) != napi_ok) {
+    napi_throw_type_error(env, NULL, "keepOpen must be a boolean");
+    return NULL;
+  }
   TerminateJobObject(job, 1);
+  if (!keepOpen) CloseHandle(job);
+  napi_value undefined;
+  napi_get_undefined(env, &undefined);
+  return undefined;
+}
+
+/** closeJobHandle(jobHandle: external) -> void */
+static napi_value CloseJobHandleFn(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  if (napi_get_cb_info(env, info, &argc, args, NULL, NULL) != napi_ok || argc < 1) {
+    napi_throw_type_error(env, NULL, "closeJobHandle(jobHandle) requires jobHandle");
+    return NULL;
+  }
+  HANDLE job = UnwrapHandle(env, args[0]);
+  if (!job) return NULL;
   CloseHandle(job);
   napi_value undefined;
   napi_get_undefined(env, &undefined);
@@ -326,6 +346,7 @@ static napi_value Init(napi_env env, napi_value exports) {
     { "grantCurrentUserDefaultDacl", NULL, GrantCurrentUserDefaultDacl, NULL, NULL, NULL, napi_default, NULL },
     { "assignRunningProcessToNewJob", NULL, AssignRunningProcessToNewJob, NULL, NULL, NULL, napi_default, NULL },
     { "terminateJob", NULL, TerminateJob, NULL, NULL, NULL, napi_default, NULL },
+    { "closeJobHandle", NULL, CloseJobHandleFn, NULL, NULL, NULL, napi_default, NULL },
     { "closeProcessHandle", NULL, CloseProcessHandleFn, NULL, NULL, NULL, napi_default, NULL },
     { "isProcessAlive", NULL, IsProcessAlive, NULL, NULL, NULL, napi_default, NULL },
     { "queryJobResourceUsage", NULL, QueryJobResourceUsage, NULL, NULL, NULL, napi_default, NULL },

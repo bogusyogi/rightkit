@@ -232,6 +232,22 @@ test('Windows terminate uses the job handle for a certain whole-tree kill when t
   assert.equal(result.status, 'REAPED');
 });
 
+test('Windows cancellation queries final accounting before closing native Job handle', async () => {
+  let jobOpen = true; let queriedWhileOpen = false;
+  const usage = { cpuUserMs: 8, cpuKernelMs: 2, cpuTotalMs: 10, peakCommittedBytes: 8192, totalProcesses: 2, activeProcesses: 0 };
+  const fakeAddon = {
+    assignRunningProcessToNewJob: (pid) => ({ processHandle: 'ph', jobHandle: `jh-${pid}` }),
+    terminateJob: (_handle, keepOpen) => { assert.equal(keepOpen, true); target.exitCode = 1; queueMicrotask(() => target.emit('close', 1, null)); },
+    queryJobResourceUsage: () => { queriedWhileOpen = jobOpen; return usage; },
+    closeJobHandle: () => { jobOpen = false; },
+  };
+  const target = Object.assign(new EventEmitter(), { pid: 889, exitCode: null, signalCode: null });
+  spawnManagedProcess('binary', [], { platform: 'win32', loadJobAddon: () => fakeAddon }, () => target);
+  const result = await terminateProcessTree(target, { platform: 'win32', graceMs: 50, loadJobAddon: () => fakeAddon });
+  assert.equal(result.status, 'REAPED'); assert.equal(queriedWhileOpen, true); assert.equal(jobOpen, false);
+  assert.deepEqual(readManagedProcessResources(target, { platform: 'win32', loadJobAddon: () => { throw new Error('post-reap addon call'); } }), { status: 'OK', ...usage });
+});
+
 test('Windows resource query returns cumulative Job Object CPU including exited descendants', () => {
   const usage = { cpuUserMs: 17, cpuKernelMs: 5, cpuTotalMs: 22, peakCommittedBytes: 123456, totalProcesses: 3, activeProcesses: 1 };
   const fakeAddon = { assignRunningProcessToNewJob: () => ({ processHandle: 'ph', jobHandle: 'jh' }), queryJobResourceUsage: (handle) => { assert.equal(handle, 'jh'); return usage; } };

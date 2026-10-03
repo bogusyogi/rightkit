@@ -163,8 +163,9 @@ export async function terminateProcessTree(child, { platform = process.platform,
       // this is the actual "reap the whole tree" guarantee taskkill /T can't
       // make (it walks a parent-PID snapshot, which a fast-exiting parent
       // can already have made stale).
-      if (!alreadyExited(child)) { addon.terminateJob(handles.jobHandle); await waitForExit(child, graceMs); }
+      if (!alreadyExited(child)) { addon.terminateJob(handles.jobHandle, true); await waitForExit(child, graceMs); }
       captureManagedProcessResources(child, { platform, loadJobAddon });
+      try { addon.closeJobHandle?.(handles.jobHandle); } catch { /* best effort */ }
       windowsJobHandles.delete(child);
       // TerminateJobObject is immediate & forceful, unlike the POSIX
       // SIGTERM-then-SIGKILL escalation path — there is no graceful step to
