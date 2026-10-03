@@ -1,10 +1,18 @@
 import os from "node:os";
 import path from "node:path";
 
-export function notarytoolAuthArgs({ profile = "apple-dev-notary" } = {}) {
-  const keyPath = process.env.APPLE_API_KEY_PATH?.trim();
-  const keyId = process.env.APPLE_API_KEY?.trim();
-  const issuer = process.env.APPLE_API_ISSUER?.trim();
+export function notarytoolAuthArgs({ profile, env = process.env } = {}) {
+  // A configured profile explicitly selects Keychain authentication. Inherited
+  // API settings belong to automatic selection only.
+  if (profile !== undefined) {
+    if (typeof profile !== "string" || !profile.trim()) {
+      throw new Error("Notarization keychain profile must be a non-empty string");
+    }
+    return ["--keychain-profile", profile.trim()];
+  }
+  const keyPath = env.APPLE_API_KEY_PATH?.trim();
+  const keyId = env.APPLE_API_KEY?.trim();
+  const issuer = env.APPLE_API_ISSUER?.trim();
   const apiValues = [keyPath, keyId, issuer];
 
   if (apiValues.every(Boolean)) {
@@ -13,7 +21,7 @@ export function notarytoolAuthArgs({ profile = "apple-dev-notary" } = {}) {
   if (apiValues.some(Boolean)) {
     throw new Error("Notarization API auth requires APPLE_API_KEY_PATH, APPLE_API_KEY, and APPLE_API_ISSUER together");
   }
-  return ["--keychain-profile", profile];
+  return ["--keychain-profile", "apple-dev-notary"];
 }
 
 function expandHome(value) {
