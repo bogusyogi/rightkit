@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { WINDOWS_CONTAINMENT_CONTRACT, managedProcessOwnership, readManagedProcessIdentity, readProcessIdentity, reapPersistedProcessTree, spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
+import { WINDOWS_CONTAINMENT_CONTRACT, managedProcessOwnership, readManagedProcessIdentity, readManagedProcessResources, readProcessIdentity, reapPersistedProcessTree, spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
 
 const child = () => Object.assign(new EventEmitter(), { pid: 41, exitCode: null, signalCode: null });
 
@@ -230,6 +230,59 @@ test('Windows terminate uses the job handle for a certain whole-tree kill when t
   const result = await terminateProcessTree(spawned, { platform: 'win32', graceMs: 50, loadJobAddon: () => fakeAddon });
   assert.deepEqual(calls, [['terminateJob', 'jh-888']]);
   assert.equal(result.status, 'REAPED');
+});
+
+test('Windows resource query returns cumulative Job Object CPU including exited descendants', () => {
+  const usage = { cpuUserMs: 17, cpuKernelMs: 5, cpuTotalMs: 22, peakCommittedBytes: 123456, totalProcesses: 3, activeProcesses: 1 };
+  const fakeAddon = { assignRunningProcessToNewJob: () => ({ processHandle: 'ph', jobHandle: 'jh' }), queryJobResourceUsage: (handle) => { assert.equal(handle, 'jh'); return usage; } };
+  const target = spawnManagedProcess('binary', [], { platform: 'win32', loadJobAddon: () => fakeAddon }, () => Object.assign(new EventEmitter(), { pid: 901 }));
+  assert.deepEqual(readManagedProcessResources(target, { platform: 'win32', loadJobAddon: () => fakeAddon }), { status: 'OK', ...usage });
+});
+
+test('Windows short-lived final resource query is retained after process-handle close', async () => {
+  const usage = { cpuUserMs: 2, cpuKernelMs: 1, cpuTotalMs: 3, peakCommittedBytes: 4096, totalProcesses: 2, activeProcesses: 0 };
+  let closed = false;
+  const fakeAddon = {
+    assignRunningProcessToNewJob: () => ({ processHandle: 'ph', jobHandle: 'jh' }),
+    queryJobResourceUsage: () => usage,
+    closeProcessHandle: () => { closed = true; },
+  };
+  const target = spawnManagedProcess('binary', [], { platform: 'win32', loadJobAddon: () => fakeAddon }, () => Object.assign(new EventEmitter(), { pid: 902, exitCode: 0 }));
+  target.emit('close', 0, null);
+  assert.equal(closed, true);
+  await terminateProcessTree(target, { platform: 'win32', graceMs: 1, loadJobAddon: () => fakeAddon });
+  assert.deepEqual(readManagedProcessResources(target, { platform: 'win32', loadJobAddon: () => { throw new Error('addon reloaded'); } }), { status: 'OK', ...usage });
+});
+
+test('Windows resource samples stay live then replace close snapshot with final termination sample', async () => {
+  const samples = [10, 20, 30, 40]; let queries = 0; let closed = false;
+  const usage = (cpuTotalMs) => ({ cpuUserMs: cpuTotalMs, cpuKernelMs: 0, cpuTotalMs, peakCommittedBytes: 1, totalProcesses: 1, activeProcesses: 0 });
+  const fakeAddon = {
+    assignRunningProcessToNewJob: () => ({ processHandle: 'ph', jobHandle: 'jh' }),
+    queryJobResourceUsage: () => usage(samples[queries++]),
+    closeProcessHandle: () => { closed = true; },
+  };
+  const target = spawnManagedProcess('binary', [], { platform: 'win32', loadJobAddon: () => fakeAddon }, () => Object.assign(new EventEmitter(), { pid: 905, exitCode: 0 }));
+  assert.equal(readManagedProcessResources(target, { platform: 'win32', loadJobAddon: () => fakeAddon }).cpuTotalMs, 10);
+  assert.equal(readManagedProcessResources(target, { platform: 'win32', loadJobAddon: () => fakeAddon }).cpuTotalMs, 20);
+  target.emit('close', 0, null);
+  assert.equal(closed, true);
+  await terminateProcessTree(target, { platform: 'win32', graceMs: 1, loadJobAddon: () => fakeAddon });
+  assert.equal(readManagedProcessResources(target, { platform: 'win32', loadJobAddon: () => { throw new Error('post-reap addon call'); } }).cpuTotalMs, 40);
+  assert.equal(queries, 4);
+});
+
+test('Windows resource query types unavailable platform and addon', () => {
+  const target = child();
+  assert.deepEqual(readManagedProcessResources(target, { platform: 'linux' }), { status: 'UNAVAILABLE', reason: 'process-resources-platform-unsupported' });
+  const assigned = spawnManagedProcess('binary', [], { platform: 'win32', loadJobAddon: () => ({ assignRunningProcessToNewJob: () => ({ processHandle: 'ph', jobHandle: 'jh' }) }) }, () => Object.assign(new EventEmitter(), { pid: 904 }));
+  assert.deepEqual(readManagedProcessResources(assigned, { platform: 'win32', loadJobAddon: () => null }), { status: 'UNAVAILABLE', reason: 'process-resources-addon-unavailable' });
+});
+
+test('Windows resource query reports native query errors', () => {
+  const fakeAddon = { assignRunningProcessToNewJob: () => ({ processHandle: 'ph', jobHandle: 'jh' }), queryJobResourceUsage: () => { throw new Error('query failed'); } };
+  const target = spawnManagedProcess('binary', [], { platform: 'win32', loadJobAddon: () => fakeAddon }, () => Object.assign(new EventEmitter(), { pid: 903 }));
+  assert.deepEqual(readManagedProcessResources(target, { platform: 'win32', loadJobAddon: () => fakeAddon }), { status: 'ERROR', reason: 'process-resources-query-failed', error: 'query failed' });
 });
 
 test('Windows terminate falls back to taskkill for a child never spawned through spawnManagedProcess, even with the addon present', async () => {

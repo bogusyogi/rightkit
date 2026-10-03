@@ -950,6 +950,23 @@ last-output timestamp
 free disk
 ```
 
+Windows samples now include native Job Object CPU time & peak committed memory
+under `resources.processTree`, plus host logical CPU count, total memory &
+minimum observed free memory. CPU accounting includes exited descendants;
+`peakCommittedBytes` measures committed allocations, not physical RSS. Final
+snapshots are retained for jobs shorter than the sampling interval & cancellations.
+
+Terminal receipts & events carry `resources` (`rightkit.build-resources.v1`)
+alongside existing `queueMs` & `cargoRunMs`. Delegated compiler CPU is rolled up
+separately; `sumPeakCommittedBytes` is a sum of child peaks, not a simultaneous
+peak. Shared sccache gateway CPU is measured over the build window, with its
+memory peak labelled `peakCommittedBytesSinceGatewayStart`. Combined CPU totals
+are emitted only for complete readings & an exclusive cache attribution window.
+Missing readers, failed queries & changed gateway epochs produce explicit
+`UNAVAILABLE`, `ERROR` or `PARTIAL` measurements rather than zero usage.
+
+These observations do not change admission, Cargo job counts, profiles or quotas.
+
 Terminal receipt should include approximately:
 
 ```json

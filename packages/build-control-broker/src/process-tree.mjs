@@ -9,6 +9,7 @@ const startupPromises = new WeakMap();
 // they cannot survive a restart — reapPersistedProcessTree therefore never
 // reads this map; see its own doc comment for the cross-restart fallback.
 const windowsJobHandles = new WeakMap();
+const managedProcessResources = new WeakMap();
 
 /** Windows startup stays fail-closed until a native Job Object owner exists. */
 export const WINDOWS_CONTAINMENT_CONTRACT = Object.freeze({
@@ -39,6 +40,7 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
     const handles = addon.assignRunningProcessToNewJob(child.pid);
     windowsJobHandles.set(child, handles);
     observeClose(child);
+    child.once('close', () => { captureManagedProcessResources(child, { platform, loadJobAddon }); });
     child.once('close', () => { try { addon.closeProcessHandle(handles.processHandle); } catch { /* best effort */ } });
     return child;
   }
@@ -162,6 +164,7 @@ export async function terminateProcessTree(child, { platform = process.platform,
       // make (it walks a parent-PID snapshot, which a fast-exiting parent
       // can already have made stale).
       if (!alreadyExited(child)) { addon.terminateJob(handles.jobHandle); await waitForExit(child, graceMs); }
+      captureManagedProcessResources(child, { platform, loadJobAddon });
       windowsJobHandles.delete(child);
       // TerminateJobObject is immediate & forceful, unlike the POSIX
       // SIGTERM-then-SIGKILL escalation path — there is no graceful step to
@@ -189,6 +192,35 @@ export async function terminateProcessTree(child, { platform = process.platform,
     if (error?.code === 'RK_PROCESS_GROUP_ENUMERATION') return reapPending(error.reason ?? 'process-group-enumeration-unavailable', escalated);
     throw error;
   }
+}
+
+/** Read managed Windows Job Object accounting without changing enforcement.
+ * A final snapshot is retained before the native handles are closed. */
+export function readManagedProcessResources(child, { platform = process.platform, loadJobAddon = loadWindowsJobAddon } = {}) {
+  if (!child || !Number.isSafeInteger(child.pid) || child.pid < 1) throw new TypeError('spawned child with pid is required');
+  if (platform !== 'win32') return unavailable('process-resources-platform-unsupported');
+  const handles = windowsJobHandles.get(child);
+  const cached = managedProcessResources.get(child);
+  if (!handles) return cached ?? unavailable('process-resources-job-unavailable');
+  let addon;
+  try { addon = loadJobAddon?.(); } catch { return unavailable('process-resources-addon-unavailable'); }
+  if (typeof addon?.queryJobResourceUsage !== 'function') return unavailable('process-resources-addon-unavailable');
+  try {
+    const usage = addon.queryJobResourceUsage(handles.jobHandle);
+    const fields = ['cpuUserMs', 'cpuKernelMs', 'cpuTotalMs', 'peakCommittedBytes', 'totalProcesses', 'activeProcesses'];
+    if (!usage || fields.some((field) => !Number.isFinite(usage[field]) || usage[field] < 0)) throw new Error('malformed resource snapshot');
+    const result = Object.freeze({ status: 'OK', ...Object.fromEntries(fields.map((field) => [field, usage[field]])) });
+    managedProcessResources.set(child, result);
+    return result;
+  } catch (error) {
+    return Object.freeze({ status: 'ERROR', reason: 'process-resources-query-failed', error: String(error?.message ?? error) });
+  }
+}
+
+function captureManagedProcessResources(child, options) {
+  const result = readManagedProcessResources(child, options);
+  managedProcessResources.set(child, result);
+  return result;
 }
 
 /**

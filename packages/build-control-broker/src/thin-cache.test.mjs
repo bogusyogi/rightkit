@@ -189,6 +189,30 @@ test('stats collection is independent telemetry from owned gateway', async () =>
   await cache.close();
 });
 
+test('resource usage is a typed gateway measurement with lifecycle epoch', async () => {
+  const reads = [];
+  const usage = { status: 'OK', cpuUserMs: 7, cpuKernelMs: 3, cpuTotalMs: 10, peakCommittedBytes: 512, totalProcesses: 2, activeProcesses: 1 };
+  const { cache, children } = harness({ epoch: 'epoch-before', platform: 'win32', readResources: (child, options) => { reads.push({ child, options }); return usage; } });
+  assert.deepEqual(cache.resourceUsage(), { status: 'UNAVAILABLE', reason: 'sccache-gateway-not-owned', epoch: 'epoch-before', scope: 'shared-cache-gateway' });
+  await cache.start();
+  const sample = cache.resourceUsage();
+  assert.deepEqual(sample, { ...usage, epoch: sample.epoch, scope: 'shared-cache-gateway' });
+  assert.notEqual(sample.epoch, 'epoch-before');
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0].child, children[0]);
+  assert.deepEqual(reads[0].options, { platform: 'win32' });
+  await cache.close();
+  assert.deepEqual(cache.resourceUsage(), { status: 'UNAVAILABLE', reason: 'sccache-gateway-not-owned', epoch: sample.epoch, scope: 'shared-cache-gateway' });
+});
+
+test('resource measurement failures remain typed telemetry only', async () => {
+  const failure = { status: 'ERROR', reason: 'process-resources-query-failed', error: 'query failed' };
+  const { cache } = harness({ readResources: () => failure });
+  await cache.start();
+  assert.deepEqual(cache.resourceUsage(), { ...failure, epoch: cache.resourceUsage().epoch, scope: 'shared-cache-gateway' });
+  await cache.close();
+});
+
 test('basedirs gate uses broker-trusted roots with platform deduplication', async () => {
   const { cache } = harness({ basedirsEnabled: true, basedirs: ['/operator/root'], platform: 'linux' });
   const prepared = await cache.prepare({ layout: { ...layout, root: '/managed/workspace/g/001' }, repositoryRoot: '/repo', workspaceRoot: '/repo/app' });
