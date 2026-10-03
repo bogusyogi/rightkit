@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { join } from 'node:path';
 import { defaultThinCacheTimeoutMs, ThinCache, ThinCacheUnavailableError, thinCacheStatsDelta } from './thin-cache.mjs';
 
 const paths = { cargoHome: '/managed/cargo-home', compilerCache: '/managed/compiler-cache', temporary: '/managed/tmp' };
@@ -47,7 +48,7 @@ test('owns one gateway & injects strict cache environment with health proof', as
   assert.equal(prepared.environment.SCCACHE_NO_DAEMON, '1');
   assert.equal(prepared.environment.SCCACHE_IGNORE_SERVER_IO_ERROR, '0');
   assert.equal(prepared.environment.SCCACHE_LOCAL_RW_MODE, 'READ_WRITE');
-  assert.equal(prepared.environment.SCCACHE_SERVER_UDS, '/managed/tmp/sccache-gateway.sock');
+  assert.equal(prepared.environment.SCCACHE_SERVER_UDS, join('/managed/tmp', 'sccache-gateway.sock'));
   assert.equal(prepared.environment.CARGO_BUILD_JOBS, '4');
   assert.equal(prepared.environment.CARGO_INCREMENTAL, '0');
   assert.equal(prepared.health.gatewayPid, 42);
@@ -64,6 +65,23 @@ test('owns one gateway & injects strict cache environment with health proof', as
   assert.equal(finished.attribution.exact, true);
   assert.deepEqual(finished.delta, { compile_requests: 0 });
   await cache.close();
+});
+
+test('release iteration leaves Cargo incremental policy to manifest while retaining managed cache', async () => {
+  const { cache } = harness({ platform: 'linux' });
+  await cache.start();
+  const prepared = await cache.prepare({ layout, profile: 'release-iterate', jobId: 'iterate-job' });
+  assert.equal(prepared.environment.CARGO_INCREMENTAL, undefined);
+  assert.equal(prepared.environment.CARGO_HOME, paths.cargoHome);
+  assert.equal(prepared.environment.RUSTC_WRAPPER, '/managed/tools/sccache');
+  assert.equal(prepared.environment.SCCACHE_DIR, paths.compilerCache);
+  assert.equal(prepared.environment.SCCACHE_START_SERVER, '0');
+  await cache.close();
+});
+
+test('thin cache rejects unapproved iteration profiles', async () => {
+  const { cache } = harness();
+  await assert.rejects(cache.prepare({ layout, profile: 'debug' }), /profile must be release or release-iterate/);
 });
 
 test('Windows cache clients use broker-owned TCP gateway', async () => {
@@ -168,6 +186,30 @@ test('stats collection is independent telemetry from owned gateway', async () =>
   assert.equal(sample.status, 'SERVICE_OK');
   assert.deepEqual(sample.stats, { compile_requests: 7, cache_hits: { Rust: 5 } });
   assert.equal(sample.attribution.serverIdentity, 42);
+  await cache.close();
+});
+
+test('resource usage is a typed gateway measurement with lifecycle epoch', async () => {
+  const reads = [];
+  const usage = { status: 'OK', cpuUserMs: 7, cpuKernelMs: 3, cpuTotalMs: 10, peakCommittedBytes: 512, totalProcesses: 2, activeProcesses: 1 };
+  const { cache, children } = harness({ epoch: 'epoch-before', platform: 'win32', readResources: (child, options) => { reads.push({ child, options }); return usage; } });
+  assert.deepEqual(cache.resourceUsage(), { status: 'UNAVAILABLE', reason: 'sccache-gateway-not-owned', epoch: 'epoch-before', scope: 'shared-cache-gateway' });
+  await cache.start();
+  const sample = cache.resourceUsage();
+  assert.deepEqual(sample, { ...usage, epoch: sample.epoch, scope: 'shared-cache-gateway' });
+  assert.notEqual(sample.epoch, 'epoch-before');
+  assert.equal(reads.length, 1);
+  assert.equal(reads[0].child, children[0]);
+  assert.deepEqual(reads[0].options, { platform: 'win32' });
+  await cache.close();
+  assert.deepEqual(cache.resourceUsage(), { status: 'UNAVAILABLE', reason: 'sccache-gateway-not-owned', epoch: sample.epoch, scope: 'shared-cache-gateway' });
+});
+
+test('resource measurement failures remain typed telemetry only', async () => {
+  const failure = { status: 'ERROR', reason: 'process-resources-query-failed', error: 'query failed' };
+  const { cache } = harness({ readResources: () => failure });
+  await cache.start();
+  assert.deepEqual(cache.resourceUsage(), { ...failure, epoch: cache.resourceUsage().epoch, scope: 'shared-cache-gateway' });
   await cache.close();
 });
 

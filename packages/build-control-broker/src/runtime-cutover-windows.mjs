@@ -182,6 +182,7 @@ export function createWindowsRuntimeCallbacks(options = {}) {
   if (typeof drainProbe !== 'function') throw new TypeError('drainProbe is required to refuse active thin requests');
   const pipe = endpoint ?? config?.windowsPipe;
   if (typeof pipe !== 'string' || pipe.length === 0) throw new TypeError('endpoint or config.windowsPipe is required');
+  const brokerScript = externalRoot ? join(resolve(externalRoot), 'runtime-current', 'build-control-broker', 'src', 'broker.mjs') : 'broker.mjs';
 
   /** Task Scheduler reports task state (running/not), not a PID directly; the
    * live PID is cross-checked the same way the mac probe does — by matching
@@ -189,10 +190,12 @@ export function createWindowsRuntimeCallbacks(options = {}) {
   const livePid = async () => {
     const nodeName = String(nodePath).split(/[\\/]/).pop();
     const { stdout } = await execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command',
-      `Get-CimInstance Win32_Process | Where-Object { $_.Name -ieq '${quotePowerShell(nodeName)}' -and $_.CommandLine -like '*${quotePowerShell(configPath)}*' } | Select-Object ProcessId,Name,ExecutablePath | ConvertTo-Json -Compress`]);
+      `Get-CimInstance Win32_Process | Where-Object { $_.Name -ieq '${quotePowerShell(nodeName)}' -and $_.CommandLine -like '*${quotePowerShell(configPath)}*' -and $_.CommandLine -like '*${quotePowerShell(brokerScript)}*' } | Select-Object ProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress`]);
     let processes;
     try { processes = JSON.parse(String(stdout).trim() || '[]'); } catch { return null; }
-    return selectWindowsNodePidResolved(processes, nodePath, resolveNodePath);
+    const rows = Array.isArray(processes) ? processes : processes ? [processes] : [];
+    const brokers = rows.filter((row) => typeof row?.CommandLine === 'string' && row.CommandLine.includes(brokerScript) && row.CommandLine.includes(configPath));
+    return selectWindowsNodePidResolved(brokers, nodePath, resolveNodePath);
   };
   const ensureRegistered = async ({ taskXmlPath }) => ensureWindowsTaskRegistered({ taskName, taskXmlPath, execFile });
   const ensureDrained = async () => {

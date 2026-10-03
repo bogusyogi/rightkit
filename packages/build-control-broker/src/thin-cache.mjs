@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
+import { readManagedProcessResources, spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
 import { classifyCacheReuse } from './cache-telemetry.mjs';
 
 const defaultRun = promisify(nodeExecFile);
@@ -88,11 +88,11 @@ async function defaultSpawnGateway(tool, environment, { platform, spawn, timeout
 }
 
 export class ThinCache {
-  #paths; #tool; #verifyTool; #expectedVersion; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #platform; #epoch; #now; #port; #leaseMs; #recoveryMs; #statsIntervalMs; #spawn; #spawnGateway; #terminate; #connect; #emit; #onUnavailable;
+  #paths; #tool; #verifyTool; #expectedVersion; #enabled; #clientSide; #maxSize; #timeout; #run; #basedirsEnabled; #basedirs; #platform; #epoch; #now; #port; #leaseMs; #recoveryMs; #statsIntervalMs; #spawn; #spawnGateway; #terminate; #connect; #emit; #onUnavailable; #readResources;
   #child = null; #health = null; #healthInFlight = null; #recoveryInFlight = null; #timer = null; #lastStats = null; #lastStatsSampledAt = 0; #lastStatsAttemptedAt = 0; #lastStatsLoggedAt = 0; #stopping = false; #gatewayStderr = '';
   #clientWindows = new Map();
 
-  constructor({ paths, sccachePath = null, verifyTool = null, expectedVersion = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = defaultThinCacheTimeoutMs(), basedirs = null, basedirsEnabled = false, platform = process.platform, gatewayPort = DEFAULT_GATEWAY_PORT, healthLeaseMs = DEFAULT_HEALTH_LEASE_MS, recoveryTimeoutMs = DEFAULT_RECOVERY_MS, statsIntervalMs = DEFAULT_STATS_INTERVAL_MS, run = defaultRun, spawn = nodeSpawn, spawnGateway = defaultSpawnGateway, terminate = terminateProcessTree, connect = defaultConnect, emit = async () => {}, onUnavailable = async () => {}, epoch = randomUUID(), now = Date.now } = {}) {
+  constructor({ paths, sccachePath = null, verifyTool = null, expectedVersion = null, enabled = true, clientSideSupported = false, maxSizeBytes = 20 * 1024 ** 3, timeoutMs = defaultThinCacheTimeoutMs(), basedirs = null, basedirsEnabled = false, platform = process.platform, gatewayPort = DEFAULT_GATEWAY_PORT, healthLeaseMs = DEFAULT_HEALTH_LEASE_MS, recoveryTimeoutMs = DEFAULT_RECOVERY_MS, statsIntervalMs = DEFAULT_STATS_INTERVAL_MS, run = defaultRun, spawn = nodeSpawn, spawnGateway = defaultSpawnGateway, terminate = terminateProcessTree, connect = defaultConnect, emit = async () => {}, onUnavailable = async () => {}, readResources = readManagedProcessResources, epoch = randomUUID(), now = Date.now } = {}) {
     if (!paths?.cargoHome || !paths?.compilerCache) throw new TypeError('thin state cache paths are required');
     if (enabled && (typeof sccachePath !== 'string' || !sccachePath)) throw new TypeError('enabled cache requires sccachePath');
     if (enabled && typeof verifyTool !== 'function') throw new TypeError('enabled cache requires verifyTool');
@@ -100,7 +100,7 @@ export class ThinCache {
     this.#paths = paths; this.#tool = sccachePath; this.#verifyTool = verifyTool; this.#expectedVersion = expectedVersion; this.#enabled = enabled; this.#clientSide = clientSideSupported; this.#maxSize = positive(maxSizeBytes, 'maxSizeBytes', 20 * 1024 ** 3); this.#timeout = positive(timeoutMs, 'timeoutMs', DEFAULT_RECOVERY_MS); this.#run = run;
     this.#basedirs = Array.isArray(basedirs) ? Object.freeze([...basedirs].filter((value) => typeof value === 'string' && value)) : null;
     this.#basedirsEnabled = basedirsEnabled === true;
-    this.#platform = platform; this.#epoch = String(epoch); this.#now = now; this.#port = positive(gatewayPort, 'gatewayPort', DEFAULT_GATEWAY_PORT); this.#leaseMs = positive(healthLeaseMs, 'healthLeaseMs', DEFAULT_HEALTH_LEASE_MS); this.#recoveryMs = positive(recoveryTimeoutMs, 'recoveryTimeoutMs', DEFAULT_RECOVERY_MS); this.#statsIntervalMs = positive(statsIntervalMs, 'statsIntervalMs', DEFAULT_STATS_INTERVAL_MS); this.#spawn = spawn; this.#spawnGateway = spawnGateway; this.#terminate = terminate; this.#connect = connect; this.#emit = emit; this.#onUnavailable = onUnavailable;
+    this.#platform = platform; this.#epoch = String(epoch); this.#now = now; this.#port = positive(gatewayPort, 'gatewayPort', DEFAULT_GATEWAY_PORT); this.#leaseMs = positive(healthLeaseMs, 'healthLeaseMs', DEFAULT_HEALTH_LEASE_MS); this.#recoveryMs = positive(recoveryTimeoutMs, 'recoveryTimeoutMs', DEFAULT_RECOVERY_MS); this.#statsIntervalMs = positive(statsIntervalMs, 'statsIntervalMs', DEFAULT_STATS_INTERVAL_MS); this.#spawn = spawn; this.#spawnGateway = spawnGateway; this.#terminate = terminate; this.#connect = connect; this.#emit = emit; this.#onUnavailable = onUnavailable; this.#readResources = readResources;
   }
 
   get #endpoint() {
@@ -136,15 +136,15 @@ export class ThinCache {
     await this.#event({ type: 'CACHE_GATEWAY_STOPPED', epoch: this.#epoch, endpoint: this.#endpoint.display });
   }
 
-  async prepare({ layout, cargoBuildJobs = 4, repositoryRoot = null, workspaceRoot = null, jobId = null } = {}) {
+  async prepare({ layout, cargoBuildJobs = 4, repositoryRoot = null, workspaceRoot = null, jobId = null, profile = 'release' } = {}) {
     if (!layout?.target || !layout?.temp) throw new TypeError('workspace generation layout is required');
+    if (profile !== 'release' && profile !== 'release-iterate') throw new TypeError('profile must be release or release-iterate');
     const base = Object.freeze({
       CARGO_HOME: this.#paths.cargoHome,
       CARGO_BUILD_JOBS: String(positive(cargoBuildJobs, 'cargoBuildJobs', 4)),
-      // Cargo dev/check/test defaults to incremental rustc output, which
-      // sccache explicitly refuses. Cross-target reuse requires cacheable,
-      // deterministic compiler invocations instead of per-target increments.
-      CARGO_INCREMENTAL: '0',
+      // Keep ordinary builds cacheable. Explicit iteration builds follow
+      // manifest incremental policy while dependencies still use sccache.
+      ...(profile === 'release' ? { CARGO_INCREMENTAL: '0' } : {}),
       TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp
     });
     if (!this.#enabled) throw new ThinCacheUnavailableError('sccache-disabled', 'DISABLED');
@@ -181,6 +181,13 @@ export class ThinCache {
   }
 
   get basedirsActive() { return this.#basedirsEnabled; }
+
+  resourceUsage() {
+    const measurement = this.#child
+      ? this.#readResources(this.#child, { platform: this.#platform })
+      : { status: 'UNAVAILABLE', reason: 'sccache-gateway-not-owned' };
+    return Object.freeze({ ...measurement, epoch: this.#epoch, scope: 'shared-cache-gateway' });
+  }
 
   async #finishClientWindow(prepared) {
     const window = this.#clientWindows.get(prepared.windowId);

@@ -121,20 +121,40 @@ static HANDLE UnwrapHandle(napi_env env, napi_value value) {
   return (HANDLE)data;
 }
 
-/** terminateJob(jobHandle: external) -> void
- * TerminateJobObject first (explicit, immediate), then close the handle —
- * relying on KILL_ON_JOB_CLOSE alone would still work, but calling
- * TerminateJobObject directly does not wait for GC-driven handle cleanup. */
+/** terminateJob(jobHandle: external, keepOpen?: boolean) -> void
+ * TerminateJobObject is explicit and immediate. Legacy callers close the
+ * handle here; telemetry callers pass keepOpen=true for final accounting. */
 static napi_value TerminateJob(napi_env env, napi_callback_info info) {
-  size_t argc = 1;
-  napi_value args[1];
+  size_t argc = 2;
+  napi_value args[2];
   if (napi_get_cb_info(env, info, &argc, args, NULL, NULL) != napi_ok || argc < 1) {
     napi_throw_type_error(env, NULL, "terminateJob(jobHandle) requires jobHandle");
     return NULL;
   }
   HANDLE job = UnwrapHandle(env, args[0]);
   if (!job) return NULL;
+  bool keepOpen = false;
+  if (argc >= 2 && napi_get_value_bool(env, args[1], &keepOpen) != napi_ok) {
+    napi_throw_type_error(env, NULL, "keepOpen must be a boolean");
+    return NULL;
+  }
   TerminateJobObject(job, 1);
+  if (!keepOpen) CloseHandle(job);
+  napi_value undefined;
+  napi_get_undefined(env, &undefined);
+  return undefined;
+}
+
+/** closeJobHandle(jobHandle: external) -> void */
+static napi_value CloseJobHandleFn(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  if (napi_get_cb_info(env, info, &argc, args, NULL, NULL) != napi_ok || argc < 1) {
+    napi_throw_type_error(env, NULL, "closeJobHandle(jobHandle) requires jobHandle");
+    return NULL;
+  }
+  HANDLE job = UnwrapHandle(env, args[0]);
+  if (!job) return NULL;
   CloseHandle(job);
   napi_value undefined;
   napi_get_undefined(env, &undefined);
@@ -174,6 +194,43 @@ static napi_value IsProcessAlive(napi_env env, napi_callback_info info) {
   napi_value result;
   if (!GetExitCodeProcess(process, &exitCode)) return ThrowLastError(env, "GetExitCodeProcess");
   napi_get_boolean(env, exitCode == STILL_ACTIVE, &result);
+  return result;
+}
+
+/** queryJobResourceUsage(jobHandle) -> resource snapshot
+ * CPU totals come from Job Object accounting and therefore include exited
+ * descendants. Memory is PeakJobMemoryUsed (committed bytes), not RSS. */
+static napi_value QueryJobResourceUsage(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  if (napi_get_cb_info(env, info, &argc, args, NULL, NULL) != napi_ok || argc < 1) {
+    napi_throw_type_error(env, NULL, "queryJobResourceUsage(jobHandle) requires jobHandle");
+    return NULL;
+  }
+  HANDLE job = UnwrapHandle(env, args[0]);
+  if (!job) return NULL;
+  JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting;
+  ZeroMemory(&accounting, sizeof(accounting));
+  if (!QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), NULL))
+    return ThrowLastError(env, "QueryInformationJobObject(BasicAccounting)");
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+  ZeroMemory(&limits, sizeof(limits));
+  if (!QueryInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits), NULL))
+    return ThrowLastError(env, "QueryInformationJobObject(ExtendedLimitInformation)");
+  napi_value result, value;
+  napi_create_object(env, &result);
+  napi_create_double(env, (double)(accounting.TotalUserTime.QuadPart / 10000), &value);
+  napi_set_named_property(env, result, "cpuUserMs", value);
+  napi_create_double(env, (double)(accounting.TotalKernelTime.QuadPart / 10000), &value);
+  napi_set_named_property(env, result, "cpuKernelMs", value);
+  napi_create_double(env, (double)((accounting.TotalUserTime.QuadPart + accounting.TotalKernelTime.QuadPart) / 10000), &value);
+  napi_set_named_property(env, result, "cpuTotalMs", value);
+  napi_create_double(env, (double)limits.PeakJobMemoryUsed, &value);
+  napi_set_named_property(env, result, "peakCommittedBytes", value);
+  napi_create_uint32(env, accounting.TotalProcesses, &value);
+  napi_set_named_property(env, result, "totalProcesses", value);
+  napi_create_uint32(env, accounting.ActiveProcesses, &value);
+  napi_set_named_property(env, result, "activeProcesses", value);
   return result;
 }
 
@@ -289,8 +346,10 @@ static napi_value Init(napi_env env, napi_value exports) {
     { "grantCurrentUserDefaultDacl", NULL, GrantCurrentUserDefaultDacl, NULL, NULL, NULL, napi_default, NULL },
     { "assignRunningProcessToNewJob", NULL, AssignRunningProcessToNewJob, NULL, NULL, NULL, napi_default, NULL },
     { "terminateJob", NULL, TerminateJob, NULL, NULL, NULL, napi_default, NULL },
+    { "closeJobHandle", NULL, CloseJobHandleFn, NULL, NULL, NULL, napi_default, NULL },
     { "closeProcessHandle", NULL, CloseProcessHandleFn, NULL, NULL, NULL, napi_default, NULL },
     { "isProcessAlive", NULL, IsProcessAlive, NULL, NULL, NULL, napi_default, NULL },
+    { "queryJobResourceUsage", NULL, QueryJobResourceUsage, NULL, NULL, NULL, napi_default, NULL },
     { "isPidAlive", NULL, IsPidAlive, NULL, NULL, NULL, napi_default, NULL },
     { "getProcessCreationTime", NULL, GetProcessCreationTimeFn, NULL, NULL, NULL, napi_default, NULL },
   };
