@@ -121,3 +121,31 @@ test("failures are filtered from warnings so warnings never block a build", () =
 test("build PATH prefix is windows-only", () => {
   assert.equal(buildPathPrefix({ platform: "mac" }), null);
 });
+
+test("broker-managed preflight reports receipt ownership without probing shell sccache", () => {
+  let probes = 0;
+  const checks = collectPreflight({
+    platform: "linux",
+    env: { RIGHTKIT_BUILD_BROKER_SOCKET: "broker" },
+    isBrokerManagedHost: () => true,
+    versionProbe: () => { probes++; return null; },
+  });
+  const cache = checks.find((check) => check.name === "compiler-cache");
+  assert.equal(cache.status, "ok");
+  assert.match(cache.detail, /broker-managed.*selection and status are recorded in build receipts/);
+  assert.equal(probes, 0);
+});
+
+test("unmanaged missing-sccache warning describes only the shell PATH probe", () => {
+  const checks = collectPreflight({
+    platform: "linux",
+    env: {},
+    isBrokerManagedHost: () => false,
+    versionProbe: () => null,
+  });
+  const cache = checks.find((check) => check.name === "sccache");
+  assert.equal(cache.status, "warn");
+  assert.match(cache.detail, /not found by this shell PATH probe/);
+  assert.match(cache.detail, /availability is not determined/);
+  assert.equal(cache.fix, null);
+});

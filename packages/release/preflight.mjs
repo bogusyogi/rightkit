@@ -174,6 +174,8 @@ export function collectPreflight({
   targetLink,
   minFreeGb = 25,
   env = process.env,
+  versionProbe = commandVersion,
+  isBrokerManagedHost = brokerManagedHost,
 } = {}) {
   const checks = [];
   const windows = platform === "win" || platform === "win32";
@@ -257,12 +259,16 @@ export function collectPreflight({
     }
   }
 
-  const sccache = commandVersion("sccache");
-  checks.push(
-    sccache
-      ? ok("sccache", sccache)
-      : warn("sccache", "sccache not found; the shared cache will compile without a compiler cache", "cargo install sccache --locked"),
-  );
+  if (isBrokerManagedHost(env)) {
+    checks.push(ok("compiler-cache", "broker-managed; compiler-cache selection and status are recorded in build receipts"));
+  } else {
+    const sccache = versionProbe("sccache");
+    checks.push(
+      sccache
+        ? ok("sccache", `${sccache} visible on shell PATH`)
+        : warn("sccache", "sccache was not found by this shell PATH probe; cache availability is not determined here", null),
+    );
+  }
 
   if (appRoot) {
     const free = freeDiskGb(appRoot);

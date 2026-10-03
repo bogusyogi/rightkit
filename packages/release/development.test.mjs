@@ -39,13 +39,20 @@ test("Windows pnpm command resolves to its JavaScript CLI and node uses current 
   assert.equal(resolveCommand("node", ["--version"]).command, process.execPath);
 });
 
-test("public compile policy remains GitHub Actions only for dev", () => {
+test("public dev dry-run is read-only while actual compilation remains GitHub Actions only", () => {
   const root = temp();
   try {
     git(root, ["init", "-b", "main"]);
     git(root, ["remote", "add", "origin", "https://github.com/Orthic-Labs/example.git"]);
     writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ compile: "github-actions-only" }));
-    assert.throws(() => assertReleaseExecutionAllowed({ cwd: root, environment: {}, command: "right-release dev" }), /GitHub Actions only/);
+    const config = { development: { targets: { [nativePlatform]: { build: [{ cmd: "compile" }] } } } };
+    let childCalls = 0;
+    const dryRun = runDevelopment({ root, platform: nativePlatform, config, dryRun: true, env: {}, run: () => { childCalls++; return { status: 0 }; } });
+    assert.equal(dryRun.built, false);
+    assert.equal(dryRun.plan.build[0].cmd, "compile");
+    assert.equal(childCalls, 0);
+    assert.throws(() => runDevelopment({ root, platform: nativePlatform, config, env: {}, run: () => { childCalls++; return { status: 0 }; } }), /GitHub Actions only/);
+    assert.equal(childCalls, 0);
     assert.doesNotThrow(() => assertReleaseExecutionAllowed({ cwd: root, environment: { GITHUB_ACTIONS: "true" }, command: "right-release dev" }));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -61,9 +61,9 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   const target = validateDevelopmentConfig(config, platform);
   const repoRoot = git(root, ["rev-parse", "--show-toplevel"]);
   assertPrimaryReleaseCheckout(repoRoot, env);
+  if (dryRun) return { built: false, installed: false, plan: { build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
   assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
   const childEnv = developmentEnvironment(env);
-  if (dryRun) return { built: false, installed: false, plan: { build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
   for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
   if (buildOnly || !target.install) return { built: true, installed: false };
   install(target.install, { root, platform, env: childEnv, run });
