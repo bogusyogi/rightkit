@@ -26,6 +26,12 @@ const commands = new Map([
 
 const args = process.argv.slice(2);
 const first = args[0];
+if (first === "dev") {
+  import("../development.mjs").then(({ main }) => main(args.slice(1))).catch((error) => {
+    console.error(`right-release dev: ${error.message}`);
+    process.exitCode = 1;
+  });
+} else {
 const githubBuildCommands = new Set(["release", "build", "package", "sign-windows", "sign-updater", "create-mac-updater", "cargo-target"]);
 
 try {
@@ -143,6 +149,8 @@ function printHelp() {
 Commands:
   build [--platform mac|win] [--skip-checks] [--resume-from <phase>]
                                                       Resume macOS at prepackage, sign, package, post-sign, or harden
+  dev --platform win|mac [--config <path>] [--dry-run] [--build-only]
+                                                      Incremental unsigned build & optional local install
   upload --release <id> --platform mac|win --tier patch|update
                                                       Upload one sealed release; never builds
   release                                             Compatibility alias for build
@@ -169,5 +177,6 @@ Commands:
                                                       Attach sealed signed artifacts to a verified GitHub Release
 
 Direct flags are treated as: right-release build <flags>.
-Build is tier-neutral. Upload requires an explicit tier. Unsigned/local smoke builds stay app-local.`);
+Build is tier-neutral. Upload requires an explicit tier. Dev builds are incremental and unsigned.`);
+}
 }

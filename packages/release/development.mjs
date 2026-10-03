@@ -1,0 +1,230 @@
+import { spawnSync } from "./background-process.mjs";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
+import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
+import { managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
+import { installPortableDevelopment } from "./portable-development.mjs";
+
+export const DEVELOPMENT_PROFILE = "release-iterate";
+
+export function developmentEnvironment(env = process.env) {
+  const result = {
+    ...env,
+    RIGHTKIT_BUILD_MODE: "dev",
+    RIGHTKIT_CARGO_PROFILE: DEVELOPMENT_PROFILE,
+    TAURI_SIGNING_PRIVATE_KEY: "",
+    TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "",
+    APPLE_SIGNING_IDENTITY: "-",
+    APPLE_ID: "",
+    APPLE_PASSWORD: "",
+    APPLE_TEAM_ID: "",
+    CSC_IDENTITY_AUTO_DISCOVERY: "false",
+  };
+  delete result.CARGO_INCREMENTAL;
+  const client = managedRuntimeClient(result);
+  if (client) {
+    const managedRoot = result.RIGHTKIT_MANAGED_ROOT ?? result.RIGHTKIT_EXTERNAL_ROOT
+      ?? (process.platform === "win32" ? "D:\\.rightkit-managed" : process.platform === "darwin" ? "/Volumes/D/.rightkit-managed" : undefined);
+    const agentBin = managedRoot && path.join(managedRoot, "agent-bin");
+    if (agentBin && existsSync(agentBin)) {
+      const pathKey = Object.keys(result).find((key) => key.toLowerCase() === "path") ?? "PATH";
+      result[pathKey] = [agentBin, result[pathKey]].filter(Boolean).join(path.delimiter);
+    }
+  }
+  return result;
+}
+
+export function validateDevelopmentConfig(config, platform) {
+  const target = config?.development?.targets?.[platform];
+  if (!target || !Array.isArray(target.build) || target.build.length === 0) throw new Error(`development.targets.${platform}.build must be a non-empty command array`);
+  for (const [index, command] of target.build.entries()) validateCommand(command, `development.targets.${platform}.build[${index}]`);
+  if (target.install?.kind === "command") validateCommand(target.install, `development.targets.${platform}.install`);
+  else if (target.install?.kind === "tauri") {
+    if (!target.install.productName || !target.install.targetTriple) throw new Error(`development.targets.${platform}.install requires productName and targetTriple`);
+    if (target.install.manifestPath && path.isAbsolute(target.install.manifestPath)) throw new Error("install.manifestPath must be relative to app root");
+  } else if (target.install?.kind === "portable") {
+    const descriptor = target.install;
+    if (descriptor.activation?.kind !== "current" || !path.isAbsolute(descriptor.installRoot ?? "")) throw new Error("portable development installer requires absolute installRoot and current activation");
+    for (const key of ["sourceDirectory", "entrypoint"]) {
+      if (typeof descriptor[key] !== "string" || !descriptor[key] || path.isAbsolute(descriptor[key]) || path.win32.isAbsolute(descriptor[key]) || descriptor[key].split(/[\\/]/).includes("..")) throw new Error(`portable development ${key} must be a contained relative path`);
+    }
+  } else if (target.install) throw new Error(`unsupported development installer kind: ${target.install.kind}`);
+  return target;
+}
+
+export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync }) {
+  if (!new Set(["win", "mac"]).has(platform)) throw new Error("--platform must be win or mac");
+  assertNativeDevelopmentHost(platform);
+  const target = validateDevelopmentConfig(config, platform);
+  const repoRoot = git(root, ["rev-parse", "--show-toplevel"]);
+  assertPrimaryReleaseCheckout(repoRoot, env);
+  assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
+  const childEnv = developmentEnvironment(env);
+  if (dryRun) return { built: false, installed: false, plan: { build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
+  for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
+  if (buildOnly || !target.install) return { built: true, installed: false };
+  install(target.install, { root, platform, env: childEnv, run });
+  return { built: true, installed: true };
+}
+
+export function assertNativeDevelopmentHost(platform, host = process.platform) {
+  if ((platform === "win" && host !== "win32") || (platform === "mac" && host !== "darwin")) throw new Error(`development target ${platform} requires its native host`);
+}
+
+function install(descriptor, { root, platform, env, run }) {
+  if (descriptor.kind === "command") return execute(descriptor, { root, env, run, label: "install" });
+  if (descriptor.kind === "portable") return installPortableDevelopment(descriptor, { root, platform: platform === "win" ? "win32" : "darwin", env });
+  if (platform === "win") {
+    if (!descriptor.expectedInstalledPath) throw new Error("Windows Tauri installer requires expectedInstalledPath for installed verification");
+    const { bundleRoot, installer: app } = resolveTauriBundleDirectory(descriptor, { root, platform, env });
+    const built = path.resolve(bundleRoot, "..", "..", path.basename(descriptor.expectedInstalledPath));
+    assertNonEmptyExecutable(built);
+    const result = run(app, ["/S"], { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
+    if (result.status !== 0) throw new Error(`development installer failed (${result.status}): ${app}`);
+    const installed = path.resolve(root, descriptor.expectedInstalledPath);
+    assertInstalledExecutableMatches(built, installed);
+    return;
+  }
+  const app = resolveTauriArtifact(descriptor, { root, platform, env });
+  const destination = path.resolve(descriptor.destination ?? path.join("/Applications", path.basename(app)));
+  const destinationRoot = path.dirname(destination);
+  mkdirSync(destinationRoot, { recursive: true });
+  const staging = `${destination}.rightkit-dev-${process.pid}`;
+  const backup = `${destination}.rightkit-backup-${process.pid}`;
+  rmSync(staging, { recursive: true, force: true });
+  rmSync(backup, { recursive: true, force: true });
+  cpSync(app, staging, { recursive: true });
+  const signature = run("codesign", ["--force", "--deep", "--preserve-metadata=entitlements", "--sign", "-", staging], { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
+  if (signature.status !== 0) { rmSync(staging, { recursive: true, force: true }); throw new Error(`ad-hoc signing failed (${signature.status}): ${staging}`); }
+  const verified = run("codesign", ["--verify", "--deep", "--strict", staging], { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
+  if (verified.status !== 0) { rmSync(staging, { recursive: true, force: true }); throw new Error(`ad-hoc signature verification failed (${verified.status}): ${staging}`); }
+  let backedUp = false;
+  try {
+    if (existsSync(destination)) { renameSync(destination, backup); backedUp = true; }
+    renameSync(staging, destination);
+    if (!existsSync(path.join(destination, "Contents", "Info.plist"))) throw new Error(`installed app verification failed: ${destination}`);
+    if (backedUp) rmSync(backup, { recursive: true, force: true });
+  } catch (error) {
+    rmSync(destination, { recursive: true, force: true });
+    if (backedUp && existsSync(backup)) renameSync(backup, destination);
+    rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export function resolveTauriArtifact(descriptor, { root, platform, env = process.env, runCargo = runCargoSync }) {
+  return resolveTauriBundleDirectory(descriptor, { root, platform, env, runCargo }).installer;
+}
+
+export function resolveTauriBundleDirectory(descriptor, { root, platform, env = process.env, runCargo = runCargoSync }) {
+  const bundleRoot = descriptor.bundleDirectory
+    ? path.resolve(root, descriptor.bundleDirectory)
+    : resolveBundleRoot(descriptor, { root, env, runCargo });
+  if (descriptor.bundleDirectory && !inside(root, bundleRoot)) throw new Error("Tauri bundleDirectory must stay inside app root");
+  const entries = readdirSync(bundleRoot, { withFileTypes: true });
+  const candidates = platform === "mac"
+    ? entries.filter((entry) => entry.isDirectory() && entry.name === `${descriptor.productName}.app`).map((entry) => path.join(bundleRoot, entry.name))
+    : entries.filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".exe") && entry.name.toLowerCase().includes("setup")).map((entry) => path.join(bundleRoot, entry.name));
+  if (candidates.length !== 1) throw new Error(`expected exactly one ${platform} Tauri installer for ${descriptor.productName} in ${bundleRoot}; found ${candidates.length}`);
+  if (!statSync(candidates[0]).isFile() && platform === "win") throw new Error(`installer is not a file: ${candidates[0]}`);
+  return { bundleRoot, installer: candidates[0] };
+}
+
+export function assertInstalledExecutableMatches(built, installed, read = readFileSync) {
+  assertNonEmptyExecutable(built);
+  assertNonEmptyExecutable(installed);
+  const digest = (file) => createHash("sha256").update(read(file)).digest("hex");
+  if (digest(built) !== digest(installed)) throw new Error(`installed executable does not match this dev build: ${installed}`);
+}
+function assertNonEmptyExecutable(file) { if (!existsSync(file) || !statSync(file).isFile() || statSync(file).size === 0) throw new Error(`installed executable verification failed: missing or empty file ${file}`); }
+
+function resolveBundleRoot(descriptor, { root, env, runCargo }) {
+  if (!descriptor.manifestPath) throw new Error("Tauri installer requires manifestPath when bundleDirectory is omitted");
+  const manifest = path.resolve(root, descriptor.manifestPath);
+  const cwd = process.cwd();
+  let metadata;
+  try {
+    process.chdir(root);
+    metadata = runCargo(["metadata", "--offline", "--no-deps", "--format-version", "1", "--manifest-path", manifest], { cwd: root, env, encoding: "utf8", windowsHide: true, shell: false });
+  } finally { process.chdir(cwd); }
+  if (metadata.error || metadata.status !== 0) throw new Error(`RightKit Cargo metadata failed (${metadata.status ?? "unavailable"})${metadata.error ? `: ${metadata.error.message}` : ""}`);
+  let targetDirectory;
+  try { targetDirectory = JSON.parse(metadata.stdout).target_directory; } catch { throw new Error("RightKit Cargo metadata returned invalid JSON"); }
+  if (!targetDirectory || !path.isAbsolute(targetDirectory)) throw new Error("Cargo metadata omitted absolute target_directory");
+  return path.join(targetDirectory, descriptor.targetTriple, DEVELOPMENT_PROFILE, "bundle", platformBundleKind(descriptor));
+}
+
+function platformBundleKind(descriptor) { return descriptor.targetTriple.includes("apple") ? "macos" : "nsis"; }
+function validateCommand(command, label) { if (!command || typeof command.cmd !== "string" || !command.cmd.trim() || (command.args !== undefined && !Array.isArray(command.args))) throw new Error(`${label} must declare cmd and args`); }
+function execute(command, { root, env, dryRun, run, label }) {
+  validateCommand(command, `development ${label}`);
+  const cwd = path.resolve(root, command.cwd ?? ".");
+  if (!inside(root, cwd)) throw new Error(`development ${label} cwd must stay inside app root`);
+  const args = (command.args ?? []).map(String);
+  if (dryRun) return { cmd: command.cmd, args, cwd };
+  const launch = resolveCommand(command.cmd, args, { root, env });
+  const result = run(launch.command, launch.args, { cwd, env, stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
+  if (result.status !== 0) throw new Error(`development ${label} command failed (${result.status}): ${command.name ?? command.cmd}`);
+}
+export function resolveCommand(command, args, { root, env = process.env } = {}) {
+  if (command === "node") return { command: process.execPath, args };
+  if (command === "pnpm") return { command: process.execPath, args: [resolvePnpmCli({ root, env }), ...args] };
+  if (command === "rightkit") {
+    const client = managedRuntimeClient(env);
+    if (!client) throw new Error("installed RightKit runtime client is unavailable for development command");
+    return { command: process.execPath, args: [client, ...args] };
+  }
+  return { command, args };
+}
+export function resolvePnpmCli({ root, env = process.env } = {}) {
+  const candidates = [];
+  if (env.npm_execpath && /pnpm/i.test(path.basename(env.npm_execpath))) candidates.push(env.npm_execpath);
+  const nodeDir = path.dirname(process.execPath);
+  candidates.push(path.join(nodeDir, "node_modules", "corepack", "dist", "pnpm.js"));
+  candidates.push(path.join(nodeDir, "node_modules", "pnpm", "bin", "pnpm.cjs"));
+  for (let dir = path.resolve(root ?? process.cwd()); ; dir = path.dirname(dir)) {
+    const store = path.join(dir, "node_modules", ".pnpm");
+    if (existsSync(store)) {
+      for (const entry of readdirSync(store).filter((name) => /^pnpm@/.test(name)).sort().reverse()) {
+        candidates.push(path.join(store, entry, "node_modules", "pnpm", "bin", "pnpm.cjs"));
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+  }
+  const selected = candidates.find((candidate) => existsSync(candidate));
+  if (!selected) throw new Error("could not resolve pnpm JavaScript CLI entrypoint; install/pin pnpm through Corepack");
+  return selected;
+}
+function git(cwd, args) { const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true }); if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed`); return result.stdout.trim(); }
+function inside(root, child) { const rel = path.relative(path.resolve(root), path.resolve(child)); return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)); }
+export async function main(args = process.argv.slice(2)) {
+  let platform, configPath = "right-release.config.mjs", dryRun = false, buildOnly = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "-h" || args[i] === "--help") { console.log("usage: right-release dev --platform win|mac [--config right-release.config.mjs] [--dry-run] [--build-only]"); return; }
+    if (args[i] === "--platform") platform = args[++i];
+    else if (args[i] === "--config") configPath = args[++i];
+    else if (args[i] === "--dry-run") dryRun = true;
+    else if (args[i] === "--build-only") buildOnly = true;
+    else throw new Error(`unknown dev option: ${args[i]}`);
+  }
+  if (!platform) throw new Error("right-release dev requires --platform win|mac");
+  const absoluteConfig = path.resolve(configPath);
+  const safeEnv = developmentEnvironment(process.env);
+  for (const [key, value] of Object.entries(safeEnv)) process.env[key] = value;
+  delete process.env.CARGO_INCREMENTAL;
+  const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path");
+  if (pathKey) process.env[pathKey] = safeEnv[pathKey] ?? process.env[pathKey];
+  const loaded = await import(pathToFileURL(absoluteConfig));
+  const config = loaded.default ?? loaded.config ?? loaded;
+  const result = runDevelopment({ root: path.dirname(absoluteConfig), platform, config, dryRun, buildOnly });
+  if (dryRun) console.log(JSON.stringify(result.plan, null, 2));
+  return result;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().catch((error) => { console.error(`right-release dev: ${error.message}`); process.exitCode = 1; });
+}
