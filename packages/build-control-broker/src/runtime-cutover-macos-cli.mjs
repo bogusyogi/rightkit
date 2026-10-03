@@ -110,7 +110,7 @@ export async function runMacOSCutover(input, dependencies = {}) {
     const stopProof = await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
     const result = await install({
       externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
-      plistPath, configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs,
+      plistPath, configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs, macosResourceAddon: options.macosResourceAddon,
       drainProbe: async () => proveThinDrain(externalRoot),
     });
     return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, plistPath, brokerDrain, thinDrain, stopProof, result });
@@ -118,7 +118,9 @@ export async function runMacOSCutover(input, dependencies = {}) {
 }
 
 async function main() {
-  const receipt = await runMacOSCutover(process.argv.slice(2));
+  const options = parseMacOSCutoverArgs(process.argv.slice(2));
+  const { describeMacosResourceAddon } = await import('./runtime.mjs');
+  const receipt = await runMacOSCutover({ ...options, macosResourceAddon: await describeMacosResourceAddon(options.sourcePackagesRoot) });
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
 }
 

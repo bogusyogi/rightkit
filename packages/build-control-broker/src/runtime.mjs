@@ -8,6 +8,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { promisify } from 'node:util';
 import { BUILD_CONTROL_PROTOCOL, RUNTIME_MANIFEST_SCHEMA, normalizeRuntimeIdentity } from '@rightkit/build-control-core';
 import { spawnManagedProcess, startManagedProcess, terminateProcessTree } from './process-tree.mjs';
+import { safeResourceSnapshot } from './resource-telemetry.mjs';
 
 // Windows editors (PowerShell Set-Content/Out-File, Notepad) write a leading
 // UTF-8 BOM by default; JSON.parse does not strip it & fails opaquely.
@@ -15,6 +16,7 @@ function stripBom(text) { return typeof text === 'string' && text.charCodeAt(0) 
 
 const packageNames = ['build-control-broker', 'build-control-core', 'build-control-clients'];
 export const WINDOWS_JOB_ADDON_RELATIVE_PATH = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node';
+export const MACOS_RESOURCE_ADDON_RELATIVE_PATH = 'build-control-broker/native/macos-resource/build/Release/rightkit_macos_resource.node';
 const execFile = promisify(nodeExecFile);
 export const RUNTIME_ACTIVATION_FENCE_SCHEMA = 'rightkit.build-control.runtime-activation.v1';
 export const normalizeGitScopedPath = (path) => path.replaceAll('\\', '/');
@@ -24,7 +26,7 @@ const pathEscapesRoot = (root, candidate) => {
 };
 
 /** Materialize an immutable runtime bundle. This function never changes runtime-current or a service. */
-export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform = process.platform, windowsJobAddon }) {
+export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform = process.platform, windowsJobAddon, macosResourceAddon }) {
   if (!externalRoot || !sourcePackagesRoot || !version) throw new TypeError('externalRoot, sourcePackagesRoot & version are required');
   if (!/^[A-Za-z0-9._-]+$/.test(version)) throw new TypeError('runtime version must be a safe immutable identifier');
   const root = resolve(externalRoot); const source = resolve(sourcePackagesRoot); const provenance = await verifySourceProvenance(source, { sourceRevision, sourceTreeDigest }); const staging = join(root, `.runtime-${randomUUID()}.staging`);
@@ -33,9 +35,10 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
     for (const name of packageNames) { const target = join(staging, name); await mkdir(target, { recursive: true }); await Promise.all([cp(join(source, name, 'src'), join(target, 'src'), { recursive: true }), cp(join(source, name, 'package.json'), join(target, 'package.json'))]); }
     await stageRuntimeDependencies(staging, source);
     const addon = platform === 'win32' ? await stageWindowsJobAddon(staging, source, windowsJobAddon) : undefined;
+    const macAddon = platform === 'darwin' ? await stageMacosResourceAddon(staging, source, macosResourceAddon) : undefined;
     await linkRuntimePackages(staging);
     const contentDigest = await digestTree(staging, { excludeManifest: true });
-    const manifest = await writeRuntimeManifest(staging, version, provenance, addon, { platform });
+    const manifest = await writeRuntimeManifest(staging, version, provenance, addon, { platform, macosResourceAddon: macAddon });
     // Directory identity is derived from package content, never from a mutable
     // release label.  The manifest is written before the rename, so a visible
     // runtime is complete and immutable from the first observation.
@@ -56,14 +59,14 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
 }
 
 /** Compatibility activation wrapper. Bundle construction itself remains isolated in stageManagedRuntime. */
-export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, config, version, sourceRevision, sourceTreeDigest, nodePath = process.execPath, healthTimeoutMs = 8_000, healthWorkspace, taskXmlPath, postSwitchHealth, rollbackSwitch, restartService, probeService, rollbackService, processProbe, stage = stageManagedRuntime, health = healthProbe, platform = process.platform, windowsJobAddon }) {
+export async function installManagedRuntime({ externalRoot, sourcePackagesRoot, config, version, sourceRevision, sourceTreeDigest, nodePath = process.execPath, healthTimeoutMs = 8_000, healthWorkspace, taskXmlPath, postSwitchHealth, rollbackSwitch, restartService, probeService, rollbackService, processProbe, stage = stageManagedRuntime, health = healthProbe, platform = process.platform, windowsJobAddon, macosResourceAddon }) {
   if (!externalRoot || !sourcePackagesRoot || !config || !version) throw new TypeError('externalRoot, sourcePackagesRoot, config & version are required');
   if (!Number.isSafeInteger(healthTimeoutMs) || healthTimeoutMs < 100) throw new TypeError('healthTimeoutMs must be at least 100');
   if (typeof healthWorkspace !== 'string' || !isAbsolute(healthWorkspace)) throw new TypeError('absolute healthWorkspace is required for functional runtime activation proof');
   const healthManifest = await lstat(join(healthWorkspace, 'Cargo.toml')).catch(() => null);
   if (!healthManifest?.isFile()) throw new TypeError('healthWorkspace must contain a regular Cargo.toml');
   if (typeof restartService !== 'function' || typeof probeService !== 'function' || typeof rollbackService !== 'function' || typeof processProbe !== 'function') throw new TypeError('restartService, probeService, rollbackService & processProbe are required for activation');
-  const root = resolve(externalRoot); const staged = await stage({ externalRoot: root, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform, windowsJobAddon }); const { runtime, manifest, contentDigest } = staged;
+  const root = resolve(externalRoot); const staged = await stage({ externalRoot: root, sourcePackagesRoot, version, sourceRevision, sourceTreeDigest, platform, windowsJobAddon, macosResourceAddon }); const { runtime, manifest, contentDigest } = staged;
   await verifyRuntimeBundle(runtime, manifest, contentDigest);
   const activationFencePath = activationFencePathFor(config, root);
   const activation = await prepareRuntimeActivationFence({ path: activationFencePath, manifest });
@@ -114,10 +117,10 @@ export async function replaceRuntimeSelection({ root, current, next, platform = 
   if (present) await rm(displaced, { force: true });
 }
 
-export async function writeRuntimeManifest(runtime, version, provenance, windowsJobAddon, { platform = process.platform } = {}) {
+export async function writeRuntimeManifest(runtime, version, provenance, windowsJobAddon, { platform = process.platform, macosResourceAddon } = {}) {
   const coreDigest = await digestTree(join(runtime, 'build-control-core')); const clientPackageDigest = await digestTree(join(runtime, 'build-control-clients')); const brokerPackageDigest = await digestTree(join(runtime, 'build-control-broker'));
   const identity = normalizeRuntimeIdentity({ schema: RUNTIME_MANIFEST_SCHEMA, version, clientDigest: hash(`${coreDigest}:${clientPackageDigest}`), brokerDigest: hash(`${coreDigest}:${brokerPackageDigest}`) });
-  const manifest = normalizeRuntimeManifest({ ...identity, ...provenance, ...(windowsJobAddon ? { windowsJobAddon } : {}) });
+  const manifest = normalizeRuntimeManifest({ ...identity, ...provenance, ...(windowsJobAddon ? { windowsJobAddon } : {}), ...(macosResourceAddon ? { macosResourceAddon } : {}) });
   const path = join(runtime, 'runtime-manifest.json'); const handle = await open(path, 'wx', 0o444);
   try { await handle.writeFile(`${JSON.stringify(manifest)}\n`, 'utf8'); await handle.sync(); await handle.chmod(platform === 'win32' ? 0o644 : 0o444); }
   finally { await handle.close(); }
@@ -149,12 +152,34 @@ export async function describeWindowsJobAddon(sourcePackagesRoot) {
   return Object.freeze({ path, sha256: hash(bytes), sizeBytes: bytes.length });
 }
 
+async function stageMacosResourceAddon(staging, sourcePackagesRoot, descriptor) {
+  if (!descriptor || resolve(descriptor.path ?? '') !== resolve(sourcePackagesRoot, MACOS_RESOURCE_ADDON_RELATIVE_PATH) || !/^[0-9a-f]{64}$/i.test(descriptor.sha256 ?? '') || !Number.isSafeInteger(descriptor.sizeBytes) || descriptor.sizeBytes < 1) throw new TypeError('macOS resource addon path, digest & size are required');
+  const metadata = await lstat(descriptor.path).catch(() => null);
+  if (!metadata?.isFile()) throw new Error('macOS resource addon must be a regular file');
+  const bytes = await readFile(descriptor.path);
+  if (bytes.length !== descriptor.sizeBytes) throw new Error('macOS resource addon size mismatch');
+  if (hash(bytes) !== descriptor.sha256.toLowerCase()) throw new Error('macOS resource addon digest mismatch');
+  const target = join(staging, MACOS_RESOURCE_ADDON_RELATIVE_PATH);
+  await mkdir(dirname(target), { recursive: true }); await writeFile(target, bytes);
+  return Object.freeze({ path: MACOS_RESOURCE_ADDON_RELATIVE_PATH, sha256: hash(bytes), sizeBytes: bytes.length });
+}
+
+export async function describeMacosResourceAddon(sourcePackagesRoot) {
+  const path = resolve(sourcePackagesRoot, MACOS_RESOURCE_ADDON_RELATIVE_PATH);
+  const metadata = await lstat(path).catch(() => null);
+  if (!metadata?.isFile()) throw new Error(`macOS resource addon must be a regular file: ${path}`);
+  const bytes = await readFile(path);
+  return Object.freeze({ path, sha256: hash(bytes), sizeBytes: bytes.length });
+}
+
 function normalizeRuntimeManifest(manifest) {
   const identity = normalizeRuntimeIdentity(manifest);
   if (!/^[0-9a-f]{40,64}$/.test(manifest?.sourceRevision ?? '') || !/^[0-9a-f]{40,64}$/.test(manifest?.sourceTreeDigest ?? '')) throw new TypeError('runtime manifest requires immutable source revision & tree digest');
   const addon = manifest?.windowsJobAddon;
   if (addon !== undefined && (addon.path !== WINDOWS_JOB_ADDON_RELATIVE_PATH || !/^[0-9a-f]{64}$/i.test(addon.sha256 ?? '') || !Number.isSafeInteger(addon.sizeBytes) || addon.sizeBytes < 1)) throw new TypeError('runtime manifest has malformed Windows Job Object addon descriptor');
-  return Object.freeze({ ...identity, sourceRevision: manifest.sourceRevision, sourceTreeDigest: manifest.sourceTreeDigest, ...(addon ? { windowsJobAddon: Object.freeze({ path: addon.path, sha256: addon.sha256.toLowerCase(), sizeBytes: addon.sizeBytes }) } : {}) });
+  const macAddon = manifest?.macosResourceAddon;
+  if (macAddon !== undefined && (macAddon.path !== MACOS_RESOURCE_ADDON_RELATIVE_PATH || !/^[0-9a-f]{64}$/i.test(macAddon.sha256 ?? '') || !Number.isSafeInteger(macAddon.sizeBytes) || macAddon.sizeBytes < 1)) throw new TypeError('runtime manifest has malformed macOS resource addon descriptor');
+  return Object.freeze({ ...identity, sourceRevision: manifest.sourceRevision, sourceTreeDigest: manifest.sourceTreeDigest, ...(addon ? { windowsJobAddon: Object.freeze({ path: addon.path, sha256: addon.sha256.toLowerCase(), sizeBytes: addon.sizeBytes }) } : {}), ...(macAddon ? { macosResourceAddon: Object.freeze({ path: macAddon.path, sha256: macAddon.sha256.toLowerCase(), sizeBytes: macAddon.sizeBytes }) } : {}) });
 }
 
 function sameRuntimeIdentity(left, right) {
@@ -164,7 +189,7 @@ function sameRuntimeIdentity(left, right) {
 
 function sameRuntimeManifest(left, right) {
   const expected = normalizeRuntimeManifest(right); const observed = normalizeRuntimeManifest(left);
-  return sameRuntimeIdentity(observed, expected) && observed.sourceRevision === expected.sourceRevision && observed.sourceTreeDigest === expected.sourceTreeDigest && JSON.stringify(observed.windowsJobAddon ?? null) === JSON.stringify(expected.windowsJobAddon ?? null);
+  return sameRuntimeIdentity(observed, expected) && observed.sourceRevision === expected.sourceRevision && observed.sourceTreeDigest === expected.sourceTreeDigest && JSON.stringify(observed.windowsJobAddon ?? null) === JSON.stringify(expected.windowsJobAddon ?? null) && JSON.stringify(observed.macosResourceAddon ?? null) === JSON.stringify(expected.macosResourceAddon ?? null);
 }
 
 async function gitAt(cwd, args) {
@@ -234,6 +259,10 @@ async function verifyRuntimeBundle(runtime, manifest, contentDigest) {
   if (expected.windowsJobAddon) {
     const addonPath = join(runtime, expected.windowsJobAddon.path); const metadata = await lstat(addonPath).catch(() => null); const bytes = metadata?.isFile() ? await readFile(addonPath).catch(() => null) : null;
     if (!bytes || bytes.length !== expected.windowsJobAddon.sizeBytes || hash(bytes) !== expected.windowsJobAddon.sha256) throw new Error('Windows Job Object addon missing or digest mismatch');
+  }
+  if (expected.macosResourceAddon) {
+    const addonPath = join(runtime, expected.macosResourceAddon.path); const metadata = await lstat(addonPath).catch(() => null); const bytes = metadata?.isFile() ? await readFile(addonPath).catch(() => null) : null;
+    if (!bytes || bytes.length !== expected.macosResourceAddon.sizeBytes || hash(bytes) !== expected.macosResourceAddon.sha256) throw new Error('macOS resource addon missing or digest mismatch');
   }
   if (contentDigest && await digestTree(runtime, { excludeManifest: true }) !== contentDigest) throw new Error('runtime content digest mismatch');
 }
@@ -390,7 +419,11 @@ async function healthProbe({ runtime, config, nodePath, timeoutMs, healthWorkspa
   child.stderr.on('data', (data) => { stderr += data; });
   await startManagedProcess(child, { timeoutMs });
   try {
-    await waitForSocket(endpoint, child, timeoutMs, () => stderr); if (healthWorkspace) await functionalProbe(endpoint, healthWorkspace, timeoutMs, normalizeRuntimeIdentity(JSON.parse(stripBom(await readFile(join(runtime, 'runtime-manifest.json'), 'utf8')))));
+    await waitForSocket(endpoint, child, timeoutMs, () => stderr);
+    if (healthWorkspace) {
+      const manifest = JSON.parse(stripBom(await readFile(join(runtime, 'runtime-manifest.json'), 'utf8')));
+      await functionalProbe(endpoint, healthWorkspace, timeoutMs, normalizeRuntimeIdentity(manifest), Boolean(manifest.macosResourceAddon || manifest.windowsJobAddon));
+    }
   } finally {
     if (child.exitCode === null) await terminateProcessTree(child, { graceMs: Math.min(1_000, timeoutMs) });
     await rm(endpoint, { force: true }); await rm(configPath, { force: true }); await removeHealthProbeRoot(probeRoot, { platform });
@@ -410,4 +443,8 @@ const socketOpen = (endpoint) => new Promise((resolve) => { const socket = net.c
 export function functionalFailureDetail(event) {
   return event?.error ?? event?.receipt?.error ?? event?.receipt?.reason ?? event?.status ?? 'unknown';
 }
-const functionalProbe = (endpoint, workspace, timeoutMs, runtime) => new Promise((resolve, reject) => { const socket = net.createConnection(endpoint); let buffer = ''; let received = false; const timer = setTimeout(() => { socket.destroy(); reject(new Error('broker functional health timed out')); }, timeoutMs); socket.once('error', (error) => { clearTimeout(timer); reject(error); }); socket.on('data', (chunk) => { buffer += chunk; for (;;) { const line = buffer.indexOf('\n'); if (line < 0) return; const event = JSON.parse(buffer.slice(0, line)); buffer = buffer.slice(line + 1); if (event.type !== 'RESULT') continue; received = true; if (event.exitCode !== 0) { clearTimeout(timer); socket.destroy(); reject(new Error(`broker functional health failed: ${functionalFailureDetail(event)}`)); } } }); socket.once('close', () => { clearTimeout(timer); received ? resolve() : reject(new Error('broker functional health closed without RESULT')); }); socket.once('connect', () => socket.write(`${JSON.stringify({ type: 'MANAGED_AGENT', protocol: BUILD_CONTROL_PROTOCOL, runtime, shim: 'cargo', request: { frontend: 'cargo', argv: ['--version'], workspace, environment: {} } })}\n`)); });
+export function functionalResourceFailure(event) {
+  const snapshot = safeResourceSnapshot(event?.receipt?.resources?.processTree);
+  return snapshot.status === 'OK' ? null : snapshot.reason ?? snapshot.status;
+}
+const functionalProbe = (endpoint, workspace, timeoutMs, runtime, requireResources = false) => new Promise((resolve, reject) => { const socket = net.createConnection(endpoint); let buffer = ''; let received = false; const timer = setTimeout(() => { socket.destroy(); reject(new Error('broker functional health timed out')); }, timeoutMs); socket.once('error', (error) => { clearTimeout(timer); reject(error); }); socket.on('data', (chunk) => { buffer += chunk; for (;;) { const line = buffer.indexOf('\n'); if (line < 0) return; const event = JSON.parse(buffer.slice(0, line)); buffer = buffer.slice(line + 1); if (event.type !== 'RESULT') continue; received = true; const resourceFailure = requireResources ? functionalResourceFailure(event) : null; if (event.exitCode !== 0 || resourceFailure) { clearTimeout(timer); socket.destroy(); reject(new Error(`broker functional health failed: ${resourceFailure ?? functionalFailureDetail(event)}`)); } } }); socket.once('close', () => { clearTimeout(timer); received ? resolve() : reject(new Error('broker functional health closed without RESULT')); }); socket.once('connect', () => socket.write(`${JSON.stringify({ type: 'MANAGED_AGENT', protocol: BUILD_CONTROL_PROTOCOL, runtime, shim: 'cargo', request: { frontend: 'cargo', argv: ['--version'], workspace, environment: {} } })}\n`)); });

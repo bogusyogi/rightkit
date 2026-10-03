@@ -1,6 +1,7 @@
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadWindowsJobAddon } from './windows-job.mjs';
+import { loadMacosResourceAddon } from './macos-resource.mjs';
 
 const launcherPath = fileURLToPath(new URL('./managed-launcher.mjs', import.meta.url));
 const closedChildren = new WeakSet();
@@ -10,6 +11,7 @@ const startupPromises = new WeakMap();
 // reads this map; see its own doc comment for the cross-restart fallback.
 const windowsJobHandles = new WeakMap();
 const managedProcessResources = new WeakMap();
+const managedProcessResourceFinal = new WeakSet();
 
 /** Windows startup stays fail-closed until a native Job Object owner exists. */
 export const WINDOWS_CONTAINMENT_CONTRACT = Object.freeze({
@@ -25,8 +27,8 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
   // launcher immediately before exec so the payload's own file creations (an
   // sccache server socket, for example) get a private mode without inserting a
   // shell between the hash-verified tool and its exec.
-  const { platform = process.platform, loadJobAddon = loadWindowsJobAddon, umask, killOnDisconnect = false, ...spawnOptions } = options;
-  const payloadObject = { command, argv, ...(Number.isSafeInteger(umask) ? { umask } : {}), ...(killOnDisconnect === true ? { killOnDisconnect: true } : {}) };
+  const { platform = process.platform, loadJobAddon = loadWindowsJobAddon, loadResourceAddon = loadMacosResourceAddon, umask, killOnDisconnect = false, resourceIntervalMs, ...spawnOptions } = options;
+  const payloadObject = { command, argv, ...(Number.isSafeInteger(umask) ? { umask } : {}), ...(killOnDisconnect === true ? { killOnDisconnect: true } : {}), ...(platform === 'darwin' && Number.isSafeInteger(resourceIntervalMs) && resourceIntervalMs > 0 ? { resourceIntervalMs } : {}) };
   const payload = Buffer.from(JSON.stringify(payloadObject), 'utf8').toString('base64url');
   if (platform === 'win32') {
     const addon = loadJobAddon();
@@ -40,12 +42,30 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
     const handles = addon.assignRunningProcessToNewJob(child.pid);
     windowsJobHandles.set(child, handles);
     observeClose(child);
-    child.once('close', () => { captureManagedProcessResources(child, { platform, loadJobAddon }); });
+    child.once('close', () => { captureManagedProcessResources(child, { platform, loadJobAddon, loadResourceAddon }); });
     child.once('close', () => { try { addon.closeProcessHandle(handles.processHandle); } catch { /* best effort */ } });
     return child;
   }
   const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: ['ignore', spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: true });
-  observeClose(child); return child;
+  observeClose(child);
+  if (platform === 'darwin') {
+    child.on?.('message', (message) => {
+      if (message?.type !== 'RESOURCE' && message?.type !== 'RESOURCE_FINAL') return;
+      const snapshot = normalizeMacResourceSnapshot(message.snapshot);
+      if (snapshot) {
+        managedProcessResources.set(child, snapshot);
+        if (message.type === 'RESOURCE_FINAL') managedProcessResourceFinal.add(child);
+      }
+    });
+    child.once('close', () => {
+      if (!managedProcessResourceFinal.has(child)) {
+        managedProcessResources.set(child, Object.freeze({ status: 'UNAVAILABLE', reason: 'process-resources-final-sample-unavailable' }));
+        return;
+      }
+      captureManagedProcessResources(child, { platform, loadResourceAddon });
+    });
+  }
+  return child;
 }
 
 /** Send START only after Job/process-group ownership persistence; resolve after payload spawn. */
@@ -149,7 +169,7 @@ function runDescendantList(execFile, timeoutMs) {
   });
 }
 
-export async function terminateProcessTree(child, { platform = process.platform, graceMs = 5_000, kill = process.kill, spawn = nodeSpawn, execFile = nodeExecFile, uid = process.getuid?.(), psTimeoutMs = 250, loadJobAddon = loadWindowsJobAddon } = {}) {
+export async function terminateProcessTree(child, { platform = process.platform, graceMs = 5_000, kill = process.kill, spawn = nodeSpawn, execFile = nodeExecFile, uid = process.getuid?.(), psTimeoutMs = 250, loadJobAddon = loadWindowsJobAddon, loadResourceAddon = loadMacosResourceAddon } = {}) {
   if (!child || !Number.isSafeInteger(child.pid) || child.pid < 1) throw new TypeError('spawned child with pid is required');
   if (!Number.isSafeInteger(graceMs) || graceMs < 0) throw new TypeError('graceMs must be non-negative');
   if (!Number.isSafeInteger(psTimeoutMs) || psTimeoutMs < 1) throw new TypeError('positive process enumeration timeout is required');
@@ -184,11 +204,11 @@ export async function terminateProcessTree(child, { platform = process.platform,
   const group = { platform, kill, execFile, uid, psTimeoutMs };
   let escalated = false;
   try {
-    if (!await ownedGroupAlive(child.pid, group)) return await terminalGroupState(child, true, graceMs);
+    if (!await ownedGroupAlive(child.pid, group)) { const result = await terminalGroupState(child, true, graceMs); captureManagedProcessResources(child, { platform, loadResourceAddon }); return result; }
     await signalOwnedGroup(child.pid, 'SIGTERM', group);
-    if (await waitForOwnedGroupExit(child.pid, graceMs, group)) return await terminalGroupState(child, true, graceMs);
+    if (await waitForOwnedGroupExit(child.pid, graceMs, group)) { const result = await terminalGroupState(child, true, graceMs); captureManagedProcessResources(child, { platform, loadResourceAddon }); return result; }
     escalated = true; await signalOwnedGroup(child.pid, 'SIGKILL', group); const groupGone = await waitForOwnedGroupExit(child.pid, graceMs, group);
-    return await terminalGroupState(child, groupGone, graceMs, true);
+    const result = await terminalGroupState(child, groupGone, graceMs, true); captureManagedProcessResources(child, { platform, loadResourceAddon }); return result;
   } catch (error) {
     if (error?.code === 'RK_PROCESS_GROUP_ENUMERATION') return reapPending(error.reason ?? 'process-group-enumeration-unavailable', escalated);
     throw error;
@@ -197,8 +217,23 @@ export async function terminateProcessTree(child, { platform = process.platform,
 
 /** Read managed Windows Job Object accounting without changing enforcement.
  * A final snapshot is retained before the native handles are closed. */
-export function readManagedProcessResources(child, { platform = process.platform, loadJobAddon = loadWindowsJobAddon } = {}) {
+export function readManagedProcessResources(child, { platform = process.platform, loadJobAddon = loadWindowsJobAddon, loadResourceAddon = loadMacosResourceAddon } = {}) {
   if (!child || !Number.isSafeInteger(child.pid) || child.pid < 1) throw new TypeError('spawned child with pid is required');
+  if (platform === 'darwin') {
+    const cached = managedProcessResources.get(child);
+    if (cached?.status === 'OK') return cached;
+    let addon;
+    try { addon = loadResourceAddon?.(); } catch { return cached ?? unavailable('process-resources-addon-unavailable'); }
+    if (typeof addon?.queryProcessTreeResourceUsage !== 'function') return cached ?? unavailable('process-resources-addon-unavailable');
+    try {
+      const result = normalizeMacResourceSnapshot(addon.queryProcessTreeResourceUsage(child.pid));
+      if (!result) throw new Error('malformed resource snapshot');
+      managedProcessResources.set(child, result);
+      return result;
+    } catch (error) {
+      return Object.freeze({ status: 'ERROR', reason: 'process-resources-query-failed', error: String(error?.message ?? error) });
+    }
+  }
   if (platform !== 'win32') return unavailable('process-resources-platform-unsupported');
   const handles = windowsJobHandles.get(child);
   const cached = managedProcessResources.get(child);
@@ -222,6 +257,12 @@ function captureManagedProcessResources(child, options) {
   const result = readManagedProcessResources(child, options);
   managedProcessResources.set(child, result);
   return result;
+}
+
+function normalizeMacResourceSnapshot(usage) {
+  const fields = ['cpuUserMs', 'cpuKernelMs', 'cpuTotalMs', 'peakMemoryBytes', 'totalProcesses', 'activeProcesses'];
+  if (!usage || typeof usage !== 'object' || fields.some((field) => !Number.isFinite(usage[field]) || usage[field] < 0)) return null;
+  return Object.freeze({ status: 'OK', ...Object.fromEntries(fields.map((field) => [field, usage[field]])), memoryKind: 'physical-footprint', ...(typeof usage.memorySemantics === 'string' ? { memorySemantics: usage.memorySemantics } : {}) });
 }
 
 /**

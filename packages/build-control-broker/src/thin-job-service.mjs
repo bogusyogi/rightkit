@@ -686,7 +686,7 @@ export class ThinJobService {
     try {
       const host = this.#readHostResources();
       if (!host || !Number.isFinite(host.freeMemoryBytes) || host.freeMemoryBytes < 0) throw new Error('invalid host memory snapshot');
-      job.hostResources = { ...host, samples: (job.hostResources?.samples ?? 0) + 1, minimumFreeMemoryBytes: Math.min(job.hostResources?.minimumFreeMemoryBytes ?? host.freeMemoryBytes, host.freeMemoryBytes) };
+      job.hostResources = { ...host, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4, compileBudgetUnits: this.#config.bounds?.compileBudgetUnits ?? null, samples: (job.hostResources?.samples ?? 0) + 1, minimumFreeMemoryBytes: Math.min(job.hostResources?.minimumFreeMemoryBytes ?? host.freeMemoryBytes, host.freeMemoryBytes) };
     } catch (error) {
       job.hostResources = { status: 'ERROR', reason: 'host-resource-query-failed', error: String(error?.message ?? error) };
     }

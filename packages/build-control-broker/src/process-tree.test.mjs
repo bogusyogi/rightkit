@@ -301,6 +301,28 @@ test('Windows resource query reports native query errors', () => {
   assert.deepEqual(readManagedProcessResources(target, { platform: 'win32', loadJobAddon: () => fakeAddon }), { status: 'ERROR', reason: 'process-resources-query-failed', error: 'query failed' });
 });
 
+test('macOS resource query reports native CPU with physical-footprint memory semantics', () => {
+  const usage = { cpuUserMs: 17, cpuKernelMs: 5, cpuTotalMs: 22, peakMemoryBytes: 123456, totalProcesses: 3, activeProcesses: 1 };
+  const addon = { queryProcessTreeResourceUsage: (pid) => { assert.equal(pid, 910); return usage; } };
+  const target = spawnManagedProcess('binary', [], { platform: 'darwin', loadResourceAddon: () => addon }, () => Object.assign(new EventEmitter(), { pid: 910 }));
+  assert.deepEqual(readManagedProcessResources(target, { platform: 'darwin', loadResourceAddon: () => addon }), { status: 'OK', ...usage, memoryKind: 'physical-footprint' });
+});
+
+test('macOS final RESOURCE snapshot survives launcher close & addon loss', () => {
+  const usage = { cpuUserMs: 2, cpuKernelMs: 1, cpuTotalMs: 3, peakMemoryBytes: 4096, totalProcesses: 2, activeProcesses: 0 };
+  const target = spawnManagedProcess('binary', [], { platform: 'darwin', loadResourceAddon: () => ({ queryProcessTreeResourceUsage: () => { throw new Error('query after final'); } }) }, () => Object.assign(new EventEmitter(), { pid: 911, exitCode: 0 }));
+  target.emit('message', { type: 'RESOURCE_FINAL', snapshot: usage });
+  target.emit('close', 0, null);
+  assert.deepEqual(readManagedProcessResources(target, { platform: 'darwin', loadResourceAddon: () => null }), { status: 'OK', ...usage, memoryKind: 'physical-footprint' });
+});
+
+test('macOS forced close without final RESOURCE stays explicitly unavailable', () => {
+  const target = spawnManagedProcess('binary', [], { platform: 'darwin', loadResourceAddon: () => null }, () => Object.assign(new EventEmitter(), { pid: 912, exitCode: 137 }));
+  target.emit('message', { type: 'RESOURCE', snapshot: { cpuUserMs: 8, cpuKernelMs: 1, cpuTotalMs: 9, peakMemoryBytes: 8192, totalProcesses: 1, activeProcesses: 1 } });
+  target.emit('close', null, 'SIGKILL');
+  assert.deepEqual(readManagedProcessResources(target, { platform: 'darwin', loadResourceAddon: () => null }), { status: 'UNAVAILABLE', reason: 'process-resources-final-sample-unavailable' });
+});
+
 test('Windows terminate falls back to taskkill for a child never spawned through spawnManagedProcess, even with the addon present', async () => {
   const target = child();
   const calls = [];

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
 import {
-  buildConfig, defaultBounds, defaultCargoBuildJobs, discoverTools, ensureMacOSRustToolLoaderLinks, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, stageManagedTools, supportsClientSideSccache, whichUnmanaged,
+  buildConfig, buildMacosResourceAddon, defaultBounds, defaultCargoBuildJobs, discoverTools, ensureMacOSRustToolLoaderLinks, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, stageManagedTools, supportsClientSideSccache, whichUnmanaged,
 } from './bootstrap-macos-cli.mjs';
 
 const macOSOnly = { skip: process.platform === 'win32' ? 'macOS-only test' : false };
@@ -18,11 +18,30 @@ test('parseArgs accepts the documented flags & rejects anything else', () => {
   assert.throws(() => parseArgs(['--drain-timeout-ms', '-1']), /non-negative integer/);
   assert.throws(() => parseArgs(['--timeout-ms', '99']), /at least 100/);
   assert.throws(() => parseArgs(['--bogus']), /unknown bootstrap argument/);
+  assert.equal(parseArgs(['--cargo-build-jobs', '8']).cargoBuildJobs, 8);
+  for (const value of ['0', '-1', '1.5', '257', 'bogus']) assert.throws(() => parseArgs(['--cargo-build-jobs', value]), /from 1 to 256/);
+  assert.throws(() => parseArgs(['--cargo-build-jobs']), /from 1 to 256/);
 });
 
 test('shimTable only maps shims for tools actually discovered', () => {
   assert.deepEqual(shimTable([{ id: 'cargo' }, { id: 'clang' }]), { cargo: 'cargo', cc: 'clang', 'c++': 'clang', clang: 'clang' });
   assert.deepEqual(shimTable([]), {});
+});
+
+test('Mac addon installation uses provisioned Node headers & describes compiled bytes', { skip: process.platform !== 'darwin' }, async (t) => {
+  const scratch = mkdtempSync(join(tmpdir(), 'rk-mac-addon-build-'));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  let invocation;
+  const bytes = Buffer.from('compiled-addon-fixture');
+  const descriptor = await buildMacosResourceAddon({ sourcePackagesRoot: scratch, run: async (command, argv, options) => {
+    invocation = { command, argv, options };
+    const output = join(scratch, 'build-control-broker/native/macos-resource/build/Release/rightkit_macos_resource.node');
+    mkdirSync(join(output, '..'), { recursive: true }); writeFileSync(output, bytes);
+  } });
+  assert.equal(invocation.argv.includes('--nodedir'), true);
+  assert.equal(invocation.options.timeout, 120_000);
+  assert.equal(descriptor.sizeBytes, bytes.length);
+  assert.equal(descriptor.sha256, createHash('sha256').update(bytes).digest('hex'));
 });
 
 test('discoverTools finds real, hashed tools on this machine’s PATH', macOSOnly, async () => {
@@ -170,12 +189,23 @@ test('defaultBounds matches the doc-mandated shape (one field per bound, no drif
   assert.equal(bounds.maintenanceConcurrency, undefined);
 });
 
-test('cargo build jobs are clamped at canonical workstation maximum', () => {
+test('cargo build jobs use host CPU & RAM with an eight-worker ceiling', () => {
   // 8 logical / 4 performance cores with 8 GiB: memory binds first at 4, so
   // parallel links cannot push this host into swap.
   assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
-  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 4);
+  assert.equal(defaultCargoBuildJobs({ cpus: 12, totalMemoryBytes: 24 * 1024 ** 3 }), 8);
+  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 8);
+  assert.equal(defaultCargoBuildJobs({ cpus: 12, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
   assert.equal(defaultCargoBuildJobs({ cpus: 2, totalMemoryBytes: 1 * 1024 ** 3 }), 1);
+  assert.equal(defaultCargoBuildJobs({ cpus: NaN, totalMemoryBytes: NaN }), 1);
+});
+
+test('Mac bootstrap accepts a measured compiler-worker override', macOSOnly, async (t) => {
+  const scratch = mkdtempSync(join(tmpdir(), 'rk-bootstrap-jobs-'));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const config = await buildConfig({ externalRoot: scratch, cargoBuildJobs: 6 });
+  assert.equal(config.defaults.cargoBuildJobs, 6);
+  await assert.rejects(buildConfig({ externalRoot: scratch, cargoBuildJobs: 0 }), /from 1 to 256/);
 });
 
 test('client-side sccache requires version 0.17 or newer', async () => {

@@ -496,6 +496,15 @@ run without aggregate compiler admission control. An explicit operator value
 is preserved. This budget complements lane concurrency; it does not replace
 per-build `CARGO_BUILD_JOBS` or workspace writer exclusion.
 
+Mac compiler workers are sized separately from root admission: bootstrap uses
+`max(1, min(8, floor(logical CPUs * 2 / 3), floor(memory GiB / 2)))`.
+This retains four workers on the 8 GiB Air & selects eight on the 12-core,
+24 GiB Mac Mini. `bootstrap-macos-cli.mjs --cargo-build-jobs <count>` applies
+a measured operator override through managed configuration & runtime cutover.
+A build-class root still consumes the entire host compile budget; raising its
+worker count does not admit competing heavy roots. Resource receipts report
+both `host.cargoBuildJobs` & `host.compileBudgetUnits` alongside hardware facts.
+
 ### TOOLCHAIN_WRITE
 
 Examples:
@@ -956,6 +965,15 @@ minimum observed free memory. CPU accounting includes exited descendants;
 `peakCommittedBytes` measures committed allocations, not physical RSS. Final
 snapshots are retained for jobs shorter than the sampling interval & cancellations.
 
+Mac samples use an installer-pinned native libproc addon, process-start identities
+& managed process-group descendants. `peakMemoryBytes` is a sampled
+physical-footprint peak at 25 ms intervals, labelled `sampled-physical-footprint-peak`;
+it is distinct from Windows committed memory. Launcher-side `RUSAGE_CHILDREN`
+recovers CPU for reaped short children, reconciled with sampled CPU using maximums
+to avoid counting it twice. Graceful cancellation retains a final native snapshot;
+forced launcher termination without final IPC reports `UNAVAILABLE`.
+Mac activation requires a functional receipt with valid native CPU/memory fields.
+
 Terminal receipts & events carry `resources` (`rightkit.build-resources.v1`)
 alongside existing `queueMs` & `cargoRunMs`. Delegated compiler CPU is rolled up
 separately; `sumPeakCommittedBytes` is a sum of child peaks, not a simultaneous
@@ -964,6 +982,9 @@ memory peak labelled `peakCommittedBytesSinceGatewayStart`. Combined CPU totals
 are emitted only for complete readings & an exclusive cache attribution window.
 Missing readers, failed queries & changed gateway epochs produce explicit
 `UNAVAILABLE`, `ERROR` or `PARTIAL` measurements rather than zero usage.
+
+Mac delegated compiler memory uses `sumPeakMemoryBytes`; gateway memory
+uses `peakMemoryBytesSinceGatewayStart`, with the same attribution rules.
 
 These observations do not change admission, Cargo job counts, profiles or quotas.
 

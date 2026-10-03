@@ -13,6 +13,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
 import { deriveCompileBudgetUnits, preserveOperatorTunedConfig, stripBom } from './config.mjs';
+import { describeMacosResourceAddon } from './runtime.mjs';
 // A `file://${process.argv[1]}` comparison never matches on Windows, where
 // argv[1] is a drive path: the CLI exited 0 having silently done nothing.
 import { isDirectMain } from './bootstrap-windows-cli.mjs';
@@ -39,6 +40,11 @@ export function parseArgs(argv) {
     if (flag === '--force') { values.force = true; continue; }
     if (flag === '--external-root') { values.externalRoot = argv[++index]; continue; }
     if (flag === '--node') { values.nodePath = argv[++index]; continue; }
+    if (flag === '--cargo-build-jobs') {
+      values.cargoBuildJobs = Number(argv[++index]);
+      if (!Number.isSafeInteger(values.cargoBuildJobs) || values.cargoBuildJobs < 1 || values.cargoBuildJobs > 256) throw new TypeError('--cargo-build-jobs must be an integer from 1 to 256');
+      continue;
+    }
     if (flag === '--timeout-ms') {
       values.timeoutMs = Number(argv[++index]);
       if (!Number.isSafeInteger(values.timeoutMs) || values.timeoutMs < 100) throw new TypeError('--timeout-ms must be an integer of at least 100');
@@ -196,6 +202,18 @@ export function shimTable(tools) {
   return table;
 }
 
+/** Build against already-provisioned Node headers during installation only.
+ * Runtime processes load solely the manifest-pinned staged binary. */
+export async function buildMacosResourceAddon({ sourcePackagesRoot, nodePath = process.execPath, run = execFile } = {}) {
+  const node = await realpath(nodePath);
+  const prefix = dirname(dirname(node));
+  const nodeGyp = join(prefix, 'lib', 'node_modules', 'npm', 'node_modules', 'node-gyp', 'bin', 'node-gyp.js');
+  if (!existsSync(nodeGyp) || !existsSync(join(prefix, 'include', 'node', 'node_api.h'))) throw new Error('Provisioned Node headers & bundled node-gyp are required for macOS resource addon');
+  const nativeRoot = join(sourcePackagesRoot, 'build-control-broker', 'native', 'macos-resource');
+  await run(node, [nodeGyp, 'rebuild', '--directory', nativeRoot, '--nodedir', prefix], { timeout: 120_000, maxBuffer: 8 * 1024 * 1024 });
+  return describeMacosResourceAddon(sourcePackagesRoot);
+}
+
 /** Doc section 3.3: one fixed heavy-build permit "initially"; raise only after
  * a measured safe run. These are the same bounds this checkout has actually run
  * under, not fresh guesses. */
@@ -208,18 +226,19 @@ export function defaultBounds() {
   };
 }
 
-/** Parallel cargo jobs this host can link without swapping: memory binds before
- * CPU, so the performance-core count is clamped by ~2 GiB of RAM per job. */
+/** Bound one root's compiler workers by CPU & memory rather than the old Air's
+ * fixed four-worker ceiling. Keep one third of logical cores for other work,
+ * budget roughly 2 GiB per worker, & cap at eight until a measured build
+ * justifies a larger operator override. */
 export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = totalmem() } = {}) {
   const logical = Number.isSafeInteger(cpus) && cpus > 0 ? cpus : 1;
-  // Apple silicon reports performance + efficiency cores as one logical count;
-  // half is the performance share on every shipping configuration here.
-  const performanceCores = Math.max(1, Math.floor(logical / 2));
+  const compilerCores = Math.max(1, Math.floor(logical * 2 / 3));
   const memoryGiB = Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 2;
-  return Math.max(1, Math.min(4, performanceCores, Math.floor(memoryGiB / 2)));
+  return Math.max(1, Math.min(8, compilerCores, Math.floor(memoryGiB / 2)));
 }
 
-export async function buildConfig({ externalRoot }) {
+export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoBuildJobs() }) {
+  if (!Number.isSafeInteger(cargoBuildJobs) || cargoBuildJobs < 1 || cargoBuildJobs > 256) throw new TypeError('cargoBuildJobs must be an integer from 1 to 256');
   const tools = await stageManagedTools(await discoverTools(), externalRoot);
   const sccacheTool = tools.find((tool) => tool.id === 'sccache');
   const expectedSccacheVersion = await sccacheVersion(sccacheTool?.path);
@@ -250,7 +269,7 @@ export async function buildConfig({ externalRoot }) {
       ...(tools.some((tool) => tool.id === 'rustc') ? { rustcToolId: 'rustc' } : {}),
       ...(tools.some((tool) => tool.id === 'rustdoc') ? { rustdocToolId: 'rustdoc' } : {}),
       ...(managedSccache ? { sccacheToolId: 'sccache' } : {}),
-      cacheMode: managedSccache ? 'managed' : 'disabled', cargoBuildJobs: defaultCargoBuildJobs(),
+      cacheMode: managedSccache ? 'managed' : 'disabled', cargoBuildJobs,
     },
     // Doc section 3.1: never enable during an in-flight release; a deliberate,
     // separately-decided activation, not a bootstrap default.
@@ -315,8 +334,8 @@ async function main() {
   mkdirSync(join(home, 'Library', 'LaunchAgents'), { recursive: true });
   mkdirSync(join(home, 'Library', 'Logs', 'RightKit'), { recursive: true });
 
-  if (!existsSync(configPath) || options.force) {
-    const config = await buildConfig({ externalRoot });
+  if (!existsSync(configPath) || options.force || options.cargoBuildJobs !== undefined) {
+    const config = await buildConfig({ externalRoot, cargoBuildJobs: options.cargoBuildJobs });
     let preserved = [];
     if (existsSync(configPath)) {
       let previous = null;
@@ -342,6 +361,8 @@ async function main() {
   const sourceRevision = (await execFile('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'])).stdout.trim();
   const sourcePackagesRoot = join(REPO_ROOT, 'tools', 'rightkit', 'packages');
   const sourceTreeDigest = (await execFile('git', ['-C', REPO_ROOT, 'rev-parse', `HEAD:${resolveRelative(REPO_ROOT, sourcePackagesRoot)}`])).stdout.trim();
+  const macosResourceAddon = await buildMacosResourceAddon({ sourcePackagesRoot, nodePath });
+  console.log(`bootstrap-macos: built digest-pinned native resource addon (${macosResourceAddon.sizeBytes} bytes)`);
 
   const healthWorkspace = join(externalRoot, 'fixture-rust');
   if (!existsSync(healthWorkspace)) {
@@ -354,7 +375,7 @@ async function main() {
     configPath, externalRoot, sourcePackagesRoot, sourceRevision, sourceTreeDigest,
     version: `bootstrap-${sourceRevision.slice(0, 8)}-${Date.now()}`,
     launchdLabel: LABEL, uid, endpoint: join(externalRoot, 'broker.sock'),
-    plistPath, healthWorkspace, timeoutMs: options.timeoutMs, drainTimeoutMs: options.drainTimeoutMs,
+    plistPath, healthWorkspace, timeoutMs: options.timeoutMs, drainTimeoutMs: options.drainTimeoutMs, macosResourceAddon,
   });
   console.log(JSON.stringify(receipt, null, 2));
   console.log('bootstrap-macos: broker activated');

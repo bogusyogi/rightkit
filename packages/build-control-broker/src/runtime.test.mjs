@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, replaceRuntimeSelection, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
+import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, functionalResourceFailure, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, replaceRuntimeSelection, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -62,22 +62,30 @@ test('functional health surfaces FAILED receipt error and reason details', () =>
   assert.equal(functionalFailureDetail({ type: 'RESULT', exitCode: 1, status: 'FAILED', receipt: { reason: 'digest mismatch' } }), 'digest mismatch');
 });
 
+test('native functional health requires a real resource snapshot', () => {
+  assert.equal(functionalResourceFailure({ receipt: { resources: { processTree: { status: 'UNAVAILABLE', reason: 'addon-missing' } } } }), 'addon-missing');
+  assert.equal(functionalResourceFailure({ receipt: { resources: { processTree: { status: 'OK' } } } }), 'resource-snapshot-invalid');
+  assert.equal(functionalResourceFailure({ receipt: { resources: { processTree: { status: 'OK', cpuUserMs: 1, cpuKernelMs: 1, cpuTotalMs: 2, peakMemoryBytes: 1024, memoryKind: 'physical-footprint', totalProcesses: 1, activeProcesses: 0 } } } }), null);
+});
+
 async function sourceFixture() {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-source-')); const packages = join(root, 'packages'); const healthWorkspace = join(root, 'health');
   for (const name of ['build-control-broker', 'build-control-core', 'build-control-clients']) await cp(join(sourcePackages, name), join(packages, name), { recursive: true });
   const addonRelative = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node'; const addonPath = join(packages, addonRelative); const addonBytes = Buffer.from('MZ-fixture-rightkit-job-addon');
   await mkdir(join(packages, 'build-control-broker/native/windows-job/build/Release'), { recursive: true }); await writeFile(addonPath, addonBytes);
+  const macAddonPath = join(packages, 'build-control-broker/native/macos-resource/build/Release/rightkit_macos_resource.node'); const macAddonBytes = Buffer.from('fixture-macos-resource-addon');
+  await mkdir(join(packages, 'build-control-broker/native/macos-resource/build/Release'), { recursive: true }); await writeFile(macAddonPath, macAddonBytes);
   await mkdir(healthWorkspace); await writeFile(join(healthWorkspace, 'Cargo.toml'), '[package]\nname = "rk-runtime-health"\nversion = "0.0.0"\nedition = "2021"\n');
   await git(root, ['init']); await git(root, ['config', 'user.email', 'rightkit-test@example.invalid']); await git(root, ['config', 'user.name', 'RightKit Test']);
   await git(root, ['add', '-f', 'packages']); await git(root, ['commit', '-m', 'runtime fixture']);
-  return { root, packages, healthWorkspace, windowsJobAddon: { path: addonPath, sha256: createHash('sha256').update(addonBytes).digest('hex'), sizeBytes: addonBytes.length }, revision: await git(root, ['rev-parse', 'HEAD']), tree: await git(root, ['rev-parse', 'HEAD:packages']) };
+  return { root, packages, healthWorkspace, macosResourceAddon: { path: macAddonPath, sha256: createHash('sha256').update(macAddonBytes).digest('hex'), sizeBytes: macAddonBytes.length }, windowsJobAddon: { path: addonPath, sha256: createHash('sha256').update(addonBytes).digest('hex'), sizeBytes: addonBytes.length }, revision: await git(root, ['rev-parse', 'HEAD']), tree: await git(root, ['rev-parse', 'HEAD:packages']) };
 }
 
 test('staging creates content-addressed immutable provenance-bound bundle without activation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
     await mkdir(join(fixture.packages, 'unrelated-release'));
     await writeFile(join(fixture.packages, 'unrelated-release', 'draft.mjs'), 'uncommitted unrelated work');
-    const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon });
+    const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
     assert.equal(staged.version, 'release-a');
     assert.equal(staged.manifest.sourceRevision, fixture.revision); assert.equal(staged.manifest.sourceTreeDigest, fixture.tree);
     assert.equal((await readFile(join(staged.runtime, 'runtime-manifest.json'), 'utf8')).includes(staged.manifest.brokerDigest), true);
@@ -90,8 +98,8 @@ test('staging creates content-addressed immutable provenance-bound bundle withou
 
 test('same source content returns on-disk release identity instead of requested conflicting label', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
-    const first = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', windowsJobAddon: fixture.windowsJobAddon });
-    const second = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-b', windowsJobAddon: fixture.windowsJobAddon });
+    const first = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
+    const second = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-b', windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
     assert.equal(second.runtime, first.runtime); assert.equal(second.version, 'release-a'); assert.equal(second.manifest.version, 'release-a');
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
 });
@@ -123,13 +131,27 @@ test('Windows staging requires and verifies the native Job Object addon descript
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
 });
 
+test('Mac staging requires a regular, digest-pinned native resource addon', { skip: process.platform !== 'darwin' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rk-mac-runtime-')); const fixture = await sourceFixture();
+  try {
+    const args = { externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'mac-addon', platform: 'darwin' };
+    const descriptor = fixture.macosResourceAddon;
+    const staged = await stageManagedRuntime({ ...args, macosResourceAddon: descriptor });
+    assert.equal(staged.manifest.macosResourceAddon.sha256, descriptor.sha256);
+    assert.equal((await readFile(join(staged.runtime, staged.manifest.macosResourceAddon.path))).length, descriptor.sizeBytes);
+    await assert.rejects(stageManagedRuntime(args), /path, digest & size are required/);
+    await assert.rejects(stageManagedRuntime({ ...args, macosResourceAddon: { ...descriptor, sha256: '0'.repeat(64) } }), /digest mismatch/);
+    await assert.rejects(stageManagedRuntime({ ...args, macosResourceAddon: { ...descriptor, sizeBytes: descriptor.sizeBytes + 1 } }), /size mismatch/);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
+});
+
 test('activation fence remains PENDING through candidate probe then rolls selection back without admission', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
     const fence = join(root, 'state', 'activation-fence.json'); const prior = join(root, 'runtime-prior'); await cp(join(fixture.packages, 'build-control-core'), prior, { recursive: true }); await symlink('runtime-prior', join(root, 'runtime-current'));
     let rollback = false;
     await assert.rejects(installManagedRuntime({
       externalRoot: root, sourcePackagesRoot: fixture.packages, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } },
-      windowsJobAddon: fixture.windowsJobAddon, health: async () => {}, restartService: async ({ activation }) => {
+      windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon, health: async () => {}, restartService: async ({ activation }) => {
         const state = JSON.parse(await readFile(activation.path, 'utf8')); assert.equal(state.schema, RUNTIME_ACTIVATION_FENCE_SCHEMA); assert.equal(state.state, 'PENDING');
         assert.equal(state.state === 'COMMITTED', false, 'candidate must reject SUBMIT/MANAGED_AGENT while PENDING'); return { pid: 101, runtimeIdentity: activation.runtime };
       }, probeService: async () => { throw new Error('post-switch probe refused'); }, rollbackService: async () => { rollback = true; }, processProbe: async () => ({ alive: true, runtimePath: root }),
@@ -142,7 +164,7 @@ test('activation commits only after exact post-switch process proof', async () =
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
     const fence = join(root, 'state', 'activation-fence.json'); let runtime;
     const result = await installManagedRuntime({
-      externalRoot: root, sourcePackagesRoot: fixture.packages, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } }, windowsJobAddon: fixture.windowsJobAddon, health: async () => {},
+      externalRoot: root, sourcePackagesRoot: fixture.packages, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } }, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon, health: async () => {},
       restartService: async ({ manifest, runtime: candidate }) => { runtime = candidate; return { pid: 101, runtimeIdentity: manifest }; },
       probeService: async ({ manifest }) => ({ pid: 101, runtimeIdentity: manifest }), rollbackService: async () => { throw new Error('must not rollback committed candidate'); }, processProbe: async () => ({ alive: true, runtimePath: runtime }),
     });
