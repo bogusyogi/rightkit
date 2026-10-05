@@ -164,8 +164,10 @@ export class CachedWorkspaceResolver {
 export async function resolveRepositoryRoot(workspace, { inspect = lstat } = {}) {
   const fallback = await realpath(workspace); let candidate = fallback;
   while (true) {
-    try { await inspect(join(candidate, '.git')); return candidate; }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    for (const marker of ['.rightkit-local-development.json', '.git']) {
+      try { await inspect(join(candidate, marker)); return candidate; }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
     const parent = dirname(candidate); if (parent === candidate) return fallback; candidate = parent;
   }
 }
@@ -450,8 +452,13 @@ export class ThinJobService {
         : await (typeof this.#workspaceResolver.resolve === 'function'
           ? this.#workspaceResolver.resolve(executionCwd, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } })
           : this.#workspaceResolver(executionCwd, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } }));
-    const workspace = roots.workspaceRoot ? await this.#state.workspace(roots.workspaceRoot) : null;
     const repositoryRoot = parent?.repositoryRoot ?? (roots.workspaceRoot ? await this.#repositoryResolver(roots.workspaceRoot) : null);
+    // One repository owns one compiled-artifact pool even when it contains
+    // several independent Cargo workspaces (for example engine, tray, & Hub).
+    // Cargo's discovered root still governs resolution; repository root only
+    // governs RightKit cache/scheduler state.
+    const cacheRoot = repositoryRoot ?? roots.workspaceRoot;
+    const workspace = cacheRoot ? await this.#state.workspace(cacheRoot) : null;
     const defaultTargetTriple = this.#config.defaults?.targetTriple;
     const rustupTargetTriple = message.shim === 'rustup' && request.argv.length === 3 && request.argv[0] === 'target' && request.argv[1] === 'add' ? request.argv[2] : null;
     const targetTriple = compilationTarget(message.shim, request.argv) ?? rustupTargetTriple ?? defaultTargetTriple;
@@ -479,7 +486,7 @@ export class ThinJobService {
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, DEFAULT_OUTPUT_BYTES, 1024);
     const effectiveCapability = nestedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true, skipRootServices: true }) : capability;
     const requestEnvironment = nestedCompiler ? normalizeDelegatedCompilerEnvironment(request.environment) : normalizeRequestEnvironment(request.environment);
-    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, workspaceDiscoveryCache: roots.workspaceDiscoveryCache ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], resourceChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, residentOutput: '', residentTransition: null, residentAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, cancelRequests: [], terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
+    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, workspaceDiscoveryCache: roots.workspaceDiscoveryCache ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: cacheRoot, cargoWorkspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], resourceChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, residentOutput: '', residentTransition: null, residentAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, cancelRequests: [], terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
   }
 
   async #execute(job) {

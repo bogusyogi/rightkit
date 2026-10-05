@@ -1,5 +1,4 @@
 import { readFile as defaultReadFile } from 'node:fs/promises';
-import { availableParallelism as cpuCount, totalmem } from 'node:os';
 import { isAbsolute, normalize, relative, win32 } from 'node:path';
 
 const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands']);
@@ -17,20 +16,6 @@ const EXTERNAL_COMMAND = /^[a-z][a-z0-9-]*$/;
 const HEX_256 = /^[a-f0-9]{64}$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-
-/** Aggregate compiler-budget sizing (dual-host routing §5): one host budget
- * unit derived from logical CPUs & memory. A 64 GiB / >=8-logical-CPU i9-class
- * workstation yields 12 units — exactly three analysis roots, two test roots,
- * or one heavy build, plus mixtures. Smaller hosts derive a proportionally
- * smaller budget; the floor keeps at least one compile-heavy root admissible.
- * Shared by both bootstrap CLIs & by loadBrokerConfig's existing-config default
- * below, so macOS & Windows (and configs written before this bound existed)
- * all size the budget identically. */
-export function deriveCompileBudgetUnits({ cpus = cpuCount(), totalMemoryBytes = totalmem() } = {}) {
-  const logical = Number.isSafeInteger(cpus) && cpus > 0 ? cpus : 1;
-  const memoryGiB = Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 2;
-  return Math.max(4, Math.min(12, logical, Math.floor(memoryGiB / 4)));
-}
 
 function object(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${label} must be an object`);
@@ -259,19 +244,10 @@ export function validateBrokerConfig(value) {
 // the file's own bytes, not its content, were the problem.
 export function stripBom(text) { return typeof text === 'string' && text.charCodeAt(0) === 0xfeff ? text.slice(1) : text; }
 
-// Configs written before compileBudgetUnits existed (or hand-edited without it)
-// left the aggregate compile budget unenforced — only raw lane concurrency
-// applied. Rather than silently running unbounded, an existing config missing
-// the field is defaulted here, at load time, to the same derivation the
-// bootstrap CLIs use for a fresh config. validateBrokerConfig itself stays
-// pure & host-independent; only the on-disk load path reaches into the host.
-export async function loadBrokerConfig(path, { readFile = defaultReadFile, deriveCompileBudget = deriveCompileBudgetUnits } = {}) {
+export async function loadBrokerConfig(path, { readFile = defaultReadFile } = {}) {
   if (typeof path !== 'string' || !path) throw new TypeError('config path is required');
   let parsed;
   try { parsed = JSON.parse(stripBom(await readFile(path, 'utf8'))); } catch (error) { throw new TypeError(`invalid broker config: ${error.message}`); }
-  if (parsed && typeof parsed === 'object' && parsed.bounds && typeof parsed.bounds === 'object' && parsed.bounds.compileBudgetUnits === undefined) {
-    parsed.bounds = { ...parsed.bounds, compileBudgetUnits: deriveCompileBudget() };
-  }
   return validateBrokerConfig(parsed);
 }
 

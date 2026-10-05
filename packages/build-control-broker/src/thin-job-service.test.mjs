@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
-import { brokerEndpointForPlatform, CachedWorkspaceResolver, ThinJobService, createThinJobServer, resolveCargoWorkspace } from './thin-job-service.mjs';
+import { brokerEndpointForPlatform, CachedWorkspaceResolver, ThinJobService, createThinJobServer, resolveCargoWorkspace, resolveRepositoryRoot } from './thin-job-service.mjs';
 import { ThinState } from './thin-state.mjs';
 import { beginCutoverDrain, endCutoverDrain } from './cutover-shared.mjs';
 
@@ -179,21 +179,6 @@ test('macOS jobs override stale cache loader state with broker-owned Rust toolch
   } finally { await item.close(); }
 });
 
-test('root Cargo jobs receive validated iPhone deployment target without compiler flag authority', async () => {
-  const item = await fixture({ platform: 'darwin' });
-  try {
-    const requested = message(item.workspace, ['--version']);
-    requested.request.environment = { IPHONEOS_DEPLOYMENT_TARGET: '18.0' };
-    const submitted = (await call(item.service, command('SUBMIT', requested))).result;
-    assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
-    assert.equal(item.children.at(-1).environment.IPHONEOS_DEPLOYMENT_TARGET, '18.0');
-    requested.request.environment = { IPHONEOS_DEPLOYMENT_TARGET: '18.0', CFLAGS: '-arch unsafe' };
-    const rejected = (await call(item.service, command('SUBMIT', requested))).result;
-    assert.equal(rejected.status, 'REJECTED');
-    assert.match(rejected.error, /request environment key is not allowlisted: CFLAGS/);
-  } finally { await item.close(); }
-});
-
 test('external Cargo tools inherit validated broker endpoint with broker-owned precedence', async () => {
   const unixSocket = '/validated/rightkit.sock'; const windowsPipe = '\\\\.\\pipe\\rightkit-validated';
   assert.equal(brokerEndpointForPlatform({ unixSocket, windowsPipe }, 'darwin'), unixSocket);
@@ -301,9 +286,22 @@ test('cache preparation receives broker-owned repository, workspace & active-gen
     await call(item.service, command('WATCH', submitted.id));
     assert.equal(prepared.length, 1);
     assert.equal(prepared[0].repositoryRoot, item.repository);
-    assert.equal(prepared[0].workspaceRoot, item.workspace);
+    assert.equal(prepared[0].workspaceRoot, item.repository);
     assert.match(prepared[0].layout.root, /g[\\/]001$/);
   } finally { await item.close(); }
+});
+
+test('repository marker scopes independent Cargo workspaces to one cache root', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-repository-root-'));
+  const repository = join(root, 'product');
+  const engine = join(repository, 'engine');
+  const tray = join(repository, 'apps', 'tray');
+  try {
+    await Promise.all([mkdir(engine, { recursive: true }), mkdir(tray, { recursive: true })]);
+    await writeFile(join(repository, '.rightkit-local-development.json'), '{}\n');
+    assert.equal(await resolveRepositoryRoot(engine), repository);
+    assert.equal(await resolveRepositoryRoot(tray), repository);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('Cargo roots own exact pinned compilers directly while raw rustc remains brokered', async () => {
@@ -367,7 +365,7 @@ test('cutover fence rejects new roots while drain status exposes active analysis
     assert.equal(draining.inFlight[0].id, root.id);
     assert.equal(draining.inFlight[0].state, 'RUNNING');
     assert.equal(draining.inFlight[0].command, 'cargo outdated');
-    assert.equal(draining.inFlight[0].workspace, item.workspace);
+    assert.equal(draining.inFlight[0].workspace, item.repository);
     assert.ok(draining.inFlight[0].elapsedMs >= 0);
     fence = await beginCutoverDrain(item.root);
     const rejected = (await call(item.service, command('SUBMIT', message(item.workspace, ['outdated'])))).result;
@@ -555,7 +553,7 @@ test('idle-current-generation eviction holds workspace write exclusion & a queue
     const second = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
     assert.equal((await call(item.service, command('STATUS', second.id))).result.state, 'QUEUED');
     // Background GC evicts the idle main-workspace generation while the build waits.
-    const workspace = await item.state.workspace(item.workspace);
+    const workspace = await item.state.workspace(item.repository);
     const evicted = await evictIdle({ workspaceKey: workspace.key, canonicalRoot: workspace.canonicalRoot, generation: workspace.state.currentGeneration, sizeBytes: 1024 });
     assert.equal(evicted.evictedGeneration, 1);
     assert.equal(evicted.newGeneration, 2);
@@ -580,7 +578,7 @@ test('eviction never retires a generation with an active writer', async () => {
   try {
     const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
     await waitFor(item.service, submitted.id, ['RUNNING']);
-    const workspace = await item.state.workspace(item.workspace);
+    const workspace = await item.state.workspace(item.repository);
     assert.equal(await evictIdle({ workspaceKey: workspace.key, canonicalRoot: workspace.canonicalRoot, generation: workspace.state.currentGeneration, sizeBytes: 1024 }), null);
     await assert.doesNotReject(stat(workspace.layout.root));
     const terminal = (await call(item.service, command('CANCEL', submitted.id))).result;

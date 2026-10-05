@@ -1,4 +1,4 @@
-import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, assertRepositoryExecutionAllowed, captureDelegatedCompilerEnvironment, captureManagedRequestEnvironment, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, normalizeRuntimeIdentity, validateManagedRustupInvocation } from '@rightkit/build-control-core';
+import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, assertRepositoryExecutionAllowed, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, normalizeRuntimeIdentity, validateManagedRustupInvocation } from '@rightkit/build-control-core';
 import net from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -79,10 +79,7 @@ export function createManagedAgentRequest({ argv0, argv = [], workspace = proces
   const parentId = environment.RIGHTKIT_PARENT_REQUEST_ID;
   const capabilityToken = environment.RIGHTKIT_PARENT_CAPABILITY_TOKEN;
   const delegatedCompilerEnvironment = parentId !== undefined && ['rustc', 'rustdoc'].includes(shim) ? captureDelegatedCompilerEnvironment(environment) : {};
-  const requestEnvironment = parentId !== undefined && ['rustc', 'rustdoc'].includes(shim)
-    ? delegatedCompilerEnvironment
-    : captureManagedRequestEnvironment(environment);
-  const request = normalizeManagedAgentRequest({ frontend, argv: invocation.argv, workspace: invocation.workspace, environment: requestEnvironment });
+  const request = normalizeManagedAgentRequest({ frontend, argv: invocation.argv, workspace: invocation.workspace, environment: delegatedCompilerEnvironment });
   const priority = buildPriority(environment);
   const execution = parentId === undefined ? null : Object.freeze({ mode: 'NESTED', parentId: jobId(parentId), ...(capabilityToken === undefined ? {} : { capabilityToken }) });
   return Object.freeze({ type: 'MANAGED_AGENT', protocol: BUILD_CONTROL_PROTOCOL, runtime: normalizeRuntimeIdentity(runtimeIdentity), shim, observedEnvironment, request, ...(priority ? { priority } : {}), ...(execution ? { execution } : {}) });

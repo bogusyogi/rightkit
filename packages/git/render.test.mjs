@@ -694,6 +694,40 @@ test("every job checking out an admitted revision fetches full history", () => {
   }
 });
 
+// Rule 3 (release workflows have a dry run): a boolean dry_run input, runnable
+// from a branch, must thread through admission so packaging/signing/qualification
+// run while publication is skipped and artifacts carry a dry-run suffix.
+test("release-candidate template exposes a dry_run input threaded through admission", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci", "release-candidate"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh" },
+    candidate: {
+      buildScript: "ci:candidate",
+      checkScript: "ci:candidate-check",
+      admissionScript: "release:admission",
+      stageSummaryScript: "release:stage-summary",
+      artifactRoot: "widgets-unsigned",
+      os: ["windows-2025", "macos-15"],
+      signWindows: true,
+      signMacos: true,
+    },
+    matrix: { os: ["ubuntu-24.04", "windows-2025", "macos-15"], node: ["22.23.2"] },
+    templateVersion: "1.9.0",
+  };
+  const content = renderTemplate(
+    fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
+    buildRenderContext(manifest, "/repos/widgets"),
+  );
+  assert.match(content, /^      dry_run:\n        description: .*\n        required: false\n        type: boolean\n        default: false$/m);
+  assert.match(content, /dry_run: \$\{\{ steps\.admit\.outputs\.dry_run \}\}/);
+  assert.match(content, /artifact_suffix: \$\{\{ steps\.admit\.outputs\.artifact_suffix \}\}/);
+  assert.match(content, /RIGHT_GIT_DRY_RUN: \$\{\{ inputs\.dry_run \}\}/);
+  // The envelope only pins refs/heads/main and first-attempt for a real dispatch.
+  assert.match(content, /if \[\[ "\$\{\{ inputs\.dry_run \}\}" == "true" \]\]; then\n            \[\[ "\$GITHUB_REF" == refs\/heads\/\* \]\]/);
+});
+
 // Correction 11: Windows signing, macOS signing, installed qualification and
 // publication all shared one `release` environment, so no signing/publication
 // grant separation existed. The split is opt-in per product because the secrets

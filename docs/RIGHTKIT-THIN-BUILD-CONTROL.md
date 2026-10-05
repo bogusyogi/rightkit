@@ -52,9 +52,6 @@ Implemented and live:
 - Cargo compiler environment forwarding preserves package/build-script inputs
   while broker-owned tool, path, cache, loader, and unstable-feature authority
   remains stripped and broker-injected;
-- root Cargo requests may forward a strictly numeric
-  `IPHONEOS_DEPLOYMENT_TARGET`; arbitrary compiler flags remain denied, so
-  vendored C and assembly honor an app's registered iOS compatibility floor;
 - macOS Rust tools receive a broker-owned fallback loader path, while bootstrap
   repairs Rust 1.98's missing target-tool `libLLVM.dylib` companion link so
   compiler grandchildren work without accepting client loader overrides;
@@ -482,20 +479,6 @@ CARGO_BUILD_JOBS: measured bounded value, initially 3 or 4
 
 Tool provisioning that compiles Rust may have a different **priority**, but it still consumes the same machine compile budget. Do not create a second independent CPU/RAM compile lane.
 
-#### Aggregate compile budget
-
-macOS & Windows derive one host-wide `bounds.compileBudgetUnits` value:
-
-```text
-max(4, min(12, logical CPUs, floor(total memory GiB / 4)))
-```
-
-Fresh bootstrap writes the derived value. Config loading also supplies it when
-an older live config omits the field, so legacy macOS config cannot silently
-run without aggregate compiler admission control. An explicit operator value
-is preserved. This budget complements lane concurrency; it does not replace
-per-build `CARGO_BUILD_JOBS` or workspace writer exclusion.
-
 Mac compiler workers are sized separately from root admission: bootstrap uses
 `max(1, min(8, floor(logical CPUs * 2 / 3), floor(memory GiB / 2)))`.
 This retains four workers on the 8 GiB Air & selects eight on the 12-core,
@@ -542,36 +525,6 @@ install would place unregistered executables beside digest-pinned managed
 tools, so it fails closed with an explicit error. Managed Cargo tool
 provisioning is an operator path: stage, compile, hash, register the immutable
 tool identity, and only then expose it through the managed tool registry.
-
-`cargo clean` is denied by default because it deletes workspace target
-artifacts and destroys Cargo fingerprint warmth. It does not clear shared
-sccache. Emergency use requires `RIGHTKIT_ALLOW_CARGO_CLEAN=1` in broker process
-environment, a broker restart, the intentional clean, then removal of opt-in &
-another restart.
-
-### Cache-stable product staging
-
-Product build scripts must preserve Cargo fingerprints:
-
-1. Hash recipe/version, source inputs, & staged output.
-2. Skip copy, merge, or replacement when manifest & output hash still match.
-3. Build changed artifacts in a temporary sibling & promote atomically.
-4. Never delete a valid destination before replacement is ready.
-5. Fail on corrupt or non-executable required input; never stage a placeholder.
-6. Route local managed Rust invocations through `rightkit cargo`, `rightkit
-   rustc`, or `rightkit rustdoc`. Public CI runners without RightKit remain an
-   explicit direct-Cargo boundary.
-
-Current fleet adoption covers HeardRight sidecar & FFmpeg staging, ScrapeRight
-sidecar/universal merging, Membrane frontend/runtime staging, CodeRight daemon
-staging, & GenRight artifact copies. Each helper has focused regression tests
-for unchanged-output preservation & changed-input replacement.
-
-Development/test profile normalization in ScrapeRight, GenRight, CutRight, &
-WorkRight keeps line-table diagnostics for workspace crates while disabling
-dependency, build-script, & proc-macro debug info. Release LTO policy remains a
-separate measured decision; this normalization does not change shipping
-profiles.
 
 The following read-only builtins are currently unrouted and reject as unknown
 commands. They are follow-up candidates, addable through the same declarative

@@ -23,6 +23,11 @@ on:
         required: false
         type: boolean
         default: false
+      dry_run:
+        description: Rehearse packaging, signing & installed qualification from a branch with publication skipped
+        required: false
+        type: boolean
+        default: false
 concurrency:
   group: release-${{ inputs.version }}
   cancel-in-progress: false
@@ -45,13 +50,20 @@ jobs:
       source_revision: ${{ steps.admit.outputs.source_revision }}
       signed_qualification: ${{ steps.admit.outputs.signed_qualification }}
       publish: ${{ steps.admit.outputs.publish }}
+      dry_run: ${{ steps.admit.outputs.dry_run }}
+      artifact_suffix: ${{ steps.admit.outputs.artifact_suffix }}
     steps:
       - name: Validate immutable dispatch envelope
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == "refs/heads/main" ]]
-          [[ "$GITHUB_RUN_ATTEMPT" == "1" ]]
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            [[ "$GITHUB_REF" == refs/heads/* ]]
+            [[ "${{ inputs.publish }}" != "true" ]]
+          else
+            [[ "$GITHUB_REF" == "refs/heads/main" ]]
+            [[ "$GITHUB_RUN_ATTEMPT" == "1" ]]
+          fi
           [[ "${{ inputs.version }}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ "${{ inputs.source_revision }}" =~ ^[a-f0-9]{40}$ ]]
           if [[ "${{ inputs.publish }}" == "true" ]]; then [[ "${{ inputs.signed_qualification }}" == "true" ]]; fi
@@ -75,6 +87,7 @@ ${PACKAGE_MANAGER_SETUP}
           RIGHT_GIT_SOURCE_REVISION: ${{ inputs.source_revision }}
           RIGHT_GIT_SIGNED_QUALIFICATION: ${{ inputs.signed_qualification }}
           RIGHT_GIT_PUBLISH: ${{ inputs.publish }}
+          RIGHT_GIT_DRY_RUN: ${{ inputs.dry_run }}
           RIGHT_GIT_WORKFLOW_REF: ${{ github.ref }}
           RIGHT_GIT_RUN_ATTEMPT: ${{ github.run_attempt }}
   candidate:

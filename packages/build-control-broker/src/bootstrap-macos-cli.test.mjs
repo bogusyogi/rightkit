@@ -146,10 +146,6 @@ test('buildConfig produces a config the broker’s own schema accepts', macOSOnl
   assert.equal(loaded.sccache.clientSide, loaded.sccache.mode === 'managed');
   assert.equal(loaded.bounds.buildConcurrency, 3);
   assert.equal(loaded.bounds.analysisConcurrency, 2);
-  // macOS previously omitted the aggregate compile budget entirely, so the
-  // broker never enforced it there; buildConfig() must now derive one like
-  // Windows does.
-  assert.ok(Number.isSafeInteger(loaded.bounds.compileBudgetUnits) && loaded.bounds.compileBudgetUnits >= 4);
   const nativeTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
   const otherTriple = nativeTriple === 'aarch64-apple-darwin' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwin';
   assert.deepEqual(loaded.defaults.targetTriples, [nativeTriple, otherTriple, 'aarch64-apple-ios', 'aarch64-apple-ios-sim']);

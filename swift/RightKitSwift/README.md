@@ -8,7 +8,6 @@ truth for the pieces every app would otherwise reimplement and let drift.
 | `RightKitLicense` | Verifies Ed25519 entitlement tokens against the same `contracts/license-v2.json` vector the Rust and TypeScript verifiers use, so a token accepted on one platform is accepted on all. |
 | `RightKitDiagnostics` | Bounded JSONL diagnostics with a privacy redactor (never logs keys, tokens, or device ids). |
 | `RightKitArtifacts` | Checksummed artifact install with staging, atomic replace, rollback, and archive-traversal/symlink/expansion guards. |
-| `RightKitUI` | Generic adaptive-glass surface primitive: regular/clear native Liquid Glass + ConcentricRectangle on iOS/macOS 26, material fallback on older OS versions, and opaque accessibility fallback. Product radii, colors, layout, motion, and behavior stay app-local. |
 
 ## Consuming it
 
@@ -21,12 +20,11 @@ host.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.1.1"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", from: "0.1.0"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
         .product(name: "RightKitLicense", package: "rightkit-swift"),
-        .product(name: "RightKitUI", package: "rightkit-swift"),
     ]),
 ]
 ```
@@ -37,7 +35,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit-swift.git
-    exactVersion: "0.1.1"
+    from: "0.1.0"
 ```
 
 A clone of a consuming app resolves this straight from GitHub — no workspace
