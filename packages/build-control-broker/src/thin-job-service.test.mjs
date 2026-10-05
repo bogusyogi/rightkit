@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
@@ -754,4 +754,21 @@ test('prebuilt OpenSSL environment is injected into root cargo runs, recorded in
     assert.equal(result.receipt.native.openssl.key, 'abcdabcdabcdabcd');
     assert.deepEqual([...await item.state.pinnedNativeKeys('openssl')], ['abcdabcdabcdabcd']);
   } finally { await item.close(); }
+});
+
+
+test('broker owns Mac account identity without changing other platforms', async () => {
+  for (const platform of ['darwin', 'linux']) {
+    const item = await fixture({ platform });
+    try {
+      const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+      await waitFor(item.service, submitted.id, ['RUNNING']);
+      const child = item.children.at(-1);
+      assert.equal(child.environment.HOME, platform === 'darwin' ? homedir() : undefined);
+      assert.equal(child.environment.CARGO_HOME, item.state.paths.cargoHome);
+      assert.equal(child.environment.RUSTC_WRAPPER, '/managed/sccache');
+      child.emit('close', 0, null);
+      assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
+    } finally { await item.close(); }
+  }
 });

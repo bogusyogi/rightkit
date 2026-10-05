@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
 import { lstat, readFile, realpath, statfs as nodeStatfs } from 'node:fs/promises';
 import net from 'node:net';
-import { cpus, freemem, totalmem } from 'node:os';
+import { cpus, freemem, homedir, totalmem } from 'node:os';
 import { safeResourceSnapshot, summarizeBuildResources } from './resource-telemetry.mjs';
 import { basename, delimiter, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
@@ -192,6 +192,9 @@ function registeredRustupContext(cargoPath) {
 
 function runtimeBase(toolchainLibraryPath, rustupToolchain, platform = process.platform) {
   const environment = Object.fromEntries(['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SystemRoot', 'ComSpec'].flatMap((key) => process.env[key] === undefined ? [] : [[key, process.env[key]]]));
+  // Account identity is selected by the broker, never accepted from callers.
+  // Git uses HOME to load sanctioned per-user SSH URL routing.
+  if (platform === 'darwin') environment.HOME = homedir();
   if (rustupToolchain) environment.RUSTUP_TOOLCHAIN = rustupToolchain;
   if (platform === 'darwin' && toolchainLibraryPath) environment.DYLD_FALLBACK_LIBRARY_PATH = toolchainLibraryPath;
   return environment;
