@@ -128,7 +128,13 @@ export function createLicenseClient(cfg: LicenseConfig) {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const err = new Error(`http ${res.status}`) as Error & { httpStatus?: number };
+      // Only explicit client-side rejections are authoritative. A proxy error,
+      // malformed body or 5xx must preserve refresh's offline-grace behavior.
+      const body = await res.json().catch(() => null) as ActivateResponse | null;
+      if (res.status >= 400 && res.status < 500 && body?.ok === false
+        && typeof body.status === 'string' && body.status !== 'active') return body;
+      const message = typeof body?.message === 'string' ? body.message : undefined;
+      const err = new Error(message ?? `Activation request failed (HTTP ${res.status}).`) as Error & { httpStatus?: number };
       err.httpStatus = res.status;
       throw err;
     }
@@ -146,7 +152,7 @@ export function createLicenseClient(cfg: LicenseConfig) {
       const httpStatus = (e as { httpStatus?: number }).httpStatus;
       const lic: StoredLicense = {
         status: 'failed', deviceId, key,
-        message: httpStatus === 404 ? 'Activation server is not live yet.' : 'Could not reach the activation server.',
+        message: httpStatus ? (e as Error).message : 'Could not reach the activation server.',
       };
       await cfg.storage.set(lic);
       return lic;

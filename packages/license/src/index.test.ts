@@ -67,13 +67,30 @@ describe('activate', () => {
     const { c } = clientWith(fetchImpl);
     expect((await c.activate('BAD')).status).toBe('invalid');
   });
-  it('maps a 404 to a "not live" failure', async () => {
+  it('reports an unstructured 404 without inventing server availability', async () => {
     const fetchImpl = (async () => jsonResponse(404, {})) as unknown as typeof fetch;
     const { c } = clientWith(fetchImpl);
     const lic = await c.activate('X');
     expect(lic.status).toBe('failed');
-    expect(lic.message).toMatch(/not live/i);
+    expect(lic.message).toMatch(/HTTP 404/);
+    expect(lic.message).not.toMatch(/not live/i);
   });
+  it.each([
+    [404, 'not_found', 'License not found or inactive'],
+    [409, 'seat_limit', 'All device seats are in use'],
+  ])('preserves structured HTTP %s rejection', async (status, rejection, message) => {
+    const { c } = clientWith((async () => jsonResponse(status, { ok: false, status: rejection, message })) as typeof fetch);
+    expect(await c.activate('BAD')).toMatchObject({ status: 'invalid', message });
+  });
+  it('never grants activation from an active body on an error response', async () => {
+    const { c } = clientWith((async () => jsonResponse(404, { ok: false, status: 'active', activationToken: 'untrusted' })) as typeof fetch);
+    expect((await c.activate('BAD')).status).toBe('failed');
+  });
+  it('handles a proxy HTML error without calling it a rejected key', async () => {
+    const { c } = clientWith((async () => new Response('<html>not found</html>', { status: 404 })) as typeof fetch);
+    expect((await c.activate('BAD')).status).toBe('failed');
+  });
+
 });
 
 describe('refresh (server authority)', () => {
@@ -104,6 +121,13 @@ describe('refresh (server authority)', () => {
     expect(sentBody.deviceId).toBe('dev-1');
     expect(lic?.signedToken).toBe('NEW.SIG');
   });
+  it.each([404, 503])('distinguishes authoritative revocation from HTTP %s outage', async (status) => {
+    const storage = memStorage();
+    storage.value = { status: 'active', deviceId: 'd', activationToken: 'tok' };
+    const { c } = clientWith((async () => jsonResponse(status, { ok: false, status: 'not_found', message: 'License inactive' })) as typeof fetch, storage);
+    expect((await c.refresh())?.status).toBe(status === 404 ? 'invalid' : 'active');
+  });
+
 });
 
 describe('isLicensed — per-kind grace (riskiest assumption)', () => {

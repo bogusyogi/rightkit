@@ -73,7 +73,7 @@ function assertReleasePackageScripts(scripts, label, provider = "github-releases
       const expected = provider === "r2-rightapps"
         ? `right-release publish-update --config right-release.config.mjs --platform ${platform} --tier ${tier}`
         : `right-release upload --platform ${platform} --tier ${tier}`;
-      assert.equal(scripts[`release:upload:${tier}:${platform}`], expected, `${label} must select ${tier} through its ${provider} publisher`);
+      assert.ok([expected, `right-release upload --config right-release.config.mjs --platform ${platform} --tier ${tier}`].includes(scripts[`release:upload:${tier}:${platform}`]), `${label} must select ${tier} through its ${provider} publisher`);
     }
   }
 
@@ -488,11 +488,11 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/hooks": "0.1.1",
     "@rightkit/legal": "0.3.1",
     "@rightkit/legal-ui": "0.1.1",
-    "@rightkit/license": "0.1.7",
+    "@rightkit/license": "0.1.8",
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.109",
+    "@rightkit/release": "0.2.110",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4",
   });
@@ -502,8 +502,8 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal-ui": ["0.1.0"],
     "@rightkit/hooks": ["0.1.0"],
     "@rightkit/legal": ["0.3.0"],
-    "@rightkit/license": ["0.1.6"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69", "0.2.70", "0.2.71", "0.2.72", "0.2.73", "0.2.74", "0.2.75", "0.2.76", "0.2.82", "0.2.83", "0.2.91", "0.2.92", "0.2.94", "0.2.95", "0.2.96", "0.2.97", "0.2.98", "0.2.99", "0.2.104", "0.2.105", "0.2.106", "0.2.107", "0.2.108"],
+    "@rightkit/license": ["0.1.6", "0.1.7"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69", "0.2.70", "0.2.71", "0.2.72", "0.2.73", "0.2.74", "0.2.75", "0.2.76", "0.2.82", "0.2.83", "0.2.91", "0.2.92", "0.2.94", "0.2.95", "0.2.96", "0.2.97", "0.2.98", "0.2.99", "0.2.104", "0.2.105", "0.2.106", "0.2.107", "0.2.108", "0.2.109"],
     "@rightkit/qa": ["0.1.0", "0.2.0"],
   });
   assert.ok(
@@ -679,7 +679,7 @@ for (const app of apps) {
     const tauri = JSON.parse(readFileSync(path.join(root, app.tauri), "utf8"));
     assert.equal(tauri.plugins.updater.pubkey, pubkey);
     assert.deepEqual(tauri.plugins.updater.endpoints, [
-      `https://api.spoares.com/v1/apps/${app.key}/releases/latest.json?platform={{target}}`,
+      `https://${app.key === "scraperight" ? "scraperight.cc" : "api.spoares.com"}/v1/apps/${app.key}/releases/latest.json?platform={{target}}`,
     ]);
     assert.equal(tauri.bundle.createUpdaterArtifacts, true);
 

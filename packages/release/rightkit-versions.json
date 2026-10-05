@@ -18,11 +18,11 @@
     "@rightkit/hooks": "0.1.1",
     "@rightkit/legal": "0.3.1",
     "@rightkit/legal-ui": "0.1.1",
-    "@rightkit/license": "0.1.7",
+    "@rightkit/license": "0.1.8",
     "@rightkit/logs": "0.1.4",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.109",
+    "@rightkit/release": "0.2.110",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4"
   },
@@ -68,7 +68,8 @@
       "0.3.0"
     ],
     "@rightkit/license": [
-      "0.1.6"
+      "0.1.6",
+      "0.1.7"
     ],
     "@rightkit/release": [
       "0.2.22",
@@ -118,7 +119,8 @@
       "0.2.105",
       "0.2.106",
       "0.2.107",
-      "0.2.108"
+      "0.2.108",
+      "0.2.109"
     ],
     "@rightkit/qa": [
       "0.1.0",
