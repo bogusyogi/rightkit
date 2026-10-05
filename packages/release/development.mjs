@@ -5,7 +5,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
-import { managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
+import { acquireManagedRunLease, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
+import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
 
 export const DEVELOPMENT_PROFILE = "release-iterate";
@@ -64,22 +65,27 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   if (dryRun) return { built: false, installed: false, plan: { build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
   assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
   const childEnv = developmentEnvironment(env);
-  for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
-  if (buildOnly || !target.install) return { built: true, installed: false };
-  install(target.install, { root, platform, env: childEnv, run });
-  return { built: true, installed: true };
+  // One lease spans every managed request this run makes, so a broker cutover cannot land between them.
+  const lease = acquireManagedRunLease({ command: `right-release dev --platform ${platform}`, env });
+  try {
+    const startedMs = Date.now();
+    for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
+    if (buildOnly || !target.install) return { built: true, installed: false };
+    install(target.install, { root, platform, env: childEnv, run, sinceMs: startedMs });
+    return { built: true, installed: true };
+  } finally { lease.release(); }
 }
 
 export function assertNativeDevelopmentHost(platform, host = process.platform) {
   if ((platform === "win" && host !== "win32") || (platform === "mac" && host !== "darwin")) throw new Error(`development target ${platform} requires its native host`);
 }
 
-function install(descriptor, { root, platform, env, run }) {
+function install(descriptor, { root, platform, env, run, sinceMs = null }) {
   if (descriptor.kind === "command") return execute(descriptor, { root, env, run, label: "install" });
   if (descriptor.kind === "portable") return installPortableDevelopment(descriptor, { root, platform: platform === "win" ? "win32" : "darwin", env });
   if (platform === "win") {
     if (!descriptor.expectedInstalledPath) throw new Error("Windows Tauri installer requires expectedInstalledPath for installed verification");
-    const { bundleRoot, installer: app } = resolveTauriBundleDirectory(descriptor, { root, platform, env });
+    const { bundleRoot, installer: app } = resolveTauriBundleDirectory(descriptor, { root, platform, env, sinceMs });
     const built = path.resolve(bundleRoot, "..", "..", path.basename(descriptor.expectedInstalledPath));
     assertNonEmptyExecutable(built);
     const result = run(app, ["/S"], { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
@@ -119,7 +125,7 @@ export function resolveTauriArtifact(descriptor, { root, platform, env = process
   return resolveTauriBundleDirectory(descriptor, { root, platform, env, runCargo }).installer;
 }
 
-export function resolveTauriBundleDirectory(descriptor, { root, platform, env = process.env, runCargo = runCargoSync }) {
+export function resolveTauriBundleDirectory(descriptor, { root, platform, env = process.env, runCargo = runCargoSync, sinceMs = null }) {
   const bundleRoot = descriptor.bundleDirectory
     ? path.resolve(root, descriptor.bundleDirectory)
     : resolveBundleRoot(descriptor, { root, env, runCargo });
@@ -127,8 +133,11 @@ export function resolveTauriBundleDirectory(descriptor, { root, platform, env = 
   const entries = readdirSync(bundleRoot, { withFileTypes: true });
   const candidates = platform === "mac"
     ? entries.filter((entry) => entry.isDirectory() && entry.name === `${descriptor.productName}.app`).map((entry) => path.join(bundleRoot, entry.name))
-    : entries.filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".exe") && entry.name.toLowerCase().includes("setup")).map((entry) => path.join(bundleRoot, entry.name));
-  if (candidates.length !== 1) throw new Error(`expected exactly one ${platform} Tauri installer for ${descriptor.productName} in ${bundleRoot}; found ${candidates.length}`);
+    // Older installers are kept for history: select this product's installer written by this run.
+    : entries.filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".exe") && entry.name.toLowerCase().includes("setup") && entry.name.startsWith(`${descriptor.productName}_`))
+      .map((entry) => path.join(bundleRoot, entry.name))
+      .filter((file) => sinceMs === null || statSync(file).mtimeMs >= sinceMs);
+  if (candidates.length !== 1) throw new Error(`expected exactly one ${platform} Tauri installer for ${descriptor.productName} in ${bundleRoot}${sinceMs === null ? "" : " written by this run"}; found ${candidates.length}`);
   if (!statSync(candidates[0]).isFile() && platform === "win") throw new Error(`installer is not a file: ${candidates[0]}`);
   return { bundleRoot, installer: candidates[0] };
 }
@@ -136,8 +145,16 @@ export function resolveTauriBundleDirectory(descriptor, { root, platform, env = 
 export function assertInstalledExecutableMatches(built, installed, read = readFileSync) {
   assertNonEmptyExecutable(built);
   assertNonEmptyExecutable(installed);
-  const digest = (file) => createHash("sha256").update(read(file)).digest("hex");
+  const digest = (file) => createHash("sha256").update(withUnknownBundleMarker(file, read)).digest("hex");
   if (digest(built) !== digest(installed)) throw new Error(`installed executable does not match this dev build: ${installed}`);
+}
+// Tauri's NSIS bundler rewrites the packaged copy's bundle marker UNK -> NSS; compare both copies as UNK.
+function withUnknownBundleMarker(file, read) {
+  const bytes = Buffer.from(read(file));
+  const nsis = readTauriBundleMarkers(file, { read: () => bytes }).markers.nsis ?? [];
+  if (nsis.length > 1) throw new Error(`installed executable verification failed: ${nsis.length} NSIS bundle markers in ${file}`);
+  if (nsis.length === 1) bundleMarkerBuffer(BUNDLE_MARKERS.unknown).copy(bytes, nsis[0]);
+  return bytes;
 }
 function assertNonEmptyExecutable(file) { if (!existsSync(file) || !statSync(file).isFile() || statSync(file).size === 0) throw new Error(`installed executable verification failed: missing or empty file ${file}`); }
 

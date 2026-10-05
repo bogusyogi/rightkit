@@ -91,7 +91,25 @@ export function contained(path, root) { const value = relative(root, path); retu
  * OpenProcess + a liveness check internally, no real signal delivered, same
  * ESRCH-on-absent contract as POSIX. */
 /** Prove no thin root owns a process before service replacement. */
-export async function proveThinRequestsDrained(externalRoot, { list = readdir, load = readFile, now = Date.now } = {}) {
+/** Multi-request client runs (`right-release dev`) lease `global/runs/<id>.json` for their whole
+ * duration: a cutover between their build and follow-up requests changed workspace keys mid-run
+ * (2026-10-05). Leases whose owning process is gone are ignored, so a crashed run never wedges cutover. */
+export async function proveDevelopmentRunsDrained(externalRoot, { list = readdir, load = readFile, alive = processAlive } = {}) {
+  const runsDirectory = join(resolve(externalRoot), 'rightkit-build-control', 'global', 'runs');
+  let files;
+  try { files = await list(runsDirectory); }
+  catch (error) { if (error?.code === 'ENOENT') return Object.freeze({ runsDirectory, live: Object.freeze([]) }); throw new Error(`cannot prove client run drain: ${error.message}`, { cause: error }); }
+  const live = [];
+  for (const file of files.map((entry) => (typeof entry === 'string' ? entry : entry.name)).filter((name) => name.endsWith('.json'))) {
+    let lease; try { lease = JSON.parse(await load(join(runsDirectory, file), 'utf8')); } catch { continue; }
+    if (Number.isSafeInteger(lease?.pid) && lease.pid > 0 && alive(lease.pid)) live.push(Object.freeze({ id: file.slice(0, -5), pid: lease.pid, command: lease.command ?? null, startedAt: lease.startedAt ?? null }));
+  }
+  if (live.length) throw new Error(`cannot activate while ${live.length} client run(s) are in progress: ${live.map(({ id, pid, command }) => `${id} (pid ${pid}, ${command ?? 'command unavailable'})`).join('; ')}. Retry after they finish.`);
+  return Object.freeze({ runsDirectory, live: Object.freeze([]) });
+}
+
+export async function proveThinRequestsDrained(externalRoot, { list = readdir, load = readFile, now = Date.now, alive = processAlive } = {}) {
+  await proveDevelopmentRunsDrained(externalRoot, { list, load, alive });
   const activeDirectory = join(resolve(externalRoot), 'rightkit-build-control', 'global', 'active');
   let entries;
   try { entries = await list(activeDirectory, { withFileTypes: true }); }

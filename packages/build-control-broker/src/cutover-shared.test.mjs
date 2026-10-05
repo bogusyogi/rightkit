@@ -29,3 +29,17 @@ test('broker drain proof rejects every admitting, queued, or running root', asyn
   const absent = await proveBrokerRequestsDrained('/tmp/rightkit', '/tmp/broker.sock', { loadIdentity, send: async () => { throw new Error('RightKit broker unavailable: connect ENOENT'); } });
   assert.equal(absent.present, false);
 });
+
+test('cutover refuses while a live client run lease exists and ignores dead ones', async () => {
+  const { mkdtemp, mkdir, writeFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const { proveDevelopmentRunsDrained } = await import('./cutover-shared.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'rk-runs-'));
+  try {
+    assert.deepEqual((await proveDevelopmentRunsDrained(root)).live, []);
+    const runs = join(root, 'rightkit-build-control', 'global', 'runs'); await mkdir(runs, { recursive: true });
+    await writeFile(join(runs, 'dead.json'), JSON.stringify({ pid: 999_999, command: 'right-release dev' }));
+    assert.deepEqual((await proveDevelopmentRunsDrained(root, { alive: () => false })).live, []);
+    await assert.rejects(proveDevelopmentRunsDrained(root, { alive: (pid) => pid === 999_999 }), /client run\(s\) are in progress: dead \(pid 999999, right-release dev\)/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

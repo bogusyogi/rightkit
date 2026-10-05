@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 
@@ -11,6 +12,23 @@ export function managedRuntimeClient(env = process.env, platform = process.platf
     if (exists(client)) return client;
   }
   return undefined;
+}
+
+/** Hold a client-run lease that blocks broker runtime cutover until release() (see
+ * proveDevelopmentRunsDrained). No managed runtime → no lease; lease I/O failure warns and proceeds. */
+export function acquireManagedRunLease({ command, env = process.env, platform = process.platform, exists = existsSync, pid = process.pid } = {}) {
+  const client = managedRuntimeClient(env, platform, exists);
+  if (!client) return { path: null, release() {} };
+  const runs = path.join(path.dirname(path.dirname(path.dirname(path.dirname(client)))), "rightkit-build-control", "global", "runs");
+  const file = path.join(runs, `${pid}-${randomUUID()}.json`);
+  try {
+    mkdirSync(runs, { recursive: true });
+    writeFileSync(file, `${JSON.stringify({ pid, command, startedAt: new Date().toISOString() })}\n`, { flag: "wx" });
+  } catch (error) {
+    console.warn(`right-release: could not record managed run lease (${error.message}); runtime cutover is not blocked for this run`);
+    return { path: null, release() {} };
+  }
+  return { path: file, release() { rmSync(file, { force: true }); } };
 }
 
 function managedHost(env) {

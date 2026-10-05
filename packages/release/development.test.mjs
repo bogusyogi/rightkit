@@ -130,3 +130,50 @@ test("dev module owns no seal or upload path", async () => {
 
 function temp() { const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-dev-test-")); mkdirSync(root, { recursive: true }); return root; }
 function git(cwd, args) { const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true }); assert.equal(r.status, 0, r.stderr); }
+
+test("installed executable check ignores only Tauri's NSIS bundle marker rewrite", async () => {
+  const { bundleMarkerBuffer } = await import("./tauri-bundle-marker.mjs");
+  const root = temp();
+  try {
+    const built = path.join(root, "app.exe"); const installed = path.join(root, "installed-app.exe");
+    const body = (code, tail = "rest") => Buffer.concat([Buffer.from("head"), bundleMarkerBuffer(code), Buffer.from(tail)]);
+    writeFileSync(built, body("UNK")); writeFileSync(installed, body("NSS"));
+    assert.doesNotThrow(() => assertInstalledExecutableMatches(built, installed));
+    writeFileSync(installed, body("NSS", "different"));
+    assert.throws(() => assertInstalledExecutableMatches(built, installed), /does not match this dev build/);
+    writeFileSync(installed, Buffer.concat([body("NSS"), bundleMarkerBuffer("NSS")]));
+    assert.throws(() => assertInstalledExecutableMatches(built, installed), /2 NSIS bundle markers/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Windows installer selection keeps older installers and picks this run's product installer", async () => {
+  const { utimesSync } = await import("node:fs");
+  const { resolveTauriBundleDirectory } = await import("./development.mjs");
+  const root = temp();
+  try {
+    const descriptor = { productName: "HeardRight", bundleDirectory: "bundle", targetTriple: "x86_64-pc-windows-msvc" };
+    const bundleDir = path.join(root, "bundle"); mkdirSync(bundleDir);
+    const old = path.join(bundleDir, "HeardRight_0.1.220_x64-setup.exe"); writeFileSync(old, "old");
+    const past = new Date(Date.now() - 60_000); utimesSync(old, past, past);
+    writeFileSync(path.join(bundleDir, "Other_1.0.0_x64-setup.exe"), "other product");
+    const sinceMs = Date.now() - 1_000;
+    const current = path.join(bundleDir, "HeardRight_0.1.221_x64-setup.exe"); writeFileSync(current, "new");
+    assert.equal(resolveTauriBundleDirectory(descriptor, { root, platform: "win", sinceMs }).installer, current);
+    assert.throws(() => resolveTauriBundleDirectory(descriptor, { root, platform: "win" }), /found 2/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("managed run lease is written under the managed root and removed on release", async () => {
+  const { existsSync, readFileSync } = await import("node:fs");
+  const { acquireManagedRunLease } = await import("./managed-cargo.mjs");
+  const managed = temp();
+  try {
+    const client = path.join(managed, "runtime-current", "build-control-clients", "src", "rightkit.mjs");
+    mkdirSync(path.dirname(client), { recursive: true }); writeFileSync(client, "");
+    const lease = acquireManagedRunLease({ command: "right-release dev --platform win", env: { RIGHTKIT_MANAGED_ROOT: managed }, platform: "linux", pid: 4242 });
+    assert.equal(path.dirname(lease.path), path.join(managed, "rightkit-build-control", "global", "runs"));
+    assert.equal(JSON.parse(readFileSync(lease.path, "utf8")).pid, 4242);
+    lease.release(); assert.equal(existsSync(lease.path), false);
+    assert.equal(acquireManagedRunLease({ env: {}, platform: "linux" }).path, null);
+  } finally { rmSync(managed, { recursive: true, force: true }); }
+});
