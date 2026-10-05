@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { constants, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, open, readFile, realpath, symlink } from 'node:fs/promises';
 import { availableParallelism as cpuCount, homedir, totalmem } from 'node:os';
+import { deriveCargoBuildJobs, deriveHostSizing, hostBounds, volumeBytes } from './host-sizing.mjs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
@@ -226,18 +227,13 @@ export function defaultBounds() {
   };
 }
 
-/** Bound one root's compiler workers by CPU & memory rather than the old Air's
- * fixed four-worker ceiling. Keep one third of logical cores for other work,
- * budget roughly 2 GiB per worker, & cap at eight until a measured build
- * justifies a larger operator override. */
+/** Shared host sizing (host-sizing.mjs), identical to Windows: every logical CPU as
+ * Cargo jobs unless build-allocatable memory bounds it. */
 export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = totalmem() } = {}) {
-  const logical = Number.isSafeInteger(cpus) && cpus > 0 ? cpus : 1;
-  const compilerCores = Math.max(1, Math.floor(logical * 2 / 3));
-  const memoryGiB = Number.isFinite(totalMemoryBytes) && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 2;
-  return Math.max(1, Math.min(8, compilerCores, Math.floor(memoryGiB / 2)));
+  return deriveCargoBuildJobs({ cpus, totalMemoryBytes });
 }
 
-export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoBuildJobs() }) {
+export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoBuildJobs(), sizing = deriveHostSizing({ managedVolumeBytes: volumeBytes(externalRoot), cargoBuildJobs }) }) {
   if (!Number.isSafeInteger(cargoBuildJobs) || cargoBuildJobs < 1 || cargoBuildJobs > 256) throw new TypeError('cargoBuildJobs must be an integer from 1 to 256');
   const tools = await stageManagedTools(await discoverTools(), externalRoot);
   const sccacheTool = tools.find((tool) => tool.id === 'sccache');
@@ -251,7 +247,7 @@ export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoB
     schemaVersion: 2,
     broker: {
       externalRoot: { path: externalRoot, volumeId: (await resolveVolumeId(externalRoot)) ?? 'unknown', mounted: true, writable: true, internal: false },
-      capacityBytes: 200 * 1024 ** 3,
+      capacityBytes: sizing.capacityBytes,
       stateFile: join(externalRoot, 'state', 'broker.json'),
       activationFencePath: join(externalRoot, 'state', 'runtime-activation.json'),
       receiptsDir: join(externalRoot, 'receipts'),
@@ -276,9 +272,9 @@ export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoB
     // Client-side compilation keeps rustc inside requesting job containment.
     // Broker still owns one storage gateway; telemetry failure is isolated from
     // gateway health so a slow stats query cannot cancel active builds.
-    sccache: { mode: managedSccache ? 'managed' : 'disabled', clientSide: managedSccache, lifecycleOwner: managedSccache ? 'broker' : null, requireOwnershipProof: managedSccache, ...(managedSccache ? { expectedVersion: expectedSccacheVersion } : {}), maxSizeBytes: 20 * 1024 ** 3, gatewayPort: 4_227, healthLeaseMs: 10_000, recoveryTimeoutMs: 10_000, statsIntervalMs: 60_000 },
+    sccache: { mode: managedSccache ? 'managed' : 'disabled', clientSide: managedSccache, lifecycleOwner: managedSccache ? 'broker' : null, requireOwnershipProof: managedSccache, ...(managedSccache ? { expectedVersion: expectedSccacheVersion } : {}), maxSizeBytes: sizing.compilerCacheMaxBytes, gatewayPort: 4_227, healthLeaseMs: 10_000, recoveryTimeoutMs: 10_000, statsIntervalMs: 60_000 },
     outputPolicy: { mode: 'enforce', allowedSourceDirs: [], scanRoot: 'repository' },
-    bounds: defaultBounds(),
+    bounds: { ...defaultBounds(), ...hostBounds(sizing) },
   };
 }
 

@@ -11,27 +11,33 @@ export class ThinQueueUnavailableError extends Error {
   constructor() { super('requested lane/workspace capacity is currently occupied'); this.name = 'ThinQueueUnavailableError'; this.code = 'RK_QUEUE_UNAVAILABLE'; }
 }
 
-/** Aggregate compiler-budget root costs derived from one host budget unit
- * (dual-host routing §5): an analysis root costs about one third of the host
- * budget, a test root about one half, and any build-class root the full budget.
- * With budget 12 this admits exactly three analysis roots, two test roots, or
- * one heavy build at once, plus mixtures while the total fits. */
-export function deriveCompileCosts(compileBudgetUnits) {
+/** Aggregate compiler-budget root costs (dual-host routing §5). A build-class
+ * root costs `buildCost` units (host sizing: its Cargo jobs times measured
+ * per-job memory, in GiB of a GiB-denominated budget); a test root about one
+ * half of that and an analysis root about one third. Without `buildCost` a
+ * build costs the whole budget (legacy: one heavy build at a time). */
+export function deriveCompileCosts(compileBudgetUnits, buildCost = compileBudgetUnits) {
   if (!Number.isSafeInteger(compileBudgetUnits) || compileBudgetUnits < 1) throw new TypeError('compileBudgetUnits must be a positive integer');
+  if (!Number.isSafeInteger(buildCost) || buildCost < 1) throw new TypeError('buildCost must be a positive integer');
+  const build = Math.min(compileBudgetUnits, buildCost);
   return Object.freeze({
-    ANALYSIS: Math.max(1, Math.round(compileBudgetUnits / 3)),
-    TEST: Math.max(1, Math.round(compileBudgetUnits / 2)),
-    BUILD: compileBudgetUnits,
+    ANALYSIS: Math.max(1, Math.round(build / 3)),
+    TEST: Math.max(1, Math.round(build / 2)),
+    BUILD: build,
   });
 }
 
 export class ThinScheduler {
-  #limits; #compileBudget; #queue = []; #active = new Map(); #workspace = new Map(); #toolchainActive = false; #sequence = 0; #now;
-  constructor({ controlConcurrency = 4, analysisConcurrency = 2, workspaceWriteConcurrency = 4, buildConcurrency = 3, compileBudget = null, now = Date.now } = {}) {
+  #limits; #compileBudget; #costUnitBytes; #hostAvailableMemory; #queue = []; #active = new Map(); #workspace = new Map(); #toolchainActive = false; #sequence = 0; #now;
+  constructor({ controlConcurrency = 4, analysisConcurrency = 2, workspaceWriteConcurrency = 4, buildConcurrency = 3, compileBudget = null, costUnitBytes = null, hostAvailableMemory = null, now = Date.now } = {}) {
     for (const [name, value] of Object.entries({ controlConcurrency, analysisConcurrency, workspaceWriteConcurrency, buildConcurrency })) if (!Number.isSafeInteger(value) || value < 1) throw new TypeError(`${name} must be a positive integer`);
     if (compileBudget !== null && (!Number.isSafeInteger(compileBudget) || compileBudget < 1)) throw new TypeError('compileBudget must be a positive integer or null');
     this.#limits = Object.freeze({ CONTROL: controlConcurrency, ANALYSIS: analysisConcurrency, WORKSPACE_WRITE: workspaceWriteConcurrency, BUILD: buildConcurrency, TOOLCHAIN_WRITE: 1 });
     this.#compileBudget = compileBudget;
+    // Live guard for memory-denominated budgets: a root joining other compile
+    // roots also needs its projected memory actually available on the host.
+    this.#costUnitBytes = Number.isSafeInteger(costUnitBytes) && costUnitBytes > 0 ? costUnitBytes : null;
+    this.#hostAvailableMemory = typeof hostAvailableMemory === 'function' ? hostAvailableMemory : null;
     this.#now = now;
   }
 
@@ -78,6 +84,12 @@ export class ThinScheduler {
     });
   }
 
+  #memoryShort(ticket) {
+    if (!this.#costUnitBytes || !this.#hostAvailableMemory) return false;
+    let available; try { available = this.#hostAvailableMemory(); } catch { return false; }
+    return Number.isFinite(available) && available < ticket.cost * this.#costUnitBytes;
+  }
+
   #laneCount(lane) { let count = 0; for (const item of this.#active.values()) if (item.lane === lane) count += 1; return count; }
   #workspaceState(key) { if (!key) return null; if (!this.#workspace.has(key)) this.#workspace.set(key, { readers: 0, writer: false }); return this.#workspace.get(key); }
 
@@ -92,6 +104,7 @@ export class ThinScheduler {
       let used = 0;
       for (const item of this.#active.values()) used += item.cost ?? 0;
       if (used + ticket.cost > this.#compileBudget) return false;
+      if (used > 0 && this.#memoryShort(ticket)) return false;
     }
     const state = this.#workspaceState(ticket.workspaceKey);
     if (ticket.access === 'read' && state?.writer) return false;
@@ -107,7 +120,8 @@ export class ThinScheduler {
     if (this.#laneCount(ticket.lane) >= this.#limits[ticket.lane]) for (const other of this.#active.values()) if (other.lane === ticket.lane) note(other, `lane-cap:${ticket.lane}`);
     if (ticket.cost !== null) {
       let used = 0; for (const other of this.#active.values()) used += other.cost ?? 0;
-      if (used + ticket.cost > this.#compileBudget) for (const other of this.#active.values()) if (other.cost) note(other, 'compile-budget');
+      const reason = used + ticket.cost > this.#compileBudget ? 'compile-budget' : used > 0 && this.#memoryShort(ticket) ? 'host-memory' : null;
+      if (reason) for (const other of this.#active.values()) if (other.cost) note(other, reason);
     }
     const state = this.#workspaceState(ticket.workspaceKey);
     if (state && ((ticket.access === 'read' && state.writer) || (ticket.access === 'write' && (state.writer || state.readers > 0)))) {

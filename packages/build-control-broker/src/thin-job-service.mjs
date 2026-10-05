@@ -24,7 +24,7 @@ import {
 import { ThinCache } from './thin-cache.mjs';
 import { NativeOpenSslCache } from './native-openssl.mjs';
 import { cargoCohort } from './cache-telemetry.mjs';
-import { CargoFreshnessTracker, classifyColdStart, probeTargetAtStart, targetConsoleLine, wantsCargoJson } from './cargo-freshness.mjs';
+import { CargoFreshnessTracker, classifyColdStart, fingerprintCensus, fingerprintCensusStart, probeTargetAtStart, targetConsoleLine, wantsCargoJson } from './cargo-freshness.mjs';
 import { ThinCommandPolicy, compileClass } from './thin-command-policy.mjs';
 import { ThinLogger } from './thin-logger.mjs';
 import { ThinScheduler, deriveCompileCosts } from './thin-scheduler.mjs';
@@ -247,9 +247,14 @@ export class ThinJobService {
         analysisConcurrency: integer(config.bounds?.analysisConcurrency, 2, 1),
         workspaceWriteConcurrency: integer(config.bounds?.workspaceWriteConcurrency, 4, 1),
         buildConcurrency: integer(config.bounds?.buildConcurrency, 3, 1),
-        // Aggregate compiler budget (dual-host routing §5): absent on hosts that
-        // keep the measured v2.8 lane-only behavior (macOS default bootstrap).
-        compileBudget: config.bounds?.compileBudgetUnits ?? null, now
+        // Aggregate compiler budget (dual-host routing §5). With host sizing the
+        // budget is GiB of build-allocatable memory & buildCostUnits weights each
+        // build by its jobs; Windows freemem() is available physical memory, so it
+        // also guards live admission. Darwin freemem() excludes reclaimable pages.
+        compileBudget: config.bounds?.compileBudgetUnits ?? null,
+        costUnitBytes: config.bounds?.buildCostUnits ? 1024 ** 3 : null,
+        hostAvailableMemory: config.bounds?.buildCostUnits && process.platform === 'win32' ? freemem : null,
+        now
       });
       // Bound, cache & make observable the CONTROL-class workspace discovery.
       const discoveryResolver = workspaceResolver instanceof CachedWorkspaceResolver
@@ -305,8 +310,8 @@ export class ThinJobService {
     try {
       do {
         this.#gcQueued = false;
-        const gc = await this.#state.gc({ capBytes: this.#config.bounds?.targetCacheCapBytes ?? null, evictIdle: this.#evictIdleGeneration });
-        if (gc.deleted?.length || gc.evicted?.length) await this.#log({ type: 'GENERATION_GC', deleted: gc.deleted ?? [], evicted: gc.evicted ?? [], beforeBytes: gc.beforeBytes ?? null, afterBytes: gc.afterBytes ?? null, capBytes: gc.capBytes ?? null });
+        const gc = await this.#state.gc({ capBytes: this.#config.bounds?.targetCacheCapBytes ?? null, evictIdle: this.#evictIdleGeneration, freeFloorBytes: this.#config.bounds?.gcFreeFloorBytes ?? null, freeBytes: async () => { const stats = await nodeStatfs(this.#state.paths.base); return Number(stats.bavail) * Number(stats.bsize); } });
+        if (gc.deleted?.length || gc.evicted?.length || gc.reclaimed?.deadRoots?.length || gc.reclaimed?.orphanLeaves?.length) await this.#log({ type: 'GENERATION_GC', deleted: gc.deleted ?? [], evicted: gc.evicted ?? [], reclaimed: gc.reclaimed ?? null, beforeBytes: gc.beforeBytes ?? null, afterBytes: gc.afterBytes ?? null, capBytes: gc.capBytes ?? null, effectiveCapBytes: gc.effectiveCapBytes ?? null, freeBytes: gc.freeBytes ?? null, freeFloorBytes: gc.freeFloorBytes ?? null });
         if (this.#nativeOpenSsl && this.#state.pinnedNativeKeys) { const native = await this.#nativeOpenSsl.gc({ pinned: await this.#state.pinnedNativeKeys('openssl') }); if (native.evicted.length) await this.#log({ type: 'NATIVE_OPENSSL_GC', ...native }); }
         if (gc.unenforceable) await this.#log({ type: 'TARGET_CACHE_CAP_UNENFORCEABLE', capBytes: gc.capBytes, targetBytes: gc.afterBytes, overByBytes: gc.unenforceable.overByBytes, idleCandidatesRemaining: gc.unenforceable.idleCandidatesRemaining });
       } while (this.#gcQueued);
@@ -322,7 +327,7 @@ export class ThinJobService {
     const budget = this.#config.bounds?.compileBudgetUnits;
     if (!budget) return null;
     const classification = compileClass(capability);
-    return classification ? deriveCompileCosts(budget)[classification] : null;
+    return classification ? deriveCompileCosts(budget, this.#config.bounds?.buildCostUnits ?? budget)[classification] : null;
   }
 
   /** Evict an idle current generation only while holding the same per-workspace
@@ -334,7 +339,7 @@ export class ThinJobService {
     const ticket = this.#scheduler.acquire({ id: `gc-evict-${candidate.workspaceKey}-${randomUUID().slice(0, 8)}`, capability: { lane: 'WORKSPACE_WRITE', workspaceAccess: 'write' }, workspaceKey: candidate.workspaceKey, tryRun: true });
     let permit;
     try { permit = await ticket.permit; } catch { return null; }
-    try { return await this.#state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes }); }
+    try { return await this.#state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes, ...(candidate.reason ? { reason: candidate.reason } : {}) }); }
     catch { return null; }
     finally { permit.release(); }
   };
@@ -561,6 +566,8 @@ export class ThinJobService {
         job.jobsEvidence = resolveEffectiveJobs({ argv: job.invokeArgv, brokerEnvironment: job.executionEnvironment });
         job.targetAtStart = await probeTargetAtStart(job.workspace.layout, { state: job.workspace.state });
         job.freshnessTracker = wantsCargoJson(job.invokeArgv) ? new CargoFreshnessTracker() : null;
+        // Without a JSON stream (e.g. the Tauri CLI's cargo build) fall back to a fingerprint census.
+        job.fingerprintCensusStart = job.freshnessTracker ? null : await fingerprintCensusStart(job.workspace.layout.target, job.invokeArgv, job.targetTriple ?? null).catch(() => null);
         this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: targetConsoleLine({ phase: 'start', target: job.targetAtStart }) } });
       }
       job.child = spawnManagedProcess(job.tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: ['ignore', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
@@ -647,7 +654,7 @@ export class ThinJobService {
         : Number.isSafeInteger(job.cacheResult?.delta?.requests_executed) ? job.cacheResult.delta.requests_executed
           : Number.isSafeInteger(job.cacheResult?.delta?.compile_requests) ? job.cacheResult.delta.compile_requests : null;
     const phaseTimings = this.#phaseTimings(job, terminalAt);
-    const evidence = this.#buildEvidence(job);
+    const evidence = await this.#buildEvidence(job);
     if (evidence) this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: targetConsoleLine({ phase: 'end', target: evidence.target, freshness: evidence.freshness, cold: evidence.cold }) } });
     const cacheCohort = job.parentId || !job.capability.compile ? null : cargoCohort({ argv: job.invokeArgv, command: job.command, workspace: job.workspaceRoot, profile: this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null, toolchain: this.#config.defaults?.toolchain ?? null, compilerIdentity: this.#compilerIdentity, cacheEpoch: job.cacheResult?.attribution?.epoch ?? job.cachePrepared?.attribution?.epoch ?? null, platform: this.#platform });
     const receipt = Object.freeze({
@@ -689,9 +696,11 @@ export class ThinJobService {
   }
 
   /** Effective-jobs, target-state & freshness evidence for admitted Cargo compile roots. */
-  #buildEvidence(job) {
+  async #buildEvidence(job) {
     if (!job.targetAtStart) return null;
-    const freshness = job.freshnessTracker ? job.freshnessTracker.summary() : Object.freeze({ available: false, reason: 'cargo-json-message-format-not-requested' });
+    const freshness = job.freshnessTracker ? job.freshnessTracker.summary()
+      : job.fingerprintCensusStart ? await fingerprintCensus(job.fingerprintCensusStart).catch((error) => Object.freeze({ available: false, reason: `fingerprint-census-failed:${error?.code ?? 'error'}` }))
+        : Object.freeze({ available: false, reason: 'cargo-json-message-format-not-requested' });
     const cold = classifyColdStart(job.targetAtStart, freshness);
     return Object.freeze({ jobs: job.jobsEvidence ?? null, target: job.targetAtStart, freshness, cold });
   }

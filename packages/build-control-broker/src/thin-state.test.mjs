@@ -161,12 +161,13 @@ test('GC evicts idle current generations LRU-first when the cap requires it', as
     await item.state.markRunning(oldRoot, { id: 'job-new-1', command: 'cargo build' }); await item.state.finish(oldRoot, 'job-new-1', { status: 'SUCCEEDED' });
     const evicted = [];
     const evictIdle = async (candidate) => { evicted.push(candidate.canonicalRoot); return item.state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes }); };
-    const result = await item.state.gc({ capBytes: 64, evictIdle });
+    // 128 bytes over a 72-byte cap reclaims to 90 % (64): one eviction suffices.
+    const result = await item.state.gc({ capBytes: 72, evictIdle, recentMs: 0 });
     assert.deepEqual(evicted, [newRoot]);
     assert.equal(result.evicted.length, 1);
     assert.equal(result.evicted[0].evictedGeneration, 1);
     assert.equal(result.unenforceable, null);
-    assert.ok(result.afterBytes <= 64, `afterBytes ${result.afterBytes} must be within cap`);
+    assert.ok(result.afterBytes <= 72, `afterBytes ${result.afterBytes} must be within cap`);
     assert.equal((await item.state.workspace(oldRoot)).state.currentGeneration, 1);
     assert.equal((await item.state.workspace(newRoot)).state.currentGeneration, 2);
   } finally { await item.close(); }
@@ -243,7 +244,7 @@ test('GC continues past a refused oldest-LRU candidate to the next eligible work
       if (candidate.canonicalRoot === oldest) { refused.push(candidate.canonicalRoot); return null; }
       return item.state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes });
     };
-    const result = await item.state.gc({ capBytes: 64, evictIdle });
+    const result = await item.state.gc({ capBytes: 64, evictIdle, recentMs: 0 });
     assert.deepEqual(refused, [oldest], 'oldest-LRU must be attempted first');
     assert.deepEqual(result.evicted.map((entry) => entry.canonicalRoot), [newest], 'GC must continue to the next candidate after refusal');
     assert.equal(result.unenforceable, null, 'cap must be enforceable once a later candidate evicts');
@@ -421,5 +422,110 @@ test('leaf selection: a persisted t is honoured even when target is also populat
     const workspace = await item.state.workspace(item.workspace);
     assert.equal(workspace.layout.leaf, 't');
     assert.equal(workspace.layout.target, join(generation, 't'));
+  } finally { await item.close(); }
+});
+
+async function warmWorkspace(item, name, bytes = 64) {
+  const root = join(item.root, name); await mkdir(root, { recursive: true });
+  const workspace = await item.state.workspace(root);
+  await writeFile(join(workspace.layout.target, 'w.bin'), Buffer.alloc(bytes));
+  const id = `job-${name.replace(/[^A-Za-z0-9]/g, '-')}`;
+  await item.state.markRunning(root, { id, command: 'cargo build' }); await item.state.finish(root, id, { status: 'SUCCEEDED' });
+  return { root, workspace };
+}
+const evictVia = (item, seen = []) => async (candidate) => { seen.push(candidate); return item.state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes, reason: candidate.reason }); };
+
+test('GC protects recently used warm trees and reports the cap as unenforceable instead', async () => {
+  const item = await fixture();
+  try {
+    await warmWorkspace(item, 'a'); await warmWorkspace(item, 'b');
+    const seen = [];
+    const result = await item.state.gc({ capBytes: 64, evictIdle: evictVia(item, seen) });
+    assert.equal(seen.length, 0); assert.equal(result.evicted.length, 0);
+    assert.ok(result.unenforceable);
+  } finally { await item.close(); }
+});
+
+test('GC never rotates empty generations', async () => {
+  const item = await fixture();
+  try {
+    await item.state.workspace(item.workspace);
+    const seen = [];
+    await item.state.gc({ capBytes: 1, evictIdle: evictVia(item, seen), recentMs: 0, staleMs: -1 });
+    assert.equal(seen.length, 0);
+  } finally { await item.close(); }
+});
+
+test('GC reclaims a workspace whose source root was deleted', async () => {
+  const item = await fixture();
+  try {
+    const { root, workspace } = await warmWorkspace(item, 'gone');
+    await rm(root, { recursive: true, force: true });
+    const result = await item.state.gc({ capBytes: 1_000_000 });
+    assert.deepEqual(result.reclaimed.deadRoots.map((entry) => entry.workspaceKey), [workspace.key]);
+    await assert.rejects(stat(workspace.directory));
+  } finally { await item.close(); }
+});
+
+test('GC reclaims the unpersisted sibling leaf but never the persisted one', async () => {
+  const item = await fixture();
+  try {
+    const { workspace } = await warmWorkspace(item, 'leafy');
+    assert.equal(workspace.layout.leaf, 'target');
+    const orphan = join(workspace.layout.root, 't'); await mkdir(orphan); await writeFile(join(orphan, 'old.bin'), Buffer.alloc(32));
+    const result = await item.state.gc({ capBytes: 1_000_000 });
+    assert.equal(result.reclaimed.orphanLeaves.length, 1); assert.equal(result.reclaimed.orphanLeaves[0].sizeBytes, 32);
+    await assert.rejects(stat(orphan));
+    await assert.doesNotReject(stat(join(workspace.layout.target, 'w.bin')));
+  } finally { await item.close(); }
+});
+
+test('GC breaches recency protection only under disk-floor pressure', async () => {
+  const item = await fixture();
+  try {
+    await warmWorkspace(item, 'a'); await warmWorkspace(item, 'b');
+    const seen = [];
+    const result = await item.state.gc({ capBytes: 1_000_000, evictIdle: evictVia(item, seen), freeBytes: async () => 10, freeFloorBytes: 100 });
+    assert.ok(result.effectiveCapBytes < result.beforeBytes);
+    assert.ok(result.evicted.length >= 1);
+    assert.ok(seen.every((candidate) => candidate.reason === 'disk-floor-eviction'));
+  } finally { await item.close(); }
+});
+
+test('GC retires stale idle trees regardless of cap', async () => {
+  const item = await fixture({ advanceClock: true });
+  try {
+    await warmWorkspace(item, 'old');
+    const seen = [];
+    const result = await item.state.gc({ capBytes: 1_000_000, evictIdle: evictVia(item, seen), staleMs: 500 });
+    assert.equal(result.evicted.length, 1); assert.equal(seen[0].reason, 'stale-idle-eviction');
+  } finally { await item.close(); }
+});
+
+test('a repository cache root adopts its single warm Cargo workspace instead of starting cold', async () => {
+  const item = await fixture();
+  try {
+    const repo = join(item.root, 'repo'); await mkdir(join(repo, '.git'), { recursive: true });
+    const { workspace: sub } = await warmWorkspace(item, join('repo', 'app'));
+    const adopted = await item.state.workspace(repo);
+    assert.equal(adopted.key, sub.key);
+    assert.equal(adopted.layout.target, sub.layout.target);
+    const decision = JSON.parse(await readFile(join(item.root, 'rightkit-build-control', 'ws', thinWorkspaceKey(await realpath(repo)), 'adoption.json'), 'utf8'));
+    assert.equal(decision.result, 'adopted');
+    assert.equal((await item.state.workspace(repo)).key, sub.key, 'decision is stable');
+  } finally { await item.close(); }
+});
+
+test('adoption refuses ambiguous candidates and nested repositories', async () => {
+  const item = await fixture();
+  try {
+    const repo = join(item.root, 'repo'); await mkdir(join(repo, '.git'), { recursive: true });
+    await warmWorkspace(item, join('repo', 'one')); await warmWorkspace(item, join('repo', 'two'));
+    const own = await item.state.workspace(repo);
+    assert.equal(own.key, thinWorkspaceKey(await realpath(repo)));
+    const outer = join(item.root, 'outer'); await mkdir(join(outer, '.git'), { recursive: true });
+    await mkdir(join(outer, 'nested', '.git'), { recursive: true });
+    await warmWorkspace(item, join('outer', 'nested', 'app'));
+    assert.equal((await item.state.workspace(outer)).key, thinWorkspaceKey(await realpath(outer)));
   } finally { await item.close(); }
 });

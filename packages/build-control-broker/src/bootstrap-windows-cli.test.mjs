@@ -41,15 +41,12 @@ test('shimTable only maps shims for tools actually discovered, mirroring the mac
   assert.deepEqual(shimTable([]), {});
 });
 
-test('Windows Cargo-job derivation is host-neutral: no logical/2 performance-core assumption', () => {
-  // High-memory, high-core host reaches the Windows ceiling of 16.
-  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 32 * 1024 ** 3 }), 16);
-  // Few logical cores must no longer halve the job count (old behavior: 3).
-  assert.equal(defaultCargoBuildJobs({ cpus: 6, totalMemoryBytes: 32 * 1024 ** 3 }), 6);
-  // Memory-bound small host.
-  assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 6 * 1024 ** 3 }), 3);
-  // Never below one.
-  assert.equal(defaultCargoBuildJobs({ cpus: 1, totalMemoryBytes: 1024 ** 3 }), 1);
+test('Windows Cargo-job derivation uses the shared host sizing rule', () => {
+  // Shared host sizing: every logical CPU unless 80 % of RAM at 1 GiB/job binds first.
+  assert.equal(defaultCargoBuildJobs({ cpus: 20, totalMemoryBytes: 64 * 1024 ** 3 }), 20);
+  assert.equal(defaultCargoBuildJobs({ cpus: 12, totalMemoryBytes: 24 * 1024 ** 3 }), 12);
+  assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 6 * 1024 ** 3 }), 4);
+  assert.equal(defaultCargoBuildJobs({ cpus: 2, totalMemoryBytes: 1 * 1024 ** 3 }), 1);
   assert.equal(defaultCargoBuildJobs({ cpus: 0, totalMemoryBytes: 0 }), 1);
 });
 
@@ -162,13 +159,8 @@ test('a config with no rustc/rustdoc discovered omits rustcToolId/rustdocToolId 
   assert.equal(loaded.defaults.rustdocToolId, undefined);
 });
 
-test('cargo build jobs are clamped at canonical workstation maximum', () => {
-  // 8 logical / 4 performance cores with 8 GiB: memory binds first at 4.
-  assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
-  // Plenty of RAM: Windows policy ceiling is the limit.
-  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 16);
-  // Small host: never below one job.
-  assert.equal(defaultCargoBuildJobs({ cpus: 2, totalMemoryBytes: 1 * 1024 ** 3 }), 1);
+test('Windows Cargo jobs are no longer capped at a fixed sixteen', () => {
+  assert.equal(defaultCargoBuildJobs({ cpus: 32, totalMemoryBytes: 128 * 1024 ** 3 }), 32);
 });
 
 test('client-side sccache requires version 0.17 or newer', async () => {

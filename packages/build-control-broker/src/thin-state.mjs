@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize } from 'node:path';
+import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const SCHEMA_VERSION = 1;
 const STATE_FILE = 'state.json';
 const IDENTITY_FILE = 'identity.json';
+const ADOPTION_FILE = 'adoption.json';
+const REPOSITORY_MARKERS = Object.freeze(['.rightkit-local-development.json', '.git']);
 const WINDOWS_RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'ENOTEMPTY']);
 const WINDOWS_RENAME_RETRY_DELAYS_MS = Object.freeze([10, 25, 50, 100, 200, 400, 800]);
 
@@ -124,18 +126,72 @@ export class ThinState {
     const key = workspaceKey(canonicalRoot);
     const directory = join(this.paths.workspaces, key);
     const identityPath = join(directory, IDENTITY_FILE);
-    const statePath = join(directory, STATE_FILE);
     await mkdir(directory, { recursive: true });
     const identity = await readJson(identityPath);
     if (identity && identity.canonicalRoot !== canonicalRoot) throw new Error(`workspace identity collision for ${canonicalRoot}`);
     if (!identity) await atomicJson(identityPath, { schemaVersion: SCHEMA_VERSION, key, canonicalRoot });
+    const adopted = await this.#adoption({ key, canonicalRoot, directory });
+    if (adopted) {
+      const adoptedDirectory = join(this.paths.workspaces, adopted.key);
+      return this.#open({ key: adopted.key, canonicalRoot: adopted.canonicalRoot, directory: adoptedDirectory, identityPath: join(adoptedDirectory, IDENTITY_FILE), statePath: join(adoptedDirectory, STATE_FILE) });
+    }
+    return this.#open({ key, canonicalRoot, directory, identityPath, statePath: join(directory, STATE_FILE) });
+  }
+
+  /** Cache-root adoption (repository-root keying, 267bae38): the first time a
+   * cache root is seen without a warm target, when exactly one warm Cargo
+   * workspace of the same repository already exists below it, keep using that
+   * workspace's key instead of starting cold. Nothing moves; the decision is
+   * recorded once in adoption.json and never re-guessed. */
+  async #adoption({ key, canonicalRoot, directory }) {
+    const path = join(directory, ADOPTION_FILE);
+    const recorded = await readJson(path);
+    if (!recorded) {
+      return this.#transition(key, async () => {
+        const again = await readJson(path);
+        const decision = again ?? await this.#decideAdoption({ key, canonicalRoot, directory });
+        if (!again) await atomicJson(path, decision);
+        return this.#adoptedTarget(decision);
+      });
+    }
+    return this.#adoptedTarget(recorded);
+  }
+
+  async #adoptedTarget(decision) {
+    if (decision?.result !== 'adopted' || typeof decision.key !== 'string' || !/^[0-9a-f]{12}$/.test(decision.key)) return null;
+    const identity = await readJson(join(this.paths.workspaces, decision.key, IDENTITY_FILE));
+    return identity?.canonicalRoot === decision.canonicalRoot ? Object.freeze({ key: decision.key, canonicalRoot: decision.canonicalRoot }) : null;
+  }
+
+  async #decideAdoption({ key, canonicalRoot, directory }) {
+    const decidedAt = this.#timestamp();
+    const own = await readJson(join(directory, STATE_FILE));
+    if (own && await warmGeneration(join(directory, 'g', generationName(own.currentGeneration)))) return { schemaVersion: SCHEMA_VERSION, result: 'own-target-warm', decidedAt };
+    const candidates = [];
+    for (const entry of await readdir(this.paths.workspaces, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name === key) continue;
+      const candidateDirectory = join(this.paths.workspaces, entry.name);
+      const identity = await readJson(join(candidateDirectory, IDENTITY_FILE)).catch(() => null);
+      const candidateRoot = identity?.canonicalRoot;
+      if (typeof candidateRoot !== 'string' || !isStrictlyWithin(canonicalRoot, candidateRoot)) continue;
+      if ((await readJson(join(candidateDirectory, ADOPTION_FILE)).catch(() => null))?.result === 'adopted') continue;
+      if (!(await pathExists(candidateRoot)) || await insideNestedRepository(canonicalRoot, candidateRoot)) continue;
+      const state = await readJson(join(candidateDirectory, STATE_FILE)).catch(() => null);
+      if (!state || !Number.isSafeInteger(state.currentGeneration) || state.currentGeneration < 1) continue;
+      if (await warmGeneration(join(candidateDirectory, 'g', generationName(state.currentGeneration)))) candidates.push({ key: entry.name, canonicalRoot: candidateRoot, lastUsedAt: state.lastUsedAt ?? null });
+    }
+    if (candidates.length === 1) return { schemaVersion: SCHEMA_VERSION, result: 'adopted', key: candidates[0].key, canonicalRoot: candidates[0].canonicalRoot, reason: 'single-warm-workspace-below-cache-root', decidedAt };
+    return { schemaVersion: SCHEMA_VERSION, result: candidates.length ? 'ambiguous' : 'none', candidates, decidedAt };
+  }
+
+  async #open(workspace) {
+    const { key, canonicalRoot, directory, identityPath, statePath } = workspace;
     let stored = await readJson(statePath);
     if (!stored) {
       stored = { schemaVersion: SCHEMA_VERSION, currentGeneration: 1, active: null, residents: [], updatedAt: this.#timestamp() };
       await atomicJson(statePath, stored);
     }
     this.#validateState(stored, statePath);
-    const workspace = { key, canonicalRoot, directory, identityPath, statePath };
     const name = generationName(stored.currentGeneration);
     if (!isLeafEntry(stored.leaves?.[name])) {
       // First sight of this generation: select once from what exists on disk, persist, never re-guess.
@@ -350,22 +406,27 @@ export class ThinState {
    * active-writer & resident generations are never direct deletion candidates. Sizes are
    * cached per current generation and invalidated by the sizeDirty flag so GC
    * does not repeatedly walk warm target trees (v2.8 §10.5). */
-  async gc({ capBytes, evictIdle = null } = {}) {
-    if (capBytes === null || capBytes === undefined) return Object.freeze({ capBytes: null, beforeBytes: null, afterBytes: null, deleted: Object.freeze([]), evicted: Object.freeze([]), unenforceable: null });
+  async gc({ capBytes, evictIdle = null, freeBytes = null, freeFloorBytes = null, recentMs = 72 * 3_600_000, staleMs = 14 * 86_400_000 } = {}) {
     if (!Number.isSafeInteger(capBytes) || capBytes < 1) throw new TypeError('gc capBytes must be a positive integer or null');
     if (evictIdle !== null && typeof evictIdle !== 'function') throw new TypeError('evictIdle must be a callback or null');
-    const retired = []; const idleCurrent = []; let total = 0; let advisory = 0;
+    if (freeBytes !== null && typeof freeBytes !== 'function') throw new TypeError('freeBytes must be a callback or null');
+    const retired = []; const idleCurrent = []; const deadRoots = []; const orphanLeaves = []; const adoptedKeys = new Set(); let total = 0; let advisory = 0;
     for (const workspaceEntry of await readdir(this.paths.workspaces, { withFileTypes: true })) {
       if (!workspaceEntry.isDirectory()) continue;
-      const directory = join(this.paths.workspaces, workspaceEntry.name); const state = await readJson(join(directory, STATE_FILE), { missing: null });
+      const directory = join(this.paths.workspaces, workspaceEntry.name);
+      const adoption = await readJson(join(directory, ADOPTION_FILE)).catch(() => null);
+      if (adoption?.result === 'adopted' && typeof adoption.key === 'string') adoptedKeys.add(adoption.key);
+      const state = await readJson(join(directory, STATE_FILE), { missing: null });
       if (!state) continue;
       const identity = await readJson(join(directory, IDENTITY_FILE), { missing: null });
       const generations = join(directory, 'g');
+      let workspaceBytes = 0; let anyActive = false; let currentIdle = null;
       for (const generationEntry of await readdir(generations, { withFileTypes: true }).catch((error) => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
         if (!generationEntry.isDirectory() || !/^\d{3}$/.test(generationEntry.name)) continue;
         const generation = Number(generationEntry.name); const path = join(generations, generationEntry.name); const metadata = await lstat(path);
         const isCurrent = generation === state.currentGeneration;
         const isActive = generation === state.active?.generation || residents(state).some((resident) => resident.generation === generation);
+        anyActive ||= isActive;
         let sizeBytes;
         if (isCurrent && !state.sizeDirty && state.lastMeasuredGeneration === generation && Number.isSafeInteger(state.lastMeasuredBytes)) sizeBytes = state.lastMeasuredBytes;
         else if (isActive) {
@@ -374,41 +435,94 @@ export class ThinState {
           sizeBytes = state.lastMeasuredGeneration === generation && Number.isSafeInteger(state.lastMeasuredBytes) ? state.lastMeasuredBytes : 0;
           advisory += 1;
         } else sizeBytes = await directorySize(path);
-        total += sizeBytes;
+        total += sizeBytes; workspaceBytes += sizeBytes;
         if (isCurrent) {
           if (!isActive && (state.lastMeasuredGeneration !== generation || state.sizeDirty)) await this.recordMeasured(identity?.canonicalRoot ?? workspaceEntry.name, generation, sizeBytes).catch(() => null);
-          if (!isActive && identity?.canonicalRoot) idleCurrent.push({ workspaceKey: workspaceEntry.name, canonicalRoot: identity.canonicalRoot, generation, sizeBytes, lastUsedAt: state.lastUsedAt ?? null, updatedAt: state.updatedAt ?? null, modifiedMs: metadata.mtimeMs });
+          if (!isActive && identity?.canonicalRoot) currentIdle = { workspaceKey: workspaceEntry.name, canonicalRoot: identity.canonicalRoot, generation, sizeBytes, lastUsedAt: state.lastUsedAt ?? null, updatedAt: state.updatedAt ?? null, modifiedMs: metadata.mtimeMs };
+          // A persisted leaf makes its sibling leaf unreachable: reclaim it on its own (design §7).
+          const entry = state.leaves?.[generationEntry.name];
+          if (!isActive && isLeafEntry(entry)) {
+            const other = join(path, entry.leaf === 'target' ? 't' : 'target');
+            if (await nonEmptyDir(other)) orphanLeaves.push({ workspaceKey: workspaceEntry.name, generation, leaf: entry.leaf, path: other, sizeBytes: await directorySize(other) });
+          }
         } else if (!isActive) retired.push({ workspaceKey: workspaceEntry.name, generation, path, sizeBytes, modifiedMs: metadata.mtimeMs });
       }
+      // A workspace whose source root no longer exists can never build again, and eviction through
+      // workspace() fails on realpath, so it is reclaimed whole here instead.
+      if (!anyActive && typeof identity?.canonicalRoot === 'string' && !(await pathExists(identity.canonicalRoot))) deadRoots.push({ workspaceKey: workspaceEntry.name, canonicalRoot: identity.canonicalRoot, directory, sizeBytes: workspaceBytes });
+      else if (currentIdle) idleCurrent.push(currentIdle);
     }
-    const beforeBytes = total; const deleted = []; const evicted = [];
-    for (const candidate of retired.sort((left, right) => left.modifiedMs - right.modifiedMs || left.path.localeCompare(right.path))) {
-      if (total <= capBytes) break;
+    const beforeBytes = total; const deleted = []; const evicted = []; const reclaimed = { deadRoots: [], orphanLeaves: [] };
+    const discard = async (label, path) => {
+      const trash = join(this.paths.trash, `${label}-${randomUUID()}`);
+      try { await rename(path, trash); } catch (error) { if (error?.code === 'ENOENT') return; throw error; }
+      await rm(trash, { recursive: true, force: true });
+    };
+    for (const candidate of deadRoots) {
+      if (adoptedKeys.has(candidate.workspaceKey)) continue;
+      const removed = await this.#transition(candidate.workspaceKey, async () => {
+        const fresh = await readJson(join(candidate.directory, STATE_FILE), { missing: null });
+        if (fresh && (fresh.active || residents(fresh).length > 0)) return false;
+        if (await pathExists(candidate.canonicalRoot)) return false;
+        await discard(candidate.workspaceKey, candidate.directory); return true;
+      });
+      if (!removed) continue;
+      total -= candidate.sizeBytes;
+      reclaimed.deadRoots.push(Object.freeze({ workspaceKey: candidate.workspaceKey, canonicalRoot: candidate.canonicalRoot, sizeBytes: candidate.sizeBytes }));
+    }
+    for (const candidate of orphanLeaves) {
+      const removed = await this.#transition(candidate.workspaceKey, async () => {
+        const statePath = join(this.paths.workspaces, candidate.workspaceKey, STATE_FILE);
+        const fresh = await readJson(statePath, { missing: null });
+        if (!fresh || fresh.active || residents(fresh).length > 0 || fresh.currentGeneration !== candidate.generation || fresh.leaves?.[generationName(candidate.generation)]?.leaf !== candidate.leaf) return false;
+        await discard(`${candidate.workspaceKey}-${generationName(candidate.generation)}-orphan`, candidate.path);
+        await atomicJson(statePath, { ...fresh, sizeDirty: true, updatedAt: this.#timestamp() });
+        return true;
+      });
+      if (!removed) continue;
+      total -= candidate.sizeBytes;
+      reclaimed.orphanLeaves.push(Object.freeze({ workspaceKey: candidate.workspaceKey, generation: candidate.generation, path: candidate.path, sizeBytes: candidate.sizeBytes }));
+    }
+    // Effective cap: the configured ceiling, further bounded by keeping the managed volume's free floor.
+    const free = freeBytes ? await Promise.resolve(freeBytes()).catch(() => null) : null;
+    const floor = Number.isSafeInteger(freeFloorBytes) && freeFloorBytes > 0 && Number.isFinite(free) ? freeFloorBytes : null;
+    const effectiveCapBytes = floor === null ? capBytes : Math.max(0, Math.min(capBytes, total + free - floor));
+    const pressure = floor !== null && free < floor;
+    // Hysteresis: once over cap, reclaim to 90 % so a small overage does not re-trigger eviction on every build.
+    const goal = total > effectiveCapBytes ? Math.floor(effectiveCapBytes * 0.9) : null;
+    if (goal !== null) for (const candidate of retired.sort((left, right) => left.modifiedMs - right.modifiedMs || left.path.localeCompare(right.path))) {
+      if (total <= goal) break;
       // Revalidate under the per-workspace exclusion: the generation may have become current/active since the scan.
       const removed = await this.#transition(candidate.workspaceKey, async () => {
         const fresh = await readJson(join(this.paths.workspaces, candidate.workspaceKey, STATE_FILE), { missing: null });
         if (!fresh || fresh.currentGeneration === candidate.generation || fresh.active?.generation === candidate.generation || residents(fresh).some((resident) => resident.generation === candidate.generation)) return false;
-        const trash = join(this.paths.trash, `${candidate.workspaceKey}-${generationName(candidate.generation)}-${randomUUID()}`);
-        try { await rename(candidate.path, trash); } catch (error) { if (error?.code === 'ENOENT') return true; throw error; }
-        await rm(trash, { recursive: true, force: true });
+        await discard(`${candidate.workspaceKey}-${generationName(candidate.generation)}`, candidate.path);
         return true;
       });
       if (!removed) continue;
       total -= candidate.sizeBytes;
       deleted.push(Object.freeze({ workspaceKey: candidate.workspaceKey, generation: candidate.generation, sizeBytes: candidate.sizeBytes }));
     }
-    if (total > capBytes && evictIdle) {
+    if (evictIdle) {
+      const now = Date.parse(this.#timestamp());
       const lru = (candidate) => Date.parse(candidate.lastUsedAt ?? '') || Date.parse(candidate.updatedAt ?? '') || candidate.modifiedMs;
-      for (const candidate of idleCurrent.sort((left, right) => lru(left) - lru(right) || left.workspaceKey.localeCompare(right.workspaceKey))) {
-        if (total <= capBytes) break;
-        const result = await Promise.resolve(evictIdle(candidate)).catch(() => null);
-        if (!result) continue;
-        total -= candidate.sizeBytes;
-        evicted.push(Object.freeze(result));
+      // Empty generations reclaim nothing; rotating them only churns generation numbers.
+      const ordered = idleCurrent.filter((candidate) => candidate.sizeBytes > 0).sort((left, right) => lru(left) - lru(right) || left.workspaceKey.localeCompare(right.workspaceKey));
+      const evict = async (candidate, reason) => {
+        const result = await Promise.resolve(evictIdle({ ...candidate, reason })).catch(() => null);
+        if (!result) return;
+        total -= candidate.sizeBytes; evicted.push(Object.freeze(result)); candidate.evicted = true;
+      };
+      // Stale trees are retired regardless of cap; recently used trees are protected unless the disk floor is breached.
+      for (const candidate of ordered) if (now - lru(candidate) > staleMs) await evict(candidate, 'stale-idle-eviction');
+      if (goal !== null) for (const candidate of ordered) {
+        if (total <= goal) break;
+        if (candidate.evicted || (!pressure && now - lru(candidate) < recentMs)) continue;
+        await evict(candidate, pressure ? 'disk-floor-eviction' : 'cache-budget-eviction');
       }
     }
-    const unenforceable = total > capBytes ? Object.freeze({ overByBytes: total - capBytes, idleCandidatesRemaining: idleCurrent.filter((candidate) => !evicted.some((entry) => entry.workspaceKey === candidate.workspaceKey)).length }) : null;
-    return Object.freeze({ capBytes, beforeBytes, afterBytes: total, deleted: Object.freeze(deleted), evicted: Object.freeze(evicted), unenforceable, advisorySizedTrees: advisory });
+    const unenforceable = total > effectiveCapBytes ? Object.freeze({ overByBytes: total - effectiveCapBytes, idleCandidatesRemaining: idleCurrent.filter((candidate) => !candidate.evicted && candidate.sizeBytes > 0).length }) : null;
+    return Object.freeze({ capBytes, effectiveCapBytes, freeBytes: free, freeFloorBytes: floor, beforeBytes, afterBytes: total, deleted: Object.freeze(deleted), evicted: Object.freeze(evicted), reclaimed: Object.freeze(reclaimed), unenforceable, advisorySizedTrees: advisory });
   }
 
   #layout(workspace, generation, state = null, orphanLeaf = null) {
@@ -463,6 +577,25 @@ export class ThinState {
 const DEFAULT_LEAF = 'target';
 const isLeafEntry = (value) => value !== null && typeof value === 'object' && (value.leaf === 'target' || value.leaf === 't');
 const newGenerationLeaf = (selectedAt) => ({ leaf: DEFAULT_LEAF, reason: 'new-generation-default-target', selectedAt });
+
+const isStrictlyWithin = (root, candidate) => { const child = relative(root, candidate); return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child); };
+
+async function pathExists(path) {
+  try { await lstat(path); return true; }
+  catch (error) { if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return false; throw error; }
+}
+
+/** True when a repository marker sits between `root` (exclusive) and `candidate` (inclusive). */
+async function insideNestedRepository(root, candidate) {
+  for (let current = candidate; isStrictlyWithin(root, current); current = dirname(current)) {
+    for (const marker of REPOSITORY_MARKERS) if (await pathExists(join(current, marker))) return true;
+  }
+  return false;
+}
+
+async function warmGeneration(root) {
+  return (await nonEmptyDir(join(root, 'target'))) || (await nonEmptyDir(join(root, 't')));
+}
 
 async function nonEmptyDir(path) {
   try { return (await readdir(path)).length > 0; }

@@ -185,14 +185,13 @@ test('defaultBounds matches the doc-mandated shape (one field per bound, no drif
   assert.equal(bounds.maintenanceConcurrency, undefined);
 });
 
-test('cargo build jobs use host CPU & RAM with an eight-worker ceiling', () => {
-  // 8 logical / 4 performance cores with 8 GiB: memory binds first at 4, so
-  // parallel links cannot push this host into swap.
-  assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
-  assert.equal(defaultCargoBuildJobs({ cpus: 12, totalMemoryBytes: 24 * 1024 ** 3 }), 8);
-  assert.equal(defaultCargoBuildJobs({ cpus: 16, totalMemoryBytes: 64 * 1024 ** 3 }), 8);
-  assert.equal(defaultCargoBuildJobs({ cpus: 12, totalMemoryBytes: 8 * 1024 ** 3 }), 4);
+test('macOS Cargo-job derivation uses the same shared host sizing rule as Windows', () => {
+  // Shared host sizing: every logical CPU unless 80 % of RAM at 1 GiB/job binds first.
+  assert.equal(defaultCargoBuildJobs({ cpus: 20, totalMemoryBytes: 64 * 1024 ** 3 }), 20);
+  assert.equal(defaultCargoBuildJobs({ cpus: 12, totalMemoryBytes: 24 * 1024 ** 3 }), 12);
+  assert.equal(defaultCargoBuildJobs({ cpus: 8, totalMemoryBytes: 6 * 1024 ** 3 }), 4);
   assert.equal(defaultCargoBuildJobs({ cpus: 2, totalMemoryBytes: 1 * 1024 ** 3 }), 1);
+  assert.equal(defaultCargoBuildJobs({ cpus: 0, totalMemoryBytes: 0 }), 1);
   assert.equal(defaultCargoBuildJobs({ cpus: NaN, totalMemoryBytes: NaN }), 1);
 });
 

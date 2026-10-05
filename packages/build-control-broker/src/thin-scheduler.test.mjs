@@ -165,3 +165,30 @@ test('queued ticket records identity of the active holders that blocked it', asy
   assert.deepEqual(second.blockers().map(({ id }) => id), ['first']);
   assert.deepEqual(first.blockers(), []);
 });
+
+test('memory-priced build costs admit concurrent builds while the GiB budget fits', async () => {
+  const costs = deriveCompileCosts(51, 20);
+  assert.deepEqual(costs, { ANALYSIS: 7, TEST: 10, BUILD: 20 });
+  const scheduler = new ThinScheduler({ buildConcurrency: 2, compileBudget: 51 });
+  const first = await scheduler.acquire({ id: 'b-1', capability: BUILD, workspaceKey: 'a', compileCost: costs.BUILD }).permit;
+  const second = await scheduler.acquire({ id: 'b-2', capability: BUILD, workspaceKey: 'b', compileCost: costs.BUILD }).permit;
+  assert.equal(scheduler.snapshot.active.length, 2);
+  first.release(); second.release();
+});
+
+test('live host-memory guard queues a joining root & attributes the wait', async () => {
+  let available = 8 * 1024 ** 3;
+  const scheduler = new ThinScheduler({ buildConcurrency: 2, compileBudget: 51, costUnitBytes: 1024 ** 3, hostAvailableMemory: () => available });
+  const first = await scheduler.acquire({ id: 'b-1', capability: BUILD, workspaceKey: 'a', compileCost: 20 }).permit;
+  const second = scheduler.acquire({ id: 'b-2', capability: BUILD, workspaceKey: 'b', compileCost: 20 });
+  await tick();
+  assert.deepEqual(scheduler.snapshot.queued.map(({ id }) => id), ['b-2']);
+  assert.deepEqual(second.blockers(), [{ id: 'b-1', reason: 'host-memory' }]);
+  available = 40 * 1024 ** 3; first.release(); await tick();
+  (await second.permit).release();
+});
+
+test('the memory guard never blocks the first compile root', async () => {
+  const scheduler = new ThinScheduler({ compileBudget: 51, costUnitBytes: 1024 ** 3, hostAvailableMemory: () => 0 });
+  (await scheduler.acquire({ id: 'only', capability: BUILD, workspaceKey: 'a', compileCost: 20 }).permit).release();
+});

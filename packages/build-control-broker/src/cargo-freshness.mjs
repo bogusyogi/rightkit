@@ -1,4 +1,5 @@
-import { readdir } from 'node:fs/promises';
+import { lstat, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 
 const NOT_FRESH_CAP = 50;
 
@@ -76,6 +77,58 @@ export async function probeTargetAtStart(layout, { readdirFn = readdir, state = 
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return Object.freeze({ ...base, existedAtStart: false, entriesAtStart: 0 });
     return Object.freeze({ ...base, existedAtStart: null, entriesAtStart: null, probeError: error?.code ?? 'probe-failed' });
   }
+}
+
+/** Cargo's output directory name for the profile selected by argv. */
+export function cargoProfileDirectory(argv = []) {
+  let profile = null; let release = false;
+  for (let index = 0; index < argv.length && argv[index] !== '--'; index += 1) {
+    const item = argv[index];
+    if (item === '--release' || item === '-r') release = true;
+    else if (item === '--profile') profile = argv[index + 1] ?? null;
+    else if (typeof item === 'string' && item.startsWith('--profile=')) profile = item.slice('--profile='.length);
+  }
+  if (profile === 'dev' || profile === 'test') return 'debug';
+  if (profile === 'bench') return 'release';
+  return profile ?? (release ? 'release' : 'debug');
+}
+
+/**
+ * Format-agnostic freshness for Cargo runs without a JSON message stream (for
+ * example the Tauri CLI's own `cargo build`): Cargo rewrites a unit's
+ * `.fingerprint/<unit>` files when it rebuilds that unit and leaves fresh units
+ * untouched. Start records the clock and the unit count; the census at exit
+ * counts units written since start. Untouched units can include units from
+ * other feature sets in the same profile directory, so `fresh` is an upper bound.
+ */
+export async function fingerprintCensusStart(targetPath, argv = [], targetTriple = null, { now = Date.now, readdirFn = readdir } = {}) {
+  if (!targetPath) return null;
+  const profile = cargoProfileDirectory(argv);
+  const directories = [...new Set([targetTriple ? join(targetPath, targetTriple, profile, '.fingerprint') : null, join(targetPath, profile, '.fingerprint')].filter(Boolean))];
+  let unitsAtStart = 0;
+  for (const directory of directories) unitsAtStart += (await readdirFn(directory).catch(() => [])).length;
+  return Object.freeze({ sinceMs: now(), profile, directories: Object.freeze(directories), unitsAtStart });
+}
+
+export async function fingerprintCensus(start, { readdirFn = readdir, lstatFn = lstat } = {}) {
+  if (!start) return Object.freeze({ available: false, reason: 'fingerprint-census-not-started' });
+  let rebuilt = 0; let untouched = 0;
+  for (const directory of start.directories) {
+    for (const unit of await readdirFn(directory).catch(() => [])) {
+      let newest = 0;
+      for (const file of await readdirFn(join(directory, unit)).catch(() => [])) {
+        const stats = await lstatFn(join(directory, unit, file)).catch(() => null);
+        if (stats && stats.mtimeMs > newest) newest = stats.mtimeMs;
+      }
+      if (newest >= start.sinceMs) rebuilt += 1; else untouched += 1;
+    }
+  }
+  if (rebuilt + untouched === 0) return Object.freeze({ available: false, reason: 'no-fingerprint-units-found', source: 'fingerprint-census', profile: start.profile });
+  return Object.freeze({
+    available: true, source: 'fingerprint-census', profile: start.profile,
+    compilerArtifacts: rebuilt + untouched, fresh: untouched, notFresh: rebuilt, unitsAtStart: start.unitsAtStart,
+    freshNote: 'untouched-units-may-include-units-outside-this-build'
+  });
 }
 
 /** Combine the start probe and the freshness stream into a coldStart verdict. */

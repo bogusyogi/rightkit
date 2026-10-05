@@ -1,3 +1,4 @@
+import { HOST_DERIVED_BOUNDS } from './host-sizing.mjs';
 import { readFile as defaultReadFile } from 'node:fs/promises';
 import { isAbsolute, normalize, relative, win32 } from 'node:path';
 
@@ -11,7 +12,7 @@ const outputPolicyFields = new Set(['mode', 'allowedSourceDirs', 'scanRoot']);
 const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'digest']);
 const sccacheFields = new Set(['mode', 'clientSide', 'lifecycleOwner', 'requireOwnershipProof', 'expectedVersion', 'maxSizeBytes', 'basedirs', 'basedirsEnabled', 'gatewayPort', 'healthLeaseMs', 'recoveryTimeoutMs', 'statsIntervalMs']);
 const defaultSccacheMaxSizeBytes = 20 * 1024 ** 3;
-const boundFields = new Set(['heartbeatIntervalMs', 'processGraceMs', 'freeFloorBytes', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'targetCacheCapBytes', 'workspaceDiscoveryTtlMs', 'workspaceDiscoveryTimeoutMs', 'compileBudgetUnits']);
+const boundFields = new Set(['heartbeatIntervalMs', 'processGraceMs', 'freeFloorBytes', 'jobDeadlineMs', 'outputBufferBytes', 'outputHeadBytes', 'outputTailBytes', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'targetCacheCapBytes', 'workspaceDiscoveryTtlMs', 'workspaceDiscoveryTimeoutMs', 'compileBudgetUnits', 'buildCostUnits', 'gcFreeFloorBytes']);
 const EXTERNAL_COMMAND = /^[a-z][a-z0-9-]*$/;
 const HEX_256 = /^[a-f0-9]{64}$/i;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -132,10 +133,11 @@ function validateOutputPolicy(value) {
 function validateBounds(value, { capacity }) {
   const bounds = object(value, 'bounds'); only(bounds, boundFields, 'bounds');
   const normalized = {};
-  const positive = new Set(['heartbeatIntervalMs', 'processGraceMs', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'workspaceDiscoveryTimeoutMs', 'compileBudgetUnits']);
+  const positive = new Set(['heartbeatIntervalMs', 'processGraceMs', 'controlConcurrency', 'analysisConcurrency', 'buildConcurrency', 'workspaceWriteConcurrency', 'workspaceDiscoveryTimeoutMs', 'compileBudgetUnits', 'buildCostUnits']);
   const minimums = new Map([['controlConcurrency', 1], ['analysisConcurrency', 1], ['buildConcurrency', 1], ['workspaceWriteConcurrency', 1], ['outputBufferBytes', 1024], ['workspaceDiscoveryTimeoutMs', 1], ['workspaceDiscoveryTtlMs', 0]]);
   for (const key of boundFields) if (bounds[key] !== undefined) normalized[key] = nonnegative(bounds[key], `bounds.${key}`, { minimum: minimums.get(key) ?? (positive.has(key) ? 1 : 0) });
   if (normalized.targetCacheCapBytes !== undefined && normalized.targetCacheCapBytes > capacity) throw new TypeError('bounds.targetCacheCapBytes cannot exceed broker.capacityBytes');
+  if (normalized.buildCostUnits !== undefined && (normalized.compileBudgetUnits === undefined || normalized.buildCostUnits > normalized.compileBudgetUnits)) throw new TypeError('bounds.buildCostUnits requires compileBudgetUnits and cannot exceed it');
   const outputBuffer = normalized.outputBufferBytes ?? 8 * 1024 * 1024;
   const durableOutput = (normalized.outputHeadBytes ?? 16 * 1024) + (normalized.outputTailBytes ?? 16 * 1024);
   if (durableOutput > outputBuffer) throw new TypeError('bounds.outputHeadBytes + bounds.outputTailBytes cannot exceed bounds.outputBufferBytes');
@@ -260,7 +262,8 @@ export function preserveOperatorTunedConfig(next, previous) {
   if (!next || typeof next !== 'object' || !previous || typeof previous !== 'object') return [];
   const preserved = [];
   const maxSizeBytes = previous.sccache?.maxSizeBytes;
-  if (next.sccache && typeof next.sccache === 'object' && Number.isSafeInteger(maxSizeBytes) && maxSizeBytes >= 1 && maxSizeBytes !== next.sccache.maxSizeBytes) {
+  // The generated sccache size is a volume-derived ceiling: keep a smaller operator value, never a larger one.
+  if (next.sccache && typeof next.sccache === 'object' && Number.isSafeInteger(maxSizeBytes) && maxSizeBytes >= 1 && maxSizeBytes < next.sccache.maxSizeBytes) {
     next.sccache.maxSizeBytes = maxSizeBytes;
     preserved.push('sccache.maxSizeBytes');
   }
@@ -269,6 +272,8 @@ export function preserveOperatorTunedConfig(next, previous) {
     // Migrate known shipped discovery defaults while retaining genuine
     // operator tuning in every other bound. Mac shipped 10s; Windows 2s.
     if ([2_000, 10_000].includes(preservedBounds.workspaceDiscoveryTimeoutMs) && Number.isSafeInteger(generatedBounds?.workspaceDiscoveryTimeoutMs)) preservedBounds.workspaceDiscoveryTimeoutMs = generatedBounds.workspaceDiscoveryTimeoutMs;
+    // Host-derived bounds (CPU, memory, volume) are regenerated, never carried forward.
+    for (const key of HOST_DERIVED_BOUNDS) { if (generatedBounds?.[key] !== undefined) preservedBounds[key] = generatedBounds[key]; else delete preservedBounds[key]; }
     next.bounds = preservedBounds;
     try { validateBrokerConfig(next); preserved.push('bounds'); } catch { next.bounds = generatedBounds; }
   }

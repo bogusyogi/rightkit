@@ -82,13 +82,17 @@ test('config loader strips UTF-8 BOM & wraps malformed JSON', async () => {
 });
 
 test('force re-bootstrap preserves operator-tuned maxSizeBytes & valid bounds, drops invalid bounds', () => {
-  const next = fixture(); const previous = fixture(); next.bounds.workspaceDiscoveryTimeoutMs = 30_000;
-  previous.sccache.maxSizeBytes = 268_435_456_000; previous.bounds.buildConcurrency = 3;
+  const next = fixture(); const previous = fixture(); next.bounds.workspaceDiscoveryTimeoutMs = 30_000; next.bounds.buildConcurrency = 2;
+  previous.sccache.maxSizeBytes = 10_000; previous.bounds.buildConcurrency = 3; previous.bounds.analysisConcurrency = 5;
   assert.deepEqual(preserveOperatorTunedConfig(next, previous), ['sccache.maxSizeBytes', 'bounds']);
-  assert.equal(next.sccache.maxSizeBytes, 268_435_456_000); assert.equal(next.bounds.buildConcurrency, 3); assert.equal(next.bounds.workspaceDiscoveryTimeoutMs, 30_000);
+  // Operator tuning survives; host-derived bounds are regenerated from the host.
+  assert.equal(next.sccache.maxSizeBytes, 10_000); assert.equal(next.bounds.analysisConcurrency, 5); assert.equal(next.bounds.buildConcurrency, 2); assert.equal(next.bounds.workspaceDiscoveryTimeoutMs, 30_000);
+  // A previous sccache size above the volume-derived ceiling is not carried forward.
+  const capped = fixture(); const oversized = fixture(); oversized.sccache.maxSizeBytes = 268_435_456_000;
+  assert.deepEqual(preserveOperatorTunedConfig(capped, oversized), ['bounds']); assert.equal(capped.sccache.maxSizeBytes, 20_000);
   const tuned = fixture(); const tunedPrevious = fixture(); tuned.bounds.workspaceDiscoveryTimeoutMs = 30_000; tunedPrevious.bounds.workspaceDiscoveryTimeoutMs = 7_500;
   assert.deepEqual(preserveOperatorTunedConfig(tuned, tunedPrevious), ['bounds']); assert.equal(tuned.bounds.workspaceDiscoveryTimeoutMs, 7_500);
-  const invalid = fixture(); const badPrevious = fixture(); badPrevious.sccache.maxSizeBytes = -1; badPrevious.bounds.buildConcurrency = 0;
+  const invalid = fixture(); const badPrevious = fixture(); badPrevious.sccache.maxSizeBytes = -1; badPrevious.bounds.analysisConcurrency = 0;
   const generatedBounds = invalid.bounds;
   assert.deepEqual(preserveOperatorTunedConfig(invalid, badPrevious), []);
   assert.equal(invalid.sccache.maxSizeBytes, 20_000); assert.equal(invalid.bounds, generatedBounds);
