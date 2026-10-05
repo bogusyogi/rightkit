@@ -54,8 +54,19 @@ test('creates required global & persistent workspace generation layout', async (
     assert.equal(workspace.state.currentGeneration, 1);
     for (const path of [item.state.paths.state, item.state.paths.cargoHome, item.state.paths.compilerCache, item.state.paths.tools, item.state.paths.active, item.state.paths.trash, item.state.paths.logs, item.state.paths.receipts, workspace.layout.target, workspace.layout.temp]) await assert.doesNotReject((await import('node:fs/promises')).stat(path));
     assert.equal(workspace.layout.temp, join(item.root, 'tmp'));
+    assert.equal(workspace.layout.target, join(workspace.layout.root, process.platform === 'win32' ? 't' : 'target'));
     assert.equal(workspace.layout.build, undefined);
     assert.equal(JSON.parse(await readFile(workspace.identityPath, 'utf8')).canonicalRoot, item.workspace);
+  } finally { await item.close(); }
+});
+
+test('Windows release-iterate OpenSSL object stays below MAX_PATH', { skip: process.platform !== 'win32' }, async () => {
+  const item = await fixture();
+  try {
+    const workspace = await item.state.workspace(item.workspace);
+    const managedTarget = workspace.layout.target.replace(item.root, 'D:\\.rightkit-managed');
+    const object = join(managedTarget, 'x86_64-pc-windows-msvc', 'release-iterate', 'build', 'openssl-sys-af2cffd4d55717b0', 'out', 'openssl-build', 'build', 'src', 'providers', 'implementations', 'ciphers', 'libdefault-lib-cipher_aes_cbc_hmac_sha256_etm_hw.obj');
+    assert.ok(object.length < 260, `MSVC object path has ${object.length} characters: ${object}`);
   } finally { await item.close(); }
 });
 

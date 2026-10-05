@@ -258,7 +258,7 @@ test('registered explicit Cargo target overrides host default within persistent 
     await waitFor(item.service, submitted.id, ['RUNNING']);
     const child = item.children.at(-1);
     assert.deepEqual(child.payload.argv.slice(0, 3), ['build', '--target=x86_64-apple-darwin', '--target-dir']);
-    assert.ok(child.payload.argv[3].endsWith(join('g', '001', 'target')));
+    assert.ok(child.payload.argv[3].endsWith(join('g', '001', process.platform === 'win32' ? 't' : 'target')));
     child.emit('close', 0, null);
     const result = (await call(item.service, command('WATCH', submitted.id))).result;
     assert.equal(result.status, 'SUCCEEDED');
@@ -564,7 +564,7 @@ test('idle-current-generation eviction holds workspace write exclusion & a queue
     item.children[0].emit('close', 0, null);
     await waitFor(item.service, second.id, ['RUNNING']);
     const child = item.children[1];
-    assert.ok(child.environment.CARGO_TARGET_DIR.includes(join('g', '002', 'target')), `build targeted ${child.environment.CARGO_TARGET_DIR}`);
+    assert.ok(child.environment.CARGO_TARGET_DIR.includes(join('g', '002', process.platform === 'win32' ? 't' : 'target')), `build targeted ${child.environment.CARGO_TARGET_DIR}`);
     child.emit('close', 0, null);
     const terminal = (await call(item.service, command('WATCH', second.id))).result;
     assert.equal(terminal.status, 'SUCCEEDED');

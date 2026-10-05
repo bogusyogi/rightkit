@@ -366,7 +366,9 @@ export class ThinState {
 
   #layout(workspace, generation) {
     const root = join(workspace.directory, 'g', generationName(generation));
-    return Object.freeze({ generation, root, target: join(root, 'target'), temp: this.paths.temporary });
+    // release-iterate + OpenSSL's longest MSVC object exceeds MAX_PATH with
+    // "target" even in this compact layout. Keep Windows output names short.
+    return Object.freeze({ generation, root, target: join(root, process.platform === 'win32' ? 't' : 'target'), temp: this.paths.temporary });
   }
 
   async #ensureGeneration(workspace, generation) {
