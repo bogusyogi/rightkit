@@ -35,7 +35,7 @@ test("development environment marks profile and disables signing material", () =
 test("Windows pnpm command resolves to its JavaScript CLI and node uses current runtime", () => {
   const pnpm = resolveCommand("pnpm", ["exec", "node", "-e", "console.log('x')"], { root: process.cwd() });
   assert.equal(pnpm.command, process.execPath);
-  assert.match(pnpm.args[0], /pnpm\.(?:js|cjs)$/i);
+  assert.match(pnpm.args[0], /pnpm\.(?:js|cjs|mjs)$/i);
   assert.equal(resolveCommand("node", ["--version"]).command, process.execPath);
 });
 

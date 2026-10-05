@@ -224,6 +224,13 @@ export function resolvePnpmCli({ root, env = process.env } = {}) {
     const parent = path.dirname(dir);
     if (parent === dir) break;
   }
+  // A global pnpm (no Corepack in Node >= 25) exposes its JS entry only through its PATH shim.
+  for (const dir of String(env.PATH ?? env.Path ?? "").split(path.delimiter).filter(Boolean)) {
+    const shim = path.join(dir, "pnpm.CMD");
+    if (!existsSync(shim)) continue;
+    const match = /"%~dp0\\([^"]*pnpm\.(?:mjs|cjs|js))"/i.exec(readFileSync(shim, "utf8"));
+    if (match) candidates.push(path.resolve(dir, match[1]));
+  }
   const selected = candidates.find((candidate) => existsSync(candidate));
   if (!selected) throw new Error("could not resolve pnpm JavaScript CLI entrypoint; install/pin pnpm through Corepack");
   return selected;
