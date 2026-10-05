@@ -9,7 +9,7 @@ import { installManagedRuntimeWindows, quotePowerShell, renderBrokerLauncherVbs,
 import { absoluteHostPath as absolute, assertDirectory, assertFile, beginCutoverDrain, contained, endCutoverDrain, proveBrokerRequestsDrained, proveThinRequestsDrained } from './cutover-shared.mjs';
 // A `file://${process.argv[1]}` comparison never matches on Windows, where
 // argv[1] is a drive path: the CLI exited 0 having silently done nothing.
-import { isDirectMain } from './bootstrap-windows-cli.mjs';
+import { assertElevatedWindows, isDirectMain } from './bootstrap-windows-cli.mjs';
 
 const execDefault = promisify(childExecFile);
 
@@ -120,6 +120,7 @@ export async function runWindowsCutover(input, dependencies = {}) {
 }
 
 async function main() {
+  await assertElevatedWindows();
   const receipt = await runWindowsCutover(process.argv.slice(2));
   process.stdout.write(`${JSON.stringify(receipt)}\n`);
 }

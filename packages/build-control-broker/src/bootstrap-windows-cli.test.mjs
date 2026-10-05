@@ -167,3 +167,12 @@ test('client-side sccache requires version 0.17 or newer', async () => {
   assert.equal(await supportsClientSideSccache('C:\\sccache.exe', async () => ({ stdout: 'sccache 0.16.0\r\n' })), false);
   assert.equal(await supportsClientSideSccache('C:\\sccache.exe', async () => ({ stdout: 'sccache 0.17.1\r\n' })), true);
 });
+
+test('Windows bootstrap requires a High-integrity token', async () => {
+  const { assertElevatedWindows } = await import('./bootstrap-windows-cli.mjs');
+  const groups = (label) => async () => ({ stdout: `Mandatory Label ${label} Mandatory Level ${label === 'High' ? 'S-1-16-12288' : 'S-1-16-8192'}
+` });
+  await assert.doesNotReject(assertElevatedWindows({ run: groups('High') }));
+  await assert.rejects(assertElevatedWindows({ run: groups('Medium') }), /must run elevated/);
+  await assert.rejects(assertElevatedWindows({ run: async () => { throw new Error('whoami missing'); } }), /cannot determine Windows elevation/);
+});

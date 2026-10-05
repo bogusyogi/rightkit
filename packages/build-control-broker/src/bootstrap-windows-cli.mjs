@@ -212,7 +212,18 @@ export async function buildConfig({ externalRoot, sizing = deriveHostSizing({ ma
   };
 }
 
+/** Runtime links (runtime-current, runtime node_modules) inherit their creator's trust: an elevated
+ * process (the `win` SSH session) refuses to follow links a non-elevated process created ("untrusted
+ * mount point", 2026-10-05). Bootstrap & cutover therefore require a High-integrity token. */
+export async function assertElevatedWindows({ run = execFile } = {}) {
+  let groups;
+  try { groups = (await run(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe'), ['/groups'], { windowsHide: true })).stdout; }
+  catch (error) { throw new Error(`cannot determine Windows elevation: ${error.message}`, { cause: error }); }
+  if (!/S-1-16-(12288|16384)\b/.test(String(groups))) throw new Error('Windows bootstrap/cutover must run elevated (High integrity); run it from Mac through `win "node D:\\Claude\\tools\\rightkit\\packages\\build-control-broker\\src\\bootstrap-windows-cli.mjs"`');
+}
+
 async function main() {
+  await assertElevatedWindows();
   const options = parseArgs(process.argv.slice(2));
   const externalRoot = resolve(options.externalRoot ?? 'D:\\.rightkit-managed');
   const configPath = join(externalRoot, 'config.json');
