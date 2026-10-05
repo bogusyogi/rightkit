@@ -88,7 +88,11 @@ function install(descriptor, { root, platform, env, run, sinceMs = null }) {
     const { bundleRoot, installer: app } = resolveTauriBundleDirectory(descriptor, { root, platform, env, sinceMs });
     const built = path.resolve(bundleRoot, "..", "..", path.basename(descriptor.expectedInstalledPath));
     assertNonEmptyExecutable(built);
-    const result = run(app, ["/S"], { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
+    // Tauri's silent installer force-kills a running copy of the app (utils.nsh: IfSilent kill). When it
+    // was running, pass /R so the installer relaunches it as the user (RunAsUser, outside this process tree).
+    const running = isWindowsProcessRunning(path.basename(descriptor.expectedInstalledPath), { run });
+    if (running) console.log(`right-release dev: ${descriptor.productName} is running; the installer will close it and relaunch it`);
+    const result = run(app, windowsInstallerArguments({ running }), { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
     if (result.status !== 0) throw new Error(`development installer failed (${result.status}): ${app}`);
     const installed = path.resolve(root, descriptor.expectedInstalledPath);
     assertInstalledExecutableMatches(built, installed);
@@ -140,6 +144,14 @@ export function resolveTauriBundleDirectory(descriptor, { root, platform, env = 
   if (candidates.length !== 1) throw new Error(`expected exactly one ${platform} Tauri installer for ${descriptor.productName} in ${bundleRoot}${sinceMs === null ? "" : " written by this run"}; found ${candidates.length}`);
   if (!statSync(candidates[0]).isFile() && platform === "win") throw new Error(`installer is not a file: ${candidates[0]}`);
   return { bundleRoot, installer: candidates[0] };
+}
+
+export function windowsInstallerArguments({ running = false } = {}) { return running ? ["/S", "/R"] : ["/S"]; }
+
+export function isWindowsProcessRunning(imageName, { run = spawnSync, systemRoot = process.env.SystemRoot ?? "C:\\Windows" } = {}) {
+  const result = run(path.join(systemRoot, "System32", "tasklist.exe"), ["/FI", `IMAGENAME eq ${imageName}`, "/FO", "CSV", "/NH"], { encoding: "utf8", windowsHide: true, shell: false });
+  if (result.status !== 0 || typeof result.stdout !== "string") return false;
+  return result.stdout.toLowerCase().includes(`"${imageName.toLowerCase()}"`);
 }
 
 export function assertInstalledExecutableMatches(built, installed, read = readFileSync) {

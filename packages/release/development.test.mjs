@@ -177,3 +177,13 @@ test("managed run lease is written under the managed root and removed on release
     assert.equal(acquireManagedRunLease({ env: {}, platform: "linux" }).path, null);
   } finally { rmSync(managed, { recursive: true, force: true }); }
 });
+
+test("Windows dev install relaunches the app only when it was running", async () => {
+  const { isWindowsProcessRunning, windowsInstallerArguments } = await import("./development.mjs");
+  assert.deepEqual(windowsInstallerArguments({ running: false }), ["/S"]);
+  assert.deepEqual(windowsInstallerArguments({ running: true }), ["/S", "/R"]);
+  const listing = (stdout, status = 0) => () => ({ status, stdout });
+  assert.equal(isWindowsProcessRunning("HeardRight.exe", { run: listing('"heardright.exe","4242","Console","1","120,000 K"\r\n') }), true);
+  assert.equal(isWindowsProcessRunning("HeardRight.exe", { run: listing("INFO: No tasks are running which match the specified criteria.\r\n") }), false);
+  assert.equal(isWindowsProcessRunning("HeardRight.exe", { run: listing("", 1) }), false);
+});
