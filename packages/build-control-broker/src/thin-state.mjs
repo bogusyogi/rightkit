@@ -145,12 +145,14 @@ export class ThinState {
    * recorded once in adoption.json and never re-guessed. */
   async #adoption({ key, canonicalRoot, directory }) {
     const path = join(directory, ADOPTION_FILE);
+    // A decline is tied to the generation it judged: after eviction rotates this root, decide again.
+    const stale = async (decision) => !decision || (decision.result !== 'adopted' && Number.isSafeInteger(decision.ownGeneration) && decision.ownGeneration !== (await readJson(join(directory, STATE_FILE)))?.currentGeneration);
     const recorded = await readJson(path);
-    if (!recorded) {
+    if (await stale(recorded)) {
       return this.#transition(key, async () => {
         const again = await readJson(path);
-        const decision = again ?? await this.#decideAdoption({ key, canonicalRoot, directory });
-        if (!again) await atomicJson(path, decision);
+        const decision = (await stale(again)) ? await this.#decideAdoption({ key, canonicalRoot, directory }) : again;
+        if (decision !== again) await atomicJson(path, decision);
         return this.#adoptedTarget(decision);
       });
     }
@@ -166,7 +168,9 @@ export class ThinState {
   async #decideAdoption({ key, canonicalRoot, directory }) {
     const decidedAt = this.#timestamp();
     const own = await readJson(join(directory, STATE_FILE));
-    if (own && await warmGeneration(join(directory, 'g', generationName(own.currentGeneration)))) return { schemaVersion: SCHEMA_VERSION, result: 'own-target-warm', decidedAt };
+    const ownGeneration = own?.currentGeneration ?? 1; // a new root starts at generation 1
+    // A non-empty tree is not necessarily warm (a lone `cargo check` leaves one): compare sizes.
+    const ownBytes = own ? await directorySize(join(directory, 'g', generationName(own.currentGeneration))) : 0;
     const candidates = [];
     for (const entry of await readdir(this.paths.workspaces, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name === key) continue;
@@ -178,10 +182,15 @@ export class ThinState {
       if (!(await pathExists(candidateRoot)) || await insideNestedRepository(canonicalRoot, candidateRoot)) continue;
       const state = await readJson(join(candidateDirectory, STATE_FILE)).catch(() => null);
       if (!state || !Number.isSafeInteger(state.currentGeneration) || state.currentGeneration < 1) continue;
-      if (await warmGeneration(join(candidateDirectory, 'g', generationName(state.currentGeneration)))) candidates.push({ key: entry.name, canonicalRoot: candidateRoot, lastUsedAt: state.lastUsedAt ?? null });
+      const generationPath = join(candidateDirectory, 'g', generationName(state.currentGeneration));
+      if (!(await warmGeneration(generationPath))) continue;
+      const sizeBytes = state.lastMeasuredGeneration === state.currentGeneration && Number.isSafeInteger(state.lastMeasuredBytes) && !state.sizeDirty ? state.lastMeasuredBytes : await directorySize(generationPath);
+      candidates.push({ key: entry.name, canonicalRoot: candidateRoot, lastUsedAt: state.lastUsedAt ?? null, sizeBytes });
     }
-    if (candidates.length === 1) return { schemaVersion: SCHEMA_VERSION, result: 'adopted', key: candidates[0].key, canonicalRoot: candidates[0].canonicalRoot, reason: 'single-warm-workspace-below-cache-root', decidedAt };
-    return { schemaVersion: SCHEMA_VERSION, result: candidates.length ? 'ambiguous' : 'none', candidates, decidedAt };
+    const base = { schemaVersion: SCHEMA_VERSION, ownGeneration, ownBytes, decidedAt };
+    if (candidates.length === 1 && candidates[0].sizeBytes > 2 * ownBytes) return { ...base, result: 'adopted', key: candidates[0].key, canonicalRoot: candidates[0].canonicalRoot, reason: ownBytes ? 'single-larger-warm-workspace-below-cache-root' : 'single-warm-workspace-below-cache-root' };
+    if (ownBytes > 0 && candidates.every((candidate) => candidate.sizeBytes <= 2 * ownBytes)) return { ...base, result: 'own-target-warm', candidates };
+    return { ...base, result: candidates.length ? 'ambiguous' : 'none', candidates };
   }
 
   async #open(workspace) {

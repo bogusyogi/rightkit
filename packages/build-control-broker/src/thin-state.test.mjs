@@ -529,3 +529,19 @@ test('adoption refuses ambiguous candidates and nested repositories', async () =
     assert.equal((await item.state.workspace(outer)).key, thinWorkspaceKey(await realpath(outer)));
   } finally { await item.close(); }
 });
+
+test('adoption prefers a much larger warm workspace over a thin own tree and re-decides after rotation', async () => {
+  const item = await fixture();
+  try {
+    const repo = join(item.root, 'repo'); await mkdir(join(repo, '.git'), { recursive: true });
+    // Own cache root already holds a small tree (e.g. a lone cargo check) before adoption is decided.
+    const own = await item.state.workspace(repo);
+    assert.equal(own.key, thinWorkspaceKey(await realpath(repo)), 'no candidates yet: stays on its own key');
+    await writeFile(join(own.layout.target, 'check.bin'), Buffer.alloc(8));
+    const { workspace: sub } = await warmWorkspace(item, join('repo', 'engine'), 4096);
+    await item.state.evictIdleWorkspace(repo, { reason: 'cache-budget-eviction' });
+    await writeFile(join((await item.state.workspace(repo)).layout.target, 'check.bin'), Buffer.alloc(8)).catch(() => {});
+    const decided = await item.state.workspace(repo);
+    assert.equal(decided.key, sub.key, 'a 4 KiB warm tree beats an 8-byte own tree');
+  } finally { await item.close(); }
+});
