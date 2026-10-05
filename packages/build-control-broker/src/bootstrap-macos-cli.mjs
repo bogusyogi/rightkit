@@ -13,7 +13,7 @@ import { deriveCargoBuildJobs, deriveHostSizing, hostBounds, volumeBytes } from 
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
-import { preserveOperatorTunedConfig, stripBom } from './config.mjs';
+import { assertNoToolLoss, preserveOperatorTunedConfig, stripBom } from './config.mjs';
 import { describeMacosResourceAddon } from './runtime.mjs';
 // A `file://${process.argv[1]}` comparison never matches on Windows, where
 // argv[1] is a drive path: the CLI exited 0 having silently done nothing.
@@ -336,6 +336,7 @@ async function main() {
     if (existsSync(configPath)) {
       let previous = null;
       try { previous = JSON.parse(stripBom(readFileSync(configPath, 'utf8'))); } catch { /* unreadable previous config: regenerate from defaults */ }
+      assertNoToolLoss(config, previous);
       preserved = preserveOperatorTunedConfig(config, previous);
     }
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);

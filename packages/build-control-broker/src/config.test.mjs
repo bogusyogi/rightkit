@@ -98,3 +98,11 @@ test('force re-bootstrap preserves operator-tuned maxSizeBytes & valid bounds, d
   assert.equal(invalid.sccache.maxSizeBytes, 20_000); assert.equal(invalid.bounds, generatedBounds);
   assert.deepEqual(preserveOperatorTunedConfig(fixture(), null), []);
 });
+
+test('regenerated config may not drop tools the working config has', async () => {
+  const { assertNoToolLoss } = await import('./config.mjs');
+  const tools = (...ids) => ({ tools: ids.map((id) => ({ id })) });
+  assert.doesNotThrow(() => assertNoToolLoss(tools('cargo', 'sccache', 'pnpm'), tools('cargo', 'sccache')));
+  assert.throws(() => assertNoToolLoss(tools('pnpm', 'cmake'), tools('cargo', 'sccache', 'pnpm')), /drop tools: cargo, sccache/);
+  assert.doesNotThrow(() => assertNoToolLoss(tools('cargo'), null));
+});

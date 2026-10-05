@@ -279,3 +279,12 @@ export function preserveOperatorTunedConfig(next, previous) {
   }
   return preserved;
 }
+
+/** Refuse a regenerated config that drops tools the working config has. Tool discovery reads PATH, so a
+ * bootstrap from a shell without ~/.cargo/bin silently lost cargo/sccache and the broker could not start
+ * (2026-10-05). */
+export function assertNoToolLoss(next, previous) {
+  const kept = new Set((next?.tools ?? []).map((tool) => tool.id));
+  const lost = (previous?.tools ?? []).map((tool) => tool.id).filter((id) => !kept.has(id));
+  if (lost.length) throw new Error(`regenerated config would drop tools: ${lost.join(', ')}; run bootstrap from a shell whose PATH exposes them (or remove them from the existing config deliberately)`);
+}

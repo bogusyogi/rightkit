@@ -11,7 +11,7 @@ import { availableParallelism as cpuCount, totalmem } from 'node:os';
 import { dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runWindowsCutover } from './runtime-cutover-windows-cli.mjs';
-import { preserveOperatorTunedConfig, stripBom } from './config.mjs';
+import { assertNoToolLoss, preserveOperatorTunedConfig, stripBom } from './config.mjs';
 import { deriveCargoBuildJobs, deriveHostSizing, hostBounds, volumeBytes } from './host-sizing.mjs';
 
 const execFile = promisify(childExecFile);
@@ -227,6 +227,7 @@ async function main() {
     if (existsSync(configPath)) {
       let previous = null;
       try { previous = JSON.parse(stripBom(await readFile(configPath, 'utf8'))); } catch { /* unreadable previous config: regenerate from defaults */ }
+      assertNoToolLoss(config, previous);
       preserved = preserveOperatorTunedConfig(config, previous);
     }
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
