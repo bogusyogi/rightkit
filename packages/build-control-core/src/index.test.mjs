@@ -222,3 +222,13 @@ test('workspace scanner fails closed on depth & elapsed-time caps, including hun
     await assert.rejects(scanWorkspaceForUnmanagedOutputs(workspace, { timeoutMs: 10, readdir: () => new Promise(() => {}) }), /time cap/);
   } finally { await rm(workspace, { recursive: true, force: true }); }
 });
+
+test('effective jobs: CLI --jobs beats broker-injected CARGO_BUILD_JOBS', async () => {
+  const { parseCargoJobsArgv, resolveEffectiveJobs } = await import('./index.mjs');
+  assert.equal(parseCargoJobsArgv(['build', '-j4']), '4');
+  assert.equal(parseCargoJobsArgv(['build', '--jobs=6']), '6');
+  assert.equal(parseCargoJobsArgv(['run', '--', '-j9']), null);
+  assert.deepEqual({ ...resolveEffectiveJobs({ argv: ['build', '--jobs', '2'], brokerEnvironment: { CARGO_BUILD_JOBS: '8' } }) }, { requested: 2, brokerConfigured: 8, effective: 2, source: 'cli-argv' });
+  assert.deepEqual({ ...resolveEffectiveJobs({ argv: ['build'], brokerEnvironment: { CARGO_BUILD_JOBS: '8' } }) }, { requested: null, brokerConfigured: 8, effective: 8, source: 'broker-injected-env' });
+  assert.equal(resolveEffectiveJobs({ argv: ['build'] }).source, 'cargo-default');
+});

@@ -33,7 +33,7 @@ import { resolveTargetRoot } from "./cargo-target.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
-import { acquireHeavyWorkSlot, heavyCommandEnvironment, terminateProcessTree } from "./heavy-command.mjs";
+import { acquireHeavyWorkSlot, heavyCommandEnvironment, summarizePreBrokerWaits, terminateProcessTree } from "./heavy-command.mjs";
 import { processGroupCpuSeconds } from "./process-liveness.mjs";
 import { cancelAndReapManagedRequest, firstManagedRequestId, releaseProgressLimits } from "./progress-control.mjs";
 
@@ -268,6 +268,9 @@ try {
     suiteSlot = acquireSuiteBuildSlot({ layout: sharedLayout, pid: process.pid, argv: process.argv, waitMs: Number(process.env.BUILD_GUARD_WAIT_SECS ?? 900) * 1000 });
     cacheLease = acquireCacheLease({ layout: sharedLayout, pid: process.pid, argv: process.argv });
   }
+  // Pre-broker wait attribution: every layer, ms, and blocker identity (Step 1 instrumentation).
+  const preBrokerWaits = summarizePreBrokerWaits({ heavySlot, suiteSlot, heavyOwnerInherited: process.env.RIGHTSUITE_HEAVY_WORK_OWNER === "1" });
+  console.error(`[right-release] pre-broker waits: ${preBrokerWaits.summary}`);
   throwIfInterrupted();
   const releaseId = `${config.app}-${config.version}-${shortCommit}`;
   const platformDir = platform === "win" ? "windows" : "mac";
@@ -323,6 +326,7 @@ try {
         for (const command of target.preflight?.commands ?? []) runChecked(command.cmd, command.args ?? [], path.resolve(appRoot, command.cwd ?? "."), env);
         if (buildRoot) mkdirSync(buildRoot, { recursive: true });
         mkdirSync(stateRoot, { recursive: true });
+        writeJson(path.join(stateRoot, "release-waits.json"), { schema: 1, recordedAt: new Date().toISOString(), ...preBrokerWaits });
         if (buildRoot) writeJson(path.join(buildRoot, "release-inputs.lock.json"), lockPayload);
         writeJson(path.join(stateRoot, "release-inputs.lock.json"), lockPayload);
         checkpoint(stateRoot, "preflight_complete");

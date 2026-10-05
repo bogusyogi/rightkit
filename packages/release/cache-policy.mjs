@@ -213,12 +213,15 @@ export function acquireSuiteBuildSlot({ layout, pid = process.pid, argv = proces
   requireLayout(layout);
   const started = Date.now();
   const payload = { schema: CACHE_SCHEMA, pid: Number(pid), argv: [...argv], createdAt: iso(now) };
+  const waits = { layer: "suite-build-slot", waitMs: 0, blockers: [] };
   for (;;) {
     try {
       acquireAtomicLock(layout.suiteSlotPath, payload, "suite build slot", new Date());
-      return releaseFor(layout.suiteSlotPath, payload);
+      waits.waitMs = Date.now() - started;
+      return Object.assign(releaseFor(layout.suiteSlotPath, payload), { waits });
     } catch (error) {
       if (!/active/i.test(error.message)) throw error;
+      if (!waits.blockers.includes(error.message)) waits.blockers.push(error.message);
       if (Date.now() - started >= waitMs) throw new Error(`${error.message}; suite build slot timed out after ${waitMs}ms without alternate-target fallback`);
       sleep(Math.min(250, Math.max(1, waitMs - (Date.now() - started))));
     }

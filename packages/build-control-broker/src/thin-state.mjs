@@ -136,8 +136,15 @@ export class ThinState {
     }
     this.#validateState(stored, statePath);
     const workspace = { key, canonicalRoot, directory, identityPath, statePath };
-    await this.#ensureGeneration(workspace, stored.currentGeneration);
-    return Object.freeze({ ...workspace, state: Object.freeze({ ...stored }), layout: this.#layout(workspace, stored.currentGeneration) });
+    const name = generationName(stored.currentGeneration);
+    if (!isLeafEntry(stored.leaves?.[name])) {
+      // First sight of this generation: select once from what exists on disk, persist, never re-guess.
+      const selected = await this.#selectLeaf(workspace, stored.currentGeneration);
+      stored = { ...stored, leaves: { ...(stored.leaves ?? {}), [name]: selected } };
+      await atomicJson(statePath, stored);
+    }
+    await this.#ensureGeneration(workspace, stored.currentGeneration, stored);
+    return Object.freeze({ ...workspace, state: Object.freeze({ ...stored }), layout: await this.#layoutWithOrphan(workspace, stored.currentGeneration, stored) });
   }
 
   async markRunning(workspaceRoot, { id, ownership = null, command = null } = {}) {
@@ -150,7 +157,7 @@ export class ThinState {
       const next = { ...state, active, lastUsedAt: this.#timestamp(), updatedAt: this.#timestamp() };
       await atomicJson(workspace.statePath, next);
       await atomicJson(join(this.paths.active, `${id}.json`), { workspaceKey: workspace.key, ...active });
-      return Object.freeze({ ...workspace, state: Object.freeze(next), layout: this.#layout(workspace, state.currentGeneration) });
+      return Object.freeze({ ...workspace, state: Object.freeze(next), layout: this.#layout(workspace, state.currentGeneration, next, workspace.layout?.orphanLeaf) });
     });
   }
 
@@ -164,7 +171,7 @@ export class ThinState {
       const next = { ...state, active: null, residents: [...residents(state), resident], sizeDirty: true, updatedAt: this.#timestamp() };
       await atomicJson(workspace.statePath, next);
       await atomicJson(join(this.paths.active, `${id}.json`), { workspaceKey: workspace.key, mode: 'RESIDENT', ...resident });
-      return Object.freeze({ ...workspace, state: Object.freeze(next), layout: this.#layout(workspace, state.currentGeneration) });
+      return Object.freeze({ ...workspace, state: Object.freeze(next), layout: this.#layout(workspace, state.currentGeneration, next, workspace.layout?.orphanLeaf) });
     });
   }
 
@@ -214,12 +221,38 @@ export class ThinState {
     return this.#transition(workspace.key, async () => {
       const state = await readJson(workspace.statePath);
       const currentGeneration = state.currentGeneration + 1;
-      const next = { ...state, currentGeneration, active: null, residents: residents(state), rotatedFrom: state.currentGeneration, rotationReason: reason, sizeDirty: true, updatedAt: this.#timestamp() };
-      await this.#ensureGeneration(workspace, currentGeneration);
+      const next = { ...state, currentGeneration, active: null, residents: residents(state), rotatedFrom: state.currentGeneration, rotationReason: reason, leaves: { ...(state.leaves ?? {}), [generationName(currentGeneration)]: newGenerationLeaf(this.#timestamp()) }, sizeDirty: true, updatedAt: this.#timestamp() };
+      await this.#ensureGeneration(workspace, currentGeneration, next);
       await atomicJson(workspace.statePath, next);
       if (state.active?.id) await rm(join(this.paths.active, `${state.active.id}.json`), { force: true });
-      return Object.freeze({ ...workspace, state: Object.freeze(next), layout: this.#layout(workspace, currentGeneration) });
+      return Object.freeze({ ...workspace, state: Object.freeze(next), layout: this.#layout(workspace, currentGeneration, next, null) });
     });
+  }
+
+  /** Pin a native cache entry to a workspace generation for as long as that generation is not retired. */
+  async recordNativeReference(workspaceRoot, generation, kind, key) {
+    const workspace = await this.workspace(workspaceRoot);
+    return this.#transition(workspace.key, async () => {
+      const state = await readJson(workspace.statePath);
+      const name = generationName(generation);
+      if (state.natives?.[name]?.[kind] === key) return state;
+      const next = { ...state, natives: { ...(state.natives ?? {}), [name]: { ...(state.natives?.[name] ?? {}), [kind]: key } }, updatedAt: this.#timestamp() };
+      await atomicJson(workspace.statePath, next);
+      return next;
+    });
+  }
+
+  /** Keys referenced by any non-retired generation (current, active, or resident) across all workspaces. */
+  async pinnedNativeKeys(kind) {
+    const pinned = new Set();
+    for (const entry of await readdir(this.paths.workspaces, { withFileTypes: true }).catch(() => [])) {
+      if (!entry.isDirectory()) continue;
+      const state = await readJson(join(this.paths.workspaces, entry.name, STATE_FILE), { missing: null }).catch(() => null);
+      if (!state?.natives) continue;
+      const live = new Set([state.currentGeneration, state.active?.generation, ...residents(state).map((resident) => resident.generation)].filter((value) => Number.isSafeInteger(value)));
+      for (const generation of live) { const key = state.natives[generationName(generation)]?.[kind]; if (key) pinned.add(key); }
+    }
+    return pinned;
   }
 
   async recoverActive({ reap = async () => ({ reaped: false, reason: 'reap-not-configured' }) } = {}) {
@@ -297,12 +330,12 @@ export class ThinState {
       const state = await readJson(workspace.statePath);
       if (state.active || residents(state).length > 0) return null;
       const currentGeneration = state.currentGeneration;
-      const oldRoot = this.#layout(workspace, currentGeneration).root;
+      const oldRoot = this.#layout(workspace, currentGeneration, state).root;
       const measured = Number.isSafeInteger(sizeBytes) && sizeBytes >= 0 ? sizeBytes : await directorySize(oldRoot);
       const nextGeneration = currentGeneration + 1;
       // The fresh generation starts empty, so its measured size is 0 & clean.
-      const next = { ...state, currentGeneration: nextGeneration, active: null, rotatedFrom: currentGeneration, rotationReason: reason, lastMeasuredGeneration: nextGeneration, lastMeasuredBytes: 0, lastMeasuredAt: this.#timestamp(), sizeDirty: false, updatedAt: this.#timestamp() };
-      await this.#ensureGeneration(workspace, nextGeneration);
+      const next = { ...state, currentGeneration: nextGeneration, active: null, rotatedFrom: currentGeneration, rotationReason: reason, leaves: { ...(state.leaves ?? {}), [generationName(nextGeneration)]: newGenerationLeaf(this.#timestamp()) }, lastMeasuredGeneration: nextGeneration, lastMeasuredBytes: 0, lastMeasuredAt: this.#timestamp(), sizeDirty: false, updatedAt: this.#timestamp() };
+      await this.#ensureGeneration(workspace, nextGeneration, next);
       await atomicJson(workspace.statePath, next);
       const trash = join(this.paths.trash, `${workspace.key}-${generationName(currentGeneration)}-${randomUUID()}`);
       await rename(oldRoot, trash);
@@ -321,7 +354,7 @@ export class ThinState {
     if (capBytes === null || capBytes === undefined) return Object.freeze({ capBytes: null, beforeBytes: null, afterBytes: null, deleted: Object.freeze([]), evicted: Object.freeze([]), unenforceable: null });
     if (!Number.isSafeInteger(capBytes) || capBytes < 1) throw new TypeError('gc capBytes must be a positive integer or null');
     if (evictIdle !== null && typeof evictIdle !== 'function') throw new TypeError('evictIdle must be a callback or null');
-    const retired = []; const idleCurrent = []; let total = 0;
+    const retired = []; const idleCurrent = []; let total = 0; let advisory = 0;
     for (const workspaceEntry of await readdir(this.paths.workspaces, { withFileTypes: true })) {
       if (!workspaceEntry.isDirectory()) continue;
       const directory = join(this.paths.workspaces, workspaceEntry.name); const state = await readJson(join(directory, STATE_FILE), { missing: null });
@@ -335,10 +368,15 @@ export class ThinState {
         const isActive = generation === state.active?.generation || residents(state).some((resident) => resident.generation === generation);
         let sizeBytes;
         if (isCurrent && !state.sizeDirty && state.lastMeasuredGeneration === generation && Number.isSafeInteger(state.lastMeasuredBytes)) sizeBytes = state.lastMeasuredBytes;
-        else sizeBytes = await directorySize(path);
+        else if (isActive) {
+          // Leased/active trees are being written by a compiler; walking them races rustc* temp
+          // churn. Use the advisory size (last measurement, else 0) and never scan.
+          sizeBytes = state.lastMeasuredGeneration === generation && Number.isSafeInteger(state.lastMeasuredBytes) ? state.lastMeasuredBytes : 0;
+          advisory += 1;
+        } else sizeBytes = await directorySize(path);
         total += sizeBytes;
         if (isCurrent) {
-          if (state.lastMeasuredGeneration !== generation || state.sizeDirty) await this.recordMeasured(identity?.canonicalRoot ?? workspaceEntry.name, generation, sizeBytes).catch(() => null);
+          if (!isActive && (state.lastMeasuredGeneration !== generation || state.sizeDirty)) await this.recordMeasured(identity?.canonicalRoot ?? workspaceEntry.name, generation, sizeBytes).catch(() => null);
           if (!isActive && identity?.canonicalRoot) idleCurrent.push({ workspaceKey: workspaceEntry.name, canonicalRoot: identity.canonicalRoot, generation, sizeBytes, lastUsedAt: state.lastUsedAt ?? null, updatedAt: state.updatedAt ?? null, modifiedMs: metadata.mtimeMs });
         } else if (!isActive) retired.push({ workspaceKey: workspaceEntry.name, generation, path, sizeBytes, modifiedMs: metadata.mtimeMs });
       }
@@ -346,8 +384,17 @@ export class ThinState {
     const beforeBytes = total; const deleted = []; const evicted = [];
     for (const candidate of retired.sort((left, right) => left.modifiedMs - right.modifiedMs || left.path.localeCompare(right.path))) {
       if (total <= capBytes) break;
-      const trash = join(this.paths.trash, `${candidate.workspaceKey}-${generationName(candidate.generation)}-${randomUUID()}`);
-      await rename(candidate.path, trash); await rm(trash, { recursive: true, force: true }); total -= candidate.sizeBytes;
+      // Revalidate under the per-workspace exclusion: the generation may have become current/active since the scan.
+      const removed = await this.#transition(candidate.workspaceKey, async () => {
+        const fresh = await readJson(join(this.paths.workspaces, candidate.workspaceKey, STATE_FILE), { missing: null });
+        if (!fresh || fresh.currentGeneration === candidate.generation || fresh.active?.generation === candidate.generation || residents(fresh).some((resident) => resident.generation === candidate.generation)) return false;
+        const trash = join(this.paths.trash, `${candidate.workspaceKey}-${generationName(candidate.generation)}-${randomUUID()}`);
+        try { await rename(candidate.path, trash); } catch (error) { if (error?.code === 'ENOENT') return true; throw error; }
+        await rm(trash, { recursive: true, force: true });
+        return true;
+      });
+      if (!removed) continue;
+      total -= candidate.sizeBytes;
       deleted.push(Object.freeze({ workspaceKey: candidate.workspaceKey, generation: candidate.generation, sizeBytes: candidate.sizeBytes }));
     }
     if (total > capBytes && evictIdle) {
@@ -361,18 +408,45 @@ export class ThinState {
       }
     }
     const unenforceable = total > capBytes ? Object.freeze({ overByBytes: total - capBytes, idleCandidatesRemaining: idleCurrent.filter((candidate) => !evicted.some((entry) => entry.workspaceKey === candidate.workspaceKey)).length }) : null;
-    return Object.freeze({ capBytes, beforeBytes, afterBytes: total, deleted: Object.freeze(deleted), evicted: Object.freeze(evicted), unenforceable });
+    return Object.freeze({ capBytes, beforeBytes, afterBytes: total, deleted: Object.freeze(deleted), evicted: Object.freeze(evicted), unenforceable, advisorySizedTrees: advisory });
   }
 
-  #layout(workspace, generation) {
+  #layout(workspace, generation, state = null, orphanLeaf = null) {
     const root = join(workspace.directory, 'g', generationName(generation));
-    // release-iterate + OpenSSL's longest MSVC object exceeds MAX_PATH with
-    // "target" even in this compact layout. Keep Windows output names short.
-    return Object.freeze({ generation, root, target: join(root, process.platform === 'win32' ? 't' : 'target'), temp: this.paths.temporary });
+    // The leaf is chosen once per generation (see #selectLeaf) and persisted in state.leaves; it is never
+    // re-derived from the platform, so an existing warm tree is never abandoned for a different leaf name.
+    const entry = state?.leaves?.[generationName(generation)];
+    const leaf = isLeafEntry(entry) ? entry.leaf : DEFAULT_LEAF;
+    const leafReason = isLeafEntry(entry) ? `persisted (${entry.reason ?? 'unrecorded'})` : 'default-unpersisted';
+    return Object.freeze({ generation, root, target: join(root, leaf), leaf, leafReason, orphanLeaf, temp: this.paths.temporary });
   }
 
-  async #ensureGeneration(workspace, generation) {
-    const layout = this.#layout(workspace, generation);
+  async #layoutWithOrphan(workspace, generation, state) {
+    const base = this.#layout(workspace, generation, state);
+    const other = base.leaf === 'target' ? 't' : 'target';
+    const otherPath = join(base.root, other);
+    const orphanLeaf = (await nonEmptyDir(otherPath)) ? Object.freeze({ leaf: other, path: otherPath, sizeBytes: null }) : null;
+    return Object.freeze({ ...base, orphanLeaf });
+  }
+
+  /** Pick the leaf for a generation that has none recorded: the one existing leaf; when both hold data, the
+   * one with newer build activity; otherwise `target`. Never creates or deletes anything. */
+  async #selectLeaf(workspace, generation) {
+    const root = join(workspace.directory, 'g', generationName(generation));
+    const at = this.#timestamp();
+    const [hasTarget, hasT] = await Promise.all([nonEmptyDir(join(root, 'target')), nonEmptyDir(join(root, 't'))]);
+    if (hasTarget && !hasT) return { leaf: 'target', reason: 'only-target-nonempty', selectedAt: at };
+    if (hasT && !hasTarget) return { leaf: 't', reason: 'only-t-nonempty', selectedAt: at };
+    if (hasT && hasTarget) {
+      const [targetMs, tMs] = await Promise.all([latestBuildActivityMs(join(root, 'target')), latestBuildActivityMs(join(root, 't'))]);
+      const leaf = tMs > targetMs ? 't' : 'target';
+      return { leaf, reason: `both-nonempty-newer-activity:${leaf} (target=${targetMs}, t=${tMs})`, selectedAt: at };
+    }
+    return { leaf: DEFAULT_LEAF, reason: 'neither-exists-default-target', selectedAt: at };
+  }
+
+  async #ensureGeneration(workspace, generation, state = null) {
+    const layout = this.#layout(workspace, generation, state);
     await Promise.all([layout.target, layout.temp].map((path) => mkdir(path, { recursive: true })));
   }
 
@@ -386,15 +460,60 @@ export class ThinState {
   }
 }
 
+const DEFAULT_LEAF = 'target';
+const isLeafEntry = (value) => value !== null && typeof value === 'object' && (value.leaf === 'target' || value.leaf === 't');
+const newGenerationLeaf = (selectedAt) => ({ leaf: DEFAULT_LEAF, reason: 'new-generation-default-target', selectedAt });
+
+async function nonEmptyDir(path) {
+  try { return (await readdir(path)).length > 0; }
+  catch (error) { if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return false; throw error; }
+}
+
+async function mtimeMs(path) {
+  try { return (await lstat(path)).mtimeMs; } catch { return 0; }
+}
+
+/** Newest build activity inside a target leaf: `.rustc_info.json` plus the `.fingerprint` directories (and their
+ * immediate entries) under `<leaf>/<triple>/<profile>/` and `<leaf>/<profile>/`. Bounded; never a full walk. */
+export async function latestBuildActivityMs(leaf, { readdirFn = readdir } = {}) {
+  let newest = await mtimeMs(join(leaf, '.rustc_info.json'));
+  const fingerprintDirs = [];
+  let level1 = [];
+  try { level1 = await readdirFn(leaf, { withFileTypes: true }); } catch { return newest; }
+  for (const first of level1) {
+    if (!first.isDirectory()) continue;
+    fingerprintDirs.push(join(leaf, first.name, '.fingerprint'));
+    let level2 = [];
+    try { level2 = await readdirFn(join(leaf, first.name), { withFileTypes: true }); } catch { continue; }
+    for (const second of level2) if (second.isDirectory()) fingerprintDirs.push(join(leaf, first.name, second.name, '.fingerprint'));
+  }
+  for (const directory of fingerprintDirs) {
+    newest = Math.max(newest, await mtimeMs(directory));
+    let entries = [];
+    try { entries = await readdirFn(directory); } catch { continue; }
+    for (const name of entries) newest = Math.max(newest, await mtimeMs(join(directory, name)));
+  }
+  return newest;
+}
+
 export const thinWorkspaceKey = workspaceKey;
 export const thinGenerationName = generationName;
 
-async function directorySize(root) {
-  let total = 0;
-  for (const entry of await readdir(root, { withFileTypes: true })) {
+const VANISHED = new Set(['ENOENT', 'ENOTDIR']);
+
+/** Recursive size that tolerates entries disappearing mid-scan (rustc* temp
+ * dirs, cargo lock files). Vanished entries contribute 0. */
+export async function directorySize(root, { readdirFn = readdir, lstatFn = lstat } = {}) {
+  let total = 0; let entries;
+  try { entries = await readdirFn(root, { withFileTypes: true }); }
+  catch (error) { if (VANISHED.has(error?.code)) return 0; throw error; }
+  for (const entry of entries) {
     const path = join(root, entry.name);
-    if (entry.isDirectory()) total += await directorySize(path);
-    else if (entry.isFile()) total += (await lstat(path)).size;
+    if (entry.isDirectory()) total += await directorySize(path, { readdirFn, lstatFn });
+    else if (entry.isFile()) {
+      try { total += (await lstatFn(path)).size; }
+      catch (error) { if (!VANISHED.has(error?.code)) throw error; }
+    }
   }
   return total;
 }

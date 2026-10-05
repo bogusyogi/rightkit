@@ -516,3 +516,38 @@ export function normalizeRuntimeIdentity(identity) {
   if (!identity || identity.schema !== RUNTIME_MANIFEST_SCHEMA || typeof identity.version !== 'string' || !identity.version || !digest.test(identity.clientDigest ?? '') || !digest.test(identity.brokerDigest ?? '')) throw new TypeError('immutable RightKit runtime v2 identity is required');
   return Object.freeze({ schema: identity.schema, version: identity.version, clientDigest: identity.clientDigest, brokerDigest: identity.brokerDigest });
 }
+
+/** Parse an explicit Cargo job count from argv (`-j N`, `-jN`, `--jobs N`, `--jobs=N`), ignoring everything after `--`. */
+export function parseCargoJobsArgv(argv = []) {
+  if (!Array.isArray(argv)) return null;
+  let found = null;
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index];
+    if (typeof item !== 'string') continue;
+    if (item === '--') break;
+    let raw = null;
+    if (item === '-j' || item === '--jobs') raw = typeof argv[index + 1] === 'string' ? argv[index + 1] : null;
+    else if (item.startsWith('--jobs=')) raw = item.slice('--jobs='.length);
+    else if (/^-j.+/.test(item) && !item.startsWith('--')) raw = item.slice(2);
+    if (raw !== null) found = raw;
+  }
+  return found;
+}
+
+/**
+ * Effective Cargo parallelism evidence. Precedence: CLI --jobs/-j > env
+ * CARGO_BUILD_JOBS (broker-injected). `requested` is what the caller asked for
+ * (argv, or the caller's own CARGO_BUILD_JOBS when the broker was shown it),
+ * `brokerConfigured` is the broker-injected CARGO_BUILD_JOBS.
+ */
+export function resolveEffectiveJobs({ argv = [], requestedEnvironment = null, brokerEnvironment = null } = {}) {
+  const asValue = (raw) => { if (raw === null || raw === undefined || raw === '') return null; const text = String(raw); const number = Number(text); return Number.isSafeInteger(number) && number > 0 ? number : text; };
+  const fromArgv = asValue(parseCargoJobsArgv(argv));
+  const fromRequestEnv = asValue(requestedEnvironment?.CARGO_BUILD_JOBS);
+  const brokerConfigured = asValue(brokerEnvironment?.CARGO_BUILD_JOBS);
+  const requested = fromArgv ?? fromRequestEnv;
+  if (fromArgv !== null) return Object.freeze({ requested, brokerConfigured, effective: fromArgv, source: 'cli-argv' });
+  if (brokerConfigured !== null) return Object.freeze({ requested, brokerConfigured, effective: brokerConfigured, source: fromRequestEnv !== null ? 'broker-injected-overrode-request-env' : 'broker-injected-env' });
+  if (fromRequestEnv !== null) return Object.freeze({ requested, brokerConfigured, effective: fromRequestEnv, source: 'request-env' });
+  return Object.freeze({ requested: null, brokerConfigured: null, effective: null, source: 'cargo-default' });
+}

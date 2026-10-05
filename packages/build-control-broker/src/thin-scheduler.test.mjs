@@ -152,3 +152,16 @@ test('legacy lane-only behavior is unchanged without a compileBudget', async () 
   (await queuedThird.permit).release();
   assert.throws(() => scheduler.acquire({ id: 'bad', capability: BUILD, compileCost: 4 }), TypeError);
 });
+
+test('queued ticket records identity of the active holders that blocked it', async () => {
+  const { ThinScheduler } = await import('./thin-scheduler.mjs');
+  const scheduler = new ThinScheduler({ buildConcurrency: 1 });
+  const capability = { lane: 'BUILD', workspaceAccess: 'write', compile: true };
+  const first = scheduler.acquire({ id: 'first', capability, workspaceKey: 'w' });
+  const permit = await first.permit;
+  const second = scheduler.acquire({ id: 'second', capability, workspaceKey: 'w' });
+  permit.release();
+  await (await second.permit).release();
+  assert.deepEqual(second.blockers().map(({ id }) => id), ['first']);
+  assert.deepEqual(first.blockers(), []);
+});

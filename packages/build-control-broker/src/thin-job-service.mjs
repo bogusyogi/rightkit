@@ -17,11 +17,14 @@ import {
   normalizeManagedAgentRequest,
   normalizeRequestEnvironment,
   normalizeRuntimeIdentity,
+  resolveEffectiveJobs,
   validateManagedRustEnvironment,
   validateManagedRustupInvocation
 } from '@rightkit/build-control-core';
 import { ThinCache } from './thin-cache.mjs';
+import { NativeOpenSslCache } from './native-openssl.mjs';
 import { cargoCohort } from './cache-telemetry.mjs';
+import { CargoFreshnessTracker, classifyColdStart, probeTargetAtStart, targetConsoleLine, wantsCargoJson } from './cargo-freshness.mjs';
 import { ThinCommandPolicy, compileClass } from './thin-command-policy.mjs';
 import { ThinLogger } from './thin-logger.mjs';
 import { ThinScheduler, deriveCompileCosts } from './thin-scheduler.mjs';
@@ -199,9 +202,9 @@ function hostResourceSnapshot() {
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #rustupHome; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #readResources; #readHostResources; #statfs; #now; #platform; #jobs = new Map(); #admissions = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #rustupHome; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #readResources; #readHostResources; #statfs; #now; #platform; #nativeOpenSsl; #jobs = new Map(); #admissions = new Map(); #stopping = false;
 
-  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, readResources = readManagedProcessResources, readHostResources = hostResourceSnapshot, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform } = {}) {
+  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, readResources = readManagedProcessResources, readHostResources = hostResourceSnapshot, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform, nativeOpenSsl = undefined } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
     const externalRoot = normalize(config.broker.externalRoot.path);
     let ownedSingleton = singleton;
@@ -253,7 +256,7 @@ export class ThinJobService {
         ? workspaceResolver
         : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 30_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
       const rustupContext = registeredRustupContext(cargoTool.path);
-      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: rustupContext.toolchain, rustupHome: rustupContext.home, compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform });
+      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: rustupContext.toolchain, rustupHome: rustupContext.home, compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform, nativeOpenSsl: nativeOpenSsl === undefined ? (platform === 'win32' ? new NativeOpenSslCache({ root: join(dirname(thinState.paths.temporary), 'n') }) : null) : nativeOpenSsl });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1), platform }) });
       await thinCache.start?.();
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
@@ -270,7 +273,8 @@ export class ThinJobService {
     }
   }
 
-  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, rustupToolchain, rustupHome, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform = process.platform }) {
+  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, rustupToolchain, rustupHome, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform = process.platform, nativeOpenSsl = null }) {
+    this.#nativeOpenSsl = nativeOpenSsl;
     this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#rustupToolchain = rustupToolchain; this.#rustupHome = rustupHome; this.#compilerEnvironment = compilerEnvironment; this.#compilerIdentity = compilerIdentity; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#readResources = readResources ?? readManagedProcessResources; this.#readHostResources = readHostResources ?? hostResourceSnapshot; this.#statfs = statfs; this.#now = now; this.#platform = platform;
   }
 
@@ -303,6 +307,7 @@ export class ThinJobService {
         this.#gcQueued = false;
         const gc = await this.#state.gc({ capBytes: this.#config.bounds?.targetCacheCapBytes ?? null, evictIdle: this.#evictIdleGeneration });
         if (gc.deleted?.length || gc.evicted?.length) await this.#log({ type: 'GENERATION_GC', deleted: gc.deleted ?? [], evicted: gc.evicted ?? [], beforeBytes: gc.beforeBytes ?? null, afterBytes: gc.afterBytes ?? null, capBytes: gc.capBytes ?? null });
+        if (this.#nativeOpenSsl && this.#state.pinnedNativeKeys) { const native = await this.#nativeOpenSsl.gc({ pinned: await this.#state.pinnedNativeKeys('openssl') }); if (native.evicted.length) await this.#log({ type: 'NATIVE_OPENSSL_GC', ...native }); }
         if (gc.unenforceable) await this.#log({ type: 'TARGET_CACHE_CAP_UNENFORCEABLE', capBytes: gc.capBytes, targetBytes: gc.afterBytes, overByBytes: gc.unenforceable.overByBytes, idleCandidatesRemaining: gc.unenforceable.idleCandidatesRemaining });
       } while (this.#gcQueued);
     } catch (error) {
@@ -515,6 +520,7 @@ export class ThinJobService {
         }
       }
       job.queueMs = this.#now() - job.submittedAt;
+      if (job.ticket) job.queueBlockers = job.ticket.blockers?.().map((blocker) => Object.freeze({ ...blocker, command: this.#jobs.get(blocker.id)?.command ?? null })) ?? [];
       job.rootSetupStartedAt ??= this.#now();
       if (job.capability.compile && !job.capability.skipRootServices) await this.#admitStorage(job);
       job.cachePrepared = (job.capability.compile && !job.capability.skipRootServices)
@@ -530,12 +536,33 @@ export class ThinJobService {
       // inherited parent environment contains a stale value.
       if (this.#platform === 'darwin' && this.#toolchainLibraryPath) runtimeEnvironment.DYLD_FALLBACK_LIBRARY_PATH = this.#toolchainLibraryPath;
       if (job.capability.external) runtimeEnvironment.CARGO = join(this.#config.broker.externalRoot.path, 'agent-bin', 'cargo');
+      // Opt-in diagnostics only (RIGHTKIT_FINGERPRINT_LOG=1 on the broker); never enabled by default.
+      if (process.env.RIGHTKIT_FINGERPRINT_LOG === '1' && !job.parentId && job.shim === 'cargo' && job.capability.compile) runtimeEnvironment.CARGO_LOG = 'cargo::core::compiler::fingerprint=info';
       job.executionEnvironment = Object.freeze({ ...runtimeEnvironment });
-      const env = injectBrokerEnvironment({
+      let env = injectBrokerEnvironment({
         requestEnvironment: job.request.environment,
         runtimeEnvironment,
         normalizeEnvironment: job.capability.nestedOverride ? normalizeDelegatedCompilerEnvironment : normalizeRequestEnvironment
       });
+      // Prebuilt OpenSSL (plan Step 4): fail-open; a skip is recorded, never a build failure.
+      if (this.#nativeOpenSsl && !job.parentId && job.shim === 'cargo' && job.capability.compile && job.workspace && job.cargoWorkspaceRoot && job.targetTriple) {
+        const native = await this.#nativeOpenSsl.prepare({ lockRoot: job.cargoWorkspaceRoot, targetTriple: job.targetTriple, environment: env, argv: job.invokeArgv, cargoPath: job.tool.path, producerEnvironment: env });
+        if (native) {
+          job.native = Object.freeze({ openssl: Object.freeze({ key: native.key ?? null, status: native.status, ...(native.skipped ? { skipped: native.skipped } : {}), ...(native.error ? { error: native.error } : {}), ...(native.recovered ? { recovered: native.recovered } : {}), buildMs: native.buildMs ?? null, verifyMs: native.verifyMs ?? null, path: native.path ?? null }) });
+          if (native.status !== 'skipped') {
+            env = Object.freeze({ ...env, ...native.environment });
+            await this.#state.recordNativeReference?.(job.workspaceRoot, job.workspace.layout.generation, 'openssl', native.key);
+          }
+          await this.#log({ type: 'NATIVE_OPENSSL', id: job.id, ...job.native.openssl });
+        }
+      }
+      const trackFreshness = !job.parentId && job.shim === 'cargo' && job.capability.compile && Boolean(job.workspace);
+      if (trackFreshness) {
+        job.jobsEvidence = resolveEffectiveJobs({ argv: job.invokeArgv, brokerEnvironment: job.executionEnvironment });
+        job.targetAtStart = await probeTargetAtStart(job.workspace.layout, { state: job.workspace.state });
+        job.freshnessTracker = wantsCargoJson(job.invokeArgv) ? new CargoFreshnessTracker() : null;
+        this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: targetConsoleLine({ phase: 'start', target: job.targetAtStart }) } });
+      }
       job.child = spawnManagedProcess(job.tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: ['ignore', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
       job.exit = new Promise((resolve, reject) => { job.child.once('error', reject); job.child.once('close', (code, signal) => resolve({ code, signal })); });
       job.child.stdout?.on('data', (chunk) => this.#output(job, 'STDOUT', chunk));
@@ -620,6 +647,8 @@ export class ThinJobService {
         : Number.isSafeInteger(job.cacheResult?.delta?.requests_executed) ? job.cacheResult.delta.requests_executed
           : Number.isSafeInteger(job.cacheResult?.delta?.compile_requests) ? job.cacheResult.delta.compile_requests : null;
     const phaseTimings = this.#phaseTimings(job, terminalAt);
+    const evidence = this.#buildEvidence(job);
+    if (evidence) this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: targetConsoleLine({ phase: 'end', target: evidence.target, freshness: evidence.freshness, cold: evidence.cold }) } });
     const cacheCohort = job.parentId || !job.capability.compile ? null : cargoCohort({ argv: job.invokeArgv, command: job.command, workspace: job.workspaceRoot, profile: this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null, toolchain: this.#config.defaults?.toolchain ?? null, compilerIdentity: this.#compilerIdentity, cacheEpoch: job.cacheResult?.attribution?.epoch ?? job.cachePrepared?.attribution?.epoch ?? null, platform: this.#platform });
     const receipt = Object.freeze({
       id: job.id, state: status, status, command: job.command, argv: Object.freeze([...job.invokeArgv]), workspace: job.workspaceRoot, repository: job.repositoryRoot ?? null, profile: cacheCohort?.profile ?? this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null,
@@ -638,7 +667,12 @@ export class ThinJobService {
       cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, healthStatus: job.cachePrepared.healthStatus ?? null, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }),
       cacheCounterScope: job.parentId ? null : (job.cacheResult?.attribution?.scope ?? (job.cacheResult?.delta ? 'shared-cumulative-root-window' : null)),
       cacheCohort,
-      compilerProcessCount, compilerBrokerRoundTrips: job.parentId ? null : (job.compilerRoundTrips ?? 0),
+      // compilerProcessCount counts sccache compile requests (kept for compatibility); compilerRequestCount is the explicit name.
+      compilerProcessCount, compilerRequestCount: compilerProcessCount, compilerRequestCountSource: compilerProcessCount === null ? null : ['rustc', 'rustdoc'].includes(job.shim) ? 'direct-compiler-invocation' : 'sccache-requests',
+      ...(job.native ? { native: job.native } : {}),
+      ...(evidence ? { jobs: evidence.jobs, target: evidence.target, freshness: evidence.freshness, coldStart: evidence.cold.coldStart, coldStartReason: evidence.cold.reason } : {}),
+      waits: job.parentId ? null : Object.freeze({ brokerQueue: Object.freeze({ ms: job.queueMs ?? null, blockers: Object.freeze([...(job.queueBlockers ?? [])]) }) }),
+      compilerBrokerRoundTrips: job.parentId ? null : (job.compilerRoundTrips ?? 0),
       compilerIdentity: job.parentId ? null : job.shim === 'cargo' && job.capability.compile ? this.#compilerIdentity : ['rustc', 'rustdoc'].includes(job.shim) ? Object.freeze({ [job.shim]: job.tool }) : null,
       ownership: job.ownership ?? null, reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(),
       output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') }
@@ -652,6 +686,14 @@ export class ThinJobService {
     // enforceable without a synchronous tree walk in the request hot path.
     if (job.capability.artifactWrite) void this.#maintenanceGc();
     return job.terminal;
+  }
+
+  /** Effective-jobs, target-state & freshness evidence for admitted Cargo compile roots. */
+  #buildEvidence(job) {
+    if (!job.targetAtStart) return null;
+    const freshness = job.freshnessTracker ? job.freshnessTracker.summary() : Object.freeze({ available: false, reason: 'cargo-json-message-format-not-requested' });
+    const cold = classifyColdStart(job.targetAtStart, freshness);
+    return Object.freeze({ jobs: job.jobsEvidence ?? null, target: job.targetAtStart, freshness, cold });
   }
 
   #phaseTimings(job, terminalAt) {
@@ -713,7 +755,7 @@ export class ThinJobService {
   }
 
   #output(job, type, chunk) {
-    const data = Buffer.from(chunk); job.outputBytes += data.length; job.outputDigest.update(data); job.lastOutputAt = this.#now();
+    const data = Buffer.from(chunk); if (type === 'STDOUT') job.freshnessTracker?.feed(data); job.outputBytes += data.length; job.outputDigest.update(data); job.lastOutputAt = this.#now();
     const headLimit = integer(this.#config.bounds?.outputHeadBytes, 16 * 1024); const tailLimit = integer(this.#config.bounds?.outputTailBytes, 16 * 1024);
     if (job.outputHead.length < headLimit) job.outputHead = Buffer.concat([job.outputHead, data.subarray(0, headLimit - job.outputHead.length)]);
     job.outputTail = appendTail(job.outputTail, data, tailLimit);

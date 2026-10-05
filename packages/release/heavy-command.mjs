@@ -220,6 +220,19 @@ function spawnOwnerWatcher(details) {
   watcher.unref();
 }
 
+export function summarizePreBrokerWaits({ heavySlot, suiteSlot, heavyOwnerInherited = false } = {}) {
+  const heavy = heavySlot?.waits ?? null;
+  const suite = suiteSlot?.waits ?? null;
+  const layers = [
+    heavy ? { layer: "heavy-work-slot", ms: (heavy.slotWaitMs ?? 0) + (heavy.resourceWaitMs ?? 0), slotWaitMs: heavy.slotWaitMs ?? 0, resourceWaitMs: heavy.resourceWaitMs ?? 0, blockers: heavy.slotBlockers ?? [], resourceBlockers: heavy.resourceBlockers ?? [] }
+      : { layer: "heavy-work-slot", ms: 0, skipped: heavyOwnerInherited ? "slot owned by parent heavy-command" : "not acquired" },
+    suite ? { layer: "suite-build-slot", ms: suite.waitMs ?? 0, blockers: suite.blockers ?? [] } : { layer: "suite-build-slot", ms: 0, skipped: "inactive (non-shared cache mode)" },
+  ];
+  const totalMs = layers.reduce((sum, layer) => sum + layer.ms, 0);
+  const summary = `${layers.map((layer) => `${layer.layer}=${layer.ms}ms${layer.skipped ? ` (${layer.skipped})` : ""}${layer.blockers?.length ? ` blocked-by ${layer.blockers.map((b) => typeof b === "string" ? b : `pid ${b.pid ?? "starting"}`).join(",")}` : ""}`).join("; ")}; total=${totalMs}ms`;
+  return { layers, totalMs, summary, brokerQueue: "see broker receipt waits.brokerQueue (queueMs + blockers)" };
+}
+
 export function acquireHeavyWorkSlot({
   root = heavyWorkRoot(), pid = process.pid, argv = process.argv, waitMs = Number(process.env.BUILD_GUARD_WAIT_SECS ?? 900) * 1000,
   pollMs = 1000, alive = processAlive, pause = sleep, snapshot = systemResourceSnapshot,
@@ -232,16 +245,24 @@ export function acquireHeavyWorkSlot({
   const token = randomUUID();
   const started = Date.now();
   let lastReport = 0;
+  // Wait attribution: who held the slot, and how long each layer made us wait.
+  const waits = { layer: "heavy-work-slot", slotWaitMs: 0, slotBlockers: [], resourceWaitMs: 0, resourceBlockers: [], totalMs: 0 };
+  const noteSlotBlocker = (owner) => {
+    const identity = owner ? { pid: owner.pid ?? null, argv: Array.isArray(owner.argv) ? owner.argv.slice(0, 8).join(" ").slice(0, 200) : null, since: owner.createdAt ?? null } : { pid: null, argv: null, since: null, starting: true };
+    if (!waits.slotBlockers.some((entry) => entry.pid === identity.pid && entry.since === identity.since)) waits.slotBlockers.push(identity);
+  };
   for (;;) {
     try {
       mkdirSync(lockDir);
       const fd = openSync(path.join(lockDir, "owner.json"), "wx");
       writeFileSync(fd, `${JSON.stringify({ schema: 1, pid: Number(pid), ownerStartedAtMs: startedAt(pid), token, argv: [...argv], createdAt: new Date().toISOString() })}\n`);
       closeSync(fd);
+      waits.slotWaitMs = Date.now() - started;
       break;
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
       const owner = readOwner(lockDir);
+      noteSlotBlocker(owner);
       const incompleteAge = (() => { try { return Date.now() - statSync(lockDir).mtimeMs; } catch { return 0; } })();
       if (owner ? sweepTrackedHeavyWorkOrphan({ root, alive, startedAt, terminate, log }) : incompleteAge > 10_000) {
         if (!owner) rmSync(lockDir, { recursive: true, force: true });
@@ -253,11 +274,14 @@ export function acquireHeavyWorkSlot({
     }
   }
 
+  const resourceStarted = Date.now();
   for (;;) {
     const current = snapshot();
     const blockers = resourceBlockers(current, { minFreePercent, maxCpuLoadPercent });
+    for (const blocker of blockers) if (!waits.resourceBlockers.includes(blocker)) waits.resourceBlockers.push(blocker);
     if (blockers.length === 0) {
-      log(`admitted ${formatResourceSnapshot(current)} jobs=${heavyCommandEnvironment().CARGO_BUILD_JOBS}`);
+      waits.resourceWaitMs = Date.now() - resourceStarted; waits.totalMs = Date.now() - started;
+      log(`admitted ${formatResourceSnapshot(current)} jobs=${heavyCommandEnvironment().CARGO_BUILD_JOBS} waited slot=${waits.slotWaitMs}ms resource=${waits.resourceWaitMs}ms${waits.slotBlockers.length ? ` blockers=${waits.slotBlockers.map((entry) => `pid ${entry.pid ?? "starting"}`).join(",")}` : ""}`);
       break;
     }
     if (Date.now() - started >= waitMs) {
@@ -269,6 +293,7 @@ export function acquireHeavyWorkSlot({
   }
   return {
     root,
+    waits,
     trackChild(childPid, childCommand = "") {
       const owner = readOwner(lockDir);
       if (owner?.token !== token) throw new Error("heavy-work slot ownership changed before child tracking");

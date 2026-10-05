@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   acquireHeavyWorkSlot,
+  summarizePreBrokerWaits,
   formatResourceSnapshot,
   heavyChildDetached,
   heavyCommandEnvironment,
@@ -218,4 +219,28 @@ test("detached watcher reaps an owned child as soon as its owner disappears", as
   assert.equal(result, true);
   assert.deepEqual(killed, [202]);
   assert.equal(existsSync(lockDir), false);
+});
+
+test("slot records wait attribution: holder identity, slot ms and resource blockers", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightsuite-heavy-waits-"));
+  const quiet = () => {};
+  const good = { freePercent: 50, swapUsedBytes: 0, swapTotalBytes: 0, thermalLimited: false };
+  const first = acquireHeavyWorkSlot({ root, pid: 101, argv: ["node", "right-release", "build"], alive: (pid) => pid === 101, snapshot: () => good, log: quiet });
+  assert.equal(first.waits.slotWaitMs >= 0, true);
+  assert.deepEqual(first.waits.slotBlockers, []);
+  let snapshots = 0;
+  const second = acquireHeavyWorkSlot({
+    root, pid: 202, waitMs: 5000, pollMs: 1, alive: (pid) => pid === 101 || pid === 202,
+    pause: () => { first.release(); },
+    snapshot: () => (snapshots++ === 0 ? { ...good, freePercent: 1 } : good), log: quiet,
+  });
+  assert.equal(second.waits.slotBlockers[0].pid, 101);
+  assert.match(second.waits.slotBlockers[0].argv, /right-release build/);
+  assert.equal(second.waits.resourceBlockers.length > 0, true);
+  const summary = summarizePreBrokerWaits({ heavySlot: second, suiteSlot: { waits: { waitMs: 7, blockers: ["suite build slot active pid 9"] } } });
+  assert.equal(summary.layers.length, 2);
+  assert.match(summary.summary, /heavy-work-slot=.*blocked-by pid 101/);
+  assert.match(summary.summary, /suite-build-slot=7ms blocked-by suite build slot active pid 9/);
+  assert.equal(summarizePreBrokerWaits({ heavyOwnerInherited: true }).layers[0].skipped, "slot owned by parent heavy-command");
+  second.release();
 });

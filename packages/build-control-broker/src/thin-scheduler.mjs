@@ -50,7 +50,7 @@ export class ThinScheduler {
     if (this.#active.has(id) || this.#queue.some((item) => item.id === id)) throw new TypeError('scheduler id must be unique');
     let resolvePermit; let rejectPermit;
     const permit = new Promise((resolve, reject) => { resolvePermit = resolve; rejectPermit = reject; });
-    const ticket = { id, lane: capability.lane, access: capability.workspaceAccess, compile: capability.compile === true, cost: compileCost, workspaceKey, priority, sequence: ++this.#sequence, queuedAt: this.#now(), onHeartbeat, resolvePermit, rejectPermit, state: 'QUEUED' };
+    const ticket = { id, lane: capability.lane, access: capability.workspaceAccess, compile: capability.compile === true, cost: compileCost, workspaceKey, priority, sequence: ++this.#sequence, queuedAt: this.#now(), blockers: new Map(), onHeartbeat, resolvePermit, rejectPermit, state: 'QUEUED' };
     // tryRun: never queue. Background maintenance (idle-generation eviction)
     // must not block waiting for a workspace whose write slot an admitted job
     // holds; it gives up immediately instead (v2.8 §10.2). The synchronous
@@ -62,11 +62,14 @@ export class ThinScheduler {
       return Object.freeze({ id, permit, cancel: () => false });
     }
     this.#queue.push(ticket);
+    this.#noteBlockers(ticket);
     this.#emitHeartbeat(ticket);
     queueMicrotask(() => this.#drain());
     return Object.freeze({
       id,
       permit,
+      /** Every active holder that blocked this ticket while it waited: [{ id, reason }] (wait attribution). */
+      blockers: () => Object.freeze([...ticket.blockers].map(([blockerId, reason]) => Object.freeze({ id: blockerId, reason }))),
       cancel: () => {
         if (ticket.state !== 'QUEUED') return false;
         const index = this.#queue.indexOf(ticket); if (index < 0) return false;
@@ -94,6 +97,22 @@ export class ThinScheduler {
     if (ticket.access === 'read' && state?.writer) return false;
     if (ticket.access === 'write' && state && (state.writer || state.readers > 0)) return false;
     return true;
+  }
+
+  /** Record which active tickets currently block `ticket` (identity only; no behaviour change). */
+  #noteBlockers(ticket) {
+    const note = (other, reason) => { if (other.id !== ticket.id && !ticket.blockers.has(other.id)) ticket.blockers.set(other.id, reason); };
+    if (ticket.lane === 'TOOLCHAIN_WRITE') { for (const other of this.#active.values()) note(other, 'toolchain-exclusive'); return; }
+    if (this.#toolchainActive) for (const other of this.#active.values()) if (other.lane === 'TOOLCHAIN_WRITE') note(other, 'toolchain-write-active');
+    if (this.#laneCount(ticket.lane) >= this.#limits[ticket.lane]) for (const other of this.#active.values()) if (other.lane === ticket.lane) note(other, `lane-cap:${ticket.lane}`);
+    if (ticket.cost !== null) {
+      let used = 0; for (const other of this.#active.values()) used += other.cost ?? 0;
+      if (used + ticket.cost > this.#compileBudget) for (const other of this.#active.values()) if (other.cost) note(other, 'compile-budget');
+    }
+    const state = this.#workspaceState(ticket.workspaceKey);
+    if (state && ((ticket.access === 'read' && state.writer) || (ticket.access === 'write' && (state.writer || state.readers > 0)))) {
+      for (const other of this.#active.values()) if (other.workspaceKey === ticket.workspaceKey && (other.access === 'write' || ticket.access === 'write')) note(other, 'workspace-exclusion');
+    }
   }
 
   #compare(left, right) {
@@ -139,5 +158,5 @@ export class ThinScheduler {
     const index = this.#queue.indexOf(ticket);
     ticket.onHeartbeat(Object.freeze({ state: 'QUEUED', lane: ticket.lane, position: index < 0 ? 0 : index + 1, at: new Date(this.#now()).toISOString() }));
   }
-  #reindex() { for (const ticket of this.#queue) this.#emitHeartbeat(ticket); }
+  #reindex() { for (const ticket of this.#queue) { this.#noteBlockers(ticket); this.#emitHeartbeat(ticket); } }
 }

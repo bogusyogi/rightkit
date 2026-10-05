@@ -18,7 +18,7 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null } = {}) {
+async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
@@ -29,7 +29,7 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
   const logger = { events: [], flushes: 0, append(event) { this.events.push(event); return Promise.resolve(event); }, flush() { this.flushes += 1; return Promise.resolve(); }, close: async () => {} };
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
   const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc', rustup: 'rustup' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
-  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
+  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -243,7 +243,7 @@ test('registered explicit Cargo target overrides host default within persistent 
     await waitFor(item.service, submitted.id, ['RUNNING']);
     const child = item.children.at(-1);
     assert.deepEqual(child.payload.argv.slice(0, 3), ['build', '--target=x86_64-apple-darwin', '--target-dir']);
-    assert.ok(child.payload.argv[3].endsWith(join('g', '001', process.platform === 'win32' ? 't' : 'target')));
+    assert.ok(child.payload.argv[3].endsWith(join('g', '001', 'target')));
     child.emit('close', 0, null);
     const result = (await call(item.service, command('WATCH', submitted.id))).result;
     assert.equal(result.status, 'SUCCEEDED');
@@ -682,5 +682,60 @@ test('delegated compiler accounting is retained in root resource receipt', async
     assert.equal(result.receipt.resources.delegatedCompilers.cpuTotalMs, 200);
     assert.equal(result.receipt.resources.delegatedCompilers.sumPeakCommittedBytes, 4096);
     assert.equal(result.receipt.resources.processTree.peakCommittedBytes, 4096);
+  } finally { await item.close(); }
+});
+
+test('Cargo receipt records effective jobs, wait blockers, freshness counts, target state & request count', async () => {
+  const item = await fixture({ cacheEnvironment: { CARGO_BUILD_JOBS: '4' } });
+  try {
+    const first = (await call(item.service, command('SUBMIT', message(item.workspace, ['build', '--release', '-j', '2', '--message-format=json'])))).result;
+    await waitFor(item.service, first.id, ['RUNNING']);
+    // A second BUILD queues behind the first and must record it as blocker.
+    const second = (await call(item.service, command('SUBMIT', message(item.workspace, ['build', '--release'])))).result;
+    const child = item.children.at(-1);
+    child.stdout.emit('data', Buffer.from('{"reason":"compiler-artifact","package_id":"a 1.0.0","fresh":true}\n{"reason":"compiler-artifact","package_id":"b 1.0.0","fresh":false}\n{"reason":"build-script-executed","package_id":"b 1.0.0"}\n{"reason":"compiler-artifact","package_id":"c 1.0.0","fres'));
+    child.stdout.emit('data', Buffer.from('h":false}\n'));
+    child.emit('close', 0, null);
+    const done = await waitFor(item.service, first.id, ['SUCCEEDED']);
+    const receipt = done.receipt;
+    assert.deepEqual({ ...receipt.jobs }, { requested: 2, brokerConfigured: 4, effective: 2, source: 'cli-argv' });
+    assert.equal(receipt.freshness.compilerArtifacts, 3);
+    assert.equal(receipt.freshness.fresh, 1);
+    assert.equal(receipt.freshness.notFresh, 2);
+    assert.equal(receipt.freshness.buildScriptExecutedEvents, 1);
+    assert.deepEqual([...receipt.freshness.notFreshPackages], ['b 1.0.0', 'c 1.0.0']);
+    assert.equal(receipt.target.existedAtStart, true);
+    assert.equal(receipt.coldStart, receipt.target.entriesAtStart > 0 ? false : true);
+    assert.equal(receipt.compilerRequestCount, receipt.compilerProcessCount);
+    assert.equal(receipt.waits.brokerQueue.ms, receipt.queueMs);
+    // Second job waited on the first.
+    await waitFor(item.service, second.id, ['RUNNING']);
+    item.children.at(-1).emit('close', 0, null);
+    const secondDone = await waitFor(item.service, second.id, ['SUCCEEDED']);
+    assert.equal(secondDone.receipt.waits.brokerQueue.blockers[0].id, first.id);
+    assert.match(secondDone.receipt.waits.brokerQueue.blockers[0].reason, /lane-cap:BUILD|workspace-exclusion/);
+    assert.equal(secondDone.receipt.jobs.source, 'broker-injected-env');
+    assert.equal(secondDone.receipt.freshness.available, false);
+    const attached = await call(item.service, command('WATCH', second.id));
+    const lines = attached.events.filter((event) => event.event?.type === 'STDERR' && /\[rightkit\] target/.test(event.event.data));
+    assert.equal(lines.length, 2);
+  } finally { await item.close(); }
+});
+
+test('prebuilt OpenSSL environment is injected into root cargo runs, recorded in the receipt, and pinned to the generation', async () => {
+  const calls = [];
+  const nativeOpenSsl = { prepare: async (input) => { calls.push(input); return { status: 'hit', key: 'abcdabcdabcdabcd', path: '/n/abcdabcdabcdabcd', buildMs: 0, environment: { AARCH64_APPLE_DARWIN_OPENSSL_DIR: '/n/abcdabcdabcdabcd', AARCH64_APPLE_DARWIN_OPENSSL_NO_VENDOR: '1', AARCH64_APPLE_DARWIN_OPENSSL_STATIC: '1' } }; }, gc: async () => ({ evicted: [] }) };
+  const item = await fixture({ nativeOpenSsl });
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, submitted.id, ['RUNNING']);
+    const child = item.children.at(-1);
+    assert.equal(child.environment.AARCH64_APPLE_DARWIN_OPENSSL_NO_VENDOR, '1');
+    assert.equal(calls.length, 1);
+    child.emit('close', 0, null);
+    const result = (await call(item.service, command('WATCH', submitted.id))).result;
+    assert.equal(result.receipt.native.openssl.status, 'hit');
+    assert.equal(result.receipt.native.openssl.key, 'abcdabcdabcdabcd');
+    assert.deepEqual([...await item.state.pinnedNativeKeys('openssl')], ['abcdabcdabcdabcd']);
   } finally { await item.close(); }
 });

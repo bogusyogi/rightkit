@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { atomicJson, replaceAtomicFile, ThinState } from './thin-state.mjs';
+import { atomicJson, directorySize, replaceAtomicFile, ThinState, thinWorkspaceKey } from './thin-state.mjs';
 
 async function fixture({ advanceClock = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-state-'));
@@ -54,19 +54,12 @@ test('creates required global & persistent workspace generation layout', async (
     assert.equal(workspace.state.currentGeneration, 1);
     for (const path of [item.state.paths.state, item.state.paths.cargoHome, item.state.paths.compilerCache, item.state.paths.tools, item.state.paths.active, item.state.paths.trash, item.state.paths.logs, item.state.paths.receipts, workspace.layout.target, workspace.layout.temp]) await assert.doesNotReject((await import('node:fs/promises')).stat(path));
     assert.equal(workspace.layout.temp, join(item.root, 'tmp'));
-    assert.equal(workspace.layout.target, join(workspace.layout.root, process.platform === 'win32' ? 't' : 'target'));
+    assert.equal(workspace.layout.target, join(workspace.layout.root, 'target'));
+    assert.equal(workspace.layout.leaf, 'target');
+    assert.equal(workspace.layout.leafReason, 'persisted (neither-exists-default-target)');
+    assert.equal(workspace.layout.orphanLeaf, null);
     assert.equal(workspace.layout.build, undefined);
     assert.equal(JSON.parse(await readFile(workspace.identityPath, 'utf8')).canonicalRoot, item.workspace);
-  } finally { await item.close(); }
-});
-
-test('Windows release-iterate OpenSSL object stays below MAX_PATH', { skip: process.platform !== 'win32' }, async () => {
-  const item = await fixture();
-  try {
-    const workspace = await item.state.workspace(item.workspace);
-    const managedTarget = workspace.layout.target.replace(item.root, 'D:\\.rightkit-managed');
-    const object = join(managedTarget, 'x86_64-pc-windows-msvc', 'release-iterate', 'build', 'openssl-sys-af2cffd4d55717b0', 'out', 'openssl-build', 'build', 'src', 'providers', 'implementations', 'ciphers', 'libdefault-lib-cipher_aes_cbc_hmac_sha256_etm_hw.obj');
-    assert.ok(object.length < 260, `MSVC object path has ${object.length} characters: ${object}`);
   } finally { await item.close(); }
 });
 
@@ -307,5 +300,126 @@ test('pre-v2.8 state.json without LRU metadata migrates lazily through GC', asyn
     const after = (await item.state.workspace(item.workspace)).state;
     assert.equal(typeof after.lastUsedAt, 'string');
     assert.equal(after.sizeDirty, true);
+  } finally { await item.close(); }
+});
+
+test('directorySize tolerates files and directories vanishing during the scan', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-size-'));
+  try {
+    const { mkdir } = await import('node:fs/promises');
+    await writeFile(join(root, 'keep.bin'), Buffer.alloc(10));
+    await mkdir(join(root, 'rustcAbC123')); await writeFile(join(root, 'rustcAbC123', 'tmp.o'), Buffer.alloc(100));
+    await writeFile(join(root, 'gone.lock'), Buffer.alloc(5));
+    const { readdir: realReaddir, lstat: realLstat } = await import('node:fs/promises');
+    const total = await directorySize(root, {
+      readdirFn: async (path, options) => {
+        if (path.endsWith('rustcAbC123')) throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+        return realReaddir(path, options);
+      },
+      lstatFn: async (path) => {
+        if (path.endsWith('gone.lock')) throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+        return realLstat(path);
+      }
+    });
+    assert.equal(total, 10);
+    await assert.rejects(directorySize(root, { readdirFn: async () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); } }), { code: 'EACCES' });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('GC uses advisory sizes for active trees and never persists them as measured', async () => {
+  const item = await fixture();
+  try {
+    const workspace = await item.state.workspace(item.workspace);
+    await writeFile(join(workspace.layout.target, 'w.bin'), Buffer.alloc(64));
+    await item.state.markRunning(item.workspace, { id: 'job-active', command: 'cargo build' });
+    const { mkdir } = await import('node:fs/promises');
+    // A rustc temp dir inside the active tree must never be walked.
+    await mkdir(join(workspace.layout.target, 'rustcTmp1'));
+    const result = await item.state.gc({ capBytes: 1_000_000 });
+    assert.equal(result.advisorySizedTrees, 1);
+    assert.equal(result.beforeBytes, 0);
+    assert.equal((await item.state.workspace(item.workspace)).state.lastMeasuredBytes ?? null, null);
+    await item.state.finish(item.workspace, 'job-active', { status: 'SUCCEEDED' });
+  } finally { await item.close(); }
+});
+
+async function leafFixture({ target = false, t = false, newer = null }) {
+  const item = await fixture();
+  const key = thinWorkspaceKey(await realpath(item.workspace));
+  const generation = join(item.root, 'rightkit-build-control', 'ws', key, 'g', '001');
+  const seed = async (leaf, ageSeconds) => {
+    const fingerprint = join(generation, leaf, 'x86_64-pc-windows-msvc', 'release', '.fingerprint', 'crate-1');
+    await mkdir(fingerprint, { recursive: true });
+    await writeFile(join(fingerprint, 'f'), 'x');
+    const when = new Date(Date.now() - ageSeconds * 1000);
+    for (const path of [fingerprint, join(fingerprint, 'f'), join(generation, leaf, 'x86_64-pc-windows-msvc', 'release', '.fingerprint')]) await utimes(path, when, when);
+  };
+  if (target) await seed('target', newer === 'target' ? 10 : 1000);
+  if (t) await seed('t', newer === 't' ? 10 : 1000);
+  return { item, generation, key };
+}
+
+test('leaf selection: only target populated stays on target and reports no orphan', async () => {
+  const { item } = await leafFixture({ target: true });
+  try {
+    const workspace = await item.state.workspace(item.workspace);
+    assert.equal(workspace.layout.leaf, 'target');
+    assert.match(workspace.layout.leafReason, /only-target-nonempty/);
+    assert.equal(workspace.layout.orphanLeaf, null);
+    await assert.rejects(stat(join(workspace.layout.root, 't')), { code: 'ENOENT' });
+  } finally { await item.close(); }
+});
+
+test('leaf selection: only t populated keeps t, never creates target', async () => {
+  const { item } = await leafFixture({ t: true });
+  try {
+    const workspace = await item.state.workspace(item.workspace);
+    assert.equal(workspace.layout.leaf, 't');
+    assert.equal(workspace.layout.target, join(workspace.layout.root, 't'));
+    assert.match(workspace.layout.leafReason, /only-t-nonempty/);
+    await assert.rejects(stat(join(workspace.layout.root, 'target')), { code: 'ENOENT' });
+  } finally { await item.close(); }
+});
+
+test('leaf selection: both populated picks newer activity and reports orphan without deleting it', async () => {
+  for (const winner of ['target', 't']) {
+    const { item } = await leafFixture({ target: true, t: true, newer: winner });
+    try {
+      const workspace = await item.state.workspace(item.workspace);
+      assert.equal(workspace.layout.leaf, winner);
+      assert.match(workspace.layout.leafReason, /both-nonempty-newer-activity/);
+      const other = winner === 't' ? 'target' : 't';
+      assert.deepEqual({ ...workspace.layout.orphanLeaf }, { leaf: other, path: join(workspace.layout.root, other), sizeBytes: null });
+      await assert.doesNotReject(stat(join(workspace.layout.root, other)));
+    } finally { await item.close(); }
+  }
+});
+
+test('leaf selection: neither exists defaults to target; persisted value wins over later disk state and survives rotation defaults', async () => {
+  const { item, generation } = await leafFixture({});
+  try {
+    const first = await item.state.workspace(item.workspace);
+    assert.equal(first.layout.leaf, 'target');
+    // A populated `t` appearing later must not flip a persisted choice.
+    await mkdir(join(generation, 't', 'x'), { recursive: true });
+    await writeFile(join(generation, 't', 'x', 'f'), 'y');
+    const again = await item.state.workspace(item.workspace);
+    assert.equal(again.layout.leaf, 'target');
+    assert.equal(again.layout.orphanLeaf.leaf, 't');
+    assert.match(again.layout.leafReason, /^persisted/);
+    assert.equal(JSON.parse(await readFile(first.statePath, 'utf8')).leaves['001'].leaf, 'target');
+    const rotated = await item.state.rotate(item.workspace, 'test');
+    assert.equal(rotated.layout.leaf, 'target');
+    assert.equal(JSON.parse(await readFile(first.statePath, 'utf8')).leaves['002'].leaf, 'target');
+  } finally { await item.close(); }
+});
+
+test('leaf selection: a persisted t is honoured even when target is also populated', async () => {
+  const { item, generation, key } = await leafFixture({ target: true, t: true, newer: 'target' });
+  try {
+    await atomicJson(join(item.root, 'rightkit-build-control', 'ws', key, 'state.json'), { schemaVersion: 1, currentGeneration: 1, active: null, residents: [], leaves: { '001': { leaf: 't', reason: 'operator' } }, updatedAt: '2026-08-22T00:00:00.000Z' });
+    const workspace = await item.state.workspace(item.workspace);
+    assert.equal(workspace.layout.leaf, 't');
+    assert.equal(workspace.layout.target, join(generation, 't'));
   } finally { await item.close(); }
 });
