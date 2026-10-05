@@ -535,8 +535,11 @@ export class ThinJobService {
           : { mode: 'direct', status: 'NOT_APPLICABLE', environment: this.#managedEnvironment(job.workspace?.layout, job.rootToken, job.parentId ?? job.id), before: null };
       job.cacheResourceStart = job.cachePrepared.mode === 'sccache' ? safeResourceSnapshot(() => this.#cache.resourceUsage?.()) : null;
       const agentBin = join(this.#config.broker.externalRoot.path, 'agent-bin');
+      // Cargo discovers bundled subcommands (notably cargo-clippy) through PATH.
+      // Select its registered toolchain after managed shims, before ambient tools.
+      const toolchainBin = join(this.#toolchainLibraryPath, '..', 'bin');
       const directCargoCompilers = !job.parentId && job.shim === 'cargo' ? this.#compilerEnvironment : {};
-      const runtimeEnvironment = brokerOwnedRuntimeEnvironment({ ...runtimeBase(this.#toolchainLibraryPath, this.#rustupToolchain, this.#platform), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, ...directCargoCompilers, PATH: `${agentBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken }, brokerEndpointForPlatform(this.#config, this.#platform));
+      const runtimeEnvironment = brokerOwnedRuntimeEnvironment({ ...runtimeBase(this.#toolchainLibraryPath, this.#rustupToolchain, this.#platform), ...(job.parentId ? this.#jobs.get(job.parentId)?.executionEnvironment ?? {} : {}), ...job.cachePrepared.environment, ...directCargoCompilers, PATH: `${agentBin}${delimiter}${toolchainBin}${delimiter}${process.env.PATH ?? ''}`, RIGHTKIT_PARENT_REQUEST_ID: job.parentId ?? job.id, RIGHTKIT_PARENT_CAPABILITY_TOKEN: job.rootToken }, brokerEndpointForPlatform(this.#config, this.#platform));
       // Loader authority remains broker-owned even when a cache adapter or
       // inherited parent environment contains a stale value.
       if (this.#platform === 'darwin' && this.#toolchainLibraryPath) runtimeEnvironment.DYLD_FALLBACK_LIBRARY_PATH = this.#toolchainLibraryPath;

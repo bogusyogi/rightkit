@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
 import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build-control-core';
 import { brokerEndpointForPlatform, CachedWorkspaceResolver, ThinJobService, createThinJobServer, resolveCargoWorkspace, resolveRepositoryRoot } from './thin-job-service.mjs';
@@ -206,6 +206,22 @@ test('jobs select the rustup toolchain registered by Cargo path', async () => {
     const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['--version'])))).result;
     assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
     assert.equal(item.children.at(-1).environment.RUSTUP_TOOLCHAIN, toolchain);
+  } finally { await item.close(); }
+});
+
+test('Clippy finds registered Cargo toolchain with managed compiler shims first', async () => {
+  const bin = join('/managed', 'toolchains', '1.98.0-x86_64-pc-windows-msvc', 'bin');
+  const item = await fixture({ cargoPath: join(bin, 'cargo'), cacheEnvironment: { PATH: '/stale/toolchain/bin' } });
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['clippy'])))).result;
+    await waitFor(item.service, submitted.id, ['RUNNING']);
+    const child = item.children.at(-1);
+    assert.deepEqual(child.environment.PATH.split(delimiter).slice(0, 2), [join(item.root, 'agent-bin'), bin]);
+    assert.equal(child.environment.RUSTUP_TOOLCHAIN, '1.98.0-x86_64-pc-windows-msvc');
+    assert.equal(child.environment.RUSTC, '/managed/rustc');
+    assert.equal(child.environment.RUSTC_WRAPPER, '/managed/sccache');
+    child.emit('close', 0, null);
+    assert.equal((await call(item.service, command('WATCH', submitted.id))).result.status, 'SUCCEEDED');
   } finally { await item.close(); }
 });
 
