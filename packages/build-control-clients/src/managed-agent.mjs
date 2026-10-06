@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cancelManagedAgentJob, createManagedAgentRequest, loadRuntimeIdentity, submitAndWatchManagedAgentJob } from './index.mjs';
+import { cancelManagedAgentJob, createManagedAgentRequest, loadRuntimeIdentity, submitAndWatchManagedAgentJob, rerunOnCurrentRuntime } from './index.mjs';
 
 const write = (value, stream) => { if (typeof value === 'string' && value) stream.write(value); };
 const jobEvent = (event) => event.type === 'JOB_EVENT' ? event.event : event;
@@ -15,6 +15,7 @@ try {
       .catch((error) => process.stderr.write(`rightkit managed-agent: cancel failed for ${requestId}: ${error.message}\n`));
   };
   const result = await submitAndWatchManagedAgentJob(message, {
+    onWaiting() { process.stderr.write('rightkit managed-agent: broker runtime update in progress; waiting to submit\n'); },
     onSubmitted(submitted) {
       requestId = submitted.id;
       process.once('SIGINT', () => cancel('SIGINT'));
@@ -32,6 +33,7 @@ try {
   if (result.exitCode !== 0 && result.error) process.stderr.write(`rightkit managed-agent: ${result.error}\n`);
   process.exitCode = result.exitCode;
 } catch (error) {
-  process.stderr.write(`rightkit managed-agent: ${error.message}\n`);
-  process.exitCode = 125;
+  const handedOff = error?.code === 'RK_RUNTIME_CHANGED' ? rerunOnCurrentRuntime(import.meta.url) : null;
+  if (handedOff !== null) process.exitCode = handedOff;
+  else { process.stderr.write(`rightkit managed-agent: ${error.message}\n`); process.exitCode = 125; }
 }

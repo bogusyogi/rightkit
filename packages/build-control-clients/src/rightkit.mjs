@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cancelManagedAgentJob, createRightkitRequest, listManagedAgentJobs, loadRuntimeIdentity, statusManagedAgentJob, submitAndWatchManagedAgentJob, watchManagedAgentJob } from './index.mjs';
+import { cancelManagedAgentJob, createRightkitRequest, listManagedAgentJobs, loadRuntimeIdentity, statusManagedAgentJob, submitAndWatchManagedAgentJob, watchManagedAgentJob, rerunOnCurrentRuntime } from './index.mjs';
 import { createRemoteCoordinator } from './remote-coordinator.mjs';
 
 const write = (value, stream) => { if (typeof value === 'string' && value) stream.write(value); };
@@ -45,6 +45,7 @@ try {
     };
     const result = await submitAndWatchManagedAgentJob(message, {
       onEvent: streamJobEvent,
+      onWaiting() { process.stderr.write('rightkit: broker runtime update in progress; waiting to submit\n'); },
       onSubmitted(submitted) {
         requestId = submitted.id;
         process.once('SIGINT', () => cancel('SIGINT'));
@@ -57,6 +58,7 @@ try {
     process.exitCode = result.exitCode;
   }
 } catch (error) {
-  process.stderr.write(`rightkit: ${error.message}\n`);
-  process.exitCode = 125;
+  const handedOff = error?.code === 'RK_RUNTIME_CHANGED' ? rerunOnCurrentRuntime(import.meta.url) : null;
+  if (handedOff !== null) process.exitCode = handedOff;
+  else { process.stderr.write(`rightkit: ${error.message}\n`); process.exitCode = 125; }
 }

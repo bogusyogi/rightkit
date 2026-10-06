@@ -1,5 +1,6 @@
 import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, assertRepositoryExecutionAllowed, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, normalizeRuntimeIdentity, validateManagedRustupInvocation } from '@rightkit/build-control-core';
 import net from 'node:net';
+import { readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, posix, resolve, win32 } from 'node:path';
@@ -252,8 +253,61 @@ export function watchManagedAgentJob(id, options = {}) { return sendJobCommand(c
 export function statusManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.STATUS, { id, runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.STATUS]) }); }
 export function listManagedAgentJobs(options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.LIST, { runtimeIdentity: options.runtimeIdentity }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.LIST]) }); }
 export function cancelManagedAgentJob(id, options = {}) { return sendJobCommand(createJobCommand(JOB_REQUEST_TYPES.CANCEL, { id, runtimeIdentity: options.runtimeIdentity, source: options.source }), { ...options, completeOn: new Set([JOB_RESPONSE_TYPES.CANCEL_REQUESTED]) }); }
+const CUTOVER_DRAIN_PENDING = /runtime cutover drain is pending/i;
+const BROKER_UNAVAILABLE = /^RightKit broker unavailable:/;
+const RUNTIME_MISMATCH = /client\/broker runtime digest mismatch/i;
+const DEFAULT_CUTOVER_WAIT_MS = 15 * 60_000;
+
+/** The broker's runtime changed while this client waited: re-run on the new runtime's client. */
+export class RuntimeChangedError extends Error {
+  constructor(cause) { super('RightKit broker runtime changed; rerun with the current runtime client'); this.name = 'RuntimeChangedError'; this.code = 'RK_RUNTIME_CHANGED'; this.cause = cause; }
+}
+
+/** A cutover drain is live while its fence file names a live process (see cutover-shared.mjs). */
+export function cutoverInProgress({ externalRoot = fileURLToPath(new URL('../../../', import.meta.url)), read = readFileSync, alive = (pid) => { try { process.kill(pid, 0); return true; } catch (error) { return error?.code === 'EPERM'; } } } = {}) {
+  try {
+    const fence = JSON.parse(read(join(externalRoot, 'rightkit-build-control', 'state', 'cutover-drain.json'), 'utf8'));
+    return Number.isSafeInteger(fence?.pid) && alive(fence.pid);
+  } catch { return false; }
+}
+
+function cutoverWaitMs(environment = process.env) {
+  const value = Number(environment.RIGHTKIT_CUTOVER_WAIT_MS);
+  return Number.isSafeInteger(value) && value >= 0 ? value : DEFAULT_CUTOVER_WAIT_MS;
+}
+
+/** Submit, riding out a runtime cutover instead of failing: a drain rejection, or the broker briefly
+ * unavailable while a cutover fence is live, is retried until the wait budget runs out. */
+export async function submitManagedAgentJobAcrossCutover(message, options = {}) {
+  const { now = Date.now, sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds)), inCutover = cutoverInProgress, onWaiting = () => {}, submit = submitManagedAgentJob } = options;
+  const deadline = now() + (options.cutoverWaitMs ?? cutoverWaitMs());
+  let waiting = false;
+  for (;;) {
+    try { return await submit(message, options); }
+    catch (error) {
+      const text = String(error?.message ?? '');
+      if (RUNTIME_MISMATCH.test(text) && waiting) throw new RuntimeChangedError(error);
+      const retryable = CUTOVER_DRAIN_PENDING.test(text) || (BROKER_UNAVAILABLE.test(text) && inCutover());
+      if (!retryable || now() >= deadline) throw error;
+      if (!waiting) { waiting = true; onWaiting(text); }
+      await sleep(2_000);
+    }
+  }
+}
+
+/** Hand a RuntimeChangedError off to the same entry script in runtime-current; refuses to re-run itself. */
+export function rerunOnCurrentRuntime(entryUrl, argv = process.argv.slice(2), { run = spawnSync, environment = process.env } = {}) {
+  const entry = fileURLToPath(entryUrl);
+  const target = join(fileURLToPath(new URL('../../../runtime-current/build-control-clients/src/', import.meta.url)), basename(entry));
+  let same = true;
+  try { same = realpathSync(target) === realpathSync(entry); } catch { same = true; }
+  if (same) return null;
+  const result = run(process.execPath, [target, ...argv], { stdio: 'inherit', env: environment, windowsHide: true });
+  return Number.isInteger(result.status) ? result.status : 125;
+}
+
 export async function submitAndWatchManagedAgentJob(message, options = {}) {
-  const submitted = await submitManagedAgentJob(message, options);
+  const submitted = await submitManagedAgentJobAcrossCutover(message, options);
   if (submitted.type === 'RESULT') return submitted;
   const id = jobId(submitted?.id);
   options.onSubmitted?.(Object.freeze({ id, state: submitted.state }));

@@ -15,9 +15,11 @@ import { defaultBounds, defaultCargoBuildJobs, ensureRemoteRoutingRoots, isDirec
 // actually accepted by the broker's own schema, not just plausible-looking.
 
 test('parseArgs accepts the documented flags & rejects anything else', () => {
-  assert.deepEqual(parseArgs([]), { force: false });
-  assert.deepEqual(parseArgs(['--force']), { force: true });
-  assert.deepEqual(parseArgs(['--external-root', 'D:\\x']), { force: false, externalRoot: 'D:\\x' });
+  assert.deepEqual(parseArgs([]), { force: false, drainTimeoutMs: 900_000 });
+  assert.deepEqual(parseArgs(['--force']), { force: true, drainTimeoutMs: 900_000 });
+  assert.equal(parseArgs(['--drain-timeout-ms', '0']).drainTimeoutMs, 0);
+  assert.throws(() => parseArgs(['--drain-timeout-ms', '-1']), /non-negative integer/);
+  assert.deepEqual(parseArgs(['--external-root', 'D:\\x']), { force: false, drainTimeoutMs: 900_000, externalRoot:'D:\\x' });
   assert.throws(() => parseArgs(['--bogus']), /unknown bootstrap argument/);
 });
 

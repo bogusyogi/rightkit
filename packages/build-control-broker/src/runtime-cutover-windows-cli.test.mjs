@@ -143,3 +143,16 @@ test('existing Windows cutover re-enables task without elevation-only replacemen
   assert.deepEqual(calls.map(([, args]) => args[0]), ['/Query', '/Change']);
   assert.deepEqual(calls[1][1].slice(-1), ['/ENABLE']);
 });
+
+test('Windows cutover waits (bounded) for in-flight work to drain, then activates', async () => {
+  const item = await fixture();
+  try {
+    let clock = 0; let probes = 0; let stopped = false;
+    const busy = async () => { probes += 1; if (probes < 3) throw new Error('cannot activate while 1 thin request(s) are in flight: job-1'); return { open: 0 }; };
+    const receipt = await runWindowsCutover({ ...input(item), drainTimeoutMs: 10_000 }, { ...drainDependencies, platform: 'win32', now: () => clock, sleep: async (ms) => { clock += ms; }, proveThinDrain: busy, stopManaged: async () => { stopped = true; return { stopped: true }; }, install: async () => ({}) }).catch((error) => error);
+    assert.equal(probes >= 3, true); assert.equal(stopped, true); assert.equal(clock, 2_000); void receipt;
+    clock = 0; probes = 0; stopped = false;
+    await assert.rejects(runWindowsCutover({ ...input(item), drainTimeoutMs: 1_500 }, { ...drainDependencies, platform: 'win32', now: () => clock, sleep: async (ms) => { clock += ms; }, proveThinDrain: async () => { throw new Error('cannot activate while 1 thin request(s) are in flight: job-1'); }, stopManaged: async () => { stopped = true; }, install: async () => {} }), /in flight/);
+    assert.equal(stopped, false);
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});

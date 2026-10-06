@@ -386,3 +386,35 @@ test('managed agent rejects oversized lines and out-of-range exit status', async
     await rm(root, { recursive: true, force: true });
   });
 });
+
+test('submit rides out a runtime cutover, then hands off on a runtime change', async () => {
+  const { submitManagedAgentJobAcrossCutover, cutoverInProgress, rerunOnCurrentRuntime } = await import('./index.mjs');
+  let clock = 0; const sleep = async (ms) => { clock += ms; };
+  const scripted = (errors, result) => { let calls = 0; return { calls: () => calls, submit: async () => { const next = errors[calls++]; if (next) throw new Error(next); return result; } }; };
+  // drain-pending, then broker briefly down during the fence, then accepted
+  let waited = 0;
+  const ok = scripted(['runtime cutover drain is pending', 'RightKit broker unavailable: ENOENT'], { type: 'ACCEPTED', id: 'j1' });
+  assert.deepEqual(await submitManagedAgentJobAcrossCutover({}, { submit: ok.submit, now: () => clock, sleep, inCutover: () => true, cutoverWaitMs: 60_000, onWaiting: () => { waited += 1; } }), { type: 'ACCEPTED', id: 'j1' });
+  assert.equal(ok.calls(), 3); assert.equal(waited, 1);
+  // a digest mismatch after waiting means the runtime changed under us
+  clock = 0;
+  const changed = scripted(['runtime cutover drain is pending', 'client/broker runtime digest mismatch'], null);
+  await assert.rejects(submitManagedAgentJobAcrossCutover({}, { submit: changed.submit, now: () => clock, sleep, inCutover: () => true, cutoverWaitMs: 60_000 }), (error) => error.code === 'RK_RUNTIME_CHANGED');
+  // broker unavailable with no cutover in progress fails immediately; the wait is bounded
+  clock = 0;
+  const down = scripted(['RightKit broker unavailable: ENOENT'], null);
+  await assert.rejects(submitManagedAgentJobAcrossCutover({}, { submit: down.submit, now: () => clock, sleep, inCutover: () => false, cutoverWaitMs: 60_000 }), /broker unavailable/);
+  assert.equal(down.calls(), 1);
+  clock = 0;
+  const stuck = scripted(Array(100).fill('runtime cutover drain is pending'), null);
+  await assert.rejects(submitManagedAgentJobAcrossCutover({}, { submit: stuck.submit, now: () => clock, sleep, inCutover: () => true, cutoverWaitMs: 5_000 }), /drain is pending/);
+  assert.equal(clock, 6_000);
+  // cutover fence: live pid only
+  const fence = (pid) => () => JSON.stringify({ pid });
+  assert.equal(cutoverInProgress({ externalRoot: 'x', read: fence(42), alive: () => true }), true);
+  assert.equal(cutoverInProgress({ externalRoot: 'x', read: fence(42), alive: () => false }), false);
+  assert.equal(cutoverInProgress({ externalRoot: 'x', read: () => { throw new Error('ENOENT'); } }), false);
+  // never re-run itself
+  // source checkout has no runtime-current sibling: nothing to hand off to
+  assert.equal(rerunOnCurrentRuntime(new URL('./index.mjs', import.meta.url).href, [], { run: () => { throw new Error('must not run'); } }), null);
+});

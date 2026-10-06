@@ -25,19 +25,21 @@ export function parseWindowsCutoverArgs(argv) {
     const flag = argv[index]; const value = argv[index + 1];
     if (typeof flag !== 'string' || !flag.startsWith('--') || value === undefined) throw new TypeError('cutover arguments must be --name value pairs');
     const name = flag.slice(2);
-    if (![...required, 'timeout-ms'].includes(name) || values[name] !== undefined) throw new TypeError(`unknown or duplicate cutover argument: ${flag}`);
+    if (![...required, 'timeout-ms', 'drain-timeout-ms'].includes(name) || values[name] !== undefined) throw new TypeError(`unknown or duplicate cutover argument: ${flag}`);
     values[name] = value;
   }
   for (const name of required) if (values[name] === undefined) throw new TypeError(`--${name} is required`);
   const timeoutMs = values['timeout-ms'] === undefined ? 8_000 : Number(values['timeout-ms']);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100) throw new TypeError('--timeout-ms must be an integer of at least 100');
+  const drainTimeoutMs = values['drain-timeout-ms'] === undefined ? 0 : Number(values['drain-timeout-ms']);
+  if (!Number.isSafeInteger(drainTimeoutMs) || drainTimeoutMs < 0) throw new TypeError('--drain-timeout-ms must be a non-negative integer');
   if (!/^[A-Za-z0-9._-]+$/.test(values.version)) throw new TypeError('--version must be an immutable safe identifier');
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(values['task-name'])) throw new TypeError('--task-name is invalid');
   for (const name of ['source-revision', 'source-tree-digest']) if (!/^[a-f0-9]{40,64}$/i.test(values[name])) throw new TypeError(`--${name} must be a Git object digest`);
   return Object.freeze({
     configPath: absolute(values.config, 'config'), externalRoot: absolute(values['external-root'], 'external-root'), sourcePackagesRoot: absolute(values['source-packages'], 'source-packages'),
     version: values.version, sourceRevision: values['source-revision'], sourceTreeDigest: values['source-tree-digest'], taskName: values['task-name'], endpoint: values.endpoint,
-    healthWorkspace: absolute(values['health-workspace'], 'health-workspace'), timeoutMs,
+    healthWorkspace: absolute(values['health-workspace'], 'health-workspace'), timeoutMs, drainTimeoutMs,
   });
 }
 
@@ -83,7 +85,7 @@ export async function stopManagedTask({ taskName, endpoint, configPath = null, b
  * legacy service is stopped.
  */
 export async function runWindowsCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeWindows, canonicalize = realpath, statFile = stat, stopManaged = stopManagedTask, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, execFile = execDefault } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeWindows, canonicalize = realpath, statFile = stat, stopManaged = stopManagedTask, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, execFile = execDefault, now = Date.now, sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)) } = dependencies;
   if (platform !== 'win32') throw new Error('windows cutover may only run on win32');
   const options = typeof input?.configPath === 'string' ? input : parseWindowsCutoverArgs(input);
   const [configPath, externalRoot, sourcePackagesRoot, healthWorkspace] = await Promise.all([
@@ -101,8 +103,22 @@ export async function runWindowsCutover(input, dependencies = {}) {
   const runtimeScript = resolve(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   const drainFence = await beginDrain(externalRoot);
   try {
-    const brokerDrain = await proveBrokerDrain(externalRoot, options.endpoint);
-    const thinDrain = await proveThinDrain(externalRoot);
+    // The fence already refuses new admissions; wait (bounded) for in-flight work to finish rather than
+    // requiring an idle broker at the instant of activation (mirrors runMacOSCutover).
+    const drainStartedAt = now();
+    let brokerDrain; let thinDrain;
+    for (;;) {
+      try {
+        brokerDrain = await proveBrokerDrain(externalRoot, options.endpoint);
+        thinDrain = await proveThinDrain(externalRoot);
+        break;
+      } catch (error) {
+        const pending = /^cannot activate while \d+ (?:broker|thin) request\(s\) are in flight:/.test(error?.message ?? '');
+        const elapsed = now() - drainStartedAt;
+        if (!pending || elapsed >= (options.drainTimeoutMs ?? 0)) throw error;
+        await sleep(Math.min(1_000, (options.drainTimeoutMs ?? 0) - elapsed));
+      }
+    }
     const stopProof = await stopManaged({ taskName: options.taskName, endpoint: options.endpoint, configPath, brokerScript: runtimeScript, execFile });
     // Persist the hidden-window launcher the task action references; every
     // start (including logon-trigger starts) goes through it so no console
