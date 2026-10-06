@@ -190,6 +190,9 @@ pub fn start_loop(state: Arc<PresenceDnd>, own_name: String, on_change: impl Fn(
     if !CONTROLS_SUPPORTED {
         return;
     }
+    // Edge-triggered: apply a sample only when the live result changes, so a state applied by
+    // `rk_shell_presence_evaluate` holds until the real environment actually moves.
+    let mut last: Option<AutoState> = None;
     let _ = std::thread::Builder::new().name("rk-shell-presence".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(POLL_SECONDS));
         let prefs = state.prefs();
@@ -201,6 +204,10 @@ pub fn start_loop(state: Arc<PresenceDnd>, own_name: String, on_change: impl Fn(
         } else {
             AutoState::default()
         };
+        if last == Some(next) {
+            continue;
+        }
+        last = Some(next);
         let (hidden, dnd) = state.set_auto(next);
         if hidden || dnd {
             on_change(state.snapshot());

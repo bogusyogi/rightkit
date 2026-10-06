@@ -217,16 +217,61 @@ impl From<io::Error> for SpawnClaimError {
 /// The short-lived create-new claim around one process spawn attempt.
 pub struct SpawnClaim { path: PathBuf }
 
+/// A claim older than this is abandoned even if its pid was recycled.
+const SPAWN_CLAIM_MAX_AGE: Duration = Duration::from_secs(60);
+
+fn claim_body() -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    format!("{} {}", std::process::id(), now)
+}
+
+fn claim_is_stale(body: &str) -> bool {
+    let mut it = body.split_whitespace();
+    let pid = it.next().and_then(|v| v.parse::<u32>().ok());
+    let at = it.next().and_then(|v| v.parse::<u128>().ok());
+    let (Some(pid), Some(at)) = (pid, at) else { return true };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    !pid_alive(pid) || now.saturating_sub(at) > SPAWN_CLAIM_MAX_AGE.as_millis()
+}
+
 impl SpawnClaim {
     pub fn path(suite: &Suite, service: &str) -> PathBuf {
         suite.service_dir(service).join("spawn.claim")
     }
 
+    fn create(path: &Path) -> io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+        f.write_all(claim_body().as_bytes())
+    }
+
     pub fn acquire(suite: &Suite, service: &str) -> Result<Self, SpawnClaimError> {
         make_private_dir(&suite.service_dir(service)).map_err(|e| SpawnClaimError::Io(io::Error::other(e.to_string())))?;
         let path = Self::path(suite, service);
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(_) => Ok(Self { path }),
+        match Self::create(&path) {
+            Ok(()) => return Ok(Self { path }),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(SpawnClaimError::Io(e)),
+        }
+        // Recover a claim left by a crashed launcher: its pid is dead, or it is
+        // far older than any spawn attempt. An empty body (writer mid-create) is
+        // judged by file age. Rename first so only one recoverer takes the file.
+        let body = std::fs::read_to_string(&path).unwrap_or_default();
+        let stale = if body.trim().is_empty() {
+            std::fs::metadata(&path).and_then(|m| m.modified()).ok()
+                .and_then(|m| m.elapsed().ok()).is_some_and(|age| age > SPAWN_CLAIM_MAX_AGE)
+        } else {
+            claim_is_stale(&body)
+        };
+        if !stale {
+            return Err(SpawnClaimError::AlreadyHeld(path));
+        }
+        let grave = path.with_extension(format!("stale{}", std::process::id()));
+        if std::fs::rename(&path, &grave).is_ok() {
+            let _ = std::fs::remove_file(&grave);
+        }
+        match Self::create(&path) {
+            Ok(()) => Ok(Self { path }),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(SpawnClaimError::AlreadyHeld(path)),
             Err(e) => Err(SpawnClaimError::Io(e)),
         }
@@ -269,8 +314,14 @@ pub fn record_process_matches(record: &ServiceRecord) -> bool {
 
 fn record_process_matches_inner(record: &ServiceRecord) -> bool {
     if !pid_alive(record.pid) { return false; }
-    if record.started_ms == 0 { return true; }
-    process_start_ms(record.pid).is_some_and(|started| started.abs_diff(record.started_ms as u128) <= 2_000)
+    // Legacy / wave-1 records carry no process birth time: PID liveness is all
+    // we can know. `started_ms` is publication time and never validates a PID.
+    if record.process_started_ms == 0 { return true; }
+    match process_start_ms(record.pid) {
+        Some(started) => started.abs_diff(record.process_started_ms as u128) <= 2_000,
+        // Cannot read the birth time right now: the pid is alive, keep the record.
+        None => true,
+    }
 }
 
 /// Start time (ms since epoch) of this process, as `process_start_ms` reports it.

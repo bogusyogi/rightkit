@@ -14,7 +14,7 @@ publish = false
 [dependencies]
 # Only for the fail-closed app-data root (`Suite::resolve`); no I/O at runtime beyond that.
 rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
-serde_json = "=1.0.150"
+serde_json = "1.0.150"
 
 [dev-dependencies]
 tempfile = "3"

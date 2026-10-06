@@ -212,6 +212,7 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
 
     public func load() async -> StoredLicense? {
         guard let data = read(service: service, account: account) else { return nil }
+        try? write(data, service: service, account: account) // migrate legacy accessibility
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try? decoder.decode(StoredLicense.self, from: data)
     }
@@ -225,31 +226,47 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
     public func remove() async throws { try delete(service: service, account: account) }
 
     public func deviceID(account: String = "device-id") -> String {
-        if let data = read(service: service, account: account), let value = String(data: data, encoding: .utf8), !value.isEmpty { return value }
+        if let data = read(service: service, account: account), let value = String(data: data, encoding: .utf8), !value.isEmpty {
+            // Migrate a record written before device-only accessibility was enforced.
+            try? write(data, service: service, account: account)
+            return value
+        }
         let value = UUID().uuidString
         try? write(Data(value.utf8), service: service, account: account)
         return value
     }
 
+    /// Device-only accessibility: the item is excluded from backups and never migrates to another
+    /// device, so a restored backup cannot carry a prior device binding.
+    static var deviceOnlyAccessibility: CFString { kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly }
+
+    func identity(service: String, account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecAttrSynchronizable as String: false]
+    }
+
     private func read(service: String, account: String) -> Data? {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+        var query = identity(service: service, account: account)
+        query[kSecReturnData as String] = true; query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else { return nil }
         return item as? Data
     }
 
+    /// Update-or-add; on update the accessibility attribute is rewritten so existing records that
+    /// predate device-only accessibility are migrated in place.
     private func write(_ data: Data, service: String, account: String) throws {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let query = identity(service: service, account: account)
+        let attributes: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: Self.deviceOnlyAccessibility]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if status == errSecItemNotFound {
-            var item = query; item[kSecValueData as String] = data
-            guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw LicenseStorageError.keychain(status) }
+            var item = query; item.merge(attributes) { $1 }
+            let added = SecItemAdd(item as CFDictionary, nil)
+            guard added == errSecSuccess else { throw LicenseStorageError.keychain(added) }
         } else if status != errSecSuccess { throw LicenseStorageError.keychain(status) }
     }
 
     private func delete(service: String, account: String) throws {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-        let status = SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(identity(service: service, account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw LicenseStorageError.keychain(status) }
     }
 }
@@ -408,7 +425,9 @@ public struct LicenseActivationClient: Sendable {
 }
 
 public extension LicenseActivationClient {
-    static func isLicensed(_ license: StoredLicense?, graceDays: Int = 7, now: Date = Date()) -> Bool {
+    /// DISPLAY ONLY. Reads the mutable cached status/`validUntil`; it is not proof of entitlement
+    /// and must never gate a feature. Use ``StoredLicense/authorizedClaims(publicKeyBase64url:app:deviceId:now:)``.
+    static func displayIsLicensed(_ license: StoredLicense?, graceDays: Int = 7, now: Date = Date()) -> Bool {
         guard let license, license.status == "active" else { return false }
         guard let validUntil = license.validUntil else { return true }
         guard let expiry = ISO8601DateFormatter().date(from: validUntil) else { return license.licenseKind != "trial" && license.entitlementStage != "provisional" }
@@ -430,26 +449,54 @@ public struct LicenseRequirement: Equatable, Sendable {
     public static var pro: Self { Self(tier: "pro") }
 }
 
-public func isLicensed(_ license: StoredLicense?, graceDays: Int = 7, now: Date = Date()) -> Bool {
-    LicenseActivationClient.isLicensed(license, graceDays: graceDays, now: now)
+// MARK: Display-only raw helpers (cached, unsigned, mutable data: never authorization)
+
+public func displayIsLicensed(_ license: StoredLicense?, graceDays: Int = 7, now: Date = Date()) -> Bool {
+    LicenseActivationClient.displayIsLicensed(license, graceDays: graceDays, now: now)
+}
+public func displayTier(_ license: StoredLicense?) -> String? { license?.entitlements?.tier }
+public func displayHasFeature(_ license: StoredLicense?, _ feature: String) -> Bool { license?.entitlements?.hasFeature(feature) == true }
+public func displayIsPro(_ license: StoredLicense?, graceDays: Int = 7, now: Date = Date()) -> Bool {
+    displayIsLicensed(license, graceDays: graceDays, now: now) && displayTier(license) == "pro"
 }
 
-public func tier(_ license: StoredLicense?) -> String? { license?.entitlements?.tier }
-public func hasFeature(_ license: StoredLicense?, _ feature: String) -> Bool { license?.entitlements?.hasFeature(feature) == true }
-public func isPro(_ license: StoredLicense?, graceDays: Int = 7, now: Date = Date()) -> Bool {
-    isLicensed(license, graceDays: graceDays, now: now) && tier(license) == "pro"
-}
+// MARK: Authorization (derived only from signed, verified claims)
 
-public func satisfiesRequirement(_ license: StoredLicense?, _ requirement: LicenseRequirement, graceDays: Int = 7, now: Date = Date()) -> Bool {
-    guard isLicensed(license, graceDays: graceDays, now: now) else { return false }
-    if let requiredTier = requirement.tier {
-        let rank: [String: Int] = ["free": 0, "plus": 1, "pro": 2]
-        guard let actual = rank[tier(license) ?? ""], let needed = rank[requiredTier], actual >= needed else { return false }
+public extension StoredLicense {
+    /// The only authorization source: a signed token that verifies against `publicKeyBase64url`
+    /// and is bound to `app`, to this record's device (and to `deviceId` when the caller supplies
+    /// the live device identity), and to an unexpired `exp`. The record must also still be
+    /// `active`; a missing, unsigned, forged, wrong-app, wrong-device or expired token yields nil.
+    func authorizedClaims(
+        publicKeyBase64url: String, app: String, deviceId expectedDeviceId: String? = nil,
+        now: Int = Int(Date().timeIntervalSince1970)
+    ) -> LicenseClaims? {
+        guard status == "active" else { return nil }
+        if let expectedDeviceId, expectedDeviceId != deviceId { return nil }
+        return verifiedClaims(publicKeyBase64url: publicKeyBase64url, app: app, now: now)
     }
-    if let feature = requirement.feature, !hasFeature(license, feature) { return false }
-    if !requirement.allFeatures.allSatisfy({ hasFeature(license, $0) }) { return false }
-    if !requirement.anyFeatures.isEmpty && !requirement.anyFeatures.contains(where: { hasFeature(license, $0) }) { return false }
-    return requirement.tier != nil || requirement.feature != nil || !requirement.allFeatures.isEmpty || !requirement.anyFeatures.isEmpty
+}
+
+public extension LicenseClaims {
+    /// Fail closed: an empty requirement, an unknown tier name, or a missing feature is denied.
+    func satisfies(_ requirement: LicenseRequirement) -> Bool {
+        if let requiredTier = requirement.tier {
+            let rank: [String: Int] = ["free": 0, "plus": 1, "pro": 2]
+            guard let actual = rank[tier], let needed = rank[requiredTier], actual >= needed else { return false }
+        }
+        if let feature = requirement.feature, !hasFeature(feature) { return false }
+        if !requirement.allFeatures.allSatisfy({ hasFeature($0) }) { return false }
+        if !requirement.anyFeatures.isEmpty && !requirement.anyFeatures.contains(where: { hasFeature($0) }) { return false }
+        return requirement.tier != nil || requirement.feature != nil || !requirement.allFeatures.isEmpty || !requirement.anyFeatures.isEmpty
+    }
+}
+
+public func isPro(_ license: StoredLicense?, publicKeyBase64url: String, app: String, deviceId: String? = nil, now: Int = Int(Date().timeIntervalSince1970)) -> Bool {
+    license?.authorizedClaims(publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now)?.isPro == true
+}
+
+public func satisfiesRequirement(_ license: StoredLicense?, _ requirement: LicenseRequirement, publicKeyBase64url: String, app: String, deviceId: String? = nil, now: Int = Int(Date().timeIntervalSince1970)) -> Bool {
+    license?.authorizedClaims(publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now)?.satisfies(requirement) == true
 }
 
 /// Small resolver seam apps can inject beside `RightKitPurchases.AccessResolver`.

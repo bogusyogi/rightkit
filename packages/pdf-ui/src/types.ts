@@ -4,13 +4,14 @@
 /** Where a PDF comes from. Apps adapt their own file access (for example @rightkit/shell reads)
  *  into one of these shapes; this package never reads files itself.
  *
- *  Keep the object referentially stable (useMemo / state): a new `source` object loads a new
- *  document. `bytes` are copied before they reach the pdf.js worker, so the caller's buffer is
+ *  A document is identified by its URL, its `data.buffer` (plus offset/length) or its `load`
+ *  function identity, plus the optional `revision`: keep the buffer/function stable across renders
+ *  and change it (or `revision`) to load a different document. `bytes` are copied before they reach the pdf.js worker, so the caller's buffer is
  *  never detached. */
 export type PdfSource =
-  | { kind: "bytes"; data: Uint8Array }
-  | { kind: "url"; url: string }
-  | { kind: "loader"; load(): Promise<Uint8Array> };
+  | { kind: "bytes"; data: Uint8Array; revision?: string | number }
+  | { kind: "url"; url: string; revision?: string | number }
+  | { kind: "loader"; load(): Promise<Uint8Array>; revision?: string | number };
 
 export type PdfFitMode = "width" | "page" | null;
 export type PdfPanel = null | "outline" | "thumbs";

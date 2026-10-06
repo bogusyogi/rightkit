@@ -116,10 +116,18 @@ public struct RightKitOverlayModel: Sendable, Equatable {
     public mutating func apply(_ event: RightKitOverlayEvent) {
         mode = event.mode
         visible = mode != nil
-        if hitbox == nil { hitbox = frame }
     }
 
-    public mutating func place(in workArea: RightKitOverlayWorkArea) { frame = workArea.clamping(frame) }
+    /// Clamps the frame into `workArea`. A nil `hitbox` follows the frame by definition; an explicit
+    /// hitbox is translated by the same displacement so it keeps its offset from the frame.
+    public mutating func place(in workArea: RightKitOverlayWorkArea) {
+        let placed = workArea.clamping(frame)
+        if var box = hitbox, placed.isFinite {
+            box.x += placed.x - frame.x; box.y += placed.y - frame.y
+            hitbox = box
+        }
+        frame = placed
+    }
 
     public func hitTest(x: Double, y: Double) -> Bool { visible && (hitbox ?? frame).contains(x: x, y: y) }
 }

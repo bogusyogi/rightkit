@@ -258,7 +258,10 @@ impl FocusMonitor {
         let unchanged = g.0 > 0 && g.1 == 0 && g.2.len() == 1;
         let observed = self.owned_frontmost.lock().unwrap_or_else(|e| e.into_inner()).clone();
         #[cfg(target_os = "macos")]
-        let owned_never_frontmost = !self.enforce_owned || (g.1 == 0 && observed.is_empty());
+        // Unverified launch interval: if the executable identity was never registered
+        // before launch, startup samples could not be attributed, so never claim success.
+        let identity_registered = self.owned.lock().unwrap_or_else(|e| e.into_inner()).1.is_some();
+        let owned_never_frontmost = !self.enforce_owned || (identity_registered && g.1 == 0 && observed.is_empty());
         #[cfg(not(target_os = "macos"))]
         // No native foreground-PID sampler exists on these targets yet; background
         // claims fail closed instead of treating name-only sampling as proof.
@@ -355,11 +358,10 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     let focus = FocusMonitor::start(spec.mode != Mode::Visible);
     let deadline = Instant::now() + spec.startup_timeout;
 
-    let (pid, child, executable_prefix) = start_process(spec, ws, &env, &raw_log, &id, tracker, deadline)?;
+    // The executable identity is registered inside start_process BEFORE `open`, so
+    // startup foreground samples are attributed; the pid follows once known.
+    let (pid, child) = start_process(spec, ws, &env, &raw_log, &id, tracker, &focus, deadline)?;
     focus.track_primary(pid);
-    if let Some(prefix) = executable_prefix {
-        focus.track_prefix(prefix);
-    }
     tracker.register(pid, &spec.label);
 
     let mut control = Control {
@@ -423,8 +425,9 @@ fn start_process(
     log_path: &Path,
     id: &str,
     _tracker: &Tracker,
+    focus: &FocusMonitor,
     deadline: Instant,
-) -> Result<(u32, Option<OwnedChild>, Option<String>)> {
+) -> Result<(u32, Option<OwnedChild>)> {
     #[cfg(target_os = "macos")]
     {
         let bundle = if spec.binary.extension().map(|e| e == "app").unwrap_or(false) {
@@ -434,6 +437,7 @@ fn start_process(
         };
         let needle = format!("{}/Contents/MacOS/", bundle.display());
         let executable = format!("{needle}{}", bundle.file_name().and_then(|n| n.to_str()).unwrap_or_default().trim_end_matches(".app"));
+        focus.track_prefix(executable.clone());
         let mut cmd = Command::new("open");
         match spec.mode {
             Mode::Hidden => cmd.args(["-g", "-j", "-n"]),
@@ -453,7 +457,7 @@ fn start_process(
         }
         loop {
             if let Some(pid) = pids_with_command_prefix(&needle).ok().and_then(|pids| pids.into_iter().next()) {
-                return Ok((pid, None, Some(executable.clone())));
+                return Ok((pid, None));
             }
             if Instant::now() >= deadline {
                 return err("launched app pid not found");
@@ -463,7 +467,7 @@ fn start_process(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (ws, id);
+        let _ = (ws, id, focus);
         let log = fs::File::create(log_path)?;
         let log2 = log.try_clone()?;
         let mut cmd = Command::new(&spec.binary);
@@ -477,7 +481,7 @@ fn start_process(
         }
         let _ = deadline;
         let child = owned.spawn().map_err(|e| Error(format!("failed to start {}: {e}", spec.binary.display())))?;
-        Ok((child.id(), Some(child), None))
+        Ok((child.id(), Some(child)))
     }
 }
 

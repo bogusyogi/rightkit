@@ -10,8 +10,8 @@ publish = false
 
 [dependencies]
 rightkit-framed-sidecar = { version = "=0.1.0", path = "../rightkit-framed-sidecar" }
-serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = "=1.0.150"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 
 # Windows named pipes with a current-user-only DACL. cfg(windows) only: this
 # backend compiles on the Windows host (see API.md for the exact command).

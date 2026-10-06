@@ -27,15 +27,23 @@ export function Onboarding({ settings, legal, steps = [], permissions, models, l
   const [state, setState] = useState<PersistedOnboardingState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const save = useCallback(async (patch: Partial<PersistedOnboardingState>) => {
+  /** Persists a patch; throws when the settings backend rejects it. */
+  const persist = useCallback(async (patch: Partial<PersistedOnboardingState>) => {
     setSaving(true); setError(null);
     const next = { ...(state ?? INITIAL), ...patch };
     try {
       const snap = await settings.patch({ [KEY]: next });
       setState(readState(snap.values[KEY]));
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setSaving(false); }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      throw e;
+    } finally { setSaving(false); }
   }, [settings, state]);
+  /** Like `persist` but reports success as a boolean; the failure is already visible via `error`. */
+  const save = useCallback(async (patch: Partial<PersistedOnboardingState>): Promise<boolean> => {
+    try { await persist(patch); return true; } catch { return false; }
+  }, [persist]);
+  const saveStep = useCallback(async (patch: Partial<PersistedOnboardingState>): Promise<void> => { await save(patch); }, [save]);
   useEffect(() => { let live = true; void settings.load().then((snapshot) => { if (live) setState(readState(snapshot.values[KEY])); }, (e) => { if (live) setError(e instanceof Error ? e.message : String(e)); }); return () => { live = false; }; }, [settings]);
 
   const builtins = useMemo<OnboardingStep[]>(() => [
@@ -46,23 +54,30 @@ export function Onboarding({ settings, legal, steps = [], permissions, models, l
     ...steps,
   ], [license, models, permissions, steps]);
   const activeState = state ?? INITIAL;
-  const index = Math.min(activeState.currentStep, builtins.length - 1);
+  // The agreement gate does not depend on the saved step: until it is accepted, the active step is the first.
+  const index = activeState.legalAccepted ? Math.min(activeState.currentStep, builtins.length - 1) : 0;
   const active = builtins[index];
 
-  const context: OnboardingStepContext = { state: activeState, settings, setState: save, permissions, models, license };
+  const context: OnboardingStepContext = { state: activeState, settings, setState: saveStep, permissions, models, license };
+  const runCallback = async (callback: (() => void | Promise<void>) | undefined) => {
+    try { await callback?.(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
   const markAndMove = async (nextIndex: number, completedId?: string) => {
     const completed = completedId && !activeState.completed.includes(completedId) ? [...activeState.completed, completedId] : activeState.completed;
-    if (nextIndex >= builtins.length) { await save({ completed, currentStep: Math.max(0, builtins.length - 1), skipped: false }); await onComplete(); return; }
+    if (nextIndex >= builtins.length) {
+      if (await save({ completed, currentStep: Math.max(0, builtins.length - 1), skipped: false })) await runCallback(onComplete);
+      return;
+    }
     await save({ completed, currentStep: nextIndex, skipped: false });
   };
   if (error && !state) return <div className={cx("rk-onboarding", className)}><p className="rk-onboarding__error" role="alert">{error}</p><Button onClick={() => window.location.reload()}>Retry</Button></div>;
   if (!state || !active) return <div className={cx("rk-onboarding", className)} aria-busy="true"><p className="rk-onboarding__muted">Loading setup…</p></div>;
-  if (index === 0 && !activeState.legalAccepted) {
-    return <div className={cx("rk-onboarding rk-onboarding--legal", className)} data-testid="onboarding-legal"><LegalGate {...legal} variant="first-run" onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => { await save({ legalAccepted: true, eligibilityBasis, completed: ["legal"], currentStep: builtins.length > 1 ? 1 : 0 }); if (builtins.length === 1) await onComplete(); }} /></div>;
+  if (!activeState.legalAccepted) {
+    return <div className={cx("rk-onboarding rk-onboarding--legal", className)} data-testid="onboarding-legal"><LegalGate {...legal} variant="first-run" onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => { await persist({ legalAccepted: true, eligibilityBasis, completed: ["legal"], currentStep: builtins.length > 1 ? 1 : 0 }); if (builtins.length === 1) await onComplete(); }} /></div>;
   }
   const body: ReactNode = active.render(context);
   return <main className={cx("rk-onboarding", className)} data-testid="onboarding" data-step-id={active.id}>
     <aside className="rk-onboarding__rail"><div className="rk-onboarding__brand">{legal.appName}</div><nav aria-label="Setup progress">{builtins.map((step, i) => <button key={step.id} type="button" className={cx("rk-onboarding__step", i === index && "is-active", activeState.completed.includes(step.id) && "is-done")} aria-current={i === index ? "step" : undefined} onClick={() => { if (i > 0 || activeState.legalAccepted) void save({ currentStep: i }); }}><span>{activeState.completed.includes(step.id) ? "✓" : i + 1}</span>{step.label}</button>)}</nav></aside>
-    <section className="rk-onboarding__main"><header><p className="rk-onboarding__eyebrow">Step {index + 1} of {builtins.length}</p><h1>{active.title}</h1>{active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}</header><div className="rk-onboarding__content">{body}</div>{error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}<footer><Button variant="ghost" disabled={saving} onClick={() => { void save({ currentStep: index, skipped: true }).then(() => onSkip?.()); }}>Set up later</Button><span /><Button variant="secondary" disabled={index === 0 || saving} onClick={() => void save({ currentStep: index - 1 })}>Back</Button><Button variant="primary" disabled={saving} onClick={() => void markAndMove(index + 1, active.id)}>{index === builtins.length - 1 ? "Finish setup" : "Continue"}</Button></footer></section>
+    <section className="rk-onboarding__main"><header><p className="rk-onboarding__eyebrow">Step {index + 1} of {builtins.length}</p><h1>{active.title}</h1>{active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}</header><div className="rk-onboarding__content">{body}</div>{error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}<footer><Button variant="ghost" disabled={saving} onClick={() => { void save({ currentStep: index, skipped: true }).then((ok) => ok ? runCallback(onSkip) : undefined); }}>Set up later</Button><span /><Button variant="secondary" disabled={index === 0 || saving} onClick={() => void save({ currentStep: index - 1 })}>Back</Button><Button variant="primary" disabled={saving} onClick={() => void markAndMove(index + 1, active.id)}>{index === builtins.length - 1 ? "Finish setup" : "Continue"}</Button></footer></section>
   </main>;
 }

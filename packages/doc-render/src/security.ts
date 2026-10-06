@@ -40,27 +40,16 @@ export function safeImageHref(href?: string): string | undefined {
 const FORBIDDEN_TAGS = ["script", "style", "iframe", "object", "embed", "form", "base", "meta", "link", "template", "svg", "math", "canvas"];
 const URI_ATTRIBUTES = new Set(["href", "src", "action", "formaction", "xlink:href"]);
 
-function fallbackSanitize(html: string): string {
-  let output = html.replace(/<!--[\s\S]*?-->/g, "");
-  for (const tag of FORBIDDEN_TAGS) {
-    output = output.replace(new RegExp(`<\\s*${tag}\\b[^>]*>[\\s\\S]*?<\\s*\\/\\s*${tag}\\s*>`, "gi"), "");
-    output = output.replace(new RegExp(`<\\s*\\/?\\s*${tag}\\b[^>]*>`, "gi"), "");
-  }
-  output = output.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  output = output.replace(/\s+(?:style|srcdoc)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-  output = output.replace(/\s+(href|src|action|formaction|xlink:href)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (full, attribute: string, raw: string) => {
-    const quote = raw[0] === '"' || raw[0] === "'" ? raw[0] : "";
-    const value = quote ? raw.slice(1, -1) : raw;
-    const safe = attribute.toLowerCase() === "src" ? safeImageHref(value) : safeLinkHref(value);
-    return safe ? ` ${attribute}="${safe.replace(/"/g, "&quot;")}"` : "";
-  });
-  return output;
+/** Without a DOM there is no trustworthy HTML parser, so fail closed: render the raw markup as
+ * inert text. Regex sanitizing is never a security boundary (e.g. `<img src=x/onerror=...>`). */
+function escapeHtml(html: string): string {
+  return html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 /** Sanitize raw HTML before it reaches a React HTML boundary. Browser DOMPurify is used when a
- * DOM exists; deterministic fallback logic keeps SSR/tests safe without creating a fake DOM. */
+ * DOM exists; with no DOM (SSR/node) the markup is escaped to inert text. */
 export function sanitizeHtml(html: string): string {
-  if (typeof document === "undefined" || !DOMPurify.isSupported) return fallbackSanitize(html);
+  if (typeof document === "undefined" || !DOMPurify.isSupported) return escapeHtml(html);
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: ["a", "abbr", "b", "blockquote", "br", "code", "del", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "li", "ol", "p", "pre", "section", "small", "span", "strong", "sub", "sup", "table", "tbody", "td", "th", "thead", "tr", "u", "ul"],
     ALLOWED_ATTR: ["alt", "class", "colspan", "height", "href", "id", "rel", "rowspan", "src", "target", "title", "width"],

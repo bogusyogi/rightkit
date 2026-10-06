@@ -280,7 +280,8 @@ pub fn host(suite: &Suite, cfg: ServiceConfig, handler: Arc<dyn Handler>) -> Res
         endpoint: endpoint.clone(),
         version: cfg.version.clone(),
         engine_version: cfg.version.clone(),
-        started_ms: crate::discovery::own_start_ms().unwrap_or(0),
+        started_ms: now_ms(),
+        process_started_ms: crate::discovery::own_start_ms().unwrap_or(0),
     };
     write_atomic(&record_path(suite, &cfg.service), &serde_json::to_vec_pretty(&record).unwrap_or_default())?;
     if read_takeover(suite, &cfg.service).is_some_and(|t| t.pid == me) {

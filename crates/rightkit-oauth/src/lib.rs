@@ -6,7 +6,7 @@
 //! checks state before exchanging the code, and returns redacted tokens.
 
 use std::fmt;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, SystemTime};
 
@@ -144,12 +144,22 @@ pub trait TokenStore: Send + Sync {
 }
 
 /// State created before opening the user's browser.
-#[derive(Debug)]
 pub struct AuthorizationRequest {
     pub authorization_url: String,
     pub state: String,
     pub redirect_uri: String,
     verifier: String,
+}
+
+impl fmt::Debug for AuthorizationRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthorizationRequest")
+            .field("authorization_url", &self.authorization_url)
+            .field("state", &self.state)
+            .field("redirect_uri", &self.redirect_uri)
+            .field("verifier", &"[redacted]")
+            .finish()
+    }
 }
 
 impl AuthorizationRequest {
@@ -228,7 +238,9 @@ impl OAuthClient {
                 Err(e) => return Err(OAuthError::Callback(format!("accept callback: {e}"))),
             }
         };
-        let callback = read_callback(stream)?;
+        // One absolute deadline for the whole request line, never per read.
+        let remaining = timeout.saturating_sub(started.elapsed()).clamp(Duration::from_millis(250), CALLBACK_READ_MAX);
+        let callback = read_callback(stream, remaining)?;
         if callback.state.as_deref() != Some(flow.request.state.as_str()) {
             return Err(OAuthError::StateMismatch);
         }
@@ -318,11 +330,47 @@ struct Callback {
     error: Option<String>,
 }
 
-fn read_callback(mut stream: TcpStream) -> Result<Callback, OAuthError> {
+/// Longest accepted callback request line (method, target, version).
+const CALLBACK_LINE_MAX: usize = 8 * 1024;
+/// Ceiling on the absolute time one callback connection may take to deliver its request line.
+const CALLBACK_READ_MAX: Duration = Duration::from_secs(10);
+
+/// Read one request line (up to `\n`) under an absolute deadline and a size cap.
+fn read_request_line(stream: &mut TcpStream, deadline: std::time::Instant) -> Result<String, OAuthError> {
+    use std::io::Read;
+    let mut line: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 512];
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Err(OAuthError::Callback("timed out reading callback request".into()));
+        }
+        stream.set_read_timeout(Some(left)).map_err(|e| OAuthError::Callback(e.to_string()))?;
+        let n = match stream.read(&mut chunk) {
+            Ok(0) => return Err(OAuthError::Callback("callback connection closed before request line".into())),
+            Ok(n) => n,
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                return Err(OAuthError::Callback("timed out reading callback request".into()));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(OAuthError::Callback(e.to_string())),
+        };
+        let end = chunk[..n].iter().position(|b| *b == b'\n');
+        let take = end.unwrap_or(n);
+        if line.len() + take > CALLBACK_LINE_MAX {
+            return Err(OAuthError::Callback("callback request line too long".into()));
+        }
+        line.extend_from_slice(&chunk[..take]);
+        if end.is_some() {
+            return Ok(String::from_utf8_lossy(&line).trim_end_matches('\r').to_string());
+        }
+    }
+}
+
+fn read_callback(mut stream: TcpStream, read_budget: Duration) -> Result<Callback, OAuthError> {
     stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
-    let mut reader = BufReader::new(stream.try_clone().map_err(|e| OAuthError::Callback(e.to_string()))?);
-    let mut first = String::new();
-    reader.read_line(&mut first).map_err(|e| OAuthError::Callback(e.to_string()))?;
+    stream.set_nonblocking(false).ok();
+    let first = read_request_line(&mut stream, std::time::Instant::now() + read_budget)?;
     let target = first.split_whitespace().nth(1).ok_or_else(|| OAuthError::Callback("malformed callback request".into()))?;
     let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
     let mut callback = Callback { code: None, state: None, error: None };

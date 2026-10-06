@@ -56,10 +56,22 @@ interface PageState {
   error?: string;
 }
 
+const identityIds = new WeakMap<object, number>();
+let nextIdentity = 1;
+function identityOf(value: object): number {
+  let id = identityIds.get(value);
+  if (id === undefined) { id = nextIdentity++; identityIds.set(value, id); }
+  return id;
+}
+
+/** Document identity: URL text, or the identity of the supplied buffer/loader (plus view window and
+ *  optional `revision`). Two different same-sized PDFs or two loader closures with identical source
+ *  text therefore never collide. */
 function sourceKey(source: PdfSource): string {
-  if (source.kind === "url") return `url:${source.url}`;
-  if (source.kind === "loader") return source.load.toString();
-  return `bytes:${source.data.byteLength}:${source.data.byteOffset}:${source.data.buffer.byteLength}`;
+  const revision = "revision" in source && source.revision !== undefined ? String(source.revision) : "";
+  if (source.kind === "url") return `url:${source.url}:${revision}`;
+  if (source.kind === "loader") return `loader:${identityOf(source.load)}:${revision}`;
+  return `bytes:${identityOf(source.data.buffer)}:${source.data.byteOffset}:${source.data.byteLength}:${revision}`;
 }
 
 async function loadSource(source: PdfSource): Promise<Uint8Array | string> {
@@ -336,7 +348,8 @@ export function PdfViewer({
   }, [scale]);
 
   const viewState = { page, scale, fit, rotation, panel } satisfies PdfViewState;
-  return <div ref={hostRef} className={`rk-pdf-viewer ${className ?? ""}`} data-loading={loading || undefined}>
+  const searchValue: PdfSearchContextValue = { find, next: () => stepMatch(1), prev: () => stepMatch(-1), result: { count: matches.length, activeIndex: activeMatch }, viewState };
+  return <PdfSearchContext.Provider value={searchValue}><div ref={hostRef} className={`rk-pdf-viewer ${className ?? ""}`} data-loading={loading || undefined}>
     {!hideToolbar && <div className="rk-pdf-toolbar">
       <button type="button" onClick={() => goToPage(page - 1)} disabled={page <= 1} aria-label="Previous page">‹</button>
       <form onSubmit={(event) => { event.preventDefault(); goToPage(Number(pageDraft)); setPageDraft(""); }}>
@@ -371,8 +384,7 @@ export function PdfViewer({
         </div>
       </div>
     </div>
-    <PdfSearchContext.Provider value={{ find, next: () => stepMatch(1), prev: () => stepMatch(-1), result: { count: matches.length, activeIndex: activeMatch }, viewState }}>{null}</PdfSearchContext.Provider>
-  </div>;
+  </div></PdfSearchContext.Provider>;
 }
 
 function OutlinePanel({ nodes, onSelect }: { nodes: OutlineNode[]; onSelect: (dest: string | unknown[] | null) => void }) {

@@ -39,39 +39,22 @@ final class AppleCredentialTests: XCTestCase {
         XCTAssertThrowsError(try store.write("", account: "alpha", scope: .device).get())
     }
 
-    func testHelperStatusAndExistsNeverReturnSecretBytes() throws {
-        let (store, _) = store()
-        try store.write("secret-fixture", account: "alpha", scope: .device).get()
-
-        let request = try JSONEncoder().encode(AppleCredentialRequest(command: "exists", scope: .device, account: "alpha"))
-        let input = Pipe(); let output = Pipe()
-        input.fileHandleForWriting.write(request + Data([0x0a]))
-        input.fileHandleForWriting.closeFile()
-        XCTAssertEqual(AppleCredentialHelper.run(store: store, input: input.fileHandleForReading, output: output.fileHandleForWriting), 0)
-        output.fileHandleForWriting.closeFile()
-        let response = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)!
-        XCTAssertTrue(response.contains("\"exists\":true"))
-        XCTAssertFalse(response.contains("secret-fixture"))
-    }
-
-    func testHelperJSONLinesThroughIsolatedProcess() throws {
-        guard let helper = ProcessInfo.processInfo.environment["RIGHTKIT_APPLE_CREDENTIALS_HELPER"] else {
-            throw XCTSkip("set RIGHTKIT_APPLE_CREDENTIALS_HELPER to run helper process E2E")
+#if canImport(Security)
+    /// Pure query construction: no Keychain call is made, so no real item or prompt is possible.
+    func testProductionQueriesPreserveExplicitSynchronizableScope() {
+        let backend = SecurityAppleCredentialBackend(accessGroup: nil)
+        let synced = backend.scoped("svc.test", "acct", .synced)
+        let device = backend.scoped("svc.test", "acct", .device)
+        XCTAssertEqual(synced[kSecAttrSynchronizable as String] as? Bool, true)
+        XCTAssertEqual(device[kSecAttrSynchronizable as String] as? Bool, false)
+        XCTAssertEqual(SecurityAppleCredentialBackend.accessibility(for: .synced) as String, kSecAttrAccessibleAfterFirstUnlock as String)
+        XCTAssertEqual(SecurityAppleCredentialBackend.accessibility(for: .device) as String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+        for scope in AppleCredentialScope.allCases {
+            let value = backend.scoped("svc.test", "acct", scope)[kSecAttrSynchronizable as String] as? Bool
+            XCTAssertNotNil(value, "scoped query must never use the broad kSecAttrSynchronizableAny wildcard")
         }
-        let request = try JSONEncoder().encode(AppleCredentialRequest(command: "write", scope: .device, account: "process.account", value: "process-secret-fixture"))
-        let input = Pipe(); let output = Pipe(); let process = Process()
-        process.executableURL = URL(fileURLWithPath: helper)
-        process.environment = ["RIGHTKIT_HELPER_TEST_IN_MEMORY": "1", "RIGHTKIT_HELPER_SERVICE": "rightkit.process.\(UUID().uuidString)"]
-        process.standardInput = input; process.standardOutput = output; process.standardError = FileHandle.nullDevice
-        try process.run()
-        input.fileHandleForWriting.write(request + Data([0x0a]))
-        input.fileHandleForWriting.closeFile()
-        process.waitUntilExit()
-        let response = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)!
-        XCTAssertEqual(process.terminationStatus, 0)
-        XCTAssertTrue(response.contains("\"ok\":true"))
-        XCTAssertFalse(response.contains("process-secret-fixture"))
     }
+#endif
 }
 
 private extension Result {

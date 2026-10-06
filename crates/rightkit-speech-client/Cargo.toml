@@ -11,8 +11,8 @@ publish = false
 [dependencies]
 rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
 rightkit-framed-sidecar = { version = "=0.1.0", path = "../rightkit-framed-sidecar" }
-serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = "=1.0.150"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 
 [dev-dependencies]
 tempfile = "3"

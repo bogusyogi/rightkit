@@ -6,6 +6,23 @@ import CoreGraphics
 #endif
 
 final class OverlayTests: XCTestCase {
+    func testDefaultHitboxFollowsFrameAfterPlacement() {
+        var model = RightKitOverlayModel(kind: .heardRightPill, frame: RightKitOverlayRect(x: 900, y: 900, width: 64, height: 10))
+        model.apply(.recording)
+        model.place(in: RightKitOverlayWorkArea(left: 0, top: 0, right: 800, bottom: 600))
+        XCTAssertEqual(model.frame, RightKitOverlayRect(x: 736, y: 590, width: 64, height: 10))
+        XCTAssertTrue(model.hitTest(x: 760, y: 595))
+        XCTAssertFalse(model.hitTest(x: 920, y: 905), "old pre-placement frame must not stay hittable")
+    }
+
+    func testExplicitHitboxKeepsOffsetThroughPlacement() {
+        var model = RightKitOverlayModel(kind: .heardRightPill, frame: RightKitOverlayRect(x: 900, y: 900, width: 64, height: 10))
+        model.hitbox = RightKitOverlayRect(x: 890, y: 890, width: 84, height: 30)
+        model.apply(.recording)
+        model.place(in: RightKitOverlayWorkArea(left: 0, top: 0, right: 800, bottom: 600))
+        XCTAssertEqual(model.hitbox, RightKitOverlayRect(x: 726, y: 580, width: 84, height: 30))
+    }
+
 #if os(macOS)
     @MainActor
     func testPanelIsNonActivatingAndStatusLevel() {

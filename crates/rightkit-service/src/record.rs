@@ -14,6 +14,10 @@ pub const PROTOCOL_MINOR: u32 = 0;
 /// the incumbent as unbeatable.
 pub const RANK_UNKNOWN: u8 = u8::MAX;
 
+fn is_zero(v: &u64) -> bool {
+    *v == 0
+}
+
 fn rank_unknown() -> u8 {
     RANK_UNKNOWN
 }
@@ -40,8 +44,15 @@ pub struct ServiceRecord {
     pub endpoint: String,
     #[serde(default)]
     pub version: String,
+    /// Publication time (ms since epoch) of this record. HeardRight-compatible
+    /// meaning; never used to validate the PID.
     #[serde(default)]
     pub started_ms: u64,
+    /// Birth time of the owning process (ms since epoch), when the writer knows
+    /// it. Only when present is it compared against the live process to reject a
+    /// reused PID; records without it fall back to plain PID liveness.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub process_started_ms: u64,
     /// HeardRight's name for `version`; mirrored so either reader works.
     #[serde(default)]
     pub engine_version: String,

@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Network
+import Security
 import Testing
 @testable import RightKitLicense
 
@@ -88,10 +89,22 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
         connection.start(queue: DispatchQueue(label: "rightkit-license-loopback-connection"))
     }
 
-    private func receive(_ connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, _, _ in
-            guard let self, let data else { connection.cancel(); return }
-            self.respond(connection, request: data)
+    /// URLSession may send headers and body in separate segments; read until Content-Length is met.
+    private func receive(_ connection: NWConnection, buffer: Data = Data()) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, _ in
+            guard let self else { connection.cancel(); return }
+            var buffer = buffer
+            if let data { buffer.append(data) }
+            let raw = String(decoding: buffer, as: UTF8.self)
+            if let split = raw.range(of: "\r\n\r\n") {
+                let head = raw[..<split.lowerBound].lowercased()
+                let length = head.components(separatedBy: "\r\n").compactMap { line -> Int? in
+                    line.hasPrefix("content-length:") ? Int(line.dropFirst(15).trimmingCharacters(in: .whitespaces)) : nil
+                }.first ?? 0
+                if buffer.count - raw[..<split.upperBound].utf8.count >= length { self.respond(connection, request: buffer); return }
+            }
+            if isComplete || data == nil { connection.cancel(); return }
+            self.receive(connection, buffer: buffer)
         }
     }
 
@@ -127,12 +140,52 @@ private extension Data {
     }
 }
 
-@Test func accessRequirementsFailClosedForEmptyOrUnknownRequirements() {
-    let license = StoredLicense(status: "active", deviceId: "d", validUntil: nil, entitlements: LicenseEntitlements(v: 1, tier: "pro", features: ["routing"]))
-    #expect(satisfiesRequirement(license, .pro))
-    #expect(satisfiesRequirement(license, LicenseRequirement(feature: "routing")))
-    #expect(!satisfiesRequirement(license, LicenseRequirement(tier: "max")))
-    #expect(!satisfiesRequirement(license, LicenseRequirement()))
+private func signedToken(_ key: Curve25519.Signing.PrivateKey, app: String = "coderight", tier: String = "pro", deviceID: String = "dev", exp: Int = 2_000_000_000) -> String {
+    let payload: [String: Any] = ["v": 2, "id": "lic", "app": app, "tier": tier, "features": ["routing"], "device_id": deviceID, "iat": 1_700_000_000, "exp": exp]
+    let data = try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+    return data.base64URLEncodedString() + "." + (try! key.signature(for: data)).base64URLEncodedString()
+}
+
+@Test func accessIsDerivedOnlyFromVerifiedClaims() {
+    let key = Curve25519.Signing.PrivateKey()
+    let pub = key.publicKey.rawRepresentation.base64URLEncodedString()
+    let now = 1_800_000_000
+    let entitlements = LicenseEntitlements(v: 1, tier: "pro", features: ["routing"])
+
+    // Unsigned / forged Pro record: active, no validUntil, entitlements say pro. Display helper
+    // is fooled by design; authorization must deny.
+    let unsigned = StoredLicense(status: "active", deviceId: "dev", entitlements: entitlements)
+    #expect(displayIsPro(unsigned))
+    #expect(!isPro(unsigned, publicKeyBase64url: pub, app: "coderight", now: now))
+    #expect(!satisfiesRequirement(unsigned, .pro, publicKeyBase64url: pub, app: "coderight", now: now))
+
+    let forgedBy = Curve25519.Signing.PrivateKey()
+    let forged = StoredLicense(status: "active", deviceId: "dev", entitlements: entitlements, signedToken: signedToken(forgedBy))
+    #expect(!isPro(forged, publicKeyBase64url: pub, app: "coderight", now: now))
+
+    let good = StoredLicense(status: "active", deviceId: "dev", entitlements: LicenseEntitlements(v: 1, tier: "free"), signedToken: signedToken(key))
+    #expect(isPro(good, publicKeyBase64url: pub, app: "coderight", now: now), "claims, not cached entitlements, decide")
+    #expect(satisfiesRequirement(good, LicenseRequirement(feature: "routing"), publicKeyBase64url: pub, app: "coderight", now: now))
+    #expect(!satisfiesRequirement(good, LicenseRequirement(tier: "max"), publicKeyBase64url: pub, app: "coderight", now: now))
+    #expect(!satisfiesRequirement(good, LicenseRequirement(), publicKeyBase64url: pub, app: "coderight", now: now))
+
+    // Bound to app, device and expiry; record status must still be active.
+    #expect(!isPro(good, publicKeyBase64url: pub, app: "otherapp", now: now))
+    #expect(!isPro(good, publicKeyBase64url: pub, app: "coderight", deviceId: "other-device", now: now))
+    #expect(isPro(good, publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
+    #expect(!isPro(good, publicKeyBase64url: pub, app: "coderight", now: 2_000_000_001))
+    var revoked = good; revoked.status = "revoked"
+    #expect(!isPro(revoked, publicKeyBase64url: pub, app: "coderight", now: now))
+    let wrongDevice = StoredLicense(status: "active", deviceId: "dev", signedToken: signedToken(key, deviceID: "someone-else"))
+    #expect(!isPro(wrongDevice, publicKeyBase64url: pub, app: "coderight", now: now))
+}
+
+@Test func licenseAndDeviceIDRecordsAreDeviceOnlyAndNonSynchronizable() {
+    // Attribute construction only: no Keychain item is created or read.
+    let store = KeychainLicenseStore(service: "test.\(UUID().uuidString)", account: "activation")
+    let identity = store.identity(service: store.service, account: "device-id")
+    #expect(identity[kSecAttrSynchronizable as String] as? Bool == false)
+    #expect(KeychainLicenseStore.deviceOnlyAccessibility as String == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
 }
 
 @Test func inMemoryStoreRoundTripsAndRemoves() async throws {

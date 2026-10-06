@@ -21,7 +21,6 @@ let package = Package(
         .library(name: "RightKitIntents", targets: ["RightKitIntents"]),
         .library(name: "RightKitAppleCredentials", targets: ["RightKitAppleCredentials"]),
         .library(name: "RightKitOverlay", targets: ["RightKitOverlay"]),
-        .executable(name: "RightKitAppleCredentialsHelper", targets: ["RightKitAppleCredentialsHelper"]),
     ],
     targets: [
         .target(name: "RightKitLicense"),
@@ -56,7 +55,6 @@ let package = Package(
         .target(name: "RightKitIntents"),
         .testTarget(name: "RightKitIntentsTests", dependencies: ["RightKitIntents"]),
         .target(name: "RightKitAppleCredentials"),
-        .executableTarget(name: "RightKitAppleCredentialsHelper", dependencies: ["RightKitAppleCredentials"]),
         .testTarget(name: "RightKitAppleCredentialsTests", dependencies: ["RightKitAppleCredentials"]),
         .target(name: "RightKitOverlay"),
         .testTarget(name: "RightKitOverlayTests", dependencies: ["RightKitOverlay"]),

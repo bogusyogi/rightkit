@@ -101,3 +101,52 @@ fn refresh_preserves_old_refresh_token_and_invalid_grant_requires_reauth() {
     assert_eq!(refreshed.refresh_token.as_ref().unwrap().expose(), "keep-me");
     assert!(matches!(oauth.refresh(&refreshed), Err(OAuthError::NeedsReauth)));
 }
+
+#[test]
+fn slow_loris_oversized_and_debug_redaction() {
+    let oauth = OAuthClient::new(
+        OAuthConfig::new("c", "http://127.0.0.1:1/authorize", "http://127.0.0.1:1/token"),
+        client(),
+    )
+    .unwrap();
+    let port_of = |uri: &str| uri.rsplit(':').next().unwrap().split('/').next().unwrap().parse::<u16>().unwrap();
+
+    // Debug output never carries the PKCE verifier.
+    let flow = oauth.begin_loopback().unwrap();
+    let verifier = flow.request.code_verifier().to_string();
+    assert!(verifier.len() >= 43);
+    let dbg = format!("{:?} {:?}", flow, flow.request);
+    assert!(!dbg.contains(&verifier), "verifier leaked into Debug: {dbg}");
+    assert!(dbg.contains("redacted"));
+    drop(flow);
+
+    // Slow-loris: bytes trickle in, newline never arrives; the absolute deadline fires.
+    let flow = oauth.begin_loopback().unwrap();
+    let port = port_of(&flow.request.redirect_uri);
+    let drip = std::thread::spawn(move || {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        for _ in 0..40 {
+            if s.write_all(b"G").is_err() { break; }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
+    let started = std::time::Instant::now();
+    let err = oauth.finish_loopback(flow, Duration::from_secs(1)).unwrap_err();
+    let elapsed = started.elapsed();
+    drip.join().unwrap();
+    assert!(matches!(&err, OAuthError::Callback(m) if m.contains("timed out")), "{err:?}");
+    assert!(elapsed < Duration::from_millis(2500), "deadline must be absolute, took {elapsed:?}");
+
+    // Oversized request line (no newline within the cap) is rejected.
+    let flow = oauth.begin_loopback().unwrap();
+    let port = port_of(&flow.request.redirect_uri);
+    let big = std::thread::spawn(move || {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let _ = s.write_all(format!("GET /oauth/callback?code={} HTTP/1.1\r\n\r\n", "a".repeat(64 * 1024)).as_bytes());
+        let mut sink = Vec::new();
+        let _ = s.read_to_end(&mut sink);
+    });
+    let err = oauth.finish_loopback(flow, Duration::from_secs(3)).unwrap_err();
+    big.join().unwrap();
+    assert!(matches!(&err, OAuthError::Callback(m) if m.contains("too long")), "{err:?}");
+}

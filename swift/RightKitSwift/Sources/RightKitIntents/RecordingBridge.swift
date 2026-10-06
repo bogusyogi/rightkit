@@ -14,6 +14,15 @@ public protocol RightKitRecordingDriver: AnyObject {
     func stopAndCopy(source: String) async throws -> String
     func cancel(source: String) async throws
     func toggle(source: String) async throws
+    /// Returns the latest transcript text for the caller to place on the pasteboard. Drivers that
+    /// keep no transcript history inherit the default, which fails explicitly rather than succeed silently.
+    func copyLatestTranscript(source: String) async throws -> String
+}
+
+public extension RightKitRecordingDriver {
+    func copyLatestTranscript(source: String) async throws -> String {
+        throw RightKitAppIntentError.actionUnsupported(RightKitRecordingAction.copyLatestTranscript.rawValue)
+    }
 }
 
 public enum RightKitRecordingAction: String, Codable, Equatable, Sendable {
@@ -29,6 +38,7 @@ public enum RightKitAppIntentError: Error, Equatable, LocalizedError, Sendable {
     case commandResultTimedOut
     case commandResultFailed(String)
     case commandResultCancelled
+    case actionUnsupported(String)
 
     public var errorDescription: String? {
         switch self {
@@ -40,6 +50,7 @@ public enum RightKitAppIntentError: Error, Equatable, LocalizedError, Sendable {
         case .commandResultTimedOut: return "Recording app did not finish in time."
         case let .commandResultFailed(code): return "Recording action failed (\(code))."
         case .commandResultCancelled: return "Recording action was cancelled."
+        case let .actionUnsupported(action): return "Recording action \(action) is not supported by this app."
         }
     }
 }
@@ -115,7 +126,8 @@ public enum RightKitRecordingBridge {
             case .stopAndCopy: return try await driver.stopAndCopy(source: source)
             case .cancel: try await driver.cancel(source: source)
             case .toggle: try await driver.toggle(source: source)
-            case .copyLatestTranscript, .openApp: break
+            case .copyLatestTranscript: return try await driver.copyLatestTranscript(source: source)
+            case .openApp: throw RightKitAppIntentError.actionUnsupported(action.rawValue)
             }
             return nil
         }

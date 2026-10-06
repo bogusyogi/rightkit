@@ -59,4 +59,48 @@ describe.skipIf(!chrome)("onboarding in real headless Chrome (muted)", () => {
     expect(await page.eval<boolean>("document.documentElement.scrollWidth <= window.innerWidth + 1")).toBe(true);
     await page.screenshot(join(shotsDir, "onboarding-resume-dark.png"));
   });
+
+  it("does not report completion or skip when persistence fails, and shows the failure", async () => {
+    await page.setColorScheme("light");
+    await page.goto(`${origin}/?seed=last&failsave=1`);
+    await page.waitFor("document.querySelector('[data-testid=onboarding][data-step-id]')");
+    expect(await page.eval<string>("document.querySelector('[data-testid=onboarding]').dataset.stepId")).toBe("license");
+    await page.click("footer button:last-child");
+    await page.waitFor("document.querySelector('[role=alert]')", 3000);
+    expect(await page.eval<string>("document.querySelector('[role=alert]').textContent")).toContain("disk full");
+    await page.sleep(300);
+    expect(await page.eval<boolean>("window.__done === true")).toBe(false);
+    await page.screenshot(join(shotsDir, "onboarding-save-failed-light.png"));
+    await page.click("footer button:first-child");
+    await page.sleep(500);
+    expect(await page.eval<boolean>("window.__skipped === true")).toBe(false);
+    expect(await page.eval<string>("document.querySelector('[role=alert]')?.textContent ?? ''")).toContain("disk full");
+    // Persisted state is unchanged: the final step is still current and nothing was written.
+    expect(await page.eval<string>("JSON.parse(localStorage.getItem('rk-onboarding-settings')).values['onboarding.state'].skipped + ''")).toBe("false");
+  });
+
+  it("reports completion only after a successful save", async () => {
+    await page.goto(`${origin}/?seed=last`);
+    await page.waitFor("document.querySelector('[data-testid=onboarding]')");
+    await page.click("footer button:last-child");
+    await page.waitFor("window.__done === true", 3000);
+    expect(await page.eval<boolean>("JSON.parse(localStorage.getItem('rk-onboarding-settings')).values['onboarding.state'].completed.includes('license')")).toBe(true);
+  });
+
+  it("enforces the agreement when a persisted step index is past zero but legal is not accepted", async () => {
+    await page.goto(`${origin}/?seed=gate-step2`);
+    await page.waitFor("document.querySelector('[data-testid=onboarding-legal]')", 3000);
+    expect(await page.eval<boolean>("document.querySelector('[data-testid=onboarding]') === null")).toBe(true);
+    expect(await page.eval<string>("document.querySelector('[data-testid=onboarding-legal]').textContent")).toContain("Agree & continue");
+    await page.screenshot(join(shotsDir, "onboarding-legal-gate-step2-light.png"));
+    // A failed acceptance save keeps the gate and shows the legal-gate error.
+    await page.goto(`${origin}/?seed=gate-step2&failsave=1`);
+    await page.waitFor("document.querySelector('[data-testid=onboarding-legal]')", 3000);
+    await page.click("input[type=radio]");
+    await page.click("input[type=checkbox]");
+    await page.click("button[type=submit]");
+    await page.waitFor("document.querySelector('[data-testid=onboarding-legal] [role=alert]')", 3000);
+    expect(await page.eval<boolean>("document.querySelector('[data-testid=onboarding]') === null")).toBe(true);
+    expect(await page.eval<boolean>("JSON.parse(localStorage.getItem('rk-onboarding-settings')).values['onboarding.state'].legalAccepted")).toBe(false);
+  });
 });

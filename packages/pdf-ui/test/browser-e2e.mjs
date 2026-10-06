@@ -62,6 +62,14 @@ try {
   await until("document.querySelector('.rk-pdf-thumbs button[aria-label=\\\"Page 3\\\"]') !== null", "thumbnail panel");
   await evaluate("document.querySelector('.rk-pdf-thumbs button[aria-label=\\\"Page 3\\\"]').click()");
   await until("document.querySelector('input[aria-label=\\\"Page number\\\"]').value === '3'", "thumbnail navigation");
+  // usePdfSearch from a consumer toolbar control reaches the viewer's search controller.
+  await evaluate("(() => { const input = document.querySelector('#external-find-input'); input.focus(); input.select(); })()");
+  await send("Input.insertText", { text: "Quarterly" }, sessionId);
+  await evaluate("document.querySelector('#external-find-go').click()");
+  await until("/^[1-9]\\d*:0$/.test(document.querySelector('#external-find-result').textContent)", "external find result via usePdfSearch");
+  const externalFind = await evaluate("document.querySelector('#external-find-result').textContent");
+  await evaluate("document.querySelector('#external-find-next').click()");
+  await until("document.querySelector('#external-find-result').textContent.split(':')[1] !== '0' || document.querySelector('#external-find-result').textContent.startsWith('1:')", "external find next");
   await evaluate("document.querySelector('#replace-source').click()");
   await until("document.querySelectorAll('.rk-pdf-page').length === 1", "source replacement");
   await until("(window.__loadingEvents || []).filter(Boolean).length >= 2", "source cleanup/loading lifecycle");
@@ -82,6 +90,26 @@ try {
   if (checks.pages !== 3 || checks.canvases < 1 || checks.text < 1 || checks.scripts !== 0 || checks.handlers || checks.unsafeHref || !checks.safeHref || Number(checks.zoom) <= zoomBefore || checks.loadingEvents < 4) throw new Error(`browser assertions failed: ${JSON.stringify(checks)}`);
   const screenshot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true }, sessionId);
   writeFileSync(path.join(outDir, "pdf-viewer.png"), Buffer.from(screenshot.data, "base64"));
+  // Replacing a PDF with a different same-sized PDF (bytes, then identical-text loader closures) shows the new one.
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/?case=replace` }, sessionId);
+  await until("window.__sizes && document.querySelectorAll('.rk-pdf-page .textLayer span').length > 0", "replace harness first doc");
+  const sizes = await evaluate("window.__sizes");
+  if (sizes.alpha !== sizes.omega) throw new Error(`fixtures must be same size: ${JSON.stringify(sizes)}`);
+  const pageText = () => evaluate("[...document.querySelectorAll('.rk-pdf-page .textLayer')].map((n) => n.textContent).join('|')");
+  await until("document.querySelector('.rk-pdf-page .textLayer')?.textContent.includes('ALPHA')", "bytes ALPHA shown");
+  await evaluate("document.querySelector('#swap-bytes').click()");
+  await until("document.querySelector('.rk-pdf-page .textLayer')?.textContent.includes('OMEGA')", "bytes replaced with same-sized OMEGA");
+  const bytesText = await pageText();
+  if (bytesText.includes("ALPHA")) throw new Error(`stale bytes document: ${bytesText}`);
+  const bytesShot = await send("Page.captureScreenshot", { format: "png" }, sessionId);
+  writeFileSync(path.join(outDir, "pdf-replace-bytes.png"), Buffer.from(bytesShot.data, "base64"));
+  await evaluate("document.querySelector('#mode-loader').click()");
+  await until("document.querySelector('.rk-pdf-page .textLayer')?.textContent.includes('ALPHA')", "loader ALPHA shown");
+  await evaluate("document.querySelector('#swap-loader').click()");
+  await until("document.querySelector('.rk-pdf-page .textLayer')?.textContent.includes('OMEGA')", "loader replaced with identical-text closure OMEGA");
+  const loaderText = await pageText();
+  if (loaderText.includes("ALPHA")) throw new Error(`stale loader document: ${loaderText}`);
+  console.log(`external-find=${externalFind} replace=bytes+loader(size ${sizes.alpha})`);
   console.log(`PASS: pdf pages=${checks.pages}, canvases=${checks.canvases}, textSpans=${checks.text}, navigation=page+thumbs, zoom=${zoomBefore}->${checks.zoom}, find=Quarterly, source-replace=clean, sanitizer=clean`);
 } finally {
   ws.close(); proc.kill("SIGTERM"); server.close();

@@ -13,8 +13,8 @@ include = ["src/**", "tests/**", "assets/**", "README.md", "API.md", "LICENSE-MI
 
 [dependencies]
 rightkit-http = { path = "../rightkit-http" }
-serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = "=1.0.150"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 
 [dev-dependencies]
 rightkit-http = { path = "../rightkit-http", features = ["testing"] }

@@ -1,4 +1,4 @@
-//! Supervises the warm `genright-qts-worker` process and drives synthesis.
+//! Supervises the warm `rightkit-tts-worker` process and drives synthesis.
 //!
 //! One worker, one request at a time (the GPU is single). Cancelling kills the
 //! worker; the next call respawns it (a cold load, a few seconds).
@@ -114,10 +114,12 @@ pub fn shutdown() {
 }
 
 pub fn worker_exe() -> Result<PathBuf, QtsError> {
-    let name = if cfg!(windows) { "genright-qts-worker.exe" } else { "genright-qts-worker" };
+    // The shipped binary is `rightkit-tts-worker`; the pre-rename name stays a fallback for old bundles.
+    let names: [&str; 2] = if cfg!(windows) { ["rightkit-tts-worker.exe", "genright-qts-worker.exe"] } else { ["rightkit-tts-worker", "genright-qts-worker"] };
+    let name = names[0];
     if let Some(p) = std::env::var_os("RIGHTKIT_TTS_WORKER").filter(|v| !v.is_empty()).or_else(|| std::env::var_os("GENRIGHT_QTS_WORKER").filter(|v| !v.is_empty())) {
         let p = PathBuf::from(p);
-        return if p.is_file() { Ok(p) } else { Err(QtsError::new("worker_missing", format!("GENRIGHT_QTS_WORKER={} not found", p.display()))) };
+        return if p.is_file() { Ok(p) } else { Err(QtsError::new("worker_missing", format!("worker override {} not found", p.display()))) };
     }
     let mut dirs = Vec::new();
     if let Some(d) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
@@ -129,7 +131,7 @@ pub fn worker_exe() -> Result<PathBuf, QtsError> {
     }
     dirs.push(models::data_root().join("runtime").join("qts"));
     dirs.into_iter()
-        .map(|d| d.join(name))
+        .flat_map(|d| names.iter().map(move |n| d.join(n)))
         .find(|p| p.is_file())
         .ok_or_else(|| QtsError::new("worker_missing", format!("{name} not found next to the app or in <data>/runtime/qts")))
 }

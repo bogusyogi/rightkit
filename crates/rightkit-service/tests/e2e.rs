@@ -274,3 +274,39 @@ fn pid_liveness_never_signals_process_groups_and_reads_peer_records_without_a_ra
     std::fs::write(suite.service_dir("speech-service").join("service.json"), json!({"protocol_major":1,"protocol_minor":0,"role":"x","pid":4000000000u32,"endpoint":"e","engine_version":"1"}).to_string()).unwrap();
     assert!(read_live_record(&suite, "speech-service").is_none(), "dead pid is stale");
 }
+
+#[test]
+fn legacy_record_published_long_after_start_is_live_and_dead_spawn_claim_is_recovered() {
+    // Wave-1 / HeardRight host: `started_ms` is publication time (here far from
+    // the process birth time) and there is no `process_started_ms`.
+    let (d, suite) = setup();
+    let a = Host::start(suite.root(), "headless", 2, d.path());
+    assert!(a.line(20).starts_with("READY"));
+    let rec = read_record(&suite, "demo").unwrap();
+    assert!(rec.started_ms > 0 && rec.process_started_ms > 0);
+    let mut legacy = serde_json::to_value(&rec).unwrap();
+    let obj = legacy.as_object_mut().unwrap();
+    obj.remove("process_started_ms");
+    obj.insert("started_ms".into(), json!(rec.started_ms + 10_000));
+    std::fs::write(record_path(&suite, "demo"), legacy.to_string()).unwrap();
+    let live = read_live_record(&suite, "demo").expect("legacy record from a host that published >2s after start is live");
+    assert_eq!(live.process_started_ms, 0);
+    assert!(record_process_matches(&live));
+    assert!(matches!(adopt_or_spawn(&suite, "demo"), AdoptOrSpawn::Adopt(_)));
+    // A second host must see it as held, never delete it.
+    let b = Host::start(suite.root(), "cutright", 3, d.path());
+    assert!(!b.line(20).starts_with("READY"), "a live compatible record is never deleted on timestamp mismatch");
+    assert!(read_record(&suite, "demo").is_some());
+    // A modern record whose process birth time disagrees is a reused pid.
+    let mut reused = rec.clone();
+    reused.process_started_ms += 3_600_000;
+    assert!(!record_process_matches(&reused));
+
+    // Stale spawn claim: dead pid is recovered; live fresh claim is held.
+    let claim = SpawnClaim::path(&suite, "demo");
+    std::fs::write(&claim, "4000000000 1").unwrap();
+    let got = SpawnClaim::acquire(&suite, "demo").expect("dead-pid claim recovered");
+    assert!(matches!(SpawnClaim::acquire(&suite, "demo"), Err(SpawnClaimError::AlreadyHeld(_))));
+    drop(got);
+    assert!(!claim.exists());
+}

@@ -12,10 +12,10 @@ categories = ["authentication"]
 include = ["src/**", "tests/**", "README.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-http = { path = "../rightkit-http" }
+rightkit-http = { path = "../rightkit-http", version = "=0.1.0" }
 getrandom = "0.3"
-serde_json = "=1.0.150"
+serde_json = "1.0.150"
 sha2 = "0.10.9"
 
 [dev-dependencies]
-rightkit-http = { path = "../rightkit-http", features = ["testing"] }
+rightkit-http = { path = "../rightkit-http", version = "=0.1.0", features = ["testing"] }

@@ -18,13 +18,21 @@ describe("doc-render security", () => {
     expect(safeImageHref("javascript:alert(1)")).toBeUndefined();
   });
 
-  it("strips executable tags, events, styles and unsafe attributes", () => {
-    const html = '<p onclick="alert(1)" style="background:url(javascript:1)">ok</p><script>alert(1)</script><a href="javascript:alert(2)">bad</a><a href="https://example.com">good</a>';
+  it("fails closed without a DOM: raw HTML is escaped, never emitted as markup", () => {
+    expect(typeof document).toBe("undefined");
+    for (const payload of ['<img src="x"/onerror="alert(1)">', "<img/src=x/onerror=alert(1)>", "<svg/onload=alert(1)>", '<a href="javascript:alert(1)">x</a>', "<script>alert(1)</script>"]) {
+      const out = sanitizeHtml(payload);
+      expect(out).not.toMatch(/[<>"']/);
+      expect(sanitizeMarkdownHtml(payload)).toBe(out);
+    }
+  });
+
+  it("escapes tag/attribute soup in SSR output so nothing executable survives", () => {
+    const html = '<p onclick="alert(1)" style="background:url(javascript:1)">ok</p><script>alert(1)</script><a href="https://example.com">good</a>';
     const clean = sanitizeHtml(html);
     expect(clean).toContain("ok");
-    expect(clean).toContain("https://example.com");
-    expect(clean).not.toMatch(/script|onclick|style|javascript:/i);
-    expect(sanitizeMarkdownHtml("<iframe src=evil>bad</iframe>")).not.toMatch(/iframe|evil|bad/i);
+    expect(clean).not.toMatch(/<[a-z!/]/i);
+    expect(sanitizeMarkdownHtml("<iframe src=evil>bad</iframe>")).not.toMatch(/<iframe/i);
   });
 
   it("parses GFM source without evaluating raw HTML", () => {
