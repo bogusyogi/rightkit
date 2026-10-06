@@ -397,3 +397,11 @@ test('kill-on-disconnect is explicit launcher payload state, not a spawn option'
   assert.equal(payload.killOnDisconnect, true);
   assert.equal(spawnOptions.killOnDisconnect, undefined);
 });
+
+test('Windows job root gets a windowless console that the whole job tree inherits', () => {
+  let options;
+  const launcher = Object.assign(new EventEmitter(), { pid: 71 });
+  spawnManagedProcess('cargo', ['test'], { platform: 'win32', stdio: ['ignore', 'pipe', 'pipe'], loadJobAddon: () => ({ assignRunningProcessToNewJob: () => ({ processHandle: 1 }), closeProcessHandle: () => {} }) }, (_command, _argv, spawnOptions) => { options = spawnOptions; return launcher; });
+  assert.equal(options.windowsHide, true); assert.equal(options.detached, false);
+  assert.equal(options.stdio.some((entry) => entry === 'inherit' || Number.isInteger(entry)), false); // inherited stdio would suppress CREATE_NO_WINDOW
+});

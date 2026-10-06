@@ -1,0 +1,8 @@
+[package]
+name = "rightkit-windows-console-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone: never a member of the RightKit Cargo workspace.
+[workspace]

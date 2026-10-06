@@ -33,7 +33,10 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
   if (platform === 'win32') {
     const addon = loadJobAddon();
     if (!addon) throw windowsContainmentError();
-    const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: ['ignore', spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: false });
+    // windowsHide with no inherited stdio makes libuv pass CREATE_NO_WINDOW (never DETACHED_PROCESS): the
+    // launcher gets a windowless console that cargo, rustc, build scripts & test binaries inherit, so their
+    // console-subsystem children open no window whether or not the broker itself has a hidden console.
+    const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: ['ignore', spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: false, windowsHide: true });
     // Immediately, before any await: Node owns process creation so its IPC
     // channel can hold this pinned launcher at the START gate. The launcher
     // cannot spawn the managed payload until startManagedProcess sends START,
