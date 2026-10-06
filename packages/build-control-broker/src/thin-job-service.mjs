@@ -34,6 +34,7 @@ import { cutoverDrainPending } from './cutover-shared.mjs';
 import { ImmutableToolRegistry, ToolChangedError } from './tool-registry.mjs';
 import { rejectWorkspaceCargoConfiguration } from './utilities.mjs';
 import {
+  enumerateLiveDescendants,
   managedProcessOwnership,
   readManagedProcessIdentity,
   readManagedProcessResources,
@@ -599,7 +600,7 @@ export class ThinJobService {
         this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: targetConsoleLine({ phase: 'start', target: job.targetAtStart }) } });
       }
       job.child = spawnManagedProcess(job.tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: ['ignore', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
-      job.exit = childExit(job.child, { onStdioHeld: () => void this.#log({ type: 'STDIO_HELD_OPEN_AFTER_EXIT', id: job.id, pid: job.child.pid, drainMs: STDIO_DRAIN_MS }) });
+      job.exit = childExit(job.child, { onStdioHeld: () => void this.#logStdioHeld(job) });
       job.child.stdout?.on('data', (chunk) => this.#output(job, 'STDOUT', chunk));
       job.child.stderr?.on('data', (chunk) => this.#output(job, 'STDERR', chunk));
       const observed = await this.#identity(job.child.pid); if (observed.status !== 'OK') throw Object.assign(new Error(`process identity unavailable: ${observed.reason}`), { code: 'RK_PROCESS_IDENTITY_UNAVAILABLE' });
@@ -901,6 +902,16 @@ export class ThinJobService {
     'parent-user-cancel': 'PARENT_CANCEL',
     'containment-failure': 'CONTAINMENT_FAILURE'
   });
+
+  /** Name what kept the root's stdio open: live job-object members on Windows, live descendants elsewhere. */
+  async #logStdioHeld(job) {
+    const survivors = {};
+    try {
+      if (this.#platform === 'win32') survivors.activeJobProcesses = this.#readResources(job.child, { platform: this.#platform })?.activeProcesses ?? null;
+      else survivors.liveDescendants = [...(await enumerateLiveDescendants(job.child.pid)).values()].slice(0, 20);
+    } catch (error) { survivors.survivorProbeError = error?.code ?? error?.message ?? 'unavailable'; }
+    await this.#log({ type: 'STDIO_HELD_OPEN_AFTER_EXIT', id: job.id, pid: job.child.pid, command: job.command, drainMs: STDIO_DRAIN_MS, ...survivors }).catch(() => {});
+  }
 
   #requestCancel(job, reason, explicitSource = null) {
     if (job.terminal) return false;
