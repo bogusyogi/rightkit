@@ -30,7 +30,7 @@ describe.skipIf(!chrome)("app-shell in real headless Chrome (muted)", () => {
   beforeAll(async () => {
     mkdirSync(shotsDir, { recursive: true });
     out = mkdtempSync(join(tmpdir(), "rk-app-shell-build-"));
-    execFileSync(join(pkgRoot, "node_modules/.bin/vite"), ["build", "--config", join(here, "harness/vite.config.mjs"), "--logLevel", "warn"], {
+    execFileSync(process.execPath, [join(pkgRoot, "node_modules/vite/bin/vite.js"), "build", "--config", join(here, "harness/vite.config.mjs"), "--logLevel", "warn"], {
       cwd: pkgRoot,
       env: { ...process.env, RK_HARNESS_OUT: out },
       stdio: "pipe",

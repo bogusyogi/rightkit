@@ -13,8 +13,16 @@
     },
     "./onboarding.css": "./onboarding.css"
   },
-  "files": ["dist", "onboarding.css", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
-  "sideEffects": ["*.css"],
+  "files": [
+    "dist",
+    "onboarding.css",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
   "peerDependencies": {
     "@rightkit/app-shell": ">=0.1.0 <1",
     "@rightkit/legal-ui": ">=0.1.0",
@@ -34,6 +42,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "pnpm --filter \"@rightkit/onboarding^...\" run build",
     "test": "vitest run"
   },
   "publishConfig": {

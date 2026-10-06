@@ -13,8 +13,16 @@
     },
     "./settings.css": "./settings.css"
   },
-  "files": ["dist", "settings.css", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
-  "sideEffects": ["*.css"],
+  "files": [
+    "dist",
+    "settings.css",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
   "peerDependencies": {
     "@rightkit/app-shell": ">=0.1.0 <1",
     "@rightkit/shell": ">=0.1.0 <1",
@@ -37,6 +45,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "pnpm --filter \"@rightkit/settings-ui^...\" run build",
     "test": "vitest run"
   },
   "publishConfig": {
