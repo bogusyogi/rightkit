@@ -16,7 +16,7 @@ async function fixture() {
 }
 
 const input = (item) => ({ configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', launchdLabel: 'dev.rightkit.broker', uid: 501, endpoint: item.endpoint, plistPath: item.plist, healthWorkspace: item.health, timeoutMs: 100 });
-const drainDependencies = { beginDrain: async () => ({ path: 'test', token: 'test' }), endDrain: async () => {}, proveBrokerDrain: async () => ({ open: 0, inFlight: [] }) };
+const drainDependencies = { guiDomainAvailable: async () => true, beginDrain: async () => ({ path: 'test', token: 'test' }), endDrain: async () => {}, proveBrokerDrain: async () => ({ open: 0, inFlight: [] }) };
 
 test('argument parser rejects unknown switches & requires exact activation identity', () => {
   assert.throws(() => parseMacOSCutoverArgs(['--config', '/a']), /--external-root is required/);
@@ -75,5 +75,14 @@ test('cutover refuses plist identity drift before activation', async () => {
   try {
     await writeFile(item.plist, '<plist><dict><key>Label</key><string>wrong</string></dict></plist>');
     await assert.rejects(runMacOSCutover(input(item), { ...drainDependencies, platform: 'darwin', stopManaged: async () => {}, install: async () => {} }), /Label differs/);
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
+test('macOS cutover refuses before stopping the broker when no GUI login session exists', async () => {
+  const item = await fixture();
+  try {
+    let stopped = false;
+    await assert.rejects(runMacOSCutover(input(item), { ...drainDependencies, platform: 'darwin', guiDomainAvailable: async () => false, stopManaged: async () => { stopped = true; }, install: async () => {} }), /no GUI login session/);
+    assert.equal(stopped, false);
   } finally { await rm(item.root, { recursive: true, force: true }); }
 });

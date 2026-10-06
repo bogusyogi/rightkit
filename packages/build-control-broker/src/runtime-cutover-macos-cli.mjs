@@ -54,6 +54,9 @@ function plistProgramArguments(contents) {
   if (!block) throw new Error('plist ProgramArguments are required');
   return [...block.matchAll(/<string>([\s\S]*?)<\/string>/g)].map((match) => match[1].replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>'));
 }
+export function launchdGuiDomainAvailable(uid, { execFile = execDefault } = {}) {
+  return execFile('launchctl', ['print', `gui/${uid}`]).then(() => true, () => false);
+}
 export async function stopManagedLaunchd({ launchdLabel, uid, plistPath, endpoint, execFile = execDefault, netModule = net }) {
   const target = `gui/${uid}/${launchdLabel}`; const domain = `gui/${uid}`;
   await execFile('launchctl', ['disable', target]);
@@ -73,7 +76,7 @@ export async function stopManagedLaunchd({ launchdLabel, uid, plistPath, endpoin
  * selection before allowing runtime.mjs to stage or switch runtime-current.
  */
 export async function runMacOSCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopManaged = stopManagedLaunchd, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds)), now = Date.now } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopManaged = stopManagedLaunchd, guiDomainAvailable = launchdGuiDomainAvailable, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds)), now = Date.now } = dependencies;
   if (platform !== 'darwin') throw new Error('macOS cutover may only run on darwin');
   const options = typeof input?.configPath === 'string' ? input : parseMacOSCutoverArgs(input);
   const [configPath, externalRoot, sourcePackagesRoot, plistPath, healthWorkspace] = await Promise.all([
@@ -89,6 +92,9 @@ export async function runMacOSCutover(input, dependencies = {}) {
   const programArguments = plistProgramArguments(plist); const runtimeScript = resolve(externalRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs');
   if (programArguments.length !== 3 || programArguments.some((value) => !isAbsolute(value) || /\s/.test(value)) || resolve(programArguments[1]) !== runtimeScript || resolve(programArguments[2]) !== configPath) throw new Error('plist ProgramArguments must be exact node, runtime-current broker, & config paths');
   const nodePath = await canonicalize(programArguments[0]); await assertFile(nodePath, 'plist Node executable', statFile);
+  // The managed LaunchAgent lives in the user's GUI domain, which exists only while someone is logged in
+  // at the console. Without it, stopping the broker cannot be undone (2026-10-06): refuse before touching it.
+  if (!(await guiDomainAvailable(options.uid))) throw new Error(`no GUI login session for uid ${options.uid} (launchctl gui/${options.uid} unavailable); log in at the Mac before bootstrap or cutover — the running broker was left untouched`);
   // Fence new admissions first, then ask live broker for all admitting/queued/
   // running roots. Filesystem markers remain independent writer recovery proof.
   const drainFence = await beginDrain(externalRoot);
