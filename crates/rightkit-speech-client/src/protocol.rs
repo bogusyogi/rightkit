@@ -25,7 +25,12 @@ pub const ERROR_NOT_ALLOWED: &str = "speech_service_request_not_allowed";
 /// Minor 1: the requested engine is unknown, not installed, or not ready. Not retryable.
 pub const ERROR_ENGINE_UNAVAILABLE: &str = "speech_service_engine_unavailable";
 pub const SCHEMA_PROGRESS: &str = "file_transcription_progress";
-pub const SERVICE_ALLOWED_SCHEMAS: &[&str] = &["engine_health", "engine_capabilities", "engine_info", "file_transcription_request"];
+pub const SERVICE_ALLOWED_SCHEMAS: &[&str] = &[
+    "engine_health",
+    "engine_capabilities",
+    "engine_info",
+    "file_transcription_request",
+];
 const ENGINE_PROTOCOL_MAJOR: u16 = 1;
 const ENGINE_PROTOCOL_MINOR: u16 = 0;
 const ENGINE_SCHEMA_VERSION: u16 = 1;
@@ -65,7 +70,14 @@ impl HostRole {
         }
     }
     pub fn from_wire(s: &str) -> Option<Self> {
-        [Self::HeardRightShell, Self::HeardRightHeadless, Self::ScrapeRight, Self::CutRight].into_iter().find(|r| r.as_str() == s)
+        [
+            Self::HeardRightShell,
+            Self::HeardRightHeadless,
+            Self::ScrapeRight,
+            Self::CutRight,
+        ]
+        .into_iter()
+        .find(|r| r.as_str() == s)
     }
     /// `HR_SPEECH_SERVICE_ROLE` values (the engine's override spelling).
     pub fn parse_env(value: &str) -> Option<Self> {
@@ -79,7 +91,15 @@ impl HostRole {
     }
     /// Role -> rank table for `rightkit_service::ServiceConfig::known_roles`.
     pub fn rank_table() -> std::collections::BTreeMap<String, u8> {
-        [Self::HeardRightShell, Self::HeardRightHeadless, Self::ScrapeRight, Self::CutRight].into_iter().map(|r| (r.as_str().to_string(), r.rank())).collect()
+        [
+            Self::HeardRightShell,
+            Self::HeardRightHeadless,
+            Self::ScrapeRight,
+            Self::CutRight,
+        ]
+        .into_iter()
+        .map(|r| (r.as_str().to_string(), r.rank()))
+        .collect()
     }
 }
 
@@ -123,15 +143,27 @@ pub fn installed_heardright_path(root: &Path) -> PathBuf {
 /// (`user_tag` is the current user's SID). Unix: `<service_dir>/speech.sock`.
 pub fn endpoint_for(root: &Path, user_tag: &str) -> String {
     if cfg!(windows) {
-        format!(r"\\.\pipe\orthic-labs-speech-{user_tag}-{}", suite_root_tag(root))
+        format!(
+            r"\\.\pipe\orthic-labs-speech-{user_tag}-{}",
+            suite_root_tag(root)
+        )
     } else {
-        service_dir(root).join("speech.sock").to_string_lossy().into_owned()
+        service_dir(root)
+            .join("speech.sock")
+            .to_string_lossy()
+            .into_owned()
     }
 }
 
 fn suite_root_tag(root: &Path) -> String {
     let mut hash: u32 = 0x811c_9dc5;
-    for byte in root.to_string_lossy().to_lowercase().replace('\\', "/").trim_end_matches('/').bytes() {
+    for byte in root
+        .to_string_lossy()
+        .to_lowercase()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .bytes()
+    {
         hash ^= u32::from(byte);
         hash = hash.wrapping_mul(0x0100_0193);
     }
@@ -237,7 +269,13 @@ impl Capabilities {
     }
     pub fn engines_or_default(&self) -> Vec<EngineInfo> {
         if self.engines.is_empty() && self.supports_file_transcription() {
-            vec![EngineInfo { id: ENGINE_PARAKEET.into(), languages: vec![], ready: true, loaded: false, model: Some(SPEECH_FAMILY.into()) }]
+            vec![EngineInfo {
+                id: ENGINE_PARAKEET.into(),
+                languages: vec![],
+                ready: true,
+                loaded: false,
+                model: Some(SPEECH_FAMILY.into()),
+            }]
         } else {
             self.engines.clone()
         }
@@ -250,7 +288,13 @@ impl Capabilities {
     pub fn ready_for(&self, language: Option<&str>) -> Vec<EngineInfo> {
         self.engines_or_default()
             .into_iter()
-            .filter(|e| e.ready && language.is_none_or(|l| e.languages.is_empty() || e.languages.iter().any(|x| x.eq_ignore_ascii_case(l))))
+            .filter(|e| {
+                e.ready
+                    && language.is_none_or(|l| {
+                        e.languages.is_empty()
+                            || e.languages.iter().any(|x| x.eq_ignore_ascii_case(l))
+                    })
+            })
             .collect()
     }
 }
@@ -334,7 +378,13 @@ pub struct FileOptions {
 }
 
 impl ServiceEnvelope {
-    fn base(schema_name: &str, request_id: &str, trace_id: &str, payload: Option<Value>, error: Option<ServiceErrorPayload>) -> Self {
+    fn base(
+        schema_name: &str,
+        request_id: &str,
+        trace_id: &str,
+        payload: Option<Value>,
+        error: Option<ServiceErrorPayload>,
+    ) -> Self {
         Self {
             protocol_major: ENGINE_PROTOCOL_MAJOR,
             protocol_minor: ENGINE_PROTOCOL_MINOR,
@@ -349,27 +399,52 @@ impl ServiceEnvelope {
         }
     }
     pub fn health(request_id: &str, trace_id: &str) -> Self {
-        Self::base("engine_health", request_id, trace_id, Some(json!({"kind":"health","status":"ok","diagnostics":null})), None)
+        Self::base(
+            "engine_health",
+            request_id,
+            trace_id,
+            Some(json!({"kind":"health","status":"ok","diagnostics":null})),
+            None,
+        )
     }
     pub fn capabilities(request_id: &str, trace_id: &str) -> Self {
-        Self::base("engine_capabilities", request_id, trace_id, Some(json!({"kind":"capabilities","capabilities":["file_transcription"]})), None)
-    }
-    /// Minor-1 capabilities response carrying the engine inventory.
-    pub fn capabilities_with_engines(request_id: &str, trace_id: &str, engines: &[EngineInfo]) -> Self {
         Self::base(
             "engine_capabilities",
             request_id,
             trace_id,
-            Some(json!({"kind":"capabilities","capabilities":["file_transcription"],"engines":engines})),
+            Some(json!({"kind":"capabilities","capabilities":["file_transcription"]})),
             None,
         )
     }
-    pub fn info(request_id: &str, trace_id: &str, cold_load_s: Option<f64>, engine_version: Option<String>) -> Self {
+    /// Minor-1 capabilities response carrying the engine inventory.
+    pub fn capabilities_with_engines(
+        request_id: &str,
+        trace_id: &str,
+        engines: &[EngineInfo],
+    ) -> Self {
+        Self::base(
+            "engine_capabilities",
+            request_id,
+            trace_id,
+            Some(
+                json!({"kind":"capabilities","capabilities":["file_transcription"],"engines":engines}),
+            ),
+            None,
+        )
+    }
+    pub fn info(
+        request_id: &str,
+        trace_id: &str,
+        cold_load_s: Option<f64>,
+        engine_version: Option<String>,
+    ) -> Self {
         Self::base(
             "engine_info",
             request_id,
             trace_id,
-            Some(json!({"kind":"engine_info","mode":"speech_service","cold_load_s":cold_load_s,"engine_version":engine_version})),
+            Some(
+                json!({"kind":"engine_info","mode":"speech_service","cold_load_s":cold_load_s,"engine_version":engine_version}),
+            ),
             None,
         )
     }
@@ -379,7 +454,12 @@ impl ServiceEnvelope {
     }
     /// A file request; `engine`/`language` are included only when set, so a default
     /// request is byte-identical to the v1.0 one.
-    pub fn file_request_with(request_id: &str, trace_id: &str, path: String, opts: &FileOptions) -> Self {
+    pub fn file_request_with(
+        request_id: &str,
+        trace_id: &str,
+        path: String,
+        opts: &FileOptions,
+    ) -> Self {
         let mut payload = json!({"kind":"file_transcription_request","path":path});
         if let Some(e) = &opts.engine {
             payload["engine"] = json!(e);
@@ -387,13 +467,25 @@ impl ServiceEnvelope {
         if let Some(l) = &opts.language {
             payload["language"] = json!(l);
         }
-        Self::base("file_transcription_request", request_id, trace_id, Some(payload), None)
+        Self::base(
+            "file_transcription_request",
+            request_id,
+            trace_id,
+            Some(payload),
+            None,
+        )
     }
     pub fn file_result(request_id: &str, trace_id: &str, transcript: FileTranscript) -> Self {
         Self::file_result_with(request_id, trace_id, transcript, None, None)
     }
     /// Minor-1 result echoing the engine and language actually used.
-    pub fn file_result_with(request_id: &str, trace_id: &str, transcript: FileTranscript, engine: Option<&str>, language: Option<&str>) -> Self {
+    pub fn file_result_with(
+        request_id: &str,
+        trace_id: &str,
+        transcript: FileTranscript,
+        engine: Option<&str>,
+        language: Option<&str>,
+    ) -> Self {
         let mut payload = json!({"kind":"file_transcription_result","text":transcript.text,"srt":transcript.srt,"vtt":transcript.vtt,"words":transcript.words});
         if let Some(e) = engine {
             payload["engine"] = json!(e);
@@ -401,25 +493,50 @@ impl ServiceEnvelope {
         if let Some(l) = language {
             payload["language"] = json!(l);
         }
-        Self::base("file_transcription_result", request_id, trace_id, Some(payload), None)
+        Self::base(
+            "file_transcription_result",
+            request_id,
+            trace_id,
+            Some(payload),
+            None,
+        )
     }
     /// Minor-1 progress frame for `request_id`.
-    pub fn progress(request_id: &str, trace_id: &str, fraction: Option<f32>, state: &str, message: Option<&str>) -> Self {
+    pub fn progress(
+        request_id: &str,
+        trace_id: &str,
+        fraction: Option<f32>,
+        state: &str,
+        message: Option<&str>,
+    ) -> Self {
         Self::base(
             SCHEMA_PROGRESS,
             request_id,
             trace_id,
-            Some(json!({"kind":SCHEMA_PROGRESS,"fraction":fraction,"state":state,"message":message})),
+            Some(
+                json!({"kind":SCHEMA_PROGRESS,"fraction":fraction,"state":state,"message":message}),
+            ),
             None,
         )
     }
-    pub fn error(request_id: &str, trace_id: &str, code: &str, message: &str, retryable: bool) -> Self {
+    pub fn error(
+        request_id: &str,
+        trace_id: &str,
+        code: &str,
+        message: &str,
+        retryable: bool,
+    ) -> Self {
         Self::base(
             "engine_error",
             request_id,
             trace_id,
             None,
-            Some(ServiceErrorPayload { code: code.into(), message: message.into(), retryable, diagnostics: None }),
+            Some(ServiceErrorPayload {
+                code: code.into(),
+                message: message.into(),
+                retryable,
+                diagnostics: None,
+            }),
         )
     }
     pub fn validate_envelope(&self) -> Result<(), &'static str> {
@@ -435,11 +552,27 @@ impl ServiceEnvelope {
         if self.error.is_some() {
             return Err("normal frame carried error payload");
         }
-        let kind = self.payload.as_ref().and_then(|value| value.get("kind")).and_then(Value::as_str);
+        let kind = self
+            .payload
+            .as_ref()
+            .and_then(|value| value.get("kind"))
+            .and_then(Value::as_str);
         match (self.schema_name.as_str(), kind) {
-            ("engine_health", Some("health")) if self.payload.as_ref().is_some_and(valid_health) => Ok(ServiceRequest::Health),
-            ("engine_capabilities", Some("capabilities")) if self.payload.as_ref().is_some_and(valid_capabilities) => Ok(ServiceRequest::Capabilities),
-            ("engine_info", Some("engine_info")) if self.payload.as_ref().is_some_and(valid_info) => Ok(ServiceRequest::Info),
+            ("engine_health", Some("health"))
+                if self.payload.as_ref().is_some_and(valid_health) =>
+            {
+                Ok(ServiceRequest::Health)
+            }
+            ("engine_capabilities", Some("capabilities"))
+                if self.payload.as_ref().is_some_and(valid_capabilities) =>
+            {
+                Ok(ServiceRequest::Capabilities)
+            }
+            ("engine_info", Some("engine_info"))
+                if self.payload.as_ref().is_some_and(valid_info) =>
+            {
+                Ok(ServiceRequest::Info)
+            }
             ("file_transcription_request", Some("file_transcription_request")) => self
                 .payload
                 .as_ref()
@@ -455,8 +588,15 @@ impl ServiceEnvelope {
     pub fn file_options(&self) -> FileOptions {
         let p = self.payload.as_ref();
         FileOptions {
-            engine: p.and_then(|v| v.get("engine")).and_then(Value::as_str).map(EngineSelector::parse),
-            language: p.and_then(|v| v.get("language")).and_then(Value::as_str).map(str::to_string).filter(|s| !s.is_empty()),
+            engine: p
+                .and_then(|v| v.get("engine"))
+                .and_then(Value::as_str)
+                .map(EngineSelector::parse),
+            language: p
+                .and_then(|v| v.get("language"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .filter(|s| !s.is_empty()),
         }
     }
     pub fn health_status(&self) -> Option<&str> {
@@ -469,7 +609,8 @@ impl ServiceEnvelope {
     pub fn transcript(&self) -> Option<FileTranscript> {
         (self.schema_name == "file_transcription_result").then_some(())?;
         let value = self.payload.as_ref()?;
-        (value.get("kind").and_then(Value::as_str) == Some("file_transcription_result")).then_some(())?;
+        (value.get("kind").and_then(Value::as_str) == Some("file_transcription_result"))
+            .then_some(())?;
         serde_json::from_value(value.clone()).ok()
     }
     /// Transcript with the minor-1 `engine`/`language` echo.
@@ -479,22 +620,38 @@ impl ServiceEnvelope {
         Some(FileTranscriptResult {
             transcript,
             engine: p.get("engine").and_then(Value::as_str).map(str::to_string),
-            language: p.get("language").and_then(Value::as_str).map(str::to_string),
+            language: p
+                .get("language")
+                .and_then(Value::as_str)
+                .map(str::to_string),
         })
     }
     pub fn capabilities_info(&self) -> Option<Capabilities> {
         (self.schema_name == "engine_capabilities").then_some(())?;
         let p = self.payload.as_ref()?;
-        let capabilities = p.get("capabilities")?.as_array()?.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
-        let engines = p.get("engines").and_then(|e| serde_json::from_value(e.clone()).ok()).unwrap_or_default();
-        Some(Capabilities { capabilities, engines })
+        let capabilities = p
+            .get("capabilities")?
+            .as_array()?
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        let engines = p
+            .get("engines")
+            .and_then(|e| serde_json::from_value(e.clone()).ok())
+            .unwrap_or_default();
+        Some(Capabilities {
+            capabilities,
+            engines,
+        })
     }
     pub fn host_progress(&self) -> Option<HostProgress> {
         (self.schema_name == SCHEMA_PROGRESS).then_some(())?;
         let p = self.payload.as_ref()?;
         Some(HostProgress {
             fraction: p.get("fraction").and_then(Value::as_f64).map(|f| f as f32),
-            state: ProgressState::from_wire(p.get("state").and_then(Value::as_str).unwrap_or("running")),
+            state: ProgressState::from_wire(
+                p.get("state").and_then(Value::as_str).unwrap_or("running"),
+            ),
             message: p.get("message").and_then(Value::as_str).map(str::to_string),
         })
     }
@@ -505,15 +662,25 @@ pub fn is_allowed_schema(schema: &str) -> bool {
 }
 
 fn valid_health(value: &Value) -> bool {
-    matches!(value.get("status").and_then(Value::as_str), Some("ok" | "degraded" | "unavailable"))
+    matches!(
+        value.get("status").and_then(Value::as_str),
+        Some("ok" | "degraded" | "unavailable")
+    )
 }
 
 fn valid_capabilities(value: &Value) -> bool {
-    value.get("capabilities").and_then(Value::as_array).is_some_and(|items| items.iter().all(Value::is_string))
+    value
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|items| items.iter().all(Value::is_string))
 }
 
 fn valid_info(value: &Value) -> bool {
     value.get("mode").is_some_and(Value::is_string)
-        && value.get("cold_load_s").is_none_or(|field| field.is_null() || field.is_number())
-        && value.get("engine_version").is_none_or(|field| field.is_null() || field.is_string())
+        && value
+            .get("cold_load_s")
+            .is_none_or(|field| field.is_null() || field.is_number())
+        && value
+            .get("engine_version")
+            .is_none_or(|field| field.is_null() || field.is_string())
 }

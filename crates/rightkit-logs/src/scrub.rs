@@ -135,8 +135,18 @@ fn looks_like_email(word: &str) -> bool {
 
 fn looks_like_credential(word: &str) -> bool {
     const PREFIXES: &[&str] = &[
-        "sk-", "sk_", "gsk_", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "AKIA", "AIza",
-        "nvapi-", "eyJ",
+        "sk-",
+        "sk_",
+        "gsk_",
+        "ghp_",
+        "gho_",
+        "github_pat_",
+        "xoxb-",
+        "xoxp-",
+        "AKIA",
+        "AIza",
+        "nvapi-",
+        "eyJ",
     ];
     if word.len() >= 12 && PREFIXES.iter().any(|prefix| word.starts_with(prefix)) {
         return true;

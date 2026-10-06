@@ -9,7 +9,10 @@ pub enum Token {
     /// Bare word or `operator:value` (no whitespace). A leading `-` stays attached.
     Word(String),
     /// `"phrase"` or `op:"phrase"`; `op_prefix` keeps the trailing colon.
-    Phrase { op_prefix: Option<String>, body: String },
+    Phrase {
+        op_prefix: Option<String>,
+        body: String,
+    },
     Or,
     LParen,
     RParen,
@@ -68,7 +71,10 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             i += 1;
         }
         if saw_quote {
-            out.push(Token::Phrase { op_prefix, body: buf });
+            out.push(Token::Phrase {
+                op_prefix,
+                body: buf,
+            });
         } else if buf.eq_ignore_ascii_case("OR") {
             out.push(Token::Or);
         } else if !buf.is_empty() {

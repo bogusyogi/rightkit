@@ -82,8 +82,25 @@ impl OwnedCommand {
 /// Variables a sidecar normally needs to run at all; a base for
 /// [`OwnedCommand::env_allowlist`].
 pub const DEFAULT_ENV_ALLOWLIST: &[&str] = &[
-    "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP", "SystemRoot", "SYSTEMROOT",
-    "USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramData", "COMSPEC", "PATHEXT", "XDG_DATA_HOME", "XDG_RUNTIME_DIR",
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "SystemRoot",
+    "SYSTEMROOT",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ProgramData",
+    "COMSPEC",
+    "PATHEXT",
+    "XDG_DATA_HOME",
+    "XDG_RUNTIME_DIR",
 ];
 
 #[derive(Debug)]
@@ -235,13 +252,75 @@ impl StdCommandWrapper for CleanupWrapper {
         child: Box<dyn StdChildWrapper>,
         _core: &StdCommandWrap,
     ) -> io::Result<Box<dyn StdChildWrapper>> {
-        Ok(Box::new(CleanupChild { child: Some(child) }))
+        // Runs first, while process-wrap's JobObject still holds the child suspended, so the
+        // child and everything it later spawns land in this kill-on-close job.
+        #[cfg(windows)]
+        let kill_on_close = Some(KillOnCloseJob::assign(child.inner())?);
+        Ok(Box::new(CleanupChild {
+            child: Some(child),
+            #[cfg(windows)]
+            _kill_on_close: kill_on_close,
+        }))
     }
 }
+
+/// process-wrap's std `JobObject` never sets JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, so a host that
+/// dies without running destructors (crash, TerminateProcess) left its tree running on Windows.
+/// This second job's only handle lives in the host; when the host goes away for any reason the
+/// kernel closes it and kills every process in the tree.
+#[cfg(windows)]
+#[derive(Debug)]
+struct KillOnCloseJob(windows::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+impl KillOnCloseJob {
+    fn assign(child: &Child) -> io::Result<Self> {
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::{
+            Foundation::HANDLE,
+            System::JobObjects::{
+                AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+                SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            },
+        };
+        let job = Self(unsafe { CreateJobObjectW(None, None) }.map_err(io::Error::other)?);
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        unsafe {
+            SetInformationJobObject(
+                job.0,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                std::mem::size_of_val(&info) as u32,
+            )
+        }
+        .map_err(io::Error::other)?;
+        unsafe { AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle() as _)) }
+            .map_err(io::Error::other)?;
+        Ok(job)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for KillOnCloseJob {
+    fn drop(&mut self) {
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(self.0) };
+    }
+}
+
+// The raw job handle is only closed on drop; moving it between threads is sound.
+#[cfg(windows)]
+unsafe impl Send for KillOnCloseJob {}
+#[cfg(windows)]
+unsafe impl Sync for KillOnCloseJob {}
 
 #[derive(Debug)]
 struct CleanupChild {
     child: Option<Box<dyn StdChildWrapper>>,
+    // Dropped after `child`'s own Drop ran; closing it kills anything still in the tree.
+    #[cfg(windows)]
+    _kill_on_close: Option<KillOnCloseJob>,
 }
 
 impl CleanupChild {

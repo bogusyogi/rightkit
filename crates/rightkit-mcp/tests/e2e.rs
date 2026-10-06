@@ -150,14 +150,19 @@ fn trust_gate_blocks_spawn_until_approved() {
     let dir = tempfile::tempdir().unwrap();
     let marker = dir.path().join("spawned.marker");
     // If this wrapper ever runs, it leaves proof on disk before exec'ing the real server.
-    let script = format!("touch '{}'; exec '{}' stdio", marker.display(), example_bin().display());
-    let spec = ServerSpec::Stdio { command: "/bin/sh".into(), args: vec!["-c".into(), script], env: BTreeMap::new(), cwd: None };
+    #[cfg(not(windows))]
+    let (shell, args) = ("/bin/sh", vec!["-c".to_string(), format!("touch '{}'; exec '{}' stdio", marker.display(), example_bin().display())]);
+    // cmd does not understand Rust's \" argument escaping, so pass each word separately (unquoted).
+    #[cfg(windows)]
+    let (shell, args) = ("cmd", ["/C", "type", "nul", ">"].iter().map(|s| s.to_string())
+        .chain([marker.display().to_string(), "&&".into(), example_bin().display().to_string(), "stdio".into()]).collect::<Vec<_>>());
+    let spec = ServerSpec::Stdio { command: shell.into(), args, env: BTreeMap::new(), cwd: None };
     let entry = ServerEntry { name: "ws-server".into(), spec: spec.clone(), source: ServerSource::Workspace("/proj".into()) };
     let pool = ConnectionPool::new(PoolConfig { max_connections: 4, options: opts_with(None) }, TrustStore::new());
 
     let err = pool.get(&entry).err().expect("must refuse");
     let McpError::NotApproved(p) = err else { panic!("expected NotApproved") };
-    assert_eq!(p.command, "/bin/sh");
+    assert_eq!(p.command, shell);
     assert_eq!(p.fingerprint, fingerprint(&spec));
     std::thread::sleep(Duration::from_millis(400));
     assert!(!marker.exists(), "process must not start before approval");

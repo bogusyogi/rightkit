@@ -36,15 +36,22 @@ mod transport;
 
 pub use client::{Client, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{
-    adopt_or_spawn, discover_apps, discover_macos, discover_windows, parse_plist_string, parse_reg_query,
-    record_process_matches, resolve_install_dir, wait_for_claim_winner, AdoptOrSpawn, InstalledApp, SpawnClaim,
-    SpawnClaimError, UninstallEntry, KNOWN_APPS,
+    adopt_or_spawn, discover_apps, discover_macos, discover_windows, parse_plist_string,
+    parse_reg_query, record_process_matches, resolve_install_dir, wait_for_claim_winner,
+    AdoptOrSpawn, InstalledApp, SpawnClaim, SpawnClaimError, UninstallEntry, KNOWN_APPS,
 };
-pub use error::{ServiceError, ERROR_CONNECTION_CLOSED, ERROR_HOST_HANDOFF, ERROR_NOT_ALLOWED, ERROR_TIMEOUT, ERROR_UNAVAILABLE};
+pub use error::{
+    ServiceError, ERROR_CONNECTION_CLOSED, ERROR_HOST_HANDOFF, ERROR_NOT_ALLOWED, ERROR_TIMEOUT,
+    ERROR_UNAVAILABLE,
+};
 pub use record::{
-    clear_takeover_if_owner, read_live_record, read_record, read_takeover, record_path, takeover_path, write_atomic, write_takeover, Allowlist, ServiceRecord,
-    TakeoverRequest, PROTOCOL_MAJOR, PROTOCOL_MINOR, RANK_UNKNOWN,
+    clear_takeover_if_owner, read_live_record, read_record, read_takeover, record_path,
+    takeover_path, write_atomic, write_takeover, Allowlist, ServiceRecord, TakeoverRequest,
+    PROTOCOL_MAJOR, PROTOCOL_MINOR, RANK_UNKNOWN,
 };
-pub use server::{host, CallContext, Emit, Handler, HostError, Hosted, ServiceConfig, ServiceEvent, DEFAULT_FRAME_LIMIT};
+pub use server::{
+    host, CallContext, Emit, Handler, HostError, Hosted, ServiceConfig, ServiceEvent,
+    DEFAULT_FRAME_LIMIT,
+};
 pub use suite::{Suite, SuiteError, ENV_SUITE_ROOT, SHARED_DIR_NAME, SUITE_DIR_NAME};
 pub use transport::{endpoint_for, open_stream, pid_alive, probe_endpoint, Stream};

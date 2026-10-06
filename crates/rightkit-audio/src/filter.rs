@@ -74,4 +74,3 @@ pub fn render_chain(filters: &[Filter]) -> String {
         .collect::<Vec<_>>()
         .join(",")
 }
-

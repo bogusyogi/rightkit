@@ -149,4 +149,3 @@ pub fn spans_volume_filter(spans: &[(i64, i64)], duck_db: f64, fade_ms: i64) -> 
         .quoted("volume", &expr)
         .opt("eval", "frame")
 }
-

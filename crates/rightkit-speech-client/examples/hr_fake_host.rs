@@ -31,12 +31,26 @@ mod host {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    const ROLES: [&str; 4] = ["heard_right_shell", "heard_right_headless", "scrape_right", "cut_right"];
-    const ALLOWED: [&str; 4] = ["engine_health", "engine_capabilities", "engine_info", "file_transcription_request"];
+    const ROLES: [&str; 4] = [
+        "heard_right_shell",
+        "heard_right_headless",
+        "scrape_right",
+        "cut_right",
+    ];
+    const ALLOWED: [&str; 4] = [
+        "engine_health",
+        "engine_capabilities",
+        "engine_info",
+        "file_transcription_request",
+    ];
     static TRACE: AtomicU64 = AtomicU64::new(1);
 
     fn rank(role: &str) -> u8 {
-        ROLES.iter().position(|r| *r == role).map(|p| p as u8).unwrap_or(99)
+        ROLES
+            .iter()
+            .position(|r| *r == role)
+            .map(|p| p as u8)
+            .unwrap_or(99)
     }
 
     fn alive(pid: u32) -> bool {
@@ -57,7 +71,12 @@ mod host {
     }
 
     fn error_frame(rid: &str, code: &str, message: &str, retryable: bool) -> String {
-        frame("engine_error", rid, Value::Null, json!({"code": code, "message": message, "retryable": retryable, "diagnostics": null}))
+        frame(
+            "engine_error",
+            rid,
+            Value::Null,
+            json!({"code": code, "message": message, "retryable": retryable, "diagnostics": null}),
+        )
     }
 
     struct Cfg {
@@ -118,23 +137,50 @@ mod host {
                     let v: Value = match serde_json::from_str(line) {
                         Ok(v) => v,
                         Err(e) => {
-                            let _ = writer.write_all(error_frame("", "E_BAD_FRAME", &format!("malformed frame: {e}"), false).as_bytes());
+                            let _ = writer.write_all(
+                                error_frame(
+                                    "",
+                                    "E_BAD_FRAME",
+                                    &format!("malformed frame: {e}"),
+                                    false,
+                                )
+                                .as_bytes(),
+                            );
                             continue;
                         }
                     };
                     let rid = v["request_id"].as_str().unwrap_or("").to_string();
-                    if v["protocol_major"] != 1 || v["schema_version"] != 1 || v["schema_name"].as_str().is_none() || v["trace_id"].as_str().is_none() {
-                        let _ = writer.write_all(error_frame(&rid, "E_BAD_FRAME", "invalid frame", false).as_bytes());
+                    if v["protocol_major"] != 1
+                        || v["schema_version"] != 1
+                        || v["schema_name"].as_str().is_none()
+                        || v["trace_id"].as_str().is_none()
+                    {
+                        let _ = writer.write_all(
+                            error_frame(&rid, "E_BAD_FRAME", "invalid frame", false).as_bytes(),
+                        );
                         continue;
                     }
                     let schema = v["schema_name"].as_str().unwrap().to_string();
                     if !ALLOWED.contains(&schema.as_str()) {
-                        let _ = writer.write_all(error_frame(&rid, "speech_service_request_not_allowed", "request not allowed on the speech service", false).as_bytes());
+                        let _ = writer.write_all(
+                            error_frame(
+                                &rid,
+                                "speech_service_request_not_allowed",
+                                "request not allowed on the speech service",
+                                false,
+                            )
+                            .as_bytes(),
+                        );
                         continue;
                     }
                     let kind = v["payload"]["kind"].as_str().unwrap_or("");
                     let out = match (schema.as_str(), kind) {
-                        ("engine_health", "health") => frame("engine_health", &rid, json!({"kind":"health","status":"ok","diagnostics":null}), Value::Null),
+                        ("engine_health", "health") => frame(
+                            "engine_health",
+                            &rid,
+                            json!({"kind":"health","status":"ok","diagnostics":null}),
+                            Value::Null,
+                        ),
                         ("engine_capabilities", "capabilities") => {
                             let mut p = json!({"kind":"capabilities","capabilities":["file_transcription"]});
                             if cfg.minor >= 1 {
@@ -142,22 +188,49 @@ mod host {
                             }
                             frame("engine_capabilities", &rid, p, Value::Null)
                         }
-                        ("engine_info", "engine_info") => frame("engine_info", &rid, json!({"kind":"engine_info","mode":"speech_service","cold_load_s":1.5,"engine_version":"fake-hr-host/1"}), Value::Null),
+                        ("engine_info", "engine_info") => frame(
+                            "engine_info",
+                            &rid,
+                            json!({"kind":"engine_info","mode":"speech_service","cold_load_s":1.5,"engine_version":"fake-hr-host/1"}),
+                            Value::Null,
+                        ),
                         ("file_transcription_request", "file_transcription_request") => {
                             let Some(path) = v["payload"]["path"].as_str() else {
-                                let _ = writer.write_all(error_frame(&rid, "E_BAD_FRAME", "missing file path", false).as_bytes());
+                                let _ = writer.write_all(
+                                    error_frame(&rid, "E_BAD_FRAME", "missing file path", false)
+                                        .as_bytes(),
+                                );
                                 continue;
                             };
-                            let _ = std::fs::write(cfg.state.join("last_request.json"), v["payload"].to_string());
+                            let _ = std::fs::write(
+                                cfg.state.join("last_request.json"),
+                                v["payload"].to_string(),
+                            );
                             if !cfg.accepting.load(Ordering::SeqCst) {
-                                let _ = writer.write_all(error_frame(&rid, "speech_service_host_handoff", "speech service host is handing off", true).as_bytes());
+                                let _ = writer.write_all(
+                                    error_frame(
+                                        &rid,
+                                        "speech_service_host_handoff",
+                                        "speech service host is handing off",
+                                        true,
+                                    )
+                                    .as_bytes(),
+                                );
                                 continue;
                             }
                             if path.contains("handoff") {
                                 let marker = cfg.state.join("handoff_done");
                                 if !marker.exists() {
                                     let _ = std::fs::write(&marker, b"1");
-                                    let _ = writer.write_all(error_frame(&rid, "speech_service_host_handoff", "speech service host is handing off", true).as_bytes());
+                                    let _ = writer.write_all(
+                                        error_frame(
+                                            &rid,
+                                            "speech_service_host_handoff",
+                                            "speech service host is handing off",
+                                            true,
+                                        )
+                                        .as_bytes(),
+                                    );
                                     continue;
                                 }
                             }
@@ -167,16 +240,33 @@ mod host {
                                 let lang = v["payload"]["language"].as_str().map(str::to_string);
                                 let engine = match v["payload"]["engine"].as_str() {
                                     None | Some("parakeet") => "parakeet".to_string(),
-                                    Some("auto") => if matches!(lang.as_deref(), Some("ja") | Some("zh")) { "whisper".into() } else { "parakeet".into() },
+                                    Some("auto") => {
+                                        if matches!(lang.as_deref(), Some("ja") | Some("zh")) {
+                                            "whisper".into()
+                                        } else {
+                                            "parakeet".into()
+                                        }
+                                    }
                                     Some("whisper") => "whisper".into(),
                                     Some(other) => {
-                                        let _ = writer.write_all(error_frame(&rid, "speech_service_engine_unavailable", &format!("engine {other} is not ready"), false).as_bytes());
+                                        let _ = writer.write_all(
+                                            error_frame(
+                                                &rid,
+                                                "speech_service_engine_unavailable",
+                                                &format!("engine {other} is not ready"),
+                                                false,
+                                            )
+                                            .as_bytes(),
+                                        );
                                         continue;
                                     }
                                 };
                                 echo = Some((engine, lang));
                             }
-                            if path.contains("stall") || path.contains("slow") || path.contains("dictation") {
+                            if path.contains("stall")
+                                || path.contains("slow")
+                                || path.contains("dictation")
+                            {
                                 job = Some((rid, path.to_string(), Instant::now(), echo));
                                 last_progress = Instant::now() - Duration::from_secs(1);
                                 continue;
@@ -191,21 +281,42 @@ mod host {
             }
             if !cfg.accepting.load(Ordering::SeqCst) {
                 if let Some((rid, ..)) = job.take() {
-                    let _ = writer.write_all(error_frame(&rid, "speech_service_host_handoff", "speech service host is handing off", true).as_bytes());
+                    let _ = writer.write_all(
+                        error_frame(
+                            &rid,
+                            "speech_service_host_handoff",
+                            "speech service host is handing off",
+                            true,
+                        )
+                        .as_bytes(),
+                    );
                 }
             }
             if let Some((rid, path, started, echo)) = job.clone() {
                 if path.contains("stall") {
                     continue;
                 }
-                let paused = path.contains("dictation") && cfg.state.join("dictation_active").exists();
+                let paused =
+                    path.contains("dictation") && cfg.state.join("dictation_active").exists();
                 if cfg.minor >= 1 && last_progress.elapsed() >= Duration::from_millis(200) {
                     last_progress = Instant::now();
-                    let state = if paused { "paused_for_dictation" } else { "running" };
-                    let frac = if paused { Value::Null } else { json!((started.elapsed().as_secs_f64() / 3.0).min(0.99)) };
+                    let state = if paused {
+                        "paused_for_dictation"
+                    } else {
+                        "running"
+                    };
+                    let frac = if paused {
+                        Value::Null
+                    } else {
+                        json!((started.elapsed().as_secs_f64() / 3.0).min(0.99))
+                    };
                     let _ = writer.write_all(frame("file_transcription_progress", &rid, json!({"kind":"file_transcription_progress","fraction":frac,"state":state,"message":null}), Value::Null).as_bytes());
                 }
-                let done = if path.contains("slow") { started.elapsed() >= Duration::from_secs(3) } else { !paused && started.elapsed() >= Duration::from_millis(300) };
+                let done = if path.contains("slow") {
+                    started.elapsed() >= Duration::from_secs(3)
+                } else {
+                    !paused && started.elapsed() >= Duration::from_millis(300)
+                };
                 if done {
                     job = None;
                     let _ = writer.write_all(result(&rid, &echo).as_bytes());
@@ -229,11 +340,20 @@ mod host {
 
     pub fn main() {
         let a: Vec<String> = std::env::args().skip(1).collect();
-        let (root, role, minor, state) = (PathBuf::from(&a[0]), a[1].clone(), a[2].parse::<u64>().unwrap(), PathBuf::from(&a[3]));
+        let (root, role, minor, state) = (
+            PathBuf::from(&a[0]),
+            a[1].clone(),
+            a[2].parse::<u64>().unwrap(),
+            PathBuf::from(&a[3]),
+        );
         let dir = root.join("runtime").join("speech-service");
         let record_path = dir.join("service.json");
         let live = |p: &Path| -> bool {
-            std::fs::read(p).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|v| v["pid"].as_u64()).is_some_and(|pid| alive(pid as u32))
+            std::fs::read(p)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                .and_then(|v| v["pid"].as_u64())
+                .is_some_and(|pid| alive(pid as u32))
         };
         if a.iter().any(|x| x == "--wait-free") {
             while live(&record_path) {
@@ -251,18 +371,35 @@ mod host {
         let tmp = dir.join(format!("service.json.{me}.tmp"));
         std::fs::write(&tmp, serde_json::to_vec_pretty(&rec).unwrap()).unwrap();
         std::fs::rename(&tmp, &record_path).unwrap();
-        let cfg = Arc::new(Cfg { role: role.clone(), minor, state, accepting: AtomicBool::new(true) });
+        let cfg = Arc::new(Cfg {
+            role: role.clone(),
+            minor,
+            state,
+            accepting: AtomicBool::new(true),
+        });
 
         let c = cfg.clone();
         let (rp, tk) = (record_path.clone(), dir.join("takeover.json"));
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_millis(100));
-            let Some(t) = std::fs::read(&tk).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) else { continue };
-            let (trole, tpid) = (t["role"].as_str().unwrap_or("").to_string(), t["pid"].as_u64().unwrap_or(0) as u32);
+            let Some(t) = std::fs::read(&tk)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            else {
+                continue;
+            };
+            let (trole, tpid) = (
+                t["role"].as_str().unwrap_or("").to_string(),
+                t["pid"].as_u64().unwrap_or(0) as u32,
+            );
             if tpid != std::process::id() && rank(&trole) < rank(&c.role) && alive(tpid) {
                 c.accepting.store(false, Ordering::SeqCst);
                 std::thread::sleep(Duration::from_millis(400));
-                if std::fs::read(&rp).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).is_some_and(|v| v["pid"] == std::process::id()) {
+                if std::fs::read(&rp)
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                    .is_some_and(|v| v["pid"] == std::process::id())
+                {
                     let _ = std::fs::remove_file(&rp);
                 }
                 std::thread::sleep(Duration::from_millis(500));

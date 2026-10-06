@@ -19,12 +19,18 @@ fn main() {
     let dir = std::path::PathBuf::from(std::env::var("FX_DIR").expect("FX_DIR"));
     let plan = std::env::var("FX_PLAN").unwrap_or_else(|_| "ok".into());
     let gen_path = dir.join("gen");
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&gen_path).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&gen_path)
+        .unwrap();
     writeln!(f, "{}", std::process::id()).unwrap();
     let n = std::fs::read_to_string(&gen_path).unwrap().lines().count();
     let modes: Vec<&str> = plan.split(',').collect();
     let mode = modes.get(n - 1).or(modes.last()).copied().unwrap_or("ok");
-    let (name, arg) = mode.split_once(':').map_or((mode, 0u64), |(a, b)| (a, b.parse().unwrap_or(0)));
+    let (name, arg) = mode
+        .split_once(':')
+        .map_or((mode, 0u64), |(a, b)| (a, b.parse().unwrap_or(0)));
     eprintln!("fixture gen {n} mode {mode} key=PRIVATE{n}");
 
     let stdout = std::io::stdout();
@@ -69,8 +75,14 @@ fn main() {
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
             Err(_) => return,
         };
-        let Ok(req) = serde_json::from_str::<Value>(&line) else { continue };
-        let (id, method, params) = (req["id"].clone(), req["method"].as_str().unwrap_or("").to_string(), req["params"].clone());
+        let Ok(req) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let (id, method, params) = (
+            req["id"].clone(),
+            req["method"].as_str().unwrap_or("").to_string(),
+            req["params"].clone(),
+        );
         let ok = |result: Value| json!({"type":"response","id":id,"ok":true,"result":result});
         let reply = match method.as_str() {
             "ping" => ok(json!({"pong": true})),
@@ -109,7 +121,9 @@ fn main() {
                 put(ok(json!({})));
                 return;
             }
-            other => json!({"type":"response","id":id,"ok":false,"error":{"code":"unknown_method","message":other,"retryable":false}}),
+            other => {
+                json!({"type":"response","id":id,"ok":false,"error":{"code":"unknown_method","message":other,"retryable":false}})
+            }
         };
         put(reply);
     }

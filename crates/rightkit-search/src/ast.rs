@@ -23,7 +23,12 @@ impl Syntax {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        Self { operators: operators.into_iter().map(|s| s.as_ref().to_ascii_lowercase()).collect() }
+        Self {
+            operators: operators
+                .into_iter()
+                .map(|s| s.as_ref().to_ascii_lowercase())
+                .collect(),
+        }
     }
 
     pub fn knows(&self, op: &str) -> bool {
@@ -61,7 +66,10 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnsupportedOperator { operator, raw } => {
-                write!(f, "unsupported search operator \"{operator}:\" in \"{raw}\"")
+                write!(
+                    f,
+                    "unsupported search operator \"{operator}:\" in \"{raw}\""
+                )
             }
             Self::UnbalancedGroup { raw } => write!(f, "unbalanced grouping near \"{raw}\""),
             Self::EmptyGroup => write!(f, "empty group"),
@@ -112,7 +120,9 @@ impl Parser<'_> {
         let mut out = Vec::new();
         while let Some(t) = self.peek() {
             if matches!(t, Token::RParen | Token::RBrace) {
-                return Err(ParseError::UnbalancedGroup { raw: format!("{t:?}") });
+                return Err(ParseError::UnbalancedGroup {
+                    raw: format!("{t:?}"),
+                });
             }
             self.term(&mut out)?;
         }
@@ -161,7 +171,11 @@ impl Parser<'_> {
                     self.next();
                     break;
                 }
-                None => return Err(ParseError::UnbalancedGroup { raw: "end of query".into() }),
+                None => {
+                    return Err(ParseError::UnbalancedGroup {
+                        raw: "end of query".into(),
+                    })
+                }
                 _ => self.term(&mut out)?,
             }
         }
@@ -179,7 +193,11 @@ impl Parser<'_> {
                     self.next();
                     break;
                 }
-                None => return Err(ParseError::UnbalancedGroup { raw: "end of query".into() }),
+                None => {
+                    return Err(ParseError::UnbalancedGroup {
+                        raw: "end of query".into(),
+                    })
+                }
                 Some(Token::Or) => {
                     self.next();
                 }
@@ -200,13 +218,23 @@ impl Parser<'_> {
                     None => (false, w),
                 };
                 if let Some((op, value)) = known_split(&w, self.syntax) {
-                    return Ok(Leaf { op: Some(op), value, negated, is_phrase: false });
+                    return Ok(Leaf {
+                        op: Some(op),
+                        value,
+                        negated,
+                        is_phrase: false,
+                    });
                 }
                 if let Some(operator) = unknown_operator(&w, self.syntax) {
                     return Err(ParseError::UnsupportedOperator { operator, raw: w });
                 }
                 let value: String = w.chars().filter(|c| !"\"*()".contains(*c)).collect();
-                Ok(Leaf { op: None, value, negated, is_phrase: false })
+                Ok(Leaf {
+                    op: None,
+                    value,
+                    negated,
+                    is_phrase: false,
+                })
             }
             Some(Token::Phrase { op_prefix, body }) => {
                 let mut negated_bare = false;
@@ -216,7 +244,12 @@ impl Parser<'_> {
                     let trimmed = p.strip_prefix('-').unwrap_or(&p);
                     let op = trimmed.trim_end_matches(':').to_ascii_lowercase();
                     if self.syntax.knows(&op) {
-                        return Ok(Leaf { op: Some(op), value: body, negated, is_phrase: true });
+                        return Ok(Leaf {
+                            op: Some(op),
+                            value: body,
+                            negated,
+                            is_phrase: true,
+                        });
                     }
                     if !op.is_empty() {
                         return Err(ParseError::UnsupportedOperator {
@@ -226,13 +259,25 @@ impl Parser<'_> {
                     }
                 }
                 // `-"phrase"` arrives with prefix "-"; the donor dropped that negation.
-                Ok(Leaf { op: None, value: body, negated: negated_bare, is_phrase: true })
+                Ok(Leaf {
+                    op: None,
+                    value: body,
+                    negated: negated_bare,
+                    is_phrase: true,
+                })
             }
-            other => Err(ParseError::UnbalancedGroup { raw: format!("{other:?}") }),
+            other => Err(ParseError::UnbalancedGroup {
+                raw: format!("{other:?}"),
+            }),
         }
     }
 }
 
 pub fn parse(input: &str, syntax: &Syntax) -> Result<Vec<Node>, ParseError> {
-    Parser { tokens: tokenize(input), pos: 0, syntax }.query()
+    Parser {
+        tokens: tokenize(input),
+        pos: 0,
+        syntax,
+    }
+    .query()
 }

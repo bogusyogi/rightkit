@@ -6,7 +6,8 @@ rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/claude"
-publish = false
+readme = "README.md"
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 rightkit-framed-sidecar = { version = "=0.1.0", path = "../rightkit-framed-sidecar" }

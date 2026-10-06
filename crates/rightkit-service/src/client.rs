@@ -44,7 +44,13 @@ impl Watchdog {
 }
 
 fn timed_out(what: &str, d: Option<Duration>) -> ServiceError {
-    ServiceError::new(ERROR_TIMEOUT, format!("{what} exceeded the {} ms deadline; connection aborted", d.map(|d| d.as_millis()).unwrap_or(0)))
+    ServiceError::new(
+        ERROR_TIMEOUT,
+        format!(
+            "{what} exceeded the {} ms deadline; connection aborted",
+            d.map(|d| d.as_millis()).unwrap_or(0)
+        ),
+    )
 }
 
 struct Io {
@@ -69,7 +75,10 @@ pub struct Client {
 }
 
 fn closed() -> ServiceError {
-    ServiceError::retryable(ERROR_CONNECTION_CLOSED, "connection closed before a response arrived")
+    ServiceError::retryable(
+        ERROR_CONNECTION_CLOSED,
+        "connection closed before a response arrived",
+    )
 }
 
 impl Client {
@@ -81,7 +90,12 @@ impl Client {
 
     /// Like [`Client::connect`] with an explicit deadline for connect + hello,
     /// which also becomes the client's per-request deadline (`None` = unbounded).
-    pub fn connect_with(suite: &Suite, service: &str, app: &str, deadline: Option<Duration>) -> Result<Client, ServiceError> {
+    pub fn connect_with(
+        suite: &Suite,
+        service: &str,
+        app: &str,
+        deadline: Option<Duration>,
+    ) -> Result<Client, ServiceError> {
         let Some(d) = deadline else {
             return Self::handshake(suite, service, app, None);
         };
@@ -98,19 +112,53 @@ impl Client {
         }
     }
 
-    fn handshake(suite: &Suite, service: &str, app: &str, deadline: Option<Duration>) -> Result<Client, ServiceError> {
+    fn handshake(
+        suite: &Suite,
+        service: &str,
+        app: &str,
+        deadline: Option<Duration>,
+    ) -> Result<Client, ServiceError> {
         let started = Instant::now();
-        let record = read_record(suite, service).ok_or_else(|| ServiceError::retryable(ERROR_UNAVAILABLE, format!("no service.json for {service}")))?;
+        let record = read_record(suite, service).ok_or_else(|| {
+            ServiceError::retryable(ERROR_UNAVAILABLE, format!("no service.json for {service}"))
+        })?;
         if record.protocol_major != PROTOCOL_MAJOR {
-            return Err(ServiceError::new("protocol_mismatch", format!("host speaks protocol {}", record.protocol_major)));
+            return Err(ServiceError::new(
+                "protocol_mismatch",
+                format!("host speaks protocol {}", record.protocol_major),
+            ));
         }
-        let Conn { reader, writer, shutdown, .. } = connect(&record.endpoint).map_err(|e| ServiceError::retryable(ERROR_UNAVAILABLE, format!("{service} host unreachable: {e}")))?;
-        let mut io = Io { reader: BufReader::new(reader), writer, buf: Vec::new() };
-        let wd = Watchdog::arm(deadline.map(|d| d.saturating_sub(started.elapsed())), shutdown.clone());
+        let Conn {
+            reader,
+            writer,
+            shutdown,
+            ..
+        } = connect(&record.endpoint).map_err(|e| {
+            ServiceError::retryable(
+                ERROR_UNAVAILABLE,
+                format!("{service} host unreachable: {e}"),
+            )
+        })?;
+        let mut io = Io {
+            reader: BufReader::new(reader),
+            writer,
+            buf: Vec::new(),
+        };
+        let wd = Watchdog::arm(
+            deadline.map(|d| d.saturating_sub(started.elapsed())),
+            shutdown.clone(),
+        );
         let hello_res = (|| {
-            write_json_line(&mut io.writer, &json!({"type": "hello", "app": app, "protocol_major": PROTOCOL_MAJOR}), LIMIT).map_err(|e| ServiceError::new("io", e.to_string()))?;
+            write_json_line(
+                &mut io.writer,
+                &json!({"type": "hello", "app": app, "protocol_major": PROTOCOL_MAJOR}),
+                LIMIT,
+            )
+            .map_err(|e| ServiceError::new("io", e.to_string()))?;
             io.writer.flush()?;
-            read_json_line::<_, Value>(&mut io.reader, &mut io.buf, LIMIT).map_err(|e| ServiceError::new("io", e.to_string()))?.ok_or_else(closed)
+            read_json_line::<_, Value>(&mut io.reader, &mut io.buf, LIMIT)
+                .map_err(|e| ServiceError::new("io", e.to_string()))?
+                .ok_or_else(closed)
         })();
         let hello = match hello_res {
             Ok(h) => h,
@@ -124,12 +172,23 @@ impl Client {
         if hello["ok"] != true {
             return Err(ServiceError::from_value(&hello["error"]));
         }
-        Ok(Client { io: Mutex::new(io), next_id: AtomicU64::new(1), dead: AtomicBool::new(false), hello, record, shutdown, deadline_ms: AtomicU64::new(deadline.map(|d| d.as_millis() as u64).unwrap_or(0)) })
+        Ok(Client {
+            io: Mutex::new(io),
+            next_id: AtomicU64::new(1),
+            dead: AtomicBool::new(false),
+            hello,
+            record,
+            shutdown,
+            deadline_ms: AtomicU64::new(deadline.map(|d| d.as_millis() as u64).unwrap_or(0)),
+        })
     }
 
     /// Set the per-request deadline for later calls (`None` = unbounded).
     pub fn set_deadline(&self, deadline: Option<Duration>) {
-        self.deadline_ms.store(deadline.map(|d| (d.as_millis() as u64).max(1)).unwrap_or(0), Ordering::SeqCst);
+        self.deadline_ms.store(
+            deadline.map(|d| (d.as_millis() as u64).max(1)).unwrap_or(0),
+            Ordering::SeqCst,
+        );
     }
 
     pub fn record(&self) -> &ServiceRecord {
@@ -152,7 +211,12 @@ impl Client {
     }
 
     /// Like [`Client::call`], streaming the request's `event` frames to `on_event`.
-    pub fn call_events(&self, method: &str, params: Value, on_event: &mut dyn FnMut(&Value)) -> Result<Value, ServiceError> {
+    pub fn call_events(
+        &self,
+        method: &str,
+        params: Value,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
         if self.dead.load(Ordering::SeqCst) {
             return Err(closed());
         }
@@ -164,8 +228,15 @@ impl Client {
         };
         let wd = Watchdog::arm(deadline, self.shutdown.clone());
         let res = (|| {
-            write_json_line(&mut io.writer, &json!({"type": "request", "id": id, "method": method, "params": params}), LIMIT).map_err(|e| match e {
-                FrameError::TooLarge { .. } => ServiceError::new("request_too_large", "request exceeds the frame limit"),
+            write_json_line(
+                &mut io.writer,
+                &json!({"type": "request", "id": id, "method": method, "params": params}),
+                LIMIT,
+            )
+            .map_err(|e| match e {
+                FrameError::TooLarge { .. } => {
+                    ServiceError::new("request_too_large", "request exceeds the frame limit")
+                }
                 _ => closed(),
             })?;
             io.writer.flush().map_err(|_| closed())?;
@@ -175,7 +246,11 @@ impl Client {
                     Ok(Some(v)) if v["id"].as_u64() == Some(id) => match v["type"].as_str() {
                         Some("event") => on_event(&v["event"]),
                         Some("response") => {
-                            return if v["ok"] == true { Ok(v["result"].clone()) } else { Err(ServiceError::from_value(&v["error"])) };
+                            return if v["ok"] == true {
+                                Ok(v["result"].clone())
+                            } else {
+                                Err(ServiceError::from_value(&v["error"]))
+                            };
                         }
                         _ => {}
                     },
@@ -215,14 +290,28 @@ pub struct RetryPolicy {
 
 impl Default for RetryPolicy {
     fn default() -> Self {
-        Self { max_attempts: 8, backoff: Duration::from_millis(150), give_up_after: Duration::from_secs(120), request_deadline: Some(DEFAULT_DEADLINE), idempotent: false }
+        Self {
+            max_attempts: 8,
+            backoff: Duration::from_millis(150),
+            give_up_after: Duration::from_secs(120),
+            request_deadline: Some(DEFAULT_DEADLINE),
+            idempotent: false,
+        }
     }
 }
 
 impl Client {
     /// Connect, call, and on a retryable error (host handoff, closed connection,
     /// service unavailable) re-read discovery and resubmit the whole request.
-    pub fn call_retrying(suite: &Suite, service: &str, app: &str, method: &str, params: Value, policy: RetryPolicy, on_event: &mut dyn FnMut(&Value)) -> Result<Value, ServiceError> {
+    pub fn call_retrying(
+        suite: &Suite,
+        service: &str,
+        app: &str,
+        method: &str,
+        params: Value,
+        policy: RetryPolicy,
+        on_event: &mut dyn FnMut(&Value),
+    ) -> Result<Value, ServiceError> {
         let started = Instant::now();
         let mut last = ServiceError::retryable(ERROR_UNAVAILABLE, "no attempt made");
         for attempt in 0..policy.max_attempts.max(1) {
@@ -243,7 +332,9 @@ impl Client {
             match c.call_events(method, params.clone(), on_event) {
                 Ok(v) => return Ok(v),
                 // Handoff means the host declined the request; anything else may have run.
-                Err(e) if e.retryable && (e.code == ERROR_HOST_HANDOFF || policy.idempotent) => last = e,
+                Err(e) if e.retryable && (e.code == ERROR_HOST_HANDOFF || policy.idempotent) => {
+                    last = e
+                }
                 Err(e) => return Err(e),
             }
         }

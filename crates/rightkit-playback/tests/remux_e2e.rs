@@ -18,7 +18,11 @@ fn ffmpeg() -> Option<PathBuf> {
         return path.is_file().then_some(path);
     }
     for dir in std::env::split_paths(&std::env::var_os("PATH")?) {
-        let candidate = dir.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+        let candidate = dir.join(if cfg!(windows) {
+            "ffmpeg.exe"
+        } else {
+            "ffmpeg"
+        });
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -42,7 +46,10 @@ fn tempdir(tag: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!("rightkit-playback-{tag}-{}-{stamp}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "rightkit-playback-{tag}-{}-{stamp}",
+        std::process::id()
+    ));
     fs::create_dir_all(&root).unwrap();
     root
 }
@@ -73,7 +80,10 @@ fn make_source(ffmpeg: &Path, dir: &Path) -> PathBuf {
             mkv.to_str().unwrap(),
         ],
     );
-    assert!(ok, "fixture generation failed — host FFmpeg lacks libx264/aac?");
+    assert!(
+        ok,
+        "fixture generation failed — host FFmpeg lacks libx264/aac?"
+    );
     mkv
 }
 
@@ -89,13 +99,9 @@ fn real_remux_produces_playable_mp4_reuses_cache_and_preserves_source() {
     let cache = dir.join("cache");
     let token = CancellationToken::new();
 
-    let derivative = compatibility_copy(
-        &ffmpeg,
-        &PlaybackSource::new(&source_path),
-        &cache,
-        &token,
-    )
-    .expect("compatibility copy");
+    let derivative =
+        compatibility_copy(&ffmpeg, &PlaybackSource::new(&source_path), &cache, &token)
+            .expect("compatibility copy");
 
     // Outcome: a non-trivial MP4 derivative exists under the cache root.
     assert!(derivative.is_file());
@@ -107,16 +113,18 @@ fn real_remux_produces_playable_mp4_reuses_cache_and_preserves_source() {
     // Derivative probes as mp4 video+audio via the same FFmpeg build.
     assert!(run(
         &ffmpeg,
-        &["-hide_banner", "-i", derivative.to_str().unwrap(), "-f", "null", "-"]
+        &[
+            "-hide_banner",
+            "-i",
+            derivative.to_str().unwrap(),
+            "-f",
+            "null",
+            "-"
+        ]
     ));
     // Second call hits the cache: same path, no rewrite.
-    let again = compatibility_copy(
-        &ffmpeg,
-        &PlaybackSource::new(&source_path),
-        &cache,
-        &token,
-    )
-    .unwrap();
+    let again =
+        compatibility_copy(&ffmpeg, &PlaybackSource::new(&source_path), &cache, &token).unwrap();
     assert_eq!(again, derivative);
     // Explicit audio kind produces an .m4a derivative instead.
     let audio = compatibility_copy(

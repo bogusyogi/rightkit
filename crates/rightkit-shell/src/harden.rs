@@ -118,8 +118,8 @@ pub fn apply_native<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
-    use objc2::runtime::AnyObject;
     use objc2::msg_send;
+    use objc2::runtime::AnyObject;
     use objc2_foundation::{ns_string, NSNumber};
 
     pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
@@ -155,15 +155,19 @@ mod windows_impl {
         ICoreWebView2Settings3, ICoreWebView2Settings5, ICoreWebView2Settings6, ICoreWebView2_11,
     };
     use windows::core::Interface;
-    use windows::Win32::Foundation::BOOL;
+    use windows::core::BOOL;
 
     /// WebView2 side of the same policy. NOT compiled on this (macOS) host: compile and verify on
     /// the Windows agent with `rightkit cargo check -p rightkit-shell` (see API.md).
     pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
         let h = h.clone();
         let _ = webview.with_webview(move |platform| unsafe {
-            let Ok(core) = platform.controller().CoreWebView2() else { return };
-            let Ok(settings) = core.Settings() else { return };
+            let Ok(core) = platform.controller().CoreWebView2() else {
+                return;
+            };
+            let Ok(settings) = core.Settings() else {
+                return;
+            };
             let _ = settings.SetAreDevToolsEnabled(h.devtools.enabled());
             let _ = settings.SetIsStatusBarEnabled(false);
             if h.block_zoom {
@@ -188,16 +192,17 @@ mod windows_impl {
                 // target is marked handled (no menu shown).
                 let allow_editable = h.allow_editable_menu;
                 if let Ok(wv11) = core.cast::<ICoreWebView2_11>() {
-                    let handler = ContextMenuRequestedEventHandler::create(Box::new(move |_sender, args| {
-                        let Some(args) = args else { return Ok(()) };
-                        let target = args.ContextMenuTarget()?;
-                        let mut editable = BOOL(0);
-                        let _ = target.IsEditable(&mut editable);
-                        if !(allow_editable && editable.as_bool()) {
-                            args.SetHandled(true)?;
-                        }
-                        Ok(())
-                    }));
+                    let handler =
+                        ContextMenuRequestedEventHandler::create(Box::new(move |_sender, args| {
+                            let Some(args) = args else { return Ok(()) };
+                            let target = args.ContextMenuTarget()?;
+                            let mut editable = BOOL(0);
+                            let _ = target.IsEditable(&mut editable);
+                            if !(allow_editable && editable.as_bool()) {
+                                args.SetHandled(true)?;
+                            }
+                            Ok(())
+                        }));
                     let mut token: i64 = 0;
                     let _ = wv11.add_ContextMenuRequested(&handler, &mut token);
                 }

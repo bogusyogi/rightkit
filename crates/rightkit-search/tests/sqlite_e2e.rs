@@ -44,11 +44,61 @@ fn fixture() -> (tempfile::TempDir, Connection) {
     )
     .unwrap();
     let rows = [
-        ("m1", "alice@acme.com", "March invoice", "Please find the invoice for March attached. Payment due in 30 days.", "INBOX", 120_000, MAR1, 1, "id1@acme"),
-        ("m2", "bob@example.org", "Lunch on Friday", "Want to grab lunch on Friday? The new ramen place is open.", "INBOX", 2_000, MAR1 + 86_400_000, 0, "id2@example"),
-        ("m3", "alice@acme.com", "Quarterly report", "The quarterly report is ready. Revenue grew 12 percent versus last quarter.", "ARCHIVE", 5_500_000, APR1, 0, "id3@acme"),
-        ("m4", "carol@example.org", "Receipt for lunch", "Your receipt: lunch, 14.50 USD. Thank you for dining with us.", "INBOX", 9_000, APR1 + 86_400_000, 1, "id4@example"),
-        ("m5", "dave@acme.com", "100% off_sale", "Literal percent and underscore subject for LIKE escaping tests.", "SPAM", 800, APR1, 1, "id5@acme"),
+        (
+            "m1",
+            "alice@acme.com",
+            "March invoice",
+            "Please find the invoice for March attached. Payment due in 30 days.",
+            "INBOX",
+            120_000,
+            MAR1,
+            1,
+            "id1@acme",
+        ),
+        (
+            "m2",
+            "bob@example.org",
+            "Lunch on Friday",
+            "Want to grab lunch on Friday? The new ramen place is open.",
+            "INBOX",
+            2_000,
+            MAR1 + 86_400_000,
+            0,
+            "id2@example",
+        ),
+        (
+            "m3",
+            "alice@acme.com",
+            "Quarterly report",
+            "The quarterly report is ready. Revenue grew 12 percent versus last quarter.",
+            "ARCHIVE",
+            5_500_000,
+            APR1,
+            0,
+            "id3@acme",
+        ),
+        (
+            "m4",
+            "carol@example.org",
+            "Receipt for lunch",
+            "Your receipt: lunch, 14.50 USD. Thank you for dining with us.",
+            "INBOX",
+            9_000,
+            APR1 + 86_400_000,
+            1,
+            "id4@example",
+        ),
+        (
+            "m5",
+            "dave@acme.com",
+            "100% off_sale",
+            "Literal percent and underscore subject for LIKE escaping tests.",
+            "SPAM",
+            800,
+            APR1,
+            1,
+            "id5@acme",
+        ),
     ];
     for r in rows {
         conn.execute(
@@ -57,18 +107,33 @@ fn fixture() -> (tempfile::TempDir, Connection) {
         )
         .unwrap();
     }
-    conn.execute_batch("INSERT INTO fts_messages(rowid, subject, body) SELECT rowid, subject, body FROM messages;").unwrap();
-    conn.execute("INSERT INTO attachments VALUES ('m1','invoice-march.pdf'), ('m3','report_q1.xlsx')", []).unwrap();
+    conn.execute_batch(
+        "INSERT INTO fts_messages(rowid, subject, body) SELECT rowid, subject, body FROM messages;",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO attachments VALUES ('m1','invoice-march.pdf'), ('m3','report_q1.xlsx')",
+        [],
+    )
+    .unwrap();
     (dir, conn)
 }
 
 fn ids(conn: &Connection, query: &str) -> Vec<String> {
     let schema = schema();
-    let q = schema.parse(query).unwrap_or_else(|e| panic!("parse {query:?}: {e}"));
+    let q = schema
+        .parse(query)
+        .unwrap_or_else(|e| panic!("parse {query:?}: {e}"));
     let compiled = schema.compile_at(&q, APR1 + 10 * 86_400_000).unwrap();
     let sql = compiled.select("SELECT m.id FROM messages m") + " ORDER BY m.id";
-    let mut stmt = conn.prepare(&sql).unwrap_or_else(|e| panic!("sql {sql}: {e}"));
-    let rows = stmt.query_map(params_from_iter(compiled.params.iter()), |r| r.get::<_, String>(0)).unwrap();
+    let mut stmt = conn
+        .prepare(&sql)
+        .unwrap_or_else(|e| panic!("sql {sql}: {e}"));
+    let rows = stmt
+        .query_map(params_from_iter(compiled.params.iter()), |r| {
+            r.get::<_, String>(0)
+        })
+        .unwrap();
     rows.map(|r| r.unwrap()).collect()
 }
 
@@ -79,7 +144,10 @@ fn free_text_phrase_and_prefix_use_fts5() {
     assert_eq!(ids(&conn, "lunch"), ["m2", "m4"]);
     assert_eq!(ids(&conn, "quart"), ["m3"], "bare words are prefix terms");
     assert_eq!(ids(&conn, "\"new ramen place\""), ["m2"]);
-    assert!(ids(&conn, "\"ramen new\"").is_empty(), "phrase order is respected");
+    assert!(
+        ids(&conn, "\"ramen new\"").is_empty(),
+        "phrase order is respected"
+    );
     // FTS5 punctuation must not raise a syntax error.
     assert!(ids(&conn, "appeal/x").is_empty());
 }
@@ -91,7 +159,11 @@ fn operators_combine_and_negate() {
     assert_eq!(ids(&conn, "from:acme -label:SPAM"), ["m1", "m3"]);
     assert_eq!(ids(&conn, "lunch is:unread"), ["m4"]);
     assert_eq!(ids(&conn, "-from:alice"), ["m2", "m4", "m5"]);
-    assert_eq!(ids(&conn, "subject:lunch -receipt"), ["m2"], "negated free text excludes via FTS");
+    assert_eq!(
+        ids(&conn, "subject:lunch -receipt"),
+        ["m2"],
+        "negated free text excludes via FTS"
+    );
     assert_eq!(ids(&conn, "has:attachment"), ["m1", "m3"]);
     assert_eq!(ids(&conn, "filename:report"), ["m3"]);
     assert_eq!(ids(&conn, "rfc822msgid:<id2@example>"), ["m2"]);
@@ -117,14 +189,21 @@ fn or_groups_over_text_and_operators() {
     // Operator disjunction: the donor flattened this to AND (matching nothing).
     assert_eq!(ids(&conn, "from:bob OR from:carol"), ["m2", "m4"]);
     assert_eq!(ids(&conn, "(from:acme larger:1m)"), ["m3"]);
-    assert_eq!(ids(&conn, "from:bob OR report"), ["m2", "m3"], "mixed operator/text disjunction");
+    assert_eq!(
+        ids(&conn, "from:bob OR report"),
+        ["m2", "m3"],
+        "mixed operator/text disjunction"
+    );
 }
 
 #[test]
 fn like_wildcards_in_values_are_literal() {
     let (_d, conn) = fixture();
     assert_eq!(ids(&conn, "subject:100%"), ["m5"]);
-    assert!(ids(&conn, "subject:1%0").is_empty(), "% in the query must not act as a wildcard");
+    assert!(
+        ids(&conn, "subject:1%0").is_empty(),
+        "% in the query must not act as a wildcard"
+    );
     assert_eq!(ids(&conn, "subject:off_sale"), ["m5"]);
     assert!(ids(&conn, "subject:off-sale").is_empty());
 }
@@ -132,13 +211,21 @@ fn like_wildcards_in_values_are_literal() {
 #[test]
 fn typed_errors_instead_of_silent_degradation() {
     let schema = schema();
-    assert!(matches!(schema.parse("bogus:value"), Err(ParseError::UnsupportedOperator { operator, .. }) if operator == "bogus"));
-    assert!(matches!(schema.parse("(from:a"), Err(ParseError::UnbalancedGroup { .. })));
+    assert!(
+        matches!(schema.parse("bogus:value"), Err(ParseError::UnsupportedOperator { operator, .. }) if operator == "bogus")
+    );
+    assert!(matches!(
+        schema.parse("(from:a"),
+        Err(ParseError::UnbalancedGroup { .. })
+    ));
     assert!(matches!(schema.parse("()"), Err(ParseError::EmptyGroup)));
     // URLs and bare colons stay free text.
     assert!(schema.parse("https://example.com/x").is_ok());
     let q = schema.parse("larger:abc").unwrap();
-    assert!(matches!(schema.compile(&q), Err(CompileError::BadValue { .. })));
+    assert!(matches!(
+        schema.compile(&q),
+        Err(CompileError::BadValue { .. })
+    ));
     // Negated quoted phrase keeps its negation (donor lost it).
     let (_d, conn) = fixture();
     assert_eq!(ids(&conn, "lunch -\"new ramen\""), ["m4"]);
@@ -154,9 +241,15 @@ fn fts_snippets_mark_matches_and_split_into_spans() {
         "SELECT {} FROM fts_messages WHERE fts_messages MATCH ?1",
         fts_snippet_expr("fts_messages", 8)
     );
-    let snippet: String = conn.query_row(&sql, [compiled.fts_match.as_deref().unwrap()], |r| r.get(0)).unwrap();
+    let snippet: String = conn
+        .query_row(&sql, [compiled.fts_match.as_deref().unwrap()], |r| r.get(0))
+        .unwrap();
     let spans = split_highlights(&snippet);
-    let matched: Vec<&str> = spans.iter().filter(|s| s.matched).map(|s| s.text.as_str()).collect();
+    let matched: Vec<&str> = spans
+        .iter()
+        .filter(|s| s.matched)
+        .map(|s| s.text.as_str())
+        .collect();
     assert_eq!(matched, ["ramen"], "snippet {snippet:?}");
     assert!(
         spans.iter().any(|s| !s.matched && !s.text.is_empty()),

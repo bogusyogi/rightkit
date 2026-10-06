@@ -64,6 +64,25 @@ pub fn development_candidates() -> Vec<PathBuf> {
     v.push(PathBuf::from(
         "/Volumes/D/claude/.cache/cutright-ffmpeg/mac/out/bin/ffmpeg",
     ));
+    // CutRight's Windows build: `.cache/cutright-ffmpeg/win/<version>/bin/ffmpeg.exe`, newest first.
+    if cfg!(windows) {
+        let roots = env::var("RIGHTKIT_WORKSPACE_ROOT")
+            .ok()
+            .map(PathBuf::from)
+            .into_iter()
+            .chain([PathBuf::from("D:/Claude")]);
+        for root in roots {
+            let win = root.join(".cache/cutright-ffmpeg/win");
+            let mut builds: Vec<PathBuf> = std::fs::read_dir(&win)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path().join("bin").join("ffmpeg.exe"))
+                .collect();
+            builds.sort();
+            v.extend(builds.into_iter().rev());
+        }
+    }
     v
 }
 

@@ -30,7 +30,11 @@ pub fn parse_date_ms(s: &str) -> Option<i64> {
     let sep = if s.contains('-') { '-' } else { '/' };
     let mut it = s.split(sep);
     let (y, m, d) = (it.next()?, it.next()?, it.next()?);
-    if it.next().is_some() || y.len() != 4 || !(1..=2).contains(&m.len()) || !(1..=2).contains(&d.len()) {
+    if it.next().is_some()
+        || y.len() != 4
+        || !(1..=2).contains(&m.len())
+        || !(1..=2).contains(&d.len())
+    {
         return None;
     }
     let (y, m, d): (i64, i64, i64) = (y.parse().ok()?, m.parse().ok()?, d.parse().ok()?);

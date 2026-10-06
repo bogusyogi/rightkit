@@ -14,7 +14,7 @@ include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 [dependencies]
 rightkit-db = { version = "=0.1.0", path = "../rightkit-db" }
 rightkit-framed-sidecar = { version = "=0.1.0", path = "../rightkit-framed-sidecar" }
-rightkit-process = { version = "=0.1.0", path = "../rightkit-process" }
+rightkit-process = { version = "=0.2.0", path = "../rightkit-process" }
 rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
 rusqlite = { version = "0.40.1", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }

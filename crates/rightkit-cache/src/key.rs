@@ -34,7 +34,10 @@ pub struct Key {
 impl Key {
     /// Key over ordered parts, no group. `Key::new(&[account, message, attachment])`.
     pub fn new(parts: &[&str]) -> Self {
-        Self { hash: digest(parts), group: NO_GROUP.to_string() }
+        Self {
+            hash: digest(parts),
+            group: NO_GROUP.to_string(),
+        }
     }
 
     /// Key over `parts`, belonging to the group identified by `group_parts`.
@@ -42,7 +45,10 @@ impl Key {
         let mut all: Vec<&str> = Vec::with_capacity(group_parts.len() + parts.len());
         all.extend_from_slice(group_parts);
         all.extend_from_slice(parts);
-        Self { hash: digest(&all), group: group_id(group_parts) }
+        Self {
+            hash: digest(&all),
+            group: group_id(group_parts),
+        }
     }
 
     /// Key for a URL (the webimg pattern): hash of the URL string.

@@ -5,7 +5,9 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use rightkit_framed_sidecar::{read_json_line_or_oversized, write_json_line, FrameError, Incoming, ReadLimits};
+use rightkit_framed_sidecar::{
+    read_json_line_or_oversized, write_json_line, FrameError, Incoming, ReadLimits,
+};
 use rightkit_process::{OwnedChild, OwnedCommand, ReapOutcome};
 use serde_json::{json, Value};
 
@@ -38,7 +40,10 @@ pub struct ClientOptions {
 
 impl Default for ClientOptions {
     fn default() -> Self {
-        Self { hello_timeout: DEFAULT_HELLO_TIMEOUT, frame_limit: DEFAULT_FRAME_LIMIT }
+        Self {
+            hello_timeout: DEFAULT_HELLO_TIMEOUT,
+            frame_limit: DEFAULT_FRAME_LIMIT,
+        }
     }
 }
 
@@ -93,7 +98,14 @@ impl EngineClient {
         writer: impl Write + Send + 'static,
         hello_timeout: Duration,
     ) -> JobResult<Self> {
-        Self::connect_opts(reader, writer, ClientOptions { hello_timeout, ..ClientOptions::default() })
+        Self::connect_opts(
+            reader,
+            writer,
+            ClientOptions {
+                hello_timeout,
+                ..ClientOptions::default()
+            },
+        )
     }
 
     /// As [`Self::connect`] with explicit [`ClientOptions`].
@@ -102,7 +114,10 @@ impl EngineClient {
         writer: impl Write + Send + 'static,
         options: ClientOptions,
     ) -> JobResult<Self> {
-        let ClientOptions { hello_timeout, frame_limit } = options;
+        let ClientOptions {
+            hello_timeout,
+            frame_limit,
+        } = options;
         let mut reader = reader;
         let pending: PendingMap = Arc::default();
         let map = Arc::clone(&pending);
@@ -120,7 +135,10 @@ impl EngineClient {
             impl Drop for OnExit {
                 fn drop(&mut self) {
                     for (_, p) in self.1.lock().unwrap_or_else(|e| e.into_inner()).drain() {
-                        let _ = p.tx.send(Msg::Done(Err(JobError::new("engine_exited", "engine closed the connection"))));
+                        let _ = p.tx.send(Msg::Done(Err(JobError::new(
+                            "engine_exited",
+                            "engine closed the connection",
+                        ))));
                     }
                     self.2.lock().unwrap_or_else(|e| e.into_inner()).clear();
                     *self.0.flag.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -128,11 +146,18 @@ impl EngineClient {
                 }
             }
             let _on_exit = OnExit(closed_signal, Arc::clone(&map), subs.clone());
-            let first = read_json_line_or_oversized::<_, Value>(&mut reader, &mut buf, frame_limit, limits);
+            let first =
+                read_json_line_or_oversized::<_, Value>(&mut reader, &mut buf, frame_limit, limits);
             let hello = match first {
                 Ok(Some(Incoming::Frame(h))) if h["type"] == "hello" => Ok(h),
-                Ok(Some(Incoming::Frame(_))) => Err(JobError::new("engine_protocol", "first frame was not hello")),
-                Ok(Some(Incoming::Oversized(_))) => Err(JobError::new("engine_protocol", "hello frame exceeded the frame limit")),
+                Ok(Some(Incoming::Frame(_))) => Err(JobError::new(
+                    "engine_protocol",
+                    "first frame was not hello",
+                )),
+                Ok(Some(Incoming::Oversized(_))) => Err(JobError::new(
+                    "engine_protocol",
+                    "hello frame exceeded the frame limit",
+                )),
                 Ok(None) => Err(JobError::new("engine_exited", "engine closed before hello")),
                 Err(e) => Err(JobError::new("engine_protocol", e.to_string())),
             };
@@ -142,7 +167,12 @@ impl EngineClient {
                 return;
             }
             loop {
-                match read_json_line_or_oversized::<_, Value>(&mut reader, &mut buf, frame_limit, limits) {
+                match read_json_line_or_oversized::<_, Value>(
+                    &mut reader,
+                    &mut buf,
+                    frame_limit,
+                    limits,
+                ) {
                     Ok(Some(Incoming::Frame(v))) => dispatch(&map, &subs, &v),
                     Ok(Some(Incoming::Oversized(over))) => {
                         // Answer the call this frame belongs to; the child is healthy.
@@ -164,7 +194,10 @@ impl EngineClient {
         let hello = match hello_rx.recv_timeout(hello_timeout) {
             Ok(r) => r?,
             Err(_) => {
-                return Err(JobError::new("hello_timeout", format!("engine sent no hello within {hello_timeout:?}")));
+                return Err(JobError::new(
+                    "hello_timeout",
+                    format!("engine sent no hello within {hello_timeout:?}"),
+                ));
             }
         };
         let (wtx, wrx) = channel::<(Vec<u8>, Sender<std::io::Result<()>>)>();
@@ -196,20 +229,39 @@ impl EngineClient {
     pub fn subscribe(&self) -> Receiver<Value> {
         let (tx, rx) = channel();
         if !self.is_closed() {
-            self.core.subscribers.lock().unwrap_or_else(|e| e.into_inner()).push(tx);
+            self.core
+                .subscribers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(tx);
         }
         rx
     }
 
     /// True once the engine's stdout has ended (exit, crash, or pipe error).
     pub fn is_closed(&self) -> bool {
-        *self.core.closed.flag.lock().unwrap_or_else(|e| e.into_inner())
+        *self
+            .core
+            .closed
+            .flag
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// Block until the connection ends or `timeout` passes; true if it ended.
     pub fn wait_closed(&self, timeout: Duration) -> bool {
-        let g = self.core.closed.flag.lock().unwrap_or_else(|e| e.into_inner());
-        let (g, _) = self.core.closed.cv.wait_timeout_while(g, timeout, |closed| !*closed).unwrap_or_else(|e| e.into_inner());
+        let g = self
+            .core
+            .closed
+            .flag
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let (g, _) = self
+            .core
+            .closed
+            .cv
+            .wait_timeout_while(g, timeout, |closed| !*closed)
+            .unwrap_or_else(|e| e.into_inner());
         *g
     }
 
@@ -220,14 +272,24 @@ impl EngineClient {
 
     /// PID of the attached engine process, if any.
     pub fn child_id(&self) -> Option<u32> {
-        self.core.child.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(OwnedChild::id)
+        self.core
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(OwnedChild::id)
     }
 
     /// Kill the attached engine tree now and wait at most `bound` for the OS to
     /// report it. Returns the exit status when observed. Used to recover from a
     /// wedged engine; the connection then closes and waiters are released.
     pub fn kill(&self, bound: Duration) -> Option<std::process::ExitStatus> {
-        let mut child = self.core.child.lock().unwrap_or_else(|e| e.into_inner()).take()?;
+        let mut child = self
+            .core
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()?;
         match child.terminate_tree_bounded(bound) {
             Ok(ReapOutcome::Exited(status)) => Some(status),
             _ => None,
@@ -237,7 +299,12 @@ impl EngineClient {
     /// Collect the engine's exit: wait up to `patience` for it to leave on its
     /// own, then kill the tree. Returns the exit status when observed.
     pub fn reap(&self, patience: Duration) -> Option<std::process::ExitStatus> {
-        let mut child = self.core.child.lock().unwrap_or_else(|e| e.into_inner()).take()?;
+        let mut child = self
+            .core
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()?;
         if let Ok(Some(status)) = child.wait_timeout(patience) {
             return Some(status);
         }
@@ -257,10 +324,16 @@ impl EngineClient {
     /// is killed and a `hello_timeout` error returned.
     pub fn spawn_with(mut cmd: OwnedCommand, hello_timeout: Duration) -> JobResult<Self> {
         use std::process::Stdio;
-        cmd.command_mut().stdin(Stdio::piped()).stdout(Stdio::piped());
+        cmd.command_mut()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
         let mut child = cmd.spawn()?;
-        let stdin = child.take_stdin().ok_or_else(|| JobError::new("io", "no child stdin"))?;
-        let stdout = child.take_stdout().ok_or_else(|| JobError::new("io", "no child stdout"))?;
+        let stdin = child
+            .take_stdin()
+            .ok_or_else(|| JobError::new("io", "no child stdin"))?;
+        let stdout = child
+            .take_stdout()
+            .ok_or_else(|| JobError::new("io", "no child stdout"))?;
         match Self::connect_with(BufReader::new(stdout), stdin, hello_timeout) {
             Ok(client) => {
                 *client.core.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
@@ -281,13 +354,18 @@ impl EngineClient {
         self.core.call(method, params, None, None)
     }
 
-    pub fn call_with_events(&self, method: &str, params: Value, on_event: Option<OnEvent>) -> JobResult<Value> {
+    pub fn call_with_events(
+        &self,
+        method: &str,
+        params: Value,
+        on_event: Option<OnEvent>,
+    ) -> JobResult<Value> {
         self.core.call(method, params, on_event, None)
     }
 
     /// As [`Self::call_with_events`] but gives up after `timeout` with a
     /// `timeout` error (the engine may still finish the work; its late reply is
-    /// dropped). The deadline covers waiting for the reply, not 
+    /// dropped). The deadline covers waiting for the reply, not
     pub fn call_timeout(
         &self,
         method: &str,
@@ -311,32 +389,63 @@ impl EngineClient {
             let _ = tx.send(core.call("shutdown", json!({}), None, Some(grace)));
         });
         let _ = rx.recv_timeout(grace);
-        if let Some(mut c) = self.core.child.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some(mut c) = self
+            .core
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
             let _ = c.wait_or_kill(grace);
         }
     }
 }
 
 impl Core {
-    fn call(&self, method: &str, params: Value, on_event: Option<OnEvent>, timeout: Option<Duration>) -> JobResult<Value> {
+    fn call(
+        &self,
+        method: &str,
+        params: Value,
+        on_event: Option<OnEvent>,
+        timeout: Option<Duration>,
+    ) -> JobResult<Value> {
         let deadline = timeout.map(|t| Instant::now() + t);
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = channel();
-        self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id, Pending { tx, wants_events: on_event.is_some() });
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                id,
+                Pending {
+                    tx,
+                    wants_events: on_event.is_some(),
+                },
+            );
         let frame = json!({"type": "request", "id": id, "method": method, "params": params});
         let mut bytes = Vec::new();
         if let Err(e) = write_json_line(&mut bytes, &frame, self.frame_limit) {
-            self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            self.pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id);
             return Err(JobError::new("engine_write", e.to_string()));
         }
         let (rtx, rrx) = channel();
-        let queued = self.writes.lock().unwrap_or_else(|e| e.into_inner()).send((bytes, rtx)).is_ok();
+        let queued = self
+            .writes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .send((bytes, rtx))
+            .is_ok();
         let written = if !queued {
             Err(JobError::new("engine_write", "writer stopped"))
         } else {
             let r = match deadline {
                 None => rrx.recv().map_err(|_| ()),
-                Some(d) => rrx.recv_timeout(d.saturating_duration_since(Instant::now())).map_err(|_| ()),
+                Some(d) => rrx
+                    .recv_timeout(d.saturating_duration_since(Instant::now()))
+                    .map_err(|_| ()),
             };
             match r {
                 Ok(Ok(())) => Ok(()),
@@ -344,20 +453,32 @@ impl Core {
                 Err(()) => {
                     // Pipe full / engine not reading: kill the owned child so the
                     // blocked write fails and the writer thread exits.
-                    if let Some(mut c) = self.child.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    if let Some(mut c) = self.child.lock().unwrap_or_else(|e| e.into_inner()).take()
+                    {
                         let _ = c.terminate_tree();
                     }
-                    Err(JobError::new("timeout", format!("engine did not accept {method} within {:?}", timeout.unwrap_or_default())))
+                    Err(JobError::new(
+                        "timeout",
+                        format!(
+                            "engine did not accept {method} within {:?}",
+                            timeout.unwrap_or_default()
+                        ),
+                    ))
                 }
             }
         };
         if let Err(e) = written {
-            self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            self.pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id);
             return Err(e);
         }
         loop {
             let msg = match deadline {
-                None => rx.recv().map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected),
+                None => rx
+                    .recv()
+                    .map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected),
                 Some(d) => rx.recv_timeout(d.saturating_duration_since(Instant::now())),
             };
             match msg {
@@ -368,11 +489,23 @@ impl Core {
                 }
                 Ok(Msg::Done(r)) => return r,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
-                    return Err(JobError::new("timeout", format!("engine did not answer {method} within {:?}", timeout.unwrap_or_default())));
+                    self.pending
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&id);
+                    return Err(JobError::new(
+                        "timeout",
+                        format!(
+                            "engine did not answer {method} within {:?}",
+                            timeout.unwrap_or_default()
+                        ),
+                    ));
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(JobError::new("engine_exited", "engine closed the connection"));
+                    return Err(JobError::new(
+                        "engine_exited",
+                        "engine closed the connection",
+                    ));
                 }
             }
         }

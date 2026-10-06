@@ -3,7 +3,6 @@ name = "rightkit-search"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.98.0"
-publish = false
 license = "MIT OR Apache-2.0"
 description = "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index."
 readme = "README.md"

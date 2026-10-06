@@ -61,7 +61,8 @@ mod imp {
         let pb = board(b);
         pb.clearContents();
         let mut items: Vec<Retained<ProtocolObject<dyn NSPasteboardWriting>>> = Vec::new();
-        let has_primary = c.text.is_some() || c.html.is_some() || c.png.is_some() || !c.custom.is_empty();
+        let has_primary =
+            c.text.is_some() || c.html.is_some() || c.png.is_some() || !c.custom.is_empty();
         if has_primary {
             let item = NSPasteboardItem::new();
             if let Some(t) = &c.text {
@@ -80,7 +81,9 @@ mod imp {
         }
         for f in &c.files {
             let url = NSURL::fileURLWithPath(&NSString::from_str(f));
-            let abs = url.absoluteString().ok_or_else(|| format!("no file URL for {f}"))?;
+            let abs = url
+                .absoluteString()
+                .ok_or_else(|| format!("no file URL for {f}"))?;
             let item = NSPasteboardItem::new();
             item.setString_forType(&abs, &NSString::from_str(T_FILE));
             items.push(ProtocolObject::from_retained(item));
@@ -99,15 +102,23 @@ mod imp {
     pub fn read(b: &Board) -> Result<ClipboardContent, String> {
         let pb = board(b);
         let mut out = ClipboardContent::default();
-        let Some(items) = pb.pasteboardItems() else { return Ok(out) };
+        let Some(items) = pb.pasteboardItems() else {
+            return Ok(out);
+        };
         for item in items.iter() {
             let types: Vec<String> = item.types().iter().map(|t| t.to_string()).collect();
             for t in &types {
                 let ty = NSString::from_str(t);
                 match t.as_str() {
-                    T_TEXT if out.text.is_none() => out.text = item.stringForType(&ty).map(|s| s.to_string()),
-                    T_HTML if out.html.is_none() => out.html = item.stringForType(&ty).map(|s| s.to_string()),
-                    T_PNG if out.png.is_none() => out.png = item.dataForType(&ty).map(|d| d.to_vec()),
+                    T_TEXT if out.text.is_none() => {
+                        out.text = item.stringForType(&ty).map(|s| s.to_string())
+                    }
+                    T_HTML if out.html.is_none() => {
+                        out.html = item.stringForType(&ty).map(|s| s.to_string())
+                    }
+                    T_PNG if out.png.is_none() => {
+                        out.png = item.dataForType(&ty).map(|d| d.to_vec())
+                    }
                     T_FILE => {
                         if let Some(s) = item.stringForType(&ty) {
                             if let Some(url) = NSURL::URLWithString(&s) {
@@ -119,7 +130,17 @@ mod imp {
                     }
                     _ => {
                         let dynamic = t.starts_with("dyn.");
-                        let known = matches!(t.as_str(), T_TEXT | T_HTML | T_PNG | T_FILE | "NSStringPboardType" | "public.url" | "public.url-name" | "public.utf16-external-plain-text");
+                        let known = matches!(
+                            t.as_str(),
+                            T_TEXT
+                                | T_HTML
+                                | T_PNG
+                                | T_FILE
+                                | "NSStringPboardType"
+                                | "public.url"
+                                | "public.url-name"
+                                | "public.utf16-external-plain-text"
+                        );
                         if !known && !dynamic {
                             if let Some(d) = item.dataForType(&ty) {
                                 out.custom.entry(t.clone()).or_insert_with(|| d.to_vec());
@@ -134,7 +155,10 @@ mod imp {
     }
 
     pub fn formats(b: &Board) -> Result<Vec<String>, String> {
-        Ok(board(b).types().map(|t| t.iter().map(|s| s.to_string()).collect()).unwrap_or_default())
+        Ok(board(b)
+            .types()
+            .map(|t| t.iter().map(|s| s.to_string()).collect())
+            .unwrap_or_default())
     }
 }
 
@@ -146,7 +170,9 @@ mod imp {
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
     use windows::Win32::System::DataExchange::*;
-    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
+    use windows::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
+    };
     use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
 
     const CF_UNICODETEXT: u32 = 13;
@@ -180,7 +206,8 @@ mod imp {
     }
     fn set(fmt: u32, bytes: &[u8]) -> Result<(), String> {
         unsafe {
-            let h: HGLOBAL = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)).map_err(|e| e.to_string())?;
+            let h: HGLOBAL =
+                GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)).map_err(|e| e.to_string())?;
             let p = GlobalLock(h) as *mut u8;
             if p.is_null() {
                 return Err("GlobalLock failed".into());
@@ -188,7 +215,9 @@ mod imp {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
             let _ = GlobalUnlock(h);
             // Ownership of `h` passes to the clipboard on success.
-            SetClipboardData(fmt, Some(HANDLE(h.0))).map(|_| ()).map_err(|e| e.to_string())
+            SetClipboardData(fmt, Some(HANDLE(h.0)))
+                .map(|_| ())
+                .map_err(|e| e.to_string())
         }
     }
     fn get(fmt: u32) -> Option<Vec<u8>> {
@@ -212,7 +241,9 @@ mod imp {
     fn cf_html(fragment: &str) -> Vec<u8> {
         let pre = "<html><body><!--StartFragment-->";
         let post = "<!--EndFragment--></body></html>";
-        let header = |a: usize, b: usize, c: usize, d: usize| format!("Version:0.9\r\nStartHTML:{a:010}\r\nEndHTML:{b:010}\r\nStartFragment:{c:010}\r\nEndFragment:{d:010}\r\n");
+        let header = |a: usize, b: usize, c: usize, d: usize| {
+            format!("Version:0.9\r\nStartHTML:{a:010}\r\nEndHTML:{b:010}\r\nStartFragment:{c:010}\r\nEndFragment:{d:010}\r\n")
+        };
         let hl = header(0, 0, 0, 0).len();
         let sh = hl;
         let sf = hl + pre.len();
@@ -263,12 +294,20 @@ mod imp {
         let _open = Open::new()?;
         let mut out = ClipboardContent::default();
         if let Some(raw) = get(CF_UNICODETEXT) {
-            let u: Vec<u16> = raw.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).take_while(|u| *u != 0).collect();
+            let u: Vec<u16> = raw
+                .chunks_exact(2)
+                .map(|p| u16::from_le_bytes([p[0], p[1]]))
+                .take_while(|u| *u != 0)
+                .collect();
             out.text = Some(String::from_utf16_lossy(&u));
         }
         if let Some(raw) = get(format("HTML Format")) {
             let s = String::from_utf8_lossy(&raw).into_owned();
-            let field = |k: &str| s.split("\r\n").find_map(|l| l.strip_prefix(k)).and_then(|v| v.trim().parse::<usize>().ok());
+            let field = |k: &str| {
+                s.split("\r\n")
+                    .find_map(|l| l.strip_prefix(k))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+            };
             if let (Some(a), Some(z)) = (field("StartFragment:"), field("EndFragment:")) {
                 out.html = s.get(a..z).map(str::to_owned);
             }
@@ -300,7 +339,11 @@ mod imp {
             }
             let mut buf = [0u16; 128];
             let n = unsafe { GetClipboardFormatNameW(f, &mut buf) };
-            out.push(if n > 0 { String::from_utf16_lossy(&buf[..n as usize]) } else { format!("cf-{f}") });
+            out.push(if n > 0 {
+                String::from_utf16_lossy(&buf[..n as usize])
+            } else {
+                format!("cf-{f}")
+            });
         }
         Ok(out)
     }

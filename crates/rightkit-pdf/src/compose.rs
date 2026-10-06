@@ -83,9 +83,9 @@ use serde::Deserialize;
 use crate::font::{build_to_unicode_cmap, subset_for_pdf};
 use crate::inspect::{simple_font_identity_bytes, walk_page_graph};
 use crate::model::{
-    document_sha256, effective_pdf_edit_commands, ComposedCandidate, PdfColor, PdfEditCommand,
-    PdfEditError, PdfFontResolver, PdfOcrBackgroundProof, PdfPoint, PdfRect, PdfSourceLocator,
-    PdfSourceSpan, PdfTextAppearance, PdfTextEditState, ResolvedPdfFont, Matrix,
+    document_sha256, effective_pdf_edit_commands, ComposedCandidate, Matrix, PdfColor,
+    PdfEditCommand, PdfEditError, PdfFontResolver, PdfOcrBackgroundProof, PdfPoint, PdfRect,
+    PdfSourceLocator, PdfSourceSpan, PdfTextAppearance, PdfTextEditState, ResolvedPdfFont,
 };
 
 // -------------------------------------------------------------------------------------------
@@ -525,13 +525,8 @@ fn apply_add_text(
     let reset_ctm = inverse_matrix(page_content_ctm(doc, page_id)?);
 
     let mut content = Content::decode(&[]).map_err(|_| PdfEditError::MalformedContent)?;
-    content.operations = build_text_object_operations(
-        &resource_name,
-        appearance,
-        anchor,
-        &cid_codes,
-        reset_ctm,
-    );
+    content.operations =
+        build_text_object_operations(&resource_name, appearance, anchor, &cid_codes, reset_ctm);
     let encoded = content
         .encode()
         .map_err(|_| PdfEditError::MalformedContent)?;
@@ -899,7 +894,14 @@ fn dict_entry_clone(doc: &Document, dict: &Dictionary, key: &[u8]) -> Dictionary
 fn matrix_from_operands(operands: &[Object]) -> Option<Matrix> {
     let values: Vec<f64> = operands.iter().filter_map(object_number).collect();
     match values.as_slice() {
-        [a, b, c, d, e, f] => Some(Matrix { a: *a, b: *b, c: *c, d: *d, e: *e, f: *f }),
+        [a, b, c, d, e, f] => Some(Matrix {
+            a: *a,
+            b: *b,
+            c: *c,
+            d: *d,
+            e: *e,
+            f: *f,
+        }),
         _ => None,
     }
 }
@@ -932,7 +934,9 @@ fn page_content_ctm(doc: &Document, page_id: ObjectId) -> Result<Matrix, PdfEdit
         .map_err(|_| PdfEditError::MalformedContent)?
         .as_dict()
         .map_err(|_| PdfEditError::MalformedContent)?;
-    let contents = page.get(b"Contents").map_err(|_| PdfEditError::MalformedContent)?;
+    let contents = page
+        .get(b"Contents")
+        .map_err(|_| PdfEditError::MalformedContent)?;
     let ids: Vec<ObjectId> = match contents {
         Object::Reference(id) => vec![*id],
         Object::Array(items) => items

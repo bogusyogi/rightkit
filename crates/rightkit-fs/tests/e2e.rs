@@ -2,9 +2,12 @@
 //! helper role), real symlink attacks and real SIGKILLs. Nothing is mocked.
 
 use rightkit_fs::{
-    atomic_write, atomic_write_private, create_private_new, ensure_private_dir, sweep_stale_temps,
-    write_private_file, AtomicOptions, AtomicWriter, FileLock, FsError, IdentityStore, LockOptions, Resolution,
-    StateDir,
+    atomic_write, sweep_stale_temps, AtomicOptions, AtomicWriter, FileLock, FsError, IdentityStore,
+    LockOptions, Resolution, StateDir,
+};
+#[cfg(unix)]
+use rightkit_fs::{
+    atomic_write_private, create_private_new, ensure_private_dir, write_private_file,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -56,7 +59,9 @@ fn ready() {
 /// The helper role: a no-op unless this test binary was spawned as a child.
 #[test]
 fn helper_entry() {
-    let Ok(role) = std::env::var("RKFS_ROLE") else { return };
+    let Ok(role) = std::env::var("RKFS_ROLE") else {
+        return;
+    };
     let args: Vec<String> = std::env::var("RKFS_ARGS")
         .unwrap_or_default()
         .split('\u{1f}')
@@ -65,7 +70,8 @@ fn helper_entry() {
     match role.as_str() {
         // Start an atomic write, flush half of it, announce, then hang until killed.
         "crash_write" => {
-            let mut w = AtomicWriter::create(Path::new(&args[0]), AtomicOptions::default()).unwrap();
+            let mut w =
+                AtomicWriter::create(Path::new(&args[0]), AtomicOptions::default()).unwrap();
             w.write_all(&vec![b'N'; 512 * 1024]).unwrap();
             w.file_mut().sync_all().unwrap();
             ready();
@@ -73,7 +79,11 @@ fn helper_entry() {
         }
         "writer_loop" => {
             let tag = args[1].as_bytes()[0];
-            for i in 0..150 {
+            // At least 150 writes, then keep going until the reader has seen enough overlap.
+            let stop = Path::new(&args[0]).with_extension("stop");
+            let mut i = 0usize;
+            while i < 150 || !stop.exists() {
+                i += 1;
                 let mut payload = vec![tag; 96 * 1024];
                 payload[0] = b'0' + (i % 10) as u8;
                 for b in payload.iter_mut().skip(1) {
@@ -83,7 +93,11 @@ fn helper_entry() {
             }
         }
         "lock_hold" => {
-            let _lock = FileLock::acquire(Path::new(&args[0]), &LockOptions::default().labeled("holder")).unwrap();
+            let _lock = FileLock::acquire(
+                Path::new(&args[0]),
+                &LockOptions::default().labeled("holder"),
+            )
+            .unwrap();
             ready();
             let ms: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(120_000);
             std::thread::sleep(Duration::from_millis(ms));
@@ -92,8 +106,13 @@ fn helper_entry() {
             let lock = PathBuf::from(&args[0]);
             let counter = PathBuf::from(&args[1]);
             for _ in 0..80 {
-                let _guard = FileLock::acquire(&lock, &LockOptions::wait(Duration::from_secs(60))).unwrap();
-                let n: u64 = std::fs::read_to_string(&counter).unwrap().trim().parse().unwrap();
+                let _guard =
+                    FileLock::acquire(&lock, &LockOptions::wait(Duration::from_secs(60))).unwrap();
+                let n: u64 = std::fs::read_to_string(&counter)
+                    .unwrap()
+                    .trim()
+                    .parse()
+                    .unwrap();
                 // A widened read-modify-write window: only the lock keeps this correct.
                 std::thread::sleep(Duration::from_micros(300));
                 std::fs::write(&counter, (n + 1).to_string()).unwrap();
@@ -129,7 +148,10 @@ fn atomic_write_replaces_content_and_leaves_no_temp_files() {
     atomic_write(&p, b"two").unwrap();
     assert_eq!(std::fs::read(&p).unwrap(), b"two");
     assert!(temps_in(&dir).is_empty());
-    let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+    let names: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
     assert_eq!(names.len(), 1);
 }
 
@@ -151,7 +173,11 @@ fn private_writes_are_owner_only_and_plain_writes_keep_the_existing_mode() {
     std::fs::write(&shared, b"x").unwrap();
     std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o640)).unwrap();
     atomic_write(&shared, b"y").unwrap();
-    assert_eq!(mode(&shared), 0o640, "a plain atomic write preserves the destination mode");
+    assert_eq!(
+        mode(&shared),
+        0o640,
+        "a plain atomic write preserves the destination mode"
+    );
     assert_eq!(std::fs::read(&shared).unwrap(), b"y");
 
     let nested = dir.join("a/b/c");
@@ -201,12 +227,23 @@ fn killed_mid_write_leaves_the_old_file_and_a_sweepable_orphan() {
     wait_ready(&mut child);
     assert_eq!(temps_in(&dir).len(), 1, "the in-flight temp file exists");
     // A live writer's temp file is not reclaimed by a sweep.
-    assert_eq!(sweep_stale_temps(&dir, Duration::from_secs(3600)).unwrap(), 0);
+    assert_eq!(
+        sweep_stale_temps(&dir, Duration::from_secs(3600)).unwrap(),
+        0
+    );
     kill9(child);
 
-    assert_eq!(std::fs::read(&p).unwrap(), b"old contents", "destination never saw a partial write");
+    assert_eq!(
+        std::fs::read(&p).unwrap(),
+        b"old contents",
+        "destination never saw a partial write"
+    );
     assert_eq!(temps_in(&dir).len(), 1, "SIGKILL leaves the orphan");
-    assert_eq!(sweep_stale_temps(&dir, Duration::from_secs(3600)).unwrap(), 1, "dead pid => reclaimed");
+    assert_eq!(
+        sweep_stale_temps(&dir, Duration::from_secs(3600)).unwrap(),
+        1,
+        "dead pid => reclaimed"
+    );
     assert!(temps_in(&dir).is_empty());
     assert_eq!(std::fs::read(&p).unwrap(), b"old contents");
 }
@@ -225,8 +262,14 @@ fn concurrent_processes_never_expose_a_mixed_file() {
         let bytes = std::fs::read(&p).unwrap();
         assert_eq!(bytes.len(), 96 * 1024, "never a truncated or partial file");
         let tag = bytes[1];
-        assert!(bytes[1..].iter().all(|b| *b == tag), "never a mix of two writers");
+        assert!(
+            bytes[1..].iter().all(|b| *b == tag),
+            "never a mix of two writers"
+        );
         reads += 1;
+        if reads == 50 {
+            std::fs::write(p.with_extension("stop"), b"").unwrap();
+        }
     }
     assert!(reads > 10);
     for mut k in kids {
@@ -247,7 +290,10 @@ fn a_second_process_is_refused_with_owner_details_and_a_killed_owner_is_recovere
 
     match FileLock::try_acquire(&lock) {
         Err(FsError::Locked { owner, .. }) => {
-            assert!(owner.contains(&format!("pid {pid}")), "owner text was {owner}");
+            assert!(
+                owner.contains(&format!("pid {pid}")),
+                "owner text was {owner}"
+            );
             assert!(owner.contains("holder"));
         }
         other => panic!("expected Locked, got {other:?}"),
@@ -256,12 +302,21 @@ fn a_second_process_is_refused_with_owner_details_and_a_killed_owner_is_recovere
 
     kill9(child); // the OS drops the lock with the process
     let lock = FileLock::try_acquire(&lock).unwrap();
-    let stale = lock.recovered_stale.clone().expect("the dead owner's record is reported");
+    let stale = lock
+        .recovered_stale
+        .clone()
+        .expect("the dead owner's record is reported");
     assert_eq!(stale.pid, pid);
-    assert_eq!(FileLock::current_owner(lock.path()).unwrap().pid, std::process::id());
+    assert_eq!(
+        FileLock::current_owner(lock.path()).unwrap().pid,
+        std::process::id()
+    );
     let path = lock.path().to_path_buf();
     drop(lock);
-    assert!(FileLock::current_owner(&path).is_none(), "owner record removed on clean release");
+    assert!(
+        FileLock::current_owner(&path).is_none(),
+        "owner record removed on clean release"
+    );
 }
 
 #[test]
@@ -300,12 +355,21 @@ fn lock_serializes_read_modify_write_across_processes() {
     let counter = dir.join("counter");
     std::fs::write(&counter, "0").unwrap();
     let kids: Vec<Child> = (0..4)
-        .map(|_| spawn_role("lock_counter", &[lock.to_str().unwrap(), counter.to_str().unwrap()]))
+        .map(|_| {
+            spawn_role(
+                "lock_counter",
+                &[lock.to_str().unwrap(), counter.to_str().unwrap()],
+            )
+        })
         .collect();
     for mut k in kids {
         assert!(k.wait().unwrap().success());
     }
-    assert_eq!(std::fs::read_to_string(&counter).unwrap(), "320", "no lost updates");
+    assert_eq!(
+        std::fs::read_to_string(&counter).unwrap(),
+        "320",
+        "no lost updates"
+    );
 }
 
 // ---------------------------------------------------------------- pinned state dir
@@ -318,14 +382,23 @@ fn state_dir_round_trips_atomically_and_validates_names() {
     state.write("a.json", b"{\"v\":2}").unwrap();
     assert_eq!(state.read("a.json", 1024).unwrap(), b"{\"v\":2}");
     assert!(state.read_opt("missing", 10).unwrap().is_none());
-    assert!(matches!(state.write_new("a.json", b"x"), Err(FsError::AlreadyExists(_))));
+    assert!(matches!(
+        state.write_new("a.json", b"x"),
+        Err(FsError::AlreadyExists(_))
+    ));
     state.write_new("b.json", b"b").unwrap();
     let mut names = state.list(100).unwrap();
     names.sort();
     assert_eq!(names, vec!["a.json", "b.json"], "no temp leftovers");
-    assert!(matches!(state.read("a.json", 3), Err(FsError::TooLarge { .. })));
+    assert!(matches!(
+        state.read("a.json", 3),
+        Err(FsError::TooLarge { .. })
+    ));
     for bad in ["../x", "a/b", "..", ".", "", "x\0y", "a\\b"] {
-        assert!(matches!(state.write(bad, b"x"), Err(FsError::BadName(_))), "{bad:?}");
+        assert!(
+            matches!(state.write(bad, b"x"), Err(FsError::BadName(_))),
+            "{bad:?}"
+        );
     }
     assert!(state.remove("a.json").unwrap());
     assert!(!state.remove("a.json").unwrap());
@@ -351,21 +424,39 @@ fn symlink_attacks_on_the_state_dir_are_refused() {
 
     // The state dir itself is a symlink.
     std::os::unix::fs::symlink(&outside, dir.join("linked")).unwrap();
-    assert!(matches!(StateDir::open(&dir.join("linked")), Err(FsError::Symlink(_))));
-    assert!(matches!(StateDir::create(&dir.join("linked")), Err(FsError::Symlink(_))));
+    assert!(matches!(
+        StateDir::open(&dir.join("linked")),
+        Err(FsError::Symlink(_))
+    ));
+    assert!(matches!(
+        StateDir::create(&dir.join("linked")),
+        Err(FsError::Symlink(_))
+    ));
     // An ancestor is a symlink.
     std::os::unix::fs::symlink(&outside, dir.join("anc")).unwrap();
     std::fs::create_dir(outside.join("inner")).unwrap();
-    assert!(matches!(StateDir::open(&dir.join("anc/inner")), Err(FsError::Symlink(_))));
+    assert!(matches!(
+        StateDir::open(&dir.join("anc/inner")),
+        Err(FsError::Symlink(_))
+    ));
 
     // A child entry is a symlink to a file outside: read, replace and remove never follow it.
     let state = StateDir::create(&dir.join("state")).unwrap();
     std::os::unix::fs::symlink(outside.join("secret.txt"), dir.join("state/leak")).unwrap();
     assert!(matches!(state.read("leak", 1024), Err(FsError::Symlink(_))));
     assert!(state.write("leak", b"overwritten").is_err());
-    assert_eq!(std::fs::read(outside.join("secret.txt")).unwrap(), b"top secret");
-    assert!(state.remove("leak").unwrap(), "removing a link removes the link only");
-    assert_eq!(std::fs::read(outside.join("secret.txt")).unwrap(), b"top secret");
+    assert_eq!(
+        std::fs::read(outside.join("secret.txt")).unwrap(),
+        b"top secret"
+    );
+    assert!(
+        state.remove("leak").unwrap(),
+        "removing a link removes the link only"
+    );
+    assert_eq!(
+        std::fs::read(outside.join("secret.txt")).unwrap(),
+        b"top secret"
+    );
 
     // A child directory that is a symlink.
     std::os::unix::fs::symlink(&outside, dir.join("state/sub")).unwrap();
@@ -392,8 +483,14 @@ fn a_swapped_path_cannot_redirect_a_pinned_directory() {
 
     state.write("after", b"2").unwrap();
     assert_eq!(state.read("before", 10).unwrap(), b"1");
-    assert!(moved.join("after").exists(), "writes follow the pinned descriptor");
-    assert!(!evil.join("after").exists(), "and never the swapped-in path");
+    assert!(
+        moved.join("after").exists(),
+        "writes follow the pinned descriptor"
+    );
+    assert!(
+        !evil.join("after").exists(),
+        "and never the swapped-in path"
+    );
     assert!(std::fs::read_dir(&evil).unwrap().next().is_none());
 }
 
@@ -418,13 +515,20 @@ fn a_racing_symlink_planter_never_gets_the_write_through() {
     };
     let mut ok = 0;
     for i in 0..400 {
-        if state.write("record", format!("payload {i}").as_bytes()).is_ok() {
+        if state
+            .write("record", format!("payload {i}").as_bytes())
+            .is_ok()
+        {
             ok += 1;
         }
     }
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     planter.join().unwrap();
-    assert_eq!(std::fs::read(&outside).unwrap(), b"intact", "{ok} writes landed; none followed the link");
+    assert_eq!(
+        std::fs::read(&outside).unwrap(),
+        b"intact",
+        "{ok} writes landed; none followed the link"
+    );
 }
 
 #[cfg(unix)]
@@ -471,20 +575,32 @@ fn identity_follows_renames_moves_and_atomic_replacement() {
     touch(&original, "quarterly numbers");
     let id = store.track(&original).unwrap();
     assert_eq!(id.len(), 32);
-    assert_eq!(store.resolve(&id, &[root.clone()]).unwrap(), Resolution::Unchanged(original.clone()));
+    assert_eq!(
+        store.resolve(&id, &[root.clone()]).unwrap(),
+        Resolution::Unchanged(original.clone())
+    );
 
     // Rename in place.
     let renamed = root.join("inbox/report-final.txt");
     std::fs::rename(&original, &renamed).unwrap();
-    assert_eq!(store.resolve(&id, &[root.clone()]).unwrap(), Resolution::Moved(renamed.clone()));
+    assert_eq!(
+        store.resolve(&id, &[root.clone()]).unwrap(),
+        Resolution::Moved(renamed.clone())
+    );
     // The ledger remembers: now it is Unchanged at the new path.
-    assert_eq!(store.resolve(&id, &[]).unwrap(), Resolution::Unchanged(renamed.clone()));
+    assert_eq!(
+        store.resolve(&id, &[]).unwrap(),
+        Resolution::Unchanged(renamed.clone())
+    );
 
     // Move into a nested folder.
     let archived = root.join("archive/2026/q3/report-final.txt");
     std::fs::create_dir_all(archived.parent().unwrap()).unwrap();
     std::fs::rename(&renamed, &archived).unwrap();
-    assert_eq!(store.resolve(&id, &[root.clone()]).unwrap(), Resolution::Moved(archived.clone()));
+    assert_eq!(
+        store.resolve(&id, &[root.clone()]).unwrap(),
+        Resolution::Moved(archived.clone())
+    );
 
     // An editor-style safe save replaces the inode with identical bytes elsewhere.
     let saved = root.join("archive/2026/q3/report-final.txt");
@@ -492,23 +608,42 @@ fn identity_follows_renames_moves_and_atomic_replacement() {
     std::fs::remove_file(&saved).unwrap();
     atomic_write(&saved, b"quarterly numbers").unwrap();
     assert_ne!(rightkit_fs::FileKey::of_path(&saved).unwrap(), before);
-    assert_eq!(store.resolve(&id, &[root.clone()]).unwrap(), Resolution::Replaced(saved.clone()));
-    assert_eq!(store.resolve(&id, &[]).unwrap(), Resolution::Unchanged(saved.clone()), "rebound");
+    assert_eq!(
+        store.resolve(&id, &[root.clone()]).unwrap(),
+        Resolution::Replaced(saved.clone())
+    );
+    assert_eq!(
+        store.resolve(&id, &[]).unwrap(),
+        Resolution::Unchanged(saved.clone()),
+        "rebound"
+    );
 
     // Rewritten with different content: no longer recognisable, and say so.
     atomic_write(&saved, b"completely different").unwrap();
-    assert_eq!(store.resolve(&id, &[root.clone()]).unwrap(), Resolution::Missing);
+    assert_eq!(
+        store.resolve(&id, &[root.clone()]).unwrap(),
+        Resolution::Missing
+    );
     store.rebind(&id, &saved).unwrap();
-    assert_eq!(store.resolve(&id, &[]).unwrap(), Resolution::Unchanged(saved));
+    assert_eq!(
+        store.resolve(&id, &[]).unwrap(),
+        Resolution::Unchanged(saved)
+    );
 
     // Moved out of every search root: missing, not guessed.
     let outside = dir.join("elsewhere/report.txt");
     std::fs::create_dir_all(outside.parent().unwrap()).unwrap();
     std::fs::rename(root.join("archive/2026/q3/report-final.txt"), &outside).unwrap();
-    assert_eq!(store.resolve(&id, &[root.clone()]).unwrap(), Resolution::Missing);
+    assert_eq!(
+        store.resolve(&id, &[root.clone()]).unwrap(),
+        Resolution::Missing
+    );
 
     assert!(store.forget(&id).unwrap());
-    assert!(matches!(store.resolve(&id, &[]), Err(FsError::UnknownId(_))));
+    assert!(matches!(
+        store.resolve(&id, &[]),
+        Err(FsError::UnknownId(_))
+    ));
 }
 
 #[test]
@@ -526,37 +661,63 @@ fn identity_prefers_the_real_file_over_a_same_size_decoy_and_ignores_symlinks() 
     std::fs::rename(&a, &moved).unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(&moved, root.join("0-link.dat")).unwrap();
-    assert_eq!(store.resolve(&id, &[root.clone()]).unwrap(), Resolution::Moved(moved));
+    assert_eq!(
+        store.resolve(&id, &[root.clone()]).unwrap(),
+        Resolution::Moved(moved)
+    );
 }
 
 #[test]
 fn identity_ledger_is_safe_across_concurrent_processes() {
     let (_g, dir) = canonical_tmp();
     let ledger = dir.join("ledger");
-    let files: Vec<PathBuf> = (0..24).map(|i| {
-        let p = dir.join(format!("f{i}.txt"));
-        touch(&p, &format!("file number {i}"));
-        p
-    }).collect();
+    let files: Vec<PathBuf> = (0..24)
+        .map(|i| {
+            let p = dir.join(format!("f{i}.txt"));
+            touch(&p, &format!("file number {i}"));
+            p
+        })
+        .collect();
     let outs: Vec<PathBuf> = (0..3).map(|i| dir.join(format!("ids{i}"))).collect();
     let kids: Vec<Child> = (0..3)
         .map(|k| {
-            let mut args = vec![ledger.to_str().unwrap().to_string(), outs[k].to_str().unwrap().to_string()];
-            args.extend(files[k * 8..(k + 1) * 8].iter().map(|p| p.to_str().unwrap().to_string()));
+            let mut args = vec![
+                ledger.to_str().unwrap().to_string(),
+                outs[k].to_str().unwrap().to_string(),
+            ];
+            args.extend(
+                files[k * 8..(k + 1) * 8]
+                    .iter()
+                    .map(|p| p.to_str().unwrap().to_string()),
+            );
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
             spawn_role("track_files", &refs)
         })
         .collect();
     // The parent tracks concurrently too.
     let store = IdentityStore::open(&ledger).unwrap();
-    let mine: Vec<String> = (0..8).map(|i| store.track_or_get(&files[i]).unwrap()).collect();
+    let mine: Vec<String> = (0..8)
+        .map(|i| store.track_or_get(&files[i]).unwrap())
+        .collect();
     for mut k in kids {
         assert!(k.wait().unwrap().success());
     }
-    let mut all: Vec<String> = outs.iter().flat_map(|o| std::fs::read_to_string(o).unwrap().lines().map(str::to_string).collect::<Vec<_>>()).collect();
+    let mut all: Vec<String> = outs
+        .iter()
+        .flat_map(|o| {
+            std::fs::read_to_string(o)
+                .unwrap()
+                .lines()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .collect();
     assert_eq!(all.len(), 24);
     for id in &all {
-        assert!(store.lookup(id).unwrap().is_some(), "{id} survived concurrent ledger updates");
+        assert!(
+            store.lookup(id).unwrap().is_some(),
+            "{id} survived concurrent ledger updates"
+        );
     }
     all.sort();
     all.dedup();

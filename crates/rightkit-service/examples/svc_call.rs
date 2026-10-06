@@ -12,7 +12,10 @@ fn main() {
         eprintln!("{e}");
         std::process::exit(2)
     });
-    let params: Value = a.get(4).map(|s| serde_json::from_str(s).expect("params json")).unwrap_or_else(|| json!({}));
+    let params: Value = a
+        .get(4)
+        .map(|s| serde_json::from_str(s).expect("params json"))
+        .unwrap_or_else(|| json!({}));
     match Client::connect(&suite, &a[1], &a[2]).and_then(|c| c.call(&a[3], params)) {
         Ok(v) => println!("{v}"),
         Err(e) => {

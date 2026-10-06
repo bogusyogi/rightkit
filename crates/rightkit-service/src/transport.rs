@@ -17,7 +17,12 @@ pub(crate) struct Conn {
 
 fn fnv(s: &str) -> u32 {
     let mut h: u32 = 0x811c_9dc5;
-    for b in s.to_lowercase().replace('\\', "/").trim_end_matches('/').bytes() {
+    for b in s
+        .to_lowercase()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .bytes()
+    {
         h ^= u32::from(b);
         h = h.wrapping_mul(0x0100_0193);
     }
@@ -31,14 +36,22 @@ fn fnv(s: &str) -> u32 {
 pub fn endpoint_for(suite: &Suite, service: &str) -> String {
     let tag = format!("{:08x}", fnv(&suite.root().to_string_lossy()));
     if cfg!(windows) {
-        let user: String = std::env::var("USERNAME").unwrap_or_default().chars().filter(|c| c.is_ascii_alphanumeric()).take(20).collect();
+        let user: String = std::env::var("USERNAME")
+            .unwrap_or_default()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .take(20)
+            .collect();
         format!(r"\\.\pipe\rightkit-{service}-{user}-{tag}")
     } else {
         let p = suite.service_dir(service).join(format!("{service}.sock"));
         if p.as_os_str().len() <= 100 {
             p.to_string_lossy().into_owned()
         } else {
-            std::env::temp_dir().join(format!("rk-{tag}-{service}.sock")).to_string_lossy().into_owned()
+            std::env::temp_dir()
+                .join(format!("rk-{tag}-{service}.sock"))
+                .to_string_lossy()
+                .into_owned()
         }
     }
 }
@@ -98,7 +111,12 @@ mod imp {
             peer_closed: Arc::new(move || {
                 let mut b = [0u8; 1];
                 let n = unsafe { recv(watch.as_raw_fd(), b.as_mut_ptr(), 1, PEEK_NOWAIT) };
-                n == 0 || (n < 0 && !matches!(io::Error::last_os_error().kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted))
+                n == 0
+                    || (n < 0
+                        && !matches!(
+                            io::Error::last_os_error().kind(),
+                            io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                        ))
             }),
             shutdown: Arc::new(move || {
                 let _ = sd.shutdown(std::net::Shutdown::Both);
@@ -117,10 +135,16 @@ mod imp {
             if let Ok(md) = std::fs::symlink_metadata(&path) {
                 // Only replace a dead socket that we own; never follow or unlink anything else.
                 if md.uid() != current_uid() || !md.file_type().is_socket_like() {
-                    return Err(io::Error::new(io::ErrorKind::AddrInUse, "endpoint path is occupied by something that is not our socket"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        "endpoint path is occupied by something that is not our socket",
+                    ));
                 }
                 if UnixStream::connect(&path).is_ok() {
-                    return Err(io::Error::new(io::ErrorKind::AddrInUse, "a live host already serves this endpoint"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        "a live host already serves this endpoint",
+                    ));
                 }
                 let _ = std::fs::remove_file(&path);
             }
@@ -166,14 +190,24 @@ mod imp {
     use std::sync::{Mutex, RwLock};
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
-    use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
-    use windows::Win32::Security::{GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER};
-    use windows::Win32::Storage::FileSystem::{ReadFile, WriteFile, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, PIPE_ACCESS_DUPLEX};
-    use windows::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
+    use windows::Win32::Security::Authorization::{
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+        SDDL_REVISION_1,
+    };
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
+        TOKEN_USER,
+    };
+    use windows::Win32::Storage::FileSystem::{
+        ReadFile, WriteFile, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED,
+        PIPE_ACCESS_DUPLEX,
+    };
     use windows::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, PeekNamedPipe, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+        ConnectNamedPipe, CreateNamedPipeW, PeekNamedPipe, PIPE_READMODE_BYTE,
+        PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
     };
     use windows::Win32::System::Threading::{CreateEventW, GetCurrentProcess, OpenProcessToken};
+    use windows::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 
     pub fn current_uid() -> u32 {
         0
@@ -183,11 +217,18 @@ mod imp {
     fn user_only_sddl() -> io::Result<String> {
         unsafe {
             let mut tok = HANDLE::default();
-            OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut tok).map_err(io::Error::other)?;
+            OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut tok)
+                .map_err(io::Error::other)?;
             let mut need = 0u32;
             let _ = GetTokenInformation(tok, TokenUser, None, 0, &mut need);
             let mut buf = vec![0u8; need.max(64) as usize];
-            let r = GetTokenInformation(tok, TokenUser, Some(buf.as_mut_ptr() as *mut _), buf.len() as u32, &mut need);
+            let r = GetTokenInformation(
+                tok,
+                TokenUser,
+                Some(buf.as_mut_ptr() as *mut _),
+                buf.len() as u32,
+                &mut need,
+            );
             let _ = CloseHandle(tok);
             r.map_err(io::Error::other)?;
             let user = &*(buf.as_ptr() as *const TOKEN_USER);
@@ -269,7 +310,12 @@ mod imp {
 
     impl Pipe {
         fn new(h: HANDLE) -> Pipe {
-            Pipe(Arc::new(PipeInner { h: RwLock::new(Some(h)), raw: AtomicIsize::new(h.0 as isize), cancelled: AtomicBool::new(false), closing: Mutex::new(()) }))
+            Pipe(Arc::new(PipeInner {
+                h: RwLock::new(Some(h)),
+                raw: AtomicIsize::new(h.0 as isize),
+                cancelled: AtomicBool::new(false),
+                closing: Mutex::new(()),
+            }))
         }
 
         /// Interrupt every pending operation, then close the handle so the peer sees
@@ -294,17 +340,30 @@ mod imp {
 
         /// Run one overlapped operation to completion. `start` issues the call with
         /// the prepared OVERLAPPED; the wait happens here, outside any shared lock.
-        fn run(&self, start: impl FnOnce(HANDLE, *mut OVERLAPPED) -> windows::core::Result<()>) -> io::Result<usize> {
+        fn run(
+            &self,
+            start: impl FnOnce(HANDLE, *mut OVERLAPPED) -> windows::core::Result<()>,
+        ) -> io::Result<usize> {
             if self.0.cancelled.load(Ordering::SeqCst) {
-                return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "connection closed"));
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "connection closed",
+                ));
             }
             let guard = self.0.h.read().unwrap_or_else(|e| e.into_inner());
             let Some(handle) = *guard else {
-                return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "connection closed"));
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "connection closed",
+                ));
             };
             unsafe {
-                let ev = CreateEventW(None, true, false, PCWSTR::null()).map_err(io::Error::other)?;
-                let mut ov = OVERLAPPED { hEvent: ev, ..Default::default() };
+                let ev =
+                    CreateEventW(None, true, false, PCWSTR::null()).map_err(io::Error::other)?;
+                let mut ov = OVERLAPPED {
+                    hEvent: ev,
+                    ..Default::default()
+                };
                 let started = start(handle, &mut ov);
                 // `cancel` may have run its CancelIoEx before this operation was issued;
                 // re-check now that it is registered so it cannot wait forever.
@@ -334,8 +393,13 @@ mod imp {
                 match res {
                     Ok(n) => Ok(n),
                     Err(e) => match code(&e) {
-                        ERROR_BROKEN_PIPE | ERROR_NO_DATA => Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed")),
-                        ERROR_OPERATION_ABORTED => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "operation cancelled")),
+                        ERROR_BROKEN_PIPE | ERROR_NO_DATA => {
+                            Err(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"))
+                        }
+                        ERROR_OPERATION_ABORTED => Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            "operation cancelled",
+                        )),
                         _ => Err(io::Error::other(e)),
                     },
                 }
@@ -346,7 +410,10 @@ mod imp {
     struct Half(Pipe);
     impl Read for Half {
         fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
-            match self.0.run(|h, ov| unsafe { ReadFile(h, Some(b), None, Some(ov)) }) {
+            match self
+                .0
+                .run(|h, ov| unsafe { ReadFile(h, Some(b), None, Some(ov)) })
+            {
                 Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(0), // peer closed: EOF
                 r => r,
             }
@@ -354,7 +421,8 @@ mod imp {
     }
     impl Write for Half {
         fn write(&mut self, b: &[u8]) -> io::Result<usize> {
-            self.0.run(|h, ov| unsafe { WriteFile(h, Some(b), None, Some(ov as *const OVERLAPPED)) })
+            self.0
+                .run(|h, ov| unsafe { WriteFile(h, Some(b), None, Some(ov)) })
         }
         fn flush(&mut self) -> io::Result<()> {
             Ok(()) // writes complete when the pipe buffer accepts them
@@ -388,17 +456,44 @@ mod imp {
             let sddl = user_only_sddl()?;
             let mut sd = PSECURITY_DESCRIPTOR::default();
             unsafe {
-                ConvertStringSecurityDescriptorToSecurityDescriptorW(PCWSTR(wide(&sddl).as_ptr()), SDDL_REVISION_1, &mut sd, None).map_err(io::Error::other)?;
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    PCWSTR(wide(&sddl).as_ptr()),
+                    SDDL_REVISION_1,
+                    &mut sd,
+                    None,
+                )
+                .map_err(io::Error::other)?;
             }
-            let l = Listener { name: wide(endpoint), sd: Sd(sd), first: AtomicBool::new(true), endpoint: endpoint.to_string(), pending: Mutex::new(None) };
+            let l = Listener {
+                name: wide(endpoint),
+                sd: Sd(sd),
+                first: AtomicBool::new(true),
+                endpoint: endpoint.to_string(),
+                pending: Mutex::new(None),
+            };
             // Create the first instance now so a squatter fails the bind, not a later accept.
-            let h = l.instance()?;
+            // FILE_FLAG_FIRST_PIPE_INSTANCE on a name whose previous owner is still closing its
+            // instances fails ERROR_ACCESS_DENIED (5): report that as the address being in use.
+            let h = l.instance().map_err(|e| {
+                if e.raw_os_error() == Some(5) {
+                    io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        format!("pipe {endpoint} still held: {e}"),
+                    )
+                } else {
+                    e
+                }
+            })?;
             *l.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(SendHandle(h));
             Ok(l)
         }
 
         fn instance(&self) -> io::Result<HANDLE> {
-            let sa = SECURITY_ATTRIBUTES { nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32, lpSecurityDescriptor: self.sd.0 .0, bInheritHandle: false.into() };
+            let sa = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: self.sd.0 .0,
+                bInheritHandle: false.into(),
+            };
             let mut open = PIPE_ACCESS_DUPLEX;
             if self.first.swap(false, Ordering::SeqCst) {
                 open |= FILE_FLAG_FIRST_PIPE_INSTANCE;
@@ -422,7 +517,11 @@ mod imp {
         }
 
         pub fn accept(&self) -> io::Result<Option<Conn>> {
-            let pending = self.pending.lock().unwrap_or_else(|e| e.into_inner()).take();
+            let pending = self
+                .pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
             let h = match pending {
                 Some(p) => p.0,
                 None => self.instance()?,
@@ -449,7 +548,12 @@ mod imp {
         const ERROR_PIPE_BUSY: i32 = 231;
         let start = std::time::Instant::now();
         loop {
-            match std::fs::OpenOptions::new().read(true).write(true).custom_flags(FILE_FLAG_OVERLAPPED_BITS).open(endpoint) {
+            match std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(FILE_FLAG_OVERLAPPED_BITS)
+                .open(endpoint)
+            {
                 Ok(f) => return Ok(Pipe::new(HANDLE(f.into_raw_handle() as *mut _))),
                 Err(e) => {
                     let limit = match e.raw_os_error() {
@@ -481,12 +585,17 @@ pub fn pid_alive(pid: u32) -> bool {
     if pid == 0 || pid > i32::MAX as u32 {
         return false;
     }
-    unsafe { kill(pid as i32, 0) == 0 || io::Error::last_os_error().raw_os_error() == Some(1) /* EPERM: exists */ }
+    unsafe {
+        kill(pid as i32, 0) == 0 || io::Error::last_os_error().raw_os_error() == Some(1)
+        /* EPERM: exists */
+    }
 }
 #[cfg(windows)]
 pub fn pid_alive(pid: u32) -> bool {
     use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED};
-    use windows::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
     const STILL_ACTIVE: u32 = 259;
     if pid == 0 {
         return false;
@@ -526,5 +635,9 @@ impl Stream {
 /// not-yet-created one up to 1 s (HeardRight's behaviour).
 pub fn open_stream(endpoint: &str) -> io::Result<Stream> {
     let c = connect(endpoint)?;
-    Ok(Stream { reader: c.reader, writer: c.writer, shutdown: c.shutdown })
+    Ok(Stream {
+        reader: c.reader,
+        writer: c.writer,
+        shutdown: c.shutdown,
+    })
 }

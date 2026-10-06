@@ -5,7 +5,9 @@
 use std::io::{BufReader, Read, Write};
 use std::process::{Command, Stdio};
 
-use rightkit_framed_sidecar::length_prefixed::{read_frame, read_frame_bytes, write_frame, write_frame_bytes};
+use rightkit_framed_sidecar::length_prefixed::{
+    read_frame, read_frame_bytes, write_frame, write_frame_bytes,
+};
 use rightkit_framed_sidecar::wire::{Frame, WireError};
 use rightkit_framed_sidecar::{read_json_line_or_oversized, FrameError, Incoming, ReadLimits};
 use serde_json::{json, Value};
@@ -25,7 +27,10 @@ fn spawn(test: &str, mode: &str) -> std::process::Child {
 fn skip_preamble(r: &mut impl std::io::BufRead) {
     loop {
         let mut l = String::new();
-        assert!(r.read_line(&mut l).unwrap() > 0, "child exited before marker");
+        assert!(
+            r.read_line(&mut l).unwrap() > 0,
+            "child exited before marker"
+        );
         if l.trim_end().ends_with("RK_BEGIN") {
             return;
         }
@@ -35,7 +40,9 @@ fn skip_preamble(r: &mut impl std::io::BufRead) {
 /// Child: speaks JSON lines on stdout.
 #[test]
 fn child_lines() {
-    let Ok(mode) = std::env::var("RK_WIRE_MODE") else { return };
+    let Ok(mode) = std::env::var("RK_WIRE_MODE") else {
+        return;
+    };
     if mode != "lines" {
         return;
     }
@@ -47,10 +54,19 @@ fn child_lines() {
     let mut out = std::io::stdout().lock();
     writeln!(out, r#"{{"type":"hello","engine":"fx","version":"2.1","contract_version":1,"unknown_extra":true}}"#).unwrap();
     writeln!(out, r#"{{"type":"ready"}}"#).unwrap();
-    writeln!(out, r#"{{"type":"event","session_id":"s1","event":{{"level":0.5}}}}"#).unwrap();
+    writeln!(
+        out,
+        r#"{{"type":"event","session_id":"s1","event":{{"level":0.5}}}}"#
+    )
+    .unwrap();
     writeln!(out, r#"{{"type":"event","id":42,"event":{{"stage":"x"}}}}"#).unwrap();
     // A 2 MiB response for id 42 (over the 64 KiB limit the parent uses).
-    write!(out, r#"{{"type":"response","id":42,"ok":true,"result":"{}"}}"#, "r".repeat(2 << 20)).unwrap();
+    write!(
+        out,
+        r#"{{"type":"response","id":42,"ok":true,"result":"{}"}}"#,
+        "r".repeat(2 << 20)
+    )
+    .unwrap();
     writeln!(out).unwrap();
     writeln!(out, r#"{{"type":"response","id":43,"ok":false,"error":{{"code":"nope","message":"m","retryable":true}}}}"#).unwrap();
     writeln!(out, r#"{{"type":"bye","reason":"done"}}"#).unwrap();
@@ -64,23 +80,44 @@ fn typed_envelope_from_a_real_child_with_oversized_response_identified_by_id() {
     skip_preamble(&mut r);
     let mut buf = Vec::new();
     let lim = ReadLimits::default();
-    let mut next = |r: &mut BufReader<_>, buf: &mut Vec<u8>| read_json_line_or_oversized::<_, Frame>(r, buf, 64 * 1024, lim).unwrap().unwrap();
+    let next = |r: &mut BufReader<_>, buf: &mut Vec<u8>| {
+        read_json_line_or_oversized::<_, Frame>(r, buf, 64 * 1024, lim)
+            .unwrap()
+            .unwrap()
+    };
 
     match next(&mut r, &mut buf) {
-        Incoming::Frame(Frame::Hello { engine, version, contract_version }) => {
-            assert_eq!((engine.as_str(), version.as_str(), contract_version), ("fx", "2.1", 1));
+        Incoming::Frame(Frame::Hello {
+            engine,
+            version,
+            contract_version,
+        }) => {
+            assert_eq!(
+                (engine.as_str(), version.as_str(), contract_version),
+                ("fx", "2.1", 1)
+            );
         }
         other => panic!("{other:?}"),
     }
-    assert!(matches!(next(&mut r, &mut buf), Incoming::Frame(Frame::Ready)));
+    assert!(matches!(
+        next(&mut r, &mut buf),
+        Incoming::Frame(Frame::Ready)
+    ));
     match next(&mut r, &mut buf) {
-        Incoming::Frame(Frame::Event { id: None, session_id: Some(s), event }) => {
+        Incoming::Frame(Frame::Event {
+            id: None,
+            session_id: Some(s),
+            event,
+        }) => {
             assert_eq!(s, "s1");
             assert_eq!(event["level"], 0.5);
         }
         other => panic!("{other:?}"),
     }
-    assert!(matches!(next(&mut r, &mut buf), Incoming::Frame(Frame::Event { id: Some(42), .. })));
+    assert!(matches!(
+        next(&mut r, &mut buf),
+        Incoming::Frame(Frame::Event { id: Some(42), .. })
+    ));
     // The 2 MiB response is drained, never buffered, and still attributable.
     match next(&mut r, &mut buf) {
         Incoming::Oversized(o) => {
@@ -91,15 +128,26 @@ fn typed_envelope_from_a_real_child_with_oversized_response_identified_by_id() {
         }
         other => panic!("{other:?}"),
     }
-    assert!(buf.capacity() <= 128 * 1024, "buffer grew to {}", buf.capacity());
+    assert!(
+        buf.capacity() <= 128 * 1024,
+        "buffer grew to {}",
+        buf.capacity()
+    );
     // The stream is back on a frame boundary: a typed error response follows.
     match next(&mut r, &mut buf) {
-        Incoming::Frame(Frame::Response { id: 43, ok: false, error: Some(e), .. }) => {
+        Incoming::Frame(Frame::Response {
+            id: 43,
+            ok: false,
+            error: Some(e),
+            ..
+        }) => {
             assert_eq!(e, WireError::retryable("nope", "m"));
         }
         other => panic!("{other:?}"),
     }
-    assert!(matches!(next(&mut r, &mut buf), Incoming::Frame(Frame::Bye { reason }) if reason == "done"));
+    assert!(
+        matches!(next(&mut r, &mut buf), Incoming::Frame(Frame::Bye { reason }) if reason == "done")
+    );
     child.wait().unwrap();
 }
 
@@ -107,7 +155,9 @@ fn typed_envelope_from_a_real_child_with_oversized_response_identified_by_id() {
 /// a frame with `"quit":true` ends it. Optional hostile tail per mode.
 #[test]
 fn child_prefixed() {
-    let Ok(mode) = std::env::var("RK_WIRE_MODE") else { return };
+    let Ok(mode) = std::env::var("RK_WIRE_MODE") else {
+        return;
+    };
     if !mode.starts_with("prefixed") {
         return;
     }
@@ -143,7 +193,13 @@ fn child_prefixed() {
     std::process::exit(0);
 }
 
-fn roundtrip(mode: &str) -> (BufReader<std::process::ChildStdout>, std::process::Child, std::process::ChildStdin) {
+fn roundtrip(
+    mode: &str,
+) -> (
+    BufReader<std::process::ChildStdout>,
+    std::process::Child,
+    std::process::ChildStdin,
+) {
     let mut child = spawn("child_prefixed", mode);
     let mut r = BufReader::new(child.stdout.take().unwrap());
     skip_preamble(&mut r);
@@ -210,7 +266,13 @@ fn prefixed_truncated_body_zero_length_and_short_prefix_are_distinct_errors() {
 #[test]
 fn writer_refuses_oversize_and_empty_bodies_without_writing() {
     let mut sink = Vec::new();
-    assert!(matches!(write_frame_bytes(&mut sink, &[b'x'; 33], 32), Err(FrameError::TooLarge { limit: 32 })));
-    assert!(matches!(write_frame_bytes(&mut sink, b"", 32), Err(FrameError::Io(_))));
+    assert!(matches!(
+        write_frame_bytes(&mut sink, &[b'x'; 33], 32),
+        Err(FrameError::TooLarge { limit: 32 })
+    ));
+    assert!(matches!(
+        write_frame_bytes(&mut sink, b"", 32),
+        Err(FrameError::Io(_))
+    ));
     assert!(sink.is_empty());
 }

@@ -230,4 +230,3 @@ fn contains_token(haystack: &str, needle: &str) -> bool {
     }
     false
 }
-

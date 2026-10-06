@@ -5,8 +5,8 @@
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
-    TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
@@ -27,11 +27,15 @@ fn err(e: windows::core::Error) -> std::io::Error {
 impl WindowsJob {
     pub fn new(active_process_limit: u32) -> std::io::Result<Self> {
         if active_process_limit == 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "active process cap must be at least 1"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "active process cap must be at least 1",
+            ));
         }
         let handle = unsafe { CreateJobObjectW(None, None) }.map_err(err)?;
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+        limits.BasicLimitInformation.LimitFlags =
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
         limits.BasicLimitInformation.ActiveProcessLimit = active_process_limit;
         let r = unsafe {
             SetInformationJobObject(
@@ -51,16 +55,13 @@ impl WindowsJob {
     }
 
     pub fn assign_process_id(&self, pid: u32) -> std::io::Result<()> {
-        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid) }.map_err(err)?;
+        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid) }
+            .map_err(err)?;
         let r = unsafe { AssignProcessToJobObject(self.handle, process) };
         unsafe {
             let _ = CloseHandle(process);
         }
         r.map_err(err)
-    }
-
-    pub fn terminate(&self) -> std::io::Result<()> {
-        unsafe { TerminateJobObject(self.handle, 1) }.map_err(err)
     }
 }
 

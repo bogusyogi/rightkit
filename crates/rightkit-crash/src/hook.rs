@@ -105,7 +105,9 @@ pub fn record_report(
     if config.native_capture == NativeCapture::Auto {
         if let Some(path) = native::capture(&config.crash_dir, &kind, stamp) {
             if let Some(name) = path.file_name() {
-                report.native_artifacts.push(name.to_string_lossy().into_owned());
+                report
+                    .native_artifacts
+                    .push(name.to_string_lossy().into_owned());
             }
         }
     }

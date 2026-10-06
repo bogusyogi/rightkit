@@ -27,7 +27,10 @@ pub fn split_highlights(snippet: &str) -> Vec<Span> {
         let boundary = (c == MATCH_START && !matched) || (c == MATCH_END && matched);
         if boundary {
             if !cur.is_empty() {
-                spans.push(Span { text: std::mem::take(&mut cur), matched });
+                spans.push(Span {
+                    text: std::mem::take(&mut cur),
+                    matched,
+                });
             }
             matched = c == MATCH_START;
         } else if c != MATCH_START && c != MATCH_END {
@@ -41,7 +44,11 @@ pub fn split_highlights(snippet: &str) -> Vec<Span> {
 }
 
 fn alnum_terms(terms: &[String]) -> Vec<String> {
-    terms.iter().map(|t| t.to_lowercase()).filter(|t| t.chars().any(char::is_alphanumeric)).collect()
+    terms
+        .iter()
+        .map(|t| t.to_lowercase())
+        .filter(|t| t.chars().any(char::is_alphanumeric))
+        .collect()
 }
 
 /// Window of at most `max_chars` characters around the first term hit, with `...` on truncated sides.
@@ -61,7 +68,11 @@ pub fn excerpt_around(text: &str, terms: &[String], max_chars: usize) -> String 
     }
     let start = hit_chars.min(chars.len() - 1).saturating_sub(max_chars / 2);
     let end = (start + max_chars).min(chars.len());
-    let mut out: String = chars[start..end].iter().collect::<String>().trim().to_string();
+    let mut out: String = chars[start..end]
+        .iter()
+        .collect::<String>()
+        .trim()
+        .to_string();
     if start > 0 {
         out.insert_str(0, "...");
     }
@@ -73,5 +84,7 @@ pub fn excerpt_around(text: &str, terms: &[String], max_chars: usize) -> String 
 
 pub fn contains_any_term(text: &str, terms: &[String]) -> bool {
     let lower = text.to_lowercase();
-    alnum_terms(terms).iter().any(|t| lower.contains(t.as_str()))
+    alnum_terms(terms)
+        .iter()
+        .any(|t| lower.contains(t.as_str()))
 }

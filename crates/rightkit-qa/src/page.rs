@@ -36,7 +36,13 @@ pub fn describe_frame(path: &[usize]) -> String {
     if path.is_empty() {
         "top document".into()
     } else {
-        format!("frame {}", path.iter().map(|i| i.to_string()).collect::<Vec<_>>().join("."))
+        format!(
+            "frame {}",
+            path.iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(".")
+        )
     }
 }
 
@@ -56,7 +62,14 @@ pub fn parse_frame_matches(v: &Value) -> Vec<FrameMatch> {
         .map(|a| {
             a.iter()
                 .map(|m| FrameMatch {
-                    path: m["path"].as_array().map(|p| p.iter().filter_map(|i| i.as_u64().map(|i| i as usize)).collect()).unwrap_or_default(),
+                    path: m["path"]
+                        .as_array()
+                        .map(|p| {
+                            p.iter()
+                                .filter_map(|i| i.as_u64().map(|i| i as usize))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                     count: m["count"].as_u64().unwrap_or(0) as usize,
                 })
                 .collect()
@@ -64,12 +77,22 @@ pub fn parse_frame_matches(v: &Value) -> Vec<FrameMatch> {
         .unwrap_or_default()
 }
 
-pub fn find_across_frames(page: &dyn Eval, selector: &str, max_depth: usize) -> Result<Vec<FrameMatch>> {
-    Ok(parse_frame_matches(&page.eval_js(&find_across_frames_script(selector, max_depth))?))
+pub fn find_across_frames(
+    page: &dyn Eval,
+    selector: &str,
+    max_depth: usize,
+) -> Result<Vec<FrameMatch>> {
+    Ok(parse_frame_matches(&page.eval_js(
+        &find_across_frames_script(selector, max_depth),
+    )?))
 }
 
 /// The one document a selector may match; ambiguity is an error naming both places.
-pub fn resolve_unique_frame(page: &dyn Eval, selector: &str, max_depth: usize) -> Result<FramePath> {
+pub fn resolve_unique_frame(
+    page: &dyn Eval,
+    selector: &str,
+    max_depth: usize,
+) -> Result<FramePath> {
     let matches = find_across_frames(page, selector, max_depth)?;
     match matches.len() {
         0 => err(format!("selector matched no document: {selector}")),
@@ -113,7 +136,9 @@ pub struct PaintMetrics {
 }
 
 fn paint_begin_script(id: &str, selector: Option<&str>) -> String {
-    let root = selector.map(|s| format!("document.querySelector({})", q(s))).unwrap_or_else(|| "document.documentElement".into());
+    let root = selector
+        .map(|s| format!("document.querySelector({})", q(s)))
+        .unwrap_or_else(|| "document.documentElement".into());
     format!(
         "var L=window.__rkQaPaint=window.__rkQaPaint||{{marks:{{}},results:{{}}}};var root={root};\
          if(!root)throw new Error('paint target not found');\
@@ -139,13 +164,23 @@ fn paint_arm_script(id: &str, settle_ms: u64, timeout_ms: u64) -> String {
 }
 
 fn paint_result_script(id: &str) -> String {
-    format!("var L=window.__rkQaPaint;return (L&&L.results[{id}])||null;", id = q(id))
+    format!(
+        "var L=window.__rkQaPaint;return (L&&L.results[{id}])||null;",
+        id = q(id)
+    )
 }
 
 /// Run `trigger`, then return when the resulting render has actually been
 /// painted (DOM quiet, then two animation frames). The mark is installed before
 /// the trigger so no mutation slips between them.
-pub fn measure_paint(page: &dyn Eval, trigger: &mut dyn FnMut() -> Result<()>, request_id: &str, selector: Option<&str>, settle_ms: u64, timeout_ms: u64) -> Result<PaintMetrics> {
+pub fn measure_paint(
+    page: &dyn Eval,
+    trigger: &mut dyn FnMut() -> Result<()>,
+    request_id: &str,
+    selector: Option<&str>,
+    settle_ms: u64,
+    timeout_ms: u64,
+) -> Result<PaintMetrics> {
     page.eval_js(&paint_begin_script(request_id, selector))?;
     trigger()?;
     page.eval_js(&paint_arm_script(request_id, settle_ms, timeout_ms))?;
@@ -251,7 +286,13 @@ pub fn assert_active_pane(g: &PaneGeometry) -> Result<()> {
 }
 
 /// Wait until the ACTIVE pane's box has changed from `before` and then held still.
-pub fn wait_for_pane_resize(page: &dyn Eval, selector: &str, before: (f64, f64), timeout: Duration, stable_reads: u32) -> Result<PaneGeometry> {
+pub fn wait_for_pane_resize(
+    page: &dyn Eval,
+    selector: &str,
+    before: (f64, f64),
+    timeout: Duration,
+    stable_reads: u32,
+) -> Result<PaneGeometry> {
     let deadline = Instant::now() + timeout;
     let mut stable = 0;
     let mut previous: Option<(f64, f64)> = None;
@@ -278,7 +319,9 @@ pub fn wait_for_pane_resize(page: &dyn Eval, selector: &str, before: (f64, f64),
         timeout.as_millis(),
         before.0,
         before.1,
-        latest.map(|g| format!("{}x{}", g.width, g.height)).unwrap_or_else(|| "unreadable".into())
+        latest
+            .map(|g| format!("{}x{}", g.width, g.height))
+            .unwrap_or_else(|| "unreadable".into())
     ))
 }
 
@@ -299,7 +342,13 @@ mod tests {
         assert_eq!(describe_frame(&[1, 0]), "frame 1.0");
         let m = parse_frame_matches(&json!([{"path": [], "count": 1}, {"path": [0], "count": 2}]));
         assert_eq!(m.len(), 2);
-        assert_eq!(m[1], FrameMatch { path: vec![0], count: 2 });
+        assert_eq!(
+            m[1],
+            FrameMatch {
+                path: vec![0],
+                count: 2
+            }
+        );
     }
 
     struct Fake(Value);
@@ -311,26 +360,58 @@ mod tests {
 
     #[test]
     fn ambiguous_selector_names_both_documents() {
-        let e = resolve_unique_frame(&Fake(json!([{"path": [], "count": 1}, {"path": [0], "count": 1}])), ".t", 4).unwrap_err();
+        let e = resolve_unique_frame(
+            &Fake(json!([{"path": [], "count": 1}, {"path": [0], "count": 1}])),
+            ".t",
+            4,
+        )
+        .unwrap_err();
         assert!(e.0.contains("top document (1), frame 0 (1)"), "{e}");
         assert!(resolve_unique_frame(&Fake(json!([])), ".t", 4).is_err());
-        assert_eq!(resolve_unique_frame(&Fake(json!([{"path": [2], "count": 1}])), ".t", 4).unwrap(), vec![2]);
+        assert_eq!(
+            resolve_unique_frame(&Fake(json!([{"path": [2], "count": 1}])), ".t", 4).unwrap(),
+            vec![2]
+        );
     }
 
     #[test]
     fn pane_assertions() {
-        let mut g = PaneGeometry { selector: ".p".into(), x: 0.0, y: 0.0, width: 10.0, height: 10.0, visible: true, active: true, matches: 1 };
+        let mut g = PaneGeometry {
+            selector: ".p".into(),
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+            visible: true,
+            active: true,
+            matches: 1,
+        };
         assert!(assert_active_pane(&g).is_ok());
         g.active = false;
-        assert!(assert_active_pane(&g).unwrap_err().0.contains("not the active pane"));
+        assert!(assert_active_pane(&g)
+            .unwrap_err()
+            .0
+            .contains("not the active pane"));
         g.visible = false;
-        assert!(assert_active_pane(&g).unwrap_err().0.contains("not visible"));
+        assert!(assert_active_pane(&g)
+            .unwrap_err()
+            .0
+            .contains("not visible"));
     }
 
     #[test]
     fn paint_budget() {
-        let m = PaintMetrics { request_id: "r".into(), duration_ms: 300.0, settle_ms: 100.0, mutations: 4, animation_frames: true };
+        let m = PaintMetrics {
+            request_id: "r".into(),
+            duration_ms: 300.0,
+            settle_ms: 100.0,
+            mutations: 4,
+            animation_frames: true,
+        };
         assert!(assert_paint_within(&m, 500.0, "open").is_ok());
-        assert!(assert_paint_within(&m, 100.0, "open").unwrap_err().0.contains("over its 100ms budget"));
+        assert!(assert_paint_within(&m, 100.0, "open")
+            .unwrap_err()
+            .0
+            .contains("over its 100ms budget"));
     }
 }

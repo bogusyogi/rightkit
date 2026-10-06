@@ -88,10 +88,15 @@ impl Bundle {
         self.require_running()?;
         let name = require_text(name, "artifact name")?;
         if self.artifacts.iter().any(|a| a.name == name) {
-            return err(format!("QA evidence already records an artifact named {name}"));
+            return err(format!(
+                "QA evidence already records an artifact named {name}"
+            ));
         }
         let bytes = fs::read(path).map_err(|e| {
-            crate::util::Error(format!("cannot record QA evidence artifact {name}: {} is unreadable ({e})", path.display()))
+            crate::util::Error(format!(
+                "cannot record QA evidence artifact {name}: {} is unreadable ({e})",
+                path.display()
+            ))
         })?;
         let rec = Artifact {
             name,
@@ -104,17 +109,35 @@ impl Bundle {
         Ok(rec)
     }
 
-    pub fn add_check(&mut self, name: &str, status: CheckStatus, details: Value, artifacts: &[String]) -> Result<()> {
+    pub fn add_check(
+        &mut self,
+        name: &str,
+        status: CheckStatus,
+        details: Value,
+        artifacts: &[String],
+    ) -> Result<()> {
         self.require_running()?;
         let name = require_text(name, "check name")?;
-        let unknown: Vec<&String> = artifacts.iter().filter(|r| !self.artifacts.iter().any(|a| &a.name == *r)).collect();
+        let unknown: Vec<&String> = artifacts
+            .iter()
+            .filter(|r| !self.artifacts.iter().any(|a| &a.name == *r))
+            .collect();
         if !unknown.is_empty() {
             return err(format!(
                 "QA check {name} references artifacts that were never hashed: {}",
-                unknown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                unknown
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
-        self.checks.push(Check { name, status, details, artifacts: artifacts.to_vec() });
+        self.checks.push(Check {
+            name,
+            status,
+            details,
+            artifacts: artifacts.to_vec(),
+        });
         Ok(())
     }
 
@@ -140,7 +163,10 @@ impl Bundle {
                 Ok(b) => {
                     let h = sha256_hex(&b);
                     if h != a.sha256 {
-                        drift.push((a.name.clone(), format!("sha256 {h} does not match recorded {}", a.sha256)));
+                        drift.push((
+                            a.name.clone(),
+                            format!("sha256 {h} does not match recorded {}", a.sha256),
+                        ));
                     }
                 }
             }
@@ -157,10 +183,24 @@ impl Bundle {
             if !drift.is_empty() {
                 return err(format!(
                     "refusing to write a passing QA receipt whose evidence changed: {}",
-                    drift.iter().map(|(n, r)| format!("{n} ({r})")).collect::<Vec<_>>().join("; ")
+                    drift
+                        .iter()
+                        .map(|(n, r)| format!("{n} ({r})"))
+                        .collect::<Vec<_>>()
+                        .join("; ")
                 ));
             }
-            let ok = self.identity.get("config").and_then(|c| c.get("sha256")).is_some() && self.identity.get("scenarios").and_then(Value::as_array).map(|a| !a.is_empty()).unwrap_or(false);
+            let ok = self
+                .identity
+                .get("config")
+                .and_then(|c| c.get("sha256"))
+                .is_some()
+                && self
+                    .identity
+                    .get("scenarios")
+                    .and_then(Value::as_array)
+                    .map(|a| !a.is_empty())
+                    .unwrap_or(false);
             if !ok {
                 return err("refusing to write a passing QA receipt that is not bound to config and scenario identity");
             }
@@ -190,12 +230,15 @@ mod tests {
     #[test]
     fn check_must_reference_hashed_artifacts() {
         let mut b = Bundle::new("a", "darwin", "r").unwrap();
-        let e = b.add_check("c", CheckStatus::Passed, json!(null), &["ghost".into()]).unwrap_err();
+        let e = b
+            .add_check("c", CheckStatus::Passed, json!(null), &["ghost".into()])
+            .unwrap_err();
         assert!(e.0.contains("never hashed"));
         let f = tmpfile("x");
         b.add_artifact("shot", &f).unwrap();
         assert!(b.add_artifact("shot", &f).is_err());
-        b.add_check("c", CheckStatus::Passed, json!({"k":1}), &["shot".into()]).unwrap();
+        b.add_check("c", CheckStatus::Passed, json!({"k":1}), &["shot".into()])
+            .unwrap();
     }
 
     #[test]

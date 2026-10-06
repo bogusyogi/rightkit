@@ -26,7 +26,10 @@ pub enum SuiteError {
 impl fmt::Display for SuiteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SuiteError::NoRoot(s) => write!(f, "no app-data root: {s} (refusing to fall back to the working directory)"),
+            SuiteError::NoRoot(s) => write!(
+                f,
+                "no app-data root: {s} (refusing to fall back to the working directory)"
+            ),
             SuiteError::NotAbsolute(p) => write!(f, "suite root must be absolute: {}", p.display()),
             SuiteError::Insecure(s) => write!(f, "insecure service directory: {s}"),
             SuiteError::Io(e) => write!(f, "{e}"),
@@ -84,7 +87,9 @@ impl Suite {
             }
         }
         let base = if cfg!(windows) {
-            env_nonempty("LOCALAPPDATA").map(PathBuf::from).ok_or_else(|| SuiteError::NoRoot("LOCALAPPDATA is not set".into()))?
+            env_nonempty("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .ok_or_else(|| SuiteError::NoRoot("LOCALAPPDATA is not set".into()))?
         } else if cfg!(target_os = "macos") {
             env_nonempty("HOME")
                 .map(|h| PathBuf::from(h).join("Library").join("Application Support"))
@@ -92,7 +97,9 @@ impl Suite {
         } else {
             env_nonempty("XDG_DATA_HOME")
                 .map(PathBuf::from)
-                .or_else(|| env_nonempty("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
+                .or_else(|| {
+                    env_nonempty("HOME").map(|h| PathBuf::from(h).join(".local").join("share"))
+                })
                 .ok_or_else(|| SuiteError::NoRoot("neither XDG_DATA_HOME nor HOME is set".into()))?
         };
         Suite::at(absolute(base)?.join(SUITE_DIR_NAME).join(SHARED_DIR_NAME))
@@ -100,18 +107,35 @@ impl Suite {
 
     /// An explicit absolute root (isolated dev profiles, tests).
     pub fn at(root: impl Into<PathBuf>) -> Result<Suite, SuiteError> {
-        Ok(Suite { root: absolute(root.into())?, _temp: None })
+        Ok(Suite {
+            root: absolute(root.into())?,
+            _temp: None,
+        })
     }
 
     /// A fresh private directory under the OS temp dir, deleted when the last
     /// clone is dropped. The explicit alternative to a missing app-data root.
     pub fn per_run_temp(label: &str) -> Result<Suite, SuiteError> {
         static N: AtomicU64 = AtomicU64::new(0);
-        let label: String = label.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(24).collect();
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        let dir = absolute(std::env::temp_dir())?.join(format!("rk-{label}-{}-{}-{nanos:x}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+        let label: String = label
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .take(24)
+            .collect();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = absolute(std::env::temp_dir())?.join(format!(
+            "rk-{label}-{}-{}-{nanos:x}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
         make_private_dir(&dir)?;
-        Ok(Suite { root: dir.clone(), _temp: Some(Arc::new(TempGuard(dir))) })
+        Ok(Suite {
+            root: dir.clone(),
+            _temp: Some(Arc::new(TempGuard(dir))),
+        })
     }
 
     pub fn root(&self) -> &Path {
@@ -140,7 +164,10 @@ impl Suite {
 }
 
 pub(crate) fn valid_service_name(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 48 && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    !s.is_empty()
+        && s.len() <= 48
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// Create `dir` (and parents) and make the leaf owner-only (0700 on Unix;
@@ -152,7 +179,10 @@ pub(crate) fn make_private_dir(dir: &Path) -> Result<(), SuiteError> {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let md = std::fs::metadata(dir)?;
         if md.uid() != crate::transport::current_uid() {
-            return Err(SuiteError::Insecure(format!("{} is not owned by the current user", dir.display())));
+            return Err(SuiteError::Insecure(format!(
+                "{} is not owned by the current user",
+                dir.display()
+            )));
         }
         if md.permissions().mode() & 0o077 != 0 {
             std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;

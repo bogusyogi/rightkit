@@ -41,13 +41,25 @@ pub struct Request {
 
 impl Default for Request {
     fn default() -> Self {
-        Self { query: String::new(), kind: None, extension: None, min_size: None, max_size: None, offset: 0, limit: 100 }
+        Self {
+            query: String::new(),
+            kind: None,
+            extension: None,
+            min_size: None,
+            max_size: None,
+            offset: 0,
+            limit: 100,
+        }
     }
 }
 
 impl Request {
     pub fn new(query: impl Into<String>, limit: usize) -> Self {
-        Self { query: query.into(), limit, ..Self::default() }
+        Self {
+            query: query.into(),
+            limit,
+            ..Self::default()
+        }
     }
 }
 
@@ -90,7 +102,9 @@ pub struct FilenameIndex {
 }
 
 fn basename(path: &Path) -> String {
-    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into_owned())
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
 impl FilenameIndex {
@@ -107,7 +121,8 @@ impl FilenameIndex {
     }
 
     pub fn insert(&mut self, entry: Entry) {
-        self.entries.push((basename(&entry.path).to_lowercase(), entry));
+        self.entries
+            .push((basename(&entry.path).to_lowercase(), entry));
         self.sorted = false;
     }
 
@@ -126,7 +141,10 @@ impl FilenameIndex {
             self.sorted = true;
         }
         let q = req.query.to_lowercase();
-        let ext = req.extension.as_deref().map(|e| e.strip_prefix('.').unwrap_or(e).to_lowercase());
+        let ext = req
+            .extension
+            .as_deref()
+            .map(|e| e.strip_prefix('.').unwrap_or(e).to_lowercase());
         let matches: Vec<&Entry> = self
             .entries
             .iter()
@@ -135,7 +153,9 @@ impl FilenameIndex {
             .filter(|e| req.kind.is_none_or(|k| e.kind == k))
             .filter(|e| {
                 ext.as_deref().is_none_or(|x| {
-                    e.path.extension().is_some_and(|have| have.to_string_lossy().to_lowercase() == x)
+                    e.path
+                        .extension()
+                        .is_some_and(|have| have.to_string_lossy().to_lowercase() == x)
                 })
             })
             .filter(|e| req.min_size.is_none_or(|m| e.size.is_some_and(|s| s >= m)))
@@ -146,9 +166,18 @@ impl FilenameIndex {
         let items = if req.offset >= total {
             Vec::new()
         } else {
-            matches[req.offset..end].iter().map(|e| (*e).clone()).collect()
+            matches[req.offset..end]
+                .iter()
+                .map(|e| (*e).clone())
+                .collect()
         };
-        Ok(Page { items, offset: req.offset, limit: req.limit, total_matches: total, has_more: end < total })
+        Ok(Page {
+            items,
+            offset: req.offset,
+            limit: req.limit,
+            total_matches: total,
+            has_more: end < total,
+        })
     }
 }
 
@@ -159,13 +188,21 @@ fn validate(req: &Request) -> Result<(), Error> {
     if req.offset > MAX_PAGE_OFFSET {
         return Err(Error::InvalidOffset(req.offset));
     }
-    if req.query.len() > MAX_QUERY_LENGTH || req.query.chars().count() > MAX_QUERY_LENGTH || req.query.contains('\0') {
-        return Err(Error::InvalidQuery(format!("query must be at most {MAX_QUERY_LENGTH} chars and contain no NUL")));
+    if req.query.len() > MAX_QUERY_LENGTH
+        || req.query.chars().count() > MAX_QUERY_LENGTH
+        || req.query.contains('\0')
+    {
+        return Err(Error::InvalidQuery(format!(
+            "query must be at most {MAX_QUERY_LENGTH} chars and contain no NUL"
+        )));
     }
     if let Some(ext) = &req.extension {
         let t = ext.strip_prefix('.').unwrap_or(ext);
-        if t.is_empty() || t.chars().count() > MAX_EXTENSION_LENGTH || t.contains(['/', '\\', '\0']) {
-            return Err(Error::InvalidExtension("extension must be a non-empty filename suffix".into()));
+        if t.is_empty() || t.chars().count() > MAX_EXTENSION_LENGTH || t.contains(['/', '\\', '\0'])
+        {
+            return Err(Error::InvalidExtension(
+                "extension must be a non-empty filename suffix".into(),
+            ));
         }
     }
     if let (Some(min), Some(max)) = (req.min_size, req.max_size) {

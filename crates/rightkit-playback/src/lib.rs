@@ -317,7 +317,10 @@ pub fn compatibility_copy(
     fs::create_dir_all(cache_root).map_err(|e| PlaybackError::Cache(e.to_string()))?;
     let ext = kind.output_extension();
     let output = cache_root.join(format!("{key}.{ext}"));
-    if output.metadata().is_ok_and(|meta| meta.len() > MIN_DERIVATIVE_BYTES) {
+    if output
+        .metadata()
+        .is_ok_and(|meta| meta.len() > MIN_DERIVATIVE_BYTES)
+    {
         return Ok(output);
     }
     static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -366,7 +369,11 @@ pub fn compatibility_copy(
             }
         }
     };
-    if !status.success() || !scratch.file.metadata().is_ok_and(|meta| meta.len() > MIN_DERIVATIVE_BYTES)
+    if !status.success()
+        || !scratch
+            .file
+            .metadata()
+            .is_ok_and(|meta| meta.len() > MIN_DERIVATIVE_BYTES)
     {
         return Err(PlaybackError::UnsupportedCodec);
     }
@@ -376,7 +383,10 @@ pub fn compatibility_copy(
     // Parallel requests may finish the same immutable derivative. Keep first.
     if !output.is_file() {
         if let Err(error) = fs::rename(&scratch.file, &output) {
-            if !output.metadata().is_ok_and(|meta| meta.len() > MIN_DERIVATIVE_BYTES) {
+            if !output
+                .metadata()
+                .is_ok_and(|meta| meta.len() > MIN_DERIVATIVE_BYTES)
+            {
                 return Err(PlaybackError::Cache(error.to_string()));
             }
         }
@@ -407,11 +417,7 @@ impl FfmpegCandidates {
         {
             return Ok(path.clone());
         }
-        if let Some(path) = self
-            .development_path
-            .as_ref()
-            .filter(|path| path.is_file())
-        {
+        if let Some(path) = self.development_path.as_ref().filter(|path| path.is_file()) {
             if !self.allow_development_path {
                 return Err(PlaybackError::Runtime(
                     "development FFmpeg path requires explicit opt-in".into(),
@@ -460,10 +466,7 @@ pub mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn cancel_media_playback(
-        request_id: String,
-        state: tauri::State<'_, PlaybackState>,
-    ) {
+    pub fn cancel_media_playback(request_id: String, state: tauri::State<'_, PlaybackState>) {
         state.registry.cancel(&request_id);
     }
 
@@ -476,7 +479,10 @@ pub mod tauri_commands {
         let source = state.host.source(&id)?;
         let ffmpeg = state.host.ffmpeg()?;
         let root = state.host.cache_dir()?;
-        let request = state.registry.begin(&request_id).map_err(|e| e.to_string())?;
+        let request = state
+            .registry
+            .begin(&request_id)
+            .map_err(|e| e.to_string())?;
         let path = tauri::async_runtime::spawn_blocking(move || {
             let _request = request;
             compatibility_copy(&ffmpeg, &source, &root, _request.token())

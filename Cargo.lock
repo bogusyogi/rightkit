@@ -4858,7 +4858,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "getrandom 0.4.3",
@@ -4990,7 +4990,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-process"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nix 0.30.1",
  "process-wrap",
@@ -5118,7 +5118,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "webview2-com",
- "windows 0.61.1",
+ "windows 0.62.2",
 ]
 
 [[package]]

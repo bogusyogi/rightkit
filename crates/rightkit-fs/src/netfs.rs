@@ -11,21 +11,30 @@ pub fn is_network_filesystem(path: &Path) -> bool {
         use std::ffi::CStr;
         use std::os::unix::ffi::OsStrExt;
         let probe = nearest_existing(path);
-        let Ok(c) = std::ffi::CString::new(probe.as_os_str().as_bytes()) else { return false };
+        let Ok(c) = std::ffi::CString::new(probe.as_os_str().as_bytes()) else {
+            return false;
+        };
         // SAFETY: zeroed statfs is a valid out-parameter and `c` is NUL-terminated.
         let mut st: libc::statfs = unsafe { std::mem::zeroed() };
         if unsafe { libc::statfs(c.as_ptr(), &mut st) } != 0 {
             return false;
         }
         // SAFETY: f_fstypename is a NUL-terminated array filled by the kernel.
-        let name = unsafe { CStr::from_ptr(st.f_fstypename.as_ptr()) }.to_string_lossy().to_ascii_lowercase();
-        matches!(name.as_str(), "nfs" | "smbfs" | "afpfs" | "webdav" | "cifs" | "ftp" | "osxfusefs" | "macfuse")
+        let name = unsafe { CStr::from_ptr(st.f_fstypename.as_ptr()) }
+            .to_string_lossy()
+            .to_ascii_lowercase();
+        matches!(
+            name.as_str(),
+            "nfs" | "smbfs" | "afpfs" | "webdav" | "cifs" | "ftp" | "osxfusefs" | "macfuse"
+        )
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         use std::os::unix::ffi::OsStrExt;
         let probe = nearest_existing(path);
-        let Ok(c) = std::ffi::CString::new(probe.as_os_str().as_bytes()) else { return false };
+        let Ok(c) = std::ffi::CString::new(probe.as_os_str().as_bytes()) else {
+            return false;
+        };
         // SAFETY: zeroed statfs is a valid out-parameter and `c` is NUL-terminated.
         let mut st: libc::statfs = unsafe { std::mem::zeroed() };
         if unsafe { libc::statfs(c.as_ptr(), &mut st) } != 0 {

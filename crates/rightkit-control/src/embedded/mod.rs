@@ -26,7 +26,9 @@
 
 use crate::json::esc;
 use crate::keys;
-use rightkit_service::{host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError, Suite};
+use rightkit_service::{
+    host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError, Suite,
+};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -46,11 +48,40 @@ mod native {
     use super::{Button, Mouse};
     use tauri::{Runtime, WebviewWindow};
     const NO: &str = "unsupported platform";
-    pub fn mouse<R: Runtime>(_: &WebviewWindow<R>, _: Mouse, _: Button, _: f64, _: f64, _: i64) -> Result<(), String> { Err(NO.into()) }
-    pub fn key<R: Runtime>(_: &WebviewWindow<R>, _: bool, _: u16, _: &str, _: u64) -> Result<(), String> { Err(NO.into()) }
-    pub fn wheel<R: Runtime>(_: &WebviewWindow<R>, _: f64, _: f64, _: f64, _: f64) -> Result<(), String> { Err(NO.into()) }
-    pub fn eval<R: Runtime>(_: &WebviewWindow<R>, _: &str) -> Result<String, String> { Err(NO.into()) }
-    pub fn screenshot<R: Runtime>(_: &WebviewWindow<R>) -> Result<Vec<u8>, String> { Err(NO.into()) }
+    pub fn mouse<R: Runtime>(
+        _: &WebviewWindow<R>,
+        _: Mouse,
+        _: Button,
+        _: f64,
+        _: f64,
+        _: i64,
+    ) -> Result<(), String> {
+        Err(NO.into())
+    }
+    pub fn key<R: Runtime>(
+        _: &WebviewWindow<R>,
+        _: bool,
+        _: u16,
+        _: &str,
+        _: u64,
+    ) -> Result<(), String> {
+        Err(NO.into())
+    }
+    pub fn wheel<R: Runtime>(
+        _: &WebviewWindow<R>,
+        _: f64,
+        _: f64,
+        _: f64,
+        _: f64,
+    ) -> Result<(), String> {
+        Err(NO.into())
+    }
+    pub fn eval<R: Runtime>(_: &WebviewWindow<R>, _: &str) -> Result<String, String> {
+        Err(NO.into())
+    }
+    pub fn screenshot<R: Runtime>(_: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
+        Err(NO.into())
+    }
 }
 /// Windows inserts characters with no virtual key through `Input.insertText`.
 #[cfg(windows)]
@@ -59,28 +90,47 @@ fn type_char<R: Runtime>(win: &WebviewWindow<R>, c: char) -> Result<(), String> 
     if !c.is_ascii() {
         return native::insert_text(win, &s);
     }
-    let code = keys::chord(&s.to_lowercase()).map(|(k, _)| k).unwrap_or(0xFF);
-    let fl = if c.is_uppercase() { keys::FLAG_SHIFT } else { 0 };
+    let code = keys::chord(&s.to_lowercase())
+        .map(|(k, _)| k)
+        .unwrap_or(0xFF);
+    let fl = if c.is_uppercase() {
+        keys::FLAG_SHIFT
+    } else {
+        0
+    };
     key(win, true, code, &s, fl)?;
     key(win, false, code, &s, fl)
 }
 #[cfg(not(windows))]
 fn type_char<R: Runtime>(win: &WebviewWindow<R>, c: char) -> Result<(), String> {
     let s = c.to_string();
-    let code = keys::chord(&s.to_lowercase()).map(|(k, _)| k).unwrap_or(0xFF);
-    let fl = if c.is_uppercase() { keys::FLAG_SHIFT } else { 0 };
+    let code = keys::chord(&s.to_lowercase())
+        .map(|(k, _)| k)
+        .unwrap_or(0xFF);
+    let fl = if c.is_uppercase() {
+        keys::FLAG_SHIFT
+    } else {
+        0
+    };
     key(win, true, code, &s, fl)?;
     key(win, false, code, &s, fl)
 }
 use native::{eval, key, mouse, screenshot, wheel};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Mouse { Down, Up, Move, Drag }
+pub enum Mouse {
+    Down,
+    Up,
+    Move,
+    Drag,
+}
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Button { Left, Right }
+pub enum Button {
+    Left,
+    Right,
+}
 
 type CommandFn<R> = Box<dyn Fn(&AppHandle<R>, &str) -> Result<String, String> + Send + Sync>;
-
 
 /// Elements never captured in a screenshot: password and one-time-code inputs,
 /// credential autocomplete hints, and anything the app marks `data-rk-secret`.
@@ -91,7 +141,20 @@ static MASKED_LAST: AtomicU64 = AtomicU64::new(0);
 pub const ENV_SERVICE: &str = "RIGHTKIT_CONTROL_SERVICE";
 
 /// Every method the server understands (the default allowlist for QA/CLI apps).
-pub const METHODS: &[&str] = &["health", "click", "move", "drag", "wheel", "key", "type", "eval", "dom", "ax", "screenshot", "command"];
+pub const METHODS: &[&str] = &[
+    "health",
+    "click",
+    "move",
+    "drag",
+    "wheel",
+    "key",
+    "type",
+    "eval",
+    "dom",
+    "ax",
+    "screenshot",
+    "command",
+];
 
 /// Builder for the control plugin. `command` registers typed app verbs that
 /// agents call through the `command` method (the closure gets the raw JSON
@@ -112,19 +175,33 @@ impl<R: Runtime> Control<R> {
     /// Default allowlist: the QA harness (`right-qa`) and the CLI (`right-ctl`)
     /// may call every method. Other apps get nothing until `allow_app`.
     pub fn new() -> Self {
-        let allow = Allowlist::new().allow("right-qa", METHODS.iter().copied()).allow("right-ctl", METHODS.iter().copied());
-        Self { label: "main".into(), commands: HashMap::new(), allow }
+        let allow = Allowlist::new()
+            .allow("right-qa", METHODS.iter().copied())
+            .allow("right-ctl", METHODS.iter().copied());
+        Self {
+            label: "main".into(),
+            commands: HashMap::new(),
+            allow,
+        }
     }
     pub fn window(mut self, label: &str) -> Self {
         self.label = label.into();
         self
     }
-    pub fn command(mut self, name: &str, f: impl Fn(&AppHandle<R>, &str) -> Result<String, String> + Send + Sync + 'static) -> Self {
+    pub fn command(
+        mut self,
+        name: &str,
+        f: impl Fn(&AppHandle<R>, &str) -> Result<String, String> + Send + Sync + 'static,
+    ) -> Self {
         self.commands.insert(name.into(), Box::new(f));
         self
     }
     /// Let another app call only `methods` (per-app request allowlist).
-    pub fn allow_app<I: IntoIterator<Item = S>, S: Into<String>>(mut self, app: &str, methods: I) -> Self {
+    pub fn allow_app<I: IntoIterator<Item = S>, S: Into<String>>(
+        mut self,
+        app: &str,
+        methods: I,
+    ) -> Self {
         self.allow = self.allow.allow(app, methods);
         self
     }
@@ -137,12 +214,22 @@ impl<R: Runtime> Control<R> {
         Self::enabled().then(|| self.build())
     }
     pub fn build(self) -> TauriPlugin<R> {
-        let Control { label, commands, allow } = self;
+        let Control {
+            label,
+            commands,
+            allow,
+        } = self;
         let commands = Arc::new(commands);
         tauri::plugin::Builder::new("rightkit-control")
             .setup(move |app, _| {
                 if let Some(service) = service_from_env() {
-                    serve(app.clone(), label.clone(), service, commands.clone(), allow.clone())?;
+                    serve(
+                        app.clone(),
+                        label.clone(),
+                        service,
+                        commands.clone(),
+                        allow.clone(),
+                    )?;
                 }
                 Ok(())
             })
@@ -151,7 +238,9 @@ impl<R: Runtime> Control<R> {
 }
 
 fn service_from_env() -> Option<String> {
-    std::env::var(ENV_SERVICE).ok().filter(|s| !s.trim().is_empty())
+    std::env::var(ENV_SERVICE)
+        .ok()
+        .filter(|s| !s.trim().is_empty())
 }
 
 struct ControlHandler<R: Runtime> {
@@ -172,8 +261,20 @@ fn serve<R: Runtime>(
     // Fail closed: no absolute suite root means no server, never a cwd-relative one.
     let suite = Suite::resolve()?;
     let shots = suite.private_service_subdir(&service, "shots")?;
-    let cfg = ServiceConfig::new(&service, &format!("control:{label}"), 0, env!("CARGO_PKG_VERSION"), allow);
-    let handler = Arc::new(ControlHandler { app, label, commands, shots, shot_seq: AtomicU64::new(0) });
+    let cfg = ServiceConfig::new(
+        &service,
+        &format!("control:{label}"),
+        0,
+        env!("CARGO_PKG_VERSION"),
+        allow,
+    );
+    let handler = Arc::new(ControlHandler {
+        app,
+        label,
+        commands,
+        shots,
+        shot_seq: AtomicU64::new(0),
+    });
     let hosted = host(&suite, cfg, handler)?;
     // Hosted releases on drop; the plugin keeps it for the life of the process.
     std::mem::forget(hosted);
@@ -181,12 +282,21 @@ fn serve<R: Runtime>(
 }
 
 impl<R: Runtime> Handler for ControlHandler<R> {
-    fn call(&self, _cx: &CallContext, method: &str, params: &Value, _emit: &Emit) -> Result<Value, ServiceError> {
+    fn call(
+        &self,
+        _cx: &CallContext,
+        method: &str,
+        params: &Value,
+        _emit: &Emit,
+    ) -> Result<Value, ServiceError> {
         if method == "health" {
             return Ok(json!({"ok": true, "service": "rightkit-control"}));
         }
         let Some(win) = self.app.get_webview_window(&self.label) else {
-            return Err(ServiceError::retryable("window_not_found", "webview window not created yet"));
+            return Err(ServiceError::retryable(
+                "window_not_found",
+                "webview window not created yet",
+            ));
         };
         match route(method, params, &win, &self.app, &self.commands) {
             Ok(Out::Json(j)) => Ok(serde_json::from_str(&j).unwrap_or(Value::Null)),
@@ -194,7 +304,9 @@ impl<R: Runtime> Handler for ControlHandler<R> {
                 let n = self.shot_seq.fetch_add(1, Ordering::SeqCst);
                 let path = self.shots.join(format!("shot-{n}.png"));
                 std::fs::write(&path, &p).map_err(|e| ServiceError::new("io", e.to_string()))?;
-                Ok(json!({"ok": true, "path": path.to_string_lossy(), "bytes": p.len(), "masked": MASKED_LAST.load(Ordering::SeqCst)}))
+                Ok(
+                    json!({"ok": true, "path": path.to_string_lossy(), "bytes": p.len(), "masked": MASKED_LAST.load(Ordering::SeqCst)}),
+                )
             }
             Err(e) => Err(ServiceError::new("control_error", e)),
         }
@@ -215,7 +327,13 @@ fn js_json<R: Runtime>(win: &WebviewWindow<R>, body: &str) -> Result<String, Str
     eval(win, &format!("JSON.stringify((function(){{{body}}})())"))
 }
 
-fn route<R: Runtime>(method: &str, params: &Value, win: &WebviewWindow<R>, app: &AppHandle<R>, commands: &HashMap<String, CommandFn<R>>) -> Result<Out, String> {
+fn route<R: Runtime>(
+    method: &str,
+    params: &Value,
+    win: &WebviewWindow<R>,
+    app: &AppHandle<R>,
+    commands: &HashMap<String, CommandFn<R>>,
+) -> Result<Out, String> {
     // Typed field access on the parsed params: text containing `"x":` or quotes can
     // never be mistaken for another field (the old flat string scan could).
     let str_field = |_: &Value, k: &str| params.get(k).and_then(Value::as_str).map(str::to_string);
@@ -229,7 +347,11 @@ fn route<R: Runtime>(method: &str, params: &Value, win: &WebviewWindow<R>, app: 
         }
         "click" => {
             let (x, y) = (n("x")?, n("y")?);
-            let btn = if str_field(b, "button").as_deref() == Some("right") { Button::Right } else { Button::Left };
+            let btn = if str_field(b, "button").as_deref() == Some("right") {
+                Button::Right
+            } else {
+                Button::Left
+            };
             let count = num_field(b, "count").unwrap_or(1.0).max(1.0) as i64;
             mouse(win, Mouse::Move, Button::Left, x, y, 0)?;
             pause(50);
@@ -250,21 +372,39 @@ fn route<R: Runtime>(method: &str, params: &Value, win: &WebviewWindow<R>, app: 
             pause(50);
             for i in 1..=steps {
                 let t = i as f64 / steps as f64;
-                mouse(win, Mouse::Drag, Button::Left, x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, 1)?;
+                mouse(
+                    win,
+                    Mouse::Drag,
+                    Button::Left,
+                    x1 + (x2 - x1) * t,
+                    y1 + (y2 - y1) * t,
+                    1,
+                )?;
                 pause(16);
             }
             mouse(win, Mouse::Up, Button::Left, x2, y2, 1)?;
             ok()
         }
         "wheel" => {
-            wheel(win, n("x")?, n("y")?, num_field(b, "dx").unwrap_or(0.0), num_field(b, "dy").unwrap_or(0.0))?;
+            wheel(
+                win,
+                n("x")?,
+                n("y")?,
+                num_field(b, "dx").unwrap_or(0.0),
+                num_field(b, "dy").unwrap_or(0.0),
+            )?;
             ok()
         }
         "key" => {
             let spec = str_field(b, "key").ok_or("missing 'key'")?;
-            let (code, flags) = keys::chord(&spec).ok_or_else(|| format!("unknown key '{spec}'"))?;
+            let (code, flags) =
+                keys::chord(&spec).ok_or_else(|| format!("unknown key '{spec}'"))?;
             let last = spec.rsplit('+').next().unwrap_or("");
-            let mut ch = if flags & (keys::FLAG_CMD | keys::FLAG_CTRL) == 0 { key_char(last) } else { String::new() };
+            let mut ch = if flags & (keys::FLAG_CMD | keys::FLAG_CTRL) == 0 {
+                key_char(last)
+            } else {
+                String::new()
+            };
             if ch.is_empty() && last.chars().count() == 1 {
                 ch = last.to_string();
             }
@@ -284,7 +424,10 @@ fn route<R: Runtime>(method: &str, params: &Value, win: &WebviewWindow<R>, app: 
         "eval" => {
             let js = str_field(b, "js").ok_or("missing 'js'")?;
             let v = js_json(win, &js)?;
-            Ok(Out::Json(format!("{{\"ok\":true,\"value\":{}}}", if v.is_empty() { "null".into() } else { v })))
+            Ok(Out::Json(format!(
+                "{{\"ok\":true,\"value\":{}}}",
+                if v.is_empty() { "null".into() } else { v }
+            )))
         }
         "dom" => {
             let sel = str_field(b, "selector").ok_or("missing 'selector'")?;
@@ -304,13 +447,26 @@ fn route<R: Runtime>(method: &str, params: &Value, win: &WebviewWindow<R>, app: 
             // Redact before persistence: credential-bearing elements are hidden in the page
             // while the pixels are captured, so the secret never reaches the PNG. Caller
             // `mask` selectors extend the built-in set; masking failure discards the capture.
-            let extra: Vec<String> = params.get("mask").and_then(Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
-            let selectors = [SECRET_SELECTORS.to_string()].into_iter().chain(extra).collect::<Vec<_>>().join(",");
+            let extra: Vec<String> = params
+                .get("mask")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let selectors = [SECRET_SELECTORS.to_string()]
+                .into_iter()
+                .chain(extra)
+                .collect::<Vec<_>>()
+                .join(",");
             let sel_json = serde_json::to_string(&selectors).map_err(|e| e.to_string())?;
             let hide = format!(
                 "const els=Array.from(document.querySelectorAll({sel_json}));window.__rkMasked=els.map(e=>[e,e.style.getPropertyValue('visibility'),e.style.getPropertyPriority('visibility')]);for(const e of els)e.style.setProperty('visibility','hidden','important');return els.length;"
             );
-            let masked = js_json(win, &hide).map_err(|e| format!("screenshot masking failed ({e}); capture refused"))?;
+            let masked = js_json(win, &hide)
+                .map_err(|e| format!("screenshot masking failed ({e}); capture refused"))?;
             let shot = screenshot(win);
             let restore = "for(const [e,v,p] of (window.__rkMasked||[])){if(v)e.style.setProperty('visibility',v,p);else e.style.removeProperty('visibility');}window.__rkMasked=[];return true;";
             let restored = js_json(win, restore);
@@ -321,9 +477,14 @@ fn route<R: Runtime>(method: &str, params: &Value, win: &WebviewWindow<R>, app: 
         }
         "command" => {
             let name = str_field(b, "name").ok_or("missing 'name'")?;
-            let f = commands.get(&name).ok_or_else(|| format!("unknown command '{name}'"))?;
+            let f = commands
+                .get(&name)
+                .ok_or_else(|| format!("unknown command '{name}'"))?;
             let v = f(app, &params.to_string())?;
-            Ok(Out::Json(format!("{{\"ok\":true,\"result\":{}}}", if v.is_empty() { "null".into() } else { v })))
+            Ok(Out::Json(format!(
+                "{{\"ok\":true,\"result\":{}}}",
+                if v.is_empty() { "null".into() } else { v }
+            )))
         }
         _ => Err(format!("unknown method {method}")),
     }

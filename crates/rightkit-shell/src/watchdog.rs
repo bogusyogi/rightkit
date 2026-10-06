@@ -32,12 +32,19 @@ pub struct WatchdogConfig {
 
 impl Default for WatchdogConfig {
     fn default() -> Self {
-        Self { threshold: Duration::from_secs(5), heartbeat_interval: Duration::from_secs(1), on_stall: None }
+        Self {
+            threshold: Duration::from_secs(5),
+            heartbeat_interval: Duration::from_secs(1),
+            on_stall: None,
+        }
     }
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Edge-triggered decision, separated from the loop.
@@ -56,14 +63,20 @@ pub fn install(app: AppHandle<Wry>, cfg: WatchdogConfig) {
                 std::thread::sleep(interval);
                 let last = Arc::clone(&last);
                 // Err means the event loop is gone (app exiting): stop.
-                if app.run_on_main_thread(move || last.store(now_ms(), Ordering::SeqCst)).is_err() {
+                if app
+                    .run_on_main_thread(move || last.store(now_ms(), Ordering::SeqCst))
+                    .is_err()
+                {
                     break;
                 }
             })
             .ok();
     }
     let threshold = cfg.threshold.as_millis() as u64;
-    let poll = cfg.heartbeat_interval.min(Duration::from_millis(250)).max(Duration::from_millis(50));
+    let poll = cfg
+        .heartbeat_interval
+        .min(Duration::from_millis(250))
+        .max(Duration::from_millis(50));
     std::thread::Builder::new()
         .name("rk-shell-watchdog".into())
         .spawn(move || loop {

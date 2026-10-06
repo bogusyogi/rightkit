@@ -19,20 +19,33 @@ impl Response {
 }
 
 /// One request. `auth` is the full `Authorization` header value when present.
-pub fn request(addr: SocketAddr, method: &str, path: &str, auth: Option<&str>, body: Option<&str>, timeout: Duration) -> Result<Response> {
+pub fn request(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    auth: Option<&str>,
+    body: Option<&str>,
+    timeout: Duration,
+) -> Result<Response> {
     if !addr.ip().is_loopback() {
-        return err(format!("QA control endpoint must be loopback, received {addr}"));
+        return err(format!(
+            "QA control endpoint must be loopback, received {addr}"
+        ));
     }
     let deadline = Instant::now() + timeout;
     let mut s = TcpStream::connect_timeout(&addr, timeout.min(Duration::from_secs(5)))?;
     s.set_write_timeout(Some(timeout))?;
-    let mut head = format!("{method} {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nAccept: */*\r\n");
+    let mut head =
+        format!("{method} {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nAccept: */*\r\n");
     if let Some(a) = auth {
         head.push_str(&format!("Authorization: {a}\r\n"));
     }
     let payload = body.unwrap_or("");
     if body.is_some() {
-        head.push_str(&format!("Content-Type: application/json\r\nContent-Length: {}\r\n", payload.len()));
+        head.push_str(&format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            payload.len()
+        ));
     }
     head.push_str("\r\n");
     s.write_all(head.as_bytes())?;
@@ -42,14 +55,25 @@ pub fn request(addr: SocketAddr, method: &str, path: &str, auth: Option<&str>, b
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
-            return err(format!("{method} {path} exceeded {}ms", timeout.as_millis()));
+            return err(format!(
+                "{method} {path} exceeded {}ms",
+                timeout.as_millis()
+            ));
         }
         s.set_read_timeout(Some(left))?;
         match s.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => buf.extend_from_slice(&chunk[..n]),
-            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
-                return err(format!("{method} {path} exceeded {}ms", timeout.as_millis()))
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return err(format!(
+                    "{method} {path} exceeded {}ms",
+                    timeout.as_millis()
+                ))
             }
             Err(e) => return Err(e.into()),
         }
@@ -59,12 +83,25 @@ pub fn request(addr: SocketAddr, method: &str, path: &str, auth: Option<&str>, b
         .position(|w| w == b"\r\n\r\n")
         .ok_or_else(|| crate::util::Error("malformed HTTP response".into()))?;
     let head = String::from_utf8_lossy(&buf[..split]).to_string();
-    let status = head.lines().next().and_then(|l| l.split_whitespace().nth(1)).and_then(|c| c.parse().ok()).unwrap_or(0);
+    let status = head
+        .lines()
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
     let content_type = head
         .lines()
-        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-type:").map(|v| v.trim().to_string()))
+        .find_map(|l| {
+            l.to_ascii_lowercase()
+                .strip_prefix("content-type:")
+                .map(|v| v.trim().to_string())
+        })
         .unwrap_or_default();
-    Ok(Response { status, content_type, body: buf[split + 4..].to_vec() })
+    Ok(Response {
+        status,
+        content_type,
+        body: buf[split + 4..].to_vec(),
+    })
 }
 
 pub fn loopback(port: u16) -> SocketAddr {

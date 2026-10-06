@@ -28,7 +28,11 @@ fn restrict_owner_only_impl(path: &Path) -> Result<()> {
     if meta.file_type().is_symlink() {
         return Err(FsError::Symlink(path.to_path_buf()));
     }
-    let mode = if meta.is_dir() { DIR_MODE_OWNER_ONLY } else { FILE_MODE_OWNER_ONLY };
+    let mode = if meta.is_dir() {
+        DIR_MODE_OWNER_ONLY
+    } else {
+        FILE_MODE_OWNER_ONLY
+    };
     if meta.permissions().mode() & 0o7777 == mode {
         return Ok(());
     }
@@ -63,7 +67,10 @@ pub fn is_owner_only(path: &Path) -> Result<bool> {
 /// is always hardened. A symlinked leaf is refused.
 pub fn ensure_private_dir(dir: &Path) -> Result<()> {
     if dir.as_os_str().is_empty() {
-        return Err(FsError::io(dir, std::io::Error::new(std::io::ErrorKind::InvalidInput, "empty path")));
+        return Err(FsError::io(
+            dir,
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "empty path"),
+        ));
     }
     let mut missing: Vec<PathBuf> = Vec::new();
     for ancestor in dir.ancestors() {
@@ -89,7 +96,9 @@ fn create_private_dir_one(path: &Path) -> Result<()> {
     #[cfg(unix)]
     let result = {
         use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().mode(DIR_MODE_OWNER_ONLY).create(path)
+        std::fs::DirBuilder::new()
+            .mode(DIR_MODE_OWNER_ONLY)
+            .create(path)
     };
     #[cfg(not(unix))]
     let result = std::fs::create_dir(path);
@@ -122,7 +131,9 @@ pub fn create_private_new(path: &Path) -> Result<std::fs::File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(FILE_MODE_OWNER_ONLY).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        options
+            .mode(FILE_MODE_OWNER_ONLY)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
     let file = options.open(path).map_err(|e| FsError::io(path, e))?;
     #[cfg(not(unix))]
@@ -371,4 +382,3 @@ fn native_restrict_owner_only(path: &Path) -> crate::error::Result<()> {
         }
     }
 }
-

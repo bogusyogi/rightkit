@@ -256,4 +256,3 @@ pub struct MetricsSnapshot {
     /// locked onto one channel (cancellation/dilution detected).
     pub downmix_locked_channel: Option<usize>,
 }
-

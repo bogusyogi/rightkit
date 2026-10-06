@@ -14,7 +14,9 @@ use std::{collections::BTreeSet, fmt, io, path::Path};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{sha256_file, Artifact, ArtifactCatalog, ArtifactStatus, MediaError, APPROVED_CATALOG_JSON};
+use crate::{
+    sha256_file, Artifact, ArtifactCatalog, ArtifactStatus, MediaError, APPROVED_CATALOG_JSON,
+};
 
 pub const NATIVE_CATALOG_JSON: &str = include_str!("../catalog/native-libraries.json");
 
@@ -132,13 +134,36 @@ pub enum NativeCatalogError {
     Io(io::Error),
     Media(MediaError),
     UnsupportedSchema(u32),
-    Invalid { id: String, reason: String },
-    MixedVersions { library: NativeLibrary, versions: Vec<String> },
-    NoApproved { library: NativeLibrary, os: String, arch: String },
-    Ambiguous { library: NativeLibrary, os: String, arch: String },
-    NotVerifiable { id: String },
-    DigestMismatch { id: String, expected: String, actual: String },
-    CargoLockMismatch { id: String, reason: String },
+    Invalid {
+        id: String,
+        reason: String,
+    },
+    MixedVersions {
+        library: NativeLibrary,
+        versions: Vec<String>,
+    },
+    NoApproved {
+        library: NativeLibrary,
+        os: String,
+        arch: String,
+    },
+    Ambiguous {
+        library: NativeLibrary,
+        os: String,
+        arch: String,
+    },
+    NotVerifiable {
+        id: String,
+    },
+    DigestMismatch {
+        id: String,
+        expected: String,
+        actual: String,
+    },
+    CargoLockMismatch {
+        id: String,
+        reason: String,
+    },
 }
 
 impl fmt::Display for NativeCatalogError {
@@ -150,7 +175,10 @@ impl fmt::Display for NativeCatalogError {
             Self::UnsupportedSchema(v) => write!(f, "unsupported native catalog schema {v}"),
             Self::Invalid { id, reason } => write!(f, "native record {id}: {reason}"),
             Self::MixedVersions { library, versions } => {
-                write!(f, "{library:?} pins more than one suite version: {versions:?}")
+                write!(
+                    f,
+                    "{library:?} pins more than one suite version: {versions:?}"
+                )
             }
             Self::NoApproved { library, os, arch } => {
                 write!(f, "no approved {library:?} artifact for {os}/{arch}")
@@ -159,8 +187,15 @@ impl fmt::Display for NativeCatalogError {
                 write!(f, "multiple approved {library:?} artifacts for {os}/{arch}")
             }
             Self::NotVerifiable { id } => write!(f, "{id} has no digest to verify against"),
-            Self::DigestMismatch { id, expected, actual } => {
-                write!(f, "{id}: digest mismatch (expected {expected}, got {actual})")
+            Self::DigestMismatch {
+                id,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "{id}: digest mismatch (expected {expected}, got {actual})"
+                )
             }
             Self::CargoLockMismatch { id, reason } => write!(f, "{id}: lock mismatch: {reason}"),
         }
@@ -181,7 +216,10 @@ impl From<MediaError> for NativeCatalogError {
 }
 
 fn invalid(id: &str, reason: impl Into<String>) -> NativeCatalogError {
-    NativeCatalogError::Invalid { id: id.to_owned(), reason: reason.into() }
+    NativeCatalogError::Invalid {
+        id: id.to_owned(),
+        reason: reason.into(),
+    }
 }
 
 fn is_digest(s: &str) -> bool {
@@ -202,12 +240,19 @@ impl NativeRecord {
             }
         }
         if !ALLOWED_LICENSES.contains(&self.license_spdx.as_str()) {
-            return Err(invalid(&self.id, format!("unapproved licence {}", self.license_spdx)));
+            return Err(invalid(
+                &self.id,
+                format!("unapproved licence {}", self.license_spdx),
+            ));
         }
         if !self.source_url.starts_with("https://") {
             return Err(invalid(&self.id, "sourceUrl must be https"));
         }
-        for d in self.sha256.iter().chain(self.archive.iter().map(|a| &a.sha256)) {
+        for d in self
+            .sha256
+            .iter()
+            .chain(self.archive.iter().map(|a| &a.sha256))
+        {
             if !is_digest(d) {
                 return Err(invalid(&self.id, "digest is not SHA-256 hex"));
             }
@@ -221,21 +266,30 @@ impl NativeRecord {
             if self.license_spdx != "LGPL-2.1-or-later" {
                 return Err(invalid(&self.id, "FFmpeg must be LGPL-2.1-or-later"));
             }
-            let flags: Vec<String> =
-                self.required_build_flags.iter().map(|f| f.to_ascii_lowercase()).collect();
+            let flags: Vec<String> = self
+                .required_build_flags
+                .iter()
+                .map(|f| f.to_ascii_lowercase())
+                .collect();
             for must in ["--disable-gpl", "--disable-nonfree"] {
                 if !flags.iter().any(|f| f == must) {
                     return Err(invalid(&self.id, format!("FFmpeg missing {must}")));
                 }
             }
-            if flags.iter().any(|f| f == "--enable-gpl" || f == "--enable-nonfree") {
+            if flags
+                .iter()
+                .any(|f| f == "--enable-gpl" || f == "--enable-nonfree")
+            {
                 return Err(invalid(&self.id, "FFmpeg forbidden build flag"));
             }
         }
         match self.status {
             NativeStatus::Approved | NativeStatus::Pinned => {
                 if self.notice_files.is_empty() && self.linkage != Linkage::StaticCrate {
-                    return Err(invalid(&self.id, "shipped binary needs licence notice files"));
+                    return Err(invalid(
+                        &self.id,
+                        "shipped binary needs licence notice files",
+                    ));
                 }
                 match (self.linkage, self.verification.method) {
                     (Linkage::StaticCrate, VerificationMethod::CargoChecksum) => {
@@ -248,7 +302,10 @@ impl NativeRecord {
                     }
                     (_, VerificationMethod::FileSha256) => {
                         if self.sha256.is_none() || self.artifact_file_name.is_none() {
-                            return Err(invalid(&self.id, "file-sha256 needs sha256 and artifactFileName"));
+                            return Err(invalid(
+                                &self.id,
+                                "file-sha256 needs sha256 and artifactFileName",
+                            ));
                         }
                     }
                     (_, VerificationMethod::ArchiveSha256) => {
@@ -256,7 +313,12 @@ impl NativeRecord {
                             return Err(invalid(&self.id, "archive-sha256 needs archive"));
                         }
                     }
-                    (_, _) => return Err(invalid(&self.id, "binary needs a digest verification method")),
+                    (_, _) => {
+                        return Err(invalid(
+                            &self.id,
+                            "binary needs a digest verification method",
+                        ))
+                    }
                 }
                 if self.status == NativeStatus::Approved
                     && self.linkage != Linkage::StaticCrate
@@ -284,7 +346,9 @@ impl NativeRecord {
         let expected = self
             .sha256
             .as_deref()
-            .ok_or_else(|| NativeCatalogError::NotVerifiable { id: self.id.clone() })?;
+            .ok_or_else(|| NativeCatalogError::NotVerifiable {
+                id: self.id.clone(),
+            })?;
         let actual = sha256_file(path)?;
         if !actual.eq_ignore_ascii_case(expected) {
             return Err(NativeCatalogError::DigestMismatch {
@@ -301,12 +365,18 @@ impl NativeRecord {
         let expected = self
             .archive
             .as_ref()
-            .ok_or_else(|| NativeCatalogError::NotVerifiable { id: self.id.clone() })?
+            .ok_or_else(|| NativeCatalogError::NotVerifiable {
+                id: self.id.clone(),
+            })?
             .sha256
             .clone();
         let actual = sha256_file(path)?;
         if !actual.eq_ignore_ascii_case(&expected) {
-            return Err(NativeCatalogError::DigestMismatch { id: self.id.clone(), expected, actual });
+            return Err(NativeCatalogError::DigestMismatch {
+                id: self.id.clone(),
+                expected,
+                actual,
+            });
         }
         Ok(())
     }
@@ -316,15 +386,24 @@ impl NativeRecord {
         let cargo = self
             .cargo
             .as_ref()
-            .ok_or_else(|| NativeCatalogError::NotVerifiable { id: self.id.clone() })?;
-        let mismatch = |reason: String| NativeCatalogError::CargoLockMismatch { id: self.id.clone(), reason };
+            .ok_or_else(|| NativeCatalogError::NotVerifiable {
+                id: self.id.clone(),
+            })?;
+        let mismatch = |reason: String| NativeCatalogError::CargoLockMismatch {
+            id: self.id.clone(),
+            reason,
+        };
         for block in lock_text.split("[[package]]") {
             let field = |key: &str| {
                 block.lines().find_map(|l| {
-                    l.strip_prefix(key)?.strip_prefix(" = \"")?.strip_suffix('"')
+                    l.strip_prefix(key)?
+                        .strip_prefix(" = \"")?
+                        .strip_suffix('"')
                 })
             };
-            if field("name") == Some(cargo.crate_name.as_str()) && field("version") == Some(cargo.version.as_str()) {
+            if field("name") == Some(cargo.crate_name.as_str())
+                && field("version") == Some(cargo.version.as_str())
+            {
                 return match field("checksum") {
                     Some(c) if c.eq_ignore_ascii_case(&cargo.checksum) => Ok(()),
                     Some(c) => Err(mismatch(format!("checksum {c} != {}", cargo.checksum))),
@@ -332,7 +411,10 @@ impl NativeRecord {
                 };
             }
         }
-        Err(mismatch(format!("{} {} not in lock", cargo.crate_name, cargo.version)))
+        Err(mismatch(format!(
+            "{} {} not in lock",
+            cargo.crate_name, cargo.version
+        )))
     }
 }
 
@@ -349,7 +431,9 @@ impl NativeCatalog {
     pub fn embedded() -> Result<Self, NativeCatalogError> {
         let mut catalog = Self::parse_native_only(NATIVE_CATALOG_JSON)?;
         let ffmpeg = ArtifactCatalog::parse(APPROVED_CATALOG_JSON)?;
-        catalog.libraries.extend(ffmpeg.artifacts.iter().map(ffmpeg_record));
+        catalog
+            .libraries
+            .extend(ffmpeg.artifacts.iter().map(ffmpeg_record));
         catalog.validate()?;
         Ok(catalog)
     }
@@ -357,7 +441,9 @@ impl NativeCatalog {
     pub fn parse_native_only(json: &str) -> Result<Self, NativeCatalogError> {
         let catalog: Self = serde_json::from_str(json).map_err(NativeCatalogError::Json)?;
         if catalog.schema_version != 1 {
-            return Err(NativeCatalogError::UnsupportedSchema(catalog.schema_version));
+            return Err(NativeCatalogError::UnsupportedSchema(
+                catalog.schema_version,
+            ));
         }
         Ok(catalog)
     }
@@ -439,7 +525,14 @@ fn ffmpeg_record(a: &Artifact) -> NativeRecord {
             ArtifactStatus::StaleUnverified => NativeStatus::StaleUnverified,
         },
         linkage: Linkage::Executable,
-        artifact_file_name: Some(if a.os == "windows" { "ffmpeg.exe" } else { "ffmpeg" }.to_owned()),
+        artifact_file_name: Some(
+            if a.os == "windows" {
+                "ffmpeg.exe"
+            } else {
+                "ffmpeg"
+            }
+            .to_owned(),
+        ),
         sha256: Some(a.sha256.clone()),
         archive: None,
         cargo: None,

@@ -77,12 +77,15 @@ impl MonoDownmix {
 
     fn evaluate_window(&mut self) {
         if self.selected.is_none() {
-            let (best_ch, best_energy) = self
-                .chan_energy
-                .iter()
-                .copied()
-                .enumerate()
-                .fold((0, 0.0f64), |acc, item| if item.1 > acc.1 { item } else { acc });
+            let (best_ch, best_energy) =
+                self.chan_energy
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .fold(
+                        (0, 0.0f64),
+                        |acc, item| if item.1 > acc.1 { item } else { acc },
+                    );
             let min_energy = Self::MIN_SIGNAL_RMS * Self::MIN_SIGNAL_RMS * self.frames as f64;
             let ratio_energy_floor = Self::RMS_RATIO_FLOOR * Self::RMS_RATIO_FLOOR;
             if best_energy > min_energy && self.mix_energy < best_energy * ratio_energy_floor {
@@ -164,4 +167,3 @@ pub(super) fn push_mono_pcm<T>(
         }
     }
 }
-

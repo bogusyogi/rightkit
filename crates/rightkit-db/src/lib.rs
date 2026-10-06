@@ -13,12 +13,12 @@ mod recover;
 
 pub use backup::{online_backup_to, BackupProgress};
 pub use migrate::{
-    add_column_if_missing, column_exists, migrate, pending_marker, rollback_to, user_version, Migration,
-    MigrationReport, MigrateOptions, PendingMarker, Step,
+    add_column_if_missing, column_exists, migrate, pending_marker, rollback_to, user_version,
+    MigrateOptions, Migration, MigrationReport, PendingMarker, Step,
 };
-pub use recover::{quarantine_database, OpenOutcome, RecoveryPolicy};
 #[cfg(feature = "sqlcipher")]
 pub use recover::rekey;
+pub use recover::{quarantine_database, OpenOutcome, RecoveryPolicy};
 
 const BUSY_TIMEOUT_MS: u64 = 5_000;
 const JOURNAL_SIZE_LIMIT: i64 = 67_108_864;
@@ -244,7 +244,9 @@ fn configure_journal(conn: &Connection, options: &DbOptions, kind: ConnectionKin
     let wanted = effective_journal(options);
     if wanted == JournalSelect::Delete {
         if matches!(kind, ConnectionKind::Writer) {
-            conn.query_row("PRAGMA journal_mode=DELETE", [], |row| row.get::<_, String>(0))?;
+            conn.query_row("PRAGMA journal_mode=DELETE", [], |row| {
+                row.get::<_, String>(0)
+            })?;
         }
         return Ok(());
     }
@@ -266,17 +268,26 @@ fn configure_journal(conn: &Connection, options: &DbOptions, kind: ConnectionKin
         )));
     }
     let _ = conn.execute_batch("ROLLBACK;");
-    conn.query_row("PRAGMA journal_mode=DELETE", [], |row| row.get::<_, String>(0))?;
+    conn.query_row("PRAGMA journal_mode=DELETE", [], |row| {
+        row.get::<_, String>(0)
+    })?;
     Ok(())
 }
 
 fn effective_journal(options: &DbOptions) -> JournalSelect {
-    match std::env::var(JOURNAL_ENV).ok().as_deref().map(str::to_ascii_lowercase).as_deref() {
+    match std::env::var(JOURNAL_ENV)
+        .ok()
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("wal") => return JournalSelect::WalStrict,
         Some("delete") | Some("truncate") => return JournalSelect::Delete,
         _ => {}
     }
-    if options.journal == JournalSelect::WalWithFallback && rightkit_fs::is_network_filesystem(&options.path) {
+    if options.journal == JournalSelect::WalWithFallback
+        && rightkit_fs::is_network_filesystem(&options.path)
+    {
         return JournalSelect::Delete;
     }
     options.journal

@@ -32,13 +32,27 @@ fn named(key: &str) -> Option<KeyDef> {
         "Space" | " " => ("Space", 32, Some(" ")),
         _ => return None,
     };
-    let key = if key == "Space" { " " } else if key == "Esc" { "Escape" } else { key };
-    Some(KeyDef { key: key.into(), code: code.into(), vk, text: text.map(Into::into) })
+    let key = if key == "Space" {
+        " "
+    } else if key == "Esc" {
+        "Escape"
+    } else {
+        key
+    };
+    Some(KeyDef {
+        key: key.into(),
+        code: code.into(),
+        vk,
+        text: text.map(Into::into),
+    })
 }
 
 pub(crate) fn char_key(c: char) -> KeyDef {
     let (code, vk) = if c.is_ascii_alphabetic() {
-        (format!("Key{}", c.to_ascii_uppercase()), c.to_ascii_uppercase() as i64)
+        (
+            format!("Key{}", c.to_ascii_uppercase()),
+            c.to_ascii_uppercase() as i64,
+        )
     } else if c.is_ascii_digit() {
         (format!("Digit{c}"), c as i64)
     } else if c == ' ' {
@@ -48,15 +62,26 @@ pub(crate) fn char_key(c: char) -> KeyDef {
     } else {
         (String::new(), 0)
     };
-    KeyDef { key: c.to_string(), code, vk, text: Some(c.to_string()) }
+    KeyDef {
+        key: c.to_string(),
+        code,
+        vk,
+        text: Some(c.to_string()),
+    }
 }
 
 /// Parse `Control+Shift+a`, `Enter`, `a`. Returns (modifier bitmask, key).
 pub(crate) fn parse_chord(spec: &str) -> Result<(i64, Vec<(String, KeyDef)>, KeyDef)> {
     let mut mods = 0;
     let mut mod_keys = Vec::new();
-    let parts: Vec<&str> = if spec == "+" { vec!["+"] } else { spec.split('+').collect() };
-    let (last, init) = parts.split_last().ok_or_else(|| BrowserError::UnknownKey(spec.into()))?;
+    let parts: Vec<&str> = if spec == "+" {
+        vec!["+"]
+    } else {
+        spec.split('+').collect()
+    };
+    let (last, init) = parts
+        .split_last()
+        .ok_or_else(|| BrowserError::UnknownKey(spec.into()))?;
     for m in init {
         let (bit, key, code, vk) = match *m {
             "Control" | "Ctrl" => (CTRL, "Control", "ControlLeft", 17),
@@ -66,7 +91,15 @@ pub(crate) fn parse_chord(spec: &str) -> Result<(i64, Vec<(String, KeyDef)>, Key
             _ => return Err(BrowserError::UnknownKey(spec.into())),
         };
         mods |= bit;
-        mod_keys.push((key.to_string(), KeyDef { key: key.into(), code: code.into(), vk, text: None }));
+        mod_keys.push((
+            key.to_string(),
+            KeyDef {
+                key: key.into(),
+                code: code.into(),
+                vk,
+                text: None,
+            },
+        ));
     }
     let def = match named(last) {
         Some(d) => d,

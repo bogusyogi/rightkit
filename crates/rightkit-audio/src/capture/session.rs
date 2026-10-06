@@ -12,11 +12,11 @@ use ringbuf::{
     HeapRb,
 };
 
-use super::downmix::{push_mono_f32, push_mono_pcm, MonoDownmix};
-use super::staging::{pending_resampled_len, take_resampled};
 use super::device::resolve_device;
+use super::downmix::{push_mono_f32, push_mono_pcm, MonoDownmix};
 use super::metrics::{CaptureErrorKind, Metrics, MetricsSnapshot};
 use super::resample::StreamResampler;
+use super::staging::{pending_resampled_len, take_resampled};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutDType {
@@ -113,7 +113,10 @@ impl AudioArrival {
             *seen = current;
             return true;
         }
-        let guard = self.mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let guard = self
+            .mutex
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let (guard, _) = self
             .ready
             .wait_timeout_while(guard, timeout, |_| {
@@ -492,4 +495,3 @@ impl CaptureSession {
         self.metrics.snapshot()
     }
 }
-

@@ -67,12 +67,17 @@ pub struct Step {
 
 impl Scenario {
     pub fn load(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path).map_err(|e| Error(format!("cannot read {}: {e}", path.display())))?;
-        let mut s: Scenario = toml::from_str(&text).map_err(|e| Error(format!("{}: {e}", path.display())))?;
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| Error(format!("cannot read {}: {e}", path.display())))?;
+        let mut s: Scenario =
+            toml::from_str(&text).map_err(|e| Error(format!("{}: {e}", path.display())))?;
         s.file = path.to_path_buf();
         crate::config::validate_tier_list(&s.tier)?;
         if !["engine", "ui", "browser"].contains(&s.target.as_str()) {
-            return err(format!("{}: target must be engine|ui|browser", path.display()));
+            return err(format!(
+                "{}: target must be engine|ui|browser",
+                path.display()
+            ));
         }
         if s.steps.is_empty() {
             return err(format!("{}: scenario has no steps", path.display()));
@@ -88,10 +93,16 @@ pub fn discover(dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
             out.push(d.clone());
             continue;
         }
-        let Ok(rd) = std::fs::read_dir(d) else { continue };
+        let Ok(rd) = std::fs::read_dir(d) else {
+            continue;
+        };
         for e in rd.flatten() {
             let p = e.path();
-            if p.file_name().and_then(|n| n.to_str()).map(|n| n.ends_with(".scenario.toml")).unwrap_or(false) {
+            if p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with(".scenario.toml"))
+                .unwrap_or(false)
+            {
                 out.push(p);
             }
         }
@@ -103,7 +114,11 @@ pub fn discover(dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
 /// Whether a scenario runs under `selected` ("fast", "fast,paid", "all").
 pub fn tier_selected(scenario_tier: &str, selected: &str) -> bool {
     let sel: Vec<&str> = selected.split(',').map(str::trim).collect();
-    sel.contains(&"all") || scenario_tier.split(',').map(str::trim).any(|t| sel.contains(&t))
+    sel.contains(&"all")
+        || scenario_tier
+            .split(',')
+            .map(str::trim)
+            .any(|t| sel.contains(&t))
 }
 
 /// `Some(reason)` when a requirement is not met (the scenario is skipped).
@@ -111,10 +126,15 @@ pub fn unmet_requirement(requires: &[String], app_root: &Path) -> Option<String>
     for r in requires {
         let (kind, value) = r.split_once(':').unwrap_or((r.as_str(), ""));
         let missing = match kind {
-            "env" => std::env::var(value).map(|v| v.is_empty()).unwrap_or(true).then(|| format!("missing env {value}")),
-            "file" => (!app_root.join(value).exists() && !Path::new(value).exists()).then(|| format!("missing file {value}")),
+            "env" => std::env::var(value)
+                .map(|v| v.is_empty())
+                .unwrap_or(true)
+                .then(|| format!("missing env {value}")),
+            "file" => (!app_root.join(value).exists() && !Path::new(value).exists())
+                .then(|| format!("missing file {value}")),
             "cmd" => (!command_exists(value)).then(|| format!("missing command {value}")),
-            "platform" => (crate::util::platform().ok() != Some(value)).then(|| format!("platform is not {value}")),
+            "platform" => (crate::util::platform().ok() != Some(value))
+                .then(|| format!("platform is not {value}")),
             other => Some(format!("unknown requirement kind '{other}'")),
         };
         if missing.is_some() {
@@ -128,9 +148,16 @@ fn command_exists(name: &str) -> bool {
     if name.contains(std::path::MAIN_SEPARATOR) {
         return Path::new(name).exists();
     }
-    let exts: Vec<String> = if cfg!(windows) { vec![".exe".into(), ".cmd".into(), ".bat".into(), String::new()] } else { vec![String::new()] };
+    let exts: Vec<String> = if cfg!(windows) {
+        vec![".exe".into(), ".cmd".into(), ".bat".into(), String::new()]
+    } else {
+        vec![String::new()]
+    };
     std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).any(|d| exts.iter().any(|e| d.join(format!("{name}{e}")).is_file())))
+        .map(|p| {
+            std::env::split_paths(&p)
+                .any(|d| exts.iter().any(|e| d.join(format!("{name}{e}")).is_file()))
+        })
         .unwrap_or(false)
 }
 
@@ -157,15 +184,29 @@ pub struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
-    pub fn new(cfg: &'a QaConfig, engine: Option<EngineTarget>, ui_binary: Option<PathBuf>, ws: &'a QaWorkspace, tracker: &'a Tracker, scenario: &str) -> Result<Self> {
+    pub fn new(
+        cfg: &'a QaConfig,
+        engine: Option<EngineTarget>,
+        ui_binary: Option<PathBuf>,
+        ws: &'a QaWorkspace,
+        tracker: &'a Tracker,
+        scenario: &str,
+    ) -> Result<Self> {
         let data_dir = ws.scenario_dir(scenario)?;
-        let log_dir = ws.evidence_dir.join(data_dir.file_name().unwrap_or_default());
+        let log_dir = ws
+            .evidence_dir
+            .join(data_dir.file_name().unwrap_or_default());
         std::fs::create_dir_all(&log_dir)?;
         let mut vars = BTreeMap::new();
         vars.insert("data_dir".into(), json!(data_dir.to_string_lossy()));
         vars.insert("evidence_dir".into(), json!(log_dir.to_string_lossy()));
         vars.insert("app_root".into(), json!(cfg.app_root.to_string_lossy()));
-        vars.insert("engine".into(), json!(engine.as_ref().map(|e| e.binary.to_string_lossy().to_string())));
+        vars.insert(
+            "engine".into(),
+            json!(engine
+                .as_ref()
+                .map(|e| e.binary.to_string_lossy().to_string())),
+        );
         Ok(Self {
             cfg,
             engine,
@@ -191,11 +232,15 @@ impl<'a> Ctx<'a> {
     }
 
     fn ui(&self) -> Result<&Control> {
-        self.ui.as_ref().map(|(c, _)| c).ok_or_else(|| Error("no UI app launched; add a ui_launch step first".into()))
+        self.ui
+            .as_ref()
+            .map(|(c, _)| c)
+            .ok_or_else(|| Error("no UI app launched; add a ui_launch step first".into()))
     }
 
     fn artifact(&mut self, name: &str, path: PathBuf) {
-        self.artifacts.push((format!("{}/{}", self.scenario, name), path));
+        self.artifacts
+            .push((format!("{}/{}", self.scenario, name), path));
     }
 
     /// Stop everything this scenario started, in reverse dependency order.
@@ -210,10 +255,16 @@ impl<'a> Ctx<'a> {
             match c.stop() {
                 Ok(r) => {
                     if !r.process_gone || !r.endpoint_closed {
-                        problems.push(format!("UI app pid {} not fully stopped (process_gone={}, endpoint_closed={})", r.pid, r.process_gone, r.endpoint_closed));
+                        problems.push(format!(
+                            "UI app pid {} not fully stopped (process_gone={}, endpoint_closed={})",
+                            r.pid, r.process_gone, r.endpoint_closed
+                        ));
                     }
                     if mode != Mode::Visible && !r.owned_never_frontmost {
-                        problems.push(format!("owned UI process reached foreground: {:?}", r.owned_frontmost_pids));
+                        problems.push(format!(
+                            "owned UI process reached foreground: {:?}",
+                            r.owned_frontmost_pids
+                        ));
                     }
                 }
                 Err(e) => problems.push(e.0),
@@ -236,13 +287,18 @@ pub(crate) fn pv<'p>(p: &'p Map<String, Value>, k: &str) -> Option<&'p Value> {
     p.get(k).filter(|v| !v.is_null())
 }
 pub(crate) fn ps(p: &Map<String, Value>, k: &str) -> Result<String> {
-    pv(p, k).and_then(Value::as_str).map(String::from).ok_or_else(|| Error(format!("step needs string '{k}'")))
+    pv(p, k)
+        .and_then(Value::as_str)
+        .map(String::from)
+        .ok_or_else(|| Error(format!("step needs string '{k}'")))
 }
 pub(crate) fn ps_opt(p: &Map<String, Value>, k: &str) -> Option<String> {
     pv(p, k).and_then(Value::as_str).map(String::from)
 }
 pub(crate) fn pf(p: &Map<String, Value>, k: &str) -> Result<f64> {
-    pv(p, k).and_then(Value::as_f64).ok_or_else(|| Error(format!("step needs number '{k}'")))
+    pv(p, k)
+        .and_then(Value::as_f64)
+        .ok_or_else(|| Error(format!("step needs number '{k}'")))
 }
 pub(crate) fn pf_or(p: &Map<String, Value>, k: &str, d: f64) -> f64 {
     pv(p, k).and_then(Value::as_f64).unwrap_or(d)
@@ -264,7 +320,18 @@ fn resolve(ctx: &Ctx, s: &str) -> PathBuf {
 fn env_pairs(p: &Map<String, Value>) -> Vec<(String, String)> {
     pv(p, "env")
         .and_then(Value::as_object)
-        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))).collect())
+        .map(|m| {
+            m.iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        v.as_str()
+                            .map(String::from)
+                            .unwrap_or_else(|| v.to_string()),
+                    )
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 fn cli_opts(ctx: &Ctx, p: &Map<String, Value>) -> CliOptions {
@@ -296,10 +363,17 @@ pub fn run_step(ctx: &mut Ctx, step: &Step) -> Result<Value> {
     let interval = Duration::from_millis(step.interval_ms.unwrap_or(500));
     loop {
         let attempt: Result<Value> = (|| {
-            let resolved = interpolate(&Value::Object(step.params.clone().into_iter().collect()), &ctx.vars)?;
+            let resolved = interpolate(
+                &Value::Object(step.params.clone().into_iter().collect()),
+                &ctx.vars,
+            )?;
             let params = resolved.as_object().cloned().unwrap_or_default();
             let result = exec(ctx, &step.kind, &params)?;
-            let expects: Vec<Expect> = step.expect.iter().map(|e| resolve_expect(e, &ctx.vars)).collect::<Result<_>>()?;
+            let expects: Vec<Expect> = step
+                .expect
+                .iter()
+                .map(|e| resolve_expect(e, &ctx.vars))
+                .collect::<Result<_>>()?;
             check_all(&result, &expects)?;
             Ok(result)
         })();
@@ -312,7 +386,12 @@ pub fn run_step(ctx: &mut Ctx, step: &Step) -> Result<Value> {
             }
             Err(e) => match until {
                 Some(limit) if started.elapsed() < limit => std::thread::sleep(interval),
-                _ => return Err(Error(format!("step {} ({}): {}", ctx.step_no, step.kind, e.0))),
+                _ => {
+                    return Err(Error(format!(
+                        "step {} ({}): {}",
+                        ctx.step_no, step.kind, e.0
+                    )))
+                }
             },
         }
     }
@@ -337,23 +416,48 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
         // ------------------------------------------------------------ engine
         "cli" => {
             let args: Vec<String> = match (pv(p, "args"), ps_opt(p, "command")) {
-                (Some(Value::Array(a)), _) => a.iter().map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string())).collect(),
+                (Some(Value::Array(a)), _) => a
+                    .iter()
+                    .map(|v| {
+                        v.as_str()
+                            .map(String::from)
+                            .unwrap_or_else(|| v.to_string())
+                    })
+                    .collect(),
                 (_, Some(c)) => c.split_whitespace().map(String::from).collect(),
                 _ => return err("cli step needs 'command' or 'args'"),
             };
             let r = ctx.engine()?.cli(&args, &cli_opts(ctx, p), ctx.tracker)?;
             let log = ctx.log_dir.join(format!("{:02}-cli.log", ctx.step_no));
-            std::fs::write(&log, format!("$ {}\nexit {:?}\n--- stdout\n{}\n--- stderr\n{}\n", args.join(" "), r.code, r.stdout, r.stderr))?;
+            std::fs::write(
+                &log,
+                format!(
+                    "$ {}\nexit {:?}\n--- stdout\n{}\n--- stderr\n{}\n",
+                    args.join(" "),
+                    r.code,
+                    r.stdout,
+                    r.stderr
+                ),
+            )?;
             ctx.artifact(&format!("{:02}-cli.log", ctx.step_no), log);
             let ok = r.code == Some(0) && r.json.get("error").map(Value::is_null).unwrap_or(true);
             if !ok && !pb(p, "allow_error") {
-                return err(format!("engine `{}` failed (exit {:?}{}): stdout {} stderr tail {}", args.join(" "), r.code, if r.timed_out { ", timed out" } else { "" }, crate::util::tail(&r.stdout, 600), crate::util::tail(&r.stderr, 600)));
+                return err(format!(
+                    "engine `{}` failed (exit {:?}{}): stdout {} stderr tail {}",
+                    args.join(" "),
+                    r.code,
+                    if r.timed_out { ", timed out" } else { "" },
+                    crate::util::tail(&r.stdout, 600),
+                    crate::util::tail(&r.stderr, 600)
+                ));
             }
             Ok(r.to_value())
         }
         "sidecar_start" => {
             let id = ps_opt(p, "id").unwrap_or_else(|| "sidecar".into());
-            let s = ctx.engine()?.start_sidecar(&cli_opts(ctx, p), ctx.tracker)?;
+            let s = ctx
+                .engine()?
+                .start_sidecar(&cli_opts(ctx, p), ctx.tracker)?;
             let hello = s.hello.clone();
             ctx.sidecars.insert(id, s);
             Ok(hello)
@@ -363,7 +467,10 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             let name = ps(p, "name")?;
             let input = pv(p, "input").cloned().unwrap_or_else(|| json!({}));
             let timeout = dur(p, "timeout_s", 120.0);
-            let s = ctx.sidecars.get_mut(&id).ok_or_else(|| Error(format!("no sidecar '{id}'")))?;
+            let s = ctx
+                .sidecars
+                .get_mut(&id)
+                .ok_or_else(|| Error(format!("no sidecar '{id}'")))?;
             match s.command(&name, input, timeout) {
                 Ok(v) => Ok(v),
                 Err(e) if pb(p, "allow_error") => Ok(json!({"error": e.0})),
@@ -372,13 +479,21 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
         }
         "sidecar_raw" => {
             let id = ps_opt(p, "id").unwrap_or_else(|| "sidecar".into());
-            let frame = pv(p, "frame").cloned().ok_or_else(|| Error("sidecar_raw needs 'frame'".into()))?;
+            let frame = pv(p, "frame")
+                .cloned()
+                .ok_or_else(|| Error("sidecar_raw needs 'frame'".into()))?;
             let timeout = dur(p, "timeout_s", 60.0);
-            ctx.sidecars.get_mut(&id).ok_or_else(|| Error(format!("no sidecar '{id}'")))?.raw(frame, timeout)
+            ctx.sidecars
+                .get_mut(&id)
+                .ok_or_else(|| Error(format!("no sidecar '{id}'")))?
+                .raw(frame, timeout)
         }
         "sidecar_close" => {
             let id = ps_opt(p, "id").unwrap_or_else(|| "sidecar".into());
-            let mut s = ctx.sidecars.remove(&id).ok_or_else(|| Error(format!("no sidecar '{id}'")))?;
+            let mut s = ctx
+                .sidecars
+                .remove(&id)
+                .ok_or_else(|| Error(format!("no sidecar '{id}'")))?;
             let code = s.close();
             Ok(json!({"exit_code": code, "stderr_tail": s.stderr_tail()}))
         }
@@ -393,7 +508,11 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                             method: r["method"].as_str().map(String::from),
                             path: r["path"].as_str().unwrap_or("/").to_string(),
                             status: r["status"].as_u64().unwrap_or(200) as u16,
-                            body: r.get("json").or_else(|| r.get("body")).cloned().unwrap_or(Value::Null),
+                            body: r
+                                .get("json")
+                                .or_else(|| r.get("body"))
+                                .cloned()
+                                .unwrap_or(Value::Null),
                             content_type: r["content_type"].as_str().map(String::from),
                         })
                         .collect()
@@ -406,7 +525,10 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
         }
         "mock_requests" => {
             let id = ps_opt(p, "id").unwrap_or_else(|| "mock".into());
-            let m = ctx.mocks.get(&id).ok_or_else(|| Error(format!("no mock '{id}'")))?;
+            let m = ctx
+                .mocks
+                .get(&id)
+                .ok_or_else(|| Error(format!("no mock '{id}'")))?;
             Ok(json!({"requests": m.seen().iter().map(|s| s.to_value()).collect::<Vec<_>>()}))
         }
         "mock_stop" => {
@@ -456,7 +578,13 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                 None => ctx.ui_binary.clone().ok_or_else(|| Error("no UI binary configured: set [ui].binaries, pass --ui-binary, or `binary` on the step".into()))?,
             };
             let mode = Mode::parse(&ps_opt(p, "mode").unwrap_or_else(|| ctx.cfg.ui.mode.clone()))?;
-            let mut env: Vec<(String, String)> = ctx.cfg.ui.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            let mut env: Vec<(String, String)> = ctx
+                .cfg
+                .ui
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             env.extend(ctx.cfg.env.iter().map(|(k, v)| (k.clone(), v.clone())));
             if let Some(var) = &ctx.cfg.engine.data_dir_env {
                 env.push((var.clone(), ctx.data_dir.to_string_lossy().into()));
@@ -477,15 +605,26 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             Ok(out)
         }
         "ui_stop" => {
-            let (mut c, mode) = ctx.ui.take().ok_or_else(|| Error("no UI app running".into()))?;
+            let (mut c, mode) = ctx
+                .ui
+                .take()
+                .ok_or_else(|| Error("no UI app running".into()))?;
             let r = c.stop()?;
             if !r.process_gone || !r.endpoint_closed {
-                return err(format!("app pid {} not fully stopped (process_gone={}, endpoint_closed={})", r.pid, r.process_gone, r.endpoint_closed));
+                return err(format!(
+                    "app pid {} not fully stopped (process_gone={}, endpoint_closed={})",
+                    r.pid, r.process_gone, r.endpoint_closed
+                ));
             }
             if mode != Mode::Visible && !r.owned_never_frontmost {
-                return err(format!("owned UI process reached foreground: {:?}", r.owned_frontmost_pids));
+                return err(format!(
+                    "owned UI process reached foreground: {:?}",
+                    r.owned_frontmost_pids
+                ));
             }
-            Ok(json!({"pid": r.pid, "endpoint_closed": r.endpoint_closed, "process_gone": r.process_gone, "frontmost_unchanged": r.frontmost_unchanged, "owned_never_frontmost": r.owned_never_frontmost, "owned_frontmost_pids": r.owned_frontmost_pids}))
+            Ok(
+                json!({"pid": r.pid, "endpoint_closed": r.endpoint_closed, "process_gone": r.process_gone, "frontmost_unchanged": r.frontmost_unchanged, "owned_never_frontmost": r.owned_never_frontmost, "owned_frontmost_pids": r.owned_frontmost_pids}),
+            )
         }
         "ui_auth_probe" => {
             let c = ctx.ui()?;
@@ -542,10 +681,14 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             Ok(json!({"ok": true}))
         }
         "ui_eval" => ctx.ui()?.eval(&ps(p, "js")?),
-        "ui_wait_eval" => ctx.ui()?.wait_eval(&ps(p, "js")?, dur(p, "timeout_s", 20.0)),
+        "ui_wait_eval" => ctx
+            .ui()?
+            .wait_eval(&ps(p, "js")?, dur(p, "timeout_s", 20.0)),
         "ui_dom" => Ok(json!({"elements": ctx.ui()?.dom(&ps(p, "selector")?)?})),
         "ui_ax" => Ok(json!({"nodes": ctx.ui()?.ax()?})),
-        "ui_command" => ctx.ui()?.command(&ps(p, "name")?, pv(p, "args").unwrap_or(&Value::Null)),
+        "ui_command" => ctx
+            .ui()?
+            .command(&ps(p, "name")?, pv(p, "args").unwrap_or(&Value::Null)),
         "ui_screenshot" => {
             let name = ps_opt(p, "name").unwrap_or_else(|| format!("shot-{:02}", ctx.step_no));
             let path = ctx.log_dir.join(format!("{name}.png"));
@@ -569,19 +712,34 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             if let Some(budget) = pv(p, "budget_ms").and_then(Value::as_f64) {
                 page::assert_paint_within(&m, budget, &trigger_sel)?;
             }
-            Ok(json!({"duration_ms": m.duration_ms, "settle_ms": m.settle_ms, "mutations": m.mutations, "animation_frames": m.animation_frames}))
+            Ok(
+                json!({"duration_ms": m.duration_ms, "settle_ms": m.settle_ms, "mutations": m.mutations, "animation_frames": m.animation_frames}),
+            )
         }
         "ui_assert_pane" => {
             let g = page::read_pane_geometry(ctx.ui()?, &ps(p, "selector")?)?;
             page::assert_active_pane(&g)?;
-            Ok(json!({"x": g.x, "y": g.y, "width": g.width, "height": g.height, "matches": g.matches}))
+            Ok(
+                json!({"x": g.x, "y": g.y, "width": g.width, "height": g.height, "matches": g.matches}),
+            )
         }
         "ui_resolve_frame" => {
-            let path = page::resolve_unique_frame(ctx.ui()?, &ps(p, "selector")?, pf_or(p, "max_depth", 4.0) as usize)?;
+            let path = page::resolve_unique_frame(
+                ctx.ui()?,
+                &ps(p, "selector")?,
+                pf_or(p, "max_depth", 4.0) as usize,
+            )?;
             Ok(json!({"frame": path, "described": page::describe_frame(&path)}))
         }
         "ui_eval_in_frame" => {
-            let frame: Vec<usize> = pv(p, "frame").and_then(Value::as_array).map(|a| a.iter().filter_map(|i| i.as_u64().map(|i| i as usize)).collect()).unwrap_or_default();
+            let frame: Vec<usize> = pv(p, "frame")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|i| i.as_u64().map(|i| i as usize))
+                        .collect()
+                })
+                .unwrap_or_default();
             page::eval_in_frame(ctx.ui()?, &frame, &ps(p, "js")?)
         }
         #[cfg(feature = "browser")]
@@ -632,8 +790,14 @@ input = { a = 1 }
         assert!(!tier_selected("paid", "fast"));
         assert!(tier_selected("paid", "all"));
         assert!(tier_selected("local-models", "fast,local-models"));
-        assert_eq!(unmet_requirement(&["env:RKQA_SURELY_UNSET_VAR".into()], Path::new("/")).as_deref(), Some("missing env RKQA_SURELY_UNSET_VAR"));
-        assert_eq!(unmet_requirement(&["file:/definitely/not/here".into()], Path::new("/")).as_deref(), Some("missing file /definitely/not/here"));
+        assert_eq!(
+            unmet_requirement(&["env:RKQA_SURELY_UNSET_VAR".into()], Path::new("/")).as_deref(),
+            Some("missing env RKQA_SURELY_UNSET_VAR")
+        );
+        assert_eq!(
+            unmet_requirement(&["file:/definitely/not/here".into()], Path::new("/")).as_deref(),
+            Some("missing file /definitely/not/here")
+        );
         assert!(unmet_requirement(&[], Path::new("/")).is_none());
     }
 }

@@ -39,7 +39,10 @@ pub fn build_support_bundle(options: &SupportBundleOptions) -> Result<BundleMani
         .parent()
         .ok_or_else(|| "bundle destination has no parent directory".to_string())?;
     std::fs::create_dir_all(parent).map_err(|e| format!("create bundle directory: {e}"))?;
-    let stem = format!("{}-support-bundle", options.app_name.replace(['/', '\\', ' '], "-"));
+    let stem = format!(
+        "{}-support-bundle",
+        options.app_name.replace(['/', '\\', ' '], "-")
+    );
     let staging = parent.join(format!(".{stem}-staging-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&staging);
     let root = staging.join(&stem);
@@ -49,7 +52,10 @@ pub fn build_support_bundle(options: &SupportBundleOptions) -> Result<BundleMani
     outcome
 }
 
-fn stage_and_zip(options: &SupportBundleOptions, root: &std::path::Path) -> Result<BundleManifest, String> {
+fn stage_and_zip(
+    options: &SupportBundleOptions,
+    root: &std::path::Path,
+) -> Result<BundleManifest, String> {
     let identity = system::platform_identity();
     let diagnostics = collect_diagnostics(
         &options.log_sources,
@@ -107,9 +113,12 @@ fn stage_and_zip(options: &SupportBundleOptions, root: &std::path::Path) -> Resu
         if let Ok(entries) = std::fs::read_dir(&options.crash_dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if (name.starts_with("dump_") || name.starts_with("sample_")) && entry.path().is_file() {
+                if (name.starts_with("dump_") || name.starts_with("sample_"))
+                    && entry.path().is_file()
+                {
                     std::fs::create_dir_all(&crash_out).map_err(|e| e.to_string())?;
-                    std::fs::copy(entry.path(), crash_out.join(&name)).map_err(|e| e.to_string())?;
+                    std::fs::copy(entry.path(), crash_out.join(&name))
+                        .map_err(|e| e.to_string())?;
                     native_artifacts += 1;
                 }
             }

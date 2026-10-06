@@ -42,9 +42,17 @@ fn serve() -> String {
             let req = String::from_utf8_lossy(&buf[..n]);
             let path = req.split_whitespace().nth(1).unwrap_or("/").to_string();
             let (ct, extra, body) = if path.starts_with("/file.txt") {
-                ("text/plain", "Content-Disposition: attachment; filename=\"got.txt\"\r\n", "download-body")
+                (
+                    "text/plain",
+                    "Content-Disposition: attachment; filename=\"got.txt\"\r\n",
+                    "download-body",
+                )
             } else if path == "/other" {
-                ("text/html", "", "<title>Other</title><p id=o>second page</p>")
+                (
+                    "text/html",
+                    "",
+                    "<title>Other</title><p id=o>second page</p>",
+                )
             } else {
                 ("text/html", "", INDEX)
             };
@@ -57,43 +65,79 @@ fn serve() -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn browser_runtime_outcomes() {
     let base = serve();
-    let session = BrowserSession::launch(fixture_opts()).await.expect("launch");
+    let session = BrowserSession::launch(fixture_opts())
+        .await
+        .expect("launch");
     let p = session.new_page(&format!("{base}/")).await.unwrap();
     assert_eq!(p.title().await, "RK Test");
 
     // Console capture (listener attached before navigation).
     p.reload().await.unwrap();
     let console = p.console().await;
-    assert!(console.iter().any(|l| l.level == "log" && l.text.contains("hello-console")), "{console:?}");
-    assert!(console.iter().any(|l| l.level == "error" && l.text.contains("boom-console")));
+    assert!(
+        console
+            .iter()
+            .any(|l| l.level == "log" && l.text.contains("hello-console")),
+        "{console:?}"
+    );
+    assert!(console
+        .iter()
+        .any(|l| l.level == "error" && l.text.contains("boom-console")));
 
     // Real click.
     p.click(&Target::css("#btn")).await.unwrap();
-    assert_eq!(p.text().await.unwrap().contains("clicked trusted=true"), true);
+    assert_eq!(
+        p.text().await.unwrap().contains("clicked trusted=true"),
+        true
+    );
 
     // Real hover: :hover matches only with a genuine pointer position.
     p.hover(&Target::css("#hov")).await.unwrap();
-    assert_eq!(p.eval("document.getElementById('hov').matches(':hover')").await.unwrap(), true);
+    assert_eq!(
+        p.eval("document.getElementById('hov').matches(':hover')")
+            .await
+            .unwrap(),
+        true
+    );
     assert_eq!(p.eval("window.__hover").await.unwrap(), true);
 
     // Real keyboard.
     p.fill(&Target::css("#txt"), "hi", true).await.unwrap();
     p.press("Enter").await.unwrap();
-    assert_eq!(p.eval("document.getElementById('txt').value").await.unwrap(), "hi");
+    assert_eq!(
+        p.eval("document.getElementById('txt').value")
+            .await
+            .unwrap(),
+        "hi"
+    );
     let keys = p.eval("window.__keys.join(',')").await.unwrap();
-    assert!(keys.as_str().unwrap().contains("h:true") && keys.as_str().unwrap().contains("Enter:true"), "{keys}");
+    assert!(
+        keys.as_str().unwrap().contains("h:true") && keys.as_str().unwrap().contains("Enter:true"),
+        "{keys}"
+    );
 
     // Real drag into the drop zone.
-    p.drag(&Target::css("#box"), &Target::Point(600.0, 210.0), 8).await.unwrap();
+    p.drag(&Target::css("#box"), &Target::Point(600.0, 210.0), 8)
+        .await
+        .unwrap();
     assert_eq!(p.eval("window.__drag.trusted").await.unwrap(), true);
     assert_eq!(p.eval("window.__drag.dropped").await.unwrap(), true);
 
     // Observation refs and stale checks.
     let obs = p.observe().await.unwrap();
-    let btn = obs.nodes.iter().find(|n| n.tag == "button").unwrap().node_ref.clone();
+    let btn = obs
+        .nodes
+        .iter()
+        .find(|n| n.tag == "button")
+        .unwrap()
+        .node_ref
+        .clone();
     p.click(&Target::node_ref(btn.clone())).await.unwrap();
     p.reload().await.unwrap();
-    assert!(matches!(p.click(&Target::node_ref(btn)).await, Err(BrowserError::StaleRef(_))));
+    assert!(matches!(
+        p.click(&Target::node_ref(btn)).await,
+        Err(BrowserError::StaleRef(_))
+    ));
 
     // Screenshot is a PNG.
     let png = p.screenshot().await.unwrap();
@@ -104,12 +148,20 @@ async fn browser_runtime_outcomes() {
     let f = dir.path().join("up.txt");
     std::fs::write(&f, "x").unwrap();
     p.upload(&Target::css("#up"), &f).await.unwrap();
-    p.wait_eval("document.getElementById('upname').textContent==='up.txt'", Duration::from_secs(5)).await.unwrap();
+    p.wait_eval(
+        "document.getElementById('upname').textContent==='up.txt'",
+        Duration::from_secs(5),
+    )
+    .await
+    .unwrap();
 
     // Download.
     let before = session.downloads();
     p.click(&Target::css("#dl")).await.unwrap();
-    let got = session.wait_download(&before, Duration::from_secs(15)).await.unwrap();
+    let got = session
+        .wait_download(&before, Duration::from_secs(15))
+        .await
+        .unwrap();
     assert_eq!(std::fs::read_to_string(&got).unwrap(), "download-body");
 
     // Multi-page.
@@ -132,14 +184,22 @@ async fn named_profile_persists_and_is_exclusive() {
     let root = tempfile::tempdir().unwrap();
     let opts = || fixture_opts().named_profile(root.path(), "qa");
     let s1 = BrowserSession::launch(opts()).await.unwrap();
-    assert!(matches!(BrowserSession::launch(opts()).await, Err(BrowserError::ProfileInUse(_))));
+    assert!(matches!(
+        BrowserSession::launch(opts()).await,
+        Err(BrowserError::ProfileInUse(_))
+    ));
     let p = s1.new_page(&format!("{base}/")).await.unwrap();
-    p.eval("localStorage.setItem('k','persisted'); document.cookie='c=1; max-age=3600'; 1").await.unwrap();
+    p.eval("localStorage.setItem('k','persisted'); document.cookie='c=1; max-age=3600'; 1")
+        .await
+        .unwrap();
     s1.shutdown().await;
     drop(s1);
     let s2 = BrowserSession::launch(opts()).await.unwrap();
     let p = s2.new_page(&format!("{base}/")).await.unwrap();
-    assert_eq!(p.eval("localStorage.getItem('k')").await.unwrap(), "persisted");
+    assert_eq!(
+        p.eval("localStorage.getItem('k')").await.unwrap(),
+        "persisted"
+    );
     s2.shutdown().await;
 }
 
@@ -147,7 +207,9 @@ async fn named_profile_persists_and_is_exclusive() {
 #[ignore = "opens a visible window; run with --ignored"]
 async fn headed_smoke() {
     let base = serve();
-    let s = BrowserSession::launch(fixture_opts().headed()).await.unwrap();
+    let s = BrowserSession::launch(fixture_opts().headed())
+        .await
+        .unwrap();
     assert!(!s.is_headless());
     let p = s.new_page(&format!("{base}/")).await.unwrap();
     p.click(&Target::css("#btn")).await.unwrap();

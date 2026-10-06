@@ -12,7 +12,11 @@ use std::ffi::{CString, OsString};
 use std::path::{Path, PathBuf};
 
 unsafe extern "C" {
-    fn sandbox_init(profile: *const libc::c_char, flags: u64, errorbuf: *mut *mut libc::c_char) -> i32;
+    fn sandbox_init(
+        profile: *const libc::c_char,
+        flags: u64,
+        errorbuf: *mut *mut libc::c_char,
+    ) -> i32;
     fn sandbox_free_error(errorbuf: *mut libc::c_char);
 }
 
@@ -50,8 +54,26 @@ fn quote(path: &Path) -> String {
     out
 }
 
-const SYSTEM_READ: &[&str] = &["/usr", "/System", "/Library", "/etc", "/private/etc", "/private/var/db", "/dev", "/bin", "/sbin", "/Applications"];
-const SYSTEM_EXEC: &[&str] = &["/usr", "/bin", "/sbin", "/System", "/Library", "/Applications"];
+const SYSTEM_READ: &[&str] = &[
+    "/usr",
+    "/System",
+    "/Library",
+    "/etc",
+    "/private/etc",
+    "/private/var/db",
+    "/dev",
+    "/bin",
+    "/sbin",
+    "/Applications",
+];
+const SYSTEM_EXEC: &[&str] = &[
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/System",
+    "/Library",
+    "/Applications",
+];
 
 /// Build the deny-default SBPL profile for `policy`.
 pub fn profile_for(policy: &SandboxPolicy) -> String {
@@ -61,11 +83,15 @@ pub fn profile_for(policy: &SandboxPolicy) -> String {
     }
     for e in &policy.exec_paths {
         let r = quote(&resolve_for_profile(e));
-        p.push_str(&format!("(allow process-exec* (subpath {r}))\n(allow file-read* (subpath {r}))\n"));
+        p.push_str(&format!(
+            "(allow process-exec* (subpath {r}))\n(allow file-read* (subpath {r}))\n"
+        ));
     }
     match policy.network {
         NetworkPolicy::Allow => p.push_str("(allow network*)\n"),
-        NetworkPolicy::Deny => p.push_str("(deny network-outbound)\n(allow network-outbound (remote unix-socket))\n"),
+        NetworkPolicy::Deny => {
+            p.push_str("(deny network-outbound)\n(allow network-outbound (remote unix-socket))\n")
+        }
     }
     for dir in SYSTEM_READ {
         p.push_str(&format!("(allow file-read* (subpath \"{dir}\"))\n"));
@@ -73,7 +99,10 @@ pub fn profile_for(policy: &SandboxPolicy) -> String {
     // Root directory entries and metadata are needed for path walking.
     p.push_str("(allow file-read-metadata)\n(allow file-read* (literal \"/\"))\n");
     for r in &policy.read_paths {
-        p.push_str(&format!("(allow file-read* (subpath {}))\n", quote(&resolve_for_profile(r))));
+        p.push_str(&format!(
+            "(allow file-read* (subpath {}))\n",
+            quote(&resolve_for_profile(r))
+        ));
     }
     for w in &policy.write_paths {
         let r = quote(&resolve_for_profile(w));
@@ -88,7 +117,9 @@ pub struct Prepared(CString);
 
 impl Prepared {
     pub fn new(policy: &SandboxPolicy) -> std::io::Result<Self> {
-        CString::new(profile_for(policy)).map(Self).map_err(|_| std::io::Error::other("seatbelt profile contained a NUL byte"))
+        CString::new(profile_for(policy))
+            .map(Self)
+            .map_err(|_| std::io::Error::other("seatbelt profile contained a NUL byte"))
     }
 
     /// Apply to the current process. Intended only for a forked child before exec.
@@ -103,7 +134,9 @@ impl Prepared {
             "unknown error".to_string()
         } else {
             // SAFETY: sandbox_init populated a NUL-terminated string, freed exactly once.
-            let t = unsafe { std::ffi::CStr::from_ptr(err) }.to_string_lossy().into_owned();
+            let t = unsafe { std::ffi::CStr::from_ptr(err) }
+                .to_string_lossy()
+                .into_owned();
             unsafe { sandbox_free_error(err) };
             t
         };
@@ -112,8 +145,16 @@ impl Prepared {
 }
 
 /// `sandbox-exec -p <profile> program args...` wrapper (used for PTY children).
-pub fn wrap_argv(policy: &SandboxPolicy, program: &OsString, args: &[OsString]) -> (OsString, Vec<OsString>) {
-    let mut out = vec![OsString::from("-p"), OsString::from(profile_for(policy)), program.clone()];
+pub fn wrap_argv(
+    policy: &SandboxPolicy,
+    program: &OsString,
+    args: &[OsString],
+) -> (OsString, Vec<OsString>) {
+    let mut out = vec![
+        OsString::from("-p"),
+        OsString::from(profile_for(policy)),
+        program.clone(),
+    ];
     out.extend(args.iter().cloned());
     (OsString::from("/usr/bin/sandbox-exec"), out)
 }

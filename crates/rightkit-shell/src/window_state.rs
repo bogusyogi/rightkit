@@ -34,7 +34,11 @@ pub struct MonitorSnapshot {
 impl MonitorSnapshot {
     fn from_monitor(m: &Monitor) -> Self {
         let scale = m.scale_factor();
-        let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
         Self {
             x: f64::from(m.position().x) / scale,
             y: f64::from(m.position().y) / scale,
@@ -91,7 +95,11 @@ fn default_normal(monitor: MonitorSnapshot) -> WindowState {
 fn migrate(mut store: PersistedStore) -> PersistedStore {
     for s in store.states.values_mut() {
         if s.version < CURRENT_VERSION {
-            let scale = if s.monitor.scale.is_finite() && s.monitor.scale > 0.0 { s.monitor.scale } else { 1.0 };
+            let scale = if s.monitor.scale.is_finite() && s.monitor.scale > 0.0 {
+                s.monitor.scale
+            } else {
+                1.0
+            };
             s.x /= scale;
             s.y /= scale;
             s.width /= scale;
@@ -104,7 +112,9 @@ fn migrate(mut store: PersistedStore) -> PersistedStore {
 
 fn load_store(dir: &Path) -> PersistedStore {
     match std::fs::read_to_string(dir.join(STATE_FILE)) {
-        Ok(raw) if !raw.trim().is_empty() => serde_json::from_str(&raw).map(migrate).unwrap_or_default(),
+        Ok(raw) if !raw.trim().is_empty() => {
+            serde_json::from_str(&raw).map(migrate).unwrap_or_default()
+        }
         _ => PersistedStore::default(),
     }
 }
@@ -127,35 +137,71 @@ fn distance_to_center(m: &MonitorSnapshot, p: (f64, f64)) -> f64 {
 /// Pure geometry projection: where should a saved window land on the current monitors?
 pub fn restoreable_state(state: &WindowState, monitors: &[MonitorSnapshot]) -> LogicalRect {
     let saved_monitor = state.monitor;
-    let w = LogicalRect { x: state.x, y: state.y, width: state.width, height: state.height };
+    let w = LogicalRect {
+        x: state.x,
+        y: state.y,
+        width: state.width,
+        height: state.height,
+    };
     let exact = monitors
         .iter()
-        .filter(|m| (m.width - saved_monitor.width).abs() < 0.5 && (m.height - saved_monitor.height).abs() < 0.5)
-        .min_by(|a, b| distance(a.x, a.y, saved_monitor.x, saved_monitor.y).total_cmp(&distance(b.x, b.y, saved_monitor.x, saved_monitor.y)));
+        .filter(|m| {
+            (m.width - saved_monitor.width).abs() < 0.5
+                && (m.height - saved_monitor.height).abs() < 0.5
+        })
+        .min_by(|a, b| {
+            distance(a.x, a.y, saved_monitor.x, saved_monitor.y).total_cmp(&distance(
+                b.x,
+                b.y,
+                saved_monitor.x,
+                saved_monitor.y,
+            ))
+        });
     let center = (w.x + w.width / 2.0, w.y + w.height / 2.0);
     let intersecting = monitors
         .iter()
-        .filter(|m| w.x < m.x + m.width && w.x + w.width > m.x && w.y < m.y + m.height && w.y + w.height > m.y)
+        .filter(|m| {
+            w.x < m.x + m.width
+                && w.x + w.width > m.x
+                && w.y < m.y + m.height
+                && w.y + w.height > m.y
+        })
         .min_by(|a, b| distance_to_center(a, center).total_cmp(&distance_to_center(b, center)));
-    let target = exact
-        .or(intersecting)
-        .copied()
-        .unwrap_or_else(|| {
-            *monitors
-                .iter()
-                .min_by(|a, b| distance_to_center(a, saved_monitor.center()).total_cmp(&distance_to_center(b, saved_monitor.center())))
-                .expect("non-empty monitors")
-        });
+    let target = exact.or(intersecting).copied().unwrap_or_else(|| {
+        *monitors
+            .iter()
+            .min_by(|a, b| {
+                distance_to_center(a, saved_monitor.center())
+                    .total_cmp(&distance_to_center(b, saved_monitor.center()))
+            })
+            .expect("non-empty monitors")
+    });
     let mut x = w.x + target.x - saved_monitor.x;
     let mut y = w.y + target.y - saved_monitor.y;
     let width = w.width.min(target.width).max(MIN_WIDTH.min(target.width));
-    let height = w.height.min(target.height).max(MIN_HEIGHT.min(target.height));
+    let height = w
+        .height
+        .min(target.height)
+        .max(MIN_HEIGHT.min(target.height));
     let max_x = target.x + target.width - CLAMP_MARGIN_X;
     let max_y = target.y + target.height - CLAMP_MARGIN_Y;
     let min_x = target.x - (width - CLAMP_MARGIN_X).max(0.0);
-    x = if min_x <= max_x { x.clamp(min_x, max_x) } else { target.x };
-    y = if target.y <= max_y { y.clamp(target.y, max_y) } else { target.y };
-    LogicalRect { x, y, width, height }
+    x = if min_x <= max_x {
+        x.clamp(min_x, max_x)
+    } else {
+        target.x
+    };
+    y = if target.y <= max_y {
+        y.clamp(target.y, max_y)
+    } else {
+        target.y
+    };
+    LogicalRect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 /// Per-app store with debounced saves.
@@ -166,26 +212,47 @@ pub struct WindowStateStore {
 
 impl WindowStateStore {
     pub fn new(dir: PathBuf) -> Self {
-        Self { dir, generations: Mutex::new(HashMap::new()) }
+        Self {
+            dir,
+            generations: Mutex::new(HashMap::new()),
+        }
     }
     pub fn dir(&self) -> &Path {
         &self.dir
     }
     fn generation(&self, label: &str) -> Arc<AtomicU64> {
-        Arc::clone(self.generations.lock().unwrap_or_else(|e| e.into_inner()).entry(label.to_owned()).or_default())
+        Arc::clone(
+            self.generations
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry(label.to_owned())
+                .or_default(),
+        )
     }
 
     /// Apply saved geometry to `label` (hidden or not). Returns whether a saved state existed.
     pub fn restore<R: Runtime>(&self, app: &AppHandle<R>, label: &str) -> Result<bool, String> {
-        let Some(window) = app.get_webview_window(label) else { return Ok(false) };
+        let Some(window) = app.get_webview_window(label) else {
+            return Ok(false);
+        };
         let store = load_store(&self.dir);
-        let monitors = window.available_monitors().map_err(|e| format!("available_monitors: {e}"))?;
+        let monitors = window
+            .available_monitors()
+            .map_err(|e| format!("available_monitors: {e}"))?;
         let snapshots: Vec<_> = monitors.iter().map(MonitorSnapshot::from_monitor).collect();
-        let Some(state) = store.states.get(label).filter(|_| !snapshots.is_empty()) else { return Ok(false) };
+        let Some(state) = store.states.get(label).filter(|_| !snapshots.is_empty()) else {
+            return Ok(false);
+        };
         let target = restoreable_state(state, &snapshots);
         let _ = window.unmaximize();
-        let _ = window.set_size(Size::Logical(LogicalSize { width: target.width, height: target.height }));
-        let _ = window.set_position(Position::Logical(LogicalPosition { x: target.x, y: target.y }));
+        let _ = window.set_size(Size::Logical(LogicalSize {
+            width: target.width,
+            height: target.height,
+        }));
+        let _ = window.set_position(Position::Logical(LogicalPosition {
+            x: target.x,
+            y: target.y,
+        }));
         if state.maximized {
             let _ = window.maximize();
         }
@@ -205,21 +272,41 @@ impl WindowStateStore {
     }
 
     pub fn save_now<R: Runtime>(&self, app: &AppHandle<R>, label: &str) -> Result<(), String> {
-        let Some(window) = app.get_webview_window(label) else { return Ok(()) };
+        let Some(window) = app.get_webview_window(label) else {
+            return Ok(());
+        };
         if window.is_fullscreen().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
             return Ok(());
         }
         let scale = window.scale_factor().map_err(|e| format!("scale: {e}"))?;
-        let Some(monitor) = window.current_monitor().map_err(|e| format!("current_monitor: {e}"))? else { return Ok(()) };
+        let Some(monitor) = window
+            .current_monitor()
+            .map_err(|e| format!("current_monitor: {e}"))?
+        else {
+            return Ok(());
+        };
         let monitor = MonitorSnapshot::from_monitor(&monitor);
         let maximized = window.is_maximized().unwrap_or(false);
         let mut store = load_store(&self.dir);
         let state = if maximized {
-            let normal = store.states.get(label).cloned().unwrap_or_else(|| default_normal(monitor));
-            WindowState { maximized: true, monitor, version: CURRENT_VERSION, ..normal }
+            let normal = store
+                .states
+                .get(label)
+                .cloned()
+                .unwrap_or_else(|| default_normal(monitor));
+            WindowState {
+                maximized: true,
+                monitor,
+                version: CURRENT_VERSION,
+                ..normal
+            }
         } else {
-            let p = window.outer_position().map_err(|e| format!("outer_position: {e}"))?;
-            let s = window.inner_size().map_err(|e| format!("inner_size: {e}"))?;
+            let p = window
+                .outer_position()
+                .map_err(|e| format!("outer_position: {e}"))?;
+            let s = window
+                .inner_size()
+                .map_err(|e| format!("inner_size: {e}"))?;
             WindowState {
                 x: f64::from(p.x) / scale,
                 y: f64::from(p.y) / scale,

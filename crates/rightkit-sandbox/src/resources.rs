@@ -22,11 +22,17 @@ impl ResourceProfile {
             "strict" => Ok(Self::Strict),
             "practical" | "default" | "local" => Ok(Self::Practical),
             "expanded" | "service" => Ok(Self::Expanded),
-            other => Err(format!("unknown resource profile {other:?}; expected strict, practical, or expanded")),
+            other => Err(format!(
+                "unknown resource profile {other:?}; expected strict, practical, or expanded"
+            )),
         }
     }
     fn aggregate(self) -> usize {
-        match self { Self::Strict => 0, Self::Practical => 1, Self::Expanded => 16 }
+        match self {
+            Self::Strict => 0,
+            Self::Practical => 1,
+            Self::Expanded => 16,
+        }
     }
     fn limit(self, kind: ResourceKind) -> usize {
         match (self, kind) {
@@ -49,7 +55,10 @@ pub enum ResourceKind {
 
 impl ResourceKind {
     fn idx(self) -> usize {
-        match self { Self::ChildProcess => 0, Self::BackgroundProcess => 1 }
+        match self {
+            Self::ChildProcess => 0,
+            Self::BackgroundProcess => 1,
+        }
     }
 }
 
@@ -70,7 +79,15 @@ impl ResourceDenied {
 
 impl std::fmt::Display for ResourceDenied {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {:?} denied under {:?} profile (limit {}, in use {})", self.code(), self.kind, self.profile, self.limit, self.in_use)
+        write!(
+            f,
+            "{}: {:?} denied under {:?} profile (limit {}, in use {})",
+            self.code(),
+            self.kind,
+            self.profile,
+            self.limit,
+            self.in_use
+        )
     }
 }
 impl std::error::Error for ResourceDenied {}
@@ -90,7 +107,10 @@ pub struct ResourceAuthority {
 
 impl ResourceAuthority {
     pub fn new(profile: ResourceProfile) -> Self {
-        Self { profile, counts: Arc::default() }
+        Self {
+            profile,
+            counts: Arc::default(),
+        }
     }
     pub fn profile(&self) -> ResourceProfile {
         self.profile
@@ -99,16 +119,29 @@ impl ResourceAuthority {
     pub fn reserve(&self, kind: ResourceKind) -> Result<Reservation, ResourceDenied> {
         let mut c = self.counts.lock().unwrap_or_else(|e| e.into_inner());
         let limit = self.profile.limit(kind);
-        let denied = |c: &Counts, limit| ResourceDenied { kind, profile: self.profile, limit, in_use: c.per_kind[kind.idx()] };
+        let denied = |c: &Counts, limit| ResourceDenied {
+            kind,
+            profile: self.profile,
+            limit,
+            in_use: c.per_kind[kind.idx()],
+        };
         if c.aggregate >= self.profile.aggregate() {
-            return Err(ResourceDenied { kind, profile: self.profile, limit: self.profile.aggregate(), in_use: c.aggregate });
+            return Err(ResourceDenied {
+                kind,
+                profile: self.profile,
+                limit: self.profile.aggregate(),
+                in_use: c.aggregate,
+            });
         }
         if c.per_kind[kind.idx()] >= limit {
             return Err(denied(&c, limit));
         }
         c.aggregate += 1;
         c.per_kind[kind.idx()] += 1;
-        Ok(Reservation { counts: self.counts.clone(), kind })
+        Ok(Reservation {
+            counts: self.counts.clone(),
+            kind,
+        })
     }
 }
 

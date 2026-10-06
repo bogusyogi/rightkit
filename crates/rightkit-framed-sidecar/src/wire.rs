@@ -37,10 +37,18 @@ pub struct WireError {
 
 impl WireError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), retryable: false }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable: false,
+        }
     }
     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), retryable: true }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable: true,
+        }
     }
 }
 
@@ -98,16 +106,38 @@ pub enum Frame {
 
 impl Frame {
     pub fn request(id: u64, method: impl Into<String>, params: Value) -> Frame {
-        Frame::Request { id, method: method.into(), params, session_id: None, trace_id: None }
+        Frame::Request {
+            id,
+            method: method.into(),
+            params,
+            session_id: None,
+            trace_id: None,
+        }
     }
     pub fn ok(id: u64, result: Value) -> Frame {
-        Frame::Response { id, ok: true, result: Some(result), error: None, session_id: None }
+        Frame::Response {
+            id,
+            ok: true,
+            result: Some(result),
+            error: None,
+            session_id: None,
+        }
     }
     pub fn err(id: u64, error: WireError) -> Frame {
-        Frame::Response { id, ok: false, result: None, error: Some(error), session_id: None }
+        Frame::Response {
+            id,
+            ok: false,
+            result: None,
+            error: Some(error),
+            session_id: None,
+        }
     }
     pub fn event(id: Option<u64>, event: Value) -> Frame {
-        Frame::Event { id, session_id: None, event }
+        Frame::Event {
+            id,
+            session_id: None,
+            event,
+        }
     }
     /// The request id this frame answers or reports on, if any.
     pub fn id(&self) -> Option<u64> {

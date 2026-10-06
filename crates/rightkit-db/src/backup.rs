@@ -53,17 +53,25 @@ pub fn online_backup_to(
         }
         // Leave one self-contained file: fold any WAL into the main file and drop WAL mode.
         let _ = dst.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
-        dst.query_row("PRAGMA journal_mode=DELETE", [], |row| row.get::<_, String>(0))?;
+        dst.query_row("PRAGMA journal_mode=DELETE", [], |row| {
+            row.get::<_, String>(0)
+        })?;
         let report: String = dst.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if !report.trim().eq_ignore_ascii_case("ok") {
-            return Err(DbError::Backup(format!("quick_check on the backup said: {report}")));
+            return Err(DbError::Backup(format!(
+                "quick_check on the backup said: {report}"
+            )));
         }
         drop(dst);
         rightkit_fs::restrict_owner_only(&temp)?;
-        std::fs::File::open(&temp)
+        // Windows FlushFileBuffers needs a writable handle; a read-only open fails "Access is denied".
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&temp)
             .and_then(|f| f.sync_all())
             .map_err(|e| DbError::Backup(format!("fsync backup: {e}")))?;
-        std::fs::rename(&temp, target).map_err(|e| DbError::Backup(format!("publish backup: {e}")))?;
+        std::fs::rename(&temp, target)
+            .map_err(|e| DbError::Backup(format!("publish backup: {e}")))?;
         if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
             rightkit_fs::atomic::sync_dir(parent);
         }
@@ -76,7 +84,10 @@ pub fn online_backup_to(
 }
 
 fn temp_path(target: &Path) -> Result<PathBuf> {
-    let name = target.file_name().ok_or(DbError::InvalidDatabasePath)?.to_string_lossy();
+    let name = target
+        .file_name()
+        .ok_or(DbError::InvalidDatabasePath)?
+        .to_string_lossy();
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     Ok(target.with_file_name(format!(
         ".{name}{}{}-{n}",

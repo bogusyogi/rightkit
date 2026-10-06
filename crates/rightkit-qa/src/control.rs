@@ -12,14 +12,14 @@ use crate::workspace::QaWorkspace;
 use rightkit_process::OwnedChild;
 #[cfg(not(target_os = "macos"))]
 use rightkit_process::OwnedCommand;
+use rightkit_service::{Client, ServiceError, Suite};
 use serde_json::{json, Value};
 use std::fs;
-use rightkit_service::{Client, ServiceError, Suite};
-use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 #[cfg(not(target_os = "macos"))]
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +37,9 @@ impl Mode {
             "hidden" => Ok(Mode::Hidden),
             "background" => Ok(Mode::Background),
             "visible" => Ok(Mode::Visible),
-            other => err(format!("unknown ui mode '{other}' (hidden|background|visible)")),
+            other => err(format!(
+                "unknown ui mode '{other}' (hidden|background|visible)"
+            )),
         }
     }
 }
@@ -99,7 +101,10 @@ enum CallError {
 
 /// Run `f` on a helper thread and give up after `timeout`; the thread is left to finish
 /// on its own (it ends when the app is killed or the connection is aborted).
-fn bounded<T: Send + 'static>(timeout: Duration, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+fn bounded<T: Send + 'static>(
+    timeout: Duration,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(f());
@@ -107,7 +112,12 @@ fn bounded<T: Send + 'static>(timeout: Duration, f: impl FnOnce() -> T + Send + 
     rx.recv_timeout(timeout).ok()
 }
 
-fn call_bounded(client: &Arc<Client>, method: &str, params: Value, timeout: Duration) -> std::result::Result<Value, CallError> {
+fn call_bounded(
+    client: &Arc<Client>,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> std::result::Result<Value, CallError> {
     let c = client.clone();
     let m = method.to_string();
     match bounded(timeout, move || c.call(&m, params)) {
@@ -123,7 +133,10 @@ fn connect_bounded(suite: &Suite, service: &str, timeout: Duration) -> Result<Cl
     let (s, sv) = (suite.clone(), service.to_string());
     match bounded(timeout, move || Client::connect(&s, &sv, APP)) {
         Some(r) => r.map_err(svc_err),
-        None => err(format!("connecting to {service} did not finish within {}ms", timeout.as_millis())),
+        None => err(format!(
+            "connecting to {service} did not finish within {}ms",
+            timeout.as_millis()
+        )),
     }
 }
 
@@ -150,7 +163,9 @@ pub fn frontmost() -> Option<String> {
     }
     #[cfg(windows)]
     {
-        use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetForegroundWindow, GetWindowThreadProcessId,
+        };
         unsafe {
             let h = GetForegroundWindow();
             if h.0.is_null() {
@@ -186,7 +201,9 @@ impl FocusMonitor {
         let seen: Arc<Mutex<(usize, usize, Vec<String>)>> = Arc::new(Mutex::new((0, 0, vec![])));
         let owned: Arc<Mutex<(Vec<u32>, Option<String>)>> = Arc::new(Mutex::new((vec![], None)));
         let owned_frontmost = Arc::new(Mutex::new(vec![]));
-        let record = move |seen: &Mutex<(usize, usize, Vec<String>)>, owned: &Mutex<(Vec<u32>, Option<String>)>, owned_frontmost: &Mutex<Vec<u32>>| {
+        let record = move |seen: &Mutex<(usize, usize, Vec<String>)>,
+                           _owned: &Mutex<(Vec<u32>, Option<String>)>,
+                           _owned_frontmost: &Mutex<Vec<u32>>| {
             {
                 let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
                 match frontmost() {
@@ -203,7 +220,8 @@ impl FocusMonitor {
             if enforce_owned {
                 match rightkit_control::mac::frontmost_pid() {
                     Some(pid) => {
-                        let (primary, prefix) = owned.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                        let (primary, prefix) =
+                            _owned.lock().unwrap_or_else(|e| e.into_inner()).clone();
                         let mut candidates = primary;
                         let mut inventory_ok = true;
                         if let Some(prefix) = prefix {
@@ -217,7 +235,8 @@ impl FocusMonitor {
                             g.1 += 1;
                         }
                         if candidates.into_iter().any(|p| p == pid as u32) {
-                            let mut observed = owned_frontmost.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut observed =
+                                _owned_frontmost.lock().unwrap_or_else(|e| e.into_inner());
                             if !observed.contains(&(pid as u32)) {
                                 observed.push(pid as u32);
                             }
@@ -233,18 +252,35 @@ impl FocusMonitor {
         };
         record(&seen, &owned, &owned_frontmost);
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (s2, seen2, owned2, observed2) = (stop.clone(), seen.clone(), owned.clone(), owned_frontmost.clone());
+        let (s2, seen2, owned2, observed2) = (
+            stop.clone(),
+            seen.clone(),
+            owned.clone(),
+            owned_frontmost.clone(),
+        );
         let thread = std::thread::spawn(move || {
             while !s2.load(std::sync::atomic::Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(20));
                 record(&seen2, &owned2, &observed2);
             }
         });
-        FocusMonitor { stop, seen, owned, enforce_owned, owned_frontmost, thread: Some(thread) }
+        FocusMonitor {
+            stop,
+            seen,
+            owned,
+            enforce_owned,
+            owned_frontmost,
+            thread: Some(thread),
+        }
     }
     fn track_primary(&self, pid: u32) {
-        self.owned.lock().unwrap_or_else(|e| e.into_inner()).0.push(pid);
+        self.owned
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .0
+            .push(pid);
     }
+    #[cfg(target_os = "macos")]
     fn track_prefix(&self, prefix: String) {
         self.owned.lock().unwrap_or_else(|e| e.into_inner()).1 = Some(prefix);
     }
@@ -256,12 +292,23 @@ impl FocusMonitor {
         }
         let g = self.seen.lock().unwrap_or_else(|e| e.into_inner());
         let unchanged = g.0 > 0 && g.1 == 0 && g.2.len() == 1;
-        let observed = self.owned_frontmost.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let observed = self
+            .owned_frontmost
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         #[cfg(target_os = "macos")]
         // Unverified launch interval: if the executable identity was never registered
         // before launch, startup samples could not be attributed, so never claim success.
-        let identity_registered = self.owned.lock().unwrap_or_else(|e| e.into_inner()).1.is_some();
-        let owned_never_frontmost = !self.enforce_owned || (identity_registered && g.1 == 0 && observed.is_empty());
+        let identity_registered = self
+            .owned
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .1
+            .is_some();
+        #[cfg(target_os = "macos")]
+        let owned_never_frontmost =
+            !self.enforce_owned || (identity_registered && g.1 == 0 && observed.is_empty());
         #[cfg(not(target_os = "macos"))]
         // No native foreground-PID sampler exists on these targets yet; background
         // claims fail closed instead of treating name-only sampling as proof.
@@ -276,7 +323,19 @@ impl FocusMonitor {
 fn check_env(env: &[(String, String)]) -> Result<()> {
     for (k, _) in env {
         let up = k.to_ascii_uppercase();
-        if ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "APIKEY", "PRIVATE_KEY", "CREDENTIAL"].iter().any(|w| up.contains(w)) {
+        if [
+            "TOKEN",
+            "SECRET",
+            "PASSWORD",
+            "PASSWD",
+            "API_KEY",
+            "APIKEY",
+            "PRIVATE_KEY",
+            "CREDENTIAL",
+        ]
+        .iter()
+        .any(|w| up.contains(w))
+        {
             return err(format!("environment key {k} names a credential; secrets are never passed to a launched app through its command line or environment"));
         }
         #[cfg(target_os = "macos")]
@@ -317,20 +376,28 @@ pub fn resolve_bundle_executable(bundle: &Path) -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<PathBuf> {
-    let exe = binary.file_name().and_then(|n| n.to_str()).ok_or_else(|| Error("binary has no file name".into()))?;
+    let exe = binary
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| Error("binary has no file name".into()))?;
     let app = dir.join(format!("{exe}.app"));
     let macos = app.join("Contents").join("MacOS");
     fs::create_dir_all(&macos)?;
     let target = macos.join(exe);
     let _ = fs::remove_file(&target);
-    let abs = fs::canonicalize(binary).map_err(|e| Error(format!("app binary not found: {}: {e}", binary.display())))?;
+    let abs = fs::canonicalize(binary)
+        .map_err(|e| Error(format!("app binary not found: {}: {e}", binary.display())))?;
     // The process must show the bundle path (not a resolved symlink) so the harness can
     // find exactly the instance it started: hard link, else copy.
     if fs::hard_link(&abs, &target).is_err() {
         fs::copy(&abs, &target)?;
     }
     // Background fixtures must be non-activating before AppKit creates any window.
-    let ui_element = if background { "<key>LSUIElement</key><true/>\n" } else { "" };
+    let ui_element = if background {
+        "<key>LSUIElement</key><true/>\n"
+    } else {
+        ""
+    };
     let plist = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>CFBundleExecutable</key><string>{exe}</string>\n<key>CFBundleIdentifier</key><string>app.rightkit.qa.{id}</string>\n<key>CFBundleName</key><string>{exe}</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleVersion</key><string>1</string>\n{ui_element}</dict></plist>\n"
     );
@@ -352,9 +419,15 @@ fn pids_with_command_prefix(prefix: &str) -> std::result::Result<Vec<u32>, Strin
     let mut pids = vec![];
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let line = line.trim_start();
-        let Some((pid, cmd)) = line.split_once(' ') else { continue };
+        let Some((pid, cmd)) = line.split_once(' ') else {
+            continue;
+        };
         if cmd.trim_start().starts_with(prefix) {
-            pids.push(pid.trim().parse::<u32>().map_err(|e| format!("invalid PID inventory row: {e}"))?);
+            pids.push(
+                pid.trim()
+                    .parse::<u32>()
+                    .map_err(|e| format!("invalid PID inventory row: {e}"))?,
+            );
         }
     }
     Ok(pids)
@@ -362,24 +435,38 @@ fn pids_with_command_prefix(prefix: &str) -> std::result::Result<Vec<u32>, Strin
 
 pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<Control> {
     if !spec.binary.exists() {
-        return err(format!("UI app binary not found: {}", spec.binary.display()));
+        return err(format!(
+            "UI app binary not found: {}",
+            spec.binary.display()
+        ));
     }
     let id = new_id().replace('-', "");
     let service = format!("control-{}", &id[..8]);
     // Isolated per-run suite root: the app's service.json never collides with an installed app's.
-    let suite = Suite::at(ws.home.join(format!("suite-{}", &id[..8]))).map_err(|e| Error(e.to_string()))?;
+    let suite =
+        Suite::at(ws.home.join(format!("suite-{}", &id[..8]))).map_err(|e| Error(e.to_string()))?;
     let log_path = ws.evidence_dir.join(format!("app-{}.log", &id[..8]));
     // launchd-started apps cannot open log files on external volumes (`open` fails with
     // -10810), so the live log goes to the system temp dir and is copied into the
     // evidence dir when the app stops.
     let raw_log = ws.home.join(format!("app-{}.log", &id[..8]));
-    let mut env: Vec<(String, String)> = ws.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let mut env: Vec<(String, String)> =
+        ws.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     env.push(("RIGHTKIT_CONTROL_SERVICE".into(), service.clone()));
-    env.push(("RIGHTKIT_SUITE_ROOT".into(), suite.root().to_string_lossy().into()));
-    env.push(("RIGHTKIT_QA_HIDDEN".into(), if spec.mode == Mode::Hidden { "1" } else { "0" }.into()));
+    env.push((
+        "RIGHTKIT_SUITE_ROOT".into(),
+        suite.root().to_string_lossy().into(),
+    ));
+    env.push((
+        "RIGHTKIT_QA_HIDDEN".into(),
+        if spec.mode == Mode::Hidden { "1" } else { "0" }.into(),
+    ));
     // Hidden runs stay hidden until a test explicitly reveals a window; any such
     // reveal still uses the background window policy and target-pid input.
-    env.push(("RIGHTKIT_QA_BACKGROUND".into(), if spec.mode != Mode::Visible { "1" } else { "0" }.into()));
+    env.push((
+        "RIGHTKIT_QA_BACKGROUND".into(),
+        if spec.mode != Mode::Visible { "1" } else { "0" }.into(),
+    ));
     env.extend(spec.env.iter().cloned());
     check_env(&env)?;
     let frontmost_before = frontmost();
@@ -410,14 +497,19 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     loop {
         // Each attempt is bounded by the startup deadline: a hung host must not defeat it.
         let left = deadline.saturating_duration_since(Instant::now());
-        if let Some(c) = bounded_connect_health(&suite, &service, left.min(Duration::from_secs(5))) {
+        if let Some(c) = bounded_connect_health(&suite, &service, left.min(Duration::from_secs(5)))
+        {
             control.endpoint = c.record().endpoint.clone();
             *control.client.lock().unwrap() = Some(c);
             break;
         }
         if !is_alive(pid) {
-            let tail = fs::read_to_string(&control.raw_log).map(|t| crate::util::tail(&t, 1500)).unwrap_or_default();
-            return err(format!("app exited before its control server came up (pid {pid}); log tail: {tail}"));
+            let tail = fs::read_to_string(&control.raw_log)
+                .map(|t| crate::util::tail(&t, 1500))
+                .unwrap_or_default();
+            return err(format!(
+                "app exited before its control server came up (pid {pid}); log tail: {tail}"
+            ));
         }
         if Instant::now() >= deadline {
             let _ = control.stop();
@@ -438,7 +530,10 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
         }
         if Instant::now() >= deadline {
             let _ = control.stop();
-            return err(format!("app window never became ready within {}ms", spec.startup_timeout.as_millis()));
+            return err(format!(
+                "app window never became ready within {}ms",
+                spec.startup_timeout.as_millis()
+            ));
         }
         sleep_ms(100);
     }
@@ -482,13 +577,20 @@ fn start_process(
         for (k, v) in env {
             cmd.arg("--env").arg(format!("{k}={v}"));
         }
-        cmd.arg("--stdout").arg(log_path).arg("--stderr").arg(log_path).arg(&bundle);
+        cmd.arg("--stdout")
+            .arg(log_path)
+            .arg("--stderr")
+            .arg(log_path)
+            .arg(&bundle);
         let st = cmd.status()?;
         if !st.success() {
             return err(format!("open exited {st}"));
         }
         loop {
-            if let Some(pid) = pids_with_command_prefix(&needle).ok().and_then(|pids| pids.into_iter().next()) {
+            if let Some(pid) = pids_with_command_prefix(&needle)
+                .ok()
+                .and_then(|pids| pids.into_iter().next())
+            {
                 return Ok((pid, None));
             }
             if Instant::now() >= deadline {
@@ -503,7 +605,9 @@ fn start_process(
         let log = fs::File::create(log_path)?;
         let log2 = log.try_clone()?;
         let mut cmd = Command::new(&spec.binary);
-        cmd.stdin(Stdio::null()).stdout(Stdio::from(log)).stderr(Stdio::from(log2));
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::from(log))
+            .stderr(Stdio::from(log2));
         for (k, v) in env {
             cmd.env(k, v);
         }
@@ -512,7 +616,9 @@ fn start_process(
             owned.windows_hide();
         }
         let _ = deadline;
-        let child = owned.spawn().map_err(|e| Error(format!("failed to start {}: {e}", spec.binary.display())))?;
+        let child = owned
+            .spawn()
+            .map_err(|e| Error(format!("failed to start {}: {e}", spec.binary.display())))?;
         Ok((child.id(), Some(child)))
     }
 }
@@ -534,7 +640,11 @@ impl Control {
                 Some(c) => c.clone(),
                 None => {
                     // Not yet sent anything: reconnecting is always safe.
-                    let c = Arc::new(connect_bounded(&self.suite, &self.service, self.request_timeout)?);
+                    let c = Arc::new(connect_bounded(
+                        &self.suite,
+                        &self.service,
+                        self.request_timeout,
+                    )?);
                     *g = Some(c.clone());
                     c
                 }
@@ -543,9 +653,14 @@ impl Control {
                 Ok(v) => return Ok(v),
                 Err(CallError::TimedOut) => {
                     *g = None;
-                    return err(format!("{method}: no reply within {}ms; connection aborted", self.request_timeout.as_millis()));
+                    return err(format!(
+                        "{method}: no reply within {}ms; connection aborted",
+                        self.request_timeout.as_millis()
+                    ));
                 }
-                Err(CallError::Service(e)) if e.retryable && replayable && attempt == 0 => *g = None,
+                Err(CallError::Service(e)) if e.retryable && replayable && attempt == 0 => {
+                    *g = None
+                }
                 Err(CallError::Service(e)) => {
                     if e.retryable {
                         *g = None;
@@ -564,7 +679,12 @@ impl Control {
     fn json(&self, method: &str, params: Value) -> Result<Value> {
         let v = self.rpc(method, params)?;
         if v.get("ok") == Some(&Value::Bool(false)) {
-            return err(format!("{method}: {}", v.get("error").and_then(Value::as_str).unwrap_or("unknown error")));
+            return err(format!(
+                "{method}: {}",
+                v.get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown error")
+            ));
         }
         Ok(v)
     }
@@ -580,16 +700,25 @@ impl Control {
         }
     }
     pub fn click(&self, x: f64, y: f64, button: &str, count: u32) -> Result<()> {
-        self.json("click", json!({"x": x, "y": y, "button": button, "count": count})).map(|_| ())
+        self.json(
+            "click",
+            json!({"x": x, "y": y, "button": button, "count": count}),
+        )
+        .map(|_| ())
     }
     pub fn move_to(&self, x: f64, y: f64) -> Result<()> {
         self.json("move", json!({"x": x, "y": y})).map(|_| ())
     }
     pub fn drag(&self, from: (f64, f64), to: (f64, f64), steps: u32) -> Result<()> {
-        self.json("drag", json!({"x1": from.0, "y1": from.1, "x2": to.0, "y2": to.1, "steps": steps})).map(|_| ())
+        self.json(
+            "drag",
+            json!({"x1": from.0, "y1": from.1, "x2": to.0, "y2": to.1, "steps": steps}),
+        )
+        .map(|_| ())
     }
     pub fn wheel(&self, x: f64, y: f64, dx: f64, dy: f64) -> Result<()> {
-        self.json("wheel", json!({"x": x, "y": y, "dx": dx, "dy": dy})).map(|_| ())
+        self.json("wheel", json!({"x": x, "y": y, "dx": dx, "dy": dy}))
+            .map(|_| ())
     }
     pub fn key(&self, spec: &str) -> Result<()> {
         self.json("key", json!({"key": spec})).map(|_| ())
@@ -599,15 +728,25 @@ impl Control {
     }
     /// Evaluate a JS function body (`return ...`) in the page; returns its JSON value.
     pub fn eval(&self, js: &str) -> Result<Value> {
-        Ok(self.json("eval", json!({"js": js}))?.get("value").cloned().unwrap_or(Value::Null))
+        Ok(self
+            .json("eval", json!({"js": js}))?
+            .get("value")
+            .cloned()
+            .unwrap_or(Value::Null))
     }
     pub fn dom(&self, selector: &str) -> Result<Vec<Value>> {
         let v = self.json("dom", json!({"selector": selector}))?;
-        Ok(v.get("elements").and_then(Value::as_array).cloned().unwrap_or_default())
+        Ok(v.get("elements")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
     pub fn ax(&self) -> Result<Vec<Value>> {
         let v = self.json("ax", json!({}))?;
-        Ok(v.get("nodes").and_then(Value::as_array).cloned().unwrap_or_default())
+        Ok(v.get("nodes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
     }
     pub fn screenshot_png(&self) -> Result<Vec<u8>> {
         let v = self.json("screenshot", json!({}))?;
@@ -616,7 +755,11 @@ impl Control {
         if v.get("masked").and_then(Value::as_u64).is_none() {
             return err("control server does not redact screenshots; capture refused");
         }
-        let path = PathBuf::from(v.get("path").and_then(Value::as_str).ok_or_else(|| Error("screenshot returned no path".into()))?);
+        let path = PathBuf::from(
+            v.get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| Error("screenshot returned no path".into()))?,
+        );
         let body = fs::read(&path)?;
         let _ = fs::remove_file(&path);
         if body.len() < 8 || &body[1..4] != b"PNG" {
@@ -646,8 +789,14 @@ impl Control {
     /// Centre of the first element matching `selector`, in viewport CSS px.
     pub fn center_of(&self, selector: &str) -> Result<(f64, f64)> {
         let els = self.dom(selector)?;
-        let first = els.first().ok_or_else(|| Error(format!("selector matched no element: {selector}")))?;
-        let r: Vec<f64> = first.get("rect").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+        let first = els
+            .first()
+            .ok_or_else(|| Error(format!("selector matched no element: {selector}")))?;
+        let r: Vec<f64> = first
+            .get("rect")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_f64).collect())
+            .unwrap_or_default();
         if r.len() < 4 || r[2] <= 0.0 || r[3] <= 0.0 {
             return err(format!("{selector} has no visible box"));
         }
@@ -665,7 +814,9 @@ impl Control {
         loop {
             match self.eval(js) {
                 Ok(v) => {
-                    let truthy = !matches!(v, Value::Null | Value::Bool(false)) && v != json!(0) && v != json!("");
+                    let truthy = !matches!(v, Value::Null | Value::Bool(false))
+                        && v != json!(0)
+                        && v != json!("");
                     if truthy {
                         return Ok(v);
                     }
@@ -712,7 +863,9 @@ impl Control {
             pid: self.pid,
             endpoint_closed,
             process_gone,
-            frontmost_unchanged: steady && self.frontmost_before.is_some() && self.frontmost_before == after,
+            frontmost_unchanged: steady
+                && self.frontmost_before.is_some()
+                && self.frontmost_before == after,
             frontmost_states: states,
             frontmost_before: self.frontmost_before.clone(),
             frontmost_after: after,

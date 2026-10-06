@@ -81,10 +81,19 @@ pub fn parse(raw: &str, schemes: &[String]) -> Option<DeepLink> {
     if let Some(q) = query_part {
         for pair in q.split('&').filter(|p| !p.is_empty()) {
             let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-            query.insert(percent_decode(&k.replace('+', " "))?, percent_decode(&v.replace('+', " "))?);
+            query.insert(
+                percent_decode(&k.replace('+', " "))?,
+                percent_decode(&v.replace('+', " "))?,
+            );
         }
     }
-    Some(DeepLink { scheme, host, segments, query, raw: raw.to_owned() })
+    Some(DeepLink {
+        scheme,
+        host,
+        segments,
+        query,
+        raw: raw.to_owned(),
+    })
 }
 
 /// Links wait here until the frontend reports ready, then drain in arrival order.
@@ -94,7 +103,11 @@ pub struct DeepLinkQueue {
 }
 
 impl DeepLinkQueue {
-    pub fn push_all<'a>(&self, raw: impl IntoIterator<Item = &'a str>, schemes: &[String]) -> usize {
+    pub fn push_all<'a>(
+        &self,
+        raw: impl IntoIterator<Item = &'a str>,
+        schemes: &[String],
+    ) -> usize {
         let mut q = self.pending.lock().unwrap_or_else(|e| e.into_inner());
         for r in raw {
             if let Some(link) = parse(r, schemes) {
@@ -104,7 +117,11 @@ impl DeepLinkQueue {
         q.len()
     }
     pub fn drain(&self) -> Vec<DeepLink> {
-        self.pending.lock().unwrap_or_else(|e| e.into_inner()).drain(..).collect()
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect()
     }
 }
 
@@ -117,12 +134,27 @@ pub fn register_scheme(scheme: &str, executable: &std::path::Path) -> Result<boo
         use std::os::windows::process::CommandExt;
         let base = format!(r"HKCU\Software\Classes\{scheme}");
         let run = |args: &[&str]| -> Result<(), String> {
-            let out = std::process::Command::new("reg.exe").creation_flags(0x0800_0000).args(args).output().map_err(|e| e.to_string())?;
-            if out.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()) }
+            let out = std::process::Command::new("reg.exe")
+                .creation_flags(0x0800_0000)
+                .args(args)
+                .output()
+                .map_err(|e| e.to_string())?;
+            if out.status.success() {
+                Ok(())
+            } else {
+                Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
+            }
         };
         run(&["ADD", &base, "/ve", "/d", &format!("URL:{scheme}"), "/f"])?;
         run(&["ADD", &base, "/v", "URL Protocol", "/d", "", "/f"])?;
-        run(&["ADD", &format!(r"{base}\shell\open\command"), "/ve", "/d", &format!("\"{}\" \"%1\"", executable.display()), "/f"])?;
+        run(&[
+            "ADD",
+            &format!(r"{base}\shell\open\command"),
+            "/ve",
+            "/d",
+            &format!("\"{}\" \"%1\"", executable.display()),
+            "/f",
+        ])?;
         Ok(true)
     }
     #[cfg(not(windows))]

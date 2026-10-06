@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-process"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps."
@@ -18,7 +18,7 @@ process-wrap = { version = "=8.2.1", default-features = false, features = ["std"
 nix = { version = "=0.30.1", default-features = false, features = ["signal"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "=0.61.1", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows = { version = "=0.61.1", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]
 trybuild = "=1.0.116"

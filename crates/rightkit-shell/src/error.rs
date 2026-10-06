@@ -111,9 +111,17 @@ impl From<std::io::Error> for ShellError {
 /// Classify a string error from the broker or file helpers, preserving the message text.
 pub fn broker_error(message: String) -> ShellError {
     let lower = message.to_ascii_lowercase();
-    if lower.contains("not authorized") || lower.contains("not just written") || lower.contains("unknown or revoked") || lower.contains("unknown or already-used") {
+    if lower.contains("not authorized")
+        || lower.contains("not just written")
+        || lower.contains("unknown or revoked")
+        || lower.contains("unknown or already-used")
+    {
         ShellError::BrokerDenied(message)
-    } else if lower.contains("no such file") || lower.contains("cannot find the path") || lower.contains("cannot find the file") || lower.contains("not a file") {
+    } else if lower.contains("no such file")
+        || lower.contains("cannot find the path")
+        || lower.contains("cannot find the file")
+        || lower.contains("not a file")
+    {
         ShellError::FileNotFound(message)
     } else if lower.contains("permission denied") || lower.contains("operation not permitted") {
         ShellError::PermissionDenied(message)

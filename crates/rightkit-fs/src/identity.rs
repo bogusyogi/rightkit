@@ -51,7 +51,10 @@ impl FileKey {
         {
             use std::os::unix::fs::MetadataExt;
             let meta = file.metadata().map_err(|e| FsError::io(shown, e))?;
-            Ok(Self { volume: meta.dev(), index: meta.ino() })
+            Ok(Self {
+                volume: meta.dev(),
+                index: meta.ino(),
+            })
         }
         #[cfg(windows)]
         {
@@ -69,7 +72,10 @@ impl FileKey {
         {
             let _ = path;
             use std::os::unix::fs::MetadataExt;
-            Some(Self { volume: meta.dev(), index: meta.ino() })
+            Some(Self {
+                volume: meta.dev(),
+                index: meta.ino(),
+            })
         }
         #[cfg(not(unix))]
         {
@@ -102,7 +108,10 @@ fn windows_key(file: &File) -> std::io::Result<FileKey> {
     }
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn GetFileInformationByHandle(handle: *mut std::ffi::c_void, info: *mut ByHandleFileInformation) -> i32;
+        fn GetFileInformationByHandle(
+            handle: *mut std::ffi::c_void,
+            info: *mut ByHandleFileInformation,
+        ) -> i32;
     }
     let mut info = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
     // SAFETY: the handle is a live file handle and `info` is a valid out-parameter.
@@ -139,15 +148,21 @@ impl Fingerprint {
         };
         let mut buf = vec![0u8; SAMPLE as usize];
         let head = size.min(SAMPLE) as usize;
-        file.read_exact(&mut buf[..head]).map_err(|e| FsError::io(path, e))?;
+        file.read_exact(&mut buf[..head])
+            .map_err(|e| FsError::io(path, e))?;
         feed(&buf[..head]);
         if size > SAMPLE {
             let tail = size.min(SAMPLE) as usize;
-            file.seek(SeekFrom::Start(size - tail as u64)).map_err(|e| FsError::io(path, e))?;
-            file.read_exact(&mut buf[..tail]).map_err(|e| FsError::io(path, e))?;
+            file.seek(SeekFrom::Start(size - tail as u64))
+                .map_err(|e| FsError::io(path, e))?;
+            file.read_exact(&mut buf[..tail])
+                .map_err(|e| FsError::io(path, e))?;
             feed(&buf[..tail]);
         }
-        Ok(Self { size, sample_hash: hash })
+        Ok(Self {
+            size,
+            sample_hash: hash,
+        })
     }
 }
 
@@ -188,7 +203,10 @@ pub struct SearchLimits {
 
 impl Default for SearchLimits {
     fn default() -> Self {
-        Self { max_entries: 200_000, max_depth: 12 }
+        Self {
+            max_entries: 200_000,
+            max_depth: 12,
+        }
     }
 }
 
@@ -207,7 +225,10 @@ impl IdentityStore {
     /// `dir` is the app's state directory; the ledger and its lock live inside it.
     pub fn open(dir: &Path) -> Result<Self> {
         crate::private::ensure_private_dir(dir)?;
-        Ok(Self { dir: dir.to_path_buf(), limits: SearchLimits::default() })
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            limits: SearchLimits::default(),
+        })
     }
 
     pub fn with_limits(mut self, limits: SearchLimits) -> Self {
@@ -222,9 +243,16 @@ impl IdentityStore {
         )?;
         let path = self.dir.join(LEDGER_FILE);
         let mut ledger = match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice::<Ledger>(&bytes)
-                .map_err(|e| FsError::Corrupt { path: path.clone(), reason: e.to_string() })?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ledger { version: LEDGER_VERSION, ..Ledger::default() },
+            Ok(bytes) => {
+                serde_json::from_slice::<Ledger>(&bytes).map_err(|e| FsError::Corrupt {
+                    path: path.clone(),
+                    reason: e.to_string(),
+                })?
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ledger {
+                version: LEDGER_VERSION,
+                ..Ledger::default()
+            },
             Err(e) => return Err(FsError::io(&path, e)),
         };
         let (out, dirty) = f(&mut ledger)?;
@@ -241,7 +269,13 @@ impl IdentityStore {
         let key = FileKey::of_path(&abs)?;
         let fingerprint = Fingerprint::of_path(&abs)?;
         let id = new_id()?;
-        let entry = Tracked { id: id.clone(), key, last_path: abs, fingerprint, tracked_at_ms: now_ms() };
+        let entry = Tracked {
+            id: id.clone(),
+            key,
+            last_path: abs,
+            fingerprint,
+            tracked_at_ms: now_ms(),
+        };
         self.locked(|ledger| {
             ledger.entries.insert(id.clone(), entry);
             Ok(((), true))
@@ -262,7 +296,13 @@ impl IdentityStore {
             let id = new_id()?;
             ledger.entries.insert(
                 id.clone(),
-                Tracked { id: id.clone(), key, last_path: abs, fingerprint, tracked_at_ms: now_ms() },
+                Tracked {
+                    id: id.clone(),
+                    key,
+                    last_path: abs,
+                    fingerprint,
+                    tracked_at_ms: now_ms(),
+                },
             );
             Ok((id, true))
         })
@@ -285,7 +325,10 @@ impl IdentityStore {
         let key = FileKey::of_path(&abs)?;
         let fingerprint = Fingerprint::of_path(&abs)?;
         self.locked(|ledger| {
-            let entry = ledger.entries.get_mut(id).ok_or_else(|| FsError::UnknownId(id.to_string()))?;
+            let entry = ledger
+                .entries
+                .get_mut(id)
+                .ok_or_else(|| FsError::UnknownId(id.to_string()))?;
             entry.key = key;
             entry.fingerprint = fingerprint;
             entry.last_path = abs;
@@ -296,7 +339,9 @@ impl IdentityStore {
     /// Find where `id` lives now, searching `roots` (bounded, never following symlinks) when the
     /// last known path no longer holds the file.
     pub fn resolve(&self, id: &str, roots: &[PathBuf]) -> Result<Resolution> {
-        let tracked = self.lookup(id)?.ok_or_else(|| FsError::UnknownId(id.to_string()))?;
+        let tracked = self
+            .lookup(id)?
+            .ok_or_else(|| FsError::UnknownId(id.to_string()))?;
 
         // 1. Same file, same place.
         if let Ok(key) = FileKey::of_path(&tracked.last_path) {
@@ -310,16 +355,22 @@ impl IdentityStore {
         let mut moved: Option<PathBuf> = None;
         let mut budget = self.limits.max_entries;
         for root in roots {
-            walk(root, 0, self.limits.max_depth, &mut budget, &mut |path, meta| {
-                if FileKey::of_meta(meta, path) == Some(tracked.key) {
-                    moved = Some(path.to_path_buf());
-                    return true;
-                }
-                if meta.len() == tracked.fingerprint.size && candidates.len() < 64 {
-                    candidates.push(path.to_path_buf());
-                }
-                false
-            });
+            walk(
+                root,
+                0,
+                self.limits.max_depth,
+                &mut budget,
+                &mut |path, meta| {
+                    if FileKey::of_meta(meta, path) == Some(tracked.key) {
+                        moved = Some(path.to_path_buf());
+                        return true;
+                    }
+                    if meta.len() == tracked.fingerprint.size && candidates.len() < 64 {
+                        candidates.push(path.to_path_buf());
+                    }
+                    false
+                },
+            );
             if moved.is_some() {
                 break;
             }
@@ -365,7 +416,9 @@ fn walk(
     budget: &mut usize,
     visit: &mut dyn FnMut(&Path, &std::fs::Metadata) -> bool,
 ) -> bool {
-    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
     for entry in entries.flatten() {
         if *budget == 0 {
             return true;
@@ -381,7 +434,10 @@ fn walk(
             if visit(&path, &meta) {
                 return true;
             }
-        } else if meta.is_dir() && depth < max_depth && walk(&path, depth + 1, max_depth, budget, visit) {
+        } else if meta.is_dir()
+            && depth < max_depth
+            && walk(&path, depth + 1, max_depth, budget, visit)
+        {
             return true;
         }
     }
@@ -392,12 +448,17 @@ fn absolute(path: &Path) -> Result<PathBuf> {
     if path.is_absolute() {
         Ok(path.to_path_buf())
     } else {
-        Ok(std::env::current_dir().map_err(|e| FsError::io(path, e))?.join(path))
+        Ok(std::env::current_dir()
+            .map_err(|e| FsError::io(path, e))?
+            .join(path))
     }
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn new_id() -> Result<StableId> {
@@ -417,14 +478,23 @@ fn random_bytes(buf: &mut [u8]) -> Result<()> {
     {
         #[link(name = "bcrypt")]
         unsafe extern "system" {
-            fn BCryptGenRandom(algorithm: *mut std::ffi::c_void, buffer: *mut u8, length: u32, flags: u32) -> i32;
+            fn BCryptGenRandom(
+                algorithm: *mut std::ffi::c_void,
+                buffer: *mut u8,
+                length: u32,
+                flags: u32,
+            ) -> i32;
         }
         // SAFETY: buffer is valid for its length; flag 2 = system-preferred RNG.
-        let status = unsafe { BCryptGenRandom(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32, 2) };
+        let status =
+            unsafe { BCryptGenRandom(std::ptr::null_mut(), buf.as_mut_ptr(), buf.len() as u32, 2) };
         if status >= 0 {
             Ok(())
         } else {
-            Err(FsError::io("BCryptGenRandom", std::io::Error::other("RNG failure")))
+            Err(FsError::io(
+                "BCryptGenRandom",
+                std::io::Error::other("RNG failure"),
+            ))
         }
     }
     #[cfg(not(any(unix, windows)))]

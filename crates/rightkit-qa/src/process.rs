@@ -26,8 +26,11 @@ pub fn is_alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     {
-        let out = hidden(Command::new("tasklist.exe").args(["/FI", &format!("PID eq {pid}"), "/NH"])).output();
-        out.map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string())).unwrap_or(false)
+        let out =
+            hidden(Command::new("tasklist.exe").args(["/FI", &format!("PID eq {pid}"), "/NH"]))
+                .output();
+        out.map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
     }
 }
 
@@ -39,9 +42,16 @@ fn hidden(cmd: &mut Command) -> &mut Command {
 
 #[cfg(unix)]
 fn children_of(pid: u32) -> Vec<u32> {
-    let out = Command::new("pgrep").args(["-P", &pid.to_string()]).output();
-    out.map(|o| String::from_utf8_lossy(&o.stdout).lines().filter_map(|l| l.trim().parse().ok()).collect())
-        .unwrap_or_default()
+    let out = Command::new("pgrep")
+        .args(["-P", &pid.to_string()])
+        .output();
+    out.map(|o| {
+        String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter_map(|l| l.trim().parse().ok())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// Terminate `pid` and its descendants. TERM first, KILL after a short grace.
@@ -67,7 +77,11 @@ pub fn kill_tree(pid: u32) {
         }
         for sig in ["-TERM", "-KILL"] {
             for p in all.iter().rev() {
-                let _ = Command::new("kill").args([sig, &p.to_string()]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+                let _ = Command::new("kill")
+                    .args([sig, &p.to_string()])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
             }
             let deadline = std::time::Instant::now() + Duration::from_millis(1500);
             while std::time::Instant::now() < deadline && all.iter().any(|p| is_alive(*p)) {
@@ -85,11 +99,18 @@ pub fn kill_tree(pid: u32) {
 fn kill_group(pid: u32) {
     #[cfg(unix)]
     {
-        let _ = Command::new("kill").args(["-KILL", "--", &format!("-{pid}")]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let _ = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{pid}")])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
     #[cfg(windows)]
     {
-        let _ = hidden(Command::new("taskkill.exe").args(["/PID", &pid.to_string(), "/T", "/F"])).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        let _ = hidden(Command::new("taskkill.exe").args(["/PID", &pid.to_string(), "/T", "/F"]))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
 }
 
@@ -113,7 +134,13 @@ impl Tracker {
         self.persist();
     }
     pub fn alive(&self) -> Vec<(u32, String)> {
-        self.inner.lock().unwrap().iter().filter(|(p, _)| is_alive(**p)).map(|(p, l)| (*p, l.clone())).collect()
+        self.inner
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(p, _)| is_alive(**p))
+            .map(|(p, l)| (*p, l.clone()))
+            .collect()
     }
     pub fn pids(&self) -> Vec<u32> {
         self.inner.lock().unwrap().keys().copied().collect()
@@ -131,7 +158,11 @@ impl Tracker {
             return Ok(());
         }
         self.kill_all();
-        let list = alive.iter().map(|(p, l)| format!("{p} ({l})")).collect::<Vec<_>>().join(", ");
+        let list = alive
+            .iter()
+            .map(|(p, l)| format!("{p} ({l})"))
+            .collect::<Vec<_>>()
+            .join(", ");
         err(format!("orphan processes still running: {list}"))
     }
 }
@@ -156,9 +187,17 @@ pub struct Output {
 }
 
 /// Run to completion with a hard deadline; on timeout the whole tree is killed.
-pub fn run_owned(program: &str, args: &[String], opts: &RunOptions, tracker: &Tracker) -> Result<Output> {
+pub fn run_owned(
+    program: &str,
+    args: &[String],
+    opts: &RunOptions,
+    tracker: &Tracker,
+) -> Result<Output> {
     let mut cmd = Command::new(program);
-    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if let Some(cwd) = &opts.cwd {
         cmd.current_dir(cwd);
     }
@@ -170,13 +209,35 @@ pub fn run_owned(program: &str, args: &[String], opts: &RunOptions, tracker: &Tr
     }
     let mut owned = OwnedCommand::from_command(cmd);
     owned.windows_hide();
-    let mut child = owned.spawn().map_err(|e| crate::util::Error(format!("failed to start {program}: {e}")))?;
+    let mut child = owned
+        .spawn()
+        .map_err(|e| crate::util::Error(format!("failed to start {program}: {e}")))?;
     let pid = child.id();
-    tracker.register(pid, if opts.label.is_empty() { program } else { &opts.label });
+    tracker.register(
+        pid,
+        if opts.label.is_empty() {
+            program
+        } else {
+            &opts.label
+        },
+    );
     let out_buf: Arc<Mutex<Vec<u8>>> = Arc::default();
     let err_buf: Arc<Mutex<Vec<u8>>> = Arc::default();
     let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-    for (stream, buf) in [(child.take_stdout().map(|s| Box::new(s) as Box<dyn Read + Send>), out_buf.clone()), (child.take_stderr().map(|s| Box::new(s) as Box<dyn Read + Send>), err_buf.clone())] {
+    for (stream, buf) in [
+        (
+            child
+                .take_stdout()
+                .map(|s| Box::new(s) as Box<dyn Read + Send>),
+            out_buf.clone(),
+        ),
+        (
+            child
+                .take_stderr()
+                .map(|s| Box::new(s) as Box<dyn Read + Send>),
+            err_buf.clone(),
+        ),
+    ] {
         let tx = done_tx.clone();
         std::thread::spawn(move || {
             if let Some(mut s) = stream {
@@ -235,7 +296,13 @@ pub fn run_owned(program: &str, args: &[String], opts: &RunOptions, tracker: &Tr
         stderr.push_str("\n[rightkit-qa] descendant processes outlived the command and held its output open; the process group was killed");
     }
     let stdout = String::from_utf8_lossy(&out_buf.lock().unwrap()).into_owned();
-    Ok(Output { pid, code, stdout, stderr, timed_out })
+    Ok(Output {
+        pid,
+        code,
+        stdout,
+        stderr,
+        timed_out,
+    })
 }
 
 // ---------------------------------------------------------------- crash sweep
@@ -245,7 +312,10 @@ pub fn run_owned(program: &str, args: &[String], opts: &RunOptions, tracker: &Tr
 pub fn fingerprint(pid: u32) -> Option<String> {
     #[cfg(unix)]
     {
-        let out = Command::new("ps").args(["-o", "command=", "-p", &pid.to_string()]).output().ok()?;
+        let out = Command::new("ps")
+            .args(["-o", "command=", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if s.is_empty() {
             None
@@ -270,7 +340,9 @@ impl Tracker {
     }
 
     pub(crate) fn persist(&self) {
-        let Some(path) = self.registry.lock().unwrap().clone() else { return };
+        let Some(path) = self.registry.lock().unwrap().clone() else {
+            return;
+        };
         let rows: Vec<serde_json::Value> = self
             .inner
             .lock()
@@ -289,16 +361,24 @@ impl Tracker {
 /// the exact command line that was recorded. Returns the pids killed.
 pub fn sweep_registries(runs_root: &std::path::Path, skip_run: &str) -> Vec<u32> {
     let mut killed = vec![];
-    let Ok(entries) = std::fs::read_dir(runs_root) else { return killed };
+    let Ok(entries) = std::fs::read_dir(runs_root) else {
+        return killed;
+    };
     for e in entries.flatten() {
         if e.file_name().to_string_lossy() == skip_run {
             continue;
         }
         let file = e.path().join("pids.json");
-        let Ok(bytes) = std::fs::read(&file) else { continue };
+        let Ok(bytes) = std::fs::read(&file) else {
+            continue;
+        };
         let rows: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap_or_default();
         for r in rows {
-            let (Some(pid), Some(cmd)) = (r["pid"].as_u64().map(|p| p as u32), r["command"].as_str()) else { continue };
+            let (Some(pid), Some(cmd)) =
+                (r["pid"].as_u64().map(|p| p as u32), r["command"].as_str())
+            else {
+                continue;
+            };
             if is_alive(pid) && fingerprint(pid).as_deref() == Some(cmd) {
                 kill_tree(pid);
                 killed.push(pid);

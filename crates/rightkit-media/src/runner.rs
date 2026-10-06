@@ -94,7 +94,10 @@ impl fmt::Display for RunError {
             Self::Io(e) => write!(f, "ffmpeg i/o failure: {e}"),
             Self::Cancelled => f.write_str("ffmpeg run cancelled"),
             Self::TimedOut(d) => write!(f, "ffmpeg timed out after {d:?}"),
-            Self::Failed { status, stderr_tail } => {
+            Self::Failed {
+                status,
+                stderr_tail,
+            } => {
                 write!(f, "ffmpeg exited with {status}: {stderr_tail}")
             }
         }
@@ -271,7 +274,10 @@ pub fn run_with_progress(
     }
     if !status.success() {
         let stderr_tail = tail.lock().map(|t| t.text()).unwrap_or_default();
-        return Err(RunError::Failed { status, stderr_tail });
+        return Err(RunError::Failed {
+            status,
+            stderr_tail,
+        });
     }
     Ok(RunReport {
         frames: last.frame,
@@ -351,7 +357,11 @@ pub fn run_capture(
     match abort {
         Some(Abort::Cancelled) => Err(RunError::Cancelled),
         Some(Abort::TimedOut) => Err(RunError::TimedOut(timeout)),
-        None => Ok(Captured { stdout, stderr, status }),
+        None => Ok(Captured {
+            stdout,
+            stderr,
+            status,
+        }),
     }
 }
 

@@ -30,7 +30,10 @@ pub enum CacheStatus {
 
 /// `cache:prompt:<kind>:<fnv1a>` over `identity\n__day__:<day>`.
 fn slot_key(kind: &str, identity: &str, day: &str) -> String {
-    format!("cache:prompt:{kind}:{:016x}", fnv1a(&format!("{identity}\n__day__:{day}")))
+    format!(
+        "cache:prompt:{kind}:{:016x}",
+        fnv1a(&format!("{identity}\n__day__:{day}"))
+    )
 }
 
 /// Single-session stable tier.
@@ -42,7 +45,10 @@ pub struct StableCacheKey {
 
 impl StableCacheKey {
     pub fn new(identity: impl Into<String>, day: impl Into<String>) -> Self {
-        Self { identity: identity.into(), day: day.into() }
+        Self {
+            identity: identity.into(),
+            day: day.into(),
+        }
     }
 
     pub fn compute(&self) -> String {
@@ -61,7 +67,10 @@ pub const CONDUCTOR_CACHE_KEY_PREFIX: &str = "cache:prompt:conductor:";
 
 impl ConductorStableKey {
     pub fn new(identity: impl Into<String>, day: impl Into<String>) -> Self {
-        Self { identity: identity.into(), day: day.into() }
+        Self {
+            identity: identity.into(),
+            day: day.into(),
+        }
     }
 
     pub fn compute(&self) -> String {

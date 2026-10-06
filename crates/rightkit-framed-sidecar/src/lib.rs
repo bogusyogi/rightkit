@@ -104,7 +104,10 @@ pub struct ReadLimits {
 
 impl Default for ReadLimits {
     fn default() -> Self {
-        Self { max_discard: DEFAULT_MAX_DISCARD, deadline: None }
+        Self {
+            max_discard: DEFAULT_MAX_DISCARD,
+            deadline: None,
+        }
     }
 }
 
@@ -196,7 +199,11 @@ pub fn peek_id(head: &[u8]) -> Option<u64> {
         .ok()?;
     let key = "\"id\":";
     let start = text.find(key)? + key.len();
-    let digits: String = text[start..].trim_start().chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String = text[start..]
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     digits.parse().ok()
 }
 
@@ -254,7 +261,11 @@ where
                 head.truncate(OVERSIZE_HEAD_BYTES);
                 let room = OVERSIZE_HEAD_BYTES - head.len();
                 head.extend_from_slice(&content[..room.min(content.len())]);
-                overflow = Some(Oversized { limit, head, bytes: seen });
+                overflow = Some(Oversized {
+                    limit,
+                    head,
+                    bytes: seen,
+                });
                 discarded = take;
             } else {
                 buffer.extend_from_slice(content);
@@ -266,7 +277,10 @@ where
             if overflow.is_some() && discarded > limits.max_discard {
                 return Err(FrameError::Io(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("json frame exceeded {limit}-byte limit and no newline within {} bytes", limits.max_discard),
+                    format!(
+                        "json frame exceeded {limit}-byte limit and no newline within {} bytes",
+                        limits.max_discard
+                    ),
                 )));
             }
         }
@@ -284,7 +298,11 @@ where
         if end > limit {
             let head = buffer[..end.min(OVERSIZE_HEAD_BYTES)].to_vec();
             buffer.clear();
-            return Ok(Some(Incoming::Oversized(Oversized { limit, head, bytes: end })));
+            return Ok(Some(Incoming::Oversized(Oversized {
+                limit,
+                head,
+                bytes: end,
+            })));
         }
         let value: T = serde_json::from_slice(&buffer[..end])?;
         buffer.clear();

@@ -11,7 +11,13 @@ struct H {
 }
 
 impl Handler for H {
-    fn call(&self, cx: &CallContext, method: &str, params: &Value, emit: &Emit) -> Result<Value, ServiceError> {
+    fn call(
+        &self,
+        cx: &CallContext,
+        method: &str,
+        params: &Value,
+        emit: &Emit,
+    ) -> Result<Value, ServiceError> {
         match method {
             "echo" => Ok(params.clone()),
             "whoami" => Ok(json!({"role": self.role, "pid": std::process::id(), "app": cx.app()})),
@@ -36,7 +42,11 @@ impl Handler for H {
             "hang" => {
                 // Never replies; records each invocation so tests can prove no replay.
                 use std::io::Write;
-                let mut f = std::fs::OpenOptions::new().create(true).append(true).open(self.marker.join("hang_calls")).map_err(|e| ServiceError::new("io", e.to_string()))?;
+                let mut f = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(self.marker.join("hang_calls"))
+                    .map_err(|e| ServiceError::new("io", e.to_string()))?;
                 let _ = f.write_all(b"x");
                 let t = Instant::now();
                 while t.elapsed() < Duration::from_secs(60) {
@@ -67,11 +77,16 @@ fn main() {
         return;
     }
     let suite = Suite::at(&a[0]).expect("suite");
-    let allow = Allowlist::new().allow("alpha", ["echo", "slow", "whoami", "hang"]).allow("beta", ["echo"]);
+    let allow = Allowlist::new()
+        .allow("alpha", ["echo", "slow", "whoami", "hang"])
+        .allow("beta", ["echo"]);
     let mut cfg = ServiceConfig::new(&a[1], &a[2], a[3].parse().unwrap(), "test", allow);
     cfg.takeover_timeout = Duration::from_secs(20);
     cfg.handoff_grace = Duration::from_secs(5);
-    let h = Arc::new(H { role: a[2].clone(), marker: a[4].clone().into() });
+    let h = Arc::new(H {
+        role: a[2].clone(),
+        marker: a[4].clone().into(),
+    });
     match host(&suite, cfg, h) {
         Ok(hosted) => {
             println!("READY {}", hosted.record().pid);

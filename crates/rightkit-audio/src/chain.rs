@@ -298,4 +298,3 @@ impl DialogueChain {
         render_chain(&self.filters())
     }
 }
-

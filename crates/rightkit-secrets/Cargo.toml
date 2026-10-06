@@ -5,10 +5,11 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration."
 license = "MIT OR Apache-2.0"
+readme = "README.md"
 repository = "https://github.com/bogusyogi/claude"
 keywords = ["keychain", "credentials", "secrets", "credential-manager"]
 categories = ["os", "authentication"]
-include = ["src/**", "tests/**", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 # `impl rightkit_settings::SecretProbe for Store` (presence-only adapter).
@@ -25,7 +26,7 @@ thiserror = "2"
 getrandom = "0.3"
 base64 = "0.22"
 zeroize = "1.8"
-rightkit-settings = { path = "../rightkit-settings", optional = true }
+rightkit-settings = { version = "=0.1.0", path = "../rightkit-settings", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials"] }

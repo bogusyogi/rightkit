@@ -895,11 +895,16 @@ fn create_legacy_alias(source: &Path, destination: &Path) -> Result<(), String> 
     }
     #[cfg(windows)]
     {
-        // Directory junction (no privilege needed, unlike a symlink).
+        use std::os::windows::process::CommandExt;
+        // Directory junction (no privilege needed, unlike a symlink). cmd parses a `/` inside a
+        // path as a switch ("Invalid switch"), so hand mklink backslash-only paths; never open a
+        // console window (CREATE_NO_WINDOW).
+        let backslashed = |path: &Path| path.as_os_str().to_string_lossy().replace('/', "\\");
         let output = std::process::Command::new("cmd")
             .args(["/C", "mklink", "/J"])
-            .arg(source)
-            .arg(destination)
+            .arg(backslashed(source))
+            .arg(backslashed(destination))
+            .creation_flags(0x0800_0000)
             .output()
             .map_err(|error| format!("junction {}: {error}", source.display()))?;
         if output.status.success() {

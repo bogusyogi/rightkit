@@ -80,7 +80,8 @@ pub mod windows {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
 
-    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::core::BOOL;
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, DefWindowProcW, EnumWindows, GetWindowLongPtrW, IsWindowVisible,
         SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWLP_WNDPROC, HWND_TOPMOST,

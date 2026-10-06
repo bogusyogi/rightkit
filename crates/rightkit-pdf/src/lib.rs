@@ -19,13 +19,13 @@
 
 pub mod commit;
 pub mod compose;
+#[cfg(feature = "extract")]
+pub mod extract;
 pub mod font;
 pub mod inspect;
 #[cfg(feature = "merge")]
 pub mod merge;
 pub mod model;
 pub mod save;
-#[cfg(feature = "extract")]
-pub mod extract;
 #[cfg(test)]
 mod test_fixtures;

@@ -44,11 +44,21 @@ pub enum PtyError {
 impl std::fmt::Display for PtyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::StaleEpoch { presented, current } => write!(f, "stale process lease epoch (presented {presented}, current {current})"),
-            Self::BadSequence { expected, got } => write!(f, "input sequence must be {expected}, got {got}"),
+            Self::StaleEpoch { presented, current } => write!(
+                f,
+                "stale process lease epoch (presented {presented}, current {current})"
+            ),
+            Self::BadSequence { expected, got } => {
+                write!(f, "input sequence must be {expected}, got {got}")
+            }
             Self::Detached => write!(f, "process is detached; attach before input"),
-            Self::UnacknowledgedInput { from, to } => write!(f, "unacknowledged input in sequence range [{from}, {to}); reconcile explicitly"),
-            Self::AckOutOfRange { upto, next, acked } => write!(f, "ack {upto} outside [{acked}, {next}]"),
+            Self::UnacknowledgedInput { from, to } => write!(
+                f,
+                "unacknowledged input in sequence range [{from}, {to}); reconcile explicitly"
+            ),
+            Self::AckOutOfRange { upto, next, acked } => {
+                write!(f, "ack {upto} outside [{acked}, {next}]")
+            }
             Self::Sandbox(e) => write!(f, "{e}"),
             Self::Io(e) => write!(f, "pty io: {e}"),
         }
@@ -134,7 +144,12 @@ impl PtySession {
         reservation: Reservation,
     ) -> Result<Self, PtyError> {
         let pair = native_pty_system()
-            .openpty(portable_pty::PtySize { rows: size.rows.max(1), cols: size.cols.max(1), pixel_width: 0, pixel_height: 0 })
+            .openpty(portable_pty::PtySize {
+                rows: size.rows.max(1),
+                cols: size.cols.max(1),
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
         let mut cb = CommandBuilder::new(&program);
         cb.args(&args);
@@ -155,9 +170,18 @@ impl PtySession {
         for (k, v) in extra_env {
             cb.env(k, v);
         }
-        let reader = pair.master.try_clone_reader().map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
-        let writer = pair.master.take_writer().map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
-        let child = pair.slave.spawn_command(cb).map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
+        let child = pair
+            .slave
+            .spawn_command(cb)
+            .map_err(|e| PtyError::Io(std::io::Error::other(e.to_string())))?;
         // Holding the slave open would keep the master from ever seeing EOF.
         drop(pair.slave);
         let pid = child.process_id().unwrap_or(0);
@@ -190,7 +214,12 @@ impl PtySession {
             writer: Mutex::new(writer),
             child: Mutex::new(child),
             pid,
-            lease: Mutex::new(Lease { epoch: 1, next: 0, acked: 0, attached: true }),
+            lease: Mutex::new(Lease {
+                epoch: 1,
+                next: 0,
+                acked: 0,
+                attached: true,
+            }),
             output,
             _reservation: reservation,
         })
@@ -223,7 +252,10 @@ impl PtySession {
     }
 
     /// Resolve an unacknowledged range explicitly, then fence the epoch forward and attach.
-    pub fn reattach_after_reconciling(&self, decision: UnacknowledgedInputDecision) -> PtyLeaseSnapshot {
+    pub fn reattach_after_reconciling(
+        &self,
+        decision: UnacknowledgedInputDecision,
+    ) -> PtyLeaseSnapshot {
         let mut l = self.lease.lock().unwrap_or_else(|e| e.into_inner());
         if l.unacked().is_some() {
             match decision {
@@ -240,26 +272,44 @@ impl PtySession {
     pub fn acknowledge_input(&self, epoch: u64, upto: u64) -> Result<PtyLeaseSnapshot, PtyError> {
         let mut l = self.lease.lock().unwrap_or_else(|e| e.into_inner());
         if l.epoch != epoch {
-            return Err(PtyError::StaleEpoch { presented: epoch, current: l.epoch });
+            return Err(PtyError::StaleEpoch {
+                presented: epoch,
+                current: l.epoch,
+            });
         }
         if upto < l.acked || upto > l.next {
-            return Err(PtyError::AckOutOfRange { upto, next: l.next, acked: l.acked });
+            return Err(PtyError::AckOutOfRange {
+                upto,
+                next: l.next,
+                acked: l.acked,
+            });
         }
         l.acked = upto;
         Ok(l.snap())
     }
 
     /// Write input fenced by `(epoch, sequence)`. Nothing reaches the child on rejection.
-    pub fn write_input(&self, epoch: u64, sequence: u64, bytes: &[u8]) -> Result<PtyLeaseSnapshot, PtyError> {
+    pub fn write_input(
+        &self,
+        epoch: u64,
+        sequence: u64,
+        bytes: &[u8],
+    ) -> Result<PtyLeaseSnapshot, PtyError> {
         let mut l = self.lease.lock().unwrap_or_else(|e| e.into_inner());
         if !l.attached {
             return Err(PtyError::Detached);
         }
         if l.epoch != epoch {
-            return Err(PtyError::StaleEpoch { presented: epoch, current: l.epoch });
+            return Err(PtyError::StaleEpoch {
+                presented: epoch,
+                current: l.epoch,
+            });
         }
         if l.next != sequence {
-            return Err(PtyError::BadSequence { expected: l.next, got: sequence });
+            return Err(PtyError::BadSequence {
+                expected: l.next,
+                got: sequence,
+            });
         }
         {
             let mut w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
@@ -272,13 +322,23 @@ impl PtySession {
 
     pub fn resize(&self, size: PtySize) -> std::io::Result<()> {
         self.master
-            .resize(portable_pty::PtySize { rows: size.rows.max(1), cols: size.cols.max(1), pixel_width: 0, pixel_height: 0 })
+            .resize(portable_pty::PtySize {
+                rows: size.rows.max(1),
+                cols: size.cols.max(1),
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| std::io::Error::other(e.to_string()))
     }
 
     /// Retained output (bounded to 1 MiB, oldest bytes dropped).
     pub fn output(&self) -> Vec<u8> {
-        self.output.0.lock().unwrap_or_else(|e| e.into_inner()).buf.clone()
+        self.output
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .buf
+            .clone()
     }
 
     /// Block until retained output contains `needle` or `timeout` elapses.
@@ -294,15 +354,26 @@ impl PtySession {
             if now >= deadline || o.eof {
                 return false;
             }
-            o = cv.wait_timeout(o, deadline - now).unwrap_or_else(|e| e.into_inner()).0;
+            o = cv
+                .wait_timeout(o, deadline - now)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
     }
 
     /// Wait for the child to exit; `None` on timeout.
-    pub fn wait_exit(&self, timeout: Duration) -> std::io::Result<Option<portable_pty::ExitStatus>> {
+    pub fn wait_exit(
+        &self,
+        timeout: Duration,
+    ) -> std::io::Result<Option<portable_pty::ExitStatus>> {
         let deadline = Instant::now() + timeout;
         loop {
-            if let Some(s) = self.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait()? {
+            if let Some(s) = self
+                .child
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .try_wait()?
+            {
                 return Ok(Some(s));
             }
             if Instant::now() >= deadline {

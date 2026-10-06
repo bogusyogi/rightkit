@@ -47,8 +47,11 @@ impl Query {
                 Node::Or(leaves) => {
                     let all_text = leaves.iter().all(|l| l.op.is_none() && !l.negated);
                     if all_text {
-                        let group: Vec<String> =
-                            leaves.iter().map(|l| clean(&l.value)).filter(|v| !v.is_empty()).collect();
+                        let group: Vec<String> = leaves
+                            .iter()
+                            .map(|l| clean(&l.value))
+                            .filter(|v| !v.is_empty())
+                            .collect();
                         if !group.is_empty() {
                             q.or_groups.push(group);
                         }
@@ -86,7 +89,11 @@ impl Query {
             }
             return;
         }
-        let value = if leaf.is_phrase { leaf.value.trim().to_string() } else { clean(&leaf.value) };
+        let value = if leaf.is_phrase {
+            leaf.value.trim().to_string()
+        } else {
+            clean(&leaf.value)
+        };
         if value.is_empty() {
             return;
         }
@@ -117,7 +124,12 @@ impl Query {
         let alnum = |t: &String| t.chars().any(char::is_alphanumeric);
         let prefix = |t: &str| format!("\"{}\"*", t.replace('"', "\"\""));
         let phrase = |t: &str| format!("\"{}\"", t.replace('"', "\"\""));
-        let mut parts: Vec<String> = self.text.iter().filter(|t| alnum(t)).map(|t| prefix(t)).collect();
+        let mut parts: Vec<String> = self
+            .text
+            .iter()
+            .filter(|t| alnum(t))
+            .map(|t| prefix(t))
+            .collect();
         parts.extend(self.phrases.iter().filter(|t| alnum(t)).map(|t| phrase(t)));
         for g in &self.or_groups {
             let terms: Vec<String> = g.iter().filter(|t| alnum(t)).map(|t| prefix(t)).collect();

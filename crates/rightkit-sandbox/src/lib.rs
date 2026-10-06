@@ -25,9 +25,7 @@ mod windows_job;
 pub use denial::{classify_denial, DenialCategory, DenialSignature, DenialSource};
 pub use error::SandboxError;
 pub use policy::{EnvPolicy, NetworkPolicy, SandboxCommand, SandboxPolicy};
-pub use pty::{
-    PtyError, PtyLeaseSnapshot, PtySession, PtySize, UnacknowledgedInputDecision,
-};
+pub use pty::{PtyError, PtyLeaseSnapshot, PtySession, PtySize, UnacknowledgedInputDecision};
 pub use resources::{
     Reservation, ResourceAuthority, ResourceDenied, ResourceKind, ResourceProfile,
 };

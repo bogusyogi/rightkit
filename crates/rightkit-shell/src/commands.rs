@@ -36,13 +36,28 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
     let tray = app.tray_by_id(crate::tray::TRAY_ID).is_some();
     // Where the OS placed the status item (screen points). Present only once AppKit/the shell
     // gave the item real geometry, which makes this an OS-derived fact, not a registry entry.
-    let tray_rect = app.tray_by_id(crate::tray::TRAY_ID).and_then(|t| t.rect().ok().flatten()).map(|r| {
-        let (p, z) = (r.position.to_physical::<f64>(1.0), r.size.to_physical::<f64>(1.0));
-        json!({"x": p.x, "y": p.y, "w": z.width, "h": z.height})
-    });
-    let menu: Vec<Value> = state.menu_rows.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(p, l)| json!({"path": p, "label": l})).collect();
+    let tray_rect = app
+        .tray_by_id(crate::tray::TRAY_ID)
+        .and_then(|t| t.rect().ok().flatten())
+        .map(|r| {
+            let (p, z) = (
+                r.position.to_physical::<f64>(1.0),
+                r.size.to_physical::<f64>(1.0),
+            );
+            json!({"x": p.x, "y": p.y, "w": z.width, "h": z.height})
+        });
+    let menu: Vec<Value> = state
+        .menu_rows
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(p, l)| json!({"path": p, "label": l}))
+        .collect();
     #[cfg(any(debug_assertions, feature = "devtools"))]
-    let devtools_open = app.get_webview_window(&state.main_label).map(|w| w.is_devtools_open()).unwrap_or(false);
+    let devtools_open = app
+        .get_webview_window(&state.main_label)
+        .map(|w| w.is_devtools_open())
+        .unwrap_or(false);
     #[cfg(not(any(debug_assertions, feature = "devtools")))]
     let devtools_open = false;
     let windows: Vec<Value> = app
@@ -50,8 +65,13 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
         .iter()
         .map(|(label, w)| json!({"label": label, "visible": w.is_visible().unwrap_or(false), "title": w.title().unwrap_or_default(), "native": crate::windows::readback(w).map(|native| json!(native)).unwrap_or_else(|e| json!({"error": e}))}))
         .collect();
-    let menu_enabled: BTreeMap<String, bool> =
-        state.menu_items.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(id, i)| (id.clone(), i.is_enabled().unwrap_or(false))).collect();
+    let menu_enabled: BTreeMap<String, bool> = state
+        .menu_items
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(id, i)| (id.clone(), i.is_enabled().unwrap_or(false)))
+        .collect();
     json!({
         "appId": state.app_id,
         "instance": *state.single_instance.lock().unwrap_or_else(|e| e.into_inner()),
@@ -73,10 +93,15 @@ pub fn rk_shell_window(action: String, window: WebviewWindow<Wry>) -> Result<(),
         "minimize" => window.minimize().map_err(|e| e.to_string()),
         "maximize" => window.maximize().map_err(|e| e.to_string()),
         "unmaximize" => window.unmaximize().map_err(|e| e.to_string()),
-        "toggle-maximize" => {
-            if window.is_maximized().unwrap_or(false) { window.unmaximize() } else { window.maximize() }.map_err(|e| e.to_string())
+        "toggle-maximize" => if window.is_maximized().unwrap_or(false) {
+            window.unmaximize()
+        } else {
+            window.maximize()
         }
-        "fullscreen" => window.set_fullscreen(!window.is_fullscreen().unwrap_or(false)).map_err(|e| e.to_string()),
+        .map_err(|e| e.to_string()),
+        "fullscreen" => window
+            .set_fullscreen(!window.is_fullscreen().unwrap_or(false))
+            .map_err(|e| e.to_string()),
         "hide" => {
             let r = window.hide();
             if window.label() == "main" {
@@ -88,7 +113,10 @@ pub fn rk_shell_window(action: String, window: WebviewWindow<Wry>) -> Result<(),
             let r = if crate::lifecycle::qa_background() {
                 crate::windows::show_background_aware(&window)
             } else {
-                window.show().and_then(|_| window.set_focus()).map_err(|e| e.to_string())
+                window
+                    .show()
+                    .and_then(|_| window.set_focus())
+                    .map_err(|e| e.to_string())
             };
             if window.label() == "main" {
                 crate::idle::note_visible(window.app_handle());
@@ -113,14 +141,25 @@ pub fn rk_shell_set_tray(update: TrayUpdate, app: AppHandle<Wry>) -> Result<(), 
 }
 
 #[tauri::command]
-pub fn rk_shell_set_menu_item_enabled(id: String, enabled: bool, state: State<'_, ShellState>) -> Result<(), String> {
+pub fn rk_shell_set_menu_item_enabled(
+    id: String,
+    enabled: bool,
+    state: State<'_, ShellState>,
+) -> Result<(), String> {
     let items = state.menu_items.lock().unwrap_or_else(|e| e.into_inner());
-    items.get(&id).ok_or_else(|| format!("no menu item {id}"))?.set_enabled(enabled).map_err(|e| e.to_string())
+    items
+        .get(&id)
+        .ok_or_else(|| format!("no menu item {id}"))?
+        .set_enabled(enabled)
+        .map_err(|e| e.to_string())
 }
 
 /// `enabled = None` reads; `Some(b)` sets and returns the new status.
 #[tauri::command]
-pub fn rk_shell_autostart(enabled: Option<bool>, state: State<'_, ShellState>) -> Result<crate::autostart::AutostartStatus, String> {
+pub fn rk_shell_autostart(
+    enabled: Option<bool>,
+    state: State<'_, ShellState>,
+) -> Result<crate::autostart::AutostartStatus, String> {
     match enabled {
         Some(on) => crate::autostart::set_enabled(&state.autostart, on),
         None => Ok(crate::autostart::status(&state.autostart)),
@@ -155,7 +194,11 @@ pub fn rk_shell_clipboard_read(board: Option<String>) -> Result<ClipboardPayload
         html: c.html,
         png: c.png.map(|p| b64::encode(&p)),
         files: c.files,
-        custom: c.custom.into_iter().map(|(k, v)| (k, b64::encode(&v))).collect(),
+        custom: c
+            .custom
+            .into_iter()
+            .map(|(k, v)| (k, b64::encode(&v)))
+            .collect(),
         board,
     })
 }
@@ -164,7 +207,10 @@ pub fn rk_shell_clipboard_read(board: Option<String>) -> Result<ClipboardPayload
 pub fn rk_shell_clipboard_write(payload: ClipboardPayload) -> Result<(), String> {
     let mut custom = BTreeMap::new();
     for (k, v) in &payload.custom {
-        custom.insert(k.clone(), b64::decode(v).ok_or_else(|| format!("custom format {k} is not base64"))?);
+        custom.insert(
+            k.clone(),
+            b64::decode(v).ok_or_else(|| format!("custom format {k} is not base64"))?,
+        );
     }
     let png = match &payload.png {
         Some(s) => Some(b64::decode(s).ok_or("png is not base64")?),
@@ -172,19 +218,34 @@ pub fn rk_shell_clipboard_write(payload: ClipboardPayload) -> Result<(), String>
     };
     crate::clipboard::write(
         &board_of(&payload.board),
-        &ClipboardContent { text: payload.text, html: payload.html, png, files: payload.files, custom },
+        &ClipboardContent {
+            text: payload.text,
+            html: payload.html,
+            png,
+            files: payload.files,
+            custom,
+        },
     )
 }
 
 #[tauri::command]
-pub async fn rk_shell_engine_call(method: String, params: Option<Value>, app: AppHandle<Wry>) -> Result<Value, String> {
+pub async fn rk_shell_engine_call(
+    method: String,
+    params: Option<Value>,
+    app: AppHandle<Wry>,
+) -> Result<Value, String> {
     #[cfg(feature = "engine")]
     {
         // Engine calls block on the sidecar: keep them off the async executor threads.
         tauri::async_runtime::spawn_blocking(move || {
             let state = app.state::<ShellState>();
-            let engine = state.engine.clone().ok_or_else(|| "no engine configured".to_string())?;
-            engine.call(&app, &method, params.unwrap_or(Value::Null)).map_err(|e| format!("{}: {}", e.code, e.message))
+            let engine = state
+                .engine
+                .clone()
+                .ok_or_else(|| "no engine configured".to_string())?;
+            engine
+                .call(&app, &method, params.unwrap_or(Value::Null))
+                .map_err(|e| format!("{}: {}", e.code, e.message))
         })
         .await
         .map_err(|e| e.to_string())?
@@ -197,7 +258,12 @@ pub async fn rk_shell_engine_call(method: String, params: Option<Value>, app: Ap
 }
 
 #[tauri::command]
-pub fn rk_shell_traffic_lights(dx: f64, dy: f64, window: WebviewWindow<Wry>, state: State<'_, ShellState>) {
+pub fn rk_shell_traffic_lights(
+    dx: f64,
+    dy: f64,
+    window: WebviewWindow<Wry>,
+    state: State<'_, ShellState>,
+) {
     state.traffic.set_offset(&window, dx, dy);
 }
 
@@ -227,19 +293,30 @@ use crate::error::ShellError;
 use crate::notify::{NotificationRequest, NotifyOutcome, NotifyStatus};
 use crate::presence::{AutoPrefs, Environment, PresenceState, Rect, WindowObservation};
 
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, ShellError> + Send + 'static) -> Result<T, ShellError> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| ShellError::Other(e.to_string()))?
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, ShellError> + Send + 'static,
+) -> Result<T, ShellError> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| ShellError::Other(e.to_string()))?
 }
 
 /// Post a native notification. Resolves `{delivered:false, suppressed:"dnd"}` while Do-Not-Disturb
 /// (manual or an automatic meeting) is in effect. Runs off the UI thread: the first call may wait on
 /// the OS permission prompt.
 #[tauri::command]
-pub async fn rk_shell_notify(request: NotificationRequest, app: AppHandle<Wry>) -> Result<NotifyOutcome, ShellError> {
+pub async fn rk_shell_notify(
+    request: NotificationRequest,
+    app: AppHandle<Wry>,
+) -> Result<NotifyOutcome, ShellError> {
     let handle = app.clone();
     let outcome = blocking(move || {
         let state = handle.state::<ShellState>();
-        crate::notify::post(&request, &state.notifications, state.presence.effective_dnd())
+        crate::notify::post(
+            &request,
+            &state.notifications,
+            state.presence.effective_dnd(),
+        )
     })
     .await?;
     // A frontmost app's banner is suppressed by the OS; ask for the gentler attention cue instead.
@@ -257,7 +334,12 @@ pub async fn rk_shell_notify(request: NotificationRequest, app: AppHandle<Wry>) 
 /// Authorization plus what the OS reports as delivered to this app (the QA read-back).
 #[tauri::command]
 pub async fn rk_shell_notify_status(app: AppHandle<Wry>) -> Result<NotifyStatus, ShellError> {
-    blocking(move || Ok(crate::notify::status(&app.state::<ShellState>().notifications))).await
+    blocking(move || {
+        Ok(crate::notify::status(
+            &app.state::<ShellState>().notifications,
+        ))
+    })
+    .await
 }
 
 /// Remove delivered notifications by id; `None` or an empty list removes all of this app's.
@@ -267,16 +349,25 @@ pub async fn rk_shell_notify_clear(ids: Option<Vec<String>>) -> Result<(), Shell
 }
 
 #[tauri::command]
-pub fn rk_shell_badge(count: i64, app: AppHandle<Wry>, state: State<'_, ShellState>) -> Result<u32, ShellError> {
+pub fn rk_shell_badge(
+    count: i64,
+    app: AppHandle<Wry>,
+    state: State<'_, ShellState>,
+) -> Result<u32, ShellError> {
     let n = state.notifications.set_badge(count);
     if let Some(w) = app.get_webview_window(&state.main_label) {
-        w.set_badge_count((n > 0).then_some(i64::from(n))).map_err(|e| ShellError::Other(format!("set badge count: {e}")))?;
+        w.set_badge_count((n > 0).then_some(i64::from(n)))
+            .map_err(|e| ShellError::Other(format!("set badge count: {e}")))?;
     }
     Ok(n)
 }
 
 #[tauri::command]
-pub fn rk_shell_set_dnd(enabled: bool, app: AppHandle<Wry>, state: State<'_, ShellState>) -> PresenceState {
+pub fn rk_shell_set_dnd(
+    enabled: bool,
+    app: AppHandle<Wry>,
+    state: State<'_, ShellState>,
+) -> PresenceState {
     state.presence.set_manual_dnd(enabled);
     let s = state.presence.snapshot();
     let _ = tauri::Emitter::emit(&app, crate::EVENT_PRESENCE, s);
@@ -317,10 +408,17 @@ pub async fn rk_shell_presence_probe(app: AppHandle<Wry>) -> Result<Value, Shell
 /// with the current preferences and becomes the automatic state (what the poller would do), so a
 /// meeting can be simulated without a real conferencing app.
 #[tauri::command]
-pub fn rk_shell_presence_evaluate(monitor: Rect, windows: Vec<WindowObservation>, apply: Option<bool>, state: State<'_, ShellState>) -> Value {
+pub fn rk_shell_presence_evaluate(
+    monitor: Rect,
+    windows: Vec<WindowObservation>,
+    apply: Option<bool>,
+    state: State<'_, ShellState>,
+) -> Value {
     let env: Environment = crate::presence::detect(monitor, &windows, &state.app_name);
     if apply.unwrap_or(false) {
-        state.presence.apply_observation(crate::presence::reconcile(state.presence.prefs(), env));
+        state
+            .presence
+            .apply_observation(crate::presence::reconcile(state.presence.prefs(), env));
     }
     json!({"environment": env, "state": state.presence.snapshot()})
 }
@@ -342,7 +440,11 @@ pub fn rk_shell_idle_note(hidden: bool, app: AppHandle<Wry>) {
 
 /// Canonicalise `path` and require a broker grant (`write: true` checks a save target).
 #[tauri::command]
-pub fn rk_shell_path_require(path: String, write: Option<bool>, state: State<'_, ShellState>) -> Result<String, ShellError> {
+pub fn rk_shell_path_require(
+    path: String,
+    write: Option<bool>,
+    state: State<'_, ShellState>,
+) -> Result<String, ShellError> {
     if write.unwrap_or(false) {
         state.broker.require_write_target(&path)
     } else {
@@ -357,31 +459,55 @@ pub fn rk_shell_path_revoke(path: String, state: State<'_, ShellState>) -> Resul
 
 /// Trade a one-shot recent-file id (minted in Rust) for a grant.
 #[tauri::command]
-pub fn rk_shell_path_grant_recent(id: String, state: State<'_, ShellState>) -> Result<String, ShellError> {
+pub fn rk_shell_path_grant_recent(
+    id: String,
+    state: State<'_, ShellState>,
+) -> Result<String, ShellError> {
     state.broker.grant_known(&id)
 }
 
 /// Re-grant a save-as target the app just wrote.
 #[tauri::command]
-pub fn rk_shell_path_regrant_saved(path: String, state: State<'_, ShellState>) -> Result<String, ShellError> {
+pub fn rk_shell_path_regrant_saved(
+    path: String,
+    state: State<'_, ShellState>,
+) -> Result<String, ShellError> {
     state.broker.regrant_saved_target(&path)
 }
 
 /// Mint the stream URL for a granted file. Rejects `broker_denied` for anything not granted.
 #[tauri::command]
-pub fn rk_shell_stream_grant(path: String, state: State<'_, ShellState>) -> Result<Value, ShellError> {
-    let scheme = state.stream_scheme.clone().ok_or_else(|| ShellError::Unsupported("no stream protocol configured".into()))?;
+pub fn rk_shell_stream_grant(
+    path: String,
+    state: State<'_, ShellState>,
+) -> Result<Value, ShellError> {
+    let scheme = state
+        .stream_scheme
+        .clone()
+        .ok_or_else(|| ShellError::Unsupported("no stream protocol configured".into()))?;
     let id = state.broker.grant_stream(&path)?;
-    let url = if cfg!(windows) { format!("http://{scheme}.localhost/{id}") } else { format!("{scheme}://localhost/{id}") };
+    let url = if cfg!(windows) {
+        format!("http://{scheme}.localhost/{id}")
+    } else {
+        format!("{scheme}://localhost/{id}")
+    };
     Ok(json!({"id": id, "url": url}))
 }
 
-fn recovery_of<'a>(state: &'a ShellState) -> Result<&'a crate::recovery::RecoveryStore, ShellError> {
-    state.recovery.as_ref().ok_or_else(|| ShellError::Unsupported("setup recovery is not configured".into()))
+fn recovery_of<'a>(
+    state: &'a ShellState,
+) -> Result<&'a crate::recovery::RecoveryStore, ShellError> {
+    state
+        .recovery
+        .as_ref()
+        .ok_or_else(|| ShellError::Unsupported("setup recovery is not configured".into()))
 }
 
 #[tauri::command]
-pub fn rk_shell_recovery_save(snapshot: String, state: State<'_, ShellState>) -> Result<(), ShellError> {
+pub fn rk_shell_recovery_save(
+    snapshot: String,
+    state: State<'_, ShellState>,
+) -> Result<(), ShellError> {
     recovery_of(&state)?.save(&snapshot, &state.broker)
 }
 

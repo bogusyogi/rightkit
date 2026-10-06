@@ -8,7 +8,9 @@ fn main() {
     use std::os::unix::net::UnixListener;
     let a: Vec<String> = std::env::args().skip(1).collect();
     let suite = Suite::at(&a[0]).expect("suite");
-    let dir = suite.private_service_subdir(&a[1], "").unwrap_or_else(|_| suite.service_dir(&a[1]));
+    let dir = suite
+        .private_service_subdir(&a[1], "")
+        .unwrap_or_else(|_| suite.service_dir(&a[1]));
     std::fs::create_dir_all(&dir).expect("service dir");
     {
         use std::os::unix::fs::PermissionsExt;

@@ -45,7 +45,14 @@ pub trait CommandSet: Send + Sync {
     fn call(&self, method: &str, params: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value>;
     /// Like [`CommandSet::call`] but told which client connection asked (`0` for
     /// stdio and the CLI), so disconnect can be tied to the request.
-    fn call_conn(&self, _conn: u64, method: &str, params: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value> {
+    fn call_conn(
+        &self,
+        _conn: u64,
+        method: &str,
+        params: &Value,
+        dry_run: bool,
+        emit: &Sink,
+    ) -> JobResult<Value> {
         self.call(method, params, dry_run, emit)
     }
     /// A client connection closed (possibly while its request was still running).
@@ -80,7 +87,12 @@ const BUILTINS: [&str; 3] = ["ping", "doctor", "shutdown"];
 
 impl Dispatcher {
     pub fn new(engine: impl Into<String>, version: impl Into<String>) -> Self {
-        Self { engine: engine.into(), version: version.into(), sets: vec![], frame_limit: DEFAULT_FRAME_LIMIT }
+        Self {
+            engine: engine.into(),
+            version: version.into(),
+            sets: vec![],
+            frame_limit: DEFAULT_FRAME_LIMIT,
+        }
     }
     pub fn with(mut self, set: Arc<dyn CommandSet>) -> Self {
         self.sets.push(set);
@@ -102,10 +114,13 @@ impl Dispatcher {
         m
     }
     fn set_for(&self, method: &str) -> Option<&Arc<dyn CommandSet>> {
-        self.sets.iter().find(|s| s.methods().iter().any(|m| m == method))
+        self.sets
+            .iter()
+            .find(|s| s.methods().iter().any(|m| m == method))
     }
     fn is_long(&self, method: &str, params: &Value) -> bool {
-        self.set_for(method).is_some_and(|s| s.is_long(method, params))
+        self.set_for(method)
+            .is_some_and(|s| s.is_long(method, params))
     }
     fn shutdown_all(&self) {
         for s in &self.sets {
@@ -114,7 +129,13 @@ impl Dispatcher {
     }
 
     /// Run one method (shared by both transports).
-    pub fn call(&self, method: &str, params: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value> {
+    pub fn call(
+        &self,
+        method: &str,
+        params: &Value,
+        dry_run: bool,
+        emit: &Sink,
+    ) -> JobResult<Value> {
         self.call_conn(0, method, params, dry_run, emit)
     }
 
@@ -126,7 +147,14 @@ impl Dispatcher {
     }
 
     /// Run one method on behalf of connection `conn`.
-    pub fn call_conn(&self, conn: u64, method: &str, params: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value> {
+    pub fn call_conn(
+        &self,
+        conn: u64,
+        method: &str,
+        params: &Value,
+        dry_run: bool,
+        emit: &Sink,
+    ) -> JobResult<Value> {
         match method {
             "ping" => Ok(json!({"pong": true})),
             "shutdown" => Ok(json!({})),
@@ -134,7 +162,10 @@ impl Dispatcher {
                 "contract_version": CONTRACT_VERSION, "methods": self.methods(), "dry_run": dry_run})),
             m => match self.set_for(m) {
                 Some(s) => s.call_conn(conn, m, params, dry_run, emit),
-                None => Err(JobError::new("unknown_method", format!("unknown method: {m}"))),
+                None => Err(JobError::new(
+                    "unknown_method",
+                    format!("unknown method: {m}"),
+                )),
             },
         }
     }
@@ -147,7 +178,11 @@ impl Dispatcher {
                 self.handle_request(&v, dry_run, emit)
             }
             _ => Outcome {
-                response: err(0, "bad_request", "expected {type:request,id:u64,method:string}"),
+                response: err(
+                    0,
+                    "bad_request",
+                    "expected {type:request,id:u64,method:string}",
+                ),
                 shutdown: false,
             },
         }
@@ -165,7 +200,10 @@ impl Dispatcher {
             Ok(v) => ok(id, v),
             Err(e) => err_job(id, &e),
         };
-        Outcome { response, shutdown: method == "shutdown" }
+        Outcome {
+            response,
+            shutdown: method == "shutdown",
+        }
     }
 }
 
@@ -200,7 +238,9 @@ where
             Ok(None) => break,
             Ok(Some(req)) => {
                 let long = req["type"] == "request"
-                    && req["method"].as_str().is_some_and(|m| d.is_long(m, &req["params"]));
+                    && req["method"]
+                        .as_str()
+                        .is_some_and(|m| d.is_long(m, &req["params"]));
                 if long {
                     let (d, emit) = (Arc::clone(&d), Arc::clone(&emit));
                     threads.push(std::thread::spawn(move || {
@@ -215,9 +255,11 @@ where
                 }
             }
             Err(FrameError::Io(_)) => break,
-            Err(FrameError::TooLarge { limit }) => {
-                emit(err(0, "frame_too_large", &format!("frame exceeded {limit} bytes")))
-            }
+            Err(FrameError::TooLarge { limit }) => emit(err(
+                0,
+                "frame_too_large",
+                &format!("frame exceeded {limit} bytes"),
+            )),
             Err(FrameError::Json(e)) => emit(err(0, "bad_request", &format!("bad frame: {e}"))),
         }
     }
@@ -235,7 +277,14 @@ impl Dispatcher {
         if v["type"] == "request" && v["id"].is_u64() && v["method"].is_string() {
             self.handle_request(v, dry_run, emit)
         } else {
-            Outcome { response: err(0, "bad_request", "expected {type:request,id:u64,method:string}"), shutdown: false }
+            Outcome {
+                response: err(
+                    0,
+                    "bad_request",
+                    "expected {type:request,id:u64,method:string}",
+                ),
+                shutdown: false,
+            }
         }
     }
 }
@@ -289,7 +338,10 @@ pub fn run_cli(
     err_out: &mut (dyn Write + Send),
 ) -> i32 {
     let f = parse_flags(args);
-    if matches!(f.words.first().map(String::as_str), Some("--version" | "-V")) {
+    if matches!(
+        f.words.first().map(String::as_str),
+        Some("--version" | "-V")
+    ) {
         print(out, &json!({"version": d.version}));
         return 0;
     }
@@ -298,7 +350,13 @@ pub fn run_cli(
         let m = f.words[..k].join(".");
         methods.contains(&m).then(|| (m, f.words[k..].to_vec()))
     }) else {
-        print(out, &envelope("unknown_command", &format!("unknown command: {}", f.words.join(" "))));
+        print(
+            out,
+            &envelope(
+                "unknown_command",
+                &format!("unknown command: {}", f.words.join(" ")),
+            ),
+        );
         return 2;
     };
     let raw = match f.input.as_deref() {
@@ -317,7 +375,10 @@ pub fn run_cli(
         Some(t) => match serde_json::from_str(t) {
             Ok(v) => v,
             Err(e) => {
-                print(out, &envelope("bad_input", &format!("input is not JSON: {e}")));
+                print(
+                    out,
+                    &envelope("bad_input", &format!("input is not JSON: {e}")),
+                );
                 return 2;
             }
         },
@@ -344,7 +405,13 @@ pub fn run_cli(
         match raw.trim().parse::<f64>() {
             Ok(s) if s.is_finite() && s >= 0.0 => input["wait_timeout_s"] = json!(s),
             _ => {
-                print(out, &envelope("bad_input", "--wait-timeout takes a non-negative number of seconds"));
+                print(
+                    out,
+                    &envelope(
+                        "bad_input",
+                        "--wait-timeout takes a non-negative number of seconds",
+                    ),
+                );
                 return 2;
             }
         }
@@ -394,7 +461,10 @@ pub struct JobCommands {
 
 impl JobCommands {
     pub fn new(runner: Arc<Runner>) -> Self {
-        Self { runner, watched: Mutex::new(Default::default()) }
+        Self {
+            runner,
+            watched: Mutex::new(Default::default()),
+        }
     }
 
     fn target(&self, p: &Value) -> JobResult<crate::store::Job> {
@@ -406,21 +476,43 @@ impl JobCommands {
         }
     }
 
-    fn run(&self, id: &str, emit: &Sink, conn: u64, cancel_on_disconnect: bool) -> JobResult<Value> {
+    fn run(
+        &self,
+        id: &str,
+        emit: &Sink,
+        conn: u64,
+        cancel_on_disconnect: bool,
+    ) -> JobResult<Value> {
         let emit = Arc::clone(emit);
         let sink: EventSink = Arc::new(move |ev| emit(ev.to_value()));
         if cancel_on_disconnect {
-            self.watched.lock().unwrap_or_else(|p| p.into_inner()).entry(conn).or_default().push(id.to_string());
+            self.watched
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .entry(conn)
+                .or_default()
+                .push(id.to_string());
         }
         let out = self.runner.run_with(id, Some(sink));
         if cancel_on_disconnect {
-            if let Some(v) = self.watched.lock().unwrap_or_else(|p| p.into_inner()).get_mut(&conn) {
+            if let Some(v) = self
+                .watched
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .get_mut(&conn)
+            {
                 v.retain(|j| j != id);
             }
         }
         match out? {
             // A handoff is an error the client must see so it can resubmit to the new host.
-            RunOutcome::Paused(j) if j.error.as_ref().is_some_and(|e| e["code"] == crate::error::HOST_HANDOFF) => Err(JobError::handoff()),
+            RunOutcome::Paused(j)
+                if j.error
+                    .as_ref()
+                    .is_some_and(|e| e["code"] == crate::error::HOST_HANDOFF) =>
+            {
+                Err(JobError::handoff())
+            }
             o => Ok(o.to_value()),
         }
     }
@@ -428,9 +520,23 @@ impl JobCommands {
 
 impl CommandSet for JobCommands {
     fn methods(&self) -> Vec<String> {
-        ["job.submit", "job.status", "job.result", "job.list", "job.events", "job.cancel",
-         "job.ack", "job.run", "job.recover", "job.recoverable", "job.wait", "artifact.resolve"]
-            .iter().map(|s| s.to_string()).collect()
+        [
+            "job.submit",
+            "job.status",
+            "job.result",
+            "job.list",
+            "job.events",
+            "job.cancel",
+            "job.ack",
+            "job.run",
+            "job.recover",
+            "job.recoverable",
+            "job.wait",
+            "artifact.resolve",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
     }
 
     fn is_long(&self, method: &str, p: &Value) -> bool {
@@ -446,22 +552,41 @@ impl CommandSet for JobCommands {
     }
 
     fn connection_closed(&self, conn: u64) {
-        let ids = self.watched.lock().unwrap_or_else(|p| p.into_inner()).remove(&conn).unwrap_or_default();
+        let ids = self
+            .watched
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&conn)
+            .unwrap_or_default();
         for id in ids {
             if let Ok(j) = self.runner.store().get(&id) {
                 if !j.is_terminal() && self.runner.store().cancel(&id).is_ok() {
-                    let _ = self.runner.store().add_event(&id, "cancelled", None, Some("client disconnected"));
+                    let _ = self.runner.store().add_event(
+                        &id,
+                        "cancelled",
+                        None,
+                        Some("client disconnected"),
+                    );
                 }
             }
         }
     }
 
-    fn call_conn(&self, conn: u64, method: &str, p: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value> {
+    fn call_conn(
+        &self,
+        conn: u64,
+        method: &str,
+        p: &Value,
+        dry_run: bool,
+        emit: &Sink,
+    ) -> JobResult<Value> {
         let store = self.runner.store();
         let cod = p["cancel_on_disconnect"] == true;
         match method {
             "job.submit" => {
-                let kind = p["kind"].as_str().filter(|k| !k.is_empty())
+                let kind = p["kind"]
+                    .as_str()
+                    .filter(|k| !k.is_empty())
                     .ok_or_else(|| JobError::bad_input("kind required"))?;
                 let new = NewJob {
                     request_id: p["request_id"].as_str().map(Into::into),
@@ -469,7 +594,9 @@ impl CommandSet for JobCommands {
                     request: p.get("request").cloned().unwrap_or_else(|| json!({})),
                 };
                 if dry_run {
-                    return Ok(json!({"dry_run": true, "kind": new.kind, "request_id": new.request_id}));
+                    return Ok(
+                        json!({"dry_run": true, "kind": new.kind, "request_id": new.request_id}),
+                    );
                 }
                 let (job, dedup) = store.submit(&new)?;
                 let mut v = if p["run"] == true || p["wait"] == true {
@@ -484,9 +611,13 @@ impl CommandSet for JobCommands {
             "job.result" => {
                 let j = self.target(p)?;
                 if j.status != crate::store::COMPLETE {
-                    return Err(JobError::new("not_complete", format!("job {} is {}", j.job_id, j.status)));
+                    return Err(JobError::new(
+                        "not_complete",
+                        format!("job {} is {}", j.job_id, j.status),
+                    ));
                 }
-                let arts = store.artifacts(&j.job_id)?
+                let arts = store
+                    .artifacts(&j.job_id)?
                     .iter()
                     .map(|a| -> JobResult<Value> {
                         let mut v = a.to_value();
@@ -502,12 +633,16 @@ impl CommandSet for JobCommands {
                     status: p["status"].as_str().map(Into::into),
                     request_id: p["request_id"].as_str().map(Into::into),
                 })?;
-                Ok(json!({"jobs": jobs.iter().map(|j| j.to_value()).collect::<Vec<_>>(), "truncated": truncated}))
+                Ok(
+                    json!({"jobs": jobs.iter().map(|j| j.to_value()).collect::<Vec<_>>(), "truncated": truncated}),
+                )
             }
             "job.events" => {
                 let j = self.target(p)?;
                 let evs = store.events_after(&j.job_id, p["after"].as_i64().unwrap_or(0))?;
-                Ok(json!({"job_id": j.job_id, "events": evs.iter().map(|e| e.to_value()).collect::<Vec<_>>()}))
+                Ok(
+                    json!({"job_id": j.job_id, "events": evs.iter().map(|e| e.to_value()).collect::<Vec<_>>()}),
+                )
             }
             "job.cancel" => Ok(store.cancel(self.target(p)?.job_id.as_str())?.to_value()),
             "job.ack" => {
@@ -532,7 +667,8 @@ impl CommandSet for JobCommands {
                         j = done;
                     }
                 }
-                let deadline = Instant::now() + Duration::from_secs_f64(p["wait_timeout_s"].as_f64().unwrap_or(30.0));
+                let deadline = Instant::now()
+                    + Duration::from_secs_f64(p["wait_timeout_s"].as_f64().unwrap_or(30.0));
                 while !j.is_terminal() && Instant::now() < deadline {
                     std::thread::sleep(Duration::from_millis(50));
                     j = store.get(&j.job_id)?;
@@ -542,13 +678,18 @@ impl CommandSet for JobCommands {
                 Ok(v)
             }
             "artifact.resolve" => {
-                let id = p["artifact_id"].as_str().ok_or_else(|| JobError::bad_input("artifact_id required"))?;
+                let id = p["artifact_id"]
+                    .as_str()
+                    .ok_or_else(|| JobError::bad_input("artifact_id required"))?;
                 let a = store.get_artifact(id)?;
                 let mut v = a.to_value();
                 v["verified"] = json!(store.verify_artifact(&a)?);
                 Ok(v)
             }
-            other => Err(JobError::new("unknown_method", format!("unknown method: {other}"))),
+            other => Err(JobError::new(
+                "unknown_method",
+                format!("unknown method: {other}"),
+            )),
         }
     }
 }

@@ -42,7 +42,10 @@ pub fn now_iso() -> String {
 }
 
 pub fn now_ms() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -84,6 +87,9 @@ pub fn platform() -> Result<&'static str> {
     } else if cfg!(target_os = "windows") {
         Ok("windows")
     } else {
-        err(format!("rightkit-qa supports macOS and Windows, received {}", std::env::consts::OS))
+        err(format!(
+            "rightkit-qa supports macOS and Windows, received {}",
+            std::env::consts::OS
+        ))
     }
 }

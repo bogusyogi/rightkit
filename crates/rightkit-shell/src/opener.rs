@@ -35,14 +35,17 @@ impl ExternalOpener for SystemOpener {
             cmd = Command::new("xdg-open");
             cmd.arg(target);
         }
-        cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-        cmd.spawn().map(|mut child| {
-            // Reap without blocking the caller.
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-        })
-        .map_err(|e| format!("open {target}: {e}"))
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        cmd.spawn()
+            .map(|mut child| {
+                // Reap without blocking the caller.
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            })
+            .map_err(|e| format!("open {target}: {e}"))
     }
 }
 

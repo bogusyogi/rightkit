@@ -44,7 +44,11 @@ impl JobLocks {
     /// `Ok(None)` when another holder has the lock.
     pub fn try_lock(&self, job_id: &str) -> JobResult<Option<JobLock>> {
         std::fs::create_dir_all(&self.dir)?;
-        let f = OpenOptions::new().create(true).truncate(false).write(true).open(self.path(job_id)?)?;
+        let f = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.path(job_id)?)?;
         match f.try_lock() {
             Ok(()) => Ok(Some(JobLock { _file: f })),
             Err(std::fs::TryLockError::WouldBlock) => Ok(None),
@@ -94,10 +98,13 @@ impl JobControl {
     }
     /// Tell the stall watchdog the handler is alive in the middle of a long step.
     pub fn heartbeat(&self) {
-        self.beat_ms.store(self.started.elapsed().as_millis() as u64, Ordering::SeqCst);
+        self.beat_ms
+            .store(self.started.elapsed().as_millis() as u64, Ordering::SeqCst);
     }
     fn idle(&self) -> Duration {
-        self.started.elapsed().saturating_sub(Duration::from_millis(self.beat_ms.load(Ordering::SeqCst)))
+        self.started
+            .elapsed()
+            .saturating_sub(Duration::from_millis(self.beat_ms.load(Ordering::SeqCst)))
     }
     pub fn is_cancelled(&self) -> bool {
         self.store.is_cancelled(&self.job_id).unwrap_or(false)
@@ -194,7 +201,15 @@ pub struct Runner {
 
 impl Runner {
     pub fn new(store: Arc<JobStore>, locks: JobLocks, handler: Arc<dyn JobHandler>) -> Self {
-        Self { store, locks, handler, sink: None, max_attempts: DEFAULT_MAX_ATTEMPTS, gate: Gate::new(), stall_timeout: None }
+        Self {
+            store,
+            locks,
+            handler,
+            sink: None,
+            max_attempts: DEFAULT_MAX_ATTEMPTS,
+            gate: Gate::new(),
+            stall_timeout: None,
+        }
     }
     pub fn with_sink(mut self, sink: EventSink) -> Self {
         self.sink = Some(sink);
@@ -268,7 +283,11 @@ impl Runner {
         if job.attempts >= self.max_attempts {
             let e = JobError::new("max_attempts", "job used every allowed attempt");
             self.store.fail(job_id, &e)?;
-            self.control(job_id, sink, Priority::of(&job)).progress("failed", None, Some(&e.message));
+            self.control(job_id, sink, Priority::of(&job)).progress(
+                "failed",
+                None,
+                Some(&e.message),
+            );
             return Ok(RunOutcome::Finished(self.store.get(job_id)?));
         }
         let Some(job) = self.store.begin_attempt(job_id)? else {
@@ -276,7 +295,8 @@ impl Runner {
         };
         let priority = Priority::of(&job);
         // Interactive work holds the gate for the whole run so batch jobs yield at their boundaries.
-        let _interactive = (priority == Priority::Interactive).then(|| self.gate.begin_interactive());
+        let _interactive =
+            (priority == Priority::Interactive).then(|| self.gate.begin_interactive());
         let ctl = Arc::new(self.control(job_id, sink, priority));
         ctl.progress("started", None, None);
         let result = self.run_handler(&job, &ctl);
@@ -294,7 +314,11 @@ impl Runner {
                     self.store.refund_attempt(job_id)?;
                 }
                 self.store.record_error(job_id, &e)?;
-                ctl.progress("paused", None, Some(&format!("paused, will resume: {}", e.message)));
+                ctl.progress(
+                    "paused",
+                    None,
+                    Some(&format!("paused, will resume: {}", e.message)),
+                );
                 Ok(RunOutcome::Paused(self.store.get(job_id)?))
             }
             Err(e) => {
@@ -337,7 +361,10 @@ impl Runner {
                     }
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(JobError::new("panic", "job handler thread ended without a result"))
+                    return Err(JobError::new(
+                        "panic",
+                        "job handler thread ended without a result",
+                    ))
                 }
             }
         }
@@ -347,9 +374,12 @@ impl Runner {
     /// queued/running job owns, e.g. left by a crash. Returns removed names.
     /// Pass `root` only when this process is the sole engine for it.
     pub fn sweep_orphan_scratch(&self, root: &Path) -> JobResult<Vec<String>> {
-        let live: std::collections::HashSet<String> = self.store.non_terminal_ids()?.into_iter().collect();
+        let live: std::collections::HashSet<String> =
+            self.store.non_terminal_ids()?.into_iter().collect();
         let mut removed = Vec::new();
-        let Ok(rd) = std::fs::read_dir(root) else { return Ok(removed) };
+        let Ok(rd) = std::fs::read_dir(root) else {
+            return Ok(removed);
+        };
         for entry in rd.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if entry.path().is_dir() && self.store.get(&name).is_ok() && !live.contains(&name) {

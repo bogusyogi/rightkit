@@ -30,13 +30,20 @@ pub struct AtomicOptions {
 
 impl Default for AtomicOptions {
     fn default() -> Self {
-        Self { private: false, create_parents: false, durable: true }
+        Self {
+            private: false,
+            create_parents: false,
+            durable: true,
+        }
     }
 }
 
 impl AtomicOptions {
     pub fn private() -> Self {
-        Self { private: true, ..Self::default() }
+        Self {
+            private: true,
+            ..Self::default()
+        }
     }
 }
 
@@ -106,8 +113,13 @@ impl AtomicWriter {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::OpenOptionsExt;
-                let mode = if options.private { 0o600 } else { existing_mode.unwrap_or(0o666) };
-                open.mode(mode).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+                let mode = if options.private {
+                    0o600
+                } else {
+                    existing_mode.unwrap_or(0o666)
+                };
+                open.mode(mode)
+                    .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
             }
             match open.open(&temp) {
                 Ok(file) => {
@@ -124,7 +136,12 @@ impl AtomicWriter {
                         use std::os::unix::fs::PermissionsExt;
                         let _ = file.set_permissions(fs::Permissions::from_mode(mode));
                     }
-                    return Ok(Self { file: Some(file), temp, target: target.to_path_buf(), options });
+                    return Ok(Self {
+                        file: Some(file),
+                        temp,
+                        target: target.to_path_buf(),
+                        options,
+                    });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
                 Err(e) => return Err(FsError::io(&temp, e)),
@@ -146,7 +163,9 @@ impl AtomicWriter {
 
     pub fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
         let temp = self.temp.clone();
-        self.file_mut().write_all(bytes).map_err(|e| FsError::io(temp, e))
+        self.file_mut()
+            .write_all(bytes)
+            .map_err(|e| FsError::io(temp, e))
     }
 
     /// Publish: flush, `fsync`, rename over the target, `fsync` the directory.
@@ -195,7 +214,10 @@ fn temp_name(name: &str, attempt: u32) -> String {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     // `<pid>` is parsed back by `sweep_stale_temps` to tell a crashed writer from a live one.
-    format!(".{name}{TEMP_MARKER}{}-{n}-{nanos:x}-{attempt}", std::process::id())
+    format!(
+        ".{name}{TEMP_MARKER}{}-{n}-{nanos:x}-{attempt}",
+        std::process::id()
+    )
 }
 
 /// Best-effort directory `fsync` so a rename itself survives power loss (no-op off unix).
@@ -220,7 +242,9 @@ pub fn sweep_stale_temps(dir: &Path, max_age: Duration) -> Result<usize> {
     let mut removed = 0;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let Some(pid) = temp_owner_pid(&name) else { continue };
+        let Some(pid) = temp_owner_pid(&name) else {
+            continue;
+        };
         let Ok(meta) = entry.metadata() else { continue };
         if !meta.is_file() {
             continue;

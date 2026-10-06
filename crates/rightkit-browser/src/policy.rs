@@ -62,7 +62,8 @@ pub enum Decision {
     Deny(String),
 }
 
-pub type AdmissionHook = Arc<dyn Fn(AdmissionRequest) -> BoxFuture<'static, Decision> + Send + Sync>;
+pub type AdmissionHook =
+    Arc<dyn Fn(AdmissionRequest) -> BoxFuture<'static, Decision> + Send + Sync>;
 
 /// Why an address class is blocked.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,7 +111,14 @@ pub type Resolver = Arc<dyn Fn(&str) -> Vec<IpAddr> + Send + Sync>;
 
 impl Default for NetworkPolicy {
     fn default() -> Self {
-        Self { allow_hosts: Vec::new(), allow_request: None, unrestricted: false, resolver: None, resolved: Arc::default(), approved: Arc::default() }
+        Self {
+            allow_hosts: Vec::new(),
+            allow_request: None,
+            unrestricted: false,
+            resolver: None,
+            resolved: Arc::default(),
+            approved: Arc::default(),
+        }
     }
 }
 
@@ -187,7 +195,10 @@ fn classify_v4(ip: Ipv4Addr) -> AddressClass {
 impl NetworkPolicy {
     /// Policy with every check off.
     pub fn unrestricted() -> Self {
-        Self { unrestricted: true, ..Self::default() }
+        Self {
+            unrestricted: true,
+            ..Self::default()
+        }
     }
 
     pub fn allow_host(mut self, host: impl Into<String>) -> Self {
@@ -195,12 +206,18 @@ impl NetworkPolicy {
         self
     }
 
-    pub fn with_resolver(mut self, f: impl Fn(&str) -> Vec<IpAddr> + Send + Sync + 'static) -> Self {
+    pub fn with_resolver(
+        mut self,
+        f: impl Fn(&str) -> Vec<IpAddr> + Send + Sync + 'static,
+    ) -> Self {
         self.resolver = Some(Arc::new(f));
         self
     }
 
-    pub fn allow_with(mut self, f: impl Fn(&NetworkRequest) -> bool + Send + Sync + 'static) -> Self {
+    pub fn allow_with(
+        mut self,
+        f: impl Fn(&NetworkRequest) -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.allow_request = Some(Arc::new(f));
         self
     }
@@ -215,15 +232,35 @@ impl NetworkPolicy {
         // Schemes that never touch the network or other local state.
         if matches!(scheme.as_str(), "about" | "data" | "blob") {
             if scheme == "about" && parsed.path() != "blank" {
-                return self.decide(url, &scheme, "", None, AddressClass::Loopback, resource_type, "about: page");
+                return self.decide(
+                    url,
+                    &scheme,
+                    "",
+                    None,
+                    AddressClass::Loopback,
+                    resource_type,
+                    "about: page",
+                );
             }
             return Ok(());
         }
         if !matches!(scheme.as_str(), "http" | "https" | "ws" | "wss") {
             let reason = format!("scheme '{scheme}' is blocked");
-            return self.decide(url, &scheme, "", None, AddressClass::Loopback, resource_type, &reason);
+            return self.decide(
+                url,
+                &scheme,
+                "",
+                None,
+                AddressClass::Loopback,
+                resource_type,
+                &reason,
+            );
         }
-        let host = parsed.host_str().unwrap_or("").trim_matches(['[', ']']).to_ascii_lowercase();
+        let host = parsed
+            .host_str()
+            .unwrap_or("")
+            .trim_matches(['[', ']'])
+            .to_ascii_lowercase();
         if host.is_empty() {
             return Err("request has no host".into());
         }
@@ -232,7 +269,15 @@ impl NetworkPolicy {
             return Ok(());
         }
         let reason = format!("host '{host}' is {class:?}");
-        self.decide(url, &scheme, &host, parsed.port_or_known_default(), class, resource_type, &reason)?;
+        self.decide(
+            url,
+            &scheme,
+            &host,
+            parsed.port_or_known_default(),
+            class,
+            resource_type,
+            &reason,
+        )?;
         self.approved.lock().unwrap().insert(host, ips);
         Ok(())
     }
@@ -247,12 +292,20 @@ impl NetworkPolicy {
         if ips.is_empty() {
             return Err(format!("host '{host}' did not resolve"));
         }
-        let approved = self.approved.lock().unwrap().get(&host).cloned().unwrap_or_default();
+        let approved = self
+            .approved
+            .lock()
+            .unwrap()
+            .get(&host)
+            .cloned()
+            .unwrap_or_default();
         let listed = self.allow_hosts.iter().any(|h| *h == host);
         let ok: Vec<IpAddr> = ips
             .iter()
             .copied()
-            .filter(|ip| classify_ip(*ip) == AddressClass::Public || listed || approved.contains(ip))
+            .filter(|ip| {
+                classify_ip(*ip) == AddressClass::Public || listed || approved.contains(ip)
+            })
             .collect();
         if ok.len() == ips.len() {
             Ok(ok)
@@ -297,10 +350,18 @@ impl NetworkPolicy {
             return (classify_ip(ip), vec![ip]);
         }
         if host == "localhost" || host.ends_with(".localhost") {
-            return (AddressClass::Loopback, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]);
+            return (
+                AddressClass::Loopback,
+                vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+            );
         }
         let addrs = self.resolve(host).await;
-        let class = addrs.iter().copied().map(classify_ip).find(|c| *c != AddressClass::Public).unwrap_or(AddressClass::Public);
+        let class = addrs
+            .iter()
+            .copied()
+            .map(classify_ip)
+            .find(|c| *c != AddressClass::Public)
+            .unwrap_or(AddressClass::Public);
         (class, addrs)
     }
 
@@ -314,12 +375,17 @@ impl NetworkPolicy {
         let found: Vec<IpAddr> = if let Some(r) = &self.resolver {
             r(host)
         } else {
-            match tokio::time::timeout(Duration::from_secs(3), tokio::net::lookup_host((host, 0))).await {
-            Ok(Ok(it)) => it.map(|a| a.ip()).collect(),
-            _ => Vec::new(), // unresolved names cannot connect; Chrome reports the failure.
+            match tokio::time::timeout(Duration::from_secs(3), tokio::net::lookup_host((host, 0)))
+                .await
+            {
+                Ok(Ok(it)) => it.map(|a| a.ip()).collect(),
+                _ => Vec::new(), // unresolved names cannot connect; Chrome reports the failure.
             }
         };
-        self.resolved.lock().unwrap().insert(host.to_string(), (Instant::now(), found.clone()));
+        self.resolved
+            .lock()
+            .unwrap()
+            .insert(host.to_string(), (Instant::now(), found.clone()));
         found
     }
 }
@@ -327,10 +393,19 @@ impl NetworkPolicy {
 /// Lifecycle notifications for the caller's journal. Content-free.
 #[derive(Clone, Debug)]
 pub enum BrowserEvent {
-    Started { session_id: String, pid: Option<u32> },
-    Stopped { session_id: String },
+    Started {
+        session_id: String,
+        pid: Option<u32>,
+    },
+    Stopped {
+        session_id: String,
+    },
     /// Admission or network policy refused something before any side effect.
-    Denied { session_id: String, what: String, reason: String },
+    Denied {
+        session_id: String,
+        what: String,
+        reason: String,
+    },
 }
 
 pub type EventSink = Arc<dyn Fn(&BrowserEvent) + Send + Sync>;
@@ -354,7 +429,11 @@ impl Guard {
         let what = format!("{:?}", req.action);
         if let Some(hook) = &self.admission {
             if let Decision::Deny(reason) = hook(req).await {
-                self.emit(BrowserEvent::Denied { session_id: self.session_id.clone(), what, reason: reason.clone() });
+                self.emit(BrowserEvent::Denied {
+                    session_id: self.session_id.clone(),
+                    what,
+                    reason: reason.clone(),
+                });
                 return Err(crate::error::BrowserError::Denied(reason));
             }
         }
@@ -365,8 +444,14 @@ impl Guard {
         match self.network.check(url, kind).await {
             Ok(()) => Ok(()),
             Err(reason) => {
-                self.emit(BrowserEvent::Denied { session_id: self.session_id.clone(), what: kind.into(), reason: reason.clone() });
-                Err(crate::error::BrowserError::Denied(format!("{url}: {reason}")))
+                self.emit(BrowserEvent::Denied {
+                    session_id: self.session_id.clone(),
+                    what: kind.into(),
+                    reason: reason.clone(),
+                });
+                Err(crate::error::BrowserError::Denied(format!(
+                    "{url}: {reason}"
+                )))
             }
         }
     }

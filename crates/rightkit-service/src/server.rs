@@ -1,5 +1,5 @@
-use crate::error::{ServiceError, ERROR_NOT_ALLOWED};
 use crate::discovery::record_process_matches;
+use crate::error::{ServiceError, ERROR_NOT_ALLOWED};
 use crate::record::*;
 use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
 use crate::transport::{self, endpoint_for, pid_alive, probe_endpoint, Conn, Listener};
@@ -47,7 +47,13 @@ impl CallContext {
 pub trait Handler: Send + Sync + 'static {
     /// Serve one allowlisted request. Events go to `emit`; a returned
     /// retryable error is sent to the client as-is.
-    fn call(&self, cx: &CallContext, method: &str, params: &Value, emit: &Emit) -> Result<Value, ServiceError>;
+    fn call(
+        &self,
+        cx: &CallContext,
+        method: &str,
+        params: &Value,
+        emit: &Emit,
+    ) -> Result<Value, ServiceError>;
     /// A takeover was accepted: stop starting new steps, finish at a boundary.
     fn on_handoff(&self) {}
     /// A connection closed (also fired mid-request when the peer drops).
@@ -57,11 +63,28 @@ pub trait Handler: Send + Sync + 'static {
 /// Content-free lifecycle events for the host's journal.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServiceEvent {
-    Started { service: String, endpoint: String, rank: u8 },
-    ConnectionOpened { conn: u64, app: String },
-    ConnectionRejected { app: String, reason: String },
-    Denied { conn: u64, app: String, method: String },
-    HandoffRequested { by_role: String, by_rank: u8 },
+    Started {
+        service: String,
+        endpoint: String,
+        rank: u8,
+    },
+    ConnectionOpened {
+        conn: u64,
+        app: String,
+    },
+    ConnectionRejected {
+        app: String,
+        reason: String,
+    },
+    Denied {
+        conn: u64,
+        app: String,
+        method: String,
+    },
+    HandoffRequested {
+        by_role: String,
+        by_rank: u8,
+    },
     Released,
 }
 
@@ -120,7 +143,11 @@ pub enum HostError {
 impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HostError::Held(r) => write!(f, "{} is already hosted by {} (rank {}, pid {})", r.service, r.role, r.rank, r.pid),
+            HostError::Held(r) => write!(
+                f,
+                "{} is already hosted by {} (rank {}, pid {})",
+                r.service, r.role, r.rank, r.pid
+            ),
             HostError::TakeoverTimeout => write!(f, "incumbent host did not release in time"),
             HostError::InvalidName(s) => write!(f, "invalid service name {s:?}"),
             HostError::Suite(e) => write!(f, "{e}"),
@@ -210,8 +237,16 @@ impl Hosted {
     }
     /// Block until the host has released (clean shutdown or takeover).
     pub fn wait_released(&self, timeout: Duration) -> bool {
-        let g = self.shared.released.lock().unwrap_or_else(|e| e.into_inner());
-        let (g, _) = self.shared.released_cv.wait_timeout_while(g, timeout, |r| !*r).unwrap_or_else(|e| e.into_inner());
+        let g = self
+            .shared
+            .released
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let (g, _) = self
+            .shared
+            .released_cv
+            .wait_timeout_while(g, timeout, |r| !*r)
+            .unwrap_or_else(|e| e.into_inner());
         *g
     }
     pub fn shutdown(&self) {
@@ -227,7 +262,11 @@ impl Drop for Hosted {
 
 /// Host `cfg.service` on `suite`: discover, rank, take over if outranking,
 /// bind the current-user-only endpoint, publish `service.json`.
-pub fn host(suite: &Suite, cfg: ServiceConfig, handler: Arc<dyn Handler>) -> Result<Hosted, HostError> {
+pub fn host(
+    suite: &Suite,
+    cfg: ServiceConfig,
+    handler: Arc<dyn Handler>,
+) -> Result<Hosted, HostError> {
     if !valid_service_name(&cfg.service) {
         return Err(HostError::InvalidName(cfg.service.clone()));
     }
@@ -238,14 +277,26 @@ pub fn host(suite: &Suite, cfg: ServiceConfig, handler: Arc<dyn Handler>) -> Res
     let mut requested = false;
     loop {
         match read_record(suite, &cfg.service) {
-            Some(rec) if rec.pid != me && record_process_matches(&rec) && probe_endpoint(&rec.endpoint) => {
+            Some(rec)
+                if rec.pid != me
+                    && record_process_matches(&rec)
+                    && probe_endpoint(&rec.endpoint) =>
+            {
                 let their = resolve_rank(&cfg, &rec.role, rec.rank);
                 if their == RANK_UNKNOWN || cfg.rank >= their {
                     return Err(HostError::Held(rec));
                 }
                 if !requested {
-                    let t = TakeoverRequest { role: cfg.role.clone(), rank: cfg.rank, pid: me, requested_at_ms: now_ms() };
-                    write_atomic(&takeover_path(suite, &cfg.service), &serde_json::to_vec(&t).unwrap_or_default())?;
+                    let t = TakeoverRequest {
+                        role: cfg.role.clone(),
+                        rank: cfg.rank,
+                        pid: me,
+                        requested_at_ms: now_ms(),
+                    };
+                    write_atomic(
+                        &takeover_path(suite, &cfg.service),
+                        &serde_json::to_vec(&t).unwrap_or_default(),
+                    )?;
                     requested = true;
                 }
                 if Instant::now() >= deadline {
@@ -261,15 +312,27 @@ pub fn host(suite: &Suite, cfg: ServiceConfig, handler: Arc<dyn Handler>) -> Res
             None => break,
         }
     }
-    let endpoint = cfg.endpoint.clone().unwrap_or_else(|| endpoint_for(suite, &cfg.service));
-    let listener = Listener::bind(&endpoint).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::AddrInUse {
-            if let Some(rec) = read_record(suite, &cfg.service) {
-                return HostError::Held(rec);
+    let endpoint = cfg
+        .endpoint
+        .clone()
+        .unwrap_or_else(|| endpoint_for(suite, &cfg.service));
+    let listener = loop {
+        match Listener::bind(&endpoint) {
+            Ok(listener) => break listener,
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                if let Some(rec) = read_record(suite, &cfg.service) {
+                    return Err(HostError::Held(rec));
+                }
+                // A handing-off incumbent removes its record before its pipe instances finish
+                // closing; on Windows the name stays taken for that moment. Wait it out.
+                if !cfg!(windows) || Instant::now() >= deadline {
+                    return Err(HostError::Io(e));
+                }
+                std::thread::sleep(Duration::from_millis(25));
             }
+            Err(e) => return Err(HostError::Io(e)),
         }
-        HostError::Io(e)
-    })?;
+    };
     let record = ServiceRecord {
         protocol_major: PROTOCOL_MAJOR,
         protocol_minor: PROTOCOL_MINOR,
@@ -283,7 +346,10 @@ pub fn host(suite: &Suite, cfg: ServiceConfig, handler: Arc<dyn Handler>) -> Res
         started_ms: now_ms(),
         process_started_ms: crate::discovery::own_start_ms().unwrap_or(0),
     };
-    write_atomic(&record_path(suite, &cfg.service), &serde_json::to_vec_pretty(&record).unwrap_or_default())?;
+    write_atomic(
+        &record_path(suite, &cfg.service),
+        &serde_json::to_vec_pretty(&record).unwrap_or_default(),
+    )?;
     if read_takeover(suite, &cfg.service).is_some_and(|t| t.pid == me) {
         let _ = std::fs::remove_file(takeover_path(suite, &cfg.service));
     }
@@ -301,16 +367,27 @@ pub fn host(suite: &Suite, cfg: ServiceConfig, handler: Arc<dyn Handler>) -> Res
         next_conn: AtomicU64::new(1),
         conns: Mutex::new(HashMap::new()),
     });
-    shared.event(ServiceEvent::Started { service: shared.cfg.service.clone(), endpoint, rank: shared.cfg.rank });
+    shared.event(ServiceEvent::Started {
+        service: shared.cfg.service.clone(),
+        endpoint,
+        rank: shared.cfg.rank,
+    });
     let s = shared.clone();
-    std::thread::Builder::new().name("rk-svc-accept".into()).spawn(move || accept_loop(s))?;
+    std::thread::Builder::new()
+        .name("rk-svc-accept".into())
+        .spawn(move || accept_loop(s))?;
     let s = shared.clone();
-    std::thread::Builder::new().name("rk-svc-takeover".into()).spawn(move || takeover_monitor(s))?;
+    std::thread::Builder::new()
+        .name("rk-svc-takeover".into())
+        .spawn(move || takeover_monitor(s))?;
     Ok(Hosted { shared })
 }
 
 pub(crate) fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn accept_loop(s: Arc<Shared>) {
@@ -321,7 +398,9 @@ fn accept_loop(s: Arc<Shared>) {
                     break;
                 }
                 let s2 = s.clone();
-                let _ = std::thread::Builder::new().name("rk-svc-conn".into()).spawn(move || serve_conn(s2, conn));
+                let _ = std::thread::Builder::new()
+                    .name("rk-svc-conn".into())
+                    .spawn(move || serve_conn(s2, conn));
             }
             Ok(None) => {} // wrong user: dropped
             Err(_) => {
@@ -339,14 +418,24 @@ fn takeover_monitor(s: Arc<Shared>) {
     let max_age = s.cfg.takeover_timeout.as_millis() as u64;
     while !s.stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(25));
-        let Some(t) = read_takeover(&s.suite, &s.cfg.service) else { continue };
+        let Some(t) = read_takeover(&s.suite, &s.cfg.service) else {
+            continue;
+        };
         let fresh = now_ms().saturating_sub(t.requested_at_ms) <= max_age + 5_000;
         let their = resolve_rank(&s.cfg, &t.role, t.rank);
-        if their == RANK_UNKNOWN || their >= s.cfg.rank || t.pid == s.record.pid || !pid_alive(t.pid) || !fresh {
+        if their == RANK_UNKNOWN
+            || their >= s.cfg.rank
+            || t.pid == s.record.pid
+            || !pid_alive(t.pid)
+            || !fresh
+        {
             continue;
         }
         s.handoff.store(true, Ordering::SeqCst);
-        s.event(ServiceEvent::HandoffRequested { by_role: t.role, by_rank: their });
+        s.event(ServiceEvent::HandoffRequested {
+            by_role: t.role,
+            by_rank: their,
+        });
         s.handler.on_handoff();
         let until = Instant::now() + s.cfg.handoff_grace;
         while s.inflight.load(Ordering::SeqCst) > 0 && Instant::now() < until {
@@ -362,7 +451,12 @@ fn frame_err(e: &FrameError) -> ServiceError {
 }
 
 fn serve_conn(s: Arc<Shared>, conn: Conn) {
-    let Conn { reader, writer, peer_closed, shutdown } = conn;
+    let Conn {
+        reader,
+        writer,
+        peer_closed,
+        shutdown,
+    } = conn;
     let mut reader = BufReader::new(reader);
     let writer = Arc::new(Mutex::new(writer));
     let limit = s.cfg.frame_limit;
@@ -383,26 +477,51 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
     };
     let app = hello["app"].as_str().unwrap_or("").to_string();
     let reject = |reason: &str, code: &str, retryable: bool| {
-        let e = ServiceError { code: code.into(), message: reason.into(), retryable };
+        let e = ServiceError {
+            code: code.into(),
+            message: reason.into(),
+            retryable,
+        };
         send(&json!({"type": "hello", "ok": false, "error": e.to_value()}));
-        s.event(ServiceEvent::ConnectionRejected { app: app.clone(), reason: reason.into() });
+        s.event(ServiceEvent::ConnectionRejected {
+            app: app.clone(),
+            reason: reason.into(),
+        });
         shutdown();
     };
     if hello["type"] != "hello" || app.is_empty() {
-        return reject("first frame must be hello with an app label", "bad_hello", false);
+        return reject(
+            "first frame must be hello with an app label",
+            "bad_hello",
+            false,
+        );
     }
     if hello["protocol_major"].as_u64() != Some(u64::from(PROTOCOL_MAJOR)) {
         return reject("protocol major mismatch", "protocol_mismatch", false);
     }
     if s.handoff.load(Ordering::SeqCst) {
-        return reject("host is handing off", crate::error::ERROR_HOST_HANDOFF, true);
+        return reject(
+            "host is handing off",
+            crate::error::ERROR_HOST_HANDOFF,
+            true,
+        );
     }
     if !s.cfg.allowlist.app_known(&app) {
-        return reject("app is not on the service allowlist", ERROR_NOT_ALLOWED, false);
+        return reject(
+            "app is not on the service allowlist",
+            ERROR_NOT_ALLOWED,
+            false,
+        );
     }
     let id = s.next_conn.fetch_add(1, Ordering::SeqCst);
-    s.conns.lock().unwrap_or_else(|e| e.into_inner()).insert(id, shutdown.clone());
-    s.event(ServiceEvent::ConnectionOpened { conn: id, app: app.clone() });
+    s.conns
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id, shutdown.clone());
+    s.event(ServiceEvent::ConnectionOpened {
+        conn: id,
+        app: app.clone(),
+    });
     send(&json!({
         "type": "hello", "ok": true, "service": s.cfg.service, "role": s.cfg.role, "rank": s.cfg.rank,
         "version": s.cfg.version, "protocol_major": PROTOCOL_MAJOR, "protocol_minor": PROTOCOL_MINOR,
@@ -424,31 +543,51 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
             Ok(Some(v)) => v,
             Ok(None) | Err(FrameError::Io(_)) => break,
             Err(e) => {
-                send(&json!({"type": "response", "id": 0, "ok": false, "error": frame_err(&e).to_value()}));
+                send(
+                    &json!({"type": "response", "id": 0, "ok": false, "error": frame_err(&e).to_value()}),
+                );
                 continue;
             }
         };
         let Some(rid) = req["id"].as_u64().filter(|_| req["type"] == "request") else {
-            send(&json!({"type": "response", "id": 0, "ok": false, "error": ServiceError::new("bad_request", "expected {type:request,id,method}").to_value()}));
+            send(
+                &json!({"type": "response", "id": 0, "ok": false, "error": ServiceError::new("bad_request", "expected {type:request,id,method}").to_value()}),
+            );
             continue;
         };
-        let respond_err = |e: ServiceError| send(&json!({"type": "response", "id": rid, "ok": false, "error": e.to_value()}));
+        let respond_err = |e: ServiceError| {
+            send(&json!({"type": "response", "id": rid, "ok": false, "error": e.to_value()}))
+        };
         let method = req["method"].as_str().unwrap_or("").to_string();
         if s.handoff.load(Ordering::SeqCst) {
             respond_err(ServiceError::handoff());
             continue;
         }
         if !s.cfg.allowlist.permits(&app, &method) {
-            s.event(ServiceEvent::Denied { conn: id, app: app.clone(), method: method.clone() });
-            respond_err(ServiceError::new(ERROR_NOT_ALLOWED, format!("{app} may not call {method}")));
+            s.event(ServiceEvent::Denied {
+                conn: id,
+                app: app.clone(),
+                method: method.clone(),
+            });
+            respond_err(ServiceError::new(
+                ERROR_NOT_ALLOWED,
+                format!("{app} may not call {method}"),
+            ));
             continue;
         }
         if method == "ping" {
-            send(&json!({"type": "response", "id": rid, "ok": true, "result": {"pong": true, "rank": s.cfg.rank}}));
+            send(
+                &json!({"type": "response", "id": rid, "ok": true, "result": {"pong": true, "rank": s.cfg.rank}}),
+            );
             continue;
         }
         let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
-        let cx = CallContext { conn: id, app: app.clone(), closed: Arc::new(AtomicBool::new(false)), handoff: s.handoff.clone() };
+        let cx = CallContext {
+            conn: id,
+            app: app.clone(),
+            closed: Arc::new(AtomicBool::new(false)),
+            handoff: s.handoff.clone(),
+        };
         let emit: Emit = {
             let send = send.clone();
             Arc::new(move |ev| send(&json!({"type": "event", "id": rid, "event": ev})))
@@ -466,8 +605,10 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
                     std::thread::sleep(Duration::from_millis(40));
                 }
             });
-            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.handler.call(&cx, &method, &params, &emit)))
-                .unwrap_or_else(|_| Err(ServiceError::new("panic", "handler panicked")));
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                s.handler.call(&cx, &method, &params, &emit)
+            }))
+            .unwrap_or_else(|_| Err(ServiceError::new("panic", "handler panicked")));
             done.store(true, Ordering::SeqCst);
             r
         });
@@ -481,7 +622,10 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         }
     }
     notify_closed();
-    s.conns.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+    s.conns
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id);
     shutdown();
 }
 

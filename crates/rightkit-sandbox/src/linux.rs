@@ -26,11 +26,24 @@ const SYS_CREATE_RULESET: libc::c_long = 444;
 const SYS_ADD_RULE: libc::c_long = 445;
 const SYS_RESTRICT_SELF: libc::c_long = 446;
 
-const ALL: u64 = FS_EXECUTE | FS_WRITE_FILE | FS_READ_FILE | FS_READ_DIR | FS_REMOVE_DIR | FS_REMOVE_FILE
-    | FS_MAKE_CHAR | FS_MAKE_DIR | FS_MAKE_REG | FS_MAKE_SOCK | FS_MAKE_FIFO | FS_MAKE_BLOCK | FS_MAKE_SYM;
+const ALL: u64 = FS_EXECUTE
+    | FS_WRITE_FILE
+    | FS_READ_FILE
+    | FS_READ_DIR
+    | FS_REMOVE_DIR
+    | FS_REMOVE_FILE
+    | FS_MAKE_CHAR
+    | FS_MAKE_DIR
+    | FS_MAKE_REG
+    | FS_MAKE_SOCK
+    | FS_MAKE_FIFO
+    | FS_MAKE_BLOCK
+    | FS_MAKE_SYM;
 const READ: u64 = FS_READ_FILE | FS_READ_DIR;
 const EXEC: u64 = READ | FS_EXECUTE;
-const SYSTEM_EXEC: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc", "/dev", "/sys"];
+const SYSTEM_EXEC: &[&str] = &[
+    "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/proc", "/dev", "/sys",
+];
 
 #[repr(C)]
 struct RulesetAttr {
@@ -49,28 +62,56 @@ pub struct Prepared {
 
 impl Prepared {
     pub fn new(policy: &SandboxPolicy) -> std::io::Result<Self> {
-        let attr = RulesetAttr { handled_access_fs: ALL };
+        let attr = RulesetAttr {
+            handled_access_fs: ALL,
+        };
         // SAFETY: valid attr pointer and size.
-        let fd = unsafe { libc::syscall(SYS_CREATE_RULESET, &attr as *const RulesetAttr, std::mem::size_of::<RulesetAttr>(), 0) };
+        let fd = unsafe {
+            libc::syscall(
+                SYS_CREATE_RULESET,
+                &attr as *const RulesetAttr,
+                std::mem::size_of::<RulesetAttr>(),
+                0,
+            )
+        };
         if fd < 0 {
             let err = std::io::Error::last_os_error();
             return Err(match err.raw_os_error() {
-                Some(libc::ENOSYS) | Some(libc::EOPNOTSUPP) => std::io::Error::other("Landlock unavailable; refusing unsandboxed execution"),
+                Some(libc::ENOSYS) | Some(libc::EOPNOTSUPP) => {
+                    std::io::Error::other("Landlock unavailable; refusing unsandboxed execution")
+                }
                 _ => err,
             });
         }
         // Own the descriptor before any fallible rule installation.
         let ruleset = unsafe { std::fs::File::from_raw_fd(fd as i32) };
         let add = |path: &std::path::Path, access: u64| -> std::io::Result<()> {
-            let Ok(c) = CString::new(path.to_string_lossy().into_owned()) else { return Ok(()) };
+            let Ok(c) = CString::new(path.to_string_lossy().into_owned()) else {
+                return Ok(());
+            };
             let pfd = unsafe { libc::open(c.as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
             if pfd < 0 {
                 return Ok(()); // missing path grants nothing
             }
-            let pa = PathBeneathAttr { allowed_access: access, parent_fd: pfd };
-            let r = unsafe { libc::syscall(SYS_ADD_RULE, ruleset.as_raw_fd(), RULE_PATH_BENEATH, &pa as *const PathBeneathAttr, 0) };
+            let pa = PathBeneathAttr {
+                allowed_access: access,
+                parent_fd: pfd,
+            };
+            let r = unsafe {
+                libc::syscall(
+                    SYS_ADD_RULE,
+                    ruleset.as_raw_fd(),
+                    RULE_PATH_BENEATH,
+                    &pa as *const PathBeneathAttr,
+                    0,
+                )
+            };
             unsafe { libc::close(pfd) };
-            if r < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+            if r < 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
         };
         for p in SYSTEM_EXEC {
             add(std::path::Path::new(p), EXEC)?;
@@ -84,7 +125,11 @@ impl Prepared {
         for p in &policy.write_paths {
             add(p, ALL)?;
         }
-        let seccomp = if policy.network == NetworkPolicy::Deny { Some(prepare_seccomp_filter()?) } else { None };
+        let seccomp = if policy.network == NetworkPolicy::Deny {
+            Some(prepare_seccomp_filter()?)
+        } else {
+            None
+        };
         Ok(Self { ruleset, seccomp })
     }
 
@@ -97,7 +142,10 @@ impl Prepared {
             return Err(std::io::Error::last_os_error());
         }
         if let Some(program) = &self.seccomp {
-            let filter = libc::sock_fprog { len: program.len() as u16, filter: program.as_ptr().cast_mut() };
+            let filter = libc::sock_fprog {
+                len: program.len() as u16,
+                filter: program.as_ptr().cast_mut(),
+            };
             if unsafe { libc::prctl(libc::PR_SET_SECCOMP, 2, &filter as *const _, 0, 0) } < 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -307,4 +355,3 @@ fn prepare_seccomp_filter() -> std::io::Result<Vec<libc::sock_filter>> {
         Ok(prog)
     }
 }
-

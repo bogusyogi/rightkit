@@ -1,8 +1,8 @@
 use crate::process_tree;
 use crate::pty::{PtyError, PtySession, PtySize};
 use crate::{
-    classify_denial, DenialSignature, DenialSource, EnvPolicy, Reservation, ResourceAuthority, ResourceKind,
-    SandboxCommand, SandboxError, SandboxPolicy,
+    classify_denial, DenialSignature, DenialSource, EnvPolicy, Reservation, ResourceAuthority,
+    ResourceKind, SandboxCommand, SandboxError, SandboxPolicy,
 };
 use rightkit_process::OwnedCommand;
 use std::io::Read;
@@ -61,7 +61,10 @@ fn validate_command(c: &SandboxCommand) -> Result<(), SandboxError> {
     }
     if let Some(cwd) = &c.cwd {
         if !cwd.is_absolute() || !cwd.is_dir() {
-            return Err(SandboxError::InvalidPolicy(format!("cwd must be an existing absolute directory: {}", cwd.display())));
+            return Err(SandboxError::InvalidPolicy(format!(
+                "cwd must be an existing absolute directory: {}",
+                cwd.display()
+            )));
         }
     }
     Ok(())
@@ -78,7 +81,11 @@ impl Sandbox {
 
     /// Reserve, confine, spawn. Reservation happens before any process exists;
     /// a denial (e.g. `Strict`) returns `SandboxError::ResourceDenied`.
-    pub fn spawn(&self, policy: &SandboxPolicy, command: SandboxCommand) -> Result<SandboxedChild, SandboxError> {
+    pub fn spawn(
+        &self,
+        policy: &SandboxPolicy,
+        command: SandboxCommand,
+    ) -> Result<SandboxedChild, SandboxError> {
         policy.validate()?;
         validate_command(&command)?;
         let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
@@ -94,7 +101,11 @@ impl Sandbox {
 
     /// Reserve and spawn without filesystem/network confinement but with whole-tree
     /// ownership (process group on Unix, Job Object on Windows).
-    pub fn spawn_supervised(&self, command: SandboxCommand, env: &EnvPolicy) -> Result<SandboxedChild, SandboxError> {
+    pub fn spawn_supervised(
+        &self,
+        command: SandboxCommand,
+        env: &EnvPolicy,
+    ) -> Result<SandboxedChild, SandboxError> {
         validate_command(&command)?;
         let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
         let mut cmd = Command::new(&command.program);
@@ -109,9 +120,17 @@ impl Sandbox {
     /// Spawn under a PTY with lease-epoch input fencing. With `policy`, the child is
     /// confined (macOS only today; other platforms fail closed). Reserves a
     /// `BackgroundProcess` slot for the session's lifetime.
-    pub fn spawn_pty(&self, policy: Option<&SandboxPolicy>, command: SandboxCommand, size: PtySize) -> Result<PtySession, PtyError> {
+    pub fn spawn_pty(
+        &self,
+        policy: Option<&SandboxPolicy>,
+        command: SandboxCommand,
+        size: PtySize,
+    ) -> Result<PtySession, PtyError> {
         validate_command(&command).map_err(PtyError::Sandbox)?;
-        let reservation = self.authority.reserve(ResourceKind::BackgroundProcess).map_err(|d| PtyError::Sandbox(d.into()))?;
+        let reservation = self
+            .authority
+            .reserve(ResourceKind::BackgroundProcess)
+            .map_err(|d| PtyError::Sandbox(d.into()))?;
         let (program, args) = match policy {
             None => (command.program.clone(), command.args.clone()),
             Some(p) => {
@@ -122,12 +141,25 @@ impl Sandbox {
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
-                    return Err(PtyError::Sandbox(SandboxError::Unsupported("sandboxed PTY is implemented for macOS only".into())));
+                    return Err(PtyError::Sandbox(SandboxError::Unsupported(
+                        "sandboxed PTY is implemented for macOS only".into(),
+                    )));
                 }
             }
         };
-        let env = policy.map(|p| p.env.clone()).unwrap_or_else(|| EnvPolicy { inherit: true, ..EnvPolicy::default() });
-        PtySession::spawn(program, args, command.cwd.clone(), &env, &command.env, size, reservation)
+        let env = policy.map(|p| p.env.clone()).unwrap_or_else(|| EnvPolicy {
+            inherit: true,
+            ..EnvPolicy::default()
+        });
+        PtySession::spawn(
+            program,
+            args,
+            command.cwd.clone(),
+            &env,
+            &command.env,
+            size,
+            reservation,
+        )
     }
 }
 
@@ -160,8 +192,14 @@ fn confine(_cmd: &mut Command, _policy: &SandboxPolicy) -> Result<DenialSource, 
     ))
 }
 
-fn finish(mut cmd: Command, reservation: Reservation, source: DenialSource) -> Result<SandboxedChild, SandboxError> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+fn finish(
+    mut cmd: Command,
+    reservation: Reservation,
+    source: DenialSource,
+) -> Result<SandboxedChild, SandboxError> {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut inner = OwnedCommand::from_command(cmd);
     inner.windows_hide();
     let mut child = inner.spawn()?;
@@ -225,6 +263,12 @@ impl SandboxedChild {
             }
             _ => None,
         };
-        Ok(SandboxOutput { status, timed_out, stdout, stderr, denial })
+        Ok(SandboxOutput {
+            status,
+            timed_out,
+            stdout,
+            stderr,
+            denial,
+        })
     }
 }

@@ -29,7 +29,10 @@ impl Default for EnvPolicy {
     fn default() -> Self {
         Self {
             inherit: false,
-            keep: ["PATH", "LANG", "LC_ALL", "TERM"].iter().map(|s| s.to_string()).collect(),
+            keep: ["PATH", "LANG", "LC_ALL", "TERM"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             set: BTreeMap::new(),
         }
     }
@@ -75,10 +78,17 @@ impl SandboxPolicy {
     }
 
     pub(crate) fn validate(&self) -> Result<(), SandboxError> {
-        for p in self.read_paths.iter().chain(&self.write_paths).chain(&self.exec_paths) {
+        for p in self
+            .read_paths
+            .iter()
+            .chain(&self.write_paths)
+            .chain(&self.exec_paths)
+        {
             let s = p.to_string_lossy();
             if !p.is_absolute() || s.contains('\0') {
-                return Err(SandboxError::InvalidPolicy(format!("path must be absolute and NUL-free: {s}")));
+                return Err(SandboxError::InvalidPolicy(format!(
+                    "path must be absolute and NUL-free: {s}"
+                )));
             }
         }
         Ok(())
@@ -96,7 +106,12 @@ pub struct SandboxCommand {
 
 impl SandboxCommand {
     pub fn new(program: impl Into<OsString>) -> Self {
-        Self { program: program.into(), args: vec![], cwd: None, env: vec![] }
+        Self {
+            program: program.into(),
+            args: vec![],
+            cwd: None,
+            env: vec![],
+        }
     }
     pub fn arg(mut self, a: impl Into<OsString>) -> Self {
         self.args.push(a.into());

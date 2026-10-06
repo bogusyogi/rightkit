@@ -18,16 +18,27 @@ pub type JobResult<T> = Result<T, JobError>;
 
 impl JobError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), retryable: false }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable: false,
+        }
     }
     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), retryable: true }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable: true,
+        }
     }
     /// The host is handing the service to a higher-ranked host. Retryable: the
     /// job pauses (still recoverable) without spending an attempt, and the
     /// client resubmits against the new host.
     pub fn handoff() -> Self {
-        Self::retryable(HOST_HANDOFF, "host is handing the service to a higher-ranked host; retry")
+        Self::retryable(
+            HOST_HANDOFF,
+            "host is handing the service to a higher-ranked host; retry",
+        )
     }
     /// No progress for the stall timeout. Retryable, and it spends an attempt.
     pub fn stalled(idle_secs: f64) -> Self {

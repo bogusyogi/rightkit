@@ -9,9 +9,9 @@ mod outbox;
 mod redact;
 pub mod scrub;
 mod store;
+pub mod system;
 #[cfg(feature = "testing")]
 pub mod testing;
-pub mod system;
 mod upload;
 mod writer;
 

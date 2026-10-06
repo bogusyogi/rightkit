@@ -50,7 +50,11 @@ pub enum Binding {
     /// `column = ?`.
     Eq(&'static str),
     /// `column <cmp> ?` with a converted value (`cmp` is one of `= < <= > >=`).
-    Cmp { column: &'static str, cmp: &'static str, kind: ValueKind },
+    Cmp {
+        column: &'static str,
+        cmp: &'static str,
+        kind: ValueKind,
+    },
     /// Arbitrary fragment containing exactly one `?` (e.g. a subquery).
     Sql { sql: &'static str, kind: ValueKind },
     /// `value -> fragment` table without parameters (`is:unread`).
@@ -158,7 +162,10 @@ impl Schema {
                 let (sql, p) = if term.op.is_empty() {
                     let fts = self.fts.as_ref().ok_or(CompileError::NoFtsTable)?;
                     let sql = fts_clause(fts, term.negated);
-                    (sql, vec![Param::Text(fts_term(&term.value, term.is_phrase))])
+                    (
+                        sql,
+                        vec![Param::Text(fts_term(&term.value, term.is_phrase))],
+                    )
                 } else {
                     self.term_sql(term, now)?
                 };
@@ -167,8 +174,16 @@ impl Schema {
             }
             clauses.push(format!("({})", parts.join(" OR ")));
         }
-        let where_sql = if clauses.is_empty() { "1=1".to_string() } else { clauses.join(" AND ") };
-        Ok(Compiled { where_sql, params, fts_match })
+        let where_sql = if clauses.is_empty() {
+            "1=1".to_string()
+        } else {
+            clauses.join(" AND ")
+        };
+        Ok(Compiled {
+            where_sql,
+            params,
+            fts_match,
+        })
     }
 
     fn term_sql(&self, term: &OpTerm, now: i64) -> Result<(String, Vec<Param>), CompileError> {
@@ -178,34 +193,51 @@ impl Schema {
             .find(|(op, _)| *op == term.op)
             .map(|(_, b)| b)
             .ok_or_else(|| CompileError::UnboundOperator(term.op.clone()))?;
-        let bad = || CompileError::BadValue { op: term.op.clone(), value: term.value.clone() };
+        let bad = || CompileError::BadValue {
+            op: term.op.clone(),
+            value: term.value.clone(),
+        };
         let (sql, params) = match binding {
             Binding::Like(col) => (
                 format!("{col} LIKE ? ESCAPE '\\'"),
                 vec![convert(ValueKind::Contains, &term.value, now).ok_or_else(bad)?],
             ),
             Binding::Eq(col) => (format!("{col} = ?"), vec![Param::Text(term.value.clone())]),
-            Binding::Cmp { column, cmp, kind } => {
-                (format!("{column} {cmp} ?"), vec![convert(*kind, &term.value, now).ok_or_else(bad)?])
-            }
-            Binding::Sql { sql, kind } => {
-                ((*sql).to_string(), vec![convert(*kind, &term.value, now).ok_or_else(bad)?])
-            }
+            Binding::Cmp { column, cmp, kind } => (
+                format!("{column} {cmp} ?"),
+                vec![convert(*kind, &term.value, now).ok_or_else(bad)?],
+            ),
+            Binding::Sql { sql, kind } => (
+                (*sql).to_string(),
+                vec![convert(*kind, &term.value, now).ok_or_else(bad)?],
+            ),
             Binding::Flags(table) => {
                 let lower = term.value.to_ascii_lowercase();
-                let frag = table.iter().find(|(v, _)| *v == lower).map(|(_, f)| *f).ok_or_else(bad)?;
+                let frag = table
+                    .iter()
+                    .find(|(v, _)| *v == lower)
+                    .map(|(_, f)| *f)
+                    .ok_or_else(bad)?;
                 ((*frag).to_string(), Vec::new())
             }
         };
         // NULL-safe negation: an unknown column value must not satisfy `-op:x` by accident.
-        let sql = if term.negated { format!("NOT COALESCE(({sql}), 0)") } else { format!("({sql})") };
+        let sql = if term.negated {
+            format!("NOT COALESCE(({sql}), 0)")
+        } else {
+            format!("({sql})")
+        };
         Ok((sql, params))
     }
 }
 
 fn fts_clause(fts: &Fts, negated: bool) -> String {
     let not = if negated { "NOT " } else { "" };
-    format!("{} {not}IN (SELECT rowid FROM {t} WHERE {t} MATCH ?)", fts.rowid_expr, t = fts.table)
+    format!(
+        "{} {not}IN (SELECT rowid FROM {t} WHERE {t} MATCH ?)",
+        fts.rowid_expr,
+        t = fts.table
+    )
 }
 
 fn fts_term(value: &str, phrase: bool) -> String {

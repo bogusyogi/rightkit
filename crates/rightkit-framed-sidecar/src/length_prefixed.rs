@@ -22,15 +22,26 @@ use crate::FrameError;
 
 /// Serialize `value` and write it as one length-prefixed frame. Nothing is
 /// written when the encoding is empty or exceeds `limit`.
-pub fn write_frame<W: Write, T: Serialize>(writer: &mut W, value: &T, limit: usize) -> Result<(), FrameError> {
+pub fn write_frame<W: Write, T: Serialize>(
+    writer: &mut W,
+    value: &T,
+    limit: usize,
+) -> Result<(), FrameError> {
     let body = serde_json::to_vec(value)?;
     write_frame_bytes(writer, &body, limit)
 }
 
 /// As [`write_frame`] for an already-encoded body.
-pub fn write_frame_bytes<W: Write>(writer: &mut W, body: &[u8], limit: usize) -> Result<(), FrameError> {
+pub fn write_frame_bytes<W: Write>(
+    writer: &mut W,
+    body: &[u8],
+    limit: usize,
+) -> Result<(), FrameError> {
     if body.is_empty() {
-        return Err(FrameError::Io(io::Error::new(io::ErrorKind::InvalidData, "empty frame body")));
+        return Err(FrameError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "empty frame body",
+        )));
     }
     if body.len() > limit || u32::try_from(body.len()).is_err() {
         return Err(FrameError::TooLarge { limit });
@@ -44,7 +55,10 @@ pub fn write_frame_bytes<W: Write>(writer: &mut W, body: &[u8], limit: usize) ->
 }
 
 /// Read one frame body. `Ok(None)` on a clean end of stream between frames.
-pub fn read_frame_bytes<R: Read>(reader: &mut R, limit: usize) -> Result<Option<Vec<u8>>, FrameError> {
+pub fn read_frame_bytes<R: Read>(
+    reader: &mut R,
+    limit: usize,
+) -> Result<Option<Vec<u8>>, FrameError> {
     let mut len = [0u8; 4];
     let mut filled = 0;
     while filled < 4 {
@@ -58,7 +72,10 @@ pub fn read_frame_bytes<R: Read>(reader: &mut R, limit: usize) -> Result<Option<
     }
     let len = u32::from_be_bytes(len) as usize;
     if len == 0 {
-        return Err(FrameError::Io(io::Error::new(io::ErrorKind::InvalidData, "zero-length frame")));
+        return Err(FrameError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "zero-length frame",
+        )));
     }
     if len > limit {
         return Err(FrameError::TooLarge { limit });
@@ -72,7 +89,10 @@ pub fn read_frame_bytes<R: Read>(reader: &mut R, limit: usize) -> Result<Option<
 }
 
 /// Read and deserialize one frame.
-pub fn read_frame<R: Read, T: DeserializeOwned>(reader: &mut R, limit: usize) -> Result<Option<T>, FrameError> {
+pub fn read_frame<R: Read, T: DeserializeOwned>(
+    reader: &mut R,
+    limit: usize,
+) -> Result<Option<T>, FrameError> {
     match read_frame_bytes(reader, limit)? {
         None => Ok(None),
         Some(body) => Ok(Some(serde_json::from_slice(&body)?)),

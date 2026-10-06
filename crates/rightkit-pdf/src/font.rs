@@ -304,8 +304,7 @@ fn system_font_id(family: &str) -> String {
 /// Compressed web-font bytes become part of `rightkit-pdf` itself. `include_bytes!` also makes
 /// Cargo track the font as an input, while `wuff` reconstructs SFNT bytes once per process when
 /// [`FontCatalog::shared`] initializes.
-const SOURCE_SERIF_4_WOFF2: &[u8] =
-    include_bytes!("../assets/SourceSerif4-Variable.woff2");
+const SOURCE_SERIF_4_WOFF2: &[u8] = include_bytes!("../assets/SourceSerif4-Variable.woff2");
 
 fn bundled_font_id(family: &str, postscript_name: Option<&str>) -> String {
     // Frontend PDF edit state persists this exact id. Source Serif 4's variable WOFF2 metadata

@@ -142,7 +142,9 @@ pub fn parse_ffmpeg_info(stderr: &str) -> Result<MediaProbe, ProbeError> {
             // counter-clockwise; the display rotation is its normalisation.
             if let (Some(v), Some(deg)) = (
                 p.video.last_mut(),
-                rest.split_whitespace().next().and_then(|d| d.parse::<f64>().ok()),
+                rest.split_whitespace()
+                    .next()
+                    .and_then(|d| d.parse::<f64>().ok()),
             ) {
                 v.rotation = (deg.round() as i64).rem_euclid(360) as i32;
             }
@@ -226,7 +228,11 @@ fn parse_stream(line: &str, p: &mut MediaProbe) {
         "Audio" => {
             let sample_rate = fields
                 .iter()
-                .find_map(|f| f.trim().strip_suffix(" Hz").and_then(|n| n.trim().parse().ok()))
+                .find_map(|f| {
+                    f.trim()
+                        .strip_suffix(" Hz")
+                        .and_then(|n| n.trim().parse().ok())
+                })
                 .unwrap_or(0);
             let layout = fields
                 .iter()

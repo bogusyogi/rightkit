@@ -112,7 +112,9 @@ struct RawLoudnorm {
 /// Parse the last JSON object `loudnorm` printed in `stderr`.
 pub fn parse_loudnorm(stderr: &str) -> Result<LoudnessMeasurement, LoudnessError> {
     let bad = |why: String| LoudnessError::Unparsed(why);
-    let end = stderr.rfind('}').ok_or_else(|| bad("no loudnorm output".into()))?;
+    let end = stderr
+        .rfind('}')
+        .ok_or_else(|| bad("no loudnorm output".into()))?;
     let start = stderr[..end]
         .rfind('{')
         .ok_or_else(|| bad("no loudnorm output".into()))?;
@@ -141,7 +143,9 @@ pub fn measure_loudness(
     cancel: &CancellationToken,
 ) -> Result<LoudnessMeasurement, LoudnessError> {
     let mut cmd = FfmpegCommand::base("info");
-    cmd.input(file).text("-vn").texts(["-af".to_string(), loudnorm_filter(target, None, "json")]);
+    cmd.input(file)
+        .text("-vn")
+        .texts(["-af".to_string(), loudnorm_filter(target, None, "json")]);
     cmd.texts(["-f", "null", "-"]);
     let out = run_capture(ffmpeg, &cmd, timeout, cancel)?;
     if !out.status.success() {

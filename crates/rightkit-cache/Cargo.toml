@@ -3,7 +3,6 @@ name = "rightkit-cache"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.98.0"
-publish = false
 license = "MIT OR Apache-2.0"
 description = "Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys."
 readme = "README.md"

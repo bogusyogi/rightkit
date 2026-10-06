@@ -6,7 +6,9 @@ use std::io::Write;
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let suite = Suite::at(&a[0]).expect("suite");
-    while !std::path::Path::new(&a[2]).exists() { std::thread::sleep(std::time::Duration::from_millis(2)); }
+    while !std::path::Path::new(&a[2]).exists() {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
     let hold = std::time::Duration::from_millis(a[3].parse().unwrap_or(1000));
     let claim = SpawnClaim::acquire(&suite, &a[1]);
     match &claim {

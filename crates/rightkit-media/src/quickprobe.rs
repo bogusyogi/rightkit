@@ -11,10 +11,18 @@ pub struct Probe {
 
 impl Probe {
     fn dims(w: u32, h: u32) -> Self {
-        Self { width: Some(w), height: Some(h), duration_s: None }
+        Self {
+            width: Some(w),
+            height: Some(h),
+            duration_s: None,
+        }
     }
     fn dur(d: f64) -> Self {
-        Self { width: None, height: None, duration_s: Some(d) }
+        Self {
+            width: None,
+            height: None,
+            duration_s: Some(d),
+        }
     }
 }
 
@@ -104,14 +112,20 @@ fn webp(b: &[u8]) -> Option<Probe> {
             if b.get(23..26)? != [0x9d, 0x01, 0x2a] {
                 return None;
             }
-            Some(Probe::dims((le16(b, 26)? & 0x3fff) as u32, (le16(b, 28)? & 0x3fff) as u32))
+            Some(Probe::dims(
+                (le16(b, 26)? & 0x3fff) as u32,
+                (le16(b, 28)? & 0x3fff) as u32,
+            ))
         }
         b"VP8L" => {
             if *b.get(20)? != 0x2f {
                 return None;
             }
             let bits = le32(b, 21)?;
-            Some(Probe::dims((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1))
+            Some(Probe::dims(
+                (bits & 0x3fff) + 1,
+                ((bits >> 14) & 0x3fff) + 1,
+            ))
         }
         b"VP8X" => {
             let w = u32::from_le_bytes([*b.get(24)?, *b.get(25)?, *b.get(26)?, 0]) + 1;
@@ -135,7 +149,11 @@ fn wav(b: &[u8]) -> Option<Probe> {
             let rate = byte_rate.filter(|r| *r > 0)?;
             let avail = b.len().saturating_sub(body);
             // Streamed files carry 0 or 0xFFFFFFFF; trust what is present.
-            let n = if size == 0 || size > avail { avail } else { size };
+            let n = if size == 0 || size > avail {
+                avail
+            } else {
+                size
+            };
             return Some(Probe::dur(n as f64 / rate as f64));
         }
         i = body.checked_add(size)?.checked_add(size & 1)?;
@@ -228,12 +246,20 @@ fn mp3_sync(b: &[u8], at: usize) -> bool {
 /// `(frame_len_bytes, samples_per_frame, sample_rate)` for the header at `at`.
 fn mp3_frame(b: &[u8], at: usize) -> Option<(usize, u32, u32)> {
     const BR_V1: [[u32; 15]; 3] = [
-        [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448],
-        [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384],
-        [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+        [
+            0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448,
+        ],
+        [
+            0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384,
+        ],
+        [
+            0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
+        ],
     ];
     const BR_V2: [[u32; 15]; 2] = [
-        [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256],
+        [
+            0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256,
+        ],
         [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
     ];
     let h = be32(b, at)?;
@@ -248,8 +274,12 @@ fn mp3_frame(b: &[u8], at: usize) -> Option<(usize, u32, u32)> {
     if version == 1 || layer == 0 || br_idx == 0 || br_idx == 15 || sr_idx == 3 {
         return None;
     }
-    let rate = [[11025, 12000, 8000], [0, 0, 0], [22050, 24000, 16000], [44100, 48000, 32000]]
-        [version as usize][sr_idx];
+    let rate = [
+        [11025, 12000, 8000],
+        [0, 0, 0],
+        [22050, 24000, 16000],
+        [44100, 48000, 32000],
+    ][version as usize][sr_idx];
     let v1 = version == 3;
     let kbps = if v1 {
         BR_V1[(3 - layer) as usize][br_idx]
@@ -275,7 +305,9 @@ fn mp3_frame(b: &[u8], at: usize) -> Option<(usize, u32, u32)> {
 fn mp3(b: &[u8]) -> Option<Probe> {
     let mut i = 0;
     if b.starts_with(b"ID3") && b.len() >= 10 {
-        let sz = b[6..10].iter().fold(0usize, |a, x| (a << 7) | (*x as usize & 0x7f));
+        let sz = b[6..10]
+            .iter()
+            .fold(0usize, |a, x| (a << 7) | (*x as usize & 0x7f));
         i = 10 + sz;
     }
     // Find the first frame header.
@@ -297,7 +329,6 @@ fn mp3(b: &[u8]) -> Option<Probe> {
     }
     Some(Probe::dur(total))
 }
-
 
 /// Probe a file on disk. Reads the whole file (MP4 `moov` may trail the media data);
 /// callers with very large inputs should prefer the FFmpeg-backed

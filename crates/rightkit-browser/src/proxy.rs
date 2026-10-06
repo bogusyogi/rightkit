@@ -41,7 +41,9 @@ impl PinProxy {
         let l = log.clone();
         let task = tokio::spawn(async move {
             loop {
-                let Ok((conn, _)) = listener.accept().await else { break };
+                let Ok((conn, _)) = listener.accept().await else {
+                    break;
+                };
                 let (guard, log) = (guard.clone(), l.clone());
                 tokio::spawn(async move {
                     let _ = serve(conn, guard, log).await;
@@ -55,11 +57,21 @@ impl PinProxy {
 async fn refuse(conn: &mut TcpStream, code: &str, why: &str) {
     let body = format!("blocked by rightkit-browser network policy: {why}");
     let _ = conn
-        .write_all(format!("HTTP/1.1 {code}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes())
+        .write_all(
+            format!(
+                "HTTP/1.1 {code}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        )
         .await;
 }
 
-async fn serve(mut conn: TcpStream, guard: Arc<Guard>, log: Arc<Mutex<Vec<PinnedConnection>>>) -> std::io::Result<()> {
+async fn serve(
+    mut conn: TcpStream,
+    guard: Arc<Guard>,
+    log: Arc<Mutex<Vec<PinnedConnection>>>,
+) -> std::io::Result<()> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     let head_end = loop {
@@ -80,7 +92,11 @@ async fn serve(mut conn: TcpStream, guard: Arc<Guard>, log: Arc<Mutex<Vec<Pinned
     let mut lines = head.split("\r\n");
     let first = lines.next().unwrap_or("");
     let mut parts = first.split_whitespace();
-    let (method, target, version) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or("HTTP/1.1"));
+    let (method, target, version) = (
+        parts.next().unwrap_or(""),
+        parts.next().unwrap_or(""),
+        parts.next().unwrap_or("HTTP/1.1"),
+    );
 
     let is_connect = method.eq_ignore_ascii_case("CONNECT");
     let (host, port, forward_head) = if is_connect {
@@ -88,7 +104,12 @@ async fn serve(mut conn: TcpStream, guard: Arc<Guard>, log: Arc<Mutex<Vec<Pinned
         (h.to_string(), p.parse::<u16>().unwrap_or(443), None)
     } else {
         let Ok(u) = url::Url::parse(target) else {
-            refuse(&mut conn, "400 Bad Request", "proxy requests must use absolute URLs").await;
+            refuse(
+                &mut conn,
+                "400 Bad Request",
+                "proxy requests must use absolute URLs",
+            )
+            .await;
             return Ok(());
         };
         let Some(h) = u.host_str() else {
@@ -102,32 +123,56 @@ async fn serve(mut conn: TcpStream, guard: Arc<Guard>, log: Arc<Mutex<Vec<Pinned
         let mut out = format!("{method} {path} {version}\r\n");
         for l in lines.filter(|l| !l.is_empty()) {
             let name = l.split(':').next().unwrap_or("").to_ascii_lowercase();
-            if matches!(name.as_str(), "connection" | "proxy-connection" | "keep-alive" | "proxy-authorization") {
+            if matches!(
+                name.as_str(),
+                "connection" | "proxy-connection" | "keep-alive" | "proxy-authorization"
+            ) {
                 continue;
             }
             out.push_str(l);
             out.push_str("\r\n");
         }
         out.push_str("Connection: close\r\n\r\n");
-        (h.to_string(), u.port_or_known_default().unwrap_or(80), Some(out))
+        (
+            h.to_string(),
+            u.port_or_known_default().unwrap_or(80),
+            Some(out),
+        )
     };
 
     let ips = match guard.network.pin(&host).await {
         Ok(ips) => ips,
         Err(reason) => {
-            guard.emit(BrowserEvent::Denied { session_id: guard.session_id.clone(), what: "Connect".into(), reason: reason.clone() });
+            guard.emit(BrowserEvent::Denied {
+                session_id: guard.session_id.clone(),
+                what: "Connect".into(),
+                reason: reason.clone(),
+            });
             refuse(&mut conn, "403 Forbidden", &reason).await;
             return Ok(());
         }
     };
     let mut upstream = None;
     for ip in ips {
-        if let Ok(Ok(s)) = tokio::time::timeout(Duration::from_secs(3), TcpStream::connect(SocketAddr::new(ip, port))).await {
-            log.lock().unwrap().push(PinnedConnection { host: host.clone(), port, ip });
+        if let Ok(Ok(s)) = tokio::time::timeout(
+            Duration::from_secs(3),
+            TcpStream::connect(SocketAddr::new(ip, port)),
+        )
+        .await
+        {
+            log.lock().unwrap().push(PinnedConnection {
+                host: host.clone(),
+                port,
+                ip,
+            });
             upstream = Some(s);
             break;
         }
-        log.lock().unwrap().push(PinnedConnection { host: host.clone(), port, ip });
+        log.lock().unwrap().push(PinnedConnection {
+            host: host.clone(),
+            port,
+            ip,
+        });
     }
     let Some(mut upstream) = upstream else {
         refuse(&mut conn, "502 Bad Gateway", "connect failed").await;
@@ -135,7 +180,8 @@ async fn serve(mut conn: TcpStream, guard: Arc<Guard>, log: Arc<Mutex<Vec<Pinned
     };
     match forward_head {
         None => {
-            conn.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
+            conn.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                .await?;
             upstream.write_all(&rest).await?;
         }
         Some(h) => {

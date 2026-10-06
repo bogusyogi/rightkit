@@ -33,7 +33,12 @@ pub struct Migration {
 
 impl Migration {
     pub const fn sql(version: i64, name: &'static str, up: &'static str) -> Self {
-        Self { version, name, up: Step::Sql(up), down: None }
+        Self {
+            version,
+            name,
+            up: Step::Sql(up),
+            down: None,
+        }
     }
 
     pub const fn with_down(mut self, down: &'static str) -> Self {
@@ -41,8 +46,17 @@ impl Migration {
         self
     }
 
-    pub const fn code(version: i64, name: &'static str, up: fn(&Connection) -> rusqlite::Result<()>) -> Self {
-        Self { version, name, up: Step::Code(up), down: None }
+    pub const fn code(
+        version: i64,
+        name: &'static str,
+        up: fn(&Connection) -> rusqlite::Result<()>,
+    ) -> Self {
+        Self {
+            version,
+            name,
+            up: Step::Code(up),
+            down: None,
+        }
     }
 }
 
@@ -61,7 +75,12 @@ pub struct MigrateOptions {
 
 impl Default for MigrateOptions {
     fn default() -> Self {
-        Self { backup: true, backup_options: None, forward_compatible: None, optimize_after: true }
+        Self {
+            backup: true,
+            backup_options: None,
+            forward_compatible: None,
+            optimize_after: true,
+        }
     }
 }
 
@@ -114,7 +133,11 @@ fn marker_path(db: &Path) -> PathBuf {
 
 pub fn pending_marker(db: &Path) -> Option<PendingMarker> {
     let text = std::fs::read_to_string(marker_path(db)).ok()?;
-    let mut marker = PendingMarker { from: 0, to: 0, pid: 0 };
+    let mut marker = PendingMarker {
+        from: 0,
+        to: 0,
+        pid: 0,
+    };
     for line in text.lines() {
         match line.split_once('=')? {
             ("from", v) => marker.from = v.parse().ok()?,
@@ -135,7 +158,11 @@ pub fn migrate(
     validate(migrations)?;
     let current = user_version(conn)?;
     let max = migrations.last().map(|m| m.version).unwrap_or(0);
-    let mut report = MigrationReport { from: current, to: current, ..Default::default() };
+    let mut report = MigrationReport {
+        from: current,
+        to: current,
+        ..Default::default()
+    };
     report.interrupted_previous = db_path.and_then(pending_marker);
 
     if current > max {
@@ -152,9 +179,15 @@ pub fn migrate(
 
     if current > 0 && options.backup {
         if let Some(path) = db_path {
-            let name = path.file_name().ok_or(DbError::InvalidDatabasePath)?.to_string_lossy();
+            let name = path
+                .file_name()
+                .ok_or(DbError::InvalidDatabasePath)?
+                .to_string_lossy();
             let backup = path.with_file_name(format!("{name}.pre-v{max}.bak"));
-            let backup_options = options.backup_options.clone().unwrap_or_else(|| DbOptions::new(path));
+            let backup_options = options
+                .backup_options
+                .clone()
+                .unwrap_or_else(|| DbOptions::new(path));
             crate::online_backup_to(&backup_options, conn, &backup, None)?;
             report.backup = Some(backup);
         }
@@ -180,7 +213,11 @@ pub fn migrate(
             }
             Err(source) => {
                 let _ = conn.execute_batch("ROLLBACK;");
-                return Err(DbError::MigrationFailed { version: migration.version, name: migration.name, source });
+                return Err(DbError::MigrationFailed {
+                    version: migration.version,
+                    name: migration.name,
+                    source,
+                });
             }
         }
     }
@@ -200,7 +237,9 @@ pub fn rollback_to(conn: &Connection, migrations: &[Migration], target: i64) -> 
     validate(migrations)?;
     let current = user_version(conn)?;
     if current <= target {
-        return Err(DbError::Rollback(format!("already at v{current}, at or below target v{target}")));
+        return Err(DbError::Rollback(format!(
+            "already at v{current}, at or below target v{target}"
+        )));
     }
     let mut plan = Vec::new();
     for version in ((target + 1)..=current).rev() {
@@ -208,15 +247,20 @@ pub fn rollback_to(conn: &Connection, migrations: &[Migration], target: i64) -> 
             .iter()
             .find(|m| m.version == version)
             .ok_or_else(|| DbError::Rollback(format!("v{version} is not a known migration")))?;
-        let down = migration
-            .down
-            .ok_or_else(|| DbError::Rollback(format!("v{version} ({}) has no down migration", migration.name)))?;
+        let down = migration.down.ok_or_else(|| {
+            DbError::Rollback(format!(
+                "v{version} ({}) has no down migration",
+                migration.name
+            ))
+        })?;
         plan.push((version, down));
     }
     let mut reverted = Vec::new();
     for (version, down) in plan {
         conn.execute_batch("BEGIN IMMEDIATE;")?;
-        let result = conn.execute_batch(down).and_then(|()| set_user_version(conn, version - 1));
+        let result = conn
+            .execute_batch(down)
+            .and_then(|()| set_user_version(conn, version - 1));
         match result {
             Ok(()) => {
                 conn.execute_batch("COMMIT;")?;
@@ -224,7 +268,9 @@ pub fn rollback_to(conn: &Connection, migrations: &[Migration], target: i64) -> 
             }
             Err(error) => {
                 let _ = conn.execute_batch("ROLLBACK;");
-                return Err(DbError::Rollback(format!("down v{version} failed and was rolled back: {error}")));
+                return Err(DbError::Rollback(format!(
+                    "down v{version} failed and was rolled back: {error}"
+                )));
             }
         }
     }
@@ -247,7 +293,12 @@ pub fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<boo
 
 /// Idempotent `ALTER TABLE .. ADD COLUMN` (SQLite has no `IF NOT EXISTS` for columns).
 /// `table`, `column` and `decl` must be literals from the app, never user input.
-pub fn add_column_if_missing(conn: &Connection, table: &str, column: &str, decl: &str) -> Result<()> {
+pub fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> Result<()> {
     check_ident(table)?;
     check_ident(column)?;
     if !column_exists(conn, table, column)? {
@@ -257,10 +308,16 @@ pub fn add_column_if_missing(conn: &Connection, table: &str, column: &str, decl:
 }
 
 fn check_ident(ident: &str) -> Result<()> {
-    if !ident.is_empty() && ident.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+    if !ident.is_empty()
+        && ident
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
         Ok(())
     } else {
-        Err(DbError::InvalidMigrations(format!("unsafe SQL identifier {ident:?}")))
+        Err(DbError::InvalidMigrations(format!(
+            "unsafe SQL identifier {ident:?}"
+        )))
     }
 }
 

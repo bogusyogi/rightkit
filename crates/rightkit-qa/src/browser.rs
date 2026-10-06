@@ -15,14 +15,28 @@ pub struct BrowserTarget {
 
 impl BrowserTarget {
     pub fn launch(headed: bool, viewport: (u32, u32)) -> Result<Self> {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-        let mut opts = LaunchOptions { mute_audio: true, viewport, ..Default::default() };
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let mut opts = LaunchOptions {
+            mute_audio: true,
+            viewport,
+            ..Default::default()
+        };
         if headed {
             opts = opts.headed();
         }
-        let session = rt.block_on(BrowserSession::launch(opts)).map_err(|e| Error(e.to_string()))?;
-        let page = rt.block_on(session.new_page("about:blank")).map_err(|e| Error(e.to_string()))?;
-        Ok(Self { rt, session: Some(session), page: Some(page) })
+        let session = rt
+            .block_on(BrowserSession::launch(opts))
+            .map_err(|e| Error(e.to_string()))?;
+        let page = rt
+            .block_on(session.new_page("about:blank"))
+            .map_err(|e| Error(e.to_string()))?;
+        Ok(Self {
+            rt,
+            session: Some(session),
+            page: Some(page),
+        })
     }
 
     pub fn stop(&mut self) {
@@ -33,7 +47,9 @@ impl BrowserTarget {
     }
 
     fn page(&self) -> Result<&Arc<BrowserPage>> {
-        self.page.as_ref().ok_or_else(|| Error("no browser launched; add a browser_launch step".into()))
+        self.page
+            .as_ref()
+            .ok_or_else(|| Error("no browser launched; add a browser_launch step".into()))
     }
 }
 
@@ -46,15 +62,25 @@ pub fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> 
         if ctx.browser.is_some() {
             return err("a browser is already running in this scenario");
         }
-        let b = BrowserTarget::launch(pb(p, "headed"), (pf_or(p, "width", 1280.0) as u32, pf_or(p, "height", 800.0) as u32))?;
+        let b = BrowserTarget::launch(
+            pb(p, "headed"),
+            (
+                pf_or(p, "width", 1280.0) as u32,
+                pf_or(p, "height", 800.0) as u32,
+            ),
+        )?;
         if let Some(url) = ps_opt(p, "url") {
-            b.rt.block_on(b.page()?.goto(&url)).map_err(|e| Error(e.to_string()))?;
+            b.rt.block_on(b.page()?.goto(&url))
+                .map_err(|e| Error(e.to_string()))?;
         }
         ctx.browser = Some(b);
         return Ok(json!({"launched": true}));
     }
     let shot_dir = ctx.log_dir.clone();
-    let b = ctx.browser.as_ref().ok_or_else(|| Error("no browser launched; add a browser_launch step".into()))?;
+    let b = ctx
+        .browser
+        .as_ref()
+        .ok_or_else(|| Error("no browser launched; add a browser_launch step".into()))?;
     let page = b.page()?.clone();
     let e = |e: rightkit_browser::BrowserError| Error(e.to_string());
     let out = match kind {
@@ -71,7 +97,8 @@ pub fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> 
             json!({"ok": true})
         }
         "browser_fill" => {
-            b.rt.block_on(page.fill(&target(p)?, &ps(p, "text")?, true)).map_err(e)?;
+            b.rt.block_on(page.fill(&target(p)?, &ps(p, "text")?, true))
+                .map_err(e)?;
             json!({"ok": true})
         }
         "browser_press" => {
@@ -84,11 +111,13 @@ pub fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> 
         }
         "browser_eval" => b.rt.block_on(page.eval(&ps(p, "expr")?)).map_err(e)?,
         "browser_wait" => {
-            b.rt.block_on(page.wait_for(&ps(p, "selector")?, dur(p, "timeout_s", 20.0))).map_err(e)?;
+            b.rt.block_on(page.wait_for(&ps(p, "selector")?, dur(p, "timeout_s", 20.0)))
+                .map_err(e)?;
             json!({"ok": true})
         }
         "browser_wait_eval" => {
-            b.rt.block_on(page.wait_eval(&ps(p, "expr")?, dur(p, "timeout_s", 20.0))).map_err(e)?;
+            b.rt.block_on(page.wait_eval(&ps(p, "expr")?, dur(p, "timeout_s", 20.0)))
+                .map_err(e)?;
             json!({"ok": true})
         }
         "browser_text" => json!({"text": b.rt.block_on(page.text()).map_err(e)?}),
@@ -97,7 +126,8 @@ pub fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> 
             let path = shot_dir.join(format!("{name}.png"));
             b.rt.block_on(page.screenshot_to(&path)).map_err(e)?;
             let size = crate::media::png_size(&path)?;
-            ctx.artifacts.push((format!("{}/{name}.png", ctx.scenario), path.clone()));
+            ctx.artifacts
+                .push((format!("{}/{name}.png", ctx.scenario), path.clone()));
             json!({"path": path.to_string_lossy(), "size": size})
         }
         "browser_console" => {

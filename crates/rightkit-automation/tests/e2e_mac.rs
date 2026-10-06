@@ -10,7 +10,10 @@
 //! Run: `rightkit cargo test -p rightkit-automation --test e2e_mac`
 //! (the test host process needs Accessibility and Screen Recording; when a managed
 //! broker spawns it without them, run the built test binary from a granted shell).
-#![cfg(target_os = "macos")]
+
+// `harness = false`: every host needs a `main`, so the macOS gate lives in a module.
+#[cfg(target_os = "macos")]
+mod mac {
 
 use rightkit_automation::*;
 use std::sync::{Arc, Mutex};
@@ -102,7 +105,7 @@ impl Drop for Cleanup {
 /// and frontmost app through the *main* run loop, which the libtest harness never
 /// services on its worker threads. A CLI or test must drive automation from the
 /// main thread (an app with a live main loop may use any thread).
-fn main() {
+pub fn main() {
     reset_kill();
     let out = tempfile::tempdir().unwrap();
     let a: Arc<Auto> = Arc::new(native(Policy::new(["com.apple.TextEdit", "com.apple.calculator"])));
@@ -339,4 +342,15 @@ fn main() {
     assert_eq!(a.frontmost().map(|f| f.pid), front0, "frontmost unchanged at the end");
     let m = a.metrics();
     println!("e2e_mac OK: {} acts, {} denied, {} replayed, {} fenced, tiers {:?}, {} screenshots ({} regions masked)", m.acts, m.denied, m.replayed, m.fenced, m.by_tier, m.screenshots, m.screenshot_regions_masked);
+}
+}
+
+#[cfg(target_os = "macos")]
+fn main() {
+    mac::main()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    eprintln!("e2e_mac: macOS-only end-to-end gate; nothing to run on this host");
 }

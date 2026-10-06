@@ -130,7 +130,9 @@ fn fixture() -> Fixture {
     runtime.installed_bytes = Some(lib.len() as u64);
     runtime.installed_sha256 = Some(sha(&lib));
     let mut foreign = file("other.bin", u("/other.bin"), &other_os);
-    foreign.platforms = vec!["windows-x86_64-nonexistent".into(), "plan9".into()];
+    // Foreign to whichever host runs the test (unknown tokens like "plan9" never match).
+    let other_host = if cfg!(windows) { "macos-aarch64" } else { "windows-x86_64" };
+    foreign.platforms = vec![other_host.into(), "plan9".into()];
 
     let spec = ModelSpec {
         id: "demo".into(),

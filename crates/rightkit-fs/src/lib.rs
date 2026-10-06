@@ -15,14 +15,17 @@ pub mod netfs;
 pub mod private;
 pub mod state;
 
-pub use atomic::{atomic_write, atomic_write_private, atomic_write_with, sweep_stale_temps, AtomicOptions, AtomicWriter};
+pub use atomic::{
+    atomic_write, atomic_write_private, atomic_write_with, sweep_stale_temps, AtomicOptions,
+    AtomicWriter,
+};
 pub use error::{FsError, Result};
 pub use identity::{FileKey, IdentityStore, Resolution, StableId, Tracked};
-pub use netfs::is_network_filesystem;
 pub use lock::{with_lock, FileLock, LockOptions, LockOwner};
+pub use netfs::is_network_filesystem;
 pub use private::{
-    create_private_new, ensure_private_dir, restrict_owner_only, sweep_owner_only, write_private_file,
-    write_private_text,
+    create_private_new, ensure_private_dir, restrict_owner_only, sweep_owner_only,
+    write_private_file, write_private_text,
 };
 pub use state::{EntryKind, EntryStat, StateDir};
 

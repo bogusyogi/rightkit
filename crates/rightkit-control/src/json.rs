@@ -55,8 +55,13 @@ pub fn str_field(body: &str, key: &str) -> Option<String> {
 pub fn num_field(body: &str, key: &str) -> Option<f64> {
     let pat = format!("\"{key}\"");
     let i = body.find(&pat)?;
-    let rest = body[i + pat.len()..].trim_start().strip_prefix(':')?.trim_start();
-    let end = rest.find(|c: char| !(c.is_ascii_digit() || "+-.eE".contains(c))).unwrap_or(rest.len());
+    let rest = body[i + pat.len()..]
+        .trim_start()
+        .strip_prefix(':')?
+        .trim_start();
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || "+-.eE".contains(c)))
+        .unwrap_or(rest.len());
     rest[..end].parse().ok()
 }
 

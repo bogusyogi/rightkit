@@ -1,4 +1,6 @@
-use std::fs::{self, File, OpenOptions};
+#[cfg(not(windows))]
+use std::fs::File;
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};

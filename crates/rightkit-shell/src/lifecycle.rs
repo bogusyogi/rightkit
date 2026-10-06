@@ -38,7 +38,9 @@ pub fn qa_background() -> bool {
 }
 
 pub fn quit(app: &AppHandle<Wry>) {
-    app.state::<ShellState>().exiting.store(true, Ordering::SeqCst);
+    app.state::<ShellState>()
+        .exiting
+        .store(true, Ordering::SeqCst);
     app.exit(0);
 }
 
@@ -59,7 +61,10 @@ pub(crate) fn flush_links(app: &AppHandle<Wry>) {
 }
 
 pub(crate) fn on_second_instance(app: &AppHandle<Wry>, argv: &[String], cwd: &str) {
-    let _ = app.emit(EVENT_SECOND_INSTANCE, serde_json::json!({"argv": argv, "cwd": cwd}));
+    let _ = app.emit(
+        EVENT_SECOND_INSTANCE,
+        serde_json::json!({"argv": argv, "cwd": cwd}),
+    );
     deliver_links(app, argv.iter().skip(1).map(String::as_str));
     crate::windows::reveal(app, None);
 }
@@ -94,7 +99,10 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
             }
             WindowEvent::CloseRequested { api, .. } => {
                 let _ = state.windows.save_now(app, label);
-                if state.close_to_tray && *label == state.main_label && !state.exiting.load(Ordering::SeqCst) {
+                if state.close_to_tray
+                    && *label == state.main_label
+                    && !state.exiting.load(Ordering::SeqCst)
+                {
                     api.prevent_close();
                     if let Some(w) = app.get_webview_window(label) {
                         let _ = w.hide();
@@ -117,7 +125,10 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
         }
         RunEvent::Exit => shutdown(app),
         #[cfg(target_os = "macos")]
-        RunEvent::Reopen { has_visible_windows, .. } => {
+        RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } => {
             if !has_visible_windows {
                 crate::windows::reveal(app, None);
             }
@@ -143,5 +154,9 @@ fn shutdown(app: &AppHandle<Wry>) {
         let _ = app.remove_tray_by_id(crate::tray::TRAY_ID);
     }
     // Dropping the host releases the single-instance record.
-    state.hosted.lock().unwrap_or_else(|e| e.into_inner()).take();
+    state
+        .hosted
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
 }

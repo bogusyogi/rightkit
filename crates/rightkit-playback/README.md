@@ -1,7 +1,7 @@
 # rightkit-playback
 
-Internal, unpublished compatibility-playback primitives for Right Suite
-desktop apps. Source-preserving FFmpeg remux (video stream copy, AAC audio,
+Public candidate: compatibility-playback primitives for Right Suite desktop
+apps. Source-preserving FFmpeg remux (video stream copy, AAC audio,
 `+faststart`) behind a content-fingerprinted cache, with cooperative
 cancellation, bounded concurrency, and explicit coded errors.
 
@@ -25,5 +25,5 @@ turns `PLAYBACK_UNSUPPORTED` into its explicit codec error state).
 
 ## Publication gate
 
-`publish = false` is deliberate, matching `rightkit-media`/`rightkit-process`.
-Publish only through `right-release publish cargo` after the media gate.
+Publication remains gated on the current Windows platform run. Publish through
+`right-release publish cargo` after the media and playback gates.

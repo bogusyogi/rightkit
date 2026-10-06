@@ -81,4 +81,3 @@ impl Preset {
         Ok(())
     }
 }
-

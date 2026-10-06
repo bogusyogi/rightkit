@@ -210,11 +210,7 @@ fn run_one(path: &PathBuf, catalog: &FontCatalog) -> FileReport {
                     match walk_page_graph(&reopened, &new_sha, 1) {
                         Err(e) => format!("typed reject on rewalk: {e}"),
                         Ok(graph) => {
-                            if graph
-                                .islands
-                                .iter()
-                                .any(|i| i.text.contains("RightKit QA"))
-                            {
+                            if graph.islands.iter().any(|i| i.text.contains("RightKit QA")) {
                                 "ok".into()
                             } else {
                                 "FATAL: added text missing after reopen".into()
@@ -234,7 +230,8 @@ fn run_one(path: &PathBuf, catalog: &FontCatalog) -> FileReport {
 #[test]
 #[ignore]
 fn corpus_qa_diagnose_one() {
-    let dir = std::env::var("RIGHTKIT_PDF_CORPUS_DIR").unwrap_or_else(|_| "../../../.qa-corpus".into());
+    let dir =
+        std::env::var("RIGHTKIT_PDF_CORPUS_DIR").unwrap_or_else(|_| "../../../.qa-corpus".into());
     let name = std::env::var("RIGHTKIT_PDF_CORPUS_FILE").unwrap_or_else(|_| "irs-p17.pdf".into());
     let path = PathBuf::from(&dir).join(&name);
     let bytes = std::fs::read(&path).expect("read");
@@ -307,7 +304,8 @@ fn corpus_qa_diagnose_one() {
 #[test]
 #[ignore]
 fn corpus_qa_matrix() {
-    let dir = std::env::var("RIGHTKIT_PDF_CORPUS_DIR").unwrap_or_else(|_| "../../../.qa-corpus".into());
+    let dir =
+        std::env::var("RIGHTKIT_PDF_CORPUS_DIR").unwrap_or_else(|_| "../../../.qa-corpus".into());
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .expect("corpus dir must exist")
         .filter_map(|e| e.ok().map(|e| e.path()))

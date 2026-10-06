@@ -6,7 +6,8 @@ rust-version = "1.98.0"
 description = "Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/claude"
-publish = false
+readme = "README.md"
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 # Zero third-party dependencies by default: macOS paths use direct framework
 # FFI. The optional `tauri-plugin` feature adds only `tauri` (already in the

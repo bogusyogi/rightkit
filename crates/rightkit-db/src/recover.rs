@@ -33,7 +33,10 @@ pub struct OpenOutcome {
 
 impl DbOptions {
     /// Try each passphrase in order; the first that decrypts opens the writer.
-    pub fn open_writer_with_key_candidates(&self, candidates: &[Zeroizing<String>]) -> Result<(Connection, usize)> {
+    pub fn open_writer_with_key_candidates(
+        &self,
+        candidates: &[Zeroizing<String>],
+    ) -> Result<(Connection, usize)> {
         let mut first_error = None;
         for (index, candidate) in candidates.iter().enumerate() {
             let mut attempt = self.clone();
@@ -53,11 +56,19 @@ impl DbOptions {
     /// open a fresh database at the same path.
     pub fn open_writer_recovering(&self, policy: RecoveryPolicy) -> Result<OpenOutcome> {
         match self.open_writer() {
-            Ok(conn) => Ok(OpenOutcome { conn, key_index: 0, quarantined: None }),
+            Ok(conn) => Ok(OpenOutcome {
+                conn,
+                key_index: 0,
+                quarantined: None,
+            }),
             Err(error) if is_unreadable(&error) && allowed(self, policy) => {
                 let moved = quarantine_database(&self.path)?;
                 let conn = self.open_writer()?;
-                Ok(OpenOutcome { conn, key_index: 0, quarantined: Some(moved) })
+                Ok(OpenOutcome {
+                    conn,
+                    key_index: 0,
+                    quarantined: Some(moved),
+                })
             }
             Err(error) => Err(error),
         }
@@ -83,7 +94,11 @@ fn is_unreadable(error: &DbError) -> bool {
 /// Move `db` and its `-wal` / `-shm` / `-journal` sidecars to `<db>.corrupt-<unix-ms>[...]`.
 /// Returns the new main-file path. Nothing is deleted.
 pub fn quarantine_database(db: &Path) -> Result<PathBuf> {
-    let name = db.file_name().ok_or(DbError::InvalidDatabasePath)?.to_string_lossy().into_owned();
+    let name = db
+        .file_name()
+        .ok_or(DbError::InvalidDatabasePath)?
+        .to_string_lossy()
+        .into_owned();
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())

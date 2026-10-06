@@ -1,9 +1,12 @@
-use crate::config::{find_chrome, reject_real_browser_profile, validate_extra_args, validate_profile_name, LaunchOptions, ProfileSpec};
+use crate::config::{
+    find_chrome, reject_real_browser_profile, validate_extra_args, validate_profile_name,
+    LaunchOptions, ProfileSpec,
+};
+use crate::error::{cdp, BrowserError, Result};
+use crate::page::BrowserPage;
 use crate::policy::{BrowserEvent, Guard};
 use crate::proc::ChromeProc;
 use crate::proxy::{PinProxy, PinnedConnection};
-use crate::error::{cdp, BrowserError, Result};
-use crate::page::BrowserPage;
 use chromiumoxide::browser::Browser;
 use chromiumoxide::cdp::browser_protocol::browser::{
     PermissionDescriptor, PermissionSetting, ResetPermissionsParams, SetDownloadBehaviorBehavior,
@@ -48,7 +51,11 @@ pub struct BrowserSession {
 impl BrowserSession {
     pub async fn launch(opts: LaunchOptions) -> Result<Self> {
         validate_extra_args(&opts.extra_args)?;
-        let exe = opts.chrome_path.clone().or_else(find_chrome).ok_or(BrowserError::ChromeNotFound)?;
+        let exe = opts
+            .chrome_path
+            .clone()
+            .or_else(find_chrome)
+            .ok_or(BrowserError::ChromeNotFound)?;
         let (profile_guard, profile_dir, default_dl) = match &opts.profile {
             ProfileSpec::Temporary => {
                 let t = tempfile::tempdir()?;
@@ -87,7 +94,11 @@ impl BrowserSession {
             network: opts.network.clone(),
             events: opts.on_event.clone(),
         });
-        let proxy = if opts.network.unrestricted { None } else { Some(PinProxy::start(guard.clone()).await?) };
+        let proxy = if opts.network.unrestricted {
+            None
+        } else {
+            Some(PinProxy::start(guard.clone()).await?)
+        };
 
         let mut args: Vec<String> = [
             "--remote-debugging-port=0",
@@ -118,8 +129,15 @@ impl BrowserSession {
         .map(|s| s.to_string())
         .collect();
         args.push(format!("--user-data-dir={}", profile_dir.display()));
-        args.push(format!("--window-size={},{}", opts.viewport.0, opts.viewport.1));
-        args.push(if opts.headless { "--headless=new".into() } else { "--hide-crash-restore-bubble".into() });
+        args.push(format!(
+            "--window-size={},{}",
+            opts.viewport.0, opts.viewport.1
+        ));
+        args.push(if opts.headless {
+            "--headless=new".into()
+        } else {
+            "--hide-crash-restore-bubble".into()
+        });
         if opts.mute_audio {
             args.push("--mute-audio".into());
         }
@@ -137,12 +155,15 @@ impl BrowserSession {
         }
         args.push("about:blank".into());
         let launch_timeout = opts.launch_timeout;
-        let proc = tokio::task::spawn_blocking(move || crate::proc::spawn_chrome(&exe, &args, launch_timeout))
-            .await
-            .map_err(|e| BrowserError::Launch(e.to_string()))??;
+        let proc = tokio::task::spawn_blocking(move || {
+            crate::proc::spawn_chrome(&exe, &args, launch_timeout)
+        })
+        .await
+        .map_err(|e| BrowserError::Launch(e.to_string()))??;
         let pid = Some(proc.child.id());
-        let (browser, mut handler) =
-            Browser::connect(proc.ws_url.clone()).await.map_err(|e| BrowserError::Launch(e.to_string()))?;
+        let (browser, mut handler) = Browser::connect(proc.ws_url.clone())
+            .await
+            .map_err(|e| BrowserError::Launch(e.to_string()))?;
         let pump = tokio::spawn(async move {
             while let Some(ev) = handler.next().await {
                 if ev.is_err() {
@@ -161,7 +182,10 @@ impl BrowserSession {
             .await
             .map_err(cdp)?;
 
-        guard.emit(BrowserEvent::Started { session_id: id.clone(), pid });
+        guard.emit(BrowserEvent::Started {
+            session_id: id.clone(),
+            pid,
+        });
         Ok(Self {
             id,
             browser: Mutex::new(browser),
@@ -191,7 +215,10 @@ impl BrowserSession {
     }
     /// Connections the pinning proxy made, with the address it pinned for each.
     pub fn pinned_connections(&self) -> Vec<PinnedConnection> {
-        self.proxy.as_ref().map(|p| p.log.lock().unwrap().clone()).unwrap_or_default()
+        self.proxy
+            .as_ref()
+            .map(|p| p.log.lock().unwrap().clone())
+            .unwrap_or_default()
     }
     pub fn is_headless(&self) -> bool {
         self.headless
@@ -205,9 +232,23 @@ impl BrowserSession {
 
     /// Open a new page (tab), make it current, and navigate to `url`.
     pub async fn new_page(&self, url: &str) -> Result<Arc<BrowserPage>> {
-        let inner = self.browser.lock().await.new_page("about:blank").await.map_err(cdp)?;
+        let inner = self
+            .browser
+            .lock()
+            .await
+            .new_page("about:blank")
+            .await
+            .map_err(cdp)?;
         let id = format!("p{}", self.page_seq.fetch_add(1, Ordering::Relaxed) + 1);
-        let page = Arc::new(BrowserPage::attach(id.clone(), inner, self.upload_root.clone(), self.guard.clone()).await?);
+        let page = Arc::new(
+            BrowserPage::attach(
+                id.clone(),
+                inner,
+                self.upload_root.clone(),
+                self.guard.clone(),
+            )
+            .await?,
+        );
         self.pages.lock().unwrap().push(page.clone());
         *self.current.lock().unwrap() = Some(id);
         if url != "about:blank" {
@@ -232,7 +273,12 @@ impl BrowserSession {
 
     /// The page actions default to.
     pub fn current(&self) -> Result<Arc<BrowserPage>> {
-        let id = self.current.lock().unwrap().clone().ok_or_else(|| BrowserError::UnknownPage("<none>".into()))?;
+        let id = self
+            .current
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| BrowserError::UnknownPage("<none>".into()))?;
         self.page(&id)
     }
 
@@ -250,7 +296,12 @@ impl BrowserSession {
         {
             let mut cur = self.current.lock().unwrap();
             if cur.as_deref() == Some(id) {
-                *cur = self.pages.lock().unwrap().last().map(|p| p.id().to_string());
+                *cur = self
+                    .pages
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .map(|p| p.id().to_string());
             }
         }
         p.close_inner().await
@@ -262,7 +313,11 @@ impl BrowserSession {
     }
 
     /// Wait for a download not in `before` to finish (no `.crdownload`, stable size).
-    pub async fn wait_download(&self, before: &HashSet<PathBuf>, timeout: Duration) -> Result<PathBuf> {
+    pub async fn wait_download(
+        &self,
+        before: &HashSet<PathBuf>,
+        timeout: Duration,
+    ) -> Result<PathBuf> {
         let deadline = Instant::now() + timeout;
         loop {
             let now = completed_files(&self.download_dir);
@@ -282,18 +337,37 @@ impl BrowserSession {
 
     /// Set a W3C permission (`geolocation`, `notifications`, `clipboard-read`,
     /// `midi`, ...) to granted or denied for `origin`, or every origin when `None`.
-    pub async fn set_permission(&self, origin: Option<&str>, name: &str, granted: bool) -> Result<()> {
+    pub async fn set_permission(
+        &self,
+        origin: Option<&str>,
+        name: &str,
+        granted: bool,
+    ) -> Result<()> {
         let mut params = SetPermissionParams::new(
             PermissionDescriptor::new(name),
-            if granted { PermissionSetting::Granted } else { PermissionSetting::Denied },
+            if granted {
+                PermissionSetting::Granted
+            } else {
+                PermissionSetting::Denied
+            },
         );
         params.origin = origin.map(str::to_string);
-        self.browser.lock().await.execute(params).await.map_err(cdp)?;
+        self.browser
+            .lock()
+            .await
+            .execute(params)
+            .await
+            .map_err(cdp)?;
         Ok(())
     }
 
     pub async fn reset_permissions(&self) -> Result<()> {
-        self.browser.lock().await.execute(ResetPermissionsParams::default()).await.map_err(cdp)?;
+        self.browser
+            .lock()
+            .await
+            .execute(ResetPermissionsParams::default())
+            .await
+            .map_err(cdp)?;
         Ok(())
     }
 
@@ -342,7 +416,9 @@ impl BrowserSession {
             h.abort();
         }
         if !self.stopped.swap(true, Ordering::SeqCst) {
-            self.guard.emit(BrowserEvent::Stopped { session_id: self.id.clone() });
+            self.guard.emit(BrowserEvent::Stopped {
+                session_id: self.id.clone(),
+            });
         }
     }
 }
@@ -361,7 +437,9 @@ impl Drop for BrowserSession {
             let _ = p.child.terminate_tree();
         }
         if !self.stopped.swap(true, Ordering::SeqCst) {
-            self.guard.emit(BrowserEvent::Stopped { session_id: self.id.clone() });
+            self.guard.emit(BrowserEvent::Stopped {
+                session_id: self.id.clone(),
+            });
         }
     }
 }
@@ -373,7 +451,9 @@ fn completed_files(dir: &Path) -> HashSet<PathBuf> {
                 .map(|e| e.path())
                 .filter(|p| {
                     p.is_file()
-                        && !p.extension().is_some_and(|e| e == "crdownload" || e == "tmp")
+                        && !p
+                            .extension()
+                            .is_some_and(|e| e == "crdownload" || e == "tmp")
                 })
                 .collect()
         })

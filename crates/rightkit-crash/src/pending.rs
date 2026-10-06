@@ -51,7 +51,10 @@ pub fn enqueue_pending(crash_dir: &Path, outbox: &Outbox) -> EnqueueSummary {
                 summary.queued += 1;
                 let submitted = crash_dir.join(SUBMITTED_DIR);
                 if std::fs::create_dir_all(&submitted).is_ok() {
-                    let _ = std::fs::rename(&path, submitted.join(path.file_name().unwrap_or_default()));
+                    let _ = std::fs::rename(
+                        &path,
+                        submitted.join(path.file_name().unwrap_or_default()),
+                    );
                 } else {
                     // Could not mark as queued: remove rather than risk a duplicate upload.
                     let _ = std::fs::remove_file(&path);

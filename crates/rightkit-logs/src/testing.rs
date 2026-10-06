@@ -25,7 +25,10 @@ impl MockServer {
     pub fn start() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         listener.set_nonblocking(true).expect("nonblocking");
-        let url = format!("http://127.0.0.1:{}/v1/ingest", listener.local_addr().unwrap().port());
+        let url = format!(
+            "http://127.0.0.1:{}/v1/ingest",
+            listener.local_addr().unwrap().port()
+        );
         let requests = Arc::new(Mutex::new(Vec::new()));
         let script = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
@@ -37,13 +40,21 @@ impl MockServer {
                         stream.set_nonblocking(false).ok();
                         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
                         if let Some(body) = read_request(&mut stream) {
-                            r.lock().unwrap().push(serde_json::from_slice(&body).unwrap_or(Value::Null));
+                            r.lock()
+                                .unwrap()
+                                .push(serde_json::from_slice(&body).unwrap_or(Value::Null));
                         }
                         let (status, retry_after) = {
                             let mut script = s.lock().unwrap();
-                            if script.is_empty() { (200, None) } else { script.remove(0) }
+                            if script.is_empty() {
+                                (200, None)
+                            } else {
+                                script.remove(0)
+                            }
                         };
-                        let mut response = format!("HTTP/1.1 {status} X\r\ncontent-length: 0\r\nconnection: close\r\n");
+                        let mut response = format!(
+                            "HTTP/1.1 {status} X\r\ncontent-length: 0\r\nconnection: close\r\n"
+                        );
                         if let Some(seconds) = retry_after {
                             response.push_str(&format!("retry-after: {seconds}\r\n"));
                         }
@@ -54,7 +65,13 @@ impl MockServer {
                 }
             }
         });
-        Self { url, requests, script, stop, handle: Some(handle) }
+        Self {
+            url,
+            requests,
+            script,
+            stop,
+            handle: Some(handle),
+        }
     }
 
     pub fn script(&self, responses: &[(u16, Option<u64>)]) {
@@ -107,4 +124,3 @@ fn read_request(stream: &mut std::net::TcpStream) -> Option<Vec<u8>> {
     }
     Some(buffer[header_end..].to_vec())
 }
-

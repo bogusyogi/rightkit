@@ -36,7 +36,10 @@ pub struct Ack {
 impl Ack {
     /// Mark the ping answered. Cheap, lock-free, callable from any thread.
     pub fn done(&self) {
-        self.done_ms.store(self.epoch.elapsed().as_millis() as u64 + 1, Ordering::Release);
+        self.done_ms.store(
+            self.epoch.elapsed().as_millis() as u64 + 1,
+            Ordering::Release,
+        );
     }
 }
 
@@ -52,7 +55,11 @@ pub struct StallConfig {
 
 impl Default for StallConfig {
     fn default() -> Self {
-        Self { poll: Duration::from_millis(50), threshold: Duration::from_millis(200), observer_gap: Duration::from_secs(1) }
+        Self {
+            poll: Duration::from_millis(50),
+            threshold: Duration::from_millis(200),
+            observer_gap: Duration::from_secs(1),
+        }
     }
 }
 
@@ -60,7 +67,11 @@ impl Default for StallConfig {
 pub enum StallEvent {
     /// The target has not acknowledged for `gap`. `recovered` is true when the
     /// ack landed late (a stall seen only after the fact: nothing left to sample).
-    Stalled { episode: u64, gap: Duration, recovered: bool },
+    Stalled {
+        episode: u64,
+        gap: Duration,
+        recovered: bool,
+    },
     /// The target is answering again after a reported stall.
     Recovered { episode: u64, gap: Duration },
     /// The watchdog thread was not scheduled for `gap`; that interval's timing was discarded.
@@ -99,7 +110,10 @@ impl Cooldown {
     }
     /// True (and records `now`) when the action may run.
     pub fn reserve(&mut self, now: Duration) -> bool {
-        if self.last.is_some_and(|l| now.saturating_sub(l) < self.every) {
+        if self
+            .last
+            .is_some_and(|l| now.saturating_sub(l) < self.every)
+        {
             return false;
         }
         self.last = Some(now);
@@ -125,8 +139,13 @@ impl StallWatchdog {
     ) -> io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
-        let handle = thread::Builder::new().name(name.to_string()).spawn(move || run(config, flag, ping, on_event))?;
-        Ok(Self { stop, handle: Some(handle) })
+        let handle = thread::Builder::new()
+            .name(name.to_string())
+            .spawn(move || run(config, flag, ping, on_event))?;
+        Ok(Self {
+            stop,
+            handle: Some(handle),
+        })
     }
 
     /// Stop and join. Idempotent.
@@ -174,23 +193,37 @@ fn run(
         }
         if let Some(sent) = pending {
             let acked = done.load(Ordering::Acquire);
-            let gap = Duration::from_millis(if acked != 0 { acked.saturating_sub(sent) } else { now.saturating_sub(sent) });
+            let gap = Duration::from_millis(if acked != 0 {
+                acked.saturating_sub(sent)
+            } else {
+                now.saturating_sub(sent)
+            });
             if episode.detect(gap, cfg.threshold) {
                 episode_no += 1;
-                on_event(StallEvent::Stalled { episode: episode_no, gap, recovered: acked != 0 });
+                on_event(StallEvent::Stalled {
+                    episode: episode_no,
+                    gap,
+                    recovered: acked != 0,
+                });
             }
             if acked == 0 {
                 continue;
             }
             if episode.reported {
-                on_event(StallEvent::Recovered { episode: episode_no, gap });
+                on_event(StallEvent::Recovered {
+                    episode: episode_no,
+                    gap,
+                });
             }
             episode.reported = false;
             pending = None;
         }
         if pending.is_none() {
             done = Arc::new(AtomicU64::new(0));
-            let ack = Ack { epoch, done_ms: Arc::clone(&done) };
+            let ack = Ack {
+                epoch,
+                done_ms: Arc::clone(&done),
+            };
             match ping(ack) {
                 Ok(()) => pending = Some(ms(Instant::now())),
                 Err(reason) => {

@@ -11,18 +11,21 @@ mod store;
 mod supervisor;
 
 pub use client::{ClientOptions, EngineClient, DEFAULT_HELLO_TIMEOUT};
-pub use supervisor::{CallOptions, EngineSupervisor, ExitReason, HealthCheck, Lifecycle, LifecycleEvent, SupervisorConfig, SupervisorStatus};
 pub use contract::{
     parse_flags, run_cli, serve, CommandSet, Dispatcher, Flags, JobCommands, Outcome, Sink,
     CONTRACT_VERSION, DEFAULT_FRAME_LIMIT,
 };
 pub use error::{JobError, JobResult, HOST_HANDOFF, STALLED};
-pub use sched::{Gate, InteractiveGuard, Priority};
-pub use service::DispatcherHandler;
 pub use runner::{
     EventSink, JobControl, JobHandler, JobLock, JobLocks, RunOutcome, Runner, DEFAULT_MAX_ATTEMPTS,
 };
+pub use sched::{Gate, InteractiveGuard, Priority};
+pub use service::DispatcherHandler;
 pub use store::{
     Artifact, Event, Job, JobStore, ListFilter, NewJob, CANCELLED, COMPLETE, FAILED, MAX_EVENTS,
     QUEUED, RUNNING,
+};
+pub use supervisor::{
+    CallOptions, EngineSupervisor, ExitReason, HealthCheck, Lifecycle, LifecycleEvent,
+    SupervisorConfig, SupervisorStatus,
 };

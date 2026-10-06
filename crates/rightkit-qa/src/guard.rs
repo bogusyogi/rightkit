@@ -54,7 +54,11 @@ fn dependency_body(cargo: &str, name: &str) -> Option<String> {
     while let Some(i) = cargo[search..].find(name) {
         let at = search + i;
         search = at + name.len();
-        let prev = if at == 0 { b' ' } else { cargo.as_bytes()[at - 1] };
+        let prev = if at == 0 {
+            b' '
+        } else {
+            cargo.as_bytes()[at - 1]
+        };
         let before_ok = !prev.is_ascii_alphanumeric() && prev != b'-' && prev != b'_';
         let rest = cargo[at + name.len()..].trim_start();
         if before_ok && rest.starts_with('=') {
@@ -104,26 +108,48 @@ pub fn validate(input: &ContractInput) -> Vec<String> {
     if !feature.contains(&format!("dep:{dep}")) {
         issues.push(format!("qa-native must enable dep:{dep}"));
     }
-    let compact: String = input.rust_source.chars().filter(|c| !c.is_whitespace()).collect();
-    if !compact.contains(r#"cfg(all(not(debug_assertions),feature="qa-native"))"#) || !compact.contains("compile_error!") {
-        issues.push("Rust must compile_error when qa-native is enabled outside debug builds".into());
+    let compact: String = input
+        .rust_source
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    if !compact.contains(r#"cfg(all(not(debug_assertions),feature="qa-native"))"#)
+        || !compact.contains("compile_error!")
+    {
+        issues
+            .push("Rust must compile_error when qa-native is enabled outside debug builds".into());
     }
-    if !compact.contains(r#"cfg(all(debug_assertions,feature="qa-native"))"#) || !compact.contains(input.backend.registration()) {
-        issues.push(format!("{dep} registration must require debug_assertions and qa-native"));
+    if !compact.contains(r#"cfg(all(debug_assertions,feature="qa-native"))"#)
+        || !compact.contains(input.backend.registration())
+    {
+        issues.push(format!(
+            "{dep} registration must require debug_assertions and qa-native"
+        ));
     }
-    let gated = compact.contains(input.backend.runtime_flag()) || (input.backend == Backend::Control && compact.contains("build_if_enabled"));
+    let gated = compact.contains(input.backend.runtime_flag())
+        || (input.backend == Backend::Control && compact.contains("build_if_enabled"));
     if !gated {
-        issues.push(format!("registration must also require the {} runtime flag", input.backend.runtime_flag()));
+        issues.push(format!(
+            "registration must also require the {} runtime flag",
+            input.backend.runtime_flag()
+        ));
     }
     for (name, command) in input.package_scripts {
         if !command.contains("qa-native") {
             continue;
         }
-        if ["qa", "test", "dev"].iter().any(|p| name == p || name.starts_with(&format!("{p}:"))) {
+        if ["qa", "test", "dev"]
+            .iter()
+            .any(|p| name == p || name.starts_with(&format!("{p}:")))
+        {
             continue;
         }
         let lower = name.to_lowercase();
-        if ["release", "publish", "build", "dmg", "installer", "package"].iter().any(|w| lower.contains(w)) || command.contains("tauri build") {
+        if ["release", "publish", "build", "dmg", "installer", "package"]
+            .iter()
+            .any(|w| lower.contains(w))
+            || command.contains("tauri build")
+        {
             issues.push(format!("package script {name} must not enable qa-native"));
         }
     }
@@ -135,7 +161,10 @@ pub fn assert_contract(input: &ContractInput) -> Result<()> {
     if issues.is_empty() {
         Ok(())
     } else {
-        err(format!("native QA contract failed:\n- {}", issues.join("\n- ")))
+        err(format!(
+            "native QA contract failed:\n- {}",
+            issues.join("\n- ")
+        ))
     }
 }
 
@@ -143,7 +172,11 @@ pub fn scripts_from_package_json(text: &str) -> Result<BTreeMap<String, String>>
     let v: Value = serde_json::from_str(text)?;
     Ok(v.get("scripts")
         .and_then(Value::as_object)
-        .map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
         .unwrap_or_default())
 }
 
@@ -167,25 +200,52 @@ fn run() {
 
     #[test]
     fn accepts_debug_only_control_registration() {
-        let scripts = BTreeMap::from([("qa".to_string(), "cargo run --features qa-native".to_string())]);
-        let i = ContractInput { cargo_toml: CARGO, rust_source: RUST, package_scripts: &scripts, backend: Backend::Control };
+        let scripts = BTreeMap::from([(
+            "qa".to_string(),
+            "cargo run --features qa-native".to_string(),
+        )]);
+        let i = ContractInput {
+            cargo_toml: CARGO,
+            rust_source: RUST,
+            package_scripts: &scripts,
+            backend: Backend::Control,
+        };
         assert_eq!(validate(&i), Vec::<String>::new());
     }
 
     #[test]
     fn rejects_release_scripts_and_non_optional_dependency() {
         let cargo = CARGO.replace("optional = true, ", "");
-        let scripts = BTreeMap::from([("release".to_string(), "tauri build --features qa-native".to_string())]);
-        let i = ContractInput { cargo_toml: &cargo, rust_source: RUST, package_scripts: &scripts, backend: Backend::Control };
+        let scripts = BTreeMap::from([(
+            "release".to_string(),
+            "tauri build --features qa-native".to_string(),
+        )]);
+        let i = ContractInput {
+            cargo_toml: &cargo,
+            rust_source: RUST,
+            package_scripts: &scripts,
+            backend: Backend::Control,
+        };
         let issues = validate(&i);
-        assert!(issues.iter().any(|s| s.contains("must be optional")), "{issues:?}");
-        assert!(issues.iter().any(|s| s.contains("package script release")), "{issues:?}");
+        assert!(
+            issues.iter().any(|s| s.contains("must be optional")),
+            "{issues:?}"
+        );
+        assert!(
+            issues.iter().any(|s| s.contains("package script release")),
+            "{issues:?}"
+        );
     }
 
     #[test]
     fn rejects_missing_compile_error() {
         let scripts = BTreeMap::new();
-        let i = ContractInput { cargo_toml: CARGO, rust_source: "fn main(){}", package_scripts: &scripts, backend: Backend::Control };
+        let i = ContractInput {
+            cargo_toml: CARGO,
+            rust_source: "fn main(){}",
+            package_scripts: &scripts,
+            backend: Backend::Control,
+        };
         assert!(validate(&i).iter().any(|s| s.contains("compile_error")));
     }
 }

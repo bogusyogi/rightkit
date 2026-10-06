@@ -32,7 +32,12 @@ fn cancel_concurrent_with_begin_is_never_lost() {
 fn early_cancel_is_consumed_once() {
     let registry = Arc::new(PlaybackRegistry::new());
     registry.cancel("playback-early");
-    assert!(matches!(registry.begin("playback-early"), Err(PlaybackError::Cancelled)));
-    let again = registry.begin("playback-early").expect("a later request with the same id starts clean");
+    assert!(matches!(
+        registry.begin("playback-early"),
+        Err(PlaybackError::Cancelled)
+    ));
+    let again = registry
+        .begin("playback-early")
+        .expect("a later request with the same id starts clean");
     assert!(!again.token().is_cancelled());
 }

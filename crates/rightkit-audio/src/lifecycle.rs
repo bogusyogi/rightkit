@@ -179,8 +179,8 @@ mod windows_impl {
         DEVICE_NOTIFY_CALLBACK, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND, PBT_APMSUSPEND,
     };
     // `PROPERTYKEY` also moved out of `windows::core` in 0.62.
-    use windows::Win32::Foundation::{HANDLE, PROPERTYKEY, WIN32_ERROR};
     use windows::core::{Result as WinResult, PCWSTR};
+    use windows::Win32::Foundation::{HANDLE, PROPERTYKEY, WIN32_ERROR};
 
     /// Bounded so an endpoint notification storm (e.g. a flaky USB hub cycling
     /// add/remove) cannot grow memory unbounded. The worker coalesces every
@@ -237,18 +237,12 @@ mod windows_impl {
             // `windows` 0.62 types this as DEVICE_STATE rather than a raw u32.
             _new_state: DEVICE_STATE,
         ) -> WinResult<()> {
-            self.enqueue(
-                LifecycleCause::DeviceStateChanged,
-                endpoint_id(device_id),
-            );
+            self.enqueue(LifecycleCause::DeviceStateChanged, endpoint_id(device_id));
             Ok(())
         }
 
         fn OnDeviceAdded(&self, device_id: &PCWSTR) -> WinResult<()> {
-            self.enqueue(
-                LifecycleCause::DeviceStateChanged,
-                endpoint_id(device_id),
-            );
+            self.enqueue(LifecycleCause::DeviceStateChanged, endpoint_id(device_id));
             Ok(())
         }
 
@@ -275,11 +269,7 @@ mod windows_impl {
             Ok(())
         }
 
-        fn OnPropertyValueChanged(
-            &self,
-            device_id: &PCWSTR,
-            _key: &PROPERTYKEY,
-        ) -> WinResult<()> {
+        fn OnPropertyValueChanged(&self, device_id: &PCWSTR, _key: &PROPERTYKEY) -> WinResult<()> {
             self.enqueue(LifecycleCause::PropertyChanged, endpoint_id(device_id));
             Ok(())
         }
@@ -415,9 +405,7 @@ mod windows_impl {
         }
         .into();
 
-        if let Err(error) =
-            unsafe { enumerator.RegisterEndpointNotificationCallback(&client) }
-        {
+        if let Err(error) = unsafe { enumerator.RegisterEndpointNotificationCallback(&client) } {
             tracing::warn!(
                 %error,
                 "windows audio lifecycle: endpoint registration failed"

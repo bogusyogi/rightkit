@@ -13,7 +13,12 @@ fn main() {
     let arg = |i: usize| a.get(i).map(String::as_str).unwrap_or("");
     let num = |i: usize| arg(i).parse::<f64>().unwrap_or(0.0);
     let pid = || arg(1).parse::<i32>().unwrap_or(0);
-    let win = |p: i32| mac::main_window(p).unwrap_or_else(|| { eprintln!("no window for pid {p}"); std::process::exit(1) });
+    let win = |p: i32| {
+        mac::main_window(p).unwrap_or_else(|| {
+            eprintln!("no window for pid {p}");
+            std::process::exit(1)
+        })
+    };
     match arg(0) {
         "trusted" => println!("{}", mac::accessibility_trusted()),
         "frontmost" => println!("{} {}", mac::frontmost_pid().unwrap_or(0), mac::frontmost_name().unwrap_or_default()),

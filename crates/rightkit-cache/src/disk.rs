@@ -29,7 +29,10 @@ pub struct Config {
 
 impl Config {
     pub fn new(max_bytes: u64) -> Self {
-        Self { max_bytes, max_entry_bytes: None }
+        Self {
+            max_bytes,
+            max_entry_bytes: None,
+        }
     }
 
     pub fn max_entry_bytes(mut self, n: u64) -> Self {
@@ -72,7 +75,10 @@ struct State {
 
 impl State {
     fn tick(&mut self) -> u128 {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
         self.clock = now.max(self.clock + 1);
         self.clock
     }
@@ -96,7 +102,9 @@ fn entry_name(key: &Key) -> String {
 
 fn valid_entry_name(name: &str) -> bool {
     let b = name.as_bytes();
-    b.len() == 64 + 1 + 16 && b[64] == b'-' && name.chars().all(|c| c == '-' || c.is_ascii_hexdigit())
+    b.len() == 64 + 1 + 16
+        && b[64] == b'-'
+        && name.chars().all(|c| c == '-' || c.is_ascii_hexdigit())
 }
 
 impl DiskCache {
@@ -120,7 +128,10 @@ impl DiskCache {
                 let f = f?;
                 let name = f.file_name().to_string_lossy().into_owned();
                 let meta = f.metadata()?;
-                if !meta.is_file() || !valid_entry_name(&name) || !name.starts_with(&shard.file_name().to_string_lossy().into_owned()) {
+                if !meta.is_file()
+                    || !valid_entry_name(&name)
+                    || !name.starts_with(&shard.file_name().to_string_lossy().into_owned())
+                {
                     continue;
                 }
                 let used = meta
@@ -139,7 +150,13 @@ impl DiskCache {
             state.bytes += len;
             state.index.insert(name, Meta { len, used });
         }
-        let cache = Self { inner: Arc::new(Inner { root, cfg, state: Mutex::new(state) }) };
+        let cache = Self {
+            inner: Arc::new(Inner {
+                root,
+                cfg,
+                state: Mutex::new(state),
+            }),
+        };
         {
             let mut st = cache.lock();
             cache.evict_locked(&mut st, 0);
@@ -165,7 +182,13 @@ impl DiskCache {
 
     pub fn stats(&self) -> Stats {
         let st = self.lock();
-        Stats { entries: st.index.len(), bytes: st.bytes, hits: st.hits, misses: st.misses, evictions: st.evictions }
+        Stats {
+            entries: st.index.len(),
+            bytes: st.bytes,
+            hits: st.hits,
+            misses: st.misses,
+            evictions: st.evictions,
+        }
     }
 
     pub fn contains(&self, key: &Key) -> bool {
@@ -183,12 +206,17 @@ impl DiskCache {
             }
         }
         let path = self.path_for(&name);
-        let read = OpenOptions::new().read(true).write(true).open(&path).or_else(|_| File::open(&path)).and_then(|mut f| {
-            let mut buf = Vec::new();
-            f.read_to_end(&mut buf)?;
-            let _ = f.set_modified(SystemTime::now());
-            Ok(buf)
-        });
+        let read = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .or_else(|_| File::open(&path))
+            .and_then(|mut f| {
+                let mut buf = Vec::new();
+                f.read_to_end(&mut buf)?;
+                let _ = f.set_modified(SystemTime::now());
+                Ok(buf)
+            });
         let mut st = self.lock();
         match read {
             Ok(bytes) => {
@@ -237,7 +265,11 @@ impl DiskCache {
 
     fn write_tmp(&self, bytes: &[u8]) -> io::Result<PathBuf> {
         static SEQ: AtomicU64 = AtomicU64::new(0);
-        let tmp = self.inner.root.join(".tmp").join(format!("{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
+        let tmp = self.inner.root.join(".tmp").join(format!(
+            "{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut f = File::create(&tmp)?;
         if let Err(e) = f.write_all(bytes) {
             let _ = fs::remove_file(&tmp);
@@ -248,7 +280,11 @@ impl DiskCache {
 
     /// Fetch-or-cache: on a miss call `fetch`, write the result through (best effort), return it.
     /// A fetch error leaves the cache untouched; a cache write failure never fails the caller.
-    pub fn get_or_fetch<E>(&self, key: &Key, fetch: impl FnOnce() -> Result<Vec<u8>, E>) -> Result<Vec<u8>, E> {
+    pub fn get_or_fetch<E>(
+        &self,
+        key: &Key,
+        fetch: impl FnOnce() -> Result<Vec<u8>, E>,
+    ) -> Result<Vec<u8>, E> {
         if let Some(bytes) = self.get(key) {
             return Ok(bytes);
         }
@@ -274,7 +310,12 @@ impl DiskCache {
     pub fn clear_group(&self, group_parts: &[&str]) -> usize {
         let suffix = format!("-{}", group_id(group_parts));
         let mut st = self.lock();
-        let names: Vec<String> = st.index.keys().filter(|n| n.ends_with(&suffix)).cloned().collect();
+        let names: Vec<String> = st
+            .index
+            .keys()
+            .filter(|n| n.ends_with(&suffix))
+            .cloned()
+            .collect();
         for n in &names {
             if let Some(m) = st.index.remove(n) {
                 st.bytes = st.bytes.saturating_sub(m.len);
@@ -301,7 +342,8 @@ impl DiskCache {
         if st.bytes + reserve <= cap {
             return;
         }
-        let mut order: Vec<(u128, String)> = st.index.iter().map(|(n, m)| (m.used, n.clone())).collect();
+        let mut order: Vec<(u128, String)> =
+            st.index.iter().map(|(n, m)| (m.used, n.clone())).collect();
         order.sort();
         for (_, name) in order {
             if st.bytes + reserve <= cap {

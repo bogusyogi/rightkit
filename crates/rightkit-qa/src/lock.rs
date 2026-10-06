@@ -38,7 +38,11 @@ pub struct LockOptions {
 
 impl Default for LockOptions {
     fn default() -> Self {
-        Self { timeout: Duration::from_secs(120), stale: Duration::from_secs(60), poll: Duration::from_millis(250) }
+        Self {
+            timeout: Duration::from_secs(120),
+            stale: Duration::from_secs(60),
+            poll: Duration::from_millis(250),
+        }
     }
 }
 
@@ -57,11 +61,20 @@ pub fn owner_alive(o: &RunOwner) -> bool {
     }
 }
 
-pub fn acquire_with(lock_dir: &Path, label: &str, opts: &LockOptions, alive: &dyn Fn(&RunOwner) -> bool) -> Result<RunOwnership> {
+pub fn acquire_with(
+    lock_dir: &Path,
+    label: &str,
+    opts: &LockOptions,
+    alive: &dyn Fn(&RunOwner) -> bool,
+) -> Result<RunOwnership> {
     let owner_path = lock_dir.join("owner.json");
     let waiting_since = std::time::Instant::now();
     let owner = RunOwner {
-        label: if label.trim().is_empty() { "qa-run".into() } else { label.trim().into() },
+        label: if label.trim().is_empty() {
+            "qa-run".into()
+        } else {
+            label.trim().into()
+        },
         pid: std::process::id(),
         token: new_id(),
         started_at: now_iso(),
@@ -77,14 +90,22 @@ pub fn acquire_with(lock_dir: &Path, label: &str, opts: &LockOptions, alive: &dy
                 let tmp = lock_dir.join(format!("owner.json.tmp-{}", owner.token));
                 fs::write(&tmp, serde_json::to_vec_pretty(&owner)?)?;
                 fs::rename(&tmp, &owner_path)?;
-                return Ok(RunOwnership { owner, dir: lock_dir.to_path_buf(), released: false });
+                return Ok(RunOwnership {
+                    owner,
+                    dir: lock_dir.to_path_buf(),
+                    released: false,
+                });
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 let current = read_owner(&owner_path);
                 let reclaim = match &current {
                     Some(o) => !alive(o),
                     None => {
-                        let age = fs::metadata(lock_dir).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).unwrap_or(Duration::ZERO);
+                        let age = fs::metadata(lock_dir)
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|t| t.elapsed().ok())
+                            .unwrap_or(Duration::ZERO);
                         age > opts.stale
                     }
                 };
@@ -95,8 +116,14 @@ pub fn acquire_with(lock_dir: &Path, label: &str, opts: &LockOptions, alive: &dy
                 if waiting_since.elapsed() >= opts.timeout {
                     return err(format!(
                         "timed out waiting for QA run lock held by {} pid {}",
-                        current.as_ref().map(|o| o.label.as_str()).unwrap_or("unknown"),
-                        current.as_ref().map(|o| o.pid.to_string()).unwrap_or_else(|| "unknown".into())
+                        current
+                            .as_ref()
+                            .map(|o| o.label.as_str())
+                            .unwrap_or("unknown"),
+                        current
+                            .as_ref()
+                            .map(|o| o.pid.to_string())
+                            .unwrap_or_else(|| "unknown".into())
                     ));
                 }
                 std::thread::sleep(opts.poll);
@@ -135,7 +162,10 @@ impl RunOwnership {
             return;
         }
         self.released = true;
-        if read_owner(&self.dir.join("owner.json")).map(|o| o.token == self.owner.token).unwrap_or(false) {
+        if read_owner(&self.dir.join("owner.json"))
+            .map(|o| o.token == self.owner.token)
+            .unwrap_or(false)
+        {
             let _ = fs::remove_dir_all(&self.dir);
         }
     }
@@ -161,7 +191,11 @@ mod tests {
     fn second_run_times_out_while_first_holds() {
         let d = tmp("hold").join("native.lock");
         let first = acquire(&d, "a", &LockOptions::default()).unwrap();
-        let quick = LockOptions { timeout: Duration::from_millis(60), poll: Duration::from_millis(10), ..Default::default() };
+        let quick = LockOptions {
+            timeout: Duration::from_millis(60),
+            poll: Duration::from_millis(10),
+            ..Default::default()
+        };
         let e = acquire(&d, "b", &quick).err().expect("must time out");
         assert!(e.0.contains("held by a"), "{e}");
         drop(first);
@@ -173,11 +207,19 @@ mod tests {
         let d = tmp("live").join("native.lock");
         let _first = acquire(&d, "a", &LockOptions::default()).unwrap();
         // Age the owner record far past any limit; the owner (this process) is alive.
-        let mut o: RunOwner = serde_json::from_slice(&fs::read(d.join("owner.json")).unwrap()).unwrap();
+        let mut o: RunOwner =
+            serde_json::from_slice(&fs::read(d.join("owner.json")).unwrap()).unwrap();
         o.started_at_ms = 1;
         fs::write(d.join("owner.json"), serde_json::to_vec(&o).unwrap()).unwrap();
-        let tight = LockOptions { timeout: Duration::from_millis(80), poll: Duration::from_millis(10), stale: Duration::from_millis(1) };
-        assert!(acquire(&d, "b", &tight).is_err(), "a live owner must not be displaced by age");
+        let tight = LockOptions {
+            timeout: Duration::from_millis(80),
+            poll: Duration::from_millis(10),
+            stale: Duration::from_millis(1),
+        };
+        assert!(
+            acquire(&d, "b", &tight).is_err(),
+            "a live owner must not be displaced by age"
+        );
         assert_eq!(read_owner(&d.join("owner.json")).unwrap().label, "a");
     }
 

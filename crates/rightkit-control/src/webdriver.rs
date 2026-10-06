@@ -31,7 +31,9 @@ pub fn b64(data: &[u8]) -> String {
     const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut o = String::new();
     for c in data.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         for i in 0..4 {
             if i <= c.len() {
                 o.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
@@ -47,12 +49,22 @@ fn ok(v: &str) -> (u16, String) {
     (200, format!("{{\"value\":{v}}}"))
 }
 fn err(status: u16, code: &str, msg: &str) -> (u16, String) {
-    (status, format!("{{\"value\":{{\"error\":\"{code}\",\"message\":\"{}\",\"stacktrace\":\"\"}}}}", esc(msg)))
+    (
+        status,
+        format!(
+            "{{\"value\":{{\"error\":\"{code}\",\"message\":\"{}\",\"stacktrace\":\"\"}}}}",
+            esc(msg)
+        ),
+    )
 }
 
 impl<B: Backend> Server<B> {
     pub fn new(backend: B) -> Self {
-        Self { backend, sessions: HashMap::new(), next: 1 }
+        Self {
+            backend,
+            sessions: HashMap::new(),
+            next: 1,
+        }
     }
 
     pub fn handle(&mut self, method: &str, path: &str, body: &str) -> (u16, String) {
@@ -112,7 +124,10 @@ impl<B: Backend> Server<B> {
     /// is no unauthenticated mode: loopback alone does not identify the caller.
     pub fn serve(&mut self, listener: TcpListener, credential: &str) -> std::io::Result<()> {
         if credential.len() < 32 {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "credential must be at least 32 characters"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "credential must be at least 32 characters",
+            ));
         }
         let port = listener.local_addr()?.port();
         for conn in listener.incoming() {
@@ -157,7 +172,9 @@ fn read_request(s: &mut std::net::TcpStream) -> Option<(String, String)> {
         }
         if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
             let head = String::from_utf8_lossy(&buf[..i]).to_string();
-            let cl = header(&head, "content-length").and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
+            let cl = header(&head, "content-length")
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(0);
             if cl > MAX_REQUEST {
                 return None;
             }
@@ -182,7 +199,9 @@ fn read_request(s: &mut std::net::TcpStream) -> Option<(String, String)> {
 fn header(head: &str, name: &str) -> Option<String> {
     head.lines().skip(1).find_map(|l| {
         let (k, v) = l.split_once(':')?;
-        k.trim().eq_ignore_ascii_case(name).then(|| v.trim().to_string())
+        k.trim()
+            .eq_ignore_ascii_case(name)
+            .then(|| v.trim().to_string())
     })
 }
 
@@ -196,20 +215,41 @@ fn ct_eq(a: &str, b: &str) -> bool {
 }
 
 /// Admission for one request head. Pure so it is testable without a socket.
-pub fn check_request(head: &str, peer_is_loopback: bool, port: u16, credential: &str) -> Result<(), (u16, String)> {
+pub fn check_request(
+    head: &str,
+    peer_is_loopback: bool,
+    port: u16,
+    credential: &str,
+) -> Result<(), (u16, String)> {
     if !peer_is_loopback {
         return Err(err(403, "unknown error", "peer is not loopback"));
     }
-    let host_ok = header(head, "host").map(|h| h == format!("127.0.0.1:{port}") || h == format!("localhost:{port}") || h == format!("[::1]:{port}")).unwrap_or(false);
+    let host_ok = header(head, "host")
+        .map(|h| {
+            h == format!("127.0.0.1:{port}")
+                || h == format!("localhost:{port}")
+                || h == format!("[::1]:{port}")
+        })
+        .unwrap_or(false);
     if !host_ok {
         return Err(err(403, "unknown error", "unexpected Host header"));
     }
     if header(head, "origin").is_some() {
-        return Err(err(403, "unknown error", "browser-originated requests are refused"));
+        return Err(err(
+            403,
+            "unknown error",
+            "browser-originated requests are refused",
+        ));
     }
-    let presented = header(head, "authorization").and_then(|v| v.strip_prefix("Bearer ").map(str::to_string)).unwrap_or_default();
+    let presented = header(head, "authorization")
+        .and_then(|v| v.strip_prefix("Bearer ").map(str::to_string))
+        .unwrap_or_default();
     if !ct_eq(&presented, credential) {
-        return Err(err(401, "unknown error", "missing or wrong bridge credential"));
+        return Err(err(
+            401,
+            "unknown error",
+            "missing or wrong bridge credential",
+        ));
     }
     Ok(())
 }
@@ -228,16 +268,23 @@ pub mod macos {
     }
     impl AxBackend {
         pub fn new(pid: i32) -> Self {
-            Self { pid, els: HashMap::new(), n: 0 }
+            Self {
+                pid,
+                els: HashMap::new(),
+                n: 0,
+            }
         }
         fn get(&self, id: &str) -> Result<&Node, String> {
-            self.els.get(id).ok_or_else(|| "unknown element".to_string())
+            self.els
+                .get(id)
+                .ok_or_else(|| "unknown element".to_string())
         }
     }
     impl Backend for AxBackend {
         fn find(&mut self, using: &str, value: &str) -> Result<String, String> {
             let exact = using == "link text" || using == "name";
-            let node = mac::ax_find(self.pid, value, exact).ok_or_else(|| format!("no element matching {value:?}"))?;
+            let node = mac::ax_find(self.pid, value, exact)
+                .ok_or_else(|| format!("no element matching {value:?}"))?;
             self.n += 1;
             let id = format!("ax-{}", self.n);
             self.els.insert(id.clone(), node);
@@ -303,10 +350,17 @@ mod tests {
         let mut s = Server::new(Fake(vec![]));
         let (_, r) = s.handle("POST", "/session", "{}");
         assert!(r.contains("rkc-1"));
-        let (c, r) = s.handle("POST", "/session/rkc-1/element", r#"{"using":"link text","value":"Go"}"#);
+        let (c, r) = s.handle(
+            "POST",
+            "/session/rkc-1/element",
+            r#"{"using":"link text","value":"Go"}"#,
+        );
         assert_eq!(c, 200);
         assert!(r.contains(ELEMENT_KEY));
-        assert_eq!(s.handle("POST", "/session/rkc-1/element/e1/click", "{}").0, 200);
+        assert_eq!(
+            s.handle("POST", "/session/rkc-1/element/e1/click", "{}").0,
+            200
+        );
         assert_eq!(s.handle("POST", "/session/zzz/element", "{}").0, 404);
         assert_eq!(s.backend.0, ["find link text Go", "click e1"]);
         assert_eq!(b64(b"abcd"), "YWJjZA==");

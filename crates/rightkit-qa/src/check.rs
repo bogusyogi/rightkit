@@ -37,7 +37,11 @@ pub fn select(root: &Value, path: &str) -> Option<Value> {
         }
         cur = next;
     }
-    Some(if fanned { Value::Array(cur) } else { cur.into_iter().next()? })
+    Some(if fanned {
+        Value::Array(cur)
+    } else {
+        cur.into_iter().next()?
+    })
 }
 
 fn split_path(path: &str) -> Vec<String> {
@@ -90,11 +94,19 @@ pub struct Expect {
 }
 
 fn to_f64(v: &Value) -> Option<f64> {
-    v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
 }
 
 fn declared_beyond_exists(e: &Expect) -> bool {
-    e.eq.is_some() || e.ne.is_some() || e.gte.is_some() || e.lte.is_some() || e.contains.is_some() || e.len_gte.is_some() || e.len_eq.is_some() || e.not_empty.is_some()
+    e.eq.is_some()
+        || e.ne.is_some()
+        || e.gte.is_some()
+        || e.lte.is_some()
+        || e.contains.is_some()
+        || e.len_gte.is_some()
+        || e.len_eq.is_some()
+        || e.not_empty.is_some()
 }
 
 pub fn check(result: &Value, e: &Expect) -> Result<()> {
@@ -113,7 +125,9 @@ pub fn check(result: &Value, e: &Expect) -> Result<()> {
         || e.len_eq.is_some()
         || e.not_empty.is_some();
     if !declared {
-        return err(format!("{label}: expectation declares no constraint (a bare path asserts nothing)"));
+        return err(format!(
+            "{label}: expectation declares no constraint (a bare path asserts nothing)"
+        ));
     }
     if let Some(want) = e.exists {
         if got.is_some() != want {
@@ -121,10 +135,21 @@ pub fn check(result: &Value, e: &Expect) -> Result<()> {
         }
         if !want {
             // Absence was asserted; no other constraint can apply to a missing value.
-            return if declared_beyond_exists(e) { err(format!("{label}: exists=false cannot be combined with value constraints")) } else { Ok(()) };
+            return if declared_beyond_exists(e) {
+                err(format!(
+                    "{label}: exists=false cannot be combined with value constraints"
+                ))
+            } else {
+                Ok(())
+            };
         }
     }
-    let Some(got) = got else { return err(format!("{label}: path not found in {}", crate::util::tail(&result.to_string(), 400))) };
+    let Some(got) = got else {
+        return err(format!(
+            "{label}: path not found in {}",
+            crate::util::tail(&result.to_string(), 400)
+        ));
+    };
     if let Some(v) = &e.eq {
         if &got != v && !(got.is_number() && v.is_number() && got.as_f64() == v.as_f64()) {
             return err(format!("{label}: expected {v}, got {got}"));
@@ -154,7 +179,10 @@ pub fn check(result: &Value, e: &Expect) -> Result<()> {
             _ => false,
         };
         if !ok {
-            return err(format!("{label}: expected to contain {needle}, got {}", crate::util::tail(&got.to_string(), 400)));
+            return err(format!(
+                "{label}: expected to contain {needle}, got {}",
+                crate::util::tail(&got.to_string(), 400)
+            ));
         }
     }
     let len = match &got {
@@ -194,18 +222,32 @@ pub fn check_all(result: &Value, expects: &[Expect]) -> Result<()> {
 pub fn interpolate(v: &Value, vars: &BTreeMap<String, Value>) -> Result<Value> {
     Ok(match v {
         Value::String(s) => interpolate_str(s, vars)?,
-        Value::Array(a) => Value::Array(a.iter().map(|x| interpolate(x, vars)).collect::<Result<_>>()?),
-        Value::Object(o) => Value::Object(o.iter().map(|(k, x)| Ok((k.clone(), interpolate(x, vars)?))).collect::<Result<_>>()?),
+        Value::Array(a) => Value::Array(
+            a.iter()
+                .map(|x| interpolate(x, vars))
+                .collect::<Result<_>>()?,
+        ),
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .map(|(k, x)| Ok((k.clone(), interpolate(x, vars)?)))
+                .collect::<Result<_>>()?,
+        ),
         other => other.clone(),
     })
 }
 
 fn lookup(name: &str, vars: &BTreeMap<String, Value>) -> Result<Value> {
-    let (head, rest) = name.split_once('.').map(|(h, r)| (h, Some(r))).unwrap_or((name, None));
-    let base = vars.get(head).ok_or_else(|| crate::util::Error(format!("unknown variable ${{{name}}}")))?;
+    let (head, rest) = name
+        .split_once('.')
+        .map(|(h, r)| (h, Some(r)))
+        .unwrap_or((name, None));
+    let base = vars
+        .get(head)
+        .ok_or_else(|| crate::util::Error(format!("unknown variable ${{{name}}}")))?;
     match rest {
         None => Ok(base.clone()),
-        Some(p) => select(base, p).ok_or_else(|| crate::util::Error(format!("variable path not found: ${{{name}}}"))),
+        Some(p) => select(base, p)
+            .ok_or_else(|| crate::util::Error(format!("variable path not found: ${{{name}}}"))),
     }
 }
 
@@ -220,7 +262,9 @@ fn interpolate_str(s: &str, vars: &BTreeMap<String, Value>) -> Result<Value> {
     while let Some(i) = rest.find("${") {
         out.push_str(&rest[..i]);
         let after = &rest[i + 2..];
-        let Some(end) = after.find('}') else { return err(format!("unterminated ${{ in {s}")) };
+        let Some(end) = after.find('}') else {
+            return err(format!("unterminated ${{ in {s}"));
+        };
         match lookup(&after[..end], vars)? {
             Value::String(t) => out.push_str(&t),
             other => out.push_str(&other.to_string()),
@@ -236,49 +280,165 @@ mod tests {
     use super::*;
 
     fn ex(path: &str) -> Expect {
-        Expect { path: Some(path.into()), ..Default::default() }
+        Expect {
+            path: Some(path.into()),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn selects_nested_indexed_and_fanned_paths() {
         let v = json!({"json": {"contract_version": 3, "capabilities": [{"name": "generate"}, {"name": "job.wait"}]}});
         assert_eq!(select(&v, "json.contract_version"), Some(json!(3)));
-        assert_eq!(select(&v, "json.capabilities[1].name"), Some(json!("job.wait")));
-        assert_eq!(select(&v, "json.capabilities[*].name"), Some(json!(["generate", "job.wait"])));
+        assert_eq!(
+            select(&v, "json.capabilities[1].name"),
+            Some(json!("job.wait"))
+        );
+        assert_eq!(
+            select(&v, "json.capabilities[*].name"),
+            Some(json!(["generate", "job.wait"]))
+        );
         assert_eq!(select(&v, "json.nope"), None);
     }
 
     #[test]
     fn predicates() {
         let v = json!({"n": 3, "s": "hello world", "a": ["x", "y"], "e": []});
-        assert!(check(&v, &Expect { gte: Some(2.0), ..ex("n") }).is_ok());
-        assert!(check(&v, &Expect { gte: Some(4.0), ..ex("n") }).is_err());
-        assert!(check(&v, &Expect { contains: Some(json!("world")), ..ex("s") }).is_ok());
-        assert!(check(&v, &Expect { contains: Some(json!("y")), ..ex("a") }).is_ok());
-        assert!(check(&v, &Expect { eq: Some(json!(3.0)), ..ex("n") }).is_ok());
-        assert!(check(&v, &Expect { exists: Some(false), ..ex("zzz") }).is_ok());
-        assert!(check(&v, &Expect { not_empty: Some(true), ..ex("e") }).is_err());
-        assert!(check(&v, &Expect { len_gte: Some(2), ..ex("a") }).is_ok());
+        assert!(check(
+            &v,
+            &Expect {
+                gte: Some(2.0),
+                ..ex("n")
+            }
+        )
+        .is_ok());
+        assert!(check(
+            &v,
+            &Expect {
+                gte: Some(4.0),
+                ..ex("n")
+            }
+        )
+        .is_err());
+        assert!(check(
+            &v,
+            &Expect {
+                contains: Some(json!("world")),
+                ..ex("s")
+            }
+        )
+        .is_ok());
+        assert!(check(
+            &v,
+            &Expect {
+                contains: Some(json!("y")),
+                ..ex("a")
+            }
+        )
+        .is_ok());
+        assert!(check(
+            &v,
+            &Expect {
+                eq: Some(json!(3.0)),
+                ..ex("n")
+            }
+        )
+        .is_ok());
+        assert!(check(
+            &v,
+            &Expect {
+                exists: Some(false),
+                ..ex("zzz")
+            }
+        )
+        .is_ok());
+        assert!(check(
+            &v,
+            &Expect {
+                not_empty: Some(true),
+                ..ex("e")
+            }
+        )
+        .is_err());
+        assert!(check(
+            &v,
+            &Expect {
+                len_gte: Some(2),
+                ..ex("a")
+            }
+        )
+        .is_ok());
     }
 
     #[test]
     fn every_declared_constraint_is_evaluated() {
         let v = json!({"s": "actual", "n": 3});
         // exists=true must not short-circuit the value constraint.
-        assert!(check(&v, &Expect { exists: Some(true), eq: Some(json!("expected")), ..ex("s") }).is_err());
-        assert!(check(&v, &Expect { exists: Some(true), eq: Some(json!("actual")), ..ex("s") }).is_ok());
-        assert!(check(&v, &Expect { exists: Some(true), gte: Some(5.0), ..ex("n") }).is_err());
-        assert!(check(&v, &Expect { exists: Some(false), eq: Some(json!("x")), ..ex("zzz") }).is_err());
-        assert!(check(&v, &Expect { ..ex("s") }).is_err(), "a bare path asserts nothing and must not pass");
-        assert!(check(&v, &Expect { not_empty: Some(false), ..ex("s") }).is_err());
+        assert!(check(
+            &v,
+            &Expect {
+                exists: Some(true),
+                eq: Some(json!("expected")),
+                ..ex("s")
+            }
+        )
+        .is_err());
+        assert!(check(
+            &v,
+            &Expect {
+                exists: Some(true),
+                eq: Some(json!("actual")),
+                ..ex("s")
+            }
+        )
+        .is_ok());
+        assert!(check(
+            &v,
+            &Expect {
+                exists: Some(true),
+                gte: Some(5.0),
+                ..ex("n")
+            }
+        )
+        .is_err());
+        assert!(check(
+            &v,
+            &Expect {
+                exists: Some(false),
+                eq: Some(json!("x")),
+                ..ex("zzz")
+            }
+        )
+        .is_err());
+        assert!(
+            check(&v, &Expect { ..ex("s") }).is_err(),
+            "a bare path asserts nothing and must not pass"
+        );
+        assert!(check(
+            &v,
+            &Expect {
+                not_empty: Some(false),
+                ..ex("s")
+            }
+        )
+        .is_err());
     }
 
     #[test]
     fn interpolation_keeps_types_for_whole_placeholders() {
         let vars = BTreeMap::from([("job".to_string(), json!({"json": {"id": "j1", "n": 4}}))]);
-        assert_eq!(interpolate(&json!("${job.json.n}"), &vars).unwrap(), json!(4));
-        assert_eq!(interpolate(&json!("id=${job.json.id}!"), &vars).unwrap(), json!("id=j1!"));
+        assert_eq!(
+            interpolate(&json!("${job.json.n}"), &vars).unwrap(),
+            json!(4)
+        );
+        assert_eq!(
+            interpolate(&json!("id=${job.json.id}!"), &vars).unwrap(),
+            json!("id=j1!")
+        );
         assert!(interpolate(&json!("${missing}"), &vars).is_err());
-        assert_eq!(interpolate(&json!({"a": ["${job.json.id}"]}), &vars).unwrap(), json!({"a": ["j1"]}));
+        assert_eq!(
+            interpolate(&json!({"a": ["${job.json.id}"]}), &vars).unwrap(),
+            json!({"a": ["j1"]})
+        );
     }
 }

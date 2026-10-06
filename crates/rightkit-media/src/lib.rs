@@ -30,8 +30,8 @@ pub use command::{
     transcode_audio_command, AudioTranscode, DevFfmpeg, FfmpegArg, FfmpegBinary, FfmpegCommand,
 };
 pub use runner::{
-    run_capture, run_checked, run_with_progress, Captured, ProgressEvent, ProgressParser,
-    RunError, RunOptions, RunReport,
+    run_capture, run_checked, run_with_progress, Captured, ProgressEvent, ProgressParser, RunError,
+    RunOptions, RunReport,
 };
 
 pub const APPROVED_CATALOG_JSON: &str = include_str!("../catalog/artifacts.json");

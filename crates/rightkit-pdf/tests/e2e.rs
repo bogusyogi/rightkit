@@ -16,7 +16,12 @@ use rightkit_pdf::model::{
 use rightkit_pdf::save::{expected_text_checks, stage_prepared_save, PdfSaveTokenStore};
 
 fn fixture(name: &str) -> Vec<u8> {
-    std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)).unwrap()
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name),
+    )
+    .unwrap()
 }
 
 fn scratch(tag: &str) -> PathBuf {
@@ -28,7 +33,12 @@ fn scratch(tag: &str) -> PathBuf {
 fn page_text(bytes: &[u8], page: u32) -> String {
     let doc = Document::load_mem(bytes).unwrap();
     let graph = walk_page_graph(&doc, &document_sha256(bytes), page).unwrap();
-    graph.islands.iter().map(|i| i.text.clone()).collect::<Vec<_>>().join(" ")
+    graph
+        .islands
+        .iter()
+        .map(|i| i.text.clone())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn page_count(bytes: &[u8]) -> usize {
@@ -76,7 +86,12 @@ fn appearance_for(family_id: &str) -> PdfTextAppearance {
         font_id: entry.id,
         family: entry.family,
         size_pt: 16.0,
-        color: PdfColor { r: 0.8, g: 0.0, b: 0.0, alpha: 1.0 },
+        color: PdfColor {
+            r: 0.8,
+            g: 0.0,
+            b: 0.0,
+            alpha: 1.0,
+        },
     }
 }
 
@@ -86,15 +101,30 @@ fn replace_source_text_in_place_round_trips_through_reopen() {
     let doc = Document::load_mem(&original).unwrap();
     let sha = document_sha256(&original);
     let graph = walk_page_graph(&doc, &sha, 1).unwrap();
-    let island = graph.islands.iter().find(|i| i.text == "Hello World").expect("island").clone();
+    let island = graph
+        .islands
+        .iter()
+        .find(|i| i.text == "Hello World")
+        .expect("island");
     assert!(island.editable, "{:?}", island.rejection);
     let q = island.quads[0];
-    let bounds = PdfRect { x: q[0] - 1.0, y: q[1] - 1.0, width: 400.0, height: 30.0 };
+    let bounds = PdfRect {
+        x: q[0] - 1.0,
+        y: q[1] - 1.0,
+        width: 400.0,
+        height: 30.0,
+    };
     let command = PdfEditCommand::ReplaceSourceText {
         id: "r1".into(),
         locator: island.locator.clone(),
-        before: PdfTextEditState { text: island.text.clone(), appearance: island.appearance.clone() },
-        after: PdfTextEditState { text: "Hello Rustaceans".into(), appearance: island.appearance.clone() },
+        before: PdfTextEditState {
+            text: island.text.clone(),
+            appearance: island.appearance.clone(),
+        },
+        after: PdfTextEditState {
+            text: "Hello Rustaceans".into(),
+            appearance: island.appearance.clone(),
+        },
         available_bounds: bounds,
     };
     let out = compose_candidate(&original, &[command.clone()], FontCatalog::shared()).unwrap();
@@ -141,7 +171,10 @@ fn add_text_on_chrome_pdf_stages_and_commits_atomically_leaving_other_pages_byte
 
     let committed = commit_pdf_save(&store, &meta.token, None).unwrap();
     let saved = std::fs::read(&target).unwrap();
-    assert_eq!(saved, composed.bytes, "on-disk bytes equal the verified candidate");
+    assert_eq!(
+        saved, composed.bytes,
+        "on-disk bytes equal the verified candidate"
+    );
     assert_eq!(committed.document_sha256, document_sha256(&saved));
     let leftovers: Vec<_> = std::fs::read_dir(&dir)
         .unwrap()
@@ -153,10 +186,17 @@ fn add_text_on_chrome_pdf_stages_and_commits_atomically_leaving_other_pages_byte
     // Content: new text on page 2; pages 1 and 3 keep their exact text.
     assert!(page_text(&saved, 2).contains("Reviewed by RightKit"));
     for p in [1_u32, 3] {
-        assert_eq!(page_text(&saved, p), page_text(&original, p), "page {p} text unchanged");
+        assert_eq!(
+            page_text(&saved, p),
+            page_text(&original, p),
+            "page {p} text unchanged"
+        );
     }
     // Bytes: untouched pages keep byte-identical content streams.
-    let (a, b) = (Document::load_mem(&original).unwrap(), Document::load_mem(&saved).unwrap());
+    let (a, b) = (
+        Document::load_mem(&original).unwrap(),
+        Document::load_mem(&saved).unwrap(),
+    );
     for p in [1_u32, 3] {
         let ca = a.get_page_content(a.get_pages()[&p]);
         let cb = b.get_page_content(b.get_pages()[&p]);
@@ -165,7 +205,10 @@ fn add_text_on_chrome_pdf_stages_and_commits_atomically_leaving_other_pages_byte
 
     // Single-use: replaying the token is rejected and the file is untouched.
     let replay = commit_pdf_save(&store, &meta.token, None);
-    assert!(matches!(replay, Err(CommitError::Edit(PdfEditError::WriteConflict))), "{replay:?}");
+    assert!(
+        matches!(replay, Err(CommitError::Edit(PdfEditError::WriteConflict))),
+        "{replay:?}"
+    );
     assert_eq!(std::fs::read(&target).unwrap(), saved);
 }
 
@@ -186,7 +229,12 @@ fn same_path_commit_refuses_when_source_changed_after_staging() {
     std::fs::write(&target, &original).unwrap();
     let store = PdfSaveTokenStore::default();
     let meta = stage_prepared_save(
-        &store, target.to_str().unwrap(), &sha, &sha, composed.bytes, vec![1],
+        &store,
+        target.to_str().unwrap(),
+        &sha,
+        &sha,
+        composed.bytes,
+        vec![1],
         expected_text_checks(&[command]),
     )
     .unwrap();
@@ -194,8 +242,15 @@ fn same_path_commit_refuses_when_source_changed_after_staging() {
     let theirs = fixture("report.pdf");
     std::fs::write(&target, &theirs).unwrap();
     let r = commit_pdf_save(&store, &meta.token, None);
-    assert!(matches!(r, Err(CommitError::Edit(PdfEditError::WriteConflict))), "{r:?}");
-    assert_eq!(std::fs::read(&target).unwrap(), theirs, "their file was not clobbered");
+    assert!(
+        matches!(r, Err(CommitError::Edit(PdfEditError::WriteConflict))),
+        "{r:?}"
+    );
+    assert_eq!(
+        std::fs::read(&target).unwrap(),
+        theirs,
+        "their file was not clobbered"
+    );
 }
 
 #[test]
@@ -211,7 +266,15 @@ fn staging_rejects_candidate_missing_expected_text() {
     };
     let mut checks = expected_text_checks(&[command]);
     checks[0].text = "Never written".into();
-    let r = stage_prepared_save(&PdfSaveTokenStore::default(), "p.pdf", &sha, &sha, original, vec![1], checks);
+    let r = stage_prepared_save(
+        &PdfSaveTokenStore::default(),
+        "p.pdf",
+        &sha,
+        &sha,
+        original,
+        vec![1],
+        checks,
+    );
     assert!(matches!(r, Err(PdfEditError::VerificationFailed)));
 }
 
@@ -231,8 +294,14 @@ fn merge_and_select_preserve_page_content_and_order() {
     assert!(page_text(&picked, 1).contains("Delta memo"));
     assert!(page_text(&picked, 2).contains("Bravo"));
     assert!(page_text(&picked, 3).contains("Bravo"));
-    assert!(matches!(select_pages(&merged, &[9]), Err(MergeError::PageOutOfRange(9))));
-    assert!(picked.len() < merged.len(), "dropped pages are pruned from the output");
+    assert!(matches!(
+        select_pages(&merged, &[9]),
+        Err(MergeError::PageOutOfRange(9))
+    ));
+    assert!(
+        picked.len() < merged.len(),
+        "dropped pages are pruned from the output"
+    );
 }
 
 #[cfg(feature = "merge")]
@@ -241,14 +310,23 @@ fn merge_materializes_inherited_page_attributes() {
     // Resources/MediaBox only on the /Pages node: the donor recipe lost them.
     let mut doc = Document::with_version("1.7");
     let pages_id = doc.new_object_id();
-    let font = doc.add_object(dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" });
-    let content = doc.add_object(Stream::new(dictionary! {}, b"BT /F1 12 Tf 50 50 Td (Inherited) Tj ET".to_vec()));
-    let page = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id, "Contents" => content });
-    doc.objects.insert(pages_id, Object::Dictionary(dictionary! {
-        "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1,
-        "MediaBox" => vec![0.into(), 0.into(), 300.into(), 200.into()],
-        "Resources" => dictionary! { "Font" => dictionary! { "F1" => font } },
-    }));
+    let font = doc.add_object(
+        dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" },
+    );
+    let content = doc.add_object(Stream::new(
+        dictionary! {},
+        b"BT /F1 12 Tf 50 50 Td (Inherited) Tj ET".to_vec(),
+    ));
+    let page = doc
+        .add_object(dictionary! { "Type" => "Page", "Parent" => pages_id, "Contents" => content });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1,
+            "MediaBox" => vec![0.into(), 0.into(), 300.into(), 200.into()],
+            "Resources" => dictionary! { "Font" => dictionary! { "F1" => font } },
+        }),
+    );
     let cat = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
     doc.trailer.set("Root", cat);
     let mut bytes = Vec::new();
@@ -268,9 +346,19 @@ fn extract_reads_real_chrome_pdf_per_page() {
     let pages = rightkit_pdf::extract::extract_text_by_pages(&fixture("report.pdf")).unwrap();
     assert_eq!(pages.len(), 3);
     let first_page_text: String = pages[0].split_whitespace().collect();
-    assert!(first_page_text.contains("Alphasection:revenuegrewbytwelvepercent"), "{:?}", pages[0]);
-    assert!(pages[1].split_whitespace().collect::<String>().contains("Bravosection"));
-    assert!(pages[2].split_whitespace().collect::<String>().contains("Charliesection"));
+    assert!(
+        first_page_text.contains("Alphasection:revenuegrewbytwelvepercent"),
+        "{:?}",
+        pages[0]
+    );
+    assert!(pages[1]
+        .split_whitespace()
+        .collect::<String>()
+        .contains("Bravosection"));
+    assert!(pages[2]
+        .split_whitespace()
+        .collect::<String>()
+        .contains("Charliesection"));
     let all = rightkit_pdf::extract::extract_text(&fixture("report.pdf")).unwrap();
     assert!(all.contains("Operations") && all.contains("Outlook"));
     assert!(rightkit_pdf::extract::extract_text(b"%PDF-1.4 not really").is_err());
@@ -283,20 +371,44 @@ mod visual {
 
     fn rasterize(pdf: &Path, png: &Path) {
         let out = Command::new("/usr/bin/sips")
-            .args(["-s", "format", "png", "-s", "dpiWidth", "72", "-s", "dpiHeight", "72"])
-            .arg(pdf).arg("--out").arg(png).output().expect("sips available on macOS");
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            .args([
+                "-s",
+                "format",
+                "png",
+                "-s",
+                "dpiWidth",
+                "72",
+                "-s",
+                "dpiHeight",
+                "72",
+            ])
+            .arg(pdf)
+            .arg("--out")
+            .arg(png)
+            .output()
+            .expect("sips available on macOS");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     fn decode(png: &Path) -> (usize, usize, Vec<u8>) {
         let img = image::open(png).unwrap().to_rgba8();
         let (width, height) = (img.width() as usize, img.height() as usize);
         let pixels = img.into_raw();
-        let gray = pixels.chunks_exact(4).map(|pixel| {
-            let alpha = u16::from(pixel[3]);
-            let luminance = (u16::from(pixel[0]) * 77 + u16::from(pixel[1]) * 150 + u16::from(pixel[2]) * 29) / 256;
-            ((luminance * alpha + 255 * (255 - alpha)) / 255) as u8
-        }).collect();
+        let gray = pixels
+            .chunks_exact(4)
+            .map(|pixel| {
+                let alpha = u16::from(pixel[3]);
+                let luminance = (u16::from(pixel[0]) * 77
+                    + u16::from(pixel[1]) * 150
+                    + u16::from(pixel[2]) * 29)
+                    / 256;
+                ((luminance * alpha + 255 * (255 - alpha)) / 255) as u8
+            })
+            .collect();
         (width, height, gray)
     }
 
@@ -304,12 +416,15 @@ mod visual {
     fn added_text_changes_pixels_only_around_the_anchor() {
         let original = fixture("memo.pdf");
         let command = PdfEditCommand::AddText {
-            id: "v1".into(), page: 1,
+            id: "v1".into(),
+            page: 1,
             anchor: PdfPoint { x: 72.0, y: 400.0 },
             text: "VISUAL CHECK".into(),
             appearance: appearance_for("source-serif-4"),
         };
-        let edited = compose_candidate(&original, &[command], FontCatalog::shared()).unwrap().bytes;
+        let edited = compose_candidate(&original, &[command], FontCatalog::shared())
+            .unwrap()
+            .bytes;
         let dir = scratch("visual");
         let (a_pdf, b_pdf) = (dir.join("a.pdf"), dir.join("b.pdf"));
         std::fs::write(&a_pdf, &original).unwrap();
@@ -328,11 +443,19 @@ mod visual {
         for y in 0..h {
             for x in 0..w {
                 if a[y * w + x].abs_diff(b[y * w + x]) > 40 {
-                    if (band_top..band_bottom).contains(&y) { inside += 1 } else { outside += 1 }
+                    if (band_top..band_bottom).contains(&y) {
+                        inside += 1
+                    } else {
+                        outside += 1
+                    }
                 }
             }
         }
-        assert!(inside > 150, "added text is visible: {inside} changed px in band; artifacts at {}", dir.display());
+        assert!(
+            inside > 150,
+            "added text is visible: {inside} changed px in band; artifacts at {}",
+            dir.display()
+        );
         assert_eq!(outside, 0, "no pixels changed outside the text band");
     }
 }

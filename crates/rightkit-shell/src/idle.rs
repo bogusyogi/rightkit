@@ -90,7 +90,11 @@ pub struct IdleHost {
 
 impl IdleHost {
     pub fn new(suspend_after: Duration) -> Self {
-        Self { suspend_after, state: Mutex::new(IdleState::default()), counters: Mutex::new((0, 0)) }
+        Self {
+            suspend_after,
+            state: Mutex::new(IdleState::default()),
+            counters: Mutex::new((0, 0)),
+        }
     }
 }
 
@@ -113,9 +117,25 @@ pub fn status(app: &AppHandle<Wry>) -> IdleStatus {
         Some(h) => {
             let (hidden, suspended) = h.state.lock().unwrap_or_else(|e| e.into_inner()).snapshot();
             let (suspends, resumes) = *h.counters.lock().unwrap_or_else(|e| e.into_inner());
-            IdleStatus { enabled: true, hidden, suspended, suspend_after_ms: h.suspend_after.as_millis() as u64, suspends, resumes, native_suspend: cfg!(windows) }
+            IdleStatus {
+                enabled: true,
+                hidden,
+                suspended,
+                suspend_after_ms: h.suspend_after.as_millis() as u64,
+                suspends,
+                resumes,
+                native_suspend: cfg!(windows),
+            }
         }
-        None => IdleStatus { enabled: false, hidden: false, suspended: false, suspend_after_ms: 0, suspends: 0, resumes: 0, native_suspend: cfg!(windows) },
+        None => IdleStatus {
+            enabled: false,
+            hidden: false,
+            suspended: false,
+            suspend_after_ms: 0,
+            suspends: 0,
+            resumes: 0,
+            native_suspend: cfg!(windows),
+        },
     }
 }
 
@@ -128,7 +148,11 @@ fn emit(app: &AppHandle<Wry>, state: &str) {
 pub fn note_hidden(app: &AppHandle<Wry>, controller_already_hidden: bool) {
     let state = app.state::<ShellState>();
     let Some(host) = &state.idle else { return };
-    let (generation, action) = host.state.lock().unwrap_or_else(|e| e.into_inner()).on_hidden();
+    let (generation, action) = host
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .on_hidden();
     if action != IdleAction::HideControllerAndStartTimer {
         return;
     }
@@ -137,24 +161,34 @@ pub fn note_hidden(app: &AppHandle<Wry>, controller_already_hidden: bool) {
         platform::set_visible(app, false);
     }
     let (app, delay) = (app.clone(), host.suspend_after);
-    let _ = std::thread::Builder::new().name("rk-shell-idle".into()).spawn(move || {
-        std::thread::sleep(delay);
-        let state = app.state::<ShellState>();
-        let Some(host) = &state.idle else { return };
-        let action = host.state.lock().unwrap_or_else(|e| e.into_inner()).on_timer(generation);
-        if action == IdleAction::SuspendNow {
-            host.counters.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
-            platform::suspend(&app);
-            emit(&app, "suspended");
-        }
-    });
+    let _ = std::thread::Builder::new()
+        .name("rk-shell-idle".into())
+        .spawn(move || {
+            std::thread::sleep(delay);
+            let state = app.state::<ShellState>();
+            let Some(host) = &state.idle else { return };
+            let action = host
+                .state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .on_timer(generation);
+            if action == IdleAction::SuspendNow {
+                host.counters.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
+                platform::suspend(&app);
+                emit(&app, "suspended");
+            }
+        });
 }
 
 /// The main window is visible again.
 pub fn note_visible(app: &AppHandle<Wry>) {
     let state = app.state::<ShellState>();
     let Some(host) = &state.idle else { return };
-    let action = host.state.lock().unwrap_or_else(|e| e.into_inner()).on_visible();
+    let action = host
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .on_visible();
     match action {
         IdleAction::ShowController => {
             platform::set_visible(app, true);
@@ -199,10 +233,12 @@ mod platform {
                 unsafe {
                     if let Ok(core) = webview.controller().CoreWebView2() {
                         if let Ok(core3) = core.cast::<ICoreWebView2_3>() {
-                            let handler = webview2_com::TrySuspendCompletedHandler::create(Box::new(|error, _suspended| {
-                                error?;
-                                Ok(())
-                            }));
+                            let handler = webview2_com::TrySuspendCompletedHandler::create(
+                                Box::new(|error, _suspended| {
+                                    error?;
+                                    Ok(())
+                                }),
+                            );
                             let _ = core3.TrySuspend(&handler);
                         }
                     }

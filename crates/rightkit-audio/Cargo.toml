@@ -8,7 +8,8 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/claude"
 keywords = ["audio", "ffmpeg", "capture", "loudness"]
 categories = ["multimedia::audio"]
-publish = false
+readme = "README.md"
+include = ["src/**", "tests/**", "presets/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["capture"]

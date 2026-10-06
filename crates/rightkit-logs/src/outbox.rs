@@ -64,7 +64,10 @@ struct Ledger {
 pub enum EnqueueError {
     /// Consent is not granted; nothing was stored.
     NoConsent,
-    TooLarge { bytes: usize, max: usize },
+    TooLarge {
+        bytes: usize,
+        max: usize,
+    },
     Storage(String),
 }
 
@@ -125,7 +128,9 @@ impl Outbox {
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|poison| poison.into_inner())
+        self.state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 
     /// Redact, scrub and persist one event. Returns its id.
@@ -184,7 +189,12 @@ impl Outbox {
 
     /// Earliest `not_before_ms` among queued events, if any are waiting.
     pub fn next_ready_at_ms(&self) -> Option<i64> {
-        self.lock().ledger.events.iter().map(|e| e.not_before_ms).min()
+        self.lock()
+            .ledger
+            .events
+            .iter()
+            .map(|e| e.not_before_ms)
+            .min()
     }
 
     /// Remove delivered (or permanently rejected) events.
@@ -192,7 +202,8 @@ impl Outbox {
         let mut state = self.lock();
         let mut candidate = state.ledger.clone();
         candidate.events.retain(|event| !ids.contains(&event.id));
-        self.persist(&mut state, candidate).map_err(io::Error::other)
+        self.persist(&mut state, candidate)
+            .map_err(io::Error::other)
     }
 
     /// Count a failed attempt and hold the events until `not_before_ms`.
@@ -203,7 +214,8 @@ impl Outbox {
             event.upload_attempts = event.upload_attempts.saturating_add(1).min(8);
             event.not_before_ms = not_before_ms;
         }
-        self.persist(&mut state, candidate).map_err(io::Error::other)
+        self.persist(&mut state, candidate)
+            .map_err(io::Error::other)
     }
 
     pub fn status(&self) -> OutboxStatus {

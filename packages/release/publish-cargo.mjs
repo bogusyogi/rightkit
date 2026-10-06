@@ -43,8 +43,8 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
   if (allowDirty) packageArgs.push("--allow-dirty");
   const plan = [
     { label: "secret scan", internal: "secret-scan", crateDir },
-    { label: "format", command: "cargo", args: ["fmt", "--all", "--check"] },
-    { label: "tests", command: "cargo", args: ["test", "-p", crate] },
+    { label: "format", command: "cargo", args: ["fmt", "-p", crate, "--check"] },
+    { label: "tests", command: "cargo", args: ["test", "-p", crate, "--", "--test-threads=1"] },
     { label: "clippy", command: "cargo", args: ["clippy", "-p", crate, "--all-targets", "--", "-D", "warnings"] },
     { label: "package contents", command: "cargo", args: packageArgs, capture: true },
     { label: "registry dry-run", command: "cargo", args: dryRunArgs },

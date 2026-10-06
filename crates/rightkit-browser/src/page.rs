@@ -2,12 +2,13 @@ use crate::error::{cdp, BrowserError, Result};
 use crate::keys::{self, KeyDef};
 use crate::policy::{ActionKind, AdmissionRequest, BlockedRequest, Guard};
 use chromiumoxide::cdp::browser_protocol::dom::SetFileInputFilesParams;
+use chromiumoxide::cdp::browser_protocol::fetch::{
+    ContinueRequestParams, EnableParams as FetchEnableParams, EventRequestPaused,
+    FailRequestParams, RequestPattern,
+};
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
     MouseButton,
-};
-use chromiumoxide::cdp::browser_protocol::fetch::{
-    ContinueRequestParams, EnableParams as FetchEnableParams, EventRequestPaused, FailRequestParams, RequestPattern,
 };
 use chromiumoxide::cdp::browser_protocol::network::ErrorReason;
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
@@ -132,10 +133,18 @@ pub struct BrowserPage {
 }
 
 impl BrowserPage {
-    pub(crate) async fn attach(id: String, inner: Page, upload_root: Option<PathBuf>, guard: Arc<Guard>) -> Result<Self> {
+    pub(crate) async fn attach(
+        id: String,
+        inner: Page,
+        upload_root: Option<PathBuf>,
+        guard: Arc<Guard>,
+    ) -> Result<Self> {
         let console = Arc::new(Mutex::new(Vec::new()));
         let mut pumps = Vec::new();
-        let mut ev = inner.event_listener::<EventConsoleApiCalled>().await.map_err(cdp)?;
+        let mut ev = inner
+            .event_listener::<EventConsoleApiCalled>()
+            .await
+            .map_err(cdp)?;
         let sink = console.clone();
         pumps.push(tokio::spawn(async move {
             while let Some(e) = ev.next().await {
@@ -150,23 +159,47 @@ impl BrowserPage {
                     })
                     .collect::<Vec<_>>()
                     .join(" ");
-                push_capped(&sink, ConsoleLine { level: format!("{:?}", e.r#type).to_lowercase(), text }).await;
+                push_capped(
+                    &sink,
+                    ConsoleLine {
+                        level: format!("{:?}", e.r#type).to_lowercase(),
+                        text,
+                    },
+                )
+                .await;
             }
         }));
-        let mut ex = inner.event_listener::<EventExceptionThrown>().await.map_err(cdp)?;
+        let mut ex = inner
+            .event_listener::<EventExceptionThrown>()
+            .await
+            .map_err(cdp)?;
         let sink = console.clone();
         pumps.push(tokio::spawn(async move {
             while let Some(e) = ex.next().await {
                 let d = &e.exception_details;
-                let text = d.exception.as_ref().and_then(|x| x.description.clone()).unwrap_or_else(|| d.text.clone());
-                push_capped(&sink, ConsoleLine { level: "exception".into(), text }).await;
+                let text = d
+                    .exception
+                    .as_ref()
+                    .and_then(|x| x.description.clone())
+                    .unwrap_or_else(|| d.text.clone());
+                push_capped(
+                    &sink,
+                    ConsoleLine {
+                        level: "exception".into(),
+                        text,
+                    },
+                )
+                .await;
             }
         }));
         let blocked = Arc::new(StdMutex::new(Vec::new()));
         if !guard.network.unrestricted {
             // Pause every request (document, redirect hops, subresources) and
             // decide before it leaves the browser. Enabled before any navigation.
-            let mut paused = inner.event_listener::<EventRequestPaused>().await.map_err(cdp)?;
+            let mut paused = inner
+                .event_listener::<EventRequestPaused>()
+                .await
+                .map_err(cdp)?;
             let page = inner.clone();
             let g = guard.clone();
             let sink = blocked.clone();
@@ -179,11 +212,16 @@ impl BrowserPage {
                         let kind = format!("{:?}", e.resource_type);
                         match g.network.check(&e.request.url, &kind).await {
                             Ok(()) => {
-                                let _ = page.execute(ContinueRequestParams::new(e.request_id.clone())).await;
+                                let _ = page
+                                    .execute(ContinueRequestParams::new(e.request_id.clone()))
+                                    .await;
                             }
                             Err(reason) => {
                                 let _ = page
-                                    .execute(FailRequestParams::new(e.request_id.clone(), ErrorReason::BlockedByClient))
+                                    .execute(FailRequestParams::new(
+                                        e.request_id.clone(),
+                                        ErrorReason::BlockedByClient,
+                                    ))
                                     .await;
                                 g.emit(crate::policy::BrowserEvent::Denied {
                                     session_id: g.session_id.clone(),
@@ -192,7 +230,10 @@ impl BrowserPage {
                                 });
                                 let mut b = sink.lock().unwrap();
                                 if b.len() < 500 {
-                                    b.push(BlockedRequest { url: e.request.url.clone(), reason });
+                                    b.push(BlockedRequest {
+                                        url: e.request.url.clone(),
+                                        reason,
+                                    });
                                 }
                             }
                         }
@@ -200,7 +241,11 @@ impl BrowserPage {
                 }
             }));
             let mut en = FetchEnableParams::default();
-            en.patterns = Some(vec![RequestPattern { url_pattern: Some("*".into()), resource_type: None, request_stage: None }]);
+            en.patterns = Some(vec![RequestPattern {
+                url_pattern: Some("*".into()),
+                resource_type: None,
+                request_stage: None,
+            }]);
             inner.execute(en).await.map_err(cdp)?;
         }
         Ok(Self {
@@ -228,7 +273,13 @@ impl BrowserPage {
     }
 
     /// Typed pre-effect admission. Reads no page state beyond the current URL.
-    async fn admit(&self, action: ActionKind, url: Option<String>, target: Option<String>, detail: Option<String>) -> Result<()> {
+    async fn admit(
+        &self,
+        action: ActionKind,
+        url: Option<String>,
+        target: Option<String>,
+        detail: Option<String>,
+    ) -> Result<()> {
         let url = match url {
             Some(u) => Some(u),
             None if self.guard.admission.is_some() => Some(self.url().await),
@@ -279,10 +330,14 @@ impl BrowserPage {
     }
 
     pub async fn goto(&self, url: &str) -> Result<()> {
-        self.admit(ActionKind::Navigate, Some(url.to_string()), None, None).await?;
+        self.admit(ActionKind::Navigate, Some(url.to_string()), None, None)
+            .await?;
         self.guard.check_url(url, "Navigation").await?;
         let _l = self.lane.lock().await;
-        self.inner.goto(url).await.map_err(|e| BrowserError::Cdp(format!("navigate '{url}': {e}")))?;
+        self.inner
+            .goto(url)
+            .await
+            .map_err(|e| BrowserError::Cdp(format!("navigate '{url}': {e}")))?;
         self.inner.wait_for_navigation().await.map_err(cdp)?;
         self.invalidate();
         Ok(())
@@ -298,9 +353,18 @@ impl BrowserPage {
     }
 
     pub async fn history(&self, delta: i32) -> Result<()> {
-        self.admit(ActionKind::History, None, None, Some(format!("delta={delta}"))).await?;
+        self.admit(
+            ActionKind::History,
+            None,
+            None,
+            Some(format!("delta={delta}")),
+        )
+        .await?;
         let _l = self.lane.lock().await;
-        self.inner.evaluate(format!("history.go({delta})")).await.map_err(cdp)?;
+        self.inner
+            .evaluate(format!("history.go({delta})"))
+            .await
+            .map_err(cdp)?;
         tokio::time::sleep(Duration::from_millis(150)).await;
         self.inner.wait_for_navigation().await.map_err(cdp)?;
         self.invalidate();
@@ -312,18 +376,31 @@ impl BrowserPage {
     }
 
     pub async fn title(&self) -> String {
-        self.inner.get_title().await.ok().flatten().unwrap_or_default()
+        self.inner
+            .get_title()
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default()
     }
 
     /// Rendered text (`document.body.innerText`).
     pub async fn text(&self) -> Result<String> {
-        self.eval_internal("document.body ? document.body.innerText : ''").await.map(|v| v.as_str().unwrap_or_default().to_string())
+        self.eval_internal("document.body ? document.body.innerText : ''")
+            .await
+            .map(|v| v.as_str().unwrap_or_default().to_string())
     }
 
     /// Evaluate a JS expression and return its JSON value. Script can navigate and
     /// act, so it is admitted like any other effect.
     pub async fn eval(&self, expr: &str) -> Result<Value> {
-        self.admit(ActionKind::Eval, None, None, Some(expr.chars().take(2000).collect())).await?;
+        self.admit(
+            ActionKind::Eval,
+            None,
+            None,
+            Some(expr.chars().take(2000).collect()),
+        )
+        .await?;
         self.eval_internal(expr).await
     }
 
@@ -336,7 +413,12 @@ impl BrowserPage {
     pub async fn set_viewport(&self, width: u32, height: u32, scale: f64) -> Result<()> {
         use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
         self.inner
-            .execute(SetDeviceMetricsOverrideParams::new(i64::from(width), i64::from(height), scale, false))
+            .execute(SetDeviceMetricsOverrideParams::new(
+                i64::from(width),
+                i64::from(height),
+                scale,
+                false,
+            ))
             .await
             .map_err(cdp)?;
         Ok(())
@@ -362,7 +444,12 @@ impl BrowserPage {
             .map_err(cdp)?;
         let fingerprint = raw
             .iter()
-            .map(|n| format!("{}|{}|{}|{}|{}", n.selector, n.role, n.name, n.visible, n.disabled))
+            .map(|n| {
+                format!(
+                    "{}|{}|{}|{}|{}",
+                    n.selector, n.role, n.name, n.visible, n.disabled
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
         let (epoch, nodes, added, removed) = {
@@ -376,12 +463,21 @@ impl BrowserPage {
             let mut cur = HashMap::new();
             let mut nodes = Vec::new();
             for (i, n) in raw.into_iter().enumerate() {
-                let name = if n.sensitive { "••••••••".to_string() } else { n.name.clone() };
+                let name = if n.sensitive {
+                    "••••••••".to_string()
+                } else {
+                    n.name.clone()
+                };
                 let node_ref = format!("r{epoch}.{}", i + 1);
                 if !n.selector.is_empty() {
                     o.refs.insert(
                         node_ref.clone(),
-                        RefEntry { selector: n.selector.clone(), tag: n.tag.clone(), role: n.role.clone(), name: name.clone() },
+                        RefEntry {
+                            selector: n.selector.clone(),
+                            tag: n.tag.clone(),
+                            role: n.role.clone(),
+                            name: name.clone(),
+                        },
                     );
                     cur.insert(n.selector.clone(), format!("{}|{}", n.role, name));
                 }
@@ -396,8 +492,17 @@ impl BrowserPage {
                     bounds: n.bounds,
                 });
             }
-            let added = cur.keys().filter(|k| !o.previous.contains_key(*k)).cloned().collect();
-            let removed = o.previous.keys().filter(|k| !cur.contains_key(*k)).cloned().collect();
+            let added = cur
+                .keys()
+                .filter(|k| !o.previous.contains_key(*k))
+                .cloned()
+                .collect();
+            let removed = o
+                .previous
+                .keys()
+                .filter(|k| !cur.contains_key(*k))
+                .cloned()
+                .collect();
             o.previous = cur;
             (epoch, nodes, added, removed)
         };
@@ -435,7 +540,12 @@ impl BrowserPage {
                     (o.refs.get(r).cloned(), o.epoch)
                 };
                 let entry = entry.ok_or_else(|| BrowserError::StaleRef(r.clone()))?;
-                let ref_epoch: u64 = r.trim_start_matches('r').split('.').next().and_then(|e| e.parse().ok()).unwrap_or(0);
+                let ref_epoch: u64 = r
+                    .trim_start_matches('r')
+                    .split('.')
+                    .next()
+                    .and_then(|e| e.parse().ok())
+                    .unwrap_or(0);
                 if ref_epoch != current_epoch {
                     return Err(BrowserError::StaleRef(r.clone()));
                 }
@@ -462,7 +572,14 @@ impl BrowserPage {
     }
 
     async fn unique(&self, selector: &str) -> Result<()> {
-        let n = self.eval_internal(&format!("document.querySelectorAll({}).length", js(selector))).await?.as_u64().unwrap_or(0);
+        let n = self
+            .eval_internal(&format!(
+                "document.querySelectorAll({}).length",
+                js(selector)
+            ))
+            .await?
+            .as_u64()
+            .unwrap_or(0);
         match n {
             1 => Ok(()),
             0 => Err(BrowserError::NoElement(selector.into())),
@@ -489,9 +606,14 @@ impl BrowserPage {
             return Err(BrowserError::NotInteractable(sel));
         }
         if v.get("hit").and_then(Value::as_bool) != Some(true) {
-            return Err(BrowserError::NotInteractable(format!("{sel} (covered by another element)")));
+            return Err(BrowserError::NotInteractable(format!(
+                "{sel} (covered by another element)"
+            )));
         }
-        Ok((v["x"].as_f64().unwrap_or(0.0), v["y"].as_f64().unwrap_or(0.0)))
+        Ok((
+            v["x"].as_f64().unwrap_or(0.0),
+            v["y"].as_f64().unwrap_or(0.0),
+        ))
     }
 
     // ---- real pointer input ----------------------------------------------
@@ -518,24 +640,34 @@ impl BrowserPage {
     }
 
     async fn move_to(&self, x: f64, y: f64) -> Result<()> {
-        self.mouse_event(DispatchMouseEventType::MouseMoved, x, y, MouseButton::None, 0).await
+        self.mouse_event(
+            DispatchMouseEventType::MouseMoved,
+            x,
+            y,
+            MouseButton::None,
+            0,
+        )
+        .await
     }
 
     pub async fn hover(&self, target: &Target) -> Result<()> {
-        self.admit(ActionKind::Hover, None, Some(describe(target)), None).await?;
+        self.admit(ActionKind::Hover, None, Some(describe(target)), None)
+            .await?;
         let _l = self.lane.lock().await;
         let (x, y) = self.point_of(target).await?;
         self.move_to(x, y).await
     }
 
     pub async fn click(&self, target: &Target) -> Result<()> {
-        self.admit(ActionKind::Click, None, Some(describe(target)), None).await?;
+        self.admit(ActionKind::Click, None, Some(describe(target)), None)
+            .await?;
         let _l = self.lane.lock().await;
         self.click_n(target, 1).await
     }
 
     pub async fn double_click(&self, target: &Target) -> Result<()> {
-        self.admit(ActionKind::DoubleClick, None, Some(describe(target)), None).await?;
+        self.admit(ActionKind::DoubleClick, None, Some(describe(target)), None)
+            .await?;
         let _l = self.lane.lock().await;
         self.click_n(target, 2).await
     }
@@ -545,39 +677,91 @@ impl BrowserPage {
         let (x, y) = self.point_of(target).await?;
         self.move_to(x, y).await?;
         for n in 1..=count {
-            self.mouse_event(DispatchMouseEventType::MousePressed, x, y, MouseButton::Left, n).await?;
-            self.mouse_event(DispatchMouseEventType::MouseReleased, x, y, MouseButton::Left, n).await?;
+            self.mouse_event(
+                DispatchMouseEventType::MousePressed,
+                x,
+                y,
+                MouseButton::Left,
+                n,
+            )
+            .await?;
+            self.mouse_event(
+                DispatchMouseEventType::MouseReleased,
+                x,
+                y,
+                MouseButton::Left,
+                n,
+            )
+            .await?;
         }
         Ok(())
     }
 
     /// Press at `from`, move in `steps` increments, release at `to`.
     pub async fn drag(&self, from: &Target, to: &Target, steps: u32) -> Result<()> {
-        self.admit(ActionKind::Drag, None, Some(format!("{} -> {}", describe(from), describe(to))), None).await?;
+        self.admit(
+            ActionKind::Drag,
+            None,
+            Some(format!("{} -> {}", describe(from), describe(to))),
+            None,
+        )
+        .await?;
         let _l = self.lane.lock().await;
         let (x0, y0) = self.point_of(from).await?;
         let (x1, y1) = self.point_of(to).await?;
         self.move_to(x0, y0).await?;
-        self.mouse_event(DispatchMouseEventType::MousePressed, x0, y0, MouseButton::Left, 1).await?;
+        self.mouse_event(
+            DispatchMouseEventType::MousePressed,
+            x0,
+            y0,
+            MouseButton::Left,
+            1,
+        )
+        .await?;
         *self.buttons.lock().unwrap() = 1;
         let steps = steps.max(1);
         for i in 1..=steps {
             let t = f64::from(i) / f64::from(steps);
-            self.mouse_event(DispatchMouseEventType::MouseMoved, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, MouseButton::Left, 0).await?;
+            self.mouse_event(
+                DispatchMouseEventType::MouseMoved,
+                x0 + (x1 - x0) * t,
+                y0 + (y1 - y0) * t,
+                MouseButton::Left,
+                0,
+            )
+            .await?;
         }
         *self.buttons.lock().unwrap() = 0;
-        self.mouse_event(DispatchMouseEventType::MouseReleased, x1, y1, MouseButton::Left, 1).await
+        self.mouse_event(
+            DispatchMouseEventType::MouseReleased,
+            x1,
+            y1,
+            MouseButton::Left,
+            1,
+        )
+        .await
     }
 
     /// Mouse-wheel scroll at the target (or viewport centre when `None`).
     pub async fn wheel(&self, at: Option<&Target>, dx: f64, dy: f64) -> Result<()> {
-        self.admit(ActionKind::Wheel, None, at.map(describe), Some(format!("dx={dx} dy={dy}"))).await?;
+        self.admit(
+            ActionKind::Wheel,
+            None,
+            at.map(describe),
+            Some(format!("dx={dx} dy={dy}")),
+        )
+        .await?;
         let _l = self.lane.lock().await;
         let (x, y) = match at {
             Some(t) => self.point_of(t).await?,
             None => {
-                let v = self.eval_internal("({x:innerWidth/2,y:innerHeight/2})").await?;
-                (v["x"].as_f64().unwrap_or(100.0), v["y"].as_f64().unwrap_or(100.0))
+                let v = self
+                    .eval_internal("({x:innerWidth/2,y:innerHeight/2})")
+                    .await?;
+                (
+                    v["x"].as_f64().unwrap_or(100.0),
+                    v["y"].as_f64().unwrap_or(100.0),
+                )
             }
         };
         let mut p = DispatchMouseEventParams::new(DispatchMouseEventType::MouseWheel, x, y);
@@ -589,7 +773,13 @@ impl BrowserPage {
 
     // ---- real keyboard input ---------------------------------------------
 
-    async fn key_event(&self, kind: DispatchKeyEventType, d: &KeyDef, mods: i64, with_text: bool) -> Result<()> {
+    async fn key_event(
+        &self,
+        kind: DispatchKeyEventType,
+        d: &KeyDef,
+        mods: i64,
+        with_text: bool,
+    ) -> Result<()> {
         let mut p = DispatchKeyEventParams::new(kind);
         p.modifiers = Some(mods);
         p.key = Some(d.key.clone());
@@ -609,29 +799,43 @@ impl BrowserPage {
     async fn press_locked(&self, spec: &str) -> Result<()> {
         let (mods, mod_keys, def) = keys::parse_chord(spec)?;
         for (_, m) in &mod_keys {
-            self.key_event(DispatchKeyEventType::RawKeyDown, m, mods, false).await?;
+            self.key_event(DispatchKeyEventType::RawKeyDown, m, mods, false)
+                .await?;
         }
         // Shortcut chords (Ctrl/Meta/Alt) carry no text.
         let text = mods & (keys::CTRL | keys::META | keys::ALT) == 0;
-        let kind = if text && def.text.is_some() { DispatchKeyEventType::KeyDown } else { DispatchKeyEventType::RawKeyDown };
+        let kind = if text && def.text.is_some() {
+            DispatchKeyEventType::KeyDown
+        } else {
+            DispatchKeyEventType::RawKeyDown
+        };
         self.key_event(kind, &def, mods, text).await?;
-        self.key_event(DispatchKeyEventType::KeyUp, &def, mods, false).await?;
+        self.key_event(DispatchKeyEventType::KeyUp, &def, mods, false)
+            .await?;
         for (_, m) in mod_keys.iter().rev() {
-            self.key_event(DispatchKeyEventType::KeyUp, m, 0, false).await?;
+            self.key_event(DispatchKeyEventType::KeyUp, m, 0, false)
+                .await?;
         }
         Ok(())
     }
 
     /// Press a key or chord (`Enter`, `Tab`, `Control+a`) on the focused element.
     pub async fn press(&self, spec: &str) -> Result<()> {
-        self.admit(ActionKind::Press, None, Some(spec.to_string()), None).await?;
+        self.admit(ActionKind::Press, None, Some(spec.to_string()), None)
+            .await?;
         let _l = self.lane.lock().await;
         self.press_locked(spec).await
     }
 
     /// Type text one key event at a time into the focused element.
     pub async fn type_text(&self, text: &str) -> Result<()> {
-        self.admit(ActionKind::TypeText, None, None, Some(format!("chars={}", text.chars().count()))).await?;
+        self.admit(
+            ActionKind::TypeText,
+            None,
+            None,
+            Some(format!("chars={}", text.chars().count())),
+        )
+        .await?;
         let _l = self.lane.lock().await;
         self.type_locked(text).await
     }
@@ -639,8 +843,10 @@ impl BrowserPage {
     async fn type_locked(&self, text: &str) -> Result<()> {
         for c in text.chars() {
             let d = keys::char_key(c);
-            self.key_event(DispatchKeyEventType::KeyDown, &d, 0, true).await?;
-            self.key_event(DispatchKeyEventType::KeyUp, &d, 0, false).await?;
+            self.key_event(DispatchKeyEventType::KeyDown, &d, 0, true)
+                .await?;
+            self.key_event(DispatchKeyEventType::KeyUp, &d, 0, false)
+                .await?;
         }
         Ok(())
     }
@@ -657,7 +863,11 @@ impl BrowserPage {
         let _l = self.lane.lock().await;
         self.click_n(target, 1).await?;
         if clear {
-            let sel_all = if cfg!(target_os = "macos") { "Meta+a" } else { "Control+a" };
+            let sel_all = if cfg!(target_os = "macos") {
+                "Meta+a"
+            } else {
+                "Control+a"
+            };
             self.press_locked(sel_all).await?;
             self.press_locked("Backspace").await?;
         }
@@ -669,9 +879,18 @@ impl BrowserPage {
     /// Choose a `<select>` option by value/label. Native popups cannot be driven
     /// over CDP, so this sets the value and fires `input`/`change` (documented gap).
     pub async fn select_option(&self, target: &Target, value: &str) -> Result<()> {
-        self.admit(ActionKind::Select, None, Some(describe(target)), Some(format!("value={value}"))).await?;
+        self.admit(
+            ActionKind::Select,
+            None,
+            Some(describe(target)),
+            Some(format!("value={value}")),
+        )
+        .await?;
         let _l = self.lane.lock().await;
-        let sel = self.resolve(target).await?.ok_or_else(|| BrowserError::Invalid("select needs an element".into()))?;
+        let sel = self
+            .resolve(target)
+            .await?
+            .ok_or_else(|| BrowserError::Invalid("select needs an element".into()))?;
         let r = self
             .eval(&format!(
                 "(()=>{{const e=document.querySelector({s});const w={v};\
@@ -684,27 +903,46 @@ impl BrowserPage {
         if r.as_str() == Some("ok") {
             Ok(())
         } else {
-            Err(BrowserError::Invalid(format!("'{sel}' has no option '{value}'")))
+            Err(BrowserError::Invalid(format!(
+                "'{sel}' has no option '{value}'"
+            )))
         }
     }
 
     pub async fn upload(&self, target: &Target, file: &Path) -> Result<()> {
-        self.admit(ActionKind::Upload, None, Some(describe(target)), Some(file.display().to_string())).await?;
+        self.admit(
+            ActionKind::Upload,
+            None,
+            Some(describe(target)),
+            Some(file.display().to_string()),
+        )
+        .await?;
         let _l = self.lane.lock().await;
         let file = file.canonicalize()?;
         if !file.is_file() {
-            return Err(BrowserError::Invalid("upload must be a regular file".into()));
+            return Err(BrowserError::Invalid(
+                "upload must be a regular file".into(),
+            ));
         }
         if let Some(root) = &self.upload_root {
             if !file.starts_with(root.canonicalize()?) {
-                return Err(BrowserError::Invalid("upload outside the configured upload root".into()));
+                return Err(BrowserError::Invalid(
+                    "upload outside the configured upload root".into(),
+                ));
             }
         }
         if std::fs::metadata(&file)?.len() > MAX_UPLOAD_BYTES {
             return Err(BrowserError::Invalid("upload exceeds 64 MiB".into()));
         }
-        let sel = self.resolve(target).await?.ok_or_else(|| BrowserError::Invalid("upload needs an element".into()))?;
-        let el = self.inner.find_element(sel.as_str()).await.map_err(|_| BrowserError::NoElement(sel.clone()))?;
+        let sel = self
+            .resolve(target)
+            .await?
+            .ok_or_else(|| BrowserError::Invalid("upload needs an element".into()))?;
+        let el = self
+            .inner
+            .find_element(sel.as_str())
+            .await
+            .map_err(|_| BrowserError::NoElement(sel.clone()))?;
         let node = el.description().await.map_err(cdp)?;
         self.inner
             .execute(
@@ -720,16 +958,28 @@ impl BrowserPage {
     }
 
     pub async fn wait_for(&self, selector: &str, timeout: Duration) -> Result<()> {
-        self.wait_eval(&format!("!!document.querySelector({})", js(selector)), timeout).await
+        self.wait_eval(
+            &format!("!!document.querySelector({})", js(selector)),
+            timeout,
+        )
+        .await
     }
 
     /// Poll a JS expression until truthy.
     pub async fn wait_eval(&self, expr: &str, timeout: Duration) -> Result<()> {
-        self.admit(ActionKind::Eval, None, None, Some(expr.chars().take(2000).collect())).await?;
+        self.admit(
+            ActionKind::Eval,
+            None,
+            None,
+            Some(expr.chars().take(2000).collect()),
+        )
+        .await?;
         let deadline = Instant::now() + timeout;
         loop {
             let v = self.eval_internal(expr).await?;
-            if v.as_bool().unwrap_or(!v.is_null() && v != Value::Bool(false)) {
+            if v.as_bool()
+                .unwrap_or(!v.is_null() && v != Value::Bool(false))
+            {
                 return Ok(());
             }
             if Instant::now() >= deadline {
@@ -741,7 +991,11 @@ impl BrowserPage {
 
     pub async fn screenshot(&self) -> Result<Vec<u8>> {
         self.inner
-            .screenshot(ScreenshotParams::builder().format(CaptureScreenshotFormat::Png).build())
+            .screenshot(
+                ScreenshotParams::builder()
+                    .format(CaptureScreenshotFormat::Png)
+                    .build(),
+            )
             .await
             .map_err(cdp)
     }

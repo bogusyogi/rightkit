@@ -170,7 +170,10 @@ impl RestartTracker {
     /// Restarts granted inside the rolling window ending at `at` (diagnostics).
     pub fn restarts_in_window(&self, at: Duration) -> u32 {
         let window_start = at.saturating_sub(self.policy.window);
-        self.restart_times.iter().filter(|t| **t >= window_start).count() as u32
+        self.restart_times
+            .iter()
+            .filter(|t| **t >= window_start)
+            .count() as u32
     }
 
     /// Forget the restart budget (a user-initiated start after a terminal stop).

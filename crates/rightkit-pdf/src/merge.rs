@@ -26,8 +26,10 @@ pub enum MergeError {
 const INHERITED: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 
 fn load(index: usize, bytes: &[u8]) -> Result<Document, MergeError> {
-    let doc = Document::load_mem(bytes)
-        .map_err(|e| MergeError::Parse { index, message: e.to_string() })?;
+    let doc = Document::load_mem(bytes).map_err(|e| MergeError::Parse {
+        index,
+        message: e.to_string(),
+    })?;
     if doc.is_encrypted() {
         return Err(MergeError::Encrypted(index));
     }
@@ -51,7 +53,9 @@ fn materialize_inherited(doc: &mut Document, page_id: ObjectId) {
             if hops > 64 {
                 break;
             }
-            let Ok(node) = doc.get_object(id).and_then(|o| o.as_dict()) else { break };
+            let Ok(node) = doc.get_object(id).and_then(|o| o.as_dict()) else {
+                break;
+            };
             if let Ok(value) = node.get(key) {
                 found.push((key, value.clone()));
                 break;
@@ -108,7 +112,10 @@ pub fn select_pages(source: &[u8], pages: &[u32]) -> Result<Vec<u8>, MergeError>
             // Repeated page: clone the page dictionary under a fresh id (shares content streams).
             next += 1;
             let new_id = (next, 0);
-            let copy = objects.get(&id).cloned().ok_or(MergeError::PageOutOfRange(p))?;
+            let copy = objects
+                .get(&id)
+                .cloned()
+                .ok_or(MergeError::PageOutOfRange(p))?;
             objects.insert(new_id, copy);
             picked.push(new_id);
         } else {
@@ -131,7 +138,9 @@ fn assemble(
     pages_dict.set("Type", Object::Name(b"Pages".to_vec()));
     pages_dict.set("Count", Object::Integer(kids.len() as i64));
     pages_dict.set("Kids", Object::Array(kids));
-    merged.objects.insert(pages_id, Object::Dictionary(pages_dict));
+    merged
+        .objects
+        .insert(pages_id, Object::Dictionary(pages_dict));
     for id in &page_ids {
         if let Ok(Object::Dictionary(dict)) = merged.get_object_mut(*id) {
             dict.set("Parent", Object::Reference(pages_id));
@@ -146,6 +155,8 @@ fn assemble(
     merged.renumber_objects();
     merged.compress();
     let mut out = Vec::new();
-    merged.save_to(&mut out).map_err(|e| MergeError::Write(e.to_string()))?;
+    merged
+        .save_to(&mut out)
+        .map_err(|e| MergeError::Write(e.to_string()))?;
     Ok(out)
 }

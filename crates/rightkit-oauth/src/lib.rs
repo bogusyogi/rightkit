@@ -385,8 +385,9 @@ fn read_callback(mut stream: TcpStream, read_budget: Duration) -> Result<Callbac
     }
     let body = b"Authorization complete. You may close this window.";
     let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
-    stream.write_all(response.as_bytes()).map_err(|e| OAuthError::Callback(e.to_string()))?;
-    stream.write_all(body).map_err(|e| OAuthError::Callback(e.to_string()))?;
+    // The reply is a courtesy page: a browser (or client) that already closed its end must not turn
+    // a received callback into a failure. Windows reports that as a reset on write; Unix usually doesn't.
+    let _ = stream.write_all(response.as_bytes()).and_then(|()| stream.write_all(body));
     Ok(callback)
 }
 

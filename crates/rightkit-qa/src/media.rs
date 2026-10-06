@@ -19,7 +19,9 @@ pub fn png_size(path: &Path) -> Result<Value> {
     if b.len() < 24 || b[..8] != [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a] {
         return err(format!("{} is not a PNG", path.display()));
     }
-    Ok(json!({"width": u32::from_be_bytes(b[16..20].try_into().unwrap()), "height": u32::from_be_bytes(b[20..24].try_into().unwrap())}))
+    Ok(
+        json!({"width": u32::from_be_bytes(b[16..20].try_into().unwrap()), "height": u32::from_be_bytes(b[20..24].try_into().unwrap())}),
+    )
 }
 
 /// Parse a PCM WAV: channels, rate, duration, RMS/peak dB, silence flag.
@@ -41,7 +43,9 @@ pub fn wav_stats(path: &Path) -> Result<Value> {
         }
         off += 8 + size + (size % 2);
     }
-    let (Some(fmt), Some(data)) = (fmt, data) else { return err("WAV is missing fmt or data chunk") };
+    let (Some(fmt), Some(data)) = (fmt, data) else {
+        return err("WAV is missing fmt or data chunk");
+    };
     if fmt.len() < 16 {
         return err("WAV fmt chunk too short");
     }
@@ -60,7 +64,9 @@ pub fn wav_stats(path: &Path) -> Result<Value> {
     }
     let rms = (sum_sq / n.max(1) as f64).sqrt();
     let db = |v: f64| 20.0 * (if v > 0.0 { v } else { 1e-9 }).log10();
-    Ok(json!({"channels": channels, "rate": rate, "bits": bits, "duration_s": duration, "rms_db": db(rms), "peak_db": db(peak), "silent": rms < 0.0001}))
+    Ok(
+        json!({"channels": channels, "rate": rate, "bits": bits, "duration_s": duration, "rms_db": db(rms), "peak_db": db(peak), "silent": rms < 0.0001}),
+    )
 }
 
 /// Deterministic 16 kHz mono speech-like WAV (same generator the Node suite used).
@@ -103,19 +109,37 @@ pub fn write_reference_wav(path: &Path, seconds: f64) -> Result<()> {
 }
 
 pub fn ffprobe_bin() -> String {
-    std::env::var("RIGHTKIT_QA_FFPROBE").or_else(|_| std::env::var("GENRIGHT_FFPROBE")).unwrap_or_else(|_| "ffprobe".into())
+    std::env::var("RIGHTKIT_QA_FFPROBE")
+        .or_else(|_| std::env::var("GENRIGHT_FFPROBE"))
+        .unwrap_or_else(|_| "ffprobe".into())
 }
 
 /// `ffprobe -show_format -show_streams` as JSON; errors if ffprobe is absent.
 pub fn ffprobe(path: &Path, tracker: &Tracker) -> Result<Value> {
     let out = run_owned(
         &ffprobe_bin(),
-        &["-v".into(), "quiet".into(), "-print_format".into(), "json".into(), "-show_format".into(), "-show_streams".into(), path.to_string_lossy().into()],
-        &RunOptions { timeout: Some(Duration::from_secs(60)), label: "ffprobe".into(), ..Default::default() },
+        &[
+            "-v".into(),
+            "quiet".into(),
+            "-print_format".into(),
+            "json".into(),
+            "-show_format".into(),
+            "-show_streams".into(),
+            path.to_string_lossy().into(),
+        ],
+        &RunOptions {
+            timeout: Some(Duration::from_secs(60)),
+            label: "ffprobe".into(),
+            ..Default::default()
+        },
         tracker,
     )?;
     if out.code != Some(0) {
-        return err(format!("ffprobe failed ({:?}): {}", out.code, crate::util::tail(&out.stderr, 500)));
+        return err(format!(
+            "ffprobe failed ({:?}): {}",
+            out.code,
+            crate::util::tail(&out.stderr, 500)
+        ));
     }
     Ok(serde_json::from_str(&out.stdout)?)
 }

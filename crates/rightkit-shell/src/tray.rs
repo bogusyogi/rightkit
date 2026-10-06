@@ -51,7 +51,11 @@ impl Default for TraySpec {
             icon_png: None,
             template: false,
             items: Vec::new(),
-            left_click: if cfg!(target_os = "macos") { LeftClick::ShowMenu } else { LeftClick::ToggleWindow },
+            left_click: if cfg!(target_os = "macos") {
+                LeftClick::ShowMenu
+            } else {
+                LeftClick::ToggleWindow
+            },
             show_label: "Show Window".into(),
             quit_label: "Quit".into(),
         }
@@ -72,23 +76,52 @@ fn s<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
-fn build_menu(app: &AppHandle<Wry>, spec_items: &[MenuEntry], show: &str, quit: &str) -> Result<(Menu<Wry>, HashSet<String>), String> {
-    let ids: HashSet<String> = spec_items.iter().filter_map(|e| if let MenuEntry::Item { id, .. } = e { Some(id.clone()) } else { None }).collect();
+fn build_menu(
+    app: &AppHandle<Wry>,
+    spec_items: &[MenuEntry],
+    show: &str,
+    quit: &str,
+) -> Result<(Menu<Wry>, HashSet<String>), String> {
+    let ids: HashSet<String> = spec_items
+        .iter()
+        .filter_map(|e| {
+            if let MenuEntry::Item { id, .. } = e {
+                Some(id.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
     let menu = Menu::new(app).map_err(s)?;
-    menu.append(&MenuItem::with_id(app, ID_SHOW, show, true, None::<&str>).map_err(s)?).map_err(s)?;
+    menu.append(&MenuItem::with_id(app, ID_SHOW, show, true, None::<&str>).map_err(s)?)
+        .map_err(s)?;
     if !spec_items.is_empty() {
-        menu.append(&PredefinedMenuItem::separator(app).map_err(s)?).map_err(s)?;
+        menu.append(&PredefinedMenuItem::separator(app).map_err(s)?)
+            .map_err(s)?;
     }
     for e in spec_items {
         match e {
-            MenuEntry::Separator => menu.append(&PredefinedMenuItem::separator(app).map_err(s)?).map_err(s)?,
-            MenuEntry::Item { id, label, accelerator, enabled } => {
-                menu.append(&MenuItem::with_id(app, id, label, *enabled, accelerator.as_deref()).map_err(s)?).map_err(s)?;
+            MenuEntry::Separator => menu
+                .append(&PredefinedMenuItem::separator(app).map_err(s)?)
+                .map_err(s)?,
+            MenuEntry::Item {
+                id,
+                label,
+                accelerator,
+                enabled,
+            } => {
+                menu.append(
+                    &MenuItem::with_id(app, id, label, *enabled, accelerator.as_deref())
+                        .map_err(s)?,
+                )
+                .map_err(s)?;
             }
         }
     }
-    menu.append(&PredefinedMenuItem::separator(app).map_err(s)?).map_err(s)?;
-    menu.append(&MenuItem::with_id(app, ID_QUIT, quit, true, None::<&str>).map_err(s)?).map_err(s)?;
+    menu.append(&PredefinedMenuItem::separator(app).map_err(s)?)
+        .map_err(s)?;
+    menu.append(&MenuItem::with_id(app, ID_QUIT, quit, true, None::<&str>).map_err(s)?)
+        .map_err(s)?;
     Ok((menu, ids))
 }
 
@@ -101,9 +134,16 @@ pub struct TrayRuntime {
     pub quit_label: String,
 }
 
-pub fn install(app: &AppHandle<Wry>, spec: &TraySpec, main_label: &str) -> Result<TrayIcon<Wry>, String> {
+pub fn install(
+    app: &AppHandle<Wry>,
+    spec: &TraySpec,
+    main_label: &str,
+) -> Result<TrayIcon<Wry>, String> {
     let (menu, ids) = build_menu(app, &spec.items, &spec.show_label, &spec.quit_label)?;
-    let mut b = TrayIconBuilder::with_id(TRAY_ID).menu(&menu).tooltip(&spec.tooltip).show_menu_on_left_click(spec.left_click == LeftClick::ShowMenu);
+    let mut b = TrayIconBuilder::with_id(TRAY_ID)
+        .menu(&menu)
+        .tooltip(&spec.tooltip)
+        .show_menu_on_left_click(spec.left_click == LeftClick::ShowMenu);
     #[cfg(target_os = "macos")]
     {
         b = b.icon_as_template(spec.template);
@@ -121,14 +161,26 @@ pub fn install(app: &AppHandle<Wry>, spec: &TraySpec, main_label: &str) -> Resul
             match id {
                 ID_SHOW => crate::windows::reveal(app, None),
                 ID_QUIT => crate::lifecycle::quit(app),
-                other if app.state::<ShellState>().tray.as_ref().is_some_and(|t| t.ids.lock().unwrap_or_else(|e| e.into_inner()).contains(other)) => {
+                other
+                    if app.state::<ShellState>().tray.as_ref().is_some_and(|t| {
+                        t.ids
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .contains(other)
+                    }) =>
+                {
                     let _ = app.emit(EVENT_TRAY, serde_json::json!({"kind": "menu", "id": other}));
                 }
                 _ => {}
             }
         })
         .on_tray_icon_event(move |tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
                 let app = tray.app_handle();
                 let _ = app.emit(EVENT_TRAY, serde_json::json!({"kind": "click"}));
                 if left == LeftClick::ToggleWindow {
@@ -157,7 +209,8 @@ pub fn update(app: &AppHandle<Wry>, u: &TrayUpdate) -> Result<(), String> {
         tray.set_title(Some(t.as_str())).map_err(s)?;
     }
     if let Some(png) = &u.icon_png {
-        tray.set_icon(Some(Image::from_bytes(png).map_err(s)?.to_owned())).map_err(s)?;
+        tray.set_icon(Some(Image::from_bytes(png).map_err(s)?.to_owned()))
+            .map_err(s)?;
     }
     if let Some(items) = &u.items {
         let (menu, ids) = build_menu(app, items, &rt.show_label, &rt.quit_label)?;

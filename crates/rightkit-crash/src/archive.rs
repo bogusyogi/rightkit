@@ -42,9 +42,13 @@ fn add_tree(
             .map_err(|e| format!("resolve ZIP path: {e}"))?;
         let name = format!(
             "{root_name}/{}",
-            relative.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
+            relative
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/")
         );
-        let file_type = entry.file_type().map_err(|e| format!("inspect ZIP entry: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("inspect ZIP entry: {e}"))?;
         if file_type.is_dir() {
             archive
                 .add_directory(format!("{name}/"), options)

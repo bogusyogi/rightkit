@@ -40,7 +40,11 @@ impl NotificationState {
     /// True for the first call for a key and again once the cooldown has elapsed.
     pub fn should_play_sound_at(&self, key: &str, now: Instant) -> bool {
         let mut last = self.last_sound.lock().unwrap_or_else(|e| e.into_inner());
-        if last.get(key).and_then(|at| now.checked_duration_since(*at)).is_some_and(|d| d < Duration::from_millis(SOUND_THROTTLE_MS)) {
+        if last
+            .get(key)
+            .and_then(|at| now.checked_duration_since(*at))
+            .is_some_and(|d| d < Duration::from_millis(SOUND_THROTTLE_MS))
+        {
             return false;
         }
         last.insert(key.to_owned(), now);
@@ -58,7 +62,11 @@ impl NotificationState {
     }
 
     fn next_id(&self) -> String {
-        format!("rk-{}-{}", std::process::id(), self.seq.fetch_add(1, Ordering::Relaxed))
+        format!(
+            "rk-{}-{}",
+            std::process::id(),
+            self.seq.fetch_add(1, Ordering::Relaxed)
+        )
     }
 }
 
@@ -85,16 +93,29 @@ pub struct NotificationPlan {
 }
 
 pub fn notification_key(navigate_path: Option<&str>, title: &str) -> String {
-    navigate_path.filter(|p| !p.is_empty()).unwrap_or(title).to_owned()
+    navigate_path
+        .filter(|p| !p.is_empty())
+        .unwrap_or(title)
+        .to_owned()
 }
 
-pub fn plan(req: &NotificationRequest, state: &NotificationState, now: Instant) -> NotificationPlan {
+pub fn plan(
+    req: &NotificationRequest,
+    state: &NotificationState,
+    now: Instant,
+) -> NotificationPlan {
     let key = notification_key(req.navigate_path.as_deref(), &req.title);
     let play_sound = req.sound_enabled && state.should_play_sound_at(&key, now);
     NotificationPlan {
         key,
         play_sound,
-        sound_name: play_sound.then(|| req.sound_name.as_deref().filter(|n| !n.trim().is_empty()).unwrap_or(DEFAULT_SOUND).to_owned()),
+        sound_name: play_sound.then(|| {
+            req.sound_name
+                .as_deref()
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or(DEFAULT_SOUND)
+                .to_owned()
+        }),
     }
 }
 
@@ -135,17 +156,36 @@ pub struct NotifyStatus {
 }
 
 /// Post a notification unless the request is empty or Do-Not-Disturb is in effect.
-pub fn post(req: &NotificationRequest, state: &NotificationState, dnd: bool) -> Result<NotifyOutcome, ShellError> {
+pub fn post(
+    req: &NotificationRequest,
+    state: &NotificationState,
+    dnd: bool,
+) -> Result<NotifyOutcome, ShellError> {
     if req.title.trim().is_empty() {
-        return Ok(NotifyOutcome { delivered: false, suppressed: Some("empty-title"), id: None, sound: false });
+        return Ok(NotifyOutcome {
+            delivered: false,
+            suppressed: Some("empty-title"),
+            id: None,
+            sound: false,
+        });
     }
     if dnd {
-        return Ok(NotifyOutcome { delivered: false, suppressed: Some("dnd"), id: None, sound: false });
+        return Ok(NotifyOutcome {
+            delivered: false,
+            suppressed: Some("dnd"),
+            id: None,
+            sound: false,
+        });
     }
     let plan = plan(req, state, Instant::now());
     let id = state.next_id();
     platform::post(&id, req, &plan)?;
-    Ok(NotifyOutcome { delivered: true, suppressed: None, id: Some(id), sound: plan.play_sound })
+    Ok(NotifyOutcome {
+        delivered: true,
+        suppressed: None,
+        id: Some(id),
+        sound: plan.play_sound,
+    })
 }
 
 pub fn authorization() -> String {
@@ -179,9 +219,9 @@ mod platform {
     use objc2::runtime::Bool;
     use objc2_foundation::{NSArray, NSBundle, NSError, NSString};
     use objc2_user_notifications::{
-        UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification, UNNotificationInterruptionLevel, UNNotificationRequest,
-        UNNotificationSettings, UNNotificationSound,
-        UNUserNotificationCenter,
+        UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent,
+        UNNotification, UNNotificationInterruptionLevel, UNNotificationRequest,
+        UNNotificationSettings, UNNotificationSound, UNUserNotificationCenter,
     };
 
     use super::{DeliveredNotification, NotificationPlan, NotificationRequest};
@@ -195,20 +235,26 @@ mod platform {
     /// UserNotifications raises an Objective-C exception for a process without an app bundle.
     fn center() -> Result<Retained<UNUserNotificationCenter>, ShellError> {
         let bundle = NSBundle::mainBundle();
-        if bundle.bundleIdentifier().is_none() || !bundle.bundlePath().to_string().ends_with(".app") {
-            return Err(ShellError::Unsupported("native notifications need an app bundle (.app) with a bundle identifier".into()));
+        if bundle.bundleIdentifier().is_none() || !bundle.bundlePath().to_string().ends_with(".app")
+        {
+            return Err(ShellError::Unsupported(
+                "native notifications need an app bundle (.app) with a bundle identifier".into(),
+            ));
         }
         Ok(UNUserNotificationCenter::currentNotificationCenter())
     }
 
-    fn settings(center: &Retained<UNUserNotificationCenter>) -> Result<UNAuthorizationStatus, ShellError> {
+    fn settings(
+        center: &Retained<UNUserNotificationCenter>,
+    ) -> Result<UNAuthorizationStatus, ShellError> {
         let (tx, rx) = mpsc::channel();
         let block = RcBlock::new(move |s: std::ptr::NonNull<UNNotificationSettings>| {
             // SAFETY: the OS passes a live settings object for the duration of the callback.
             let _ = tx.send(unsafe { s.as_ref() }.authorizationStatus());
         });
         center.getNotificationSettingsWithCompletionHandler(&block);
-        rx.recv_timeout(REPLY).map_err(|_| ShellError::Timeout("notification settings did not answer".into()))
+        rx.recv_timeout(REPLY)
+            .map_err(|_| ShellError::Timeout("notification settings did not answer".into()))
     }
 
     pub fn authorization() -> Result<String, ShellError> {
@@ -226,15 +272,24 @@ mod platform {
     fn ensure_authorized(center: &Retained<UNUserNotificationCenter>) -> Result<(), ShellError> {
         let status = settings(center)?;
         if status == UNAuthorizationStatus::NotDetermined {
-            if std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref() == Some(std::ffi::OsStr::new("1")) {
+            if std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref()
+                == Some(std::ffi::OsStr::new("1"))
+            {
                 return Err(ShellError::PermissionDenied("notification authorization is not determined; background QA never opens a permission dialog".into()));
             }
             let (tx, rx) = mpsc::channel();
             let block = RcBlock::new(move |granted: Bool, _err: *mut NSError| {
                 let _ = tx.send(granted.as_bool());
             });
-            center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound | UNAuthorizationOptions::Badge, &block);
-            let granted = rx.recv_timeout(PROMPT).map_err(|_| ShellError::Timeout("notification permission prompt was not answered".into()))?;
+            center.requestAuthorizationWithOptions_completionHandler(
+                UNAuthorizationOptions::Alert
+                    | UNAuthorizationOptions::Sound
+                    | UNAuthorizationOptions::Badge,
+                &block,
+            );
+            let granted = rx.recv_timeout(PROMPT).map_err(|_| {
+                ShellError::Timeout("notification permission prompt was not answered".into())
+            })?;
             if !granted {
                 return Err(denied());
             }
@@ -250,21 +305,32 @@ mod platform {
         ShellError::PermissionDenied("notifications are not allowed for this app; enable them in System Settings > Notifications".into())
     }
 
-    pub fn post(id: &str, req: &NotificationRequest, plan: &NotificationPlan) -> Result<(), ShellError> {
+    pub fn post(
+        id: &str,
+        req: &NotificationRequest,
+        plan: &NotificationPlan,
+    ) -> Result<(), ShellError> {
         let center = center()?;
         ensure_authorized(&center)?;
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(&req.title));
         content.setBody(&NSString::from_str(&req.body));
         content.setThreadIdentifier(&NSString::from_str(&plan.key));
-        let quiet_qa = std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref() == Some(std::ffi::OsStr::new("1"));
+        let quiet_qa = std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref()
+            == Some(std::ffi::OsStr::new("1"));
         if quiet_qa {
             content.setInterruptionLevel(UNNotificationInterruptionLevel::Passive);
             content.setSound(None);
         } else if let Some(name) = &plan.sound_name {
-            content.setSound(Some(&UNNotificationSound::soundNamed(&NSString::from_str(name))));
+            content.setSound(Some(&UNNotificationSound::soundNamed(&NSString::from_str(
+                name,
+            ))));
         }
-        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(id), &content, None);
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
+            &NSString::from_str(id),
+            &content,
+            None,
+        );
         let (tx, rx) = mpsc::channel();
         let block = RcBlock::new(move |err: *mut NSError| {
             // SAFETY: a non-null error pointer is a live NSError for the duration of the callback.
@@ -272,7 +338,10 @@ mod platform {
             let _ = tx.send(msg);
         });
         center.addNotificationRequest_withCompletionHandler(&request, Some(&block));
-        match rx.recv_timeout(REPLY).map_err(|_| ShellError::Timeout("notification center did not answer".into()))? {
+        match rx
+            .recv_timeout(REPLY)
+            .map_err(|_| ShellError::Timeout("notification center did not answer".into()))?
+        {
             None => Ok(()),
             Some(m) => Err(ShellError::Other(format!("show notification: {m}"))),
         }
@@ -289,12 +358,18 @@ mod platform {
                 let n = list.objectAtIndex(i);
                 let r = n.request();
                 let c = r.content();
-                out.push(DeliveredNotification { id: r.identifier().to_string(), title: c.title().to_string(), body: c.body().to_string(), thread: c.threadIdentifier().to_string() });
+                out.push(DeliveredNotification {
+                    id: r.identifier().to_string(),
+                    title: c.title().to_string(),
+                    body: c.body().to_string(),
+                    thread: c.threadIdentifier().to_string(),
+                });
             }
             let _ = tx.send(out);
         });
         center.getDeliveredNotificationsWithCompletionHandler(&block);
-        rx.recv_timeout(REPLY).map_err(|_| ShellError::Timeout("delivered notifications did not answer".into()))
+        rx.recv_timeout(REPLY)
+            .map_err(|_| ShellError::Timeout("delivered notifications did not answer".into()))
     }
 
     pub fn clear(ids: &[String]) -> Result<(), ShellError> {
@@ -302,8 +377,11 @@ mod platform {
         if ids.is_empty() {
             center.removeAllDeliveredNotifications();
         } else {
-            let strings: Vec<Retained<NSString>> = ids.iter().map(|s| NSString::from_str(s)).collect();
-            center.removeDeliveredNotificationsWithIdentifiers(&NSArray::from_retained_slice(&strings));
+            let strings: Vec<Retained<NSString>> =
+                ids.iter().map(|s| NSString::from_str(s)).collect();
+            center.removeDeliveredNotificationsWithIdentifiers(&NSArray::from_retained_slice(
+                &strings,
+            ));
         }
         Ok(())
     }

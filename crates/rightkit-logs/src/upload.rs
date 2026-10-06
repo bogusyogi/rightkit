@@ -248,7 +248,9 @@ impl Uploader {
                             FlushState::Drained
                         }
                     }
-                    Some(at) => FlushState::Backoff { wait_ms: (at - now).max(0) },
+                    Some(at) => FlushState::Backoff {
+                        wait_ms: (at - now).max(0),
+                    },
                 };
                 return self.report(state, sent, rejected);
             }
@@ -258,7 +260,14 @@ impl Uploader {
                 Ok(outcome) if (200..300).contains(&outcome.status) => {
                     self.consecutive_failures.store(0, Ordering::Release);
                     if self.outbox.acknowledge(&ids).is_err() {
-                        return self.report(FlushState::Retrying { status: Some(outcome.status), wait_secs: 0 }, sent, rejected);
+                        return self.report(
+                            FlushState::Retrying {
+                                status: Some(outcome.status),
+                                wait_secs: 0,
+                            },
+                            sent,
+                            rejected,
+                        );
                     }
                     sent += ids.len();
                 }
@@ -268,7 +277,13 @@ impl Uploader {
                     rejected += ids.len();
                 }
                 Ok(outcome) => {
-                    return self.fail(&ids, Some(outcome.status), outcome.retry_after_secs, sent, rejected);
+                    return self.fail(
+                        &ids,
+                        Some(outcome.status),
+                        outcome.retry_after_secs,
+                        sent,
+                        rejected,
+                    );
                 }
                 Err(_) => return self.fail(&ids, None, None, sent, rejected),
             }
@@ -276,11 +291,16 @@ impl Uploader {
     }
 
     fn next_batch(&self, horizon_ms: i64) -> Vec<crate::OutboxEvent> {
-        let candidates = self.outbox.pending(self.config.max_batch_events, horizon_ms);
+        let candidates = self
+            .outbox
+            .pending(self.config.max_batch_events, horizon_ms);
         let mut batch = Vec::new();
         let mut bytes = 0;
         for event in candidates {
-            let size = serde_json::to_vec(&event.payload).map(|b| b.len()).unwrap_or(0) + 128;
+            let size = serde_json::to_vec(&event.payload)
+                .map(|b| b.len())
+                .unwrap_or(0)
+                + 128;
             if !batch.is_empty() && bytes + size > self.config.max_batch_bytes {
                 break;
             }
@@ -321,7 +341,14 @@ impl Uploader {
         let _ = self
             .outbox
             .record_failure(ids, crate::now_ms() + (wait as i64) * 1000);
-        self.report(FlushState::Retrying { status, wait_secs: wait }, sent, rejected)
+        self.report(
+            FlushState::Retrying {
+                status,
+                wait_secs: wait,
+            },
+            sent,
+            rejected,
+        )
     }
 
     fn report(&self, state: FlushState, sent: usize, rejected: usize) -> FlushReport {
@@ -380,13 +407,19 @@ impl Scheduler {
                     }
                     let report = uploader.flush();
                     wait = match report.state {
-                        FlushState::Retrying { wait_secs, .. } => Duration::from_secs(wait_secs.max(1)),
+                        FlushState::Retrying { wait_secs, .. } => {
+                            Duration::from_secs(wait_secs.max(1))
+                        }
                         _ => uploader.next_wake(idle_interval),
                     };
                 }
                 flag.store(false, Ordering::Release);
             })?;
-        Ok(Self { stop, running, handle: Some(handle) })
+        Ok(Self {
+            stop,
+            running,
+            handle: Some(handle),
+        })
     }
 
     pub fn is_running(&self) -> bool {
@@ -431,7 +464,11 @@ impl Telemetry {
             outbox_config,
         ));
         let uploader = Arc::new(Uploader::new(outbox.clone(), transport, config)?);
-        Ok(Self { consent, outbox, uploader })
+        Ok(Self {
+            consent,
+            outbox,
+            uploader,
+        })
     }
 
     /// Record the user's decision to stop: consent is revoked first, then every

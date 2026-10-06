@@ -34,7 +34,14 @@ extern "C" {}
 extern "C" {}
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
-    fn CGEventCreateScrollWheelEvent2(src: *const c_void, unit: u32, n: u32, a: i32, b: i32, c: i32) -> *const c_void;
+    fn CGEventCreateScrollWheelEvent2(
+        src: *const c_void,
+        unit: u32,
+        n: u32,
+        a: i32,
+        b: i32,
+        c: i32,
+    ) -> *const c_void;
     fn CGEventSetLocation(e: *const c_void, p: NSPoint);
     fn CGMainDisplayID() -> u32;
     fn CGDisplayPixelsHigh(d: u32) -> usize;
@@ -93,16 +100,27 @@ unsafe fn window_point(wk: Id, x: f64, y: f64) -> NSPoint {
 }
 
 /// Run `f` on the main thread with the WKWebView pointer and wait for it.
-fn on_view<R: Runtime, T: Send + 'static>(win: &WebviewWindow<R>, f: impl FnOnce(Id) -> T + Send + 'static) -> Result<T, String> {
+fn on_view<R: Runtime, T: Send + 'static>(
+    win: &WebviewWindow<R>,
+    f: impl FnOnce(Id) -> T + Send + 'static,
+) -> Result<T, String> {
     let (tx, rx) = channel();
     win.with_webview(move |pv| {
         let _ = tx.send(f(pv.inner()));
     })
     .map_err(|e| e.to_string())?;
-    rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "webview call timed out".to_string())
+    rx.recv_timeout(Duration::from_secs(10))
+        .map_err(|_| "webview call timed out".to_string())
 }
 
-pub fn mouse<R: Runtime>(win: &WebviewWindow<R>, kind: Mouse, button: Button, x: f64, y: f64, clicks: i64) -> Result<(), String> {
+pub fn mouse<R: Runtime>(
+    win: &WebviewWindow<R>,
+    kind: Mouse,
+    button: Button,
+    x: f64,
+    y: f64,
+    clicks: i64,
+) -> Result<(), String> {
     on_view(win, move |wk| unsafe {
         let window = msg!(Id; wk, "window");
         if window.is_null() {
@@ -136,7 +154,13 @@ pub fn mouse<R: Runtime>(win: &WebviewWindow<R>, kind: Mouse, button: Button, x:
     })?
 }
 
-pub fn key<R: Runtime>(win: &WebviewWindow<R>, down: bool, code: u16, chars: &str, flags: u64) -> Result<(), String> {
+pub fn key<R: Runtime>(
+    win: &WebviewWindow<R>,
+    down: bool,
+    code: u16,
+    chars: &str,
+    flags: u64,
+) -> Result<(), String> {
     let chars = chars.to_string();
     on_view(win, move |wk| unsafe {
         let window = msg!(Id; wk, "window");
@@ -156,7 +180,13 @@ pub fn key<R: Runtime>(win: &WebviewWindow<R>, down: bool, code: u16, chars: &st
     })?
 }
 
-pub fn wheel<R: Runtime>(win: &WebviewWindow<R>, x: f64, y: f64, dx: f64, dy: f64) -> Result<(), String> {
+pub fn wheel<R: Runtime>(
+    win: &WebviewWindow<R>,
+    x: f64,
+    y: f64,
+    dx: f64,
+    dy: f64,
+) -> Result<(), String> {
     on_view(win, move |wk| unsafe {
         let window = msg!(Id; wk, "window");
         if window.is_null() {
@@ -165,14 +195,21 @@ pub fn wheel<R: Runtime>(win: &WebviewWindow<R>, x: f64, y: f64, dx: f64, dy: f6
         let wp = window_point(wk, x, y);
         let top = CGDisplayPixelsHigh(CGMainDisplayID()) as f64;
         // DOM convention: positive dy scrolls the page down; CG wheel is the inverse.
-        let cg = CGEventCreateScrollWheelEvent2(std::ptr::null(), 0, 2, (-dy) as i32, (-dx) as i32, 0);
+        let cg =
+            CGEventCreateScrollWheelEvent2(std::ptr::null(), 0, 2, (-dy) as i32, (-dx) as i32, 0);
         if cg.is_null() {
             return Err("CGEvent creation failed".to_string());
         }
         // NSEvent built from a CGEvent has no window, so `locationInWindow` is the
         // raw global NS point. Feed it the window-space point directly (no screen
         // conversion) so WebKit maps it back to the intended viewport position.
-        CGEventSetLocation(cg, NSPoint { x: wp.x, y: top - wp.y });
+        CGEventSetLocation(
+            cg,
+            NSPoint {
+                x: wp.x,
+                y: top - wp.y,
+            },
+        );
         let ev = msg!(Id; class("NSEvent"), "eventWithCGEvent:", *const c_void = cg);
         CFRelease(cg);
         if ev.is_null() {
@@ -199,18 +236,30 @@ struct Blk {
     desc: *const Desc,
     data: *mut c_void,
 }
-static DESC: Desc = Desc { reserved: 0, size: std::mem::size_of::<Blk>() };
+static DESC: Desc = Desc {
+    reserved: 0,
+    size: std::mem::size_of::<Blk>(),
+};
 
 unsafe fn block(invoke: *const c_void, data: *mut c_void) -> Blk {
-    Blk { isa: &raw const _NSConcreteStackBlock as *const c_void, flags: 0, reserved: 0, invoke, desc: &DESC, data }
+    Blk {
+        isa: &raw const _NSConcreteStackBlock as *const c_void,
+        flags: 0,
+        reserved: 0,
+        invoke,
+        desc: &DESC,
+        data,
+    }
 }
 
 extern "C" fn eval_done(blk: *mut Blk, result: Id, err: Id) {
     unsafe {
         let tx = Box::from_raw((*blk).data as *mut Sender<Result<String, String>>);
         let out = if !err.is_null() {
-            Err(utf8(msg!(Id; err, "localizedDescription")).unwrap_or_else(|| "javascript error".into()))
-        } else if !result.is_null() && msg!(bool; result, "isKindOfClass:", Id = class("NSString")) {
+            Err(utf8(msg!(Id; err, "localizedDescription"))
+                .unwrap_or_else(|| "javascript error".into()))
+        } else if !result.is_null() && msg!(bool; result, "isKindOfClass:", Id = class("NSString"))
+        {
             Ok(utf8(result).unwrap_or_default())
         } else {
             Ok(String::new())
@@ -224,7 +273,8 @@ extern "C" fn shot_done(blk: *mut Blk, image: Id, err: Id) {
         let tx = Box::from_raw((*blk).data as *mut Sender<Result<Vec<u8>, String>>);
         let out = (|| {
             if image.is_null() || !err.is_null() {
-                return Err(utf8(msg!(Id; err, "localizedDescription")).unwrap_or_else(|| "snapshot failed".into()));
+                return Err(utf8(msg!(Id; err, "localizedDescription"))
+                    .unwrap_or_else(|| "snapshot failed".into()));
             }
             let tiff = msg!(Id; image, "TIFFRepresentation");
             let rep = msg!(Id; class("NSBitmapImageRep"), "imageRepWithData:", Id = tiff);
@@ -251,7 +301,8 @@ pub fn eval<R: Runtime>(win: &WebviewWindow<R>, js: &str) -> Result<String, Stri
         msg!((); wk, "evaluateJavaScript:completionHandler:", Id = nsstring(&js), *mut Blk = &mut b);
     })
     .map_err(|e| e.to_string())?;
-    rx.recv_timeout(Duration::from_secs(15)).map_err(|_| "eval timed out".to_string())?
+    rx.recv_timeout(Duration::from_secs(15))
+        .map_err(|_| "eval timed out".to_string())?
 }
 
 /// PNG of the webview contents via `takeSnapshotWithConfiguration:`.
@@ -264,5 +315,6 @@ pub fn screenshot<R: Runtime>(win: &WebviewWindow<R>) -> Result<Vec<u8>, String>
         msg!((); wk, "takeSnapshotWithConfiguration:completionHandler:", Id = std::ptr::null_mut(), *mut Blk = &mut b);
     })
     .map_err(|e| e.to_string())?;
-    rx.recv_timeout(Duration::from_secs(15)).map_err(|_| "screenshot timed out".to_string())?
+    rx.recv_timeout(Duration::from_secs(15))
+        .map_err(|_| "screenshot timed out".to_string())?
 }

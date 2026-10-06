@@ -42,8 +42,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rightkit_process::{
-    Generation, HealthOutcome, HealthPolicy, HealthProbe, HealthTracker, OwnedCommand, RestartMode, RestartOutcome, RestartPermit,
-    RestartPolicy, RestartTracker, StderrTail,
+    Generation, HealthOutcome, HealthPolicy, HealthProbe, HealthTracker, OwnedCommand, RestartMode,
+    RestartOutcome, RestartPermit, RestartPolicy, RestartTracker, StderrTail,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -152,7 +152,12 @@ pub struct HealthCheck {
 
 impl Default for HealthCheck {
     fn default() -> Self {
-        Self { method: "ping".into(), interval: Duration::from_secs(2), timeout: Duration::from_secs(1), unhealthy_threshold: 3 }
+        Self {
+            method: "ping".into(),
+            interval: Duration::from_secs(2),
+            timeout: Duration::from_secs(1),
+            unhealthy_threshold: 3,
+        }
     }
 }
 
@@ -184,7 +189,10 @@ impl SupervisorConfig {
     /// `spawn` builds a fresh command per generation; apply env scrub
     /// (`OwnedCommand::env_allowlist`/`env_strip`) and `windows_hide` there.
     /// stdin/stdout/stderr are piped by the supervisor.
-    pub fn new(name: impl Into<String>, spawn: impl Fn() -> io::Result<OwnedCommand> + Send + Sync + 'static) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        spawn: impl Fn() -> io::Result<OwnedCommand> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             name: name.into(),
             spawn: Arc::new(spawn),
@@ -230,7 +238,10 @@ impl SupervisorConfig {
     }
     /// Redact (or drop, by returning `None`) each stderr line before it is
     /// retained or forwarded. HeardRight's `redact_sidecar_stderr_line`.
-    pub fn with_stderr_redaction(mut self, f: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
+    pub fn with_stderr_redaction(
+        mut self,
+        f: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
+    ) -> Self {
         self.redact = Some(Arc::new(f));
         self
     }
@@ -288,11 +299,18 @@ impl Shared {
             last_exit_code: st.last_exit.as_ref().and_then(|l| l.code),
             last_exit_reason: st.last_exit.as_ref().map(|l| l.reason.clone()),
             recovery_ms,
-            stderr_tail: st.last_exit.as_ref().map(|l| l.stderr.clone()).filter(|s| !s.is_empty()),
+            stderr_tail: st
+                .last_exit
+                .as_ref()
+                .map(|l| l.stderr.clone())
+                .filter(|s| !s.is_empty()),
             restart_on_demand: st.on_demand_pending,
             message: message.into(),
         };
-        self.lifecycle_subs.lock().unwrap_or_else(|e| e.into_inner()).retain(|tx| tx.send(ev.clone()).is_ok());
+        self.lifecycle_subs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|tx| tx.send(ev.clone()).is_ok());
     }
 }
 
@@ -383,11 +401,20 @@ impl EngineSupervisor {
                 }
                 Err(JobError::retryable(
                     "timeout",
-                    format!("engine did not answer {method} within {timeout:?}{}", if options.keep_alive_on_timeout { "" } else { "; it will be restarted" }),
+                    format!(
+                        "engine did not answer {method} within {timeout:?}{}",
+                        if options.keep_alive_on_timeout {
+                            ""
+                        } else {
+                            "; it will be restarted"
+                        }
+                    ),
                 ))
             }
             // The engine went away under this call; a restart (if the policy allows) makes a retry meaningful.
-            Err(e) if e.code == "engine_exited" || e.code == "engine_write" => Err(JobError::retryable(e.code, e.message)),
+            Err(e) if e.code == "engine_exited" || e.code == "engine_write" => {
+                Err(JobError::retryable(e.code, e.message))
+            }
             other => other,
         }
     }
@@ -403,10 +430,14 @@ impl EngineSupervisor {
                 Some(slot) => *slot = (key.into(), method.into(), params.clone()),
                 None => g.replay.push((key.into(), method.into(), params.clone())),
             }
-            (g.lifecycle == Lifecycle::Ready).then(|| g.client.clone()).flatten()
+            (g.lifecycle == Lifecycle::Ready)
+                .then(|| g.client.clone())
+                .flatten()
         };
         match live {
-            Some(client) => client.call_timeout(method, params, None, self.sh.cfg.rpc_timeout).map(|_| ()),
+            Some(client) => client
+                .call_timeout(method, params, None, self.sh.cfg.rpc_timeout)
+                .map(|_| ()),
             None => Ok(()),
         }
     }
@@ -414,7 +445,11 @@ impl EngineSupervisor {
     /// Lifecycle transitions, in order, from now on.
     pub fn subscribe_lifecycle(&self) -> Receiver<LifecycleEvent> {
         let (tx, rx) = channel();
-        self.sh.lifecycle_subs.lock().unwrap_or_else(|e| e.into_inner()).push(tx);
+        self.sh
+            .lifecycle_subs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(tx);
         rx
     }
 
@@ -422,7 +457,11 @@ impl EngineSupervisor {
     /// generations, whole (so `session_id` survives).
     pub fn subscribe_events(&self) -> Receiver<Value> {
         let (tx, rx) = channel();
-        self.sh.event_subs.lock().unwrap_or_else(|e| e.into_inner()).push(tx);
+        self.sh
+            .event_subs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(tx);
         rx
     }
 
@@ -458,7 +497,12 @@ impl EngineSupervisor {
             if left.is_zero() {
                 return false;
             }
-            g = self.sh.cv.wait_timeout(g, left).unwrap_or_else(|e| e.into_inner()).0;
+            g = self
+                .sh
+                .cv
+                .wait_timeout(g, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
     }
 
@@ -508,19 +552,36 @@ impl EngineSupervisor {
                                 schedule_restart(&self.sh, permit);
                                 continue;
                             }
-                            _ => return Err(JobError::new("down", "engine is down and its restart budget is spent")),
+                            _ => {
+                                return Err(JobError::new(
+                                    "down",
+                                    "engine is down and its restart budget is spent",
+                                ))
+                            }
                         }
                     }
-                    let why = g.last_exit.as_ref().map(|l| format!(" (last exit: {})", l.reason)).unwrap_or_default();
+                    let why = g
+                        .last_exit
+                        .as_ref()
+                        .map(|l| format!(" (last exit: {})", l.reason))
+                        .unwrap_or_default();
                     return Err(JobError::new("down", format!("engine is down{why}")));
                 }
                 Lifecycle::Booting | Lifecycle::Recovering => {}
             }
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                return Err(JobError::retryable("not_ready", "engine did not become ready in time"));
+                return Err(JobError::retryable(
+                    "not_ready",
+                    "engine did not become ready in time",
+                ));
             }
-            g = self.sh.cv.wait_timeout(g, left).unwrap_or_else(|e| e.into_inner()).0;
+            g = self
+                .sh
+                .cv
+                .wait_timeout(g, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
     }
 }
@@ -557,7 +618,11 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     let fail = |reason: ExitReason, code: &str, message: String, stderr: String| -> JobResult<()> {
         let mut g = sh.lock();
         if initial {
-            g.last_exit = Some(LastExit { code: None, reason: reason.to_string(), stderr });
+            g.last_exit = Some(LastExit {
+                code: None,
+                reason: reason.to_string(),
+                stderr,
+            });
             g.token = None;
             g.lifecycle = Lifecycle::Down;
             sh.emit(&g, format!("engine failed to start: {message}"), None);
@@ -572,16 +637,41 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
 
     let mut command = match (sh.cfg.spawn)() {
         Ok(c) => c,
-        Err(e) => return fail(ExitReason::SpawnFailed(e.to_string()), "spawn_failed", format!("could not build engine command: {e}"), String::new()),
+        Err(e) => {
+            return fail(
+                ExitReason::SpawnFailed(e.to_string()),
+                "spawn_failed",
+                format!("could not build engine command: {e}"),
+                String::new(),
+            )
+        }
     };
-    command.command_mut().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .command_mut()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = match command.spawn() {
         Ok(c) => c,
-        Err(e) => return fail(ExitReason::SpawnFailed(e.to_string()), "spawn_failed", format!("could not start engine: {e}"), String::new()),
+        Err(e) => {
+            return fail(
+                ExitReason::SpawnFailed(e.to_string()),
+                "spawn_failed",
+                format!("could not start engine: {e}"),
+                String::new(),
+            )
+        }
     };
-    let (Some(stdin), Some(stdout), Some(stderr)) = (child.take_stdin(), child.take_stdout(), child.take_stderr()) else {
+    let (Some(stdin), Some(stdout), Some(stderr)) =
+        (child.take_stdin(), child.take_stdout(), child.take_stderr())
+    else {
         let _ = child.terminate_tree_bounded(sh.cfg.shutdown_grace);
-        return fail(ExitReason::SpawnFailed("missing stdio".into()), "spawn_failed", "engine stdio was not piped".into(), String::new());
+        return fail(
+            ExitReason::SpawnFailed("missing stdio".into()),
+            "spawn_failed",
+            "engine stdio was not piped".into(),
+            String::new(),
+        );
     };
     let redact = sh.cfg.redact.clone();
     let sink = sh.cfg.on_stderr.clone();
@@ -598,13 +688,21 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             }
         },
     );
-    let opts = ClientOptions { hello_timeout: sh.cfg.hello_timeout, frame_limit: sh.cfg.frame_limit };
+    let opts = ClientOptions {
+        hello_timeout: sh.cfg.hello_timeout,
+        frame_limit: sh.cfg.frame_limit,
+    };
     let client = match EngineClient::connect_opts(BufReader::new(stdout), stdin, opts) {
         Ok(c) => Arc::new(c),
         Err(e) => {
             let _ = child.terminate_tree_bounded(sh.cfg.shutdown_grace);
             let text = tail.finish_within(Duration::from_millis(500));
-            return fail(ExitReason::HelloFailed(e.code.clone()), &e.code, e.message, text);
+            return fail(
+                ExitReason::HelloFailed(e.code.clone()),
+                &e.code,
+                e.message,
+                text,
+            );
         }
     };
     client.attach_child(child);
@@ -616,7 +714,12 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
         if let Err(e) = client.call_timeout(&method, params, None, sh.cfg.rpc_timeout) {
             client.kill(sh.cfg.shutdown_grace);
             let text = tail.finish_within(Duration::from_millis(500));
-            return fail(ExitReason::HandshakeFailed(format!("{method}: {}", e.code)), "handshake_failed", format!("{method} failed during handshake: {e}"), text);
+            return fail(
+                ExitReason::HandshakeFailed(format!("{method}: {}", e.code)),
+                "handshake_failed",
+                format!("{method} failed during handshake: {e}"),
+                text,
+            );
         }
     }
 
@@ -630,24 +733,36 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
     g.client = Some(Arc::clone(&client));
     g.lifecycle = Lifecycle::Ready;
     g.on_demand_pending = false;
-    let recovery_ms = g.recovery_from.take().map(|t| t.elapsed().as_millis() as u64).filter(|_| recovering);
+    let recovery_ms = g
+        .recovery_from
+        .take()
+        .map(|t| t.elapsed().as_millis() as u64)
+        .filter(|_| recovering);
     sh.emit(&g, "engine is ready", recovery_ms);
     drop(g);
     sh.cv.notify_all();
 
     let shared = Arc::clone(sh);
-    let _ = thread::Builder::new().name(format!("{}-monitor", sh.cfg.name)).spawn(move || monitor(shared, generation, client, tail));
+    let _ = thread::Builder::new()
+        .name(format!("{}-monitor", sh.cfg.name))
+        .spawn(move || monitor(shared, generation, client, tail));
     Ok(())
 }
 
 fn spawn_event_forwarder(sh: &Arc<Shared>, client: &Arc<EngineClient>) {
     let rx = client.subscribe();
     let shared = Arc::clone(sh);
-    let _ = thread::Builder::new().name(format!("{}-events", sh.cfg.name)).spawn(move || {
-        for frame in rx {
-            shared.event_subs.lock().unwrap_or_else(|e| e.into_inner()).retain(|tx| tx.send(frame.clone()).is_ok());
-        }
-    });
+    let _ = thread::Builder::new()
+        .name(format!("{}-events", sh.cfg.name))
+        .spawn(move || {
+            for frame in rx {
+                shared
+                    .event_subs
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .retain(|tx| tx.send(frame.clone()).is_ok());
+            }
+        });
 }
 
 /// Watches one generation until its connection ends, pinging if configured,
@@ -656,20 +771,31 @@ fn monitor(sh: Arc<Shared>, generation: u64, client: Arc<EngineClient>, mut tail
     let health = sh.cfg.health.clone();
     let mut tracker = health.as_ref().map(|h| {
         let startup = h.interval * (h.unhealthy_threshold + 2) + h.timeout;
-        HealthTracker::new(HealthPolicy::new(startup.max(Duration::from_millis(1)), h.unhealthy_threshold.max(1)).expect("non-zero health policy"), Duration::ZERO)
+        HealthTracker::new(
+            HealthPolicy::new(
+                startup.max(Duration::from_millis(1)),
+                h.unhealthy_threshold.max(1),
+            )
+            .expect("non-zero health policy"),
+            Duration::ZERO,
+        )
     });
     let t0 = Instant::now();
     let mut next_probe = t0 + health.as_ref().map(|h| h.interval).unwrap_or_default();
     let mut killed = None;
     loop {
         let wait = match &health {
-            Some(_) => next_probe.saturating_duration_since(Instant::now()).max(Duration::from_millis(5)),
+            Some(_) => next_probe
+                .saturating_duration_since(Instant::now())
+                .max(Duration::from_millis(5)),
             None => Duration::from_millis(200),
         };
         if client.wait_closed(wait) {
             break;
         }
-        let (Some(h), Some(tr)) = (&health, tracker.as_mut()) else { continue };
+        let (Some(h), Some(tr)) = (&health, tracker.as_mut()) else {
+            continue;
+        };
         if Instant::now() < next_probe {
             continue;
         }
@@ -679,8 +805,12 @@ fn monitor(sh: Arc<Shared>, generation: u64, client: Arc<EngineClient>, mut tail
             Err(e) if e.code == "engine_exited" => break,
             Err(_) => HealthProbe::Failure,
         };
-        if matches!(tr.observe(t0.elapsed(), probe), HealthOutcome::Unhealthy { .. } | HealthOutcome::StartupTimedOut) {
-            *sh.wedge.lock().unwrap_or_else(|e| e.into_inner()) = Some((generation, ExitReason::HealthKill));
+        if matches!(
+            tr.observe(t0.elapsed(), probe),
+            HealthOutcome::Unhealthy { .. } | HealthOutcome::StartupTimedOut
+        ) {
+            *sh.wedge.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some((generation, ExitReason::HealthKill));
             killed = client.kill(sh.cfg.shutdown_grace);
             break;
         }
@@ -712,13 +842,23 @@ fn kill_wedged(sh: &Arc<Shared>, generation: u64, client: &Arc<EngineClient>, re
 
 /// A generation ended (or failed to boot). Stale generations are ignored; an
 /// intentional shutdown never restarts; otherwise the restart policy decides.
-fn on_end(sh: &Arc<Shared>, generation: u64, reason: ExitReason, code: Option<i32>, stderr: String) {
+fn on_end(
+    sh: &Arc<Shared>,
+    generation: u64,
+    reason: ExitReason,
+    code: Option<i32>,
+    stderr: String,
+) {
     let mut g = sh.lock();
     if g.generation != generation {
         return;
     }
     g.client = None;
-    g.last_exit = Some(LastExit { code, reason: reason.to_string(), stderr });
+    g.last_exit = Some(LastExit {
+        code,
+        reason: reason.to_string(),
+        stderr,
+    });
     if g.shutting_down {
         g.lifecycle = Lifecycle::Down;
         drop(g);
@@ -735,20 +875,32 @@ fn on_end(sh: &Arc<Shared>, generation: u64, reason: ExitReason, code: Option<i3
         RestartOutcome::Restart(permit) => {
             g.lifecycle = Lifecycle::Recovering;
             g.recovery_from.get_or_insert_with(Instant::now);
-            sh.emit(&g, format!("{exit_msg}; restarting in {:?}", permit.delay()), None);
+            sh.emit(
+                &g,
+                format!("{exit_msg}; restarting in {:?}", permit.delay()),
+                None,
+            );
             drop(g);
             schedule_restart(sh, permit);
         }
         RestartOutcome::AwaitingDemand => {
             g.lifecycle = Lifecycle::Down;
             g.on_demand_pending = true;
-            sh.emit(&g, format!("{exit_msg}; will restart on the next call"), None);
+            sh.emit(
+                &g,
+                format!("{exit_msg}; will restart on the next call"),
+                None,
+            );
             drop(g);
         }
         RestartOutcome::Exhausted => {
             g.lifecycle = Lifecycle::Down;
             let n = g.tracker.restarts_in_window(now);
-            sh.emit(&g, format!("{exit_msg}; restart budget exhausted ({n} restarts in the window)"), None);
+            sh.emit(
+                &g,
+                format!("{exit_msg}; restart budget exhausted ({n} restarts in the window)"),
+                None,
+            );
             drop(g);
         }
         RestartOutcome::Stopped | RestartOutcome::IgnoredStale => {
@@ -763,14 +915,19 @@ fn on_end(sh: &Arc<Shared>, generation: u64, reason: ExitReason, code: Option<i3
 /// Wait out the backoff, then boot the replacement if the permit is still valid.
 fn schedule_restart(sh: &Arc<Shared>, permit: RestartPermit) {
     let shared = Arc::clone(sh);
-    let _ = thread::Builder::new().name(format!("{}-restart", sh.cfg.name)).spawn(move || {
-        thread::sleep(permit.delay());
-        {
-            let g = shared.lock();
-            if g.shutting_down || g.lifecycle != Lifecycle::Recovering || !g.tracker.permit_valid(&permit, shared.now()) {
-                return;
+    let _ = thread::Builder::new()
+        .name(format!("{}-restart", sh.cfg.name))
+        .spawn(move || {
+            thread::sleep(permit.delay());
+            {
+                let g = shared.lock();
+                if g.shutting_down
+                    || g.lifecycle != Lifecycle::Recovering
+                    || !g.tracker.permit_valid(&permit, shared.now())
+                {
+                    return;
+                }
             }
-        }
-        let _ = boot(&shared, false);
-    });
+            let _ = boot(&shared, false);
+        });
 }

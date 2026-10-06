@@ -25,6 +25,8 @@ test("cargo publish plan always runs local safety gates before upload", () => {
     "registry publish",
   ]);
   assert.deepEqual(plan.at(-1)?.args, ["publish", "-p", "rightkit-license"]);
+  assert.deepEqual(plan.find((step) => step.label === "format").args, ["fmt", "-p", "rightkit-license", "--check"]);
+  assert.deepEqual(plan.find((step) => step.label === "tests").args, ["test", "-p", "rightkit-license", "--", "--test-threads=1"]);
 });
 
 test("dry-run plan never contains a real registry upload", () => {

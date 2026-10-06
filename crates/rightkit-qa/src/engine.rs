@@ -51,7 +51,11 @@ impl CliResult {
 }
 
 impl EngineTarget {
-    fn env_for(&self, data_dir: Option<&Path>, extra: &[(String, String)]) -> Vec<(String, String)> {
+    fn env_for(
+        &self,
+        data_dir: Option<&Path>,
+        extra: &[(String, String)],
+    ) -> Vec<(String, String)> {
         let mut env = self.env.clone();
         if let (Some(var), Some(dir)) = (&self.data_dir_env, data_dir) {
             env.push((var.clone(), dir.to_string_lossy().into()));
@@ -62,7 +66,10 @@ impl EngineTarget {
 
     pub fn cli(&self, args: &[String], opts: &CliOptions, tracker: &Tracker) -> Result<CliResult> {
         if !self.binary.exists() {
-            return err(format!("engine binary not found: {}", self.binary.display()));
+            return err(format!(
+                "engine binary not found: {}",
+                self.binary.display()
+            ));
         }
         let mut argv = args.to_vec();
         if let Some(input) = &opts.input {
@@ -81,14 +88,40 @@ impl EngineTarget {
             tracker,
         )?;
         let json = serde_json::from_str(out.stdout.trim()).unwrap_or(Value::Null);
-        let events = out.stderr.lines().map(str::trim).filter(|l| l.starts_with('{')).filter_map(|l| serde_json::from_str(l).ok()).collect();
-        Ok(CliResult { code: out.code, json, stdout: out.stdout, stderr: out.stderr, events, timed_out: out.timed_out })
+        let events = out
+            .stderr
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.starts_with('{'))
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
+        Ok(CliResult {
+            code: out.code,
+            json,
+            stdout: out.stdout,
+            stderr: out.stderr,
+            events,
+            timed_out: out.timed_out,
+        })
     }
 
     /// `engine run('job status', input)`: words split, non-zero exit or `json.error` fails.
-    pub fn run(&self, words: &str, input: Value, opts: &CliOptions, tracker: &Tracker) -> Result<Value> {
+    pub fn run(
+        &self,
+        words: &str,
+        input: Value,
+        opts: &CliOptions,
+        tracker: &Tracker,
+    ) -> Result<Value> {
         let args: Vec<String> = words.split_whitespace().map(String::from).collect();
-        let r = self.cli(&args, &CliOptions { input: Some(input), ..opts.clone() }, tracker)?;
+        let r = self.cli(
+            &args,
+            &CliOptions {
+                input: Some(input),
+                ..opts.clone()
+            },
+            tracker,
+        )?;
         if r.code != Some(0) || r.json.get("error").map(|e| !e.is_null()).unwrap_or(false) {
             return err(format!(
                 "engine command failed ({:?}): {words}\nstdout: {}\nstderr: {}",
@@ -124,17 +157,27 @@ pub struct Sidecar {
 impl Sidecar {
     fn start(engine: &EngineTarget, opts: &CliOptions, tracker: &Tracker) -> Result<Self> {
         let mut cmd = Command::new(&engine.binary);
-        cmd.arg("--stdio").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.arg("--stdio")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         for (k, v) in engine.env_for(opts.data_dir.as_deref(), &opts.env) {
             cmd.env(k, v);
         }
         let mut owned = OwnedCommand::from_command(cmd);
         owned.windows_hide();
-        let mut child = owned.spawn().map_err(|e| Error(format!("failed to start sidecar {}: {e}", engine.binary.display())))?;
+        let mut child = owned.spawn().map_err(|e| {
+            Error(format!(
+                "failed to start sidecar {}: {e}",
+                engine.binary.display()
+            ))
+        })?;
         let pid = child.id();
         tracker.register(pid, "engine --stdio");
         let stdin = child.take_stdin();
-        let stdout = child.take_stdout().ok_or_else(|| Error("sidecar stdout unavailable".into()))?;
+        let stdout = child
+            .take_stdout()
+            .ok_or_else(|| Error("sidecar stdout unavailable".into()))?;
         let mut stderr_pipe = child.take_stderr();
         let stderr = Arc::new(Mutex::new(String::new()));
         let sink = stderr.clone();
@@ -146,7 +189,9 @@ impl Sidecar {
                     if n == 0 {
                         break;
                     }
-                    sink.lock().unwrap().push_str(&String::from_utf8_lossy(&buf[..n]));
+                    sink.lock()
+                        .unwrap()
+                        .push_str(&String::from_utf8_lossy(&buf[..n]));
                 }
             }
         });
@@ -167,20 +212,45 @@ impl Sidecar {
                 }
             }
         });
-        let mut me = Self { child: Some(child), stdin, rx, seq: 0, hello: Value::Null, pid, stderr, events: vec![], tracker: tracker.clone() };
+        let mut me = Self {
+            child: Some(child),
+            stdin,
+            rx,
+            seq: 0,
+            hello: Value::Null,
+            pid,
+            stderr,
+            events: vec![],
+            tracker: tracker.clone(),
+        };
         me.hello = me.await_frame(Duration::from_secs(30), |f| f["type"] == "hello")?;
         Ok(me)
     }
 
-    fn await_frame(&mut self, timeout: Duration, mut want: impl FnMut(&Value) -> bool) -> Result<Value> {
+    fn await_frame(
+        &mut self,
+        timeout: Duration,
+        mut want: impl FnMut(&Value) -> bool,
+    ) -> Result<Value> {
         let deadline = Instant::now() + timeout;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             match self.rx.recv_timeout(left.max(Duration::from_millis(1))) {
                 Ok(f) if want(&f) => return Ok(f),
                 Ok(f) => self.events.push(f),
-                Err(RecvTimeoutError::Timeout) => return err(format!("sidecar timeout after {}ms; stderr tail: {}", timeout.as_millis(), self.stderr_tail())),
-                Err(RecvTimeoutError::Disconnected) => return err(format!("sidecar closed its stdout; stderr tail: {}", self.stderr_tail())),
+                Err(RecvTimeoutError::Timeout) => {
+                    return err(format!(
+                        "sidecar timeout after {}ms; stderr tail: {}",
+                        timeout.as_millis(),
+                        self.stderr_tail()
+                    ))
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return err(format!(
+                        "sidecar closed its stdout; stderr tail: {}",
+                        self.stderr_tail()
+                    ))
+                }
             }
         }
     }
@@ -194,7 +264,10 @@ impl Sidecar {
         self.seq += 1;
         let id = self.seq;
         frame["id"] = json!(id);
-        let stdin = self.stdin.as_mut().ok_or_else(|| Error("sidecar stdin closed".into()))?;
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| Error("sidecar stdin closed".into()))?;
         write_json_line(stdin, &frame, FRAME_LIMIT).map_err(|e| Error(e.to_string()))?;
         stdin.flush()?;
         self.await_frame(timeout, |f| f["type"] == "response" && f["id"] == json!(id))
@@ -204,7 +277,11 @@ impl Sidecar {
     pub fn command(&mut self, name: &str, input: Value, timeout: Duration) -> Result<Value> {
         let f = self.raw(json!({"type": "request", "method": {"method": "command", "params": {"name": name, "input": input}}}), timeout)?;
         if f["status"] == "err" {
-            return err(format!("{}: {}", f["error"]["code"].as_str().unwrap_or("error"), f["error"]["message"].as_str().unwrap_or("")));
+            return err(format!(
+                "{}: {}",
+                f["error"]["code"].as_str().unwrap_or("error"),
+                f["error"]["message"].as_str().unwrap_or("")
+            ));
         }
         Ok(f["result"].clone())
     }
@@ -212,7 +289,11 @@ impl Sidecar {
     pub fn shutdown(&mut self) {
         self.seq += 1;
         if let Some(stdin) = self.stdin.as_mut() {
-            let _ = write_json_line(stdin, &json!({"type":"request","id":self.seq,"method":{"method":"shutdown"}}), FRAME_LIMIT);
+            let _ = write_json_line(
+                stdin,
+                &json!({"type":"request","id":self.seq,"method":{"method":"shutdown"}}),
+                FRAME_LIMIT,
+            );
         }
     }
 
@@ -242,8 +323,16 @@ impl Drop for Sidecar {
 
 /// Build the engine through the managed wrapper and return the executable it
 /// produced (from cargo's `compiler-artifact` message), never a stale copy.
-pub fn build_engine(cwd: &Path, command: &[String], package: &str, env: &[(String, String)], tracker: &Tracker) -> Result<PathBuf> {
-    let Some((program, rest)) = command.split_first() else { return err("engine.build is empty") };
+pub fn build_engine(
+    cwd: &Path,
+    command: &[String],
+    package: &str,
+    env: &[(String, String)],
+    tracker: &Tracker,
+) -> Result<PathBuf> {
+    let Some((program, rest)) = command.split_first() else {
+        return err("engine.build is empty");
+    };
     let mut args = rest.to_vec();
     if !args.iter().any(|a| a.starts_with("--message-format")) {
         args.push("--message-format=json-render-diagnostics".into());
@@ -251,11 +340,21 @@ pub fn build_engine(cwd: &Path, command: &[String], package: &str, env: &[(Strin
     let out = run_owned(
         program,
         &args,
-        &RunOptions { cwd: Some(cwd.to_path_buf()), env: env.to_vec(), timeout: Some(Duration::from_secs(45 * 60)), label: "engine build".into(), ..Default::default() },
+        &RunOptions {
+            cwd: Some(cwd.to_path_buf()),
+            env: env.to_vec(),
+            timeout: Some(Duration::from_secs(45 * 60)),
+            label: "engine build".into(),
+            ..Default::default()
+        },
         tracker,
     )?;
     if out.code != Some(0) {
-        return err(format!("engine build failed ({:?}):\n{}", out.code, crate::util::tail(&out.stderr, 4000)));
+        return err(format!(
+            "engine build failed ({:?}):\n{}",
+            out.code,
+            crate::util::tail(&out.stderr, 4000)
+        ));
     }
     out.stdout
         .lines()
@@ -264,5 +363,9 @@ pub fn build_engine(cwd: &Path, command: &[String], package: &str, env: &[(Strin
         .filter(|m| m["reason"] == "compiler-artifact" && m["target"]["name"] == package)
         .filter_map(|m| m["executable"].as_str().map(PathBuf::from))
         .last()
-        .ok_or_else(|| Error(format!("build produced no executable for package {package}")))
+        .ok_or_else(|| {
+            Error(format!(
+                "build produced no executable for package {package}"
+            ))
+        })
 }

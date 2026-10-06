@@ -41,7 +41,10 @@ impl LockOwner {
     }
 
     pub fn describe(&self) -> String {
-        format!("pid {} on {} ({}) since unix-ms {}", self.pid, self.hostname, self.label, self.started_unix_ms)
+        format!(
+            "pid {} on {} ({}) since unix-ms {}",
+            self.pid, self.hostname, self.label, self.started_unix_ms
+        )
     }
 }
 
@@ -56,13 +59,20 @@ pub struct LockOptions {
 
 impl Default for LockOptions {
     fn default() -> Self {
-        Self { timeout: Duration::ZERO, poll: Duration::from_millis(50), label: String::new() }
+        Self {
+            timeout: Duration::ZERO,
+            poll: Duration::from_millis(50),
+            label: String::new(),
+        }
     }
 }
 
 impl LockOptions {
     pub fn wait(timeout: Duration) -> Self {
-        Self { timeout, ..Self::default() }
+        Self {
+            timeout,
+            ..Self::default()
+        }
     }
 
     pub fn labeled(mut self, label: &str) -> Self {
@@ -93,7 +103,9 @@ fn open_lock_file(path: &Path) -> Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        options
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
     options.open(path).map_err(|e| FsError::io(path, e))
 }
@@ -112,7 +124,10 @@ impl FileLock {
                             .map(|o| o.describe())
                             .unwrap_or_else(|| "an unknown owner".into());
                         return if options.timeout.is_zero() {
-                            Err(FsError::Locked { path: path.to_path_buf(), owner })
+                            Err(FsError::Locked {
+                                path: path.to_path_buf(),
+                                owner,
+                            })
                         } else {
                             Err(FsError::LockTimeout {
                                 path: path.to_path_buf(),
@@ -127,9 +142,15 @@ impl FileLock {
         }
         let owner_path = owner_path_for(path);
         let recovered_stale = read_owner(&owner_path);
-        let record = serde_json::to_vec_pretty(&LockOwner::current(&options.label)).expect("owner serializes");
+        let record = serde_json::to_vec_pretty(&LockOwner::current(&options.label))
+            .expect("owner serializes");
         atomic_write(&owner_path, &record)?;
-        Ok(Self { file, path: path.to_path_buf(), owner_path: Some(owner_path), recovered_stale })
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+            owner_path: Some(owner_path),
+            recovered_stale,
+        })
     }
 
     /// Fail immediately when busy.
@@ -156,7 +177,12 @@ impl FileLock {
                 Err(TryLockError::Error(e)) => return Err(FsError::io(path, e)),
             }
         }
-        Ok(Self { file, path: path.to_path_buf(), owner_path: None, recovered_stale: None })
+        Ok(Self {
+            file,
+            path: path.to_path_buf(),
+            owner_path: None,
+            recovered_stale: None,
+        })
     }
 
     pub fn path(&self) -> &Path {

@@ -43,7 +43,14 @@ impl RecoverySpec {
             version: 1,
             max_bytes: 256 * 1024 * 1024,
             paths: Arc::new(|v| {
-                v["documents"].as_array().map(|docs| docs.iter().filter_map(|d| d["document"]["path"].as_str().map(str::to_owned)).collect()).unwrap_or_default()
+                v["documents"]
+                    .as_array()
+                    .map(|docs| {
+                        docs.iter()
+                            .filter_map(|d| d["document"]["path"].as_str().map(str::to_owned))
+                            .collect()
+                    })
+                    .unwrap_or_default()
             }),
         }
     }
@@ -56,7 +63,9 @@ pub struct RecoveryStore {
 
 impl RecoveryStore {
     pub fn new(spec: RecoverySpec, state_dir: &Path) -> Self {
-        let path = state_dir.join("recovery").join(format!("{}-v{}.json", spec.name, spec.version));
+        let path = state_dir
+            .join("recovery")
+            .join(format!("{}-v{}.json", spec.name, spec.version));
         Self { spec, path }
     }
 
@@ -66,17 +75,25 @@ impl RecoveryStore {
 
     fn validate(&self, snapshot: &str) -> Result<Value, ShellError> {
         if snapshot.len() > self.spec.max_bytes {
-            return Err(ShellError::DocumentTooLarge("setup recovery is too large".into()));
+            return Err(ShellError::DocumentTooLarge(
+                "setup recovery is too large".into(),
+            ));
         }
-        let parsed: Value = serde_json::from_str(snapshot).map_err(|e| ShellError::Invalid(format!("invalid setup recovery: {e}")))?;
+        let parsed: Value = serde_json::from_str(snapshot)
+            .map_err(|e| ShellError::Invalid(format!("invalid setup recovery: {e}")))?;
         if parsed["version"].as_u64() != Some(self.spec.version) {
-            return Err(ShellError::Invalid("unsupported setup recovery version".into()));
+            return Err(ShellError::Invalid(
+                "unsupported setup recovery version".into(),
+            ));
         }
         Ok(parsed)
     }
 
     fn file_paths(&self, parsed: &Value) -> Vec<String> {
-        (self.spec.paths)(parsed).into_iter().filter(|p| !p.starts_with("untitled:")).collect()
+        (self.spec.paths)(parsed)
+            .into_iter()
+            .filter(|p| !p.starts_with("untitled:"))
+            .collect()
     }
 
     pub fn save(&self, snapshot: &str, broker: &PathBroker) -> Result<(), ShellError> {
@@ -84,7 +101,9 @@ impl RecoveryStore {
         for p in self.file_paths(&parsed) {
             let normalized = crate::broker::normalize_existing_file(&p)?;
             if !broker.is_granted_normalized(&normalized)? {
-                return Err(ShellError::BrokerDenied("setup recovery path is not authorized".into()));
+                return Err(ShellError::BrokerDenied(
+                    "setup recovery path is not authorized".into(),
+                ));
             }
         }
         write_atomic(&self.path, snapshot)
@@ -106,7 +125,11 @@ impl RecoveryStore {
     }
 
     pub fn clear(&self) -> Result<(), ShellError> {
-        for candidate in [self.path.clone(), self.path.with_extension("json.new"), self.path.with_extension("json.old")] {
+        for candidate in [
+            self.path.clone(),
+            self.path.with_extension("json.new"),
+            self.path.with_extension("json.old"),
+        ] {
             match fs::remove_file(candidate) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -118,9 +141,14 @@ impl RecoveryStore {
 }
 
 fn write_atomic(path: &Path, content: &str) -> Result<(), ShellError> {
-    let parent = path.parent().ok_or_else(|| ShellError::Invalid("setup recovery path has no parent".into()))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| ShellError::Invalid("setup recovery path has no parent".into()))?;
     fs::create_dir_all(parent)?;
-    let (new, old) = (path.with_extension("json.new"), path.with_extension("json.old"));
+    let (new, old) = (
+        path.with_extension("json.new"),
+        path.with_extension("json.old"),
+    );
     let _ = fs::remove_file(&new);
     let _ = fs::remove_file(&old);
     let mut f = OpenOptions::new().create_new(true).write(true).open(&new)?;
@@ -168,5 +196,9 @@ pub fn ensure_cache_dir(path: &Path) -> std::io::Result<CacheDirOutcome> {
         Err(e) => return Err(e),
     }
     fs::create_dir_all(path)?;
-    Ok(if repaired { CacheDirOutcome::Repaired } else { CacheDirOutcome::Created })
+    Ok(if repaired {
+        CacheDirOutcome::Repaired
+    } else {
+        CacheDirOutcome::Created
+    })
 }

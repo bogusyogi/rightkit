@@ -13,7 +13,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 fn host_bin() -> PathBuf {
-    std::env::current_exe().unwrap().parent().unwrap().parent().unwrap().join("examples").join("hr_fake_host")
+    std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join("hr_fake_host")
 }
 
 struct Host {
@@ -32,7 +39,12 @@ impl Host {
     /// Spawn without waiting for READY (a `--wait-free` host is not ready until the incumbent is gone).
     fn spawn_unready(root: &Path, role: &str, minor: u32, state: &Path, args: &[&str]) -> Host {
         let mut child = Command::new(host_bin())
-            .args([root.to_str().unwrap(), role, &minor.to_string(), state.to_str().unwrap()])
+            .args([
+                root.to_str().unwrap(),
+                role,
+                &minor.to_string(),
+                state.to_str().unwrap(),
+            ])
             .args(args)
             .stdout(Stdio::piped())
             .spawn()
@@ -43,7 +55,12 @@ impl Host {
     fn wait_ready(&mut self) {
         let mut line = String::new();
         self.out.read_line(&mut line).unwrap();
-        self.pid = line.strip_prefix("READY ").unwrap_or_else(|| panic!("host not ready: {line:?}")).trim().parse().unwrap();
+        self.pid = line
+            .strip_prefix("READY ")
+            .unwrap_or_else(|| panic!("host not ready: {line:?}"))
+            .trim()
+            .parse()
+            .unwrap();
     }
     fn start(root: &Path, role: &str, minor: u32, state: &Path) -> Host {
         Self::spawn(root, role, minor, state, &[])
@@ -84,7 +101,12 @@ fn last_request(e: &Env) -> Value {
 }
 
 fn fixture(name: &str) -> String {
-    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name)).unwrap()
+    std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join(name),
+    )
+    .unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -101,37 +123,79 @@ fn frames_match_heardright_v1_fixtures_exactly() {
         v
     };
     for (frame, name) in [
-        (ServiceEnvelope::file_request("r1", "t", "a.wav".into()), "v1_file_request.json"),
+        (
+            ServiceEnvelope::file_request("r1", "t", "a.wav".into()),
+            "v1_file_request.json",
+        ),
         (ServiceEnvelope::health("r1", "t"), "v1_health_request.json"),
     ] {
         let ours = serde_json::to_string(&frame).unwrap();
         assert_eq!(normalise(&ours), normalise(&fixture(name)), "{name}");
         // Field order is part of "exact": same keys in the same order.
-        let keys = |s: &str| serde_json::from_str::<serde_json::Map<String, Value>>(s).unwrap().keys().cloned().collect::<Vec<_>>();
+        let keys = |s: &str| {
+            serde_json::from_str::<serde_json::Map<String, Value>>(s)
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
         assert_eq!(keys(&ours), keys(&fixture(name)), "{name} key order");
     }
     // Frames a v1 host sends: this client parses them.
-    let result: ServiceEnvelope = serde_json::from_str(fixture("v1_file_result.json").trim()).unwrap();
+    let result: ServiceEnvelope =
+        serde_json::from_str(fixture("v1_file_result.json").trim()).unwrap();
     assert_eq!(result.transcript().unwrap().words[0].end_ms, 100);
     assert_eq!(result.transcript_result().unwrap().engine, None);
-    let handoff: ServiceEnvelope = serde_json::from_str(fixture("v1_handoff_error.json").trim()).unwrap();
-    assert!(handoff.error.as_ref().is_some_and(|e| e.code == ERROR_HOST_HANDOFF && e.retryable));
-    let denied: ServiceEnvelope = serde_json::from_str(fixture("v1_not_allowed_error.json").trim()).unwrap();
+    let handoff: ServiceEnvelope =
+        serde_json::from_str(fixture("v1_handoff_error.json").trim()).unwrap();
+    assert!(handoff
+        .error
+        .as_ref()
+        .is_some_and(|e| e.code == ERROR_HOST_HANDOFF && e.retryable));
+    let denied: ServiceEnvelope =
+        serde_json::from_str(fixture("v1_not_allowed_error.json").trim()).unwrap();
     assert_eq!(denied.error.unwrap().code, ERROR_NOT_ALLOWED);
     // Discovery files written by a v1 host parse; ours serialise back to the same fields.
     let rec: ServiceRecord = serde_json::from_str(&fixture("v1_service_record.json")).unwrap();
-    assert_eq!((rec.role, rec.protocol_minor, rec.engine_version.as_str()), (HostRole::HeardRightShell, 0, "0.9.0"));
-    assert_eq!(serde_json::to_value(&rec).unwrap(), serde_json::from_str::<Value>(&fixture("v1_service_record.json")).unwrap());
+    assert_eq!(
+        (rec.role, rec.protocol_minor, rec.engine_version.as_str()),
+        (HostRole::HeardRightShell, 0, "0.9.0")
+    );
+    assert_eq!(
+        serde_json::to_value(&rec).unwrap(),
+        serde_json::from_str::<Value>(&fixture("v1_service_record.json")).unwrap()
+    );
     let tk: TakeoverRequest = serde_json::from_str(&fixture("v1_takeover.json")).unwrap();
     assert_eq!(tk.role, HostRole::ScrapeRight);
-    assert_eq!(serde_json::to_value(&tk).unwrap(), serde_json::from_str::<Value>(&fixture("v1_takeover.json")).unwrap());
+    assert_eq!(
+        serde_json::to_value(&tk).unwrap(),
+        serde_json::from_str::<Value>(&fixture("v1_takeover.json")).unwrap()
+    );
     let inst: InstalledEngine = serde_json::from_str(&fixture("v1_installed.json")).unwrap();
-    assert!(inst.engine_path.to_string_lossy().ends_with("heardright-engine.exe"));
+    assert!(inst
+        .engine_path
+        .to_string_lossy()
+        .ends_with("heardright-engine.exe"));
     // Endpoint naming.
     let root = Path::new("/Users/me/Library/Application Support/Orthic Labs/shared");
-    assert_eq!(service_dir(root), root.join("runtime").join("speech-service"));
-    assert_eq!(endpoint_for(root, "x"), root.join("runtime/speech-service/speech.sock").to_string_lossy());
-    assert_eq!(SERVICE_ALLOWED_SCHEMAS, ["engine_health", "engine_capabilities", "engine_info", "file_transcription_request"]);
+    assert_eq!(
+        service_dir(root),
+        root.join("runtime").join("speech-service")
+    );
+    assert_eq!(
+        endpoint_for(root, "x"),
+        root.join("runtime/speech-service/speech.sock")
+            .to_string_lossy()
+    );
+    assert_eq!(
+        SERVICE_ALLOWED_SCHEMAS,
+        [
+            "engine_health",
+            "engine_capabilities",
+            "engine_info",
+            "file_transcription_request"
+        ]
+    );
 }
 
 #[test]
@@ -144,7 +208,13 @@ fn windows_pipe_name_is_heardright_fnv1a_of_the_lowercased_slashed_root() {
     }
     assert_eq!(format!("{h:08x}").len(), 8);
     if cfg!(windows) {
-        assert_eq!(endpoint_for(Path::new(r"C:\Users\me\AppData\Local\Orthic Labs\shared\"), "S-1-5-21-1"), format!(r"\\.\pipe\orthic-labs-speech-S-1-5-21-1-{h:08x}"));
+        assert_eq!(
+            endpoint_for(
+                Path::new(r"C:\Users\me\AppData\Local\Orthic Labs\shared\"),
+                "S-1-5-21-1"
+            ),
+            format!(r"\\.\pipe\orthic-labs-speech-S-1-5-21-1-{h:08x}")
+        );
     }
 }
 
@@ -160,7 +230,10 @@ fn discovery_staleness_planning_and_installed_engine() {
 
     let mut h = Host::start(&e.root, "scrape_right", 0, &e.state);
     let rec = read_live_record(&e.root).expect("live record");
-    assert_eq!((rec.role, rec.pid, rec.protocol_minor), (HostRole::ScrapeRight, h.pid, 0));
+    assert_eq!(
+        (rec.role, rec.pid, rec.protocol_minor),
+        (HostRole::ScrapeRight, h.pid, 0)
+    );
     assert_eq!(rec.endpoint, endpoint_for(&e.root, "user"));
     {
         use std::os::unix::fs::PermissionsExt;
@@ -169,11 +242,22 @@ fn discovery_staleness_planning_and_installed_engine() {
         assert_eq!(mode(Path::new(&rec.endpoint)), 0o600);
     }
     assert_eq!(plan_host(&e.root, HostRole::CutRight), HostPlan::UseRunning);
-    assert_eq!(plan_host(&e.root, HostRole::ScrapeRight), HostPlan::UseRunning);
-    assert_eq!(plan_host(&e.root, HostRole::HeardRightShell), HostPlan::TakeOver { from: HostRole::ScrapeRight });
+    assert_eq!(
+        plan_host(&e.root, HostRole::ScrapeRight),
+        HostPlan::UseRunning
+    );
+    assert_eq!(
+        plan_host(&e.root, HostRole::HeardRightShell),
+        HostPlan::TakeOver {
+            from: HostRole::ScrapeRight
+        }
+    );
 
     let c = connect(&e.root).unwrap();
-    assert_eq!((c.role(), c.engine_version()), (HostRole::ScrapeRight, "fake-hr-host/1"));
+    assert_eq!(
+        (c.role(), c.engine_version()),
+        (HostRole::ScrapeRight, "fake-hr-host/1")
+    );
     drop(c);
 
     // kill -9: the record stays but its pid is dead, so it is stale.
@@ -184,11 +268,30 @@ fn discovery_staleness_planning_and_installed_engine() {
     assert_eq!(plan_host(&e.root, HostRole::CutRight), HostPlan::HostMyself);
     let engine = e.root.join("engine");
     std::fs::create_dir_all(installed_heardright_path(&e.root).parent().unwrap()).unwrap();
-    std::fs::write(installed_heardright_path(&e.root), serde_json::to_vec(&InstalledEngine { engine_path: engine.clone(), engine_version: "1".into() }).unwrap()).unwrap();
-    assert_eq!(plan_host(&e.root, HostRole::CutRight), HostPlan::HostMyself, "installed engine missing on disk");
+    std::fs::write(
+        installed_heardright_path(&e.root),
+        serde_json::to_vec(&InstalledEngine {
+            engine_path: engine.clone(),
+            engine_version: "1".into(),
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        plan_host(&e.root, HostRole::CutRight),
+        HostPlan::HostMyself,
+        "installed engine missing on disk"
+    );
     std::fs::write(&engine, b"").unwrap();
-    assert_eq!(plan_host(&e.root, HostRole::CutRight), HostPlan::StartInstalledHeardRight(engine));
-    assert_eq!(plan_host(&e.root, HostRole::HeardRightShell), HostPlan::HostMyself, "HeardRight roles host themselves");
+    assert_eq!(
+        plan_host(&e.root, HostRole::CutRight),
+        HostPlan::StartInstalledHeardRight(engine)
+    );
+    assert_eq!(
+        plan_host(&e.root, HostRole::HeardRightShell),
+        HostPlan::HostMyself,
+        "HeardRight roles host themselves"
+    );
 }
 
 #[test]
@@ -197,7 +300,10 @@ fn newer_protocol_major_is_refused_before_connecting() {
     std::fs::create_dir_all(service_dir(&e.root)).unwrap();
     let rec = json!({"protocol_major": 2, "protocol_minor": 0, "role": "heard_right_shell", "pid": std::process::id(), "endpoint": "/nonexistent", "engine_version": "9"});
     std::fs::write(service_record_path(&e.root), rec.to_string()).unwrap();
-    assert!(matches!(connect(&e.root), Err(ClientError::ProtocolMismatch { major: 2 })));
+    assert!(matches!(
+        connect(&e.root),
+        Err(ClientError::ProtocolMismatch { major: 2 })
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -208,29 +314,72 @@ fn newer_protocol_major_is_refused_before_connecting() {
 fn unchanged_v1_host_transcribes_and_never_sees_minor1_fields() {
     let e = env();
     let _h = Host::start(&e.root, "heard_right_shell", 0, &e.state);
-    let t = transcribe_via_service(&e.root, HostRole::CutRight, Path::new("/x/a.wav"), Duration::from_secs(5)).unwrap();
+    let t = transcribe_via_service(
+        &e.root,
+        HostRole::CutRight,
+        Path::new("/x/a.wav"),
+        Duration::from_secs(5),
+    )
+    .unwrap();
     assert_eq!(t.text, "hello from parakeet");
-    assert_eq!(t.words, vec![TimedWord { text: "hello".into(), start_ms: 0, end_ms: 400 }]);
-    assert_eq!(last_request(&e), json!({"kind": "file_transcription_request", "path": "/x/a.wav"}));
+    assert_eq!(
+        t.words,
+        vec![TimedWord {
+            text: "hello".into(),
+            start_ms: 0,
+            end_ms: 400
+        }]
+    );
+    assert_eq!(
+        last_request(&e),
+        json!({"kind": "file_transcription_request", "path": "/x/a.wav"})
+    );
 
     // Auto / Parakeet / a language hint degrade to the plain v1.0 request.
     let mut c = connect(&e.root).unwrap();
     assert!(!c.supports_engine_selection());
     for engine in [EngineSelector::Auto, EngineSelector::parakeet()] {
-        let r = c.transcribe(Path::new("/x/b.wav"), &mut TranscribeOptions::new(Duration::from_secs(5)).engine(engine).language("es")).unwrap();
-        assert_eq!((r.transcript.text.as_str(), r.engine), ("hello from parakeet", None));
-        assert_eq!(last_request(&e), json!({"kind": "file_transcription_request", "path": "/x/b.wav"}));
+        let r = c
+            .transcribe(
+                Path::new("/x/b.wav"),
+                &mut TranscribeOptions::new(Duration::from_secs(5))
+                    .engine(engine)
+                    .language("es"),
+            )
+            .unwrap();
+        assert_eq!(
+            (r.transcript.text.as_str(), r.engine),
+            ("hello from parakeet", None)
+        );
+        assert_eq!(
+            last_request(&e),
+            json!({"kind": "file_transcription_request", "path": "/x/b.wav"})
+        );
     }
     // Whisper is refused client-side rather than silently decoded by Parakeet.
     std::fs::remove_file(e.state.join("last_request.json")).unwrap();
-    let err = c.transcribe(Path::new("/x/c.wav"), &mut TranscribeOptions::new(Duration::from_secs(5)).engine(EngineSelector::whisper())).unwrap_err();
-    assert!(matches!(err, ClientError::Unsupported(ref m) if m.contains("whisper")), "{err}");
-    assert!(!e.state.join("last_request.json").exists(), "nothing was sent");
+    let err = c
+        .transcribe(
+            Path::new("/x/c.wav"),
+            &mut TranscribeOptions::new(Duration::from_secs(5)).engine(EngineSelector::whisper()),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(err, ClientError::Unsupported(ref m) if m.contains("whisper")),
+        "{err}"
+    );
+    assert!(
+        !e.state.join("last_request.json").exists(),
+        "nothing was sent"
+    );
 
     let caps = c.capabilities(Duration::from_secs(5)).unwrap();
     assert!(caps.engines.is_empty() && caps.supports_file_transcription());
     let engines = caps.engines_or_default();
-    assert_eq!((engines.len(), engines[0].id.as_str(), engines[0].ready), (1, "parakeet", true));
+    assert_eq!(
+        (engines.len(), engines[0].id.as_str(), engines[0].ready),
+        (1, "parakeet", true)
+    );
 }
 
 #[test]
@@ -245,11 +394,20 @@ fn allowlist_rejection_and_connection_survives() {
         f.payload = Some(json!({"kind": schema}));
         let resp = c.call_raw(&f, Duration::from_secs(5), None, None).unwrap();
         let err = resp.error.expect("error frame");
-        assert_eq!((err.code.as_str(), err.retryable), (ERROR_NOT_ALLOWED, false), "{schema}");
+        assert_eq!(
+            (err.code.as_str(), err.retryable),
+            (ERROR_NOT_ALLOWED, false),
+            "{schema}"
+        );
         assert_eq!(resp.request_id, "rid-deny");
     }
     // The host keeps the connection open after a rejection.
-    assert_eq!(c.transcribe_file(Path::new("/x/a.wav"), Duration::from_secs(5)).unwrap().text, "hello from parakeet");
+    assert_eq!(
+        c.transcribe_file(Path::new("/x/a.wav"), Duration::from_secs(5))
+            .unwrap()
+            .text,
+        "hello from parakeet"
+    );
 }
 
 #[test]
@@ -258,17 +416,32 @@ fn host_handoff_error_is_retried_and_reaches_the_result() {
     let _h = Host::start(&e.root, "heard_right_headless", 0, &e.state);
     // The scripted host sends the retryable handoff error once for this file.
     let mut c = connect(&e.root).unwrap();
-    let err = c.transcribe_file(Path::new("/x/job_handoff.wav"), Duration::from_secs(5)).unwrap_err();
+    let err = c
+        .transcribe_file(Path::new("/x/job_handoff.wav"), Duration::from_secs(5))
+        .unwrap_err();
     assert_eq!(err, ClientError::HandoffRetry);
     std::fs::remove_file(e.state.join("handoff_done")).unwrap();
     drop(c);
 
     let seen = Arc::new(Mutex::new(Vec::new()));
     let s2 = seen.clone();
-    let mut opts = TranscribeOptions::new(Duration::from_secs(5)).on_progress(move |p| s2.lock().unwrap().push(p.clone()));
-    let t = transcribe_via_service_with(&e.root, HostRole::CutRight, Path::new("/x/job_handoff.wav"), &mut opts).unwrap();
+    let mut opts = TranscribeOptions::new(Duration::from_secs(5))
+        .on_progress(move |p| s2.lock().unwrap().push(p.clone()));
+    let t = transcribe_via_service_with(
+        &e.root,
+        HostRole::CutRight,
+        Path::new("/x/job_handoff.wav"),
+        &mut opts,
+    )
+    .unwrap();
     assert_eq!(t.transcript.text, "hello from parakeet");
-    assert!(seen.lock().unwrap().iter().any(|p| matches!(p, Progress::HandoffRetry { attempt: 1 })), "retry was reported");
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .any(|p| matches!(p, Progress::HandoffRetry { attempt: 1 })),
+        "retry was reported"
+    );
 }
 
 #[test]
@@ -285,15 +458,27 @@ fn takeover_by_outranking_host_hands_off_in_flight_job_and_client_follows() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let s2 = seen.clone();
     let job = std::thread::spawn(move || {
-        let mut opts = TranscribeOptions::new(Duration::from_secs(10)).on_progress(move |p| s2.lock().unwrap().push(p.clone()));
-        transcribe_via_service_with(&root, HostRole::CutRight, Path::new("/x/slow_takeover.wav"), &mut opts)
+        let mut opts = TranscribeOptions::new(Duration::from_secs(10))
+            .on_progress(move |p| s2.lock().unwrap().push(p.clone()));
+        transcribe_via_service_with(
+            &root,
+            HostRole::CutRight,
+            Path::new("/x/slow_takeover.wav"),
+            &mut opts,
+        )
     });
     std::thread::sleep(Duration::from_millis(600));
 
     // The shell asks for the service the HeardRight way: takeover.json, rank implied by role.
-    assert!(should_request_takeover(HostRole::HeardRightShell, read_live_record(&e.root).as_ref()));
+    assert!(should_request_takeover(
+        HostRole::HeardRightShell,
+        read_live_record(&e.root).as_ref()
+    ));
     request_takeover(&e.root, HostRole::HeardRightShell).unwrap();
-    assert_eq!(read_takeover(&e.root).unwrap().role, HostRole::HeardRightShell);
+    assert_eq!(
+        read_takeover(&e.root).unwrap().role,
+        HostRole::HeardRightShell
+    );
 
     // The incumbent fails the in-flight job with the handoff error, removes service.json and exits.
     let status = a.child.wait().unwrap();
@@ -301,13 +486,26 @@ fn takeover_by_outranking_host_hands_off_in_flight_job_and_client_follows() {
     b.wait_ready();
     clear_takeover_if_ours(&e.root);
     assert!(read_takeover(&e.root).is_none());
-    assert_eq!(read_live_record(&e.root).unwrap().role, HostRole::HeardRightShell);
+    assert_eq!(
+        read_live_record(&e.root).unwrap().role,
+        HostRole::HeardRightShell
+    );
 
-    let r = job.join().unwrap().expect("job followed the handoff to the new host");
+    let r = job
+        .join()
+        .unwrap()
+        .expect("job followed the handoff to the new host");
     assert_eq!(r.transcript.text, "hello from parakeet");
     assert_eq!(r.engine.as_deref(), Some("parakeet"));
-    assert!(seen.lock().unwrap().iter().any(|p| matches!(p, Progress::HandoffRetry { .. })));
-    assert!(state_b.join("last_request.json").exists(), "the resubmitted request reached host B");
+    assert!(seen
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|p| matches!(p, Progress::HandoffRetry { .. })));
+    assert!(
+        state_b.join("last_request.json").exists(),
+        "the resubmitted request reached host B"
+    );
 }
 
 #[test]
@@ -316,11 +514,26 @@ fn stall_timeout_fires_on_silence_and_the_host_sees_the_disconnect() {
     let _h = Host::start(&e.root, "heard_right_shell", 0, &e.state);
     let mut c = connect(&e.root).unwrap();
     let t = Instant::now();
-    let err = c.transcribe_file(Path::new("/x/stall.wav"), Duration::from_millis(700)).unwrap_err();
+    let err = c
+        .transcribe_file(Path::new("/x/stall.wav"), Duration::from_millis(700))
+        .unwrap_err();
     assert_eq!(err, ClientError::Timeout);
-    assert!(t.elapsed() >= Duration::from_millis(650) && t.elapsed() < Duration::from_secs(4), "{:?}", t.elapsed());
-    assert!(wait_for(&e.state.join("cancelled"), 5), "host observed the abort and cancelled the job");
-    assert!(matches!(c.transcribe_file(Path::new("/x/a.wav"), Duration::from_secs(1)), Err(ClientError::Io(_))), "an aborted connection is dead");
+    assert!(
+        t.elapsed() >= Duration::from_millis(650) && t.elapsed() < Duration::from_secs(4),
+        "{:?}",
+        t.elapsed()
+    );
+    assert!(
+        wait_for(&e.state.join("cancelled"), 5),
+        "host observed the abort and cancelled the job"
+    );
+    assert!(
+        matches!(
+            c.transcribe_file(Path::new("/x/a.wav"), Duration::from_secs(1)),
+            Err(ClientError::Io(_))
+        ),
+        "an aborted connection is dead"
+    );
 }
 
 #[test]
@@ -335,13 +548,31 @@ fn cancel_closes_the_connection_and_returns_cancelled() {
     });
     let t = Instant::now();
     let mut opts = TranscribeOptions::new(Duration::from_secs(60)).cancel_token(cancel.clone());
-    let err = transcribe_via_service_with(&e.root, HostRole::CutRight, Path::new("/x/stall.wav"), &mut opts).unwrap_err();
+    let err = transcribe_via_service_with(
+        &e.root,
+        HostRole::CutRight,
+        Path::new("/x/stall.wav"),
+        &mut opts,
+    )
+    .unwrap_err();
     assert_eq!(err, ClientError::Cancelled);
     assert!(t.elapsed() < Duration::from_secs(3), "{:?}", t.elapsed());
-    assert!(wait_for(&e.state.join("cancelled"), 5), "host cancelled the job on disconnect");
+    assert!(
+        wait_for(&e.state.join("cancelled"), 5),
+        "host cancelled the job on disconnect"
+    );
     // An already-cancelled request never reaches the host.
     let mut again = TranscribeOptions::new(Duration::from_secs(5)).cancel_token(cancel);
-    assert_eq!(transcribe_via_service_with(&e.root, HostRole::CutRight, Path::new("/x/a.wav"), &mut again).unwrap_err(), ClientError::Cancelled);
+    assert_eq!(
+        transcribe_via_service_with(
+            &e.root,
+            HostRole::CutRight,
+            Path::new("/x/a.wav"),
+            &mut again
+        )
+        .unwrap_err(),
+        ClientError::Cancelled
+    );
 }
 
 /// Hold `dictation_active` for `hold`, then release it.
@@ -364,14 +595,29 @@ fn dictation_pause_with_progress_frames_outlives_the_stall_timeout() {
     let t = Instant::now();
     let mut c = connect(&e.root).unwrap();
     // 600 ms stall timeout, 1.8 s pause: only the host's paused_for_dictation frames keep it alive.
-    let mut opts = TranscribeOptions::new(Duration::from_millis(600)).on_progress(move |p| s2.lock().unwrap().push(p.clone()));
-    let r = c.transcribe(Path::new("/x/dictation.wav"), &mut opts).unwrap();
+    let mut opts = TranscribeOptions::new(Duration::from_millis(600))
+        .on_progress(move |p| s2.lock().unwrap().push(p.clone()));
+    let r = c
+        .transcribe(Path::new("/x/dictation.wav"), &mut opts)
+        .unwrap();
     held.join().unwrap();
-    assert!(t.elapsed() >= Duration::from_millis(1700), "waited out the pause: {:?}", t.elapsed());
+    assert!(
+        t.elapsed() >= Duration::from_millis(1700),
+        "waited out the pause: {:?}",
+        t.elapsed()
+    );
     assert_eq!(r.transcript.text, "hello from parakeet");
     let seen = seen.lock().unwrap();
-    assert!(seen.iter().any(|p| matches!(p, Progress::Host(h) if h.state == ProgressState::PausedForDictation)), "{seen:?}");
-    let paused = seen.iter().filter(|p| matches!(p, Progress::Host(h) if h.state == ProgressState::PausedForDictation)).count();
+    assert!(
+        seen.iter().any(
+            |p| matches!(p, Progress::Host(h) if h.state == ProgressState::PausedForDictation)
+        ),
+        "{seen:?}"
+    );
+    let paused = seen
+        .iter()
+        .filter(|p| matches!(p, Progress::Host(h) if h.state == ProgressState::PausedForDictation))
+        .count();
     assert!(paused >= 3, "heartbeats throughout the pause: {paused}");
 }
 
@@ -382,13 +628,19 @@ fn dictation_pause_on_a_v1_host_is_silent_so_a_short_stall_timeout_fires() {
     let e = env();
     let _h = Host::start(&e.root, "heard_right_shell", 0, &e.state);
     let held = dictate(&e.state, Duration::from_millis(1800));
-    let err = connect(&e.root).unwrap().transcribe_file(Path::new("/x/dictation.wav"), Duration::from_millis(600)).unwrap_err();
+    let err = connect(&e.root)
+        .unwrap()
+        .transcribe_file(Path::new("/x/dictation.wav"), Duration::from_millis(600))
+        .unwrap_err();
     assert_eq!(err, ClientError::Timeout);
     held.join().unwrap();
     // A pause shorter than the timeout completes.
     let _ = std::fs::remove_file(e.state.join("cancelled"));
     let held = dictate(&e.state, Duration::from_millis(300));
-    let t = connect(&e.root).unwrap().transcribe_file(Path::new("/x/dictation.wav"), Duration::from_secs(5)).unwrap();
+    let t = connect(&e.root)
+        .unwrap()
+        .transcribe_file(Path::new("/x/dictation.wav"), Duration::from_secs(5))
+        .unwrap();
     held.join().unwrap();
     assert_eq!(t.text, "hello from parakeet");
 }
@@ -405,12 +657,27 @@ fn minor1_host_reports_engines_and_honours_selection() {
     assert!(c.supports_engine_selection());
 
     let caps = c.capabilities(Duration::from_secs(5)).unwrap();
-    let ids: Vec<_> = caps.engines.iter().map(|x| (x.id.as_str(), x.ready)).collect();
-    assert_eq!(ids, [("parakeet", true), ("whisper", true), ("future", false)]);
+    let ids: Vec<_> = caps
+        .engines
+        .iter()
+        .map(|x| (x.id.as_str(), x.ready))
+        .collect();
+    assert_eq!(
+        ids,
+        [("parakeet", true), ("whisper", true), ("future", false)]
+    );
     let whisper = caps.engine(ENGINE_WHISPER).unwrap();
     assert!(whisper.languages.contains(&"ja".to_string()) && !whisper.loaded);
-    let ready_ja: Vec<_> = caps.ready_for(Some("ja")).into_iter().map(|x| x.id).collect();
-    assert_eq!(ready_ja, ["whisper"], "only Whisper decodes ja; the unready engine is excluded");
+    let ready_ja: Vec<_> = caps
+        .ready_for(Some("ja"))
+        .into_iter()
+        .map(|x| x.id)
+        .collect();
+    assert_eq!(
+        ready_ja,
+        ["whisper"],
+        "only Whisper decodes ja; the unready engine is excluded"
+    );
     assert_eq!(caps.ready_for(None).len(), 2);
 
     let opts = || TranscribeOptions::new(Duration::from_secs(5));
@@ -418,24 +685,60 @@ fn minor1_host_reports_engines_and_honours_selection() {
 
     // No selector: nothing extra on the wire, Parakeet behaviour.
     let r = c.transcribe(p, &mut opts()).unwrap();
-    assert_eq!((r.transcript.text.as_str(), r.engine.as_deref()), ("hello from parakeet", Some("parakeet")));
-    assert_eq!(last_request(&e), json!({"kind": "file_transcription_request", "path": "/x/a.wav"}));
+    assert_eq!(
+        (r.transcript.text.as_str(), r.engine.as_deref()),
+        ("hello from parakeet", Some("parakeet"))
+    );
+    assert_eq!(
+        last_request(&e),
+        json!({"kind": "file_transcription_request", "path": "/x/a.wav"})
+    );
 
-    let r = c.transcribe(p, &mut opts().engine(EngineSelector::whisper()).language("es")).unwrap();
-    assert_eq!((r.transcript.text.as_str(), r.engine.as_deref(), r.language.as_deref()), ("hello from whisper", Some("whisper"), Some("es")));
-    assert_eq!(last_request(&e), json!({"kind": "file_transcription_request", "path": "/x/a.wav", "engine": "whisper", "language": "es"}));
+    let r = c
+        .transcribe(
+            p,
+            &mut opts().engine(EngineSelector::whisper()).language("es"),
+        )
+        .unwrap();
+    assert_eq!(
+        (
+            r.transcript.text.as_str(),
+            r.engine.as_deref(),
+            r.language.as_deref()
+        ),
+        ("hello from whisper", Some("whisper"), Some("es"))
+    );
+    assert_eq!(
+        last_request(&e),
+        json!({"kind": "file_transcription_request", "path": "/x/a.wav", "engine": "whisper", "language": "es"})
+    );
 
     // auto-by-language: the host routes.
-    let r = c.transcribe(p, &mut opts().engine(EngineSelector::Auto).language("ja")).unwrap();
+    let r = c
+        .transcribe(p, &mut opts().engine(EngineSelector::Auto).language("ja"))
+        .unwrap();
     assert_eq!(r.engine.as_deref(), Some("whisper"));
-    let r = c.transcribe(p, &mut opts().engine(EngineSelector::Auto).language("en")).unwrap();
+    let r = c
+        .transcribe(p, &mut opts().engine(EngineSelector::Auto).language("en"))
+        .unwrap();
     assert_eq!(r.engine.as_deref(), Some("parakeet"));
     assert_eq!(last_request(&e)["engine"], "auto");
 
     // An engine the host cannot run is a typed, non-retryable error, and the connection survives.
-    let err = c.transcribe(p, &mut opts().engine(EngineSelector::Named("future".into()))).unwrap_err();
-    assert!(matches!(err, ClientError::Engine { ref code, .. } if code == ERROR_ENGINE_UNAVAILABLE), "{err}");
-    assert_eq!(c.transcribe_file(p, Duration::from_secs(5)).unwrap().text, "hello from parakeet");
+    let err = c
+        .transcribe(
+            p,
+            &mut opts().engine(EngineSelector::Named("future".into())),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(err, ClientError::Engine { ref code, .. } if code == ERROR_ENGINE_UNAVAILABLE),
+        "{err}"
+    );
+    assert_eq!(
+        c.transcribe_file(p, Duration::from_secs(5)).unwrap().text,
+        "hello from parakeet"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -444,7 +747,13 @@ fn minor1_host_reports_engines_and_honours_selection() {
 
 struct NoCalls;
 impl rightkit_service::Handler for NoCalls {
-    fn call(&self, _: &rightkit_service::CallContext, m: &str, _: &Value, _: &rightkit_service::Emit) -> Result<Value, rightkit_service::ServiceError> {
+    fn call(
+        &self,
+        _: &rightkit_service::CallContext,
+        m: &str,
+        _: &Value,
+        _: &rightkit_service::Emit,
+    ) -> Result<Value, rightkit_service::ServiceError> {
         Err(rightkit_service::ServiceError::new("unknown_method", m))
     }
 }
@@ -467,34 +776,59 @@ impl Drop for Requester {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }
 
 #[test]
-fn rightkit_service_host_publishes_a_record_heardright_clients_parse_and_yields_to_heardright_takeovers() {
+fn rightkit_service_host_publishes_a_record_heardright_clients_parse_and_yields_to_heardright_takeovers(
+) {
     use rightkit_service::{Allowlist, ServiceConfig};
     let e = env();
     let suite = rightkit_service::Suite::at(&e.root).unwrap();
-    let mut cfg = ServiceConfig::new(SERVICE_NAME, HostRole::ScrapeRight.as_str(), HostRole::ScrapeRight.rank(), "7.7.7", Allowlist::new().allow("*", ["noop"]));
+    let mut cfg = ServiceConfig::new(
+        SERVICE_NAME,
+        HostRole::ScrapeRight.as_str(),
+        HostRole::ScrapeRight.rank(),
+        "7.7.7",
+        Allowlist::new().allow("*", ["noop"]),
+    );
     cfg.known_roles = HostRole::rank_table();
     cfg.endpoint = Some(endpoint_for(&e.root, "user"));
     cfg.handoff_grace = Duration::from_secs(1);
     let hosted = rightkit_service::host(&suite, cfg, Arc::new(NoCalls)).unwrap();
 
     // HeardRight's reader sees its own six fields (extra fields are ignored by serde).
-    let raw: Value = serde_json::from_slice(&std::fs::read(service_record_path(&e.root)).unwrap()).unwrap();
+    let raw: Value =
+        serde_json::from_slice(&std::fs::read(service_record_path(&e.root)).unwrap()).unwrap();
     let hr: ServiceRecord = serde_json::from_value(raw.clone()).unwrap();
-    assert_eq!((hr.role, hr.engine_version.as_str(), hr.protocol_minor), (HostRole::ScrapeRight, "7.7.7", 0));
-    for k in ["protocol_major", "protocol_minor", "role", "pid", "endpoint", "engine_version"] {
+    assert_eq!(
+        (hr.role, hr.engine_version.as_str(), hr.protocol_minor),
+        (HostRole::ScrapeRight, "7.7.7", 0)
+    );
+    for k in [
+        "protocol_major",
+        "protocol_minor",
+        "role",
+        "pid",
+        "endpoint",
+        "engine_version",
+    ] {
         assert!(raw.get(k).is_some(), "service.json carries `{k}`");
     }
     assert_eq!(plan_host(&e.root, HostRole::CutRight), HostPlan::UseRunning);
 
     // A HeardRight-format takeover (no rank field) from the shell is honoured via known_roles.
     let requester = Requester::new();
-    let tk = json!({"role": "heard_right_shell", "pid": requester.pid(), "requested_at_ms": now_ms()});
+    let tk =
+        json!({"role": "heard_right_shell", "pid": requester.pid(), "requested_at_ms": now_ms()});
     std::fs::write(takeover_request_path(&e.root), tk.to_string()).unwrap();
-    assert!(hosted.wait_released(Duration::from_secs(10)), "incumbent released for the outranking HeardRight role");
+    assert!(
+        hosted.wait_released(Duration::from_secs(10)),
+        "incumbent released for the outranking HeardRight role"
+    );
     assert!(read_live_record(&e.root).is_none());
 }
 
@@ -504,13 +838,20 @@ fn rightkit_service_host_ignores_lower_and_unknown_roles_but_yields_to_an_outran
     let e = env();
     let suite = rightkit_service::Suite::at(&e.root).unwrap();
     let mk = |role: HostRole| {
-        let mut cfg = ServiceConfig::new(SERVICE_NAME, role.as_str(), role.rank(), "1", Allowlist::new().allow("*", ["noop"]));
+        let mut cfg = ServiceConfig::new(
+            SERVICE_NAME,
+            role.as_str(),
+            role.rank(),
+            "1",
+            Allowlist::new().allow("*", ["noop"]),
+        );
         cfg.known_roles = HostRole::rank_table();
         cfg.endpoint = Some(endpoint_for(&e.root, "user"));
         cfg.takeover_timeout = Duration::from_secs(1);
         cfg
     };
-    let hosted = rightkit_service::host(&suite, mk(HostRole::ScrapeRight), Arc::new(NoCalls)).unwrap();
+    let hosted =
+        rightkit_service::host(&suite, mk(HostRole::ScrapeRight), Arc::new(NoCalls)).unwrap();
     let requester = Requester::new();
     let write_tk = |role: &str| {
         let tk = json!({"role": role, "pid": requester.pid(), "requested_at_ms": now_ms()});
@@ -518,15 +859,23 @@ fn rightkit_service_host_ignores_lower_and_unknown_roles_but_yields_to_an_outran
     };
     write_tk("cut_right"); // lower rank
     std::thread::sleep(Duration::from_millis(400));
-    assert!(!hosted.wait_released(Duration::from_millis(1)), "lower rank does not displace the incumbent");
+    assert!(
+        !hosted.wait_released(Duration::from_millis(1)),
+        "lower rank does not displace the incumbent"
+    );
     write_tk("mystery"); // rank cannot be resolved
     std::thread::sleep(Duration::from_millis(400));
-    assert!(!hosted.wait_released(Duration::from_millis(1)), "an unresolvable rank never obliges a handoff");
+    assert!(
+        !hosted.wait_released(Duration::from_millis(1)),
+        "an unresolvable rank never obliges a handoff"
+    );
     std::fs::remove_file(takeover_request_path(&e.root)).unwrap();
     // The record is still ours and unchanged.
-    assert_eq!(read_live_record(&e.root).unwrap().role, HostRole::ScrapeRight);
+    assert_eq!(
+        read_live_record(&e.root).unwrap().role,
+        HostRole::ScrapeRight
+    );
     // ... and an outranking known role does displace it (same requester, now as the shell).
     write_tk("heard_right_shell");
     assert!(hosted.wait_released(Duration::from_secs(10)));
 }
-

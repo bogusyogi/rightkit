@@ -25,13 +25,24 @@ pub struct ServiceError {
 
 impl ServiceError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), retryable: false }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable: false,
+        }
     }
     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into(), retryable: true }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable: true,
+        }
     }
     pub fn handoff() -> Self {
-        Self::retryable(ERROR_HOST_HANDOFF, "host is handing the service to a higher-ranked host; retry")
+        Self::retryable(
+            ERROR_HOST_HANDOFF,
+            "host is handing the service to a higher-ranked host; retry",
+        )
     }
     pub fn to_value(&self) -> Value {
         json!({"code": self.code, "message": self.message, "retryable": self.retryable})

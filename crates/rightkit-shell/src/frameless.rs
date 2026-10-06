@@ -8,13 +8,17 @@
 use tauri::{WebviewWindow, WebviewWindowBuilder, Wry};
 
 /// Style a builder for the frameless look. No-op when `frameless` is false.
-pub fn style<'a>(b: WebviewWindowBuilder<'a, Wry, tauri::AppHandle<Wry>>, frameless: bool) -> WebviewWindowBuilder<'a, Wry, tauri::AppHandle<Wry>> {
+pub fn style<'a>(
+    b: WebviewWindowBuilder<'a, Wry, tauri::AppHandle<Wry>>,
+    frameless: bool,
+) -> WebviewWindowBuilder<'a, Wry, tauri::AppHandle<Wry>> {
     if !frameless {
         return b;
     }
     #[cfg(target_os = "macos")]
     {
-        b.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true)
+        b.title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -66,7 +70,11 @@ mod macos {
     use objc2_foundation::NSPoint;
     use tauri::{WebviewWindow, Wry};
 
-    const KINDS: [NSWindowButton; 3] = [NSWindowButton::CloseButton, NSWindowButton::MiniaturizeButton, NSWindowButton::ZoomButton];
+    const KINDS: [NSWindowButton; 3] = [
+        NSWindowButton::CloseButton,
+        NSWindowButton::MiniaturizeButton,
+        NSWindowButton::ZoomButton,
+    ];
 
     #[derive(Default)]
     pub struct Inner {
@@ -104,13 +112,21 @@ mod macos {
         };
         for (i, b) in buttons.iter().enumerate() {
             // AppKit's origin is bottom-left, so a downward offset subtracts.
-            b.setFrameOrigin(NSPoint { x: base[i].x + dx, y: base[i].y - dy });
+            b.setFrameOrigin(NSPoint {
+                x: base[i].x + dx,
+                y: base[i].y - dy,
+            });
         }
         *inner.offset.lock().unwrap_or_else(|e| e.into_inner()) = (dx, dy);
     }
 
     pub fn reapply(window: &WebviewWindow<Wry>, inner: &Inner) {
-        if inner.defaults.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+        if inner
+            .defaults
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
             let (dx, dy) = *inner.offset.lock().unwrap_or_else(|e| e.into_inner());
             apply(window, dx, dy, inner);
         }

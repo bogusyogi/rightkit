@@ -115,7 +115,10 @@ mod platform {
             return None;
         }
         let _guard = Guard;
-        let helper = std::env::current_exe().ok()?.parent()?.join("rightkit-dump-helper.exe");
+        let helper = std::env::current_exe()
+            .ok()?
+            .parent()?
+            .join("rightkit-dump-helper.exe");
         if !helper.is_file() {
             return None;
         }
@@ -136,7 +139,10 @@ mod platform {
             match child.try_wait() {
                 Ok(Some(status)) => {
                     let bytes = std::fs::metadata(&partial).map(|m| m.len()).unwrap_or(0);
-                    if status.success() && bytes > 0 && std::fs::rename(&partial, &final_path).is_ok() {
+                    if status.success()
+                        && bytes > 0
+                        && std::fs::rename(&partial, &final_path).is_ok()
+                    {
                         return Some(final_path);
                     }
                     let _ = std::fs::remove_file(&partial);

@@ -19,7 +19,10 @@ pub struct DispatcherHandler {
 
 impl DispatcherHandler {
     pub fn new(dispatcher: Arc<Dispatcher>) -> Self {
-        Self { dispatcher, gate: None }
+        Self {
+            dispatcher,
+            gate: None,
+        }
     }
     pub fn with_gate(mut self, gate: Arc<Gate>) -> Self {
         self.gate = Some(gate);
@@ -28,10 +31,20 @@ impl DispatcherHandler {
 }
 
 impl Handler for DispatcherHandler {
-    fn call(&self, cx: &CallContext, method: &str, params: &Value, emit: &Emit) -> Result<Value, ServiceError> {
+    fn call(
+        &self,
+        cx: &CallContext,
+        method: &str,
+        params: &Value,
+        emit: &Emit,
+    ) -> Result<Value, ServiceError> {
         self.dispatcher
             .call_conn(cx.conn_id(), method, params, false, emit)
-            .map_err(|e| ServiceError { code: e.code, message: e.message, retryable: e.retryable })
+            .map_err(|e| ServiceError {
+                code: e.code,
+                message: e.message,
+                retryable: e.retryable,
+            })
     }
     fn on_handoff(&self) {
         if let Some(g) = &self.gate {

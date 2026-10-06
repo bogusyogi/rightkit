@@ -20,8 +20,8 @@ pub use config::{find_chrome, LaunchOptions, ProfileSpec};
 pub use error::{BrowserError, Result};
 pub use page::{BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, Target};
 pub use policy::{
-    classify_ip, ActionKind, AddressClass, AdmissionHook, AdmissionRequest, AllowCallback, BlockedRequest,
-    BrowserEvent, Decision, EventSink, NetworkPolicy, NetworkRequest, Resolver,
+    classify_ip, ActionKind, AddressClass, AdmissionHook, AdmissionRequest, AllowCallback,
+    BlockedRequest, BrowserEvent, Decision, EventSink, NetworkPolicy, NetworkRequest, Resolver,
 };
 pub use proxy::PinnedConnection;
 pub use session::BrowserSession;

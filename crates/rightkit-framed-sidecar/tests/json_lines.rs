@@ -103,7 +103,9 @@ use std::process::{Command, Stdio};
 /// Child half: emits what the parent asks for on stdout, like a misbehaving sidecar.
 #[test]
 fn child_emitter() {
-    let Ok(mode) = std::env::var("RK_FRAMED_MODE") else { return };
+    let Ok(mode) = std::env::var("RK_FRAMED_MODE") else {
+        return;
+    };
     let mut out = std::io::stdout().lock();
     out.write_all(b"\nRK_BEGIN\n").unwrap();
     out.flush().unwrap();
@@ -119,7 +121,8 @@ fn child_emitter() {
             for _ in 0..48 {
                 out.write_all(&chunk).unwrap();
             }
-            out.write_all(b"\n{\"id\":9,\"value\":\"after\"}\n").unwrap();
+            out.write_all(b"\n{\"id\":9,\"value\":\"after\"}\n")
+                .unwrap();
         }
         // A frame that trickles forever.
         "trickle" => loop {
@@ -146,7 +149,10 @@ fn spawn_child(mode: &str) -> std::process::Child {
 fn skip_preamble(reader: &mut impl std::io::BufRead) {
     loop {
         let mut line = String::new();
-        assert!(reader.read_line(&mut line).unwrap() > 0, "child exited before RK_BEGIN");
+        assert!(
+            reader.read_line(&mut line).unwrap() > 0,
+            "child exited before RK_BEGIN"
+        );
         if line.trim_end().ends_with("RK_BEGIN") {
             return;
         }
@@ -170,13 +176,20 @@ fn child_that_never_sends_a_newline_cannot_exhaust_memory() {
     skip_preamble(&mut reader);
     let before = reader.get_ref().1;
     let mut buffer = Vec::new();
-    let limits = ReadLimits { max_discard: 1 << 20, deadline: None };
+    let limits = ReadLimits {
+        max_discard: 1 << 20,
+        deadline: None,
+    };
     let err = read_json_line_with::<_, Frame>(&mut reader, &mut buffer, 1024, limits).unwrap_err();
     match err {
         FrameError::Io(e) => assert_eq!(e.kind(), std::io::ErrorKind::InvalidData),
         other => panic!("expected bounded-discard cut-off, got {other}"),
     }
-    assert!(buffer.capacity() <= 4096, "buffer grew to {}", buffer.capacity());
+    assert!(
+        buffer.capacity() <= 4096,
+        "buffer grew to {}",
+        buffer.capacity()
+    );
     let read = reader.get_ref().1 - before;
     assert!(read < (1 << 20) + 64 * 1024, "read {read} bytes");
     drop(reader);
@@ -192,8 +205,14 @@ fn oversized_frame_from_a_child_is_skipped_and_the_stream_resynchronises() {
     let mut buffer = Vec::new();
     let err = read_json_line::<_, Frame>(&mut reader, &mut buffer, 1024).unwrap_err();
     assert!(matches!(err, FrameError::TooLarge { limit: 1024 }), "{err}");
-    assert!(buffer.capacity() <= 4096, "buffer grew to {}", buffer.capacity());
-    let next: Frame = read_json_line(&mut reader, &mut buffer, 1024).unwrap().unwrap();
+    assert!(
+        buffer.capacity() <= 4096,
+        "buffer grew to {}",
+        buffer.capacity()
+    );
+    let next: Frame = read_json_line(&mut reader, &mut buffer, 1024)
+        .unwrap()
+        .unwrap();
     assert_eq!(next.id, 9);
     child.wait().unwrap();
 }
@@ -204,8 +223,12 @@ fn trickling_child_hits_the_deadline() {
     let mut reader = BufReader::new(child.stdout.take().unwrap());
     skip_preamble(&mut reader);
     let mut buffer = Vec::new();
-    let limits = ReadLimits { max_discard: usize::MAX, deadline: Some(std::time::Instant::now() + std::time::Duration::from_millis(300)) };
-    let err = read_json_line_with::<_, Frame>(&mut reader, &mut buffer, 1 << 20, limits).unwrap_err();
+    let limits = ReadLimits {
+        max_discard: usize::MAX,
+        deadline: Some(std::time::Instant::now() + std::time::Duration::from_millis(300)),
+    };
+    let err =
+        read_json_line_with::<_, Frame>(&mut reader, &mut buffer, 1 << 20, limits).unwrap_err();
     match err {
         FrameError::Io(e) => assert_eq!(e.kind(), std::io::ErrorKind::TimedOut),
         other => panic!("expected deadline, got {other}"),

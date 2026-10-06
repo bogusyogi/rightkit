@@ -82,12 +82,18 @@ impl LaunchOptions {
         self.network = policy;
         self
     }
-    pub fn on_event(mut self, f: impl Fn(&crate::policy::BrowserEvent) + Send + Sync + 'static) -> Self {
+    pub fn on_event(
+        mut self,
+        f: impl Fn(&crate::policy::BrowserEvent) + Send + Sync + 'static,
+    ) -> Self {
         self.on_event = Some(std::sync::Arc::new(f));
         self
     }
     pub fn named_profile(mut self, root: impl Into<PathBuf>, name: impl Into<String>) -> Self {
-        self.profile = ProfileSpec::Named { root: root.into(), name: name.into() };
+        self.profile = ProfileSpec::Named {
+            root: root.into(),
+            name: name.into(),
+        };
         self
     }
 }
@@ -96,11 +102,15 @@ pub(crate) fn validate_profile_name(name: &str) -> Result<()> {
     let ok = !name.is_empty()
         && name.len() <= 64
         && !name.starts_with('.')
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
     if ok {
         Ok(())
     } else {
-        Err(BrowserError::Profile(format!("invalid profile name '{name}'")))
+        Err(BrowserError::Profile(format!(
+            "invalid profile name '{name}'"
+        )))
     }
 }
 
@@ -126,9 +136,17 @@ pub fn find_chrome() -> Option<PathBuf> {
             "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
         ]
     } else {
-        &["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/microsoft-edge"]
+        &[
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/microsoft-edge",
+        ]
     };
-    candidates.iter().map(PathBuf::from).find(|p| Path::new(p).exists())
+    candidates
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| Path::new(p).exists())
 }
 
 /// Chrome flags a caller may not pass: they would redirect the profile to the
@@ -147,7 +165,9 @@ pub(crate) fn validate_extra_args(args: &[String]) -> Result<()> {
     for a in args {
         let name = a.trim_start_matches('-').split('=').next().unwrap_or("");
         if FORBIDDEN.contains(&name) {
-            return Err(BrowserError::Invalid(format!("chrome flag '--{name}' is managed by the session")));
+            return Err(BrowserError::Invalid(format!(
+                "chrome flag '--{name}' is managed by the session"
+            )));
         }
     }
     Ok(())
@@ -156,7 +176,10 @@ pub(crate) fn validate_extra_args(args: &[String]) -> Result<()> {
 /// Refuse roots that are (or sit inside) a real browser's own user-data directory.
 pub(crate) fn reject_real_browser_profile(root: &Path) -> Result<()> {
     let mut real: Vec<PathBuf> = Vec::new();
-    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from) {
+    if let Some(home) = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+    {
         for rel in [
             "Library/Application Support/Google/Chrome",
             "Library/Application Support/Chromium",
@@ -169,7 +192,11 @@ pub(crate) fn reject_real_browser_profile(root: &Path) -> Result<()> {
         }
     }
     if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
-        for rel in [r"Google\Chrome\User Data", r"Chromium\User Data", r"Microsoft\Edge\User Data"] {
+        for rel in [
+            r"Google\Chrome\User Data",
+            r"Chromium\User Data",
+            r"Microsoft\Edge\User Data",
+        ] {
             real.push(local.join(rel));
         }
     }
@@ -178,7 +205,9 @@ pub(crate) fn reject_real_browser_profile(root: &Path) -> Result<()> {
     for r in real {
         if let Ok(r) = r.canonicalize() {
             if root.starts_with(&r) {
-                return Err(BrowserError::Profile("refusing to use the user's real browser profile".into()));
+                return Err(BrowserError::Profile(
+                    "refusing to use the user's real browser profile".into(),
+                ));
             }
         }
     }

@@ -167,14 +167,23 @@ pub const TIERS: [&str; 3] = ["fast", "local-models", "paid"];
 
 impl QaConfig {
     pub fn load(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path).map_err(|e| Error(format!("cannot read {}: {e}", path.display())))?;
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| Error(format!("cannot read {}: {e}", path.display())))?;
         Self::parse(&text, path)
     }
 
     pub fn parse(text: &str, path: &Path) -> Result<Self> {
         let raw: Raw = toml::from_str(text)?;
         let app = require_text(&raw.app, "app")?;
-        if !app.chars().next().map(|c| c.is_ascii_lowercase()).unwrap_or(false) || !app.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+        if !app
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_lowercase())
+            .unwrap_or(false)
+            || !app
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
             return err("app must be a lowercase app key");
         }
         let base = path.parent().unwrap_or(Path::new("."));
@@ -187,7 +196,8 @@ impl QaConfig {
         let default_tier = raw.default_tier.unwrap_or_else(|| "fast".into());
         validate_tier_list(&default_tier)?;
         Ok(Self {
-            evidence_root: app_root.join(raw.evidence_dir.as_deref().unwrap_or(".cache/rightkit-qa")),
+            evidence_root: app_root
+                .join(raw.evidence_dir.as_deref().unwrap_or(".cache/rightkit-qa")),
             scenario_dirs: raw.scenarios.iter().map(|s| app_root.join(s)).collect(),
             app,
             app_root,
@@ -202,10 +212,18 @@ impl QaConfig {
     }
 
     pub fn engine_binary(&self) -> Result<Option<PathBuf>> {
-        Ok(self.engine.binary.for_current()?.map(|p| self.app_root.join(p)))
+        Ok(self
+            .engine
+            .binary
+            .for_current()?
+            .map(|p| self.app_root.join(p)))
     }
     pub fn ui_binary(&self) -> Result<Option<PathBuf>> {
-        Ok(self.ui.binaries.for_current()?.map(|p| self.app_root.join(p)))
+        Ok(self
+            .ui
+            .binaries
+            .for_current()?
+            .map(|p| self.app_root.join(p)))
     }
 }
 
@@ -239,7 +257,10 @@ mode = "background"
         let c = QaConfig::parse(SAMPLE, Path::new("/tmp/x/rightkit-qa.toml")).unwrap();
         assert_eq!(c.app, "genright");
         assert_eq!(c.ui.window_label, "main");
-        assert_eq!(c.engine.binary.windows.as_deref(), Some("target/debug/genright-engine.exe"));
+        assert_eq!(
+            c.engine.binary.windows.as_deref(),
+            Some("target/debug/genright-engine.exe")
+        );
         assert_eq!(c.ui.binaries.darwin.as_deref(), Some("a"));
         assert_eq!(c.default_tier, "fast");
     }
@@ -247,7 +268,11 @@ mode = "background"
     #[test]
     fn rejects_bad_app_key_mode_and_tier() {
         assert!(QaConfig::parse("app = \"GenRight\"", Path::new("/tmp/c.toml")).is_err());
-        assert!(QaConfig::parse("app = \"x\"\n[ui]\nmode = \"loud\"", Path::new("/tmp/c.toml")).is_err());
+        assert!(QaConfig::parse(
+            "app = \"x\"\n[ui]\nmode = \"loud\"",
+            Path::new("/tmp/c.toml")
+        )
+        .is_err());
         assert!(validate_tier_list("fast,bogus").is_err());
         assert!(validate_tier_list("fast,paid").is_ok());
     }

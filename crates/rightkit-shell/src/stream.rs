@@ -27,7 +27,10 @@ pub struct StreamPolicy {
 
 impl Default for StreamPolicy {
     fn default() -> Self {
-        Self { max_bytes: 150 * 1024 * 1024, extensions: None }
+        Self {
+            max_bytes: 150 * 1024 * 1024,
+            extensions: None,
+        }
     }
 }
 
@@ -79,7 +82,10 @@ fn cors(status: StatusCode) -> Builder {
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(header::ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD, OPTIONS")
         .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "Range")
-        .header(header::ACCESS_CONTROL_EXPOSE_HEADERS, "Accept-Ranges, Content-Length, Content-Range")
+        .header(
+            header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            "Accept-Ranges, Content-Length, Content-Range",
+        )
 }
 
 fn ranged(status: StatusCode, mime: &str, len: u64) -> Builder {
@@ -90,7 +96,10 @@ fn ranged(status: StatusCode, mime: &str, len: u64) -> Builder {
         .header(header::CONTENT_LENGTH, len.to_string())
         .header(header::CACHE_CONTROL, "no-store")
         .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-        .header(header::ACCESS_CONTROL_EXPOSE_HEADERS, "Accept-Ranges, Content-Length, Content-Range")
+        .header(
+            header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            "Accept-Ranges, Content-Length, Content-Range",
+        )
 }
 
 fn empty(status: StatusCode) -> Response<Vec<u8>> {
@@ -116,7 +125,11 @@ pub fn parse_range(value: &str, len: u64) -> Option<(u64, u64)> {
     if start >= len {
         return None;
     }
-    let end = if b.is_empty() { len - 1 } else { b.parse::<u64>().ok()?.min(len - 1) };
+    let end = if b.is_empty() {
+        len - 1
+    } else {
+        b.parse::<u64>().ok()?.min(len - 1)
+    };
     (start <= end).then_some((start, end))
 }
 
@@ -150,7 +163,9 @@ where
     };
     let path = target.path;
     let allowed_ext = policy.extensions.as_ref().is_none_or(|exts| {
-        path.extension().and_then(|e| e.to_str()).is_some_and(|e| exts.iter().any(|x| x.eq_ignore_ascii_case(e)))
+        path.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| exts.iter().any(|x| x.eq_ignore_ascii_case(e)))
     });
     let mime = match mime_for(&path) {
         Some(m) if allowed_ext => m,
@@ -168,9 +183,16 @@ where
     if let Some(range) = request.headers().get(header::RANGE) {
         let parsed = range.to_str().ok().and_then(|r| parse_range(r, total));
         let Some((start, end)) = parsed else {
-            return respond(finish(cors(StatusCode::RANGE_NOT_SATISFIABLE).header(header::CONTENT_RANGE, format!("bytes */{total}")), Vec::new()));
+            return respond(finish(
+                cors(StatusCode::RANGE_NOT_SATISFIABLE)
+                    .header(header::CONTENT_RANGE, format!("bytes */{total}")),
+                Vec::new(),
+            ));
         };
-        let builder = ranged(StatusCode::PARTIAL_CONTENT, mime, end - start + 1).header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"));
+        let builder = ranged(StatusCode::PARTIAL_CONTENT, mime, end - start + 1).header(
+            header::CONTENT_RANGE,
+            format!("bytes {start}-{end}/{total}"),
+        );
         if head {
             return respond(finish(builder, Vec::new()));
         }

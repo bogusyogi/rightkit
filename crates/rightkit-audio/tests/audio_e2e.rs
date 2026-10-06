@@ -1,13 +1,16 @@
 //! End-to-end audio coverage against real files, FFmpeg, and (when available) a
 //! named loopback input device.  No test routes audio to speakers.
 
-use std::{path::{Path, PathBuf}, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use rightkit_audio::{
     capture::{list_input_devices, CaptureSession, OutDType, SessionConfig, StreamResampler},
-    chain::{DialogueChain, Denoise, HighPass, Limiter},
+    chain::{Denoise, DialogueChain, HighPass, Limiter},
     ducking::Ducking,
-    measure::{AudioTools, rms_db},
+    measure::{rms_db, AudioTools},
     room_tone::{find_room_tone, GapSpan, RoomToneParams},
     wav::{read_wav_16k_mono, read_wav_mono_f32, write_wav_mono_i16},
 };
@@ -20,11 +23,16 @@ const TIMEOUT: Duration = Duration::from_secs(120);
 
 fn ffmpeg() -> DevResolved {
     let (bin, kind) = resolve_for_development().expect("FFmpeg must be available for audio E2E");
-    eprintln!("audio E2E FFmpeg: {kind:?} ({})", bin.ffmpeg_path().display());
+    eprintln!(
+        "audio E2E FFmpeg: {kind:?} ({})",
+        bin.ffmpeg_path().display()
+    );
     bin
 }
 
-fn path(dir: &Path, name: &str) -> PathBuf { dir.join(name) }
+fn path(dir: &Path, name: &str) -> PathBuf {
+    dir.join(name)
+}
 
 fn render(bin: &dyn FfmpegBinary, output: &Path, args: &[&str]) {
     let mut cmd = FfmpegCommand::base("error");
@@ -37,8 +45,14 @@ fn source_wav(bin: &dyn FfmpegBinary, output: &Path, duration: u32, frequency: u
         bin,
         output,
         &[
-            "-f", "lavfi", "-i", &format!("sine=frequency={frequency}:sample_rate=48000:duration={duration}"),
-            "-ac", "2", "-c:a", "pcm_s16le",
+            "-f",
+            "lavfi",
+            "-i",
+            &format!("sine=frequency={frequency}:sample_rate=48000:duration={duration}"),
+            "-ac",
+            "2",
+            "-c:a",
+            "pcm_s16le",
         ],
     );
 }
@@ -57,7 +71,11 @@ fn filter_graph_render_is_measurable_and_wav_round_trips() {
         expander: None,
         compressor: None,
         deesser: None,
-        limiter: Limiter { ceiling_db: -1.5, attack_ms: 5.0, release_ms: 50.0 },
+        limiter: Limiter {
+            ceiling_db: -1.5,
+            attack_ms: 5.0,
+            release_ms: 50.0,
+        },
     };
     let tools = AudioTools::new(&bin);
     tools.apply_chain(&source, &filtered, &chain).unwrap();
@@ -65,8 +83,14 @@ fn filter_graph_render_is_measurable_and_wav_round_trips() {
     assert!(level.integrated_lufs.is_some());
     assert!(level.true_peak_dbtp.unwrap() <= 0.0);
 
-    let decoded = tools.decode_mono_f32(&filtered, 48_000, None, None).unwrap();
-    assert!(decoded.len() > 140_000, "decoded samples: {}", decoded.len());
+    let decoded = tools
+        .decode_mono_f32(&filtered, 48_000, None, None)
+        .unwrap();
+    assert!(
+        decoded.len() > 140_000,
+        "decoded samples: {}",
+        decoded.len()
+    );
     assert!(decoded.iter().all(|sample| sample.is_finite()));
 
     let roundtrip = path(dir.path(), "roundtrip.wav");
@@ -91,13 +115,24 @@ fn ducking_and_room_tone_render_have_content_changes() {
         .duck_music(
             &music,
             &dialogue,
-            &Ducking::Spans { duck_db: -18.0, fade_ms: 50 },
+            &Ducking::Spans {
+                duck_db: -18.0,
+                fade_ms: 50,
+            },
             &[(1_000, 2_000)],
             &ducked,
         )
         .unwrap();
-    let before = rms_db(&tools.decode_mono_f32(&ducked, 48_000, Some((200, 500)), None).unwrap());
-    let during = rms_db(&tools.decode_mono_f32(&ducked, 48_000, Some((1_300, 500)), None).unwrap());
+    let before = rms_db(
+        &tools
+            .decode_mono_f32(&ducked, 48_000, Some((200, 500)), None)
+            .unwrap(),
+    );
+    let during = rms_db(
+        &tools
+            .decode_mono_f32(&ducked, 48_000, Some((1_300, 500)), None)
+            .unwrap(),
+    );
     assert!(before - during > 8.0, "ducking delta {before} vs {during}");
 
     // Build a real quiet-noise/tone/quiet WAV, select its quiet region, then render
@@ -109,14 +144,19 @@ fn ducking_and_room_tone_render_have_content_changes() {
         let quiet = (i % 17) as f32 / 17.0 * 0.002 - 0.001;
         samples.push(if (1.0..2.0).contains(&t) {
             0.1 * (2.0 * std::f32::consts::PI * 330.0 * t).sin()
-        } else { quiet });
+        } else {
+            quiet
+        });
     }
     write_wav_mono_i16(&source, 48_000, &samples).unwrap();
     let room = find_room_tone(
         &samples,
         48_000,
         &[(1_000, 2_000)],
-        &RoomToneParams { max_level_db: -35.0, ..RoomToneParams::default() },
+        &RoomToneParams {
+            max_level_db: -35.0,
+            ..RoomToneParams::default()
+        },
     )
     .unwrap();
     assert!(room.start_ms < 900 || room.start_ms > 2_100);
@@ -127,23 +167,41 @@ fn ducking_and_room_tone_render_have_content_changes() {
         expander: None,
         compressor: None,
         deesser: None,
-        limiter: Limiter { ceiling_db: -1.5, attack_ms: 5.0, release_ms: 50.0 },
+        limiter: Limiter {
+            ceiling_db: -1.5,
+            attack_ms: 5.0,
+            release_ms: 50.0,
+        },
     };
     tools
         .render_room_tone_layer(
             &source,
             &room,
             &chain,
-            &[GapSpan { start_ms: 1_200, end_ms: 1_700 }],
+            &[GapSpan {
+                start_ms: 1_200,
+                end_ms: 1_700,
+            }],
             0.0,
             80,
             4_000,
             &layer,
         )
         .unwrap();
-    let gap = rms_db(&tools.decode_mono_f32(&layer, 48_000, Some((1_250, 300)), None).unwrap());
-    let outside = rms_db(&tools.decode_mono_f32(&layer, 48_000, Some((200, 300)), None).unwrap());
-    assert!(gap > outside + 10.0, "room tone gap {gap} vs outside {outside}");
+    let gap = rms_db(
+        &tools
+            .decode_mono_f32(&layer, 48_000, Some((1_250, 300)), None)
+            .unwrap(),
+    );
+    let outside = rms_db(
+        &tools
+            .decode_mono_f32(&layer, 48_000, Some((200, 300)), None)
+            .unwrap(),
+    );
+    assert!(
+        gap > outside + 10.0,
+        "room tone gap {gap} vs outside {outside}"
+    );
 }
 
 #[test]
@@ -169,7 +227,8 @@ fn resampler_and_capture_gate_are_explicit() {
         target_channels: 1,
         target_dtype: OutDType::Float32,
         block_ms: 20,
-    }).expect("loopback capture should open");
+    })
+    .expect("loopback capture should open");
     let samples = session.read_f32_blocking(160, 2_000).unwrap();
     assert!(samples.len() >= 160);
     assert!(samples.iter().all(|sample| sample.is_finite()));

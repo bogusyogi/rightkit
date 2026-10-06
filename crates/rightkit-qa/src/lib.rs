@@ -14,6 +14,8 @@
 //! Scenarios are declarative TOML ([`scenario`]) run by the CLI, or plain Rust
 //! integration tests that use the same library types directly.
 pub mod audio;
+#[cfg(feature = "browser")]
+pub mod browser;
 pub mod check;
 pub mod config;
 pub mod control;
@@ -30,7 +32,5 @@ pub mod scenario;
 pub mod suite;
 pub mod util;
 pub mod workspace;
-#[cfg(feature = "browser")]
-pub mod browser;
 
 pub use util::{Error, Result};

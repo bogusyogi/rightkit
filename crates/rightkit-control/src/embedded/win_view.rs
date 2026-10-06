@@ -25,24 +25,40 @@ fn cdp<R: Runtime>(win: &WebviewWindow<R>, method: &str, params: String) -> Resu
             }
         };
         let tx2 = tx.clone();
-        let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, json| {
-            let _ = tx2.send(res.map(|_| json).map_err(|e| e.to_string()));
-            Ok(())
-        }));
-        if let Err(e) = core.CallDevToolsProtocolMethod(&HSTRING::from(method), &HSTRING::from(params), &handler) {
+        let handler =
+            CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |res, json| {
+                let _ = tx2.send(res.map(|_| json).map_err(|e| e.to_string()));
+                Ok(())
+            }));
+        if let Err(e) = core.CallDevToolsProtocolMethod(
+            &HSTRING::from(method),
+            &HSTRING::from(params),
+            &handler,
+        ) {
             let _ = tx.send(Err(e.to_string()));
         }
     })
     .map_err(|e| e.to_string())?;
-    rx.recv_timeout(Duration::from_secs(15)).map_err(|_| "devtools call timed out".to_string())?
+    rx.recv_timeout(Duration::from_secs(15))
+        .map_err(|_| "devtools call timed out".to_string())?
 }
 
 fn cdp_mods(flags: u64) -> u32 {
     use crate::keys::*;
-    (if flags & FLAG_ALT != 0 { 1 } else { 0 }) | (if flags & FLAG_CTRL != 0 { 2 } else { 0 }) | (if flags & FLAG_CMD != 0 { 4 } else { 0 }) | (if flags & FLAG_SHIFT != 0 { 8 } else { 0 })
+    (if flags & FLAG_ALT != 0 { 1 } else { 0 })
+        | (if flags & FLAG_CTRL != 0 { 2 } else { 0 })
+        | (if flags & FLAG_CMD != 0 { 4 } else { 0 })
+        | (if flags & FLAG_SHIFT != 0 { 8 } else { 0 })
 }
 
-pub fn mouse<R: Runtime>(win: &WebviewWindow<R>, kind: Mouse, button: Button, x: f64, y: f64, clicks: i64) -> Result<(), String> {
+pub fn mouse<R: Runtime>(
+    win: &WebviewWindow<R>,
+    kind: Mouse,
+    button: Button,
+    x: f64,
+    y: f64,
+    clicks: i64,
+) -> Result<(), String> {
     let (b, mask) = match button {
         Button::Left => ("left", 1),
         Button::Right => ("right", 2),
@@ -56,8 +72,19 @@ pub fn mouse<R: Runtime>(win: &WebviewWindow<R>, kind: Mouse, button: Button, x:
     cdp(win, "Input.dispatchMouseEvent", format!(r#"{{"type":"{ty}","x":{x},"y":{y},"button":"{button}","buttons":{buttons},"clickCount":{clicks}}}"#)).map(|_| ())
 }
 
-pub fn wheel<R: Runtime>(win: &WebviewWindow<R>, x: f64, y: f64, dx: f64, dy: f64) -> Result<(), String> {
-    cdp(win, "Input.dispatchMouseEvent", format!(r#"{{"type":"mouseWheel","x":{x},"y":{y},"deltaX":{dx},"deltaY":{dy}}}"#)).map(|_| ())
+pub fn wheel<R: Runtime>(
+    win: &WebviewWindow<R>,
+    x: f64,
+    y: f64,
+    dx: f64,
+    dy: f64,
+) -> Result<(), String> {
+    cdp(
+        win,
+        "Input.dispatchMouseEvent",
+        format!(r#"{{"type":"mouseWheel","x":{x},"y":{y},"deltaX":{dx},"deltaY":{dy}}}"#),
+    )
+    .map(|_| ())
 }
 
 /// `code` is the macOS virtual keycode used across the crate; map it to a Windows VK.
@@ -76,7 +103,11 @@ fn vk(code: u16, chars: &str) -> u32 {
         0x77 => 35,
         0x74 => 33,
         0x79 => 34,
-        _ => chars.chars().next().map(|c| c.to_ascii_uppercase() as u32).unwrap_or(0),
+        _ => chars
+            .chars()
+            .next()
+            .map(|c| c.to_ascii_uppercase() as u32)
+            .unwrap_or(0),
     }
 }
 
@@ -107,8 +138,18 @@ fn key_event_params(down: bool, code: u16, chars: &str, flags: u64) -> String {
     let vk = vk(code, chars);
     let mods = cdp_mods(flags);
     let producing = |c: char| !c.is_control() || c == '\r' || c == '\t';
-    let text: String = if down && mods & 6 == 0 && chars.chars().all(producing) { chars.to_string() } else { String::new() };
-    let ty = if !down { "keyUp" } else if text.is_empty() { "rawKeyDown" } else { "keyDown" };
+    let text: String = if down && mods & 6 == 0 && chars.chars().all(producing) {
+        chars.to_string()
+    } else {
+        String::new()
+    };
+    let ty = if !down {
+        "keyUp"
+    } else if text.is_empty() {
+        "rawKeyDown"
+    } else {
+        "keyDown"
+    };
     let mut v = serde_json::json!({
         "type": ty,
         "modifiers": mods,
@@ -123,18 +164,38 @@ fn key_event_params(down: bool, code: u16, chars: &str, flags: u64) -> String {
     v.to_string()
 }
 
-pub fn key<R: Runtime>(win: &WebviewWindow<R>, down: bool, code: u16, chars: &str, flags: u64) -> Result<(), String> {
-    cdp(win, "Input.dispatchKeyEvent", key_event_params(down, code, chars, flags)).map(|_| ())
+pub fn key<R: Runtime>(
+    win: &WebviewWindow<R>,
+    down: bool,
+    code: u16,
+    chars: &str,
+    flags: u64,
+) -> Result<(), String> {
+    cdp(
+        win,
+        "Input.dispatchKeyEvent",
+        key_event_params(down, code, chars, flags),
+    )
+    .map(|_| ())
 }
 
 /// Insert text exactly as given (any Unicode, emoji, newlines) with `Input.insertText`;
 /// per-character key events cannot express characters with no virtual key.
 pub fn insert_text<R: Runtime>(win: &WebviewWindow<R>, text: &str) -> Result<(), String> {
-    cdp(win, "Input.insertText", serde_json::json!({ "text": text }).to_string()).map(|_| ())
+    cdp(
+        win,
+        "Input.insertText",
+        serde_json::json!({ "text": text }).to_string(),
+    )
+    .map(|_| ())
 }
 
 pub fn eval<R: Runtime>(win: &WebviewWindow<R>, js: &str) -> Result<String, String> {
-    let r = cdp(win, "Runtime.evaluate", serde_json::json!({ "expression": js, "returnByValue": true }).to_string())?;
+    let r = cdp(
+        win,
+        "Runtime.evaluate",
+        serde_json::json!({ "expression": js, "returnByValue": true }).to_string(),
+    )?;
     Ok(str_field(&r, "value").unwrap_or_default())
 }
 
@@ -170,8 +231,18 @@ mod tests {
     /// Hostile inputs must round-trip through the CDP payload unchanged.
     #[test]
     fn key_payload_is_valid_json_for_hostile_text() {
-        for t in ["\"", "\\", "a\"b\\c", "\n", "é", "日本", "\u{1f600}", "\u{7f}"] {
-            let v: serde_json::Value = serde_json::from_str(&key_event_params(true, 0xFF, t, 0)).expect("valid JSON");
+        for t in [
+            "\"",
+            "\\",
+            "a\"b\\c",
+            "\n",
+            "é",
+            "日本",
+            "\u{1f600}",
+            "\u{7f}",
+        ] {
+            let v: serde_json::Value =
+                serde_json::from_str(&key_event_params(true, 0xFF, t, 0)).expect("valid JSON");
             let text = v.get("text").and_then(|x| x.as_str());
             if t.chars().all(|c| !c.is_control()) {
                 assert_eq!(text, Some(t), "{t:?}");
@@ -179,7 +250,8 @@ mod tests {
                 assert_eq!(text, None, "control text is not inserted: {t:?}");
             }
         }
-        let enter: serde_json::Value = serde_json::from_str(&key_event_params(true, 0x24, "\r", 0)).unwrap();
+        let enter: serde_json::Value =
+            serde_json::from_str(&key_event_params(true, 0x24, "\r", 0)).unwrap();
         assert_eq!(enter["key"], "Enter");
         assert_eq!(enter["text"], "\r");
     }

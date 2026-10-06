@@ -20,9 +20,15 @@ impl SystemMute {
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "true");
             if let Some(was_muted) = was {
                 if !was_muted {
-                    let _ = Command::new("osascript").args(["-e", "set volume with output muted"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+                    let _ = Command::new("osascript")
+                        .args(["-e", "set volume with output muted"])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
                 }
-                return Self { restore: Some(was_muted) };
+                return Self {
+                    restore: Some(was_muted),
+                };
             }
         }
         Self { restore: None }
@@ -35,7 +41,11 @@ impl SystemMute {
 impl Drop for SystemMute {
     fn drop(&mut self) {
         if self.restore == Some(false) {
-            let _ = Command::new("osascript").args(["-e", "set volume without output muted"]).stdout(Stdio::null()).stderr(Stdio::null()).status();
+            let _ = Command::new("osascript")
+                .args(["-e", "set volume without output muted"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
         }
     }
 }

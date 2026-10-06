@@ -164,14 +164,15 @@ pub fn list_input_devices() -> Result<Vec<DeviceInfo>> {
             .map(|description| description.name().to_string())
             .unwrap_or_else(|| format!("device-{idx}"));
         let platform_id = device.id().ok().map(|id| id.id().to_string());
-        let (mut transport, form_factor) = description
+        let (transport, form_factor) = description
             .as_ref()
             .map(classify_description)
             .unwrap_or((CaptureTransport::Unknown, CaptureFormFactor::Unknown));
         #[cfg(target_os = "macos")]
-        if let Some(platform_id) = platform_id.as_deref() {
-            transport = macos_transport(platform_id);
-        }
+        let transport = platform_id
+            .as_deref()
+            .map(macos_transport)
+            .unwrap_or(transport);
         let (native_rate, channels, sample_format) = match device.default_input_config() {
             Ok(cfg) => (
                 cfg.sample_rate(),
@@ -253,4 +254,3 @@ pub fn resolve_device(id: Option<usize>, platform_id: Option<&str>) -> Result<cp
 fn platform_id_matches(candidate_platform_id: Option<&str>, requested_platform_id: &str) -> bool {
     candidate_platform_id == Some(requested_platform_id)
 }
-

@@ -1,6 +1,6 @@
 # rightkit-media
 
-Internal, unpublished FFmpeg safety primitives for Right Suite desktop apps.
+Public candidate: FFmpeg safety primitives for Right Suite desktop apps.
 The crate contains no FFmpeg binary, app policy, model, URL credential, or
 shell invocation.
 
@@ -23,10 +23,9 @@ Release remains responsible for staging the binary and those notices together.
 
 ## Publication gate
 
-`publish = false` is deliberate. Do not publish or migrate HeardRight or
-ScrapeRight until approved FFmpeg 7.1.5 macOS arm64 and x86_64 artifacts,
-universal-binary determinism, linkage, decode, attribution, and process-group
-tests are recorded and green.
+Publication remains gated on the current Windows catalog rerun after the
+approved FFmpeg 7.1.5 macOS arm64 and x86_64 gates. Publish through
+`right-release publish cargo` after the gate.
 
 ## Verification
 

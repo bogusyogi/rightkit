@@ -28,7 +28,11 @@ pub enum FsError {
     #[error("{0} already exists")]
     AlreadyExists(PathBuf),
     #[error("{path} is {size} bytes, over the {limit} byte limit")]
-    TooLarge { path: PathBuf, size: u64, limit: u64 },
+    TooLarge {
+        path: PathBuf,
+        size: u64,
+        limit: u64,
+    },
     #[error("{path} is locked by {owner}")]
     Locked { path: PathBuf, owner: String },
     #[error("timed out after {waited_ms} ms waiting for lock {path}")]

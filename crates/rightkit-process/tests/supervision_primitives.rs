@@ -26,7 +26,11 @@ mod child {
         c.command_mut().stdout(Stdio::piped());
         let mut child = c.spawn().unwrap();
         let mut out = String::new();
-        child.take_stdout().unwrap().read_to_string(&mut out).unwrap();
+        child
+            .take_stdout()
+            .unwrap()
+            .read_to_string(&mut out)
+            .unwrap();
         child.wait().unwrap();
         out
     }
@@ -39,11 +43,22 @@ mod child {
 
         // Allowlist: only named variables survive; the rest are cleared.
         let mut c = OwnedCommand::new("/usr/bin/env");
-        c.env_allowlist(DEFAULT_ENV_ALLOWLIST.iter().copied().chain(["RK_TEST_KEEP"]));
+        c.env_allowlist(
+            DEFAULT_ENV_ALLOWLIST
+                .iter()
+                .copied()
+                .chain(["RK_TEST_KEEP"]),
+        );
         let out = run_env(c);
         assert!(out.contains("RK_TEST_KEEP=kept-value"), "{out}");
-        assert!(!out.contains("RK_TEST_HIDDEN") && !out.contains("RK_TEST_OTHER"), "{out}");
-        assert!(out.contains("PATH="), "PATH is in the default allowlist: {out}");
+        assert!(
+            !out.contains("RK_TEST_HIDDEN") && !out.contains("RK_TEST_OTHER"),
+            "{out}"
+        );
+        assert!(
+            out.contains("PATH="),
+            "PATH is in the default allowlist: {out}"
+        );
 
         // Explicit env set after the scrub wins and is not filtered.
         let mut c = OwnedCommand::new("/usr/bin/env");
@@ -55,7 +70,10 @@ mod child {
         let mut c = OwnedCommand::new("/usr/bin/env");
         c.env_strip(["RK_TEST_HIDDEN"]);
         let out = run_env(c);
-        assert!(!out.contains("RK_TEST_HIDDEN") && out.contains("RK_TEST_OTHER=other-value"), "{out}");
+        assert!(
+            !out.contains("RK_TEST_HIDDEN") && out.contains("RK_TEST_OTHER=other-value"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -64,13 +82,25 @@ mod child {
         let mut child = c.spawn().unwrap();
         std::thread::sleep(Duration::from_millis(150));
         let t = Instant::now();
-        match child.terminate_tree_bounded(Duration::from_secs(5)).unwrap() {
+        match child
+            .terminate_tree_bounded(Duration::from_secs(5))
+            .unwrap()
+        {
             ReapOutcome::Exited(status) => assert!(!status.success()),
             ReapOutcome::TimedOut => panic!("a SIGKILLed group must be reaped"),
         }
-        assert!(t.elapsed() < Duration::from_secs(3), "took {:?}", t.elapsed());
+        assert!(
+            t.elapsed() < Duration::from_secs(3),
+            "took {:?}",
+            t.elapsed()
+        );
         // Idempotent on an already-reaped child.
-        assert!(matches!(child.terminate_tree_bounded(Duration::from_millis(50)).unwrap(), ReapOutcome::Exited(_)));
+        assert!(matches!(
+            child
+                .terminate_tree_bounded(Duration::from_millis(50))
+                .unwrap(),
+            ReapOutcome::Exited(_)
+        ));
     }
 
     #[test]
@@ -97,7 +127,11 @@ mod child {
         let status = child.wait().unwrap();
         assert!(status.success());
         let text = tail.finish();
-        assert!(text.ends_with("final-line"), "newest line kept: ...{}", &text[text.len().saturating_sub(40)..]);
+        assert!(
+            text.ends_with("final-line"),
+            "newest line kept: ...{}",
+            &text[text.len().saturating_sub(40)..]
+        );
         assert!(!text.contains("PRIVATE"), "redacted before retention");
         assert!(!text.contains("line-0 "), "oldest lines fell off");
         assert!(*forwarded.lock().unwrap() >= 400, "every line forwarded");
@@ -123,7 +157,10 @@ impl Loop {
     }
     fn ping(&self) -> impl Fn(Ack) -> Result<(), String> + Send + 'static {
         let tx = self.tx.clone();
-        move |ack| tx.send(Box::new(move || ack.done())).map_err(|e| e.to_string())
+        move |ack| {
+            tx.send(Box::new(move || ack.done()))
+                .map_err(|e| e.to_string())
+        }
     }
 }
 
@@ -135,7 +172,11 @@ fn wait_for(events: &Events, what: &str, pred: impl Fn(&[StallEvent]) -> bool) {
         if pred(&events.lock().unwrap()) {
             return;
         }
-        assert!(Instant::now() < deadline, "timed out waiting for {what}: {:?}", events.lock().unwrap());
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {what}: {:?}",
+            events.lock().unwrap()
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -150,36 +191,71 @@ fn collector() -> (Events, impl Fn(StallEvent) + Send + 'static) {
 fn stall_is_reported_once_per_episode_then_recovers_and_rearms() {
     let ev_loop = Loop::new();
     let (events, on_event) = collector();
-    let cfg = StallConfig { poll: Duration::from_millis(10), threshold: Duration::from_millis(100), observer_gap: Duration::from_secs(5) };
+    let cfg = StallConfig {
+        poll: Duration::from_millis(10),
+        threshold: Duration::from_millis(100),
+        observer_gap: Duration::from_secs(5),
+    };
     let _wd = StallWatchdog::spawn("test-stall", cfg, ev_loop.ping(), on_event).unwrap();
 
     // Healthy loop: nothing reported across many polls.
     std::thread::sleep(Duration::from_millis(300));
-    assert!(events.lock().unwrap().is_empty(), "{:?}", events.lock().unwrap());
+    assert!(
+        events.lock().unwrap().is_empty(),
+        "{:?}",
+        events.lock().unwrap()
+    );
 
     // Freeze the loop for 700 ms.
     ev_loop.run(|| std::thread::sleep(Duration::from_millis(700)));
-    wait_for(&events, "recovery", |e| e.iter().any(|x| matches!(x, StallEvent::Recovered { .. })));
+    wait_for(&events, "recovery", |e| {
+        e.iter().any(|x| matches!(x, StallEvent::Recovered { .. }))
+    });
     {
         let e = events.lock().unwrap();
-        let stalls: Vec<_> = e.iter().filter(|x| matches!(x, StallEvent::Stalled { .. })).collect();
+        let stalls: Vec<_> = e
+            .iter()
+            .filter(|x| matches!(x, StallEvent::Stalled { .. }))
+            .collect();
         assert_eq!(stalls.len(), 1, "edge-triggered: {e:?}");
         match stalls[0] {
-            StallEvent::Stalled { episode: 1, gap, recovered: false } => {
-                assert!(*gap >= Duration::from_millis(100) && *gap < Duration::from_millis(650), "{gap:?}")
+            StallEvent::Stalled {
+                episode: 1,
+                gap,
+                recovered: false,
+            } => {
+                assert!(
+                    *gap >= Duration::from_millis(100) && *gap < Duration::from_millis(650),
+                    "{gap:?}"
+                )
             }
             other => panic!("{other:?}"),
         }
-        match e.iter().find(|x| matches!(x, StallEvent::Recovered { .. })).unwrap() {
-            StallEvent::Recovered { episode: 1, gap } => assert!(*gap >= Duration::from_millis(600), "{gap:?}"),
+        match e
+            .iter()
+            .find(|x| matches!(x, StallEvent::Recovered { .. }))
+            .unwrap()
+        {
+            StallEvent::Recovered { episode: 1, gap } => {
+                assert!(*gap >= Duration::from_millis(600), "{gap:?}")
+            }
             other => panic!("{other:?}"),
         }
     }
 
     // A second freeze is a second episode.
     ev_loop.run(|| std::thread::sleep(Duration::from_millis(400)));
-    wait_for(&events, "second episode", |e| e.iter().filter(|x| matches!(x, StallEvent::Recovered { .. })).count() == 2);
-    assert!(events.lock().unwrap().iter().any(|x| matches!(x, StallEvent::Stalled { episode: 2, .. })));
+    wait_for(&events, "second episode", |e| {
+        e.iter()
+            .filter(|x| matches!(x, StallEvent::Recovered { .. }))
+            .count()
+            == 2
+    });
+    assert!(events
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|x| matches!(x, StallEvent::Stalled { episode: 2, .. })));
 }
 
 #[test]
@@ -198,14 +274,28 @@ fn a_descheduled_observer_is_not_mistaken_for_a_stalled_target() {
         inner(ack)
     };
     let (events, on_event) = collector();
-    let cfg = StallConfig { poll: Duration::from_millis(10), threshold: Duration::from_millis(100), observer_gap: Duration::from_millis(150) };
+    let cfg = StallConfig {
+        poll: Duration::from_millis(10),
+        threshold: Duration::from_millis(100),
+        observer_gap: Duration::from_millis(150),
+    };
     let mut wd = StallWatchdog::spawn("test-observer", cfg, ping, on_event).unwrap();
-    wait_for(&events, "observer gap", |e| e.iter().any(|x| matches!(x, StallEvent::ObserverGap { .. })));
+    wait_for(&events, "observer gap", |e| {
+        e.iter()
+            .any(|x| matches!(x, StallEvent::ObserverGap { .. }))
+    });
     std::thread::sleep(Duration::from_millis(200));
     wd.stop();
     let e = events.lock().unwrap();
-    assert!(!e.iter().any(|x| matches!(x, StallEvent::Stalled { .. })), "false stall: {e:?}");
-    match e.iter().find(|x| matches!(x, StallEvent::ObserverGap { .. })).unwrap() {
+    assert!(
+        !e.iter().any(|x| matches!(x, StallEvent::Stalled { .. })),
+        "false stall: {e:?}"
+    );
+    match e
+        .iter()
+        .find(|x| matches!(x, StallEvent::ObserverGap { .. }))
+        .unwrap()
+    {
         StallEvent::ObserverGap { gap } => assert!(*gap >= Duration::from_millis(350), "{gap:?}"),
         _ => unreachable!(),
     }
@@ -216,15 +306,24 @@ fn a_dead_target_stops_the_watchdog_with_a_reason() {
     let (tx, rx) = channel::<Box<dyn FnOnce() + Send>>();
     drop(rx); // the "main thread" is gone: dispatch fails
     let (events, on_event) = collector();
-    let cfg = StallConfig { poll: Duration::from_millis(10), ..StallConfig::default() };
+    let cfg = StallConfig {
+        poll: Duration::from_millis(10),
+        ..StallConfig::default()
+    };
     let _wd = StallWatchdog::spawn(
         "test-dead",
         cfg,
-        move |ack| tx.send(Box::new(move || ack.done())).map_err(|_| "event loop closed".to_string()),
+        move |ack| {
+            tx.send(Box::new(move || ack.done()))
+                .map_err(|_| "event loop closed".to_string())
+        },
         on_event,
     )
     .unwrap();
-    wait_for(&events, "stop", |e| e.iter().any(|x| matches!(x, StallEvent::Stopped { reason } if reason == "event loop closed")));
+    wait_for(&events, "stop", |e| {
+        e.iter()
+            .any(|x| matches!(x, StallEvent::Stopped { reason } if reason == "event loop closed"))
+    });
 }
 
 #[test]

@@ -14,7 +14,10 @@ fn cap_lru_recency_survives_reopen_and_group_clear_is_durable() {
         assert_eq!(cache.put(&touched, b"2222").unwrap(), PutOutcome::Stored);
         assert_eq!(cache.get(&old).as_deref(), Some(b"1111".as_slice()));
         assert_eq!(cache.put(&newest, b"3333").unwrap(), PutOutcome::Stored);
-        assert!(!cache.contains(&touched), "least recently used row must be evicted");
+        assert!(
+            !cache.contains(&touched),
+            "least recently used row must be evicted"
+        );
         assert!(cache.contains(&old));
         assert!(cache.contains(&newest));
     }
@@ -42,6 +45,9 @@ fn shrinking_cap_reconciles_files_on_reopen_and_too_large_is_non_destructive() {
     let cache = DiskCache::open(root.path(), Config::new(5).max_entry_bytes(3)).unwrap();
     assert!(cache.get(&first).is_none());
     assert!(cache.get(&second).is_none());
-    assert_eq!(cache.put(&first, b"too-large").unwrap(), PutOutcome::TooLarge);
+    assert_eq!(
+        cache.put(&first, b"too-large").unwrap(),
+        PutOutcome::TooLarge
+    );
     assert_eq!(cache.stats().entries, 0);
 }

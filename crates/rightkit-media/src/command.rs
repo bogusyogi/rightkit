@@ -33,7 +33,14 @@ impl FfmpegCommand {
     /// non-interactive Right Suite invocation starts from.
     pub fn base(loglevel: &str) -> Self {
         let mut c = Self::new();
-        c.texts(["-hide_banner", "-nostdin", "-y", "-loglevel", loglevel, "-nostats"]);
+        c.texts([
+            "-hide_banner",
+            "-nostdin",
+            "-y",
+            "-loglevel",
+            loglevel,
+            "-nostats",
+        ]);
         c
     }
 
@@ -54,7 +61,8 @@ impl FfmpegCommand {
     }
 
     pub fn path(&mut self, value: impl AsRef<Path>) -> &mut Self {
-        self.args.push(FfmpegArg::Path(value.as_ref().to_path_buf()));
+        self.args
+            .push(FfmpegArg::Path(value.as_ref().to_path_buf()));
         self
     }
 

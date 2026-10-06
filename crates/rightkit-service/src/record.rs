@@ -61,7 +61,11 @@ pub struct ServiceRecord {
 impl ServiceRecord {
     /// The host version, from whichever field the writer used.
     pub fn host_version(&self) -> &str {
-        if self.version.is_empty() { &self.engine_version } else { &self.version }
+        if self.version.is_empty() {
+            &self.engine_version
+        } else {
+            &self.version
+        }
     }
 }
 
@@ -101,7 +105,10 @@ pub fn read_live_record(suite: &Suite, service: &str) -> Option<ServiceRecord> {
 /// Publish a takeover request (atomic, owner-only).
 pub fn write_takeover(suite: &Suite, service: &str, req: &TakeoverRequest) -> std::io::Result<()> {
     crate::suite::make_private_dir(&suite.service_dir(service)).map_err(std::io::Error::other)?;
-    write_atomic(&takeover_path(suite, service), &serde_json::to_vec_pretty(req).unwrap_or_default())
+    write_atomic(
+        &takeover_path(suite, service),
+        &serde_json::to_vec_pretty(req).unwrap_or_default(),
+    )
 }
 
 /// Remove `takeover.json` only if `pid` wrote it.
@@ -119,14 +126,42 @@ pub fn write_atomic(path: &Path, body: &[u8]) -> std::io::Result<()> {
         #[cfg(unix)]
         let mut f = {
             use std::os::unix::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&tmp)?
         };
         #[cfg(not(unix))]
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(body)?;
         f.sync_all()?;
     }
-    std::fs::rename(&tmp, path)
+    replace_with_retry(&tmp, path)
+}
+
+/// Windows refuses to rename over a file another process has open without delete sharing (the
+/// incumbent host and clients poll these records), failing transiently with "Access is denied".
+/// Retry briefly; elsewhere rename never fails that way.
+fn replace_with_retry(tmp: &Path, path: &Path) -> std::io::Result<()> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match std::fs::rename(tmp, path) {
+            Err(e)
+                if cfg!(windows)
+                    && e.kind() == std::io::ErrorKind::PermissionDenied
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(tmp);
+                return Err(e);
+            }
+            Ok(()) => return Ok(()),
+        }
+    }
 }
 
 /// Which methods each calling app may use. `"*"` as an app key is the default
@@ -146,7 +181,10 @@ impl Allowlist {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.apps.entry(app.to_string()).or_default().extend(methods.into_iter().map(Into::into));
+        self.apps
+            .entry(app.to_string())
+            .or_default()
+            .extend(methods.into_iter().map(Into::into));
         self
     }
     fn entry(&self, app: &str) -> Option<&BTreeSet<String>> {
@@ -156,9 +194,14 @@ impl Allowlist {
         self.entry(app).is_some()
     }
     pub fn permits(&self, app: &str, method: &str) -> bool {
-        method == "ping" || self.entry(app).is_some_and(|m| m.contains(method) || m.contains("*"))
+        method == "ping"
+            || self
+                .entry(app)
+                .is_some_and(|m| m.contains(method) || m.contains("*"))
     }
     pub fn methods_for(&self, app: &str) -> Vec<String> {
-        self.entry(app).map(|m| m.iter().cloned().collect()).unwrap_or_default()
+        self.entry(app)
+            .map(|m| m.iter().cloned().collect())
+            .unwrap_or_default()
     }
 }

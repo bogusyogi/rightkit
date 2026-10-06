@@ -62,7 +62,9 @@ CREATE INDEX IF NOT EXISTS artifacts_job ON artifacts(job_id);
 
 pub fn now() -> String {
     OffsetDateTime::now_utc()
-        .format(format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]Z"))
+        .format(format_description!(
+            "[year]-[month]-[day]T[hour]:[minute]:[second]Z"
+        ))
         .unwrap_or_default()
 }
 
@@ -208,7 +210,9 @@ impl JobStore {
             tx.pragma_update(None, "user_version", 1)?;
             tx.commit()
         })?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     fn c(&self) -> MutexGuard<'_, Connection> {
@@ -223,7 +227,11 @@ impl JobStore {
         let tx = write_txn(&mut conn)?;
         if let Some(rid) = &n.request_id {
             let found = tx
-                .query_row(&format!("SELECT {COLS} FROM jobs WHERE request_id=?1"), [rid], row)
+                .query_row(
+                    &format!("SELECT {COLS} FROM jobs WHERE request_id=?1"),
+                    [rid],
+                    row,
+                )
                 .optional()?;
             if let Some(j) = found {
                 return Ok((j, true));
@@ -236,24 +244,39 @@ impl JobStore {
              VALUES (?1,?2,?3,?4,'queued',0,?5,?5)",
             params![id, n.request_id, n.kind, n.request.to_string(), t],
         )?;
-        let job = tx.query_row(&format!("SELECT {COLS} FROM jobs WHERE job_id=?1"), [&id], row)?;
+        let job = tx.query_row(
+            &format!("SELECT {COLS} FROM jobs WHERE job_id=?1"),
+            [&id],
+            row,
+        )?;
         tx.commit()?;
         Ok((job, false))
     }
 
     pub fn get(&self, job_id: &str) -> JobResult<Job> {
         self.c()
-            .query_row(&format!("SELECT {COLS} FROM jobs WHERE job_id=?1"), [job_id], row)
+            .query_row(
+                &format!("SELECT {COLS} FROM jobs WHERE job_id=?1"),
+                [job_id],
+                row,
+            )
             .optional()?
             .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))
     }
 
     pub fn get_by_request(&self, request_id: &str) -> JobResult<Job> {
         self.c()
-            .query_row(&format!("SELECT {COLS} FROM jobs WHERE request_id=?1"), [request_id], row)
+            .query_row(
+                &format!("SELECT {COLS} FROM jobs WHERE request_id=?1"),
+                [request_id],
+                row,
+            )
             .optional()?
             .ok_or_else(|| {
-                JobError::new("job_not_found", format!("no job for request_id: {request_id}"))
+                JobError::new(
+                    "job_not_found",
+                    format!("no job for request_id: {request_id}"),
+                )
             })
     }
 
@@ -278,7 +301,9 @@ impl JobStore {
         let mut st = conn.prepare(&format!(
             "SELECT job_id FROM jobs WHERE status IN {NON_TERMINAL} ORDER BY created_at, rowid"
         ))?;
-        let ids = st.query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
+        let ids = st
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(ids)
     }
 
@@ -299,7 +324,10 @@ impl JobStore {
     /// Give back the attempt a paused-by-handoff run consumed (a handoff is
     /// not the job's fault, so it must not count toward `max_attempts`).
     pub fn refund_attempt(&self, job_id: &str) -> JobResult<()> {
-        self.c().execute("UPDATE jobs SET attempts=MAX(attempts-1,0), updated_at=?2 WHERE job_id=?1", params![job_id, now()])?;
+        self.c().execute(
+            "UPDATE jobs SET attempts=MAX(attempts-1,0), updated_at=?2 WHERE job_id=?1",
+            params![job_id, now()],
+        )?;
         Ok(())
     }
 
@@ -348,7 +376,10 @@ impl JobStore {
         if j.status != COMPLETE {
             return Err(JobError::new(
                 "not_complete",
-                format!("job {job_id} is {}, only complete jobs can be acknowledged", j.status),
+                format!(
+                    "job {job_id} is {}, only complete jobs can be acknowledged",
+                    j.status
+                ),
             ));
         }
         if j.acked_by.is_none() {
@@ -370,9 +401,11 @@ impl JobStore {
     ) -> JobResult<Event> {
         let conn = self.c();
         let (status, attempt): (String, i64) = conn
-            .query_row("SELECT status, attempts FROM jobs WHERE job_id=?1", [job_id], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT status, attempts FROM jobs WHERE job_id=?1",
+                [job_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .optional()?
             .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))?;
         let at = now();
@@ -444,7 +477,9 @@ impl JobStore {
         let mut st = conn.prepare(
             "SELECT artifact_id, job_id, path, sha256, bytes, mime FROM artifacts WHERE job_id=?1 ORDER BY created_at, rowid",
         )?;
-        let a = st.query_map([job_id], artifact_row)?.collect::<Result<Vec<_>, _>>()?;
+        let a = st
+            .query_map([job_id], artifact_row)?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(a)
     }
 

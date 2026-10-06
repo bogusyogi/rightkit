@@ -2,8 +2,8 @@
 //! real headless Chrome and local fixture servers (offline). Fixtures count
 //! requests that actually reach them, so "blocked" means the server never saw it.
 use rightkit_browser::{
-    ActionKind, AdmissionHook, BrowserError, BrowserEvent, BrowserSession, Decision, LaunchOptions, NetworkPolicy,
-    Target,
+    ActionKind, AdmissionHook, BrowserError, BrowserEvent, BrowserSession, Decision, LaunchOptions,
+    NetworkPolicy, Target,
 };
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -26,7 +26,8 @@ impl Fixture {
         let h = hits.clone();
         std::thread::spawn(move || {
             for s in l.incoming().flatten() {
-                let (h, redirect_to, secret_url) = (h.clone(), redirect_to.clone(), secret_url.clone());
+                let (h, redirect_to, secret_url) =
+                    (h.clone(), redirect_to.clone(), secret_url.clone());
                 std::thread::spawn(move || {
                     let mut s = s;
                     let mut buf = [0u8; 4096];
@@ -71,7 +72,21 @@ impl Fixture {
 }
 
 fn pids_for(marker: &str) -> Vec<u32> {
-    let out = Command::new("ps").args(["-axo", "pid=,command="]).output().unwrap();
+    // One "<pid> <command line>" per process on both families.
+    #[cfg(not(windows))]
+    let out = Command::new("ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+        .unwrap();
+    #[cfg(windows)]
+    let out = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance Win32_Process | ForEach-Object { [string]$_.ProcessId + ' ' + $_.CommandLine }",
+        ])
+        .output()
+        .unwrap();
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter(|l| l.contains(marker))
@@ -111,17 +126,26 @@ async fn default_policy_blocks_before_any_request_and_callback_allows() {
         "http://2130706433/".to_string(), // decimal form of 127.0.0.1
         "file:///etc/hosts".to_string(),
     ] {
-        let err = s.new_page(&url).await.err().unwrap_or_else(|| panic!("{url} was not denied"));
+        let err = s
+            .new_page(&url)
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("{url} was not denied"));
         assert!(matches!(err, BrowserError::Denied(_)), "{url}: {err:?}");
     }
-    assert_eq!(fx.hits("/"), 0, "denied navigation must not reach the server");
+    assert_eq!(
+        fx.hits("/"),
+        0,
+        "denied navigation must not reach the server"
+    );
     assert!(denied.lock().unwrap().len() >= 7);
     s.shutdown().await;
 
     // Per-request allow callback opens exactly that target.
     let port = fx.port;
-    let opts = LaunchOptions::default()
-        .network(NetworkPolicy::default().allow_with(move |r| r.host == "127.0.0.1" && r.port == Some(port)));
+    let opts = LaunchOptions::default().network(
+        NetworkPolicy::default().allow_with(move |r| r.host == "127.0.0.1" && r.port == Some(port)),
+    );
     let s = BrowserSession::launch(opts).await.unwrap();
     let p = s.new_page(&format!("{}/", fx.base())).await.unwrap();
     assert_eq!(p.title().await, "Home");
@@ -133,29 +157,49 @@ async fn default_policy_blocks_before_any_request_and_callback_allows() {
 async fn redirects_and_subresources_are_blocked_in_the_browser() {
     // `secret` is a loopback service the policy never allows.
     let secret = Fixture::start(None, None);
-    let allowed = Fixture::start(Some(format!("{}/redir-target", secret.base())), Some(secret.base()));
+    let allowed = Fixture::start(
+        Some(format!("{}/redir-target", secret.base())),
+        Some(secret.base()),
+    );
     let ap = allowed.port;
-    let opts = LaunchOptions::default()
-        .network(NetworkPolicy::default().allow_with(move |r| r.host == "127.0.0.1" && r.port == Some(ap)));
+    let opts = LaunchOptions::default().network(
+        NetworkPolicy::default().allow_with(move |r| r.host == "127.0.0.1" && r.port == Some(ap)),
+    );
     let s = BrowserSession::launch(opts).await.unwrap();
 
     // Redirect hop to the blocked service: the second hop is stopped in the browser.
     let _ = s.new_page(&format!("{}/redir", allowed.base())).await;
     assert_eq!(allowed.hits("/redir"), 1);
-    assert_eq!(secret.hits("/redir-target"), 0, "redirect target reached the blocked service");
+    assert_eq!(
+        secret.hits("/redir-target"),
+        0,
+        "redirect target reached the blocked service"
+    );
 
     // Image and cross-site iframe subresources pointing at the blocked service.
-    let p = s.new_page(&format!("{}/sub", allowed.base())).await.unwrap();
+    let p = s
+        .new_page(&format!("{}/sub", allowed.base()))
+        .await
+        .unwrap();
     assert_eq!(p.title().await, "Sub");
     tokio::time::sleep(Duration::from_millis(800)).await;
     assert_eq!(secret.hits("/pixel.png"), 0);
     assert_eq!(secret.hits("/frame"), 0);
     let blocked = p.blocked_requests();
-    assert!(blocked.iter().any(|b| b.url.ends_with("/pixel.png")), "{blocked:?}");
-    assert!(blocked.iter().any(|b| b.url.ends_with("/frame")), "{blocked:?}");
+    assert!(
+        blocked.iter().any(|b| b.url.ends_with("/pixel.png")),
+        "{blocked:?}"
+    );
+    assert!(
+        blocked.iter().any(|b| b.url.ends_with("/frame")),
+        "{blocked:?}"
+    );
     // Script cannot fetch it either.
     let r = p
-        .eval(&format!("fetch('{}/xhr').then(()=>'reached').catch(()=>'blocked')", secret.base()))
+        .eval(&format!(
+            "fetch('{}/xhr').then(()=>'reached').catch(()=>'blocked')",
+            secret.base()
+        ))
         .await
         .unwrap();
     let _ = r;
@@ -172,7 +216,9 @@ async fn admission_denies_before_side_effect_and_sees_typed_requests() {
     let hook: AdmissionHook = Arc::new(move |req| {
         let log = log.clone();
         Box::pin(async move {
-            log.lock().unwrap().push((req.action, req.url.clone(), req.target.clone()));
+            log.lock()
+                .unwrap()
+                .push((req.action, req.url.clone(), req.target.clone()));
             if req.action == ActionKind::Click {
                 Decision::Deny("clicks need approval".into())
             } else {
@@ -186,22 +232,36 @@ async fn admission_denies_before_side_effect_and_sees_typed_requests() {
     let s = BrowserSession::launch(opts).await.unwrap();
     let p = s.new_page(&format!("{}/btn", fx.base())).await.unwrap();
     let err = p.click(&Target::css("#b")).await.unwrap_err();
-    assert!(matches!(&err, BrowserError::Denied(m) if m.contains("approval")), "{err:?}");
+    assert!(
+        matches!(&err, BrowserError::Denied(m) if m.contains("approval")),
+        "{err:?}"
+    );
     assert_eq!(p.title().await, "Btn", "denied click must not have clicked");
     // Allowed action still works and is reported with its typed fields.
     p.hover(&Target::css("#b")).await.unwrap();
     let seen = seen.lock().unwrap();
-    assert!(seen.iter().any(|(a, u, _)| *a == ActionKind::Navigate && u.as_deref().is_some_and(|u| u.ends_with("/btn"))));
-    assert!(seen.iter().any(|(a, _, t)| *a == ActionKind::Click && t.as_deref() == Some("css:#b")));
+    assert!(seen
+        .iter()
+        .any(|(a, u, _)| *a == ActionKind::Navigate
+            && u.as_deref().is_some_and(|u| u.ends_with("/btn"))));
+    assert!(seen
+        .iter()
+        .any(|(a, _, t)| *a == ActionKind::Click && t.as_deref() == Some("css:#b")));
     drop(seen);
     // Denied navigation never reaches the server.
-    let hook: AdmissionHook = Arc::new(|_| Box::pin(async { Decision::Deny("no navigation".into()) }));
+    let hook: AdmissionHook =
+        Arc::new(|_| Box::pin(async { Decision::Deny("no navigation".into()) }));
     let s2 = BrowserSession::launch(
-        LaunchOptions::default().network(NetworkPolicy::default().allow_host("127.0.0.1")).admission(hook),
+        LaunchOptions::default()
+            .network(NetworkPolicy::default().allow_host("127.0.0.1"))
+            .admission(hook),
     )
     .await
     .unwrap();
-    assert!(matches!(s2.new_page(&format!("{}/never", fx.base())).await, Err(BrowserError::Denied(_))));
+    assert!(matches!(
+        s2.new_page(&format!("{}/never", fx.base())).await,
+        Err(BrowserError::Denied(_))
+    ));
     assert_eq!(fx.hits("/never"), 0);
     s.shutdown().await;
     s2.shutdown().await;
@@ -210,7 +270,8 @@ async fn admission_denies_before_side_effect_and_sees_typed_requests() {
 #[tokio::test(flavor = "multi_thread")]
 async fn profiles_are_isolated_and_never_the_real_browser_profile() {
     let fx = Fixture::start(None, None);
-    let opts = || LaunchOptions::default().network(NetworkPolicy::default().allow_host("127.0.0.1"));
+    let opts =
+        || LaunchOptions::default().network(NetworkPolicy::default().allow_host("127.0.0.1"));
     // Ephemeral by default: state does not survive and the directory is removed.
     let s1 = BrowserSession::launch(opts()).await.unwrap();
     let dir = s1.profile_dir().to_path_buf();
@@ -221,22 +282,42 @@ async fn profiles_are_isolated_and_never_the_real_browser_profile() {
     assert!(!dir.exists(), "temporary profile must be deleted");
     let s2 = BrowserSession::launch(opts()).await.unwrap();
     let p = s2.new_page(&format!("{}/", fx.base())).await.unwrap();
-    assert_eq!(p.eval("localStorage.getItem('k')").await.unwrap(), serde_json::Value::Null);
+    assert_eq!(
+        p.eval("localStorage.getItem('k')").await.unwrap(),
+        serde_json::Value::Null
+    );
     s2.shutdown().await;
 
     // Caller cannot smuggle in a different profile or debug endpoint.
-    for flag in ["--user-data-dir=/tmp/elsewhere", "remote-debugging-port=9222", "--profile-directory=Default"] {
+    for flag in [
+        "--user-data-dir=/tmp/elsewhere",
+        "remote-debugging-port=9222",
+        "--profile-directory=Default",
+    ] {
         let mut o = opts();
         o.extra_args = vec![flag.into()];
-        assert!(matches!(BrowserSession::launch(o).await, Err(BrowserError::Invalid(_))), "{flag}");
+        assert!(
+            matches!(
+                BrowserSession::launch(o).await,
+                Err(BrowserError::Invalid(_))
+            ),
+            "{flag}"
+        );
     }
     // Named profile root inside the real Chrome data dir is refused.
     if let Some(home) = std::env::var_os("HOME") {
         let real = std::path::Path::new(&home).join("Library/Application Support/Google/Chrome");
-        let real = if real.exists() { real } else { std::path::Path::new(&home).join(".config/google-chrome") };
+        let real = if real.exists() {
+            real
+        } else {
+            std::path::Path::new(&home).join(".config/google-chrome")
+        };
         if real.exists() {
             let o = opts().named_profile(&real, "rightkit-test");
-            assert!(matches!(BrowserSession::launch(o).await, Err(BrowserError::Profile(_))));
+            assert!(matches!(
+                BrowserSession::launch(o).await,
+                Err(BrowserError::Profile(_))
+            ));
             assert!(!real.join("rightkit-test").exists());
         }
     }
@@ -251,7 +332,10 @@ async fn chromium_child_is_owned_and_dies_on_shutdown_cancel_and_drop() {
     let pid = s.process_id().expect("owned child pid");
     assert!(pids_for(&marker).contains(&pid));
     s.shutdown().await;
-    assert!(wait_gone(&marker).await.is_empty(), "chrome processes survived shutdown");
+    assert!(
+        wait_gone(&marker).await.is_empty(),
+        "chrome processes survived shutdown"
+    );
     drop(s);
 
     // Cancel kills immediately, helpers included.
@@ -260,7 +344,10 @@ async fn chromium_child_is_owned_and_dies_on_shutdown_cancel_and_drop() {
     let _p = s.new_page("about:blank").await.unwrap();
     assert!(pids_for(&marker).len() >= 1);
     s.cancel().await;
-    assert!(wait_gone(&marker).await.is_empty(), "chrome processes survived cancel");
+    assert!(
+        wait_gone(&marker).await.is_empty(),
+        "chrome processes survived cancel"
+    );
     drop(s);
 
     // Abandoned session (dropped without shutdown) leaves nothing behind.
@@ -270,7 +357,10 @@ async fn chromium_child_is_owned_and_dies_on_shutdown_cancel_and_drop() {
     assert!(!pids_for(&marker).is_empty());
     drop(_p);
     drop(s);
-    assert!(wait_gone(&marker).await.is_empty(), "chrome processes survived drop");
+    assert!(
+        wait_gone(&marker).await.is_empty(),
+        "chrome processes survived drop"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -282,24 +372,37 @@ async fn cross_site_iframe_and_subresources_are_intercepted() {
     let (pp, op) = (page.port, other.port);
 
     // Denied: only the top-level fixture is allowed.
-    let opts = LaunchOptions::default()
-        .network(NetworkPolicy::default().allow_with(move |r| r.host == "127.0.0.1" && r.port == Some(pp)));
+    let opts = LaunchOptions::default().network(
+        NetworkPolicy::default().allow_with(move |r| r.host == "127.0.0.1" && r.port == Some(pp)),
+    );
     let s = BrowserSession::launch(opts).await.unwrap();
     let p = s.new_page(&format!("{}/sub", page.base())).await.unwrap();
     tokio::time::sleep(Duration::from_millis(800)).await;
-    assert_eq!(other.hits("/frame"), 0, "cross-site iframe request reached the blocked origin");
+    assert_eq!(
+        other.hits("/frame"),
+        0,
+        "cross-site iframe request reached the blocked origin"
+    );
     assert_eq!(other.hits("/pixel.png"), 0);
     let blocked = p.blocked_requests();
-    assert!(blocked.iter().any(|b| b.url == format!("{other_origin}/frame")), "{blocked:?}");
+    assert!(
+        blocked
+            .iter()
+            .any(|b| b.url == format!("{other_origin}/frame")),
+        "{blocked:?}"
+    );
     s.shutdown().await;
 
     // Allowed: the same iframe loads, proving it is a real cross-site frame that interception saw.
     let opts = LaunchOptions::default().network(NetworkPolicy::default().allow_with(move |r| {
-        (r.host == "127.0.0.1" && r.port == Some(pp)) || (r.host == "localhost" && r.port == Some(op))
+        (r.host == "127.0.0.1" && r.port == Some(pp))
+            || (r.host == "localhost" && r.port == Some(op))
     }));
     let s = BrowserSession::launch(opts).await.unwrap();
     let p = s.new_page(&format!("{}/sub", page.base())).await.unwrap();
-    p.wait_eval("window.frames.length===1", Duration::from_secs(5)).await.unwrap();
+    p.wait_eval("window.frames.length===1", Duration::from_secs(5))
+        .await
+        .unwrap();
     for _ in 0..50 {
         if other.hits("/frame") > 0 {
             break;
@@ -307,9 +410,17 @@ async fn cross_site_iframe_and_subresources_are_intercepted() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert_eq!(other.hits("/frame"), 1);
-    let kind = p.eval("(()=>{try{frames[0].document;return 'same-origin'}catch(e){return 'cross-origin'}})()").await.unwrap();
+    let kind = p
+        .eval(
+            "(()=>{try{frames[0].document;return 'same-origin'}catch(e){return 'cross-origin'}})()",
+        )
+        .await
+        .unwrap();
     assert_eq!(kind, "cross-origin");
-    assert!(s.pinned_connections().iter().any(|c| c.host == "localhost" && c.port == op));
+    assert!(s
+        .pinned_connections()
+        .iter()
+        .any(|c| c.host == "localhost" && c.port == op));
     s.shutdown().await;
 }
 
@@ -322,25 +433,46 @@ async fn dns_answer_is_resolved_once_and_pinned() {
     // The vetted (first) answer must be the one connected to; loopback is never touched.
     let calls = Arc::new(Mutex::new(0usize));
     let c = calls.clone();
-    let opts = LaunchOptions::default().network(NetworkPolicy::default().with_resolver(move |host| {
-        assert_eq!(host, "rebind.example");
-        let mut n = c.lock().unwrap();
-        *n += 1;
-        if *n == 1 { vec!["203.0.113.9".parse().unwrap()] } else { vec!["127.0.0.1".parse().unwrap()] }
-    }));
+    let opts =
+        LaunchOptions::default().network(NetworkPolicy::default().with_resolver(move |host| {
+            assert_eq!(host, "rebind.example");
+            let mut n = c.lock().unwrap();
+            *n += 1;
+            if *n == 1 {
+                vec!["203.0.113.9".parse().unwrap()]
+            } else {
+                vec!["127.0.0.1".parse().unwrap()]
+            }
+        }));
     let s = BrowserSession::launch(opts).await.unwrap();
-    let _ = s.new_page(&format!("http://rebind.example:{port}/rebind")).await;
-    assert_eq!(fx.hits("/rebind"), 0, "rebound loopback address was reached");
-    assert_eq!(*calls.lock().unwrap(), 1, "name must be resolved once per request");
+    let _ = s
+        .new_page(&format!("http://rebind.example:{port}/rebind"))
+        .await;
+    assert_eq!(
+        fx.hits("/rebind"),
+        0,
+        "rebound loopback address was reached"
+    );
+    assert_eq!(
+        *calls.lock().unwrap(),
+        1,
+        "name must be resolved once per request"
+    );
     let conns = s.pinned_connections();
-    assert!(!conns.is_empty() && conns.iter().all(|c| c.ip.to_string() == "203.0.113.9"), "{conns:?}");
+    assert!(
+        !conns.is_empty() && conns.iter().all(|c| c.ip.to_string() == "203.0.113.9"),
+        "{conns:?}"
+    );
     s.shutdown().await;
 
     // A name that resolves private is refused outright, with no connection attempt.
     let opts = LaunchOptions::default()
         .network(NetworkPolicy::default().with_resolver(|_| vec!["10.1.2.3".parse().unwrap()]));
     let s = BrowserSession::launch(opts).await.unwrap();
-    assert!(matches!(s.new_page("http://intranet.example/").await, Err(BrowserError::Denied(_))));
+    assert!(matches!(
+        s.new_page("http://intranet.example/").await,
+        Err(BrowserError::Denied(_))
+    ));
     assert!(s.pinned_connections().is_empty());
     s.shutdown().await;
 
@@ -351,10 +483,16 @@ async fn dns_answer_is_resolved_once_and_pinned() {
             .allow_with(move |r| r.host == "app.example" && r.port == Some(port)),
     );
     let s = BrowserSession::launch(opts).await.unwrap();
-    let p = s.new_page(&format!("http://app.example:{port}/")).await.unwrap();
+    let p = s
+        .new_page(&format!("http://app.example:{port}/"))
+        .await
+        .unwrap();
     assert_eq!(p.title().await, "Home");
     assert_eq!(fx.hits("/"), 1);
-    assert!(s.pinned_connections().iter().any(|c| c.host == "app.example" && c.ip.to_string() == "127.0.0.1"));
+    assert!(s
+        .pinned_connections()
+        .iter()
+        .any(|c| c.host == "app.example" && c.ip.to_string() == "127.0.0.1"));
     s.shutdown().await;
 }
 
@@ -364,9 +502,15 @@ async fn host_for_sigkill() {
     if std::env::var_os("RK_SIGKILL_HOST").is_none() {
         return;
     }
-    let s = BrowserSession::launch(LaunchOptions::default()).await.unwrap();
+    let s = BrowserSession::launch(LaunchOptions::default())
+        .await
+        .unwrap();
     let _p = s.new_page("about:blank").await.unwrap();
-    println!("READY {} {}", s.profile_dir().display(), s.process_id().unwrap());
+    println!(
+        "READY {} {}",
+        s.profile_dir().display(),
+        s.process_id().unwrap()
+    );
     std::io::stdout().flush().unwrap();
     std::thread::sleep(Duration::from_secs(120));
 }
@@ -376,7 +520,12 @@ async fn host_death_kills_chrome_without_destructors() {
     use std::io::{BufRead, BufReader};
     use std::process::Stdio;
     let mut host = Command::new(std::env::current_exe().unwrap())
-        .args(["host_for_sigkill", "--exact", "--nocapture", "--test-threads=1"])
+        .args([
+            "host_for_sigkill",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .env("RK_SIGKILL_HOST", "1")
         .stdout(Stdio::piped())
         .spawn()
@@ -390,7 +539,10 @@ async fn host_death_kills_chrome_without_destructors() {
     };
     let (marker, chrome_pid) = ready.rsplit_once(' ').unwrap();
     let chrome_pid: u32 = chrome_pid.parse().unwrap();
-    assert!(pids_for(marker).contains(&chrome_pid), "chrome should be running under the host");
+    assert!(
+        pids_for(marker).contains(&chrome_pid),
+        "chrome should be running under the host"
+    );
     assert!(pids_for(marker).len() >= 2 || !pids_for(marker).is_empty());
 
     host.kill().unwrap(); // SIGKILL: no destructors, no atexit.
@@ -400,7 +552,11 @@ async fn host_death_kills_chrome_without_destructors() {
         if pids_for(marker).is_empty() {
             break;
         }
-        assert!(killed.elapsed() < Duration::from_secs(3), "chrome survived host SIGKILL: {:?}", pids_for(marker));
+        assert!(
+            killed.elapsed() < Duration::from_secs(3),
+            "chrome survived host SIGKILL: {:?}",
+            pids_for(marker)
+        );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }

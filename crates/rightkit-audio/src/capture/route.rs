@@ -3,12 +3,12 @@
 //! test, access-denied hint) minus the worker-state coupling: the mic-selection
 //! policy here is the generic part (saved platform id, fail closed when it is gone).
 
+use super::anyhow;
 use super::{
     device::{list_input_devices, CaptureFormFactor, CaptureTransport, DeviceInfo},
     session::{CaptureSession, OutDType, SessionConfig},
     Result,
 };
-use super::anyhow;
 
 /// Everything that, when changed, requires reopening a warm paused stream.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,7 +53,9 @@ pub fn resolve_capture_route(
     }))
 }
 
-pub fn current_capture_route(saved_platform_id: Option<&str>) -> Result<Option<CaptureRouteSignature>> {
+pub fn current_capture_route(
+    saved_platform_id: Option<&str>,
+) -> Result<Option<CaptureRouteSignature>> {
     let devices = list_input_devices().map_err(|e| anyhow!("capture route query: {e}"))?;
     resolve_capture_route(saved_platform_id, &devices)
 }

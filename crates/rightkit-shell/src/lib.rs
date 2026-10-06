@@ -269,7 +269,10 @@ impl ShellBuilder {
         self
     }
     /// Rust-side hook for automatic presence changes (meeting started, fullscreen app, ...).
-    pub fn on_presence(mut self, f: impl Fn(&AppHandle<Wry>, PresenceState) + Send + Sync + 'static) -> Self {
+    pub fn on_presence(
+        mut self,
+        f: impl Fn(&AppHandle<Wry>, PresenceState) + Send + Sync + 'static,
+    ) -> Self {
         self.on_presence = Some(Arc::new(f));
         self
     }
@@ -280,7 +283,12 @@ impl ShellBuilder {
     }
     pub fn build(self) -> Shell {
         assert!(
-            !self.app_id.is_empty() && self.app_id.len() <= 40 && self.app_id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+            !self.app_id.is_empty()
+                && self.app_id.len() <= 40
+                && self
+                    .app_id
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
             "rightkit-shell: app_id must be lowercase letters, digits and '-' (<= 40 chars)"
         );
         Shell { cfg: self }
@@ -319,7 +327,11 @@ impl Shell {
                 if let Some(state) = app.try_state::<ShellState>() {
                     let _ = state.windows.restore(&app, &label);
                 }
-                if show_on_ready && label == main_label && !lifecycle::launched_in_background() && !lifecycle::qa_hidden() {
+                if show_on_ready
+                    && label == main_label
+                    && !lifecycle::launched_in_background()
+                    && !lifecycle::qa_hidden()
+                {
                     if let Some(w) = app.get_webview_window(&label) {
                         let _ = crate::windows::show_background_aware(&w);
                     }
@@ -335,16 +347,26 @@ impl Shell {
                 setup(&app, cfg, nav, opener)
             });
         if let Some((scheme, policy)) = stream {
-            plugin = plugin.register_asynchronous_uri_scheme_protocol(scheme, move |ctx, request, responder| {
-                let state = ctx.app_handle().state::<ShellState>();
-                stream::serve(&state.broker, &policy, &request, move |response| responder.respond(response));
-            });
+            plugin = plugin.register_asynchronous_uri_scheme_protocol(
+                scheme,
+                move |ctx, request, responder| {
+                    let state = ctx.app_handle().state::<ShellState>();
+                    stream::serve(&state.broker, &policy, &request, move |response| {
+                        responder.respond(response)
+                    });
+                },
+            );
         }
         plugin.build()
     }
 }
 
-fn setup(app: &AppHandle<Wry>, cfg: ShellBuilder, nav: Arc<NavPolicy>, opener: Arc<dyn ExternalOpener>) -> Result<(), Box<dyn std::error::Error>> {
+fn setup(
+    app: &AppHandle<Wry>,
+    cfg: ShellBuilder,
+    nav: Arc<NavPolicy>,
+    opener: Arc<dyn ExternalOpener>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Single-instance arbitration, before anything heavy.
     let mut hosted = None;
     let mut single = String::from("disabled");
@@ -368,14 +390,29 @@ fn setup(app: &AppHandle<Wry>, cfg: ShellBuilder, nav: Arc<NavPolicy>, opener: A
     // 2. Shared state.
     let state_dir = match cfg.state_dir.clone() {
         Some(d) => d,
-        None => app.path().app_data_dir().map(|d| d.join("shell")).unwrap_or_else(|_| std::env::temp_dir().join(&cfg.app_id)),
+        None => app
+            .path()
+            .app_data_dir()
+            .map(|d| d.join("shell"))
+            .unwrap_or_else(|_| std::env::temp_dir().join(&cfg.app_id)),
     };
     let exe = std::env::current_exe().unwrap_or_default();
-    let tray_runtime = cfg.tray.as_ref().map(|t| tray::TrayRuntime { icon: Mutex::new(None), ids: Mutex::new(Default::default()), show_label: t.show_label.clone(), quit_label: t.quit_label.clone() });
+    let tray_runtime = cfg.tray.as_ref().map(|t| tray::TrayRuntime {
+        icon: Mutex::new(None),
+        ids: Mutex::new(Default::default()),
+        show_label: t.show_label.clone(),
+        quit_label: t.quit_label.clone(),
+    });
     #[cfg(feature = "engine")]
-    let engine = cfg.engine.clone().map(|s| Arc::new(engine::EngineHost::new(s)));
+    let engine = cfg
+        .engine
+        .clone()
+        .map(|s| Arc::new(engine::EngineHost::new(s)));
     let cache_repair = if cfg.repair_cache {
-        let dir = cfg.cache_dir.clone().or_else(|| app.path().app_cache_dir().ok());
+        let dir = cfg
+            .cache_dir
+            .clone()
+            .or_else(|| app.path().app_cache_dir().ok());
         dir.and_then(|d| recovery::ensure_cache_dir(&d).ok().map(|o| (d, o)))
     } else {
         None
@@ -391,7 +428,10 @@ fn setup(app: &AppHandle<Wry>, cfg: ShellBuilder, nav: Arc<NavPolicy>, opener: A
             }
         });
     }
-    let recovery = cfg.recovery.clone().map(|spec| recovery::RecoveryStore::new(spec, &state_dir));
+    let recovery = cfg
+        .recovery
+        .clone()
+        .map(|spec| recovery::RecoveryStore::new(spec, &state_dir));
     app.manage(ShellState {
         main_thread_id: std::thread::current().id(),
         app_id: cfg.app_id.clone(),
@@ -407,7 +447,11 @@ fn setup(app: &AppHandle<Wry>, cfg: ShellBuilder, nav: Arc<NavPolicy>, opener: A
         frontend_ready: AtomicBool::new(false),
         exiting: AtomicBool::new(false),
         traffic: Default::default(),
-        autostart: autostart::AutostartSpec { app_id: cfg.app_id.clone(), app_name: cfg.app_name.clone(), executable: exe },
+        autostart: autostart::AutostartSpec {
+            app_id: cfg.app_id.clone(),
+            app_name: cfg.app_name.clone(),
+            executable: exe,
+        },
         menu_items: Mutex::new(HashMap::new()),
         menu_rows: Mutex::new(Vec::new()),
         tray: tray_runtime,
@@ -427,7 +471,13 @@ fn setup(app: &AppHandle<Wry>, cfg: ShellBuilder, nav: Arc<NavPolicy>, opener: A
 
     // 3. Native menu.
     if let Some(spec) = &cfg.menu {
-        let built = menu::build(app, &MenuSpec { app_name: cfg.app_name.clone(), ..spec.clone() })?;
+        let built = menu::build(
+            app,
+            &MenuSpec {
+                app_name: cfg.app_name.clone(),
+                ..spec.clone()
+            },
+        )?;
         let state = app.state::<ShellState>();
         *state.menu_rows.lock().unwrap_or_else(|e| e.into_inner()) = menu::describe(&built.menu);
         *state.menu_items.lock().unwrap_or_else(|e| e.into_inner()) = built.items;
@@ -448,15 +498,22 @@ fn setup(app: &AppHandle<Wry>, cfg: ShellBuilder, nav: Arc<NavPolicy>, opener: A
     #[cfg(feature = "engine")]
     if let Some(engine) = engine {
         let handle = app.clone();
-        std::thread::Builder::new().name("rk-shell-engine".into()).spawn(move || {
-            use tauri::Emitter;
-            let payload = match engine.start() {
-                Ok(hello) => serde_json::json!({"state": "ready", "hello": hello}),
-                Err(e) => serde_json::json!({"state": "error", "code": e.code, "message": e.message}),
-            };
-            engine.set_lifecycle(payload.clone());
-            let _ = handle.emit(EVENT_ENGINE, serde_json::json!({"call": "$lifecycle", "event": payload}));
-        })?;
+        std::thread::Builder::new()
+            .name("rk-shell-engine".into())
+            .spawn(move || {
+                use tauri::Emitter;
+                let payload = match engine.start() {
+                    Ok(hello) => serde_json::json!({"state": "ready", "hello": hello}),
+                    Err(e) => {
+                        serde_json::json!({"state": "error", "code": e.code, "message": e.message})
+                    }
+                };
+                engine.set_lifecycle(payload.clone());
+                let _ = handle.emit(
+                    EVENT_ENGINE,
+                    serde_json::json!({"call": "$lifecycle", "event": payload}),
+                );
+            })?;
     }
 
     // 6. Watchdog.
@@ -467,7 +524,9 @@ fn setup(app: &AppHandle<Wry>, cfg: ShellBuilder, nav: Arc<NavPolicy>, opener: A
     // 8 (queue only). Links on the launch argv wait for the frontend.
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let state = app.state::<ShellState>();
-    state.deep.push_all(argv.iter().map(String::as_str), &state.schemes);
+    state
+        .deep
+        .push_all(argv.iter().map(String::as_str), &state.schemes);
     Ok(())
 }
 

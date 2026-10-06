@@ -6,7 +6,8 @@ rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/claude"
-publish = false
+readme = "README.md"
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["engine"]
@@ -19,7 +20,7 @@ devtools = ["tauri/devtools"]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
 rightkit-jobs = { version = "=0.1.0", path = "../rightkit-jobs", optional = true }
-rightkit-process = { version = "=0.1.0", path = "../rightkit-process", optional = true }
+rightkit-process = { version = "=0.2.0", path = "../rightkit-process", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 
@@ -32,7 +33,7 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSContro
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_System_Com",
   "Win32_System_DataExchange",

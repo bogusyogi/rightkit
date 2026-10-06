@@ -96,20 +96,28 @@ impl PresenceDnd {
     }
     /// Returns `(hidden_changed, dnd_changed)`.
     pub fn set_auto(&self, next: AutoState) -> (bool, bool) {
-        let h = self.auto_hidden.swap(next.hidden_for_fullscreen, Ordering::Relaxed);
+        let h = self
+            .auto_hidden
+            .swap(next.hidden_for_fullscreen, Ordering::Relaxed);
         let d = self.auto_dnd.swap(next.dnd_for_meeting, Ordering::Relaxed);
         (h != next.hidden_for_fullscreen, d != next.dnd_for_meeting)
     }
     /// Apply an injected observation and hold it against live polling for [`OBSERVATION_HOLD`].
     /// The hold and the write happen under one lock, so a concurrent poll cannot interleave.
     pub fn apply_observation(&self, next: AutoState) -> (bool, bool) {
-        let mut until = self.observed_until.lock().unwrap_or_else(|e| e.into_inner());
+        let mut until = self
+            .observed_until
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *until = Some(Instant::now() + OBSERVATION_HOLD);
         self.set_auto(next)
     }
     /// Apply a live sample unless an injected observation is still held. `None` when held.
     pub fn apply_live(&self, next: AutoState) -> Option<(bool, bool)> {
-        let mut until = self.observed_until.lock().unwrap_or_else(|e| e.into_inner());
+        let mut until = self
+            .observed_until
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         match *until {
             Some(t) if Instant::now() < t => return None,
             Some(_) => *until = None,
@@ -155,11 +163,20 @@ pub fn detect(monitor: Rect, windows: &[WindowObservation], own_name: &str) -> E
             continue;
         }
         let Some(b) = w.bounds else { continue };
-        let (overlap_ratio, window_ratio) = if monitor_area > 0.0 { (overlap(&b, &monitor) / monitor_area, area(&b) / monitor_area) } else { (0.0, 0.0) };
+        let (overlap_ratio, window_ratio) = if monitor_area > 0.0 {
+            (
+                overlap(&b, &monitor) / monitor_area,
+                area(&b) / monitor_area,
+            )
+        } else {
+            (0.0, 0.0)
+        };
         if overlap_ratio >= FULLSCREEN_OVERLAP {
             env.fullscreen_on_main_monitor = true;
         }
-        if is_meeting(&w.owner, &w.title) && (overlap_ratio >= MEETING_OVERLAP || window_ratio >= MEETING_OVERLAP) {
+        if is_meeting(&w.owner, &w.title)
+            && (overlap_ratio >= MEETING_OVERLAP || window_ratio >= MEETING_OVERLAP)
+        {
             env.meeting_or_share_active = true;
         }
         if env.fullscreen_on_main_monitor && env.meeting_or_share_active {
@@ -170,17 +187,50 @@ pub fn detect(monitor: Rect, windows: &[WindowObservation], own_name: &str) -> E
 }
 
 fn ignore(owner: &str, title: &str, own_name: &str) -> bool {
-    let (o, t, own) = (owner.to_ascii_lowercase(), title.to_ascii_lowercase(), own_name.to_ascii_lowercase());
-    o.is_empty() || o == "window server" || o == "dock" || (!own.is_empty() && (o == own || t.contains(&own)))
+    let (o, t, own) = (
+        owner.to_ascii_lowercase(),
+        title.to_ascii_lowercase(),
+        own_name.to_ascii_lowercase(),
+    );
+    o.is_empty()
+        || o == "window server"
+        || o == "dock"
+        || (!own.is_empty() && (o == own || t.contains(&own)))
 }
 
 fn is_meeting(owner: &str, title: &str) -> bool {
     let (o, t) = (owner.to_ascii_lowercase(), title.to_ascii_lowercase());
-    const OWNERS: [&str; 10] = ["zoom", "zoom.us", "microsoft teams", "teams", "webex", "slack", "feishu", "lark", "tencent meeting", "腾讯会议"];
-    const TITLES: [&str; 14] = [
-        "zoom meeting", "google meet", " meet ", "meeting", "huddle", "webex", "teams", "sharing", "presenting", "screen share", "share screen", "共享", "演示", "正在共享",
+    const OWNERS: [&str; 10] = [
+        "zoom",
+        "zoom.us",
+        "microsoft teams",
+        "teams",
+        "webex",
+        "slack",
+        "feishu",
+        "lark",
+        "tencent meeting",
+        "腾讯会议",
     ];
-    OWNERS.iter().any(|k| o.contains(k)) || TITLES.iter().any(|k| t.contains(k)) || t.contains("正在演示")
+    const TITLES: [&str; 14] = [
+        "zoom meeting",
+        "google meet",
+        " meet ",
+        "meeting",
+        "huddle",
+        "webex",
+        "teams",
+        "sharing",
+        "presenting",
+        "screen share",
+        "share screen",
+        "共享",
+        "演示",
+        "正在共享",
+    ];
+    OWNERS.iter().any(|k| o.contains(k))
+        || TITLES.iter().any(|k| t.contains(k))
+        || t.contains("正在演示")
 }
 
 fn area(r: &Rect) -> f64 {
@@ -189,7 +239,10 @@ fn area(r: &Rect) -> f64 {
 
 fn overlap(a: &Rect, b: &Rect) -> f64 {
     let (l, t) = (a.x.max(b.x), a.y.max(b.y));
-    let (r, bt) = ((a.x + a.width).min(b.x + b.width), (a.y + a.height).min(b.y + b.height));
+    let (r, bt) = (
+        (a.x + a.width).min(b.x + b.width),
+        (a.y + a.height).min(b.y + b.height),
+    );
     (r - l).max(0.0) * (bt - t).max(0.0)
 }
 
@@ -207,28 +260,34 @@ pub fn detect_live(own_name: &str) -> Result<(Environment, usize), String> {
 /// Start the polling loop. It samples only while a preference needs it, never calls into the app
 /// thread, and ends when the process does. `on_change` receives the new state when an automatic
 /// flag flips.
-pub fn start_loop(state: Arc<PresenceDnd>, own_name: String, on_change: impl Fn(PresenceState) + Send + 'static) {
+pub fn start_loop(
+    state: Arc<PresenceDnd>,
+    own_name: String,
+    on_change: impl Fn(PresenceState) + Send + 'static,
+) {
     if !CONTROLS_SUPPORTED {
         return;
     }
-    let _ = std::thread::Builder::new().name("rk-shell-presence".into()).spawn(move || loop {
-        std::thread::sleep(Duration::from_secs(POLL_SECONDS));
-        let prefs = state.prefs();
-        let next = if prefs.auto_hide_fullscreen || prefs.auto_dnd_meetings {
-            match detect_live(&own_name) {
-                Ok((env, _)) => reconcile(prefs, env),
-                Err(_) => continue,
+    let _ = std::thread::Builder::new()
+        .name("rk-shell-presence".into())
+        .spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(POLL_SECONDS));
+            let prefs = state.prefs();
+            let next = if prefs.auto_hide_fullscreen || prefs.auto_dnd_meetings {
+                match detect_live(&own_name) {
+                    Ok((env, _)) => reconcile(prefs, env),
+                    Err(_) => continue,
+                }
+            } else {
+                AutoState::default()
+            };
+            let Some((hidden, dnd)) = state.apply_live(next) else {
+                continue;
+            };
+            if hidden || dnd {
+                on_change(state.snapshot());
             }
-        } else {
-            AutoState::default()
-        };
-        let Some((hidden, dnd)) = state.apply_live(next) else {
-            continue;
-        };
-        if hidden || dnd {
-            on_change(state.snapshot());
-        }
-    });
+        });
 }
 
 #[cfg(target_os = "macos")]
@@ -269,10 +328,14 @@ mod platform {
     type Dict = NSDictionary<NSString, AnyObject>;
 
     fn string(d: &Dict, key: &str) -> Option<String> {
-        d.objectForKey(&NSString::from_str(key))?.downcast_ref::<NSString>().map(|s| s.to_string())
+        d.objectForKey(&NSString::from_str(key))?
+            .downcast_ref::<NSString>()
+            .map(|s| s.to_string())
     }
     fn number(d: &Dict, key: &str) -> Option<f64> {
-        d.objectForKey(&NSString::from_str(key))?.downcast_ref::<NSNumber>().map(|n| n.doubleValue())
+        d.objectForKey(&NSString::from_str(key))?
+            .downcast_ref::<NSNumber>()
+            .map(|n| n.doubleValue())
     }
 
     pub fn observe() -> Result<(Rect, Vec<WindowObservation>), String> {
@@ -280,19 +343,35 @@ mod platform {
         // bridged to NSArray, so `Retained::from_raw` takes over that single reference.
         let (bounds, raw) = unsafe {
             let b = CGDisplayBounds(CGMainDisplayID());
-            (Rect { x: b.origin.x, y: b.origin.y, width: b.size.width, height: b.size.height }, CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP_ELEMENTS, 0))
+            (
+                Rect {
+                    x: b.origin.x,
+                    y: b.origin.y,
+                    width: b.size.width,
+                    height: b.size.height,
+                },
+                CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP_ELEMENTS, 0),
+            )
         };
         // SAFETY: see above.
-        let list: Retained<NSArray<Dict>> = unsafe { Retained::from_raw(raw.cast()) }.ok_or("CGWindowListCopyWindowInfo returned no list")?;
+        let list: Retained<NSArray<Dict>> = unsafe { Retained::from_raw(raw.cast()) }
+            .ok_or("CGWindowListCopyWindowInfo returned no list")?;
         let mut out = Vec::new();
         for i in 0..list.count() {
             let d = list.objectAtIndex(i);
-            let frame = d.objectForKey(&NSString::from_str("kCGWindowBounds")).and_then(|o| o.downcast::<NSDictionary>().ok());
+            let frame = d
+                .objectForKey(&NSString::from_str("kCGWindowBounds"))
+                .and_then(|o| o.downcast::<NSDictionary>().ok());
             let bounds = frame.and_then(|f| {
                 // CoreGraphics returns an untyped NSDictionary; reinterpret its known NSString /
                 // AnyObject parameters before using typed objectForKey accessors.
                 let f: &Dict = unsafe { f.cast_unchecked() };
-                Some(Rect { x: number(f, "X")?, y: number(f, "Y")?, width: number(f, "Width")?, height: number(f, "Height")? })
+                Some(Rect {
+                    x: number(f, "X")?,
+                    y: number(f, "Y")?,
+                    width: number(f, "Width")?,
+                    height: number(f, "Height")?,
+                })
             });
             out.push(WindowObservation {
                 owner: string(&d, "kCGWindowOwnerName").unwrap_or_default(),

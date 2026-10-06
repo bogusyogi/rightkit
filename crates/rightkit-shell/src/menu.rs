@@ -32,10 +32,20 @@ fn yes() -> bool {
 
 impl MenuEntry {
     pub fn item(id: &str, label: &str) -> Self {
-        MenuEntry::Item { id: id.into(), label: label.into(), accelerator: None, enabled: true }
+        MenuEntry::Item {
+            id: id.into(),
+            label: label.into(),
+            accelerator: None,
+            enabled: true,
+        }
     }
     pub fn accel(id: &str, label: &str, accelerator: &str) -> Self {
-        MenuEntry::Item { id: id.into(), label: label.into(), accelerator: Some(accelerator.into()), enabled: true }
+        MenuEntry::Item {
+            id: id.into(),
+            label: label.into(),
+            accelerator: Some(accelerator.into()),
+            enabled: true,
+        }
     }
 }
 
@@ -69,9 +79,17 @@ fn add_entries(
 ) -> Result<(), String> {
     for e in entries {
         match e {
-            MenuEntry::Separator => sub.append(&PredefinedMenuItem::separator(app).map_err(s)?).map_err(s)?,
-            MenuEntry::Item { id, label, accelerator, enabled } => {
-                let mi = MenuItem::with_id(app, id, label, *enabled, accelerator.as_deref()).map_err(s)?;
+            MenuEntry::Separator => sub
+                .append(&PredefinedMenuItem::separator(app).map_err(s)?)
+                .map_err(s)?,
+            MenuEntry::Item {
+                id,
+                label,
+                accelerator,
+                enabled,
+            } => {
+                let mi = MenuItem::with_id(app, id, label, *enabled, accelerator.as_deref())
+                    .map_err(s)?;
                 sub.append(&mi).map_err(s)?;
                 items.insert(id.clone(), mi);
             }
@@ -90,39 +108,92 @@ pub fn build(app: &AppHandle<Wry>, spec: &MenuSpec) -> Result<BuiltMenu, String>
 
     #[cfg(target_os = "macos")]
     {
-        let app_menu = SubmenuBuilder::new(app, &spec.app_name).about(None).build().map_err(s)?;
+        let app_menu = SubmenuBuilder::new(app, &spec.app_name)
+            .about(None)
+            .build()
+            .map_err(s)?;
         if let Some((id, accel)) = &spec.settings {
-            app_menu.append(&PredefinedMenuItem::separator(app).map_err(s)?).map_err(s)?;
-            add_entries(app, &app_menu, &[MenuEntry::accel(id, "Settings\u{2026}", accel)], &mut items)?;
+            app_menu
+                .append(&PredefinedMenuItem::separator(app).map_err(s)?)
+                .map_err(s)?;
+            add_entries(
+                app,
+                &app_menu,
+                &[MenuEntry::accel(id, "Settings\u{2026}", accel)],
+                &mut items,
+            )?;
         }
-        app_menu.append(&PredefinedMenuItem::separator(app).map_err(s)?).map_err(s)?;
-        app_menu.append(&PredefinedMenuItem::services(app, None).map_err(s)?).map_err(s)?;
-        app_menu.append(&PredefinedMenuItem::separator(app).map_err(s)?).map_err(s)?;
-        app_menu.append(&PredefinedMenuItem::hide(app, None).map_err(s)?).map_err(s)?;
-        app_menu.append(&PredefinedMenuItem::hide_others(app, None).map_err(s)?).map_err(s)?;
-        app_menu.append(&PredefinedMenuItem::show_all(app, None).map_err(s)?).map_err(s)?;
-        app_menu.append(&PredefinedMenuItem::separator(app).map_err(s)?).map_err(s)?;
-        app_menu.append(&PredefinedMenuItem::quit(app, Some(&format!("Quit {}", spec.app_name))).map_err(s)?).map_err(s)?;
+        app_menu
+            .append(&PredefinedMenuItem::separator(app).map_err(s)?)
+            .map_err(s)?;
+        app_menu
+            .append(&PredefinedMenuItem::services(app, None).map_err(s)?)
+            .map_err(s)?;
+        app_menu
+            .append(&PredefinedMenuItem::separator(app).map_err(s)?)
+            .map_err(s)?;
+        app_menu
+            .append(&PredefinedMenuItem::hide(app, None).map_err(s)?)
+            .map_err(s)?;
+        app_menu
+            .append(&PredefinedMenuItem::hide_others(app, None).map_err(s)?)
+            .map_err(s)?;
+        app_menu
+            .append(&PredefinedMenuItem::show_all(app, None).map_err(s)?)
+            .map_err(s)?;
+        app_menu
+            .append(&PredefinedMenuItem::separator(app).map_err(s)?)
+            .map_err(s)?;
+        app_menu
+            .append(
+                &PredefinedMenuItem::quit(app, Some(&format!("Quit {}", spec.app_name)))
+                    .map_err(s)?,
+            )
+            .map_err(s)?;
         menu.append(&app_menu).map_err(s)?;
     }
     #[cfg(not(target_os = "macos"))]
     {
         let file = SubmenuBuilder::new(app, "File").build().map_err(s)?;
         if let Some((id, accel)) = &spec.settings {
-            add_entries(app, &file, &[MenuEntry::accel(id, "Settings\u{2026}", accel), MenuEntry::Separator], &mut items)?;
+            add_entries(
+                app,
+                &file,
+                &[
+                    MenuEntry::accel(id, "Settings\u{2026}", accel),
+                    MenuEntry::Separator,
+                ],
+                &mut items,
+            )?;
         }
-        file.append(&PredefinedMenuItem::close_window(app, None).map_err(s)?).map_err(s)?;
-        file.append(&PredefinedMenuItem::quit(app, Some(&format!("Exit {}", spec.app_name))).map_err(s)?).map_err(s)?;
+        file.append(&PredefinedMenuItem::close_window(app, None).map_err(s)?)
+            .map_err(s)?;
+        file.append(
+            &PredefinedMenuItem::quit(app, Some(&format!("Exit {}", spec.app_name))).map_err(s)?,
+        )
+        .map_err(s)?;
         menu.append(&file).map_err(s)?;
     }
 
-    let edit = SubmenuBuilder::new(app, "Edit").undo().redo().separator().cut().copy().paste().select_all().build().map_err(s)?;
+    let edit = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()
+        .map_err(s)?;
     menu.append(&edit).map_err(s)?;
 
     #[cfg(target_os = "macos")]
     {
         // Fullscreen is the only View verb; reload/zoom are deliberately absent.
-        let view = SubmenuBuilder::new(app, "View").fullscreen().build().map_err(s)?;
+        let view = SubmenuBuilder::new(app, "View")
+            .fullscreen()
+            .build()
+            .map_err(s)?;
         menu.append(&view).map_err(s)?;
     }
 
@@ -132,7 +203,13 @@ pub fn build(app: &AppHandle<Wry>, spec: &MenuSpec) -> Result<BuiltMenu, String>
         menu.append(&sub).map_err(s)?;
     }
 
-    let window = SubmenuBuilder::new(app, "Window").minimize().maximize().separator().close_window().build().map_err(s)?;
+    let window = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .close_window()
+        .build()
+        .map_err(s)?;
     menu.append(&window).map_err(s)?;
 
     let help = SubmenuBuilder::new(app, "Help").build().map_err(s)?;
@@ -154,10 +231,22 @@ pub fn describe(menu: &Menu<Wry>) -> Vec<(String, String)> {
                     walk(&child, &path, out);
                 }
             }
-            MenuItemKind::MenuItem(mi) => out.push((format!("{prefix}{}", mi.id().as_ref()), mi.text().unwrap_or_default())),
-            MenuItemKind::Predefined(p) => out.push((format!("{prefix}(predefined)"), p.text().unwrap_or_default())),
-            MenuItemKind::Check(c) => out.push((format!("{prefix}{}", c.id().as_ref()), c.text().unwrap_or_default())),
-            MenuItemKind::Icon(i) => out.push((format!("{prefix}{}", i.id().as_ref()), i.text().unwrap_or_default())),
+            MenuItemKind::MenuItem(mi) => out.push((
+                format!("{prefix}{}", mi.id().as_ref()),
+                mi.text().unwrap_or_default(),
+            )),
+            MenuItemKind::Predefined(p) => out.push((
+                format!("{prefix}(predefined)"),
+                p.text().unwrap_or_default(),
+            )),
+            MenuItemKind::Check(c) => out.push((
+                format!("{prefix}{}", c.id().as_ref()),
+                c.text().unwrap_or_default(),
+            )),
+            MenuItemKind::Icon(i) => out.push((
+                format!("{prefix}{}", i.id().as_ref()),
+                i.text().unwrap_or_default(),
+            )),
         }
     }
     let mut out = Vec::new();

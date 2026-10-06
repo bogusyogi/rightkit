@@ -10,7 +10,10 @@
 
 use std::sync::Arc;
 
-use rightkit_service::{host, Allowlist, CallContext, Client, Emit, Handler, HostError, Hosted, ServiceConfig, ServiceError, Suite};
+use rightkit_service::{
+    host, Allowlist, CallContext, Client, Emit, Handler, HostError, Hosted, ServiceConfig,
+    ServiceError, Suite,
+};
 use serde_json::{json, Value};
 
 pub const METHOD: &str = "second-instance";
@@ -35,11 +38,24 @@ struct Forward {
 }
 
 impl Handler for Forward {
-    fn call(&self, _cx: &CallContext, method: &str, params: &Value, _emit: &Emit) -> Result<Value, ServiceError> {
+    fn call(
+        &self,
+        _cx: &CallContext,
+        method: &str,
+        params: &Value,
+        _emit: &Emit,
+    ) -> Result<Value, ServiceError> {
         if method != METHOD {
             return Err(ServiceError::new("unknown_method", method.to_string()));
         }
-        let argv = params["argv"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        let argv = params["argv"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
         let cwd = params["cwd"].as_str().unwrap_or_default().to_string();
         (self.on_second)(SecondInstance { argv, cwd });
         Ok(json!({"ok": true}))
@@ -50,21 +66,35 @@ pub fn service_name(app_id: &str) -> String {
     format!("{app_id}-shell")
 }
 
-pub fn arbitrate(app_id: &str, version: &str, on_second: Arc<dyn Fn(SecondInstance) + Send + Sync>) -> Arbitration {
+pub fn arbitrate(
+    app_id: &str,
+    version: &str,
+    on_second: Arc<dyn Fn(SecondInstance) + Send + Sync>,
+) -> Arbitration {
     let suite = match Suite::resolve() {
         Ok(s) => s,
         Err(e) => return Arbitration::Unavailable(e.to_string()),
     };
     let service = service_name(app_id);
-    let cfg = ServiceConfig::new(&service, &format!("shell:{app_id}"), 100, version, Allowlist::new().allow(app_id, [METHOD]));
+    let cfg = ServiceConfig::new(
+        &service,
+        &format!("shell:{app_id}"),
+        100,
+        version,
+        Allowlist::new().allow(app_id, [METHOD]),
+    );
     match host(&suite, cfg, Arc::new(Forward { on_second })) {
         Ok(hosted) => Arbitration::Primary(hosted),
         Err(HostError::Held(_)) => {
             let argv: Vec<String> = std::env::args().collect();
-            let cwd = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            let cwd = std::env::current_dir()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
             // The incumbent may be mid-startup: retry briefly before giving up.
             for _ in 0..20 {
-                match Client::connect(&suite, &service, app_id).and_then(|c| c.call(METHOD, json!({"argv": argv, "cwd": cwd}))) {
+                match Client::connect(&suite, &service, app_id)
+                    .and_then(|c| c.call(METHOD, json!({"argv": argv, "cwd": cwd})))
+                {
                     Ok(_) => return Arbitration::Secondary,
                     Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
                 }

@@ -42,7 +42,14 @@ extern "C" {
     fn CGEventSourceCreate(state: i32) -> CFTypeRef;
     fn CGEventCreateMouseEvent(src: CFTypeRef, ty: u32, p: CGPoint, button: u32) -> CFTypeRef;
     fn CGEventCreateKeyboardEvent(src: CFTypeRef, key: u16, down: bool) -> CFTypeRef;
-    fn CGEventCreateScrollWheelEvent2(src: CFTypeRef, unit: u32, n: u32, a: i32, b: i32, c: i32) -> CFTypeRef;
+    fn CGEventCreateScrollWheelEvent2(
+        src: CFTypeRef,
+        unit: u32,
+        n: u32,
+        a: i32,
+        b: i32,
+        c: i32,
+    ) -> CFTypeRef;
     fn CGEventKeyboardSetUnicodeString(e: CFTypeRef, len: usize, s: *const u16);
     fn CGEventSetIntegerValueField(e: CFTypeRef, f: u32, v: i64);
     fn CGEventSetFlags(e: CFTypeRef, f: u64);
@@ -145,15 +152,26 @@ pub fn main_window(pid: i32) -> Option<Win> {
 
 fn front_info(field: &str) -> Option<String> {
     let asn = Command::new("lsappinfo").arg("front").output().ok()?;
-    let asn = String::from_utf8_lossy(&asn.stdout).trim().trim_end_matches(':').to_string();
-    let info = Command::new("lsappinfo").args(["info", "-only", field, &asn]).output().ok()?;
+    let asn = String::from_utf8_lossy(&asn.stdout)
+        .trim()
+        .trim_end_matches(':')
+        .to_string();
+    let info = Command::new("lsappinfo")
+        .args(["info", "-only", field, &asn])
+        .output()
+        .ok()?;
     Some(String::from_utf8_lossy(&info.stdout).to_string())
 }
 
 /// Pid of the frontmost application (no permissions required).
 pub fn frontmost_pid() -> Option<i32> {
     let t = front_info("pid")?;
-    t.split("pid =").nth(1)?.split_whitespace().next()?.parse().ok()
+    t.split("pid =")
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
 }
 
 pub fn frontmost_name() -> Option<String> {
@@ -212,7 +230,14 @@ pub fn drag(pid: i32, win: u32, from: (f64, f64), to: (f64, f64), steps: u32) {
     for i in 1..=steps {
         let t = i as f64 / steps as f64;
         pause(16);
-        mouse(pid, win, 6, from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t, 1);
+        mouse(
+            pid,
+            win,
+            6,
+            from.0 + (to.0 - from.0) * t,
+            from.1 + (to.1 - from.1) * t,
+            1,
+        );
     }
     mouse(pid, win, 2, to.0, to.1, 1);
 }
@@ -286,7 +311,11 @@ unsafe fn attr(el: CFTypeRef, name: &str) -> CFTypeRef {
     let mut out: CFTypeRef = std::ptr::null();
     let rc = AXUIElementCopyAttributeValue(el, k, &mut out);
     CFRelease(k);
-    if rc == 0 { out } else { std::ptr::null() }
+    if rc == 0 {
+        out
+    } else {
+        std::ptr::null()
+    }
 }
 unsafe fn str_attr(el: CFTypeRef, name: &str) -> Option<String> {
     let v = attr(el, name);
@@ -381,8 +410,17 @@ pub fn ax_dump(pid: i32, max_depth: usize, max_nodes: usize) -> Vec<String> {
     let mut lines = vec![];
     walk(pid, max_nodes, |n, d| {
         if d <= max_depth && (!n.text.is_empty() || n.role == "AXButton" || n.role == "AXWebArea") {
-            let f = n.frame.map(|f| format!(" @{:.0},{:.0} {:.0}x{:.0}", f.0, f.1, f.2, f.3)).unwrap_or_default();
-            lines.push(format!("{}{} {:?}{}", "  ".repeat(d.min(8)), n.role, n.text, f));
+            let f = n
+                .frame
+                .map(|f| format!(" @{:.0},{:.0} {:.0}x{:.0}", f.0, f.1, f.2, f.3))
+                .unwrap_or_default();
+            lines.push(format!(
+                "{}{} {:?}{}",
+                "  ".repeat(d.min(8)),
+                n.role,
+                n.text,
+                f
+            ));
         }
         false
     });
@@ -395,11 +433,19 @@ pub fn ax_find(pid: i32, needle: &str, exact: bool) -> Option<Node> {
     let (mut found, mut fallback): (Option<Node>, Option<Node>) = (None, None);
     walk(pid, 40_000, |n, _| {
         let t = n.text.to_lowercase();
-        let hit = !t.is_empty() && if exact { t == needle } else { t.contains(&needle) };
+        let hit = !t.is_empty()
+            && if exact {
+                t == needle
+            } else {
+                t.contains(&needle)
+            };
         if !hit {
             return false;
         }
-        let kept = Node { el: unsafe { CFRetain(n.el as CFTypeRef) } as usize, ..n.clone() };
+        let kept = Node {
+            el: unsafe { CFRetain(n.el as CFTypeRef) } as usize,
+            ..n.clone()
+        };
         if n.role == "AXStaticText" {
             fallback.get_or_insert(kept);
             false
@@ -450,7 +496,10 @@ pub fn launch_hidden(app: &str, exe_name: &str, env: &[(String, String)]) -> Res
     }
     for _ in 0..100 {
         pause(100);
-        if let Some(p) = pids_named(exe_name).into_iter().find(|p| !before.contains(p)) {
+        if let Some(p) = pids_named(exe_name)
+            .into_iter()
+            .find(|p| !before.contains(p))
+        {
             return Ok(p);
         }
     }
@@ -459,12 +508,21 @@ pub fn launch_hidden(app: &str, exe_name: &str, env: &[(String, String)]) -> Res
 
 fn pids_named(name: &str) -> Vec<i32> {
     let out = Command::new("pgrep").args(["-x", name]).output();
-    out.map(|o| String::from_utf8_lossy(&o.stdout).lines().filter_map(|l| l.trim().parse().ok()).collect())
-        .unwrap_or_default()
+    out.map(|o| {
+        String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter_map(|l| l.trim().parse().ok())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub fn capture_window(win: u32, out: &str) -> bool {
-    Command::new("screencapture").args(["-x", "-o", "-l", &win.to_string(), out]).status().map(|s| s.success()).unwrap_or(false)
+    Command::new("screencapture")
+        .args(["-x", "-o", "-l", &win.to_string(), out])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// Mark the app's window key/main *inside the app* via Accessibility, without
@@ -479,7 +537,10 @@ pub fn ax_make_key(pid: i32, attrs: &[&str]) -> Vec<(String, i32)> {
         if !w.is_null() {
             for a in attrs {
                 let k = cfstr(a);
-                out.push((a.to_string(), AXUIElementSetAttributeValue(w, k, kCFBooleanTrue)));
+                out.push((
+                    a.to_string(),
+                    AXUIElementSetAttributeValue(w, k, kCFBooleanTrue),
+                ));
                 CFRelease(k);
             }
         }
@@ -516,7 +577,8 @@ extern "C" {
 /// false if SkyLight does not export the symbol on this macOS build.
 pub fn key_without_raise(pid: i32, win: u32) -> bool {
     unsafe {
-        let lib = CString::new("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight").unwrap();
+        let lib =
+            CString::new("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight").unwrap();
         let h = dlopen(lib.as_ptr(), 1);
         if h.is_null() {
             return false;

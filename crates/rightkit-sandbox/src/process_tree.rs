@@ -2,7 +2,10 @@
 //! `process_tree.rs`). Unix only; on Windows the Job Object owns the tree.
 
 use std::io;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+#[cfg(unix)]
+use std::time::Instant;
 
 /// Hard bound on tree size we will enumerate or signal.
 pub const MAX_TREE_NODES: usize = 4096;
@@ -19,7 +22,9 @@ mod imp {
             return Err(io::Error::last_os_error());
         }
         let mut pids = vec![0 as libc::pid_t; count as usize + 256];
-        let n = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), (pids.len() * 4) as libc::c_int) };
+        let n = unsafe {
+            libc::proc_listallpids(pids.as_mut_ptr().cast(), (pids.len() * 4) as libc::c_int)
+        };
         if n <= 0 {
             return Err(io::Error::last_os_error());
         }
@@ -28,7 +33,15 @@ mod imp {
         for pid in pids.into_iter().filter(|p| *p > 0) {
             let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
             let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-            let r = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size) };
+            let r = unsafe {
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTBSDINFO,
+                    0,
+                    (&mut info as *mut libc::proc_bsdinfo).cast(),
+                    size,
+                )
+            };
             if r == size {
                 map.insert(pid, info.pbi_ppid as i32);
             }
@@ -40,8 +53,12 @@ mod imp {
     fn parent_map() -> io::Result<BTreeMap<i32, i32>> {
         let mut map = BTreeMap::new();
         for e in std::fs::read_dir("/proc")?.flatten() {
-            let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else { continue };
-            let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { continue };
+            let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else {
+                continue;
+            };
+            let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+                continue;
+            };
             // comm may contain spaces/parens: parse after the last ')'.
             if let Some(rest) = stat.rfind(')').map(|i| &stat[i + 1..]) {
                 let mut f = rest.split_whitespace();
@@ -55,7 +72,10 @@ mod imp {
 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     fn parent_map() -> io::Result<BTreeMap<i32, i32>> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "process enumeration unsupported on this unix"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "process enumeration unsupported on this unix",
+        ))
     }
 
     pub fn descendants(root: u32) -> io::Result<Vec<u32>> {
@@ -79,7 +99,15 @@ mod imp {
     fn is_zombie(pid: u32) -> bool {
         let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
         let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-        let r = unsafe { libc::proc_pidinfo(pid as libc::pid_t, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size) };
+        let r = unsafe {
+            libc::proc_pidinfo(
+                pid as libc::pid_t,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                (&mut info as *mut libc::proc_bsdinfo).cast(),
+                size,
+            )
+        };
         r == size && info.pbi_status == 5 // SZOMB
     }
 
@@ -87,7 +115,10 @@ mod imp {
     fn is_zombie(pid: u32) -> bool {
         std::fs::read_to_string(format!("/proc/{pid}/stat"))
             .ok()
-            .and_then(|s| s.rfind(')').map(|i| s[i + 1..].trim_start().starts_with('Z')))
+            .and_then(|s| {
+                s.rfind(')')
+                    .map(|i| s[i + 1..].trim_start().starts_with('Z'))
+            })
             .unwrap_or(false)
     }
 
@@ -98,7 +129,8 @@ mod imp {
 
     pub fn is_alive(pid: u32) -> bool {
         let r = unsafe { libc::kill(pid as libc::pid_t, 0) };
-        (r == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)) && !is_zombie(pid)
+        (r == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM))
+            && !is_zombie(pid)
     }
 
     pub fn signal(pid: u32, sig: i32) {
@@ -120,7 +152,10 @@ pub fn descendants(root: u32) -> io::Result<Vec<u32>> {
     #[cfg(not(unix))]
     {
         let _ = root;
-        Err(io::Error::new(io::ErrorKind::Unsupported, "use the Job Object on Windows"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "use the Job Object on Windows",
+        ))
     }
 }
 
@@ -177,11 +212,17 @@ pub fn kill_tree(root: u32, grace: Duration) -> io::Result<TreeKillReport> {
             std::thread::sleep(Duration::from_millis(20));
         }
         let survivors = all.iter().copied().filter(|&p| imp::is_alive(p)).collect();
-        Ok(TreeKillReport { signalled: all, survivors })
+        Ok(TreeKillReport {
+            signalled: all,
+            survivors,
+        })
     }
     #[cfg(not(unix))]
     {
         let _ = (root, grace);
-        Err(io::Error::new(io::ErrorKind::Unsupported, "use the Job Object on Windows"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "use the Job Object on Windows",
+        ))
     }
 }

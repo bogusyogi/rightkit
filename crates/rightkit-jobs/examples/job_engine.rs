@@ -14,8 +14,15 @@ struct H {
 }
 impl H {
     fn log(&self, what: &str, job: &Job, n: i64) {
-        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&self.log) {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log)
+        {
             let _ = writeln!(f, "{t} {what} {} {n}", job.kind);
         }
     }
@@ -31,7 +38,11 @@ impl JobHandler for H {
                     ctl.step_boundary()?;
                     self.log("step_start", job, i);
                     std::thread::sleep(ms("step_ms", 100));
-                    ctl.progress("step", Some((i + 1) as f64 / steps as f64), Some(&format!("window {i}")));
+                    ctl.progress(
+                        "step",
+                        Some((i + 1) as f64 / steps as f64),
+                        Some(&format!("window {i}")),
+                    );
                     self.log("step_end", job, i);
                 }
                 Ok(json!({"steps": steps, "host": self.role}))
@@ -71,19 +82,39 @@ fn main() {
     std::fs::create_dir_all(&data).unwrap();
     let store = Arc::new(JobStore::open(data.join("jobs.db")).unwrap());
     let gate = Gate::new();
-    let handler = Arc::new(H { log: data.join("steps.log"), role: a[2].clone() });
+    let handler = Arc::new(H {
+        log: data.join("steps.log"),
+        role: a[2].clone(),
+    });
     let stall: u64 = a[4].parse().unwrap_or(0);
-    let mut runner = Runner::new(store, JobLocks::new(data.join("locks")), handler).with_gate(gate.clone());
+    let mut runner =
+        Runner::new(store, JobLocks::new(data.join("locks")), handler).with_gate(gate.clone());
     if stall > 0 {
         runner = runner.with_stall_timeout(Duration::from_millis(stall));
     }
-    let d = Arc::new(Dispatcher::new("job-engine", "0.1").with(Arc::new(JobCommands::new(Arc::new(runner)))));
-    let jobs = ["job.submit", "job.status", "job.result", "job.events", "job.cancel", "job.run", "job.wait"];
-    let allow = Allowlist::new().allow("alpha", jobs).allow("beta", ["job.status"]);
+    let d = Arc::new(
+        Dispatcher::new("job-engine", "0.1").with(Arc::new(JobCommands::new(Arc::new(runner)))),
+    );
+    let jobs = [
+        "job.submit",
+        "job.status",
+        "job.result",
+        "job.events",
+        "job.cancel",
+        "job.run",
+        "job.wait",
+    ];
+    let allow = Allowlist::new()
+        .allow("alpha", jobs)
+        .allow("beta", ["job.status"]);
     let mut cfg = ServiceConfig::new("jobs-demo", &a[2], a[3].parse().unwrap(), "test", allow);
     cfg.handoff_grace = Duration::from_secs(5);
     cfg.takeover_timeout = Duration::from_secs(20);
-    match host(&suite, cfg, Arc::new(DispatcherHandler::new(d).with_gate(gate))) {
+    match host(
+        &suite,
+        cfg,
+        Arc::new(DispatcherHandler::new(d).with_gate(gate)),
+    ) {
         Ok(h) => {
             println!("READY");
             h.wait_released(Duration::from_secs(300));

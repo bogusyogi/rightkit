@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use rightkit_media::native::*;
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../..")
+        .canonicalize()
+        .unwrap()
 }
 
 #[test]
@@ -23,15 +26,27 @@ fn embedded_catalog_pins_one_version_per_library_and_covers_all_eight_libraries(
         NativeLibrary::WhisperCpp,
         NativeLibrary::SherpaOnnx,
     ] {
-        assert!(catalog.suite_version(library).is_some(), "{library:?} missing");
+        assert!(
+            catalog.suite_version(library).is_some(),
+            "{library:?} missing"
+        );
     }
     assert_eq!(catalog.suite_version(NativeLibrary::Ffmpeg), Some("7.1.5"));
-    assert_eq!(catalog.suite_version(NativeLibrary::Onnxruntime), Some("1.24.4"));
+    assert_eq!(
+        catalog.suite_version(NativeLibrary::Onnxruntime),
+        Some("1.24.4")
+    );
     // FFmpeg is derived from the legacy catalog: same ids and digests.
-    let legacy = rightkit_media::ArtifactCatalog::parse(rightkit_media::APPROVED_CATALOG_JSON).unwrap();
+    let legacy =
+        rightkit_media::ArtifactCatalog::parse(rightkit_media::APPROVED_CATALOG_JSON).unwrap();
     for a in &legacy.artifacts {
-        let r = catalog.approved(NativeLibrary::Ffmpeg, &a.os, &a.arch).unwrap();
-        assert_eq!((r.id.as_str(), r.sha256.as_deref()), (a.id.as_str(), Some(a.sha256.as_str())));
+        let r = catalog
+            .approved(NativeLibrary::Ffmpeg, &a.os, &a.arch)
+            .unwrap();
+        assert_eq!(
+            (r.id.as_str(), r.sha256.as_deref()),
+            (a.id.as_str(), Some(a.sha256.as_str()))
+        );
     }
 }
 
@@ -44,15 +59,24 @@ fn mixed_versions_gpl_and_unverifiable_approvals_fail_closed() {
     second["version"] = "9.9.9".into();
     libs.push(second);
     let mixed = NativeCatalog::parse_native_only(&value.to_string()).unwrap();
-    assert!(matches!(mixed.validate(), Err(NativeCatalogError::MixedVersions { .. })));
+    assert!(matches!(
+        mixed.validate(),
+        Err(NativeCatalogError::MixedVersions { .. })
+    ));
 
     let mut value: serde_json::Value = serde_json::from_str(NATIVE_CATALOG_JSON).unwrap();
     value["libraries"][0]["licenseSpdx"] = "GPL-3.0-only".into();
     let gpl = NativeCatalog::parse_native_only(&value.to_string()).unwrap();
-    assert!(matches!(gpl.validate(), Err(NativeCatalogError::Invalid { .. })));
+    assert!(matches!(
+        gpl.validate(),
+        Err(NativeCatalogError::Invalid { .. })
+    ));
 
     let mut value: serde_json::Value = serde_json::from_str(NATIVE_CATALOG_JSON).unwrap();
-    value["libraries"][0].as_object_mut().unwrap().remove("sha256");
+    value["libraries"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("sha256");
     let weak = NativeCatalog::parse_native_only(&value.to_string()).unwrap();
     assert!(weak.validate().is_err());
 
@@ -79,7 +103,11 @@ fn every_notice_file_is_packaged_with_the_crate() {
     let catalog = NativeCatalog::embedded().unwrap();
     for r in &catalog.libraries {
         for n in &r.notice_files {
-            assert!(Path::new(env!("CARGO_MANIFEST_DIR")).join(n).is_file(), "{} missing {n}", r.id);
+            assert!(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join(n).is_file(),
+                "{} missing {n}",
+                r.id
+            );
         }
     }
 }
@@ -102,14 +130,22 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
             eprintln!("SKIP {lib:?}: {rel} not present");
             continue;
         }
-        catalog.approved(lib, os, arch).unwrap().verify_file(&path).unwrap();
+        catalog
+            .approved(lib, os, arch)
+            .unwrap()
+            .verify_file(&path)
+            .unwrap();
         verified.push(format!("{lib:?}"));
     }
 
     // Upstream archive digest for ONNX Runtime.
     let tgz = root.join("genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4.tgz");
     if tgz.is_file() {
-        catalog.approved(NativeLibrary::Onnxruntime, "macos", "aarch64").unwrap().verify_archive(&tgz).unwrap();
+        catalog
+            .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
+            .unwrap()
+            .verify_archive(&tgz)
+            .unwrap();
         verified.push("Onnxruntime-archive".into());
     }
 
@@ -123,18 +159,31 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
             continue;
         }
         let text = std::fs::read_to_string(path).unwrap();
-        catalog.approved(lib, "macos", "aarch64").unwrap().verify_cargo_lock(&text).unwrap();
+        catalog
+            .approved(lib, "macos", "aarch64")
+            .unwrap()
+            .verify_cargo_lock(&text)
+            .unwrap();
         verified.push(format!("{lib:?}"));
     }
 
     eprintln!("verified against real artifacts: {verified:?}");
-    assert!(verified.len() >= 4, "too few real artifacts present: {verified:?}");
+    // The approved artifacts are macOS builds; elsewhere only the platform-neutral Cargo.lock
+    // pins (sqlite-vec, libgit2) are guaranteed to be checkable.
+    let required = if cfg!(target_os = "macos") { 4 } else { 2 };
+    assert!(
+        verified.len() >= required,
+        "too few real artifacts present: {verified:?}"
+    );
 
     // A wrong file must be rejected by content, not by name.
     let wrong = std::env::temp_dir().join(format!("rk-native-wrong-{}", std::process::id()));
     std::fs::write(&wrong, b"not onnxruntime").unwrap();
     assert!(matches!(
-        catalog.approved(NativeLibrary::Onnxruntime, "macos", "aarch64").unwrap().verify_file(&wrong),
+        catalog
+            .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
+            .unwrap()
+            .verify_file(&wrong),
         Err(NativeCatalogError::DigestMismatch { .. })
     ));
     std::fs::remove_file(wrong).unwrap();

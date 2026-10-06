@@ -92,9 +92,14 @@ pub fn normalize_write_target(path: impl AsRef<Path>) -> Result<PathBuf, ShellEr
         }
         return Ok(std::fs::canonicalize(path)?);
     }
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     let parent = std::fs::canonicalize(parent)?;
-    let name = path.file_name().ok_or_else(|| ShellError::Invalid("path has no file name".into()))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| ShellError::Invalid("path has no file name".into()))?;
     Ok(parent.join(name))
 }
 
@@ -128,7 +133,8 @@ fn fill_entropy(buf: &mut [u8]) -> std::io::Result<()> {
 
 fn random_id(prefix: &str) -> Result<String, ShellError> {
     let mut bytes = [0_u8; 16];
-    fill_entropy(&mut bytes).map_err(|e| ShellError::Other(format!("entropy source unavailable: {e}")))?;
+    fill_entropy(&mut bytes)
+        .map_err(|e| ShellError::Other(format!("entropy source unavailable: {e}")))?;
     let mut id = String::with_capacity(prefix.len() + 32);
     id.push_str(prefix);
     for b in bytes {
@@ -153,10 +159,16 @@ fn mint_unique<V>(map: &HashMap<String, V>, prefix: &str) -> Result<String, Shel
 fn clear_quarantine(path: &Path) {
     use std::os::unix::ffi::OsStrExt;
     extern "C" {
-        fn removexattr(path: *const std::ffi::c_char, name: *const std::ffi::c_char, options: i32) -> i32;
+        fn removexattr(
+            path: *const std::ffi::c_char,
+            name: *const std::ffi::c_char,
+            options: i32,
+        ) -> i32;
     }
     const XATTR_NOFOLLOW: i32 = 0x0001;
-    let Ok(p) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return };
+    let Ok(p) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return;
+    };
     // SAFETY: both pointers are valid NUL-terminated strings for the duration of the call; the
     // result (ENOATTR when the file was never quarantined) is intentionally ignored.
     unsafe {
@@ -198,7 +210,9 @@ impl PathBroker {
         if self.is_granted_normalized(&normalized)? {
             Ok(path_to_string(&normalized))
         } else {
-            Err(ShellError::BrokerDenied("path is not authorized; open it through the app first".into()))
+            Err(ShellError::BrokerDenied(
+                "path is not authorized; open it through the app first".into(),
+            ))
         }
     }
 
@@ -207,7 +221,9 @@ impl PathBroker {
         if self.is_granted_normalized(&normalized)? {
             Ok(path_to_string(&normalized))
         } else {
-            Err(ShellError::BrokerDenied("path is not authorized; choose it through the app first".into()))
+            Err(ShellError::BrokerDenied(
+                "path is not authorized; choose it through the app first".into(),
+            ))
         }
     }
 
@@ -223,7 +239,12 @@ impl PathBroker {
     }
 
     pub fn was_recently_written(&self, path: &Path) -> Result<bool, ShellError> {
-        Ok(self.recent_writes.lock().map_err(poisoned)?.iter().any(|p| p == path))
+        Ok(self
+            .recent_writes
+            .lock()
+            .map_err(poisoned)?
+            .iter()
+            .any(|p| p == path))
     }
 
     /// Re-grant a save-as target that was just written (so the renderer cannot ask for any
@@ -231,7 +252,9 @@ impl PathBroker {
     pub fn regrant_saved_target(&self, path: &str) -> Result<String, ShellError> {
         let normalized = normalize_write_target(path)?;
         if !self.was_recently_written(&normalized)? {
-            return Err(ShellError::BrokerDenied("path was not just written by the app; save it through the app first".into()));
+            return Err(ShellError::BrokerDenied(
+                "path was not just written by the app; save it through the app first".into(),
+            ));
         }
         self.grant_normalized(normalized)
     }
@@ -260,7 +283,9 @@ impl PathBroker {
             .map_err(poisoned)?
             .map
             .remove(id)
-            .ok_or_else(|| ShellError::BrokerDenied("unknown or already-used recent-file id".into()))?;
+            .ok_or_else(|| {
+                ShellError::BrokerDenied("unknown or already-used recent-file id".into())
+            })?;
         self.grant_normalized(normalized)
     }
 
@@ -277,7 +302,10 @@ impl PathBroker {
             keep
         });
         if !revoked.is_empty() {
-            self.stream_tokens.lock().map_err(poisoned)?.retain(|_, p| !revoked.iter().any(|r| r == p));
+            self.stream_tokens
+                .lock()
+                .map_err(poisoned)?
+                .retain(|_, p| !revoked.iter().any(|r| r == p));
         }
         Ok(())
     }
@@ -288,7 +316,9 @@ impl PathBroker {
         let normalized = normalize_existing_file(path)?;
         let allowed = self.allowed.lock().map_err(poisoned)?;
         if !allowed.contains(&normalized) {
-            return Err(ShellError::BrokerDenied("path is not authorized; open it through the app first".into()));
+            return Err(ShellError::BrokerDenied(
+                "path is not authorized; open it through the app first".into(),
+            ));
         }
         let mut streams = self.stream_tokens.lock().map_err(poisoned)?;
         if let Some((id, _)) = streams.iter().find(|(_, p)| *p == &normalized) {
@@ -339,13 +369,24 @@ impl PathBroker {
         let root = self.resolve_site_root(id)?;
         let rel = relative.trim_start_matches('/');
         let escapes = rel.contains('\0')
-            || Path::new(rel).components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir));
+            || Path::new(rel).components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir
+                        | std::path::Component::Prefix(_)
+                        | std::path::Component::RootDir
+                )
+            });
         if escapes {
-            return Err(ShellError::BrokerDenied("path escapes the site root".into()));
+            return Err(ShellError::BrokerDenied(
+                "path escapes the site root".into(),
+            ));
         }
         let full = std::fs::canonicalize(root.join(rel))?;
         if !full.starts_with(&root) {
-            return Err(ShellError::BrokerDenied("path escapes the site root".into()));
+            return Err(ShellError::BrokerDenied(
+                "path escapes the site root".into(),
+            ));
         }
         Ok(full)
     }

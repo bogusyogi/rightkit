@@ -10,7 +10,16 @@ use std::time::{Duration, Instant};
 
 fn host_bin() -> PathBuf {
     let exe = std::env::current_exe().unwrap();
-    exe.parent().unwrap().parent().unwrap().join("examples").join(if cfg!(windows) { "svc_host.exe" } else { "svc_host" })
+    exe.parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join(if cfg!(windows) {
+            "svc_host.exe"
+        } else {
+            "svc_host"
+        })
 }
 
 struct Host {
@@ -20,7 +29,13 @@ struct Host {
 impl Host {
     fn start(root: &std::path::Path, role: &str, rank: u8, marker: &std::path::Path) -> Host {
         let mut child = Command::new(host_bin())
-            .args([root.to_str().unwrap(), "demo", role, &rank.to_string(), marker.to_str().unwrap()])
+            .args([
+                root.to_str().unwrap(),
+                "demo",
+                role,
+                &rank.to_string(),
+                marker.to_str().unwrap(),
+            ])
             .stdout(Stdio::piped())
             .spawn()
             .expect("spawn host (build examples with cargo test)");
@@ -34,7 +49,9 @@ impl Host {
         Host { child, lines: rx }
     }
     fn line(&self, secs: u64) -> String {
-        self.lines.recv_timeout(Duration::from_secs(secs)).unwrap_or_default()
+        self.lines
+            .recv_timeout(Duration::from_secs(secs))
+            .unwrap_or_default()
     }
 }
 impl Drop for Host {
@@ -62,14 +79,29 @@ fn discovery_allowlist_and_unknown_apps() {
     {
         use std::os::unix::fs::PermissionsExt;
         let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(&suite.service_dir("demo")), 0o700, "service dir is owner-only");
-        assert_eq!(mode(std::path::Path::new(&rec.endpoint)), 0o600, "socket is owner-only");
+        assert_eq!(
+            mode(&suite.service_dir("demo")),
+            0o700,
+            "service dir is owner-only"
+        );
+        assert_eq!(
+            mode(std::path::Path::new(&rec.endpoint)),
+            0o600,
+            "socket is owner-only"
+        );
     }
 
     let alpha = Client::connect(&suite, "demo", "alpha").unwrap();
-    assert_eq!(alpha.call("echo", json!({"x": 1})).unwrap(), json!({"x": 1}));
+    assert_eq!(
+        alpha.call("echo", json!({"x": 1})).unwrap(),
+        json!({"x": 1})
+    );
     assert_eq!(alpha.call("whoami", json!({})).unwrap()["role"], "headless");
-    assert!(alpha.hello()["methods"].as_array().unwrap().iter().any(|m| m == "slow"));
+    assert!(alpha.hello()["methods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m == "slow"));
 
     let beta = Client::connect(&suite, "demo", "beta").unwrap();
     assert_eq!(beta.call("echo", json!("ok")).unwrap(), json!("ok"));
@@ -77,10 +109,19 @@ fn discovery_allowlist_and_unknown_apps() {
     assert_eq!(denied.code, ERROR_NOT_ALLOWED);
     assert!(!denied.retryable);
     let unlisted = alpha.call("secret", json!({})).unwrap_err();
-    assert_eq!(unlisted.code, ERROR_NOT_ALLOWED, "a method nobody listed is never callable");
-    assert_eq!(beta.call("ping", json!({})).unwrap()["pong"], true, "ping is always allowed");
+    assert_eq!(
+        unlisted.code, ERROR_NOT_ALLOWED,
+        "a method nobody listed is never callable"
+    );
+    assert_eq!(
+        beta.call("ping", json!({})).unwrap()["pong"],
+        true,
+        "ping is always allowed"
+    );
 
-    let gamma = Client::connect(&suite, "demo", "gamma").err().expect("unknown app rejected at hello");
+    let gamma = Client::connect(&suite, "demo", "gamma")
+        .err()
+        .expect("unknown app rejected at hello");
     assert_eq!(gamma.code, ERROR_NOT_ALLOWED);
 }
 
@@ -94,7 +135,15 @@ fn higher_rank_takes_over_with_a_retryable_handoff() {
     let s2 = suite.clone();
     let job = std::thread::spawn(move || {
         let mut events = 0;
-        let r = Client::call_retrying(&s2, "demo", "alpha", "slow", json!({"ms": 1500}), RetryPolicy::default(), &mut |_| events += 1);
+        let r = Client::call_retrying(
+            &s2,
+            "demo",
+            "alpha",
+            "slow",
+            json!({"ms": 1500}),
+            RetryPolicy::default(),
+            &mut |_| events += 1,
+        );
         (r, events)
     });
     std::thread::sleep(Duration::from_millis(300));
@@ -106,10 +155,16 @@ fn higher_rank_takes_over_with_a_retryable_handoff() {
 
     // A higher-ranked host takes over; the incumbent releases and exits.
     let b = Host::start(suite.root(), "shell", 0, d.path());
-    assert!(b.line(30).starts_with("READY"), "takeover host must come up");
+    assert!(
+        b.line(30).starts_with("READY"),
+        "takeover host must come up"
+    );
     assert_eq!(a.line(10), "RELEASED");
     assert!(a.child.wait().unwrap().success());
-    assert!(read_takeover(&suite, "demo").is_none(), "requester removes takeover.json");
+    assert!(
+        read_takeover(&suite, "demo").is_none(),
+        "requester removes takeover.json"
+    );
     assert_eq!(read_record(&suite, "demo").unwrap().role, "shell");
 
     let (r, events) = job.join().unwrap();
@@ -136,7 +191,10 @@ fn client_disconnect_is_seen_mid_request() {
     while !marker.exists() && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(marker.exists(), "host handler observed peer_closed() while the request was running");
+    assert!(
+        marker.exists(),
+        "host handler observed peer_closed() while the request was running"
+    );
 }
 
 #[test]
@@ -146,11 +204,26 @@ fn stale_record_from_a_killed_host_is_replaced() {
     assert!(a.line(20).starts_with("READY"));
     a.child.kill().unwrap();
     a.child.wait().unwrap();
-    assert!(read_record(&suite, "demo").is_some(), "kill -9 leaves service.json behind");
-    assert!(Client::connect(&suite, "demo", "alpha").is_err(), "stale record is unreachable");
+    assert!(
+        read_record(&suite, "demo").is_some(),
+        "kill -9 leaves service.json behind"
+    );
+    assert!(
+        Client::connect(&suite, "demo", "alpha").is_err(),
+        "stale record is unreachable"
+    );
     let b = Host::start(suite.root(), "cutright", 3, d.path());
-    assert!(b.line(20).starts_with("READY"), "a dead incumbent never blocks a new host");
-    assert_eq!(Client::connect(&suite, "demo", "alpha").unwrap().call("whoami", json!({})).unwrap()["role"], "cutright");
+    assert!(
+        b.line(20).starts_with("READY"),
+        "a dead incumbent never blocks a new host"
+    );
+    assert_eq!(
+        Client::connect(&suite, "demo", "alpha")
+            .unwrap()
+            .call("whoami", json!({}))
+            .unwrap()["role"],
+        "cutright"
+    );
 }
 
 #[test]
@@ -165,10 +238,19 @@ fn app_data_root_fails_closed_never_cwd_relative() {
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.starts_with("ERR no app-data root"), "got {text:?}");
     assert_eq!(out.status.code(), Some(5));
-    assert_eq!(std::fs::read_dir(cwd.path()).unwrap().count(), 0, "nothing created in the working directory");
+    assert_eq!(
+        std::fs::read_dir(cwd.path()).unwrap().count(),
+        0,
+        "nothing created in the working directory"
+    );
 
     // A relative override is refused too.
-    let out = Command::new(host_bin()).arg("--resolve").env_clear().env(ENV_SUITE_ROOT, "relative/dir").output().unwrap();
+    let out = Command::new(host_bin())
+        .arg("--resolve")
+        .env_clear()
+        .env(ENV_SUITE_ROOT, "relative/dir")
+        .output()
+        .unwrap();
     assert!(String::from_utf8_lossy(&out.stdout).starts_with("ERR suite root must be absolute"));
 
     // The explicit per-run alternative is a private temp directory that cleans up after itself.
@@ -182,15 +264,26 @@ fn app_data_root_fails_closed_never_cwd_relative() {
     assert!(!kept.exists());
 }
 
+#[cfg(unix)]
 fn mute_bin() -> PathBuf {
-    host_bin().with_file_name(if cfg!(windows) { "svc_mute.exe" } else { "svc_mute" })
+    host_bin().with_file_name(if cfg!(windows) {
+        "svc_mute.exe"
+    } else {
+        "svc_mute"
+    })
 }
 
 #[cfg(unix)]
 fn mute_host(root: &std::path::Path, mode: &str) -> Child {
-    let mut c = Command::new(mute_bin()).args([root.to_str().unwrap(), "demo", mode]).stdout(Stdio::piped()).spawn().expect("spawn mute host");
+    let mut c = Command::new(mute_bin())
+        .args([root.to_str().unwrap(), "demo", mode])
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn mute host");
     let mut line = String::new();
-    BufReader::new(c.stdout.as_mut().unwrap()).read_line(&mut line).unwrap();
+    BufReader::new(c.stdout.as_mut().unwrap())
+        .read_line(&mut line)
+        .unwrap();
     assert!(line.starts_with("READY"), "mute host ready: {line:?}");
     c
 }
@@ -204,11 +297,16 @@ fn connect_deadline_against_silent_and_never_accepting_hosts() {
         let (d, suite) = setup();
         let mut h = mute_host(suite.root(), mode);
         let t = Instant::now();
-        let err = Client::connect_with(&suite, "demo", "alpha", Some(Duration::from_millis(600))).err().expect("must time out");
+        let err = Client::connect_with(&suite, "demo", "alpha", Some(Duration::from_millis(600)))
+            .err()
+            .expect("must time out");
         assert_eq!(err.code, ERROR_TIMEOUT, "{mode}: {err}");
         assert!(!err.retryable, "{mode}: a timeout is not auto-retryable");
         let took = t.elapsed();
-        assert!(took >= Duration::from_millis(500) && took < Duration::from_secs(5), "{mode}: took {took:?}");
+        assert!(
+            took >= Duration::from_millis(500) && took < Duration::from_secs(5),
+            "{mode}: took {took:?}"
+        );
         let _ = h.kill();
         let _ = h.wait();
         drop(d);
@@ -224,13 +322,22 @@ fn request_deadline_aborts_and_never_replays() {
     let h = Host::start(suite.root(), "headless", 2, d.path());
     assert!(h.line(20).starts_with("READY"));
 
-    let c = Client::connect_with(&suite, "demo", "alpha", Some(Duration::from_millis(700))).unwrap();
+    let c =
+        Client::connect_with(&suite, "demo", "alpha", Some(Duration::from_millis(700))).unwrap();
     let t = Instant::now();
     let err = c.call("hang", json!({})).unwrap_err();
     assert_eq!(err.code, ERROR_TIMEOUT, "{err}");
     assert!(!err.retryable);
-    assert!(t.elapsed() < Duration::from_secs(5), "returned promptly: {:?}", t.elapsed());
-    assert_eq!(c.call("echo", json!({"a": 1})).unwrap_err().code, ERROR_CONNECTION_CLOSED, "aborted connection is dead");
+    assert!(
+        t.elapsed() < Duration::from_secs(5),
+        "returned promptly: {:?}",
+        t.elapsed()
+    );
+    assert_eq!(
+        c.call("echo", json!({"a": 1})).unwrap_err().code,
+        ERROR_CONNECTION_CLOSED,
+        "aborted connection is dead"
+    );
     let aborted = d.path().join("hang_aborted");
     let until = Instant::now() + Duration::from_secs(5);
     while !aborted.exists() && Instant::now() < until {
@@ -239,11 +346,29 @@ fn request_deadline_aborts_and_never_replays() {
     assert!(aborted.exists(), "host observed the abort");
 
     // call_retrying must not replay the timed-out request.
-    let policy = RetryPolicy { max_attempts: 5, backoff: Duration::from_millis(50), request_deadline: Some(Duration::from_millis(700)), ..RetryPolicy::default() };
-    let err = Client::call_retrying(&suite, "demo", "alpha", "hang", json!({}), policy, &mut |_| {}).unwrap_err();
+    let policy = RetryPolicy {
+        max_attempts: 5,
+        backoff: Duration::from_millis(50),
+        request_deadline: Some(Duration::from_millis(700)),
+        ..RetryPolicy::default()
+    };
+    let err = Client::call_retrying(
+        &suite,
+        "demo",
+        "alpha",
+        "hang",
+        json!({}),
+        policy,
+        &mut |_| {},
+    )
+    .unwrap_err();
     assert_eq!(err.code, ERROR_TIMEOUT);
     let calls = std::fs::read(d.path().join("hang_calls")).unwrap();
-    assert_eq!(calls.len(), 2, "one invocation per explicit submit (direct call + one retrying call), none replayed");
+    assert_eq!(
+        calls.len(),
+        2,
+        "one invocation per explicit submit (direct call + one retrying call), none replayed"
+    );
 }
 
 /// The shared convention: HeardRight, ScrapeRight and CutRight already root their shared
@@ -251,10 +376,24 @@ fn request_deadline_aborts_and_never_replays() {
 #[cfg(target_os = "macos")]
 #[test]
 fn default_root_is_the_shared_directory_the_apps_already_use() {
-    let out = Command::new(host_bin()).arg("--resolve").env_clear().env("HOME", "/Users/someone").output().unwrap();
-    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ROOT /Users/someone/Library/Application Support/Orthic Labs/shared");
+    let out = Command::new(host_bin())
+        .arg("--resolve")
+        .env_clear()
+        .env("HOME", "/Users/someone")
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "ROOT /Users/someone/Library/Application Support/Orthic Labs/shared"
+    );
     // HeardRight's override spellings still win, in HeardRight's order.
-    let out = Command::new(host_bin()).arg("--resolve").env_clear().env("ORTHIC_SHARED_DIR", "/a").env("RIGHT_SUITE_DIR", "/b").output().unwrap();
+    let out = Command::new(host_bin())
+        .arg("--resolve")
+        .env_clear()
+        .env("ORTHIC_SHARED_DIR", "/a")
+        .env("RIGHT_SUITE_DIR", "/b")
+        .output()
+        .unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ROOT /b");
 }
 
@@ -268,11 +407,18 @@ fn pid_liveness_never_signals_process_groups_and_reads_peer_records_without_a_ra
     let (_d, suite) = setup();
     std::fs::create_dir_all(suite.service_dir("speech-service")).unwrap();
     let hr = json!({"protocol_major": 1, "protocol_minor": 0, "role": "heard_right_shell", "pid": std::process::id(), "endpoint": "e", "engine_version": "0.9"});
-    std::fs::write(suite.service_dir("speech-service").join("service.json"), hr.to_string()).unwrap();
+    std::fs::write(
+        suite.service_dir("speech-service").join("service.json"),
+        hr.to_string(),
+    )
+    .unwrap();
     let rec = read_live_record(&suite, "speech-service").expect("live record");
     assert_eq!((rec.rank, rec.host_version()), (RANK_UNKNOWN, "0.9"));
     std::fs::write(suite.service_dir("speech-service").join("service.json"), json!({"protocol_major":1,"protocol_minor":0,"role":"x","pid":4000000000u32,"endpoint":"e","engine_version":"1"}).to_string()).unwrap();
-    assert!(read_live_record(&suite, "speech-service").is_none(), "dead pid is stale");
+    assert!(
+        read_live_record(&suite, "speech-service").is_none(),
+        "dead pid is stale"
+    );
 }
 
 #[test]
@@ -289,13 +435,20 @@ fn legacy_record_published_long_after_start_is_live_and_dead_spawn_claim_is_reco
     obj.remove("process_started_ms");
     obj.insert("started_ms".into(), json!(rec.started_ms + 10_000));
     std::fs::write(record_path(&suite, "demo"), legacy.to_string()).unwrap();
-    let live = read_live_record(&suite, "demo").expect("legacy record from a host that published >2s after start is live");
+    let live = read_live_record(&suite, "demo")
+        .expect("legacy record from a host that published >2s after start is live");
     assert_eq!(live.process_started_ms, 0);
     assert!(record_process_matches(&live));
-    assert!(matches!(adopt_or_spawn(&suite, "demo"), AdoptOrSpawn::Adopt(_)));
+    assert!(matches!(
+        adopt_or_spawn(&suite, "demo"),
+        AdoptOrSpawn::Adopt(_)
+    ));
     // A second host must see it as held, never delete it.
     let b = Host::start(suite.root(), "cutright", 3, d.path());
-    assert!(!b.line(20).starts_with("READY"), "a live compatible record is never deleted on timestamp mismatch");
+    assert!(
+        !b.line(20).starts_with("READY"),
+        "a live compatible record is never deleted on timestamp mismatch"
+    );
     assert!(read_record(&suite, "demo").is_some());
     // A modern record whose process birth time disagrees is a reused pid.
     let mut reused = rec.clone();
@@ -307,14 +460,26 @@ fn legacy_record_published_long_after_start_is_live_and_dead_spawn_claim_is_reco
     let claim = SpawnClaim::path(&suite, "demo");
     std::fs::write(&claim, "4000000000 1").unwrap();
     let got = SpawnClaim::acquire(&suite, "demo").expect("unlocked leftover claim recovered");
-    assert!(matches!(SpawnClaim::acquire(&suite, "demo"), Err(SpawnClaimError::AlreadyHeld(_))));
+    assert!(matches!(
+        SpawnClaim::acquire(&suite, "demo"),
+        Err(SpawnClaimError::AlreadyHeld(_))
+    ));
     drop(got);
     SpawnClaim::acquire(&suite, "demo").expect("released on drop");
 }
 
 fn claim_bin() -> PathBuf {
     let exe = std::env::current_exe().unwrap();
-    exe.parent().unwrap().parent().unwrap().join("examples").join(if cfg!(windows) { "svc_claim.exe" } else { "svc_claim" })
+    exe.parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join(if cfg!(windows) {
+            "svc_claim.exe"
+        } else {
+            "svc_claim"
+        })
 }
 
 #[test]
@@ -327,21 +492,48 @@ fn competing_recoverer_processes_yield_exactly_one_owner_and_killed_owner_is_rec
     let mut racers: Vec<Host> = Vec::new();
     for _ in 0..8 {
         let mut child = Command::new(claim_bin())
-            .args([suite.root().to_str().unwrap(), "demo", go.to_str().unwrap(), "4000"])
-            .stdout(Stdio::piped()).spawn().expect("spawn claim racer");
+            .args([
+                suite.root().to_str().unwrap(),
+                "demo",
+                go.to_str().unwrap(),
+                "4000",
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("spawn claim racer");
         let out = child.stdout.take().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || { for l in BufReader::new(out).lines().map_while(Result::ok) { let _ = tx.send(l); } });
+        std::thread::spawn(move || {
+            for l in BufReader::new(out).lines().map_while(Result::ok) {
+                let _ = tx.send(l);
+            }
+        });
         racers.push(Host { child, lines: rx });
     }
     std::thread::sleep(Duration::from_millis(500)); // all racers are polling for the go file
     std::fs::write(&go, "go").unwrap();
     let results: Vec<String> = racers.iter().map(|r| r.line(20)).collect();
-    let owners: Vec<usize> = results.iter().enumerate().filter(|(_, l)| l.starts_with("OWNER")).map(|(i, _)| i).collect();
-    assert_eq!(owners.len(), 1, "exactly one owner among racers: {results:?}");
-    assert_eq!(results.iter().filter(|l| l.starts_with("HELD")).count(), 7, "{results:?}");
+    let owners: Vec<usize> = results
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.starts_with("OWNER"))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(
+        owners.len(),
+        1,
+        "exactly one owner among racers: {results:?}"
+    );
+    assert_eq!(
+        results.iter().filter(|l| l.starts_with("HELD")).count(),
+        7,
+        "{results:?}"
+    );
     // Owner is live and still holds: this process cannot take it.
-    assert!(matches!(SpawnClaim::acquire(&suite, "demo"), Err(SpawnClaimError::AlreadyHeld(_))));
+    assert!(matches!(
+        SpawnClaim::acquire(&suite, "demo"),
+        Err(SpawnClaimError::AlreadyHeld(_))
+    ));
     // SIGKILL the owner: the claim becomes reclaimable immediately.
     let mut owner = racers.swap_remove(owners[0]);
     owner.child.kill().unwrap();
@@ -351,7 +543,9 @@ fn competing_recoverer_processes_yield_exactly_one_owner_and_killed_owner_is_rec
     loop {
         match SpawnClaim::acquire(&suite, "demo") {
             Ok(_) => break,
-            Err(SpawnClaimError::AlreadyHeld(_)) if t.elapsed() < Duration::from_secs(10) => std::thread::sleep(Duration::from_millis(50)),
+            Err(SpawnClaimError::AlreadyHeld(_)) if t.elapsed() < Duration::from_secs(10) => {
+                std::thread::sleep(Duration::from_millis(50))
+            }
             Err(e) => panic!("killed owner's claim not reclaimable: {e}"),
         }
     }

@@ -5,10 +5,12 @@ edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps."
 license = "MIT OR Apache-2.0"
-publish = false
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-process = { path = "../rightkit-process" }
+rightkit-process = { version = "=0.2.0", path = "../rightkit-process" }
 portable-pty = "0.9"
 
 [target.'cfg(unix)'.dependencies]

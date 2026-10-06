@@ -19,9 +19,17 @@ pub(crate) struct ChromeProc {
 pub(crate) fn spawn_chrome(exe: &Path, args: &[String], timeout: Duration) -> Result<ChromeProc> {
     let mut cmd = OwnedCommand::new(exe);
     cmd.windows_hide();
-    cmd.command_mut().args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| BrowserError::Launch(e.to_string()))?;
-    let stderr = child.take_stderr().ok_or_else(|| BrowserError::Launch("no stderr".into()))?;
+    cmd.command_mut()
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| BrowserError::Launch(e.to_string()))?;
+    let stderr = child
+        .take_stderr()
+        .ok_or_else(|| BrowserError::Launch("no stderr".into()))?;
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     // Keeps draining stderr after the URL line so Chrome never blocks on a full pipe.
     std::thread::spawn(move || {
@@ -35,7 +43,11 @@ pub(crate) fn spawn_chrome(exe: &Path, args: &[String], timeout: Duration) -> Re
         .recv_timeout(timeout)
         .map_err(|_| BrowserError::Launch("chrome did not report a DevTools endpoint".into()))?;
     let watchdog = spawn_watchdog(child.id());
-    Ok(ChromeProc { child, _watchdog: watchdog, ws_url })
+    Ok(ChromeProc {
+        child,
+        _watchdog: watchdog,
+        ws_url,
+    })
 }
 
 #[cfg(unix)]
@@ -47,7 +59,13 @@ kill -0 "$2" 2>/dev/null && kill -KILL -- "-$2" 2>/dev/null
 exit 0"#;
     let mut cmd = OwnedCommand::new("/bin/sh");
     cmd.command_mut()
-        .args(["-c", script, "rk-watchdog", &std::process::id().to_string(), &chrome_pgid.to_string()])
+        .args([
+            "-c",
+            script,
+            "rk-watchdog",
+            &std::process::id().to_string(),
+            &chrome_pgid.to_string(),
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());

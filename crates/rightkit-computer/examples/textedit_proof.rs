@@ -1,8 +1,11 @@
 //! Proof: drive TextEdit in the background; frontmost app must be unchanged.
 //! Run: rightkit cargo run -p rightkit-computer --example textedit_proof
+#[cfg(target_os = "macos")]
 use rightkit_computer::{model::Node, safety::Policy, *};
+#[cfg(target_os = "macos")]
 use std::{process::Command, thread::sleep, time::Duration};
 
+#[cfg(target_os = "macos")]
 fn main() {
     let st = status();
     println!("status: {st:?}");
@@ -71,4 +74,10 @@ fn main() {
     let front1 = frontmost_pid().expect("frontmost");
     println!("frontmost after: pid {front1}");
     if front0 == front1 { println!("PROOF OK: frontmost app unchanged"); } else { println!("PROOF FAIL: focus moved"); std::process::exit(1); }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    eprintln!("textedit_proof requires macOS & TextEdit");
+    std::process::exit(1);
 }

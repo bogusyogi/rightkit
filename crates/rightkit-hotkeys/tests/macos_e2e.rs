@@ -1,6 +1,10 @@
 //! Real macOS event-path checks. Run on a host with Accessibility and Input Monitoring granted to
 //! the test process. Synthetic sources are private so no user modifier state is changed.
 
+// `harness = false`: every host needs a `main`, so the macOS gate lives in a module.
+#[cfg(target_os = "macos")]
+mod mac {
+
 use std::sync::{mpsc, Arc, atomic::{AtomicUsize, Ordering}};
 use std::time::Duration;
 
@@ -25,7 +29,7 @@ fn wait<T>(rx: &mpsc::Receiver<T>) -> T {
     rx.recv_timeout(Duration::from_secs(3)).expect("event callback timed out")
 }
 
-fn main() {
+pub fn main() {
     require_access();
     assert!(rightkit_hotkeys::macos::synth::init_background_app(), "background app host failed");
     carbon_press_release();
@@ -110,4 +114,15 @@ fn middle_button_filters_non_middle() {
     pump_run_loop(0.2);
     wait(&rx);
     drop(tap);
+}
+}
+
+#[cfg(target_os = "macos")]
+fn main() {
+    mac::main()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    eprintln!("macos_e2e: macOS-only end-to-end gate; nothing to run on this host");
 }
