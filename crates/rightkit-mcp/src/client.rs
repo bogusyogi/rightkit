@@ -246,7 +246,7 @@ impl HttpConn {
 fn sse_find(body: &str, id: u64) -> Option<Value> {
     let mut data = String::new();
     let mut found = None;
-    let mut flush = |data: &mut String, found: &mut Option<Value>| {
+    let flush = |data: &mut String, found: &mut Option<Value>| {
         if let Ok(v) = serde_json::from_str::<Value>(data) {
             if v.get("id").and_then(Value::as_u64) == Some(id) && v.get("method").is_none() {
                 *found = Some(v);
