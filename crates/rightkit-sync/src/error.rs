@@ -17,6 +17,9 @@ pub enum SyncError {
     ZoneMissing,
     /// Durable local state could not be written or read back.
     Persistence(String),
+    /// Conditional save refused: the server record changed since the change
+    /// tag the write was based on. The outcome carries the server record.
+    Conflict,
     /// The auth generation changed or sync was disabled mid-pass.
     Cancelled,
 }
@@ -38,6 +41,7 @@ impl std::fmt::Display for SyncError {
             Self::TokenExpired => write!(f, "change token expired"),
             Self::ZoneMissing => write!(f, "sync zone missing"),
             Self::Cancelled => write!(f, "sync cancelled"),
+            Self::Conflict => write!(f, "server record changed"),
         }
     }
 }

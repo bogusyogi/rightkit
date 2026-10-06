@@ -4,11 +4,15 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::fs::{File, OpenOptions, TryLockError};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 const ENVELOPE_VERSION: &str = "schemaVersion";
 const ENVELOPE_NS: &str = "namespace";
 const ENVELOPE_VALUES: &str = "values";
+const ENVELOPE_REVISION: &str = "revision";
+const LOCK_WAIT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -22,6 +26,10 @@ pub enum Error {
     Invalid(String),
     #[error("invalid schema: {0}")]
     BadSchema(&'static str),
+    #[error("settings changed since revision {expected}; now at revision {actual}")]
+    Conflict { expected: u64, actual: u64 },
+    #[error("timed out waiting for the settings lock at {0}")]
+    LockTimeout(String),
 }
 
 /// One forward transform over the raw settings object, bringing it to `to`.
@@ -91,6 +99,44 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 struct Inner<T> {
     value: T,
+    revision: u64,
+}
+
+/// Exclusive cross-process transaction guard (OS advisory lock on a sidecar
+/// file; released when dropped or when the process dies).
+struct FileGuard(File);
+
+impl Drop for FileGuard {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+fn lock_path(p: &Path) -> PathBuf {
+    let mut s = p.as_os_str().to_owned();
+    s.push(".lock");
+    PathBuf::from(s)
+}
+
+fn lock_file(settings: &Path) -> Result<FileGuard, Error> {
+    let path = lock_path(settings);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path)?;
+    let start = Instant::now();
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(FileGuard(file)),
+            Err(TryLockError::WouldBlock) => {
+                if start.elapsed() >= LOCK_WAIT {
+                    return Err(Error::LockTimeout(path.display().to_string()));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(TryLockError::Error(e)) => return Err(e.into()),
+        }
+    }
 }
 
 pub struct Store<T> {
@@ -107,48 +153,101 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
     pub fn open(root: &Path, schema: Schema) -> Result<Self, Error> {
         schema.validate()?;
         let path = root.join(&schema.namespace).join("settings.json");
-        let (value, dirty) = load::<T>(&path, &schema)?;
-        let store = Store {
+        let _file = lock_file(&path)?;
+        let loaded = load::<T>(&path, &schema)?;
+        let mut revision = loaded.revision;
+        if loaded.dirty {
+            revision += 1;
+            persist(&path, &schema, &loaded.value, revision)?;
+        }
+        Ok(Store {
             path,
             schema,
-            inner: Mutex::new(Inner { value }),
+            inner: Mutex::new(Inner { value: loaded.value, revision }),
             listeners: Arc::default(),
             next_id: Mutex::new(0),
-        };
-        if dirty {
-            let v = lock(&store.inner).value.clone();
-            store.persist(&v)?;
-        }
-        Ok(store)
+        })
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Current settings. Reads the file, so changes committed by another
+    /// store or process on the same file are visible; falls back to the last
+    /// known value if the file cannot be read right now.
     pub fn get(&self) -> T {
-        lock(&self.inner).value.clone()
+        let mut g = lock(&self.inner);
+        if let Some(l) = self.peek() {
+            g.value = l.value;
+            g.revision = l.revision;
+        }
+        g.value.clone()
     }
 
-    /// Mutate through a closure. Saved atomically; on any failure the in-memory
-    /// value is unchanged. Subscribers fire after the save, outside the lock.
+    /// Monotonic revision of the on-disk settings (bumped by every committed
+    /// write from any process). Use with [`Store::update_at`].
+    pub fn revision(&self) -> u64 {
+        let _ = self.get();
+        lock(&self.inner).revision
+    }
+
+    /// Lock-free read of the committed file (writers replace it atomically).
+    fn peek(&self) -> Option<Loaded<T>> {
+        match read_doc(&self.path) {
+            Read::Ok { version, values, revision } if version == self.schema.version => {
+                let (value, _) = repair::<T>(values).ok()?;
+                Some(Loaded { value, dirty: false, revision })
+            }
+            _ => None,
+        }
+    }
+
+    /// Mutate through a closure. This is a cross-process transaction: take the
+    /// file lock, reload the committed settings, apply `f` to that fresh value,
+    /// save atomically, release. Concurrent updates to different keys from
+    /// other stores or processes are therefore never lost. On any failure the
+    /// in-memory value is unchanged. Subscribers fire after the save, outside the lock.
     pub fn update<R>(&self, f: impl FnOnce(&mut T) -> Result<R, Error>) -> Result<R, Error> {
+        self.transact(None, f)
+    }
+
+    /// Compare-and-swap form of [`Store::update`]: fails with
+    /// [`Error::Conflict`] unless the committed revision still equals `expected`
+    /// (from [`Store::revision`]); nothing is written on conflict.
+    pub fn update_at<R>(&self, expected: u64, f: impl FnOnce(&mut T) -> Result<R, Error>) -> Result<R, Error> {
+        self.transact(Some(expected), f)
+    }
+
+    fn transact<R>(&self, expected: Option<u64>, f: impl FnOnce(&mut T) -> Result<R, Error>) -> Result<R, Error> {
         let (out, change) = {
             let mut g = lock(&self.inner);
-            let mut next = g.value.clone();
+            let _file = lock_file(&self.path)?;
+            let loaded = load::<T>(&self.path, &self.schema)?;
+            if let Some(expected) = expected {
+                if loaded.revision != expected {
+                    return Err(Error::Conflict { expected, actual: loaded.revision });
+                }
+            }
+            let mut next = loaded.value.clone();
             let out = f(&mut next)?;
-            let change = diff(&to_object(&g.value)?, &to_object(&next)?);
-            self.persist(&next)?;
+            let before = to_object(&loaded.value)?;
+            let after = to_object(&next)?;
+            let change = diff(&before, &after);
+            let mut revision = loaded.revision;
+            if loaded.dirty || !change.keys.is_empty() {
+                revision += 1;
+                persist(&self.path, &self.schema, &next, revision)?;
+            }
+            // `change` is the delta this update committed on top of the fresh read.
             g.value = next;
+            g.revision = revision;
             (out, change)
         };
         self.emit(change);
         Ok(out)
     }
 
-    /// Merge-patch from untrusted input. Only keys that exist in the typed
-    /// shape and deserialize to it are accepted; otherwise nothing changes.
-    /// `allow` (if given) restricts patchable keys. `null` resets a key to its default.
     pub fn patch(&self, patch: &Value, allow: Option<&[&str]>) -> Result<T, Error> {
         let obj = patch.as_object().ok_or_else(|| Error::Invalid("patch must be an object".into()))?;
         let defaults = to_object(&T::default())?;
@@ -194,16 +293,25 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
             l(&change);
         }
     }
+}
 
-    fn persist(&self, v: &T) -> Result<(), Error> {
-        if self.path.exists() {
-            // Keep the last good file; best-effort.
-            let _ = fs::copy(&self.path, bak_path(&self.path));
-        }
-        let doc = envelope(&self.schema, to_object(v)?);
-        atomic_write(&self.path, &serde_json::to_vec_pretty(&doc)?)?;
-        Ok(())
+fn persist<T: Serialize>(path: &Path, schema: &Schema, v: &T, revision: u64) -> Result<(), Error> {
+    if path.exists() {
+        // Keep the last good file; best-effort.
+        let _ = fs::copy(path, bak_path(path));
     }
+    let mut doc = envelope(schema, to_object(v)?);
+    if let Value::Object(m) = &mut doc {
+        m.insert(ENVELOPE_REVISION.into(), revision.into());
+    }
+    atomic_write(path, &serde_json::to_vec_pretty(&doc)?)?;
+    Ok(())
+}
+
+struct Loaded<T> {
+    value: T,
+    dirty: bool,
+    revision: u64,
 }
 
 fn bak_path(p: &Path) -> PathBuf {
@@ -235,7 +343,7 @@ fn diff(old: &Map<String, Value>, new: &Map<String, Value>) -> Change {
 }
 
 enum Read {
-    Ok { version: u32, values: Map<String, Value> },
+    Ok { version: u32, values: Map<String, Value>, revision: u64 },
     Missing,
     Corrupt,
 }
@@ -244,11 +352,12 @@ fn read_doc(path: &Path) -> Read {
     let Ok(bytes) = fs::read(path) else { return Read::Missing };
     let Ok(Value::Object(mut doc)) = serde_json::from_slice::<Value>(&bytes) else { return Read::Corrupt };
     let version = doc.get(ENVELOPE_VERSION).and_then(Value::as_u64);
+    let revision = doc.get(ENVELOPE_REVISION).and_then(Value::as_u64).unwrap_or(0);
     match (version, doc.remove(ENVELOPE_VALUES)) {
-        (Some(v), Some(Value::Object(values))) => Read::Ok { version: v as u32, values },
+        (Some(v), Some(Value::Object(values))) => Read::Ok { version: v as u32, values, revision },
         (Some(_), _) => Read::Corrupt,
         // Legacy flat file: the whole document is version-0 values.
-        (None, _) => Read::Ok { version: 0, values: doc },
+        (None, _) => Read::Ok { version: 0, values: doc, revision: 0 },
     }
 }
 
@@ -262,19 +371,20 @@ fn quarantine(path: &Path) {
     let _ = fs::rename(path, PathBuf::from(s));
 }
 
-/// Returns (value, needs_persist).
-fn load<T: Serialize + DeserializeOwned + Default>(path: &Path, schema: &Schema) -> Result<(T, bool), Error> {
-    let (version, values, mut dirty) = match read_doc(path) {
-        Read::Ok { version, values } => (version, values, false),
+/// Read, recover, migrate and repair the committed settings. Persists nothing;
+/// callers holding the file lock write when `dirty`.
+fn load<T: Serialize + DeserializeOwned + Default>(path: &Path, schema: &Schema) -> Result<Loaded<T>, Error> {
+    let (version, values, mut dirty, revision) = match read_doc(path) {
+        Read::Ok { version, values, revision } => (version, values, false, revision),
         Read::Missing => match read_doc(&bak_path(path)) {
-            Read::Ok { version, values } => (version, values, true),
-            _ => (schema.version, Map::new(), true),
+            Read::Ok { version, values, revision } => (version, values, true, revision),
+            _ => (schema.version, Map::new(), true, 0),
         },
         Read::Corrupt => {
             quarantine(path);
             match read_doc(&bak_path(path)) {
-                Read::Ok { version, values } => (version, values, true),
-                _ => (schema.version, Map::new(), true),
+                Read::Ok { version, values, revision } => (version, values, true, revision),
+                _ => (schema.version, Map::new(), true, 0),
             }
         }
     };
@@ -289,7 +399,7 @@ fn load<T: Serialize + DeserializeOwned + Default>(path: &Path, schema: &Schema)
         dirty = true;
     }
     let (value, repaired) = repair::<T>(values)?;
-    Ok((value, dirty || repaired))
+    Ok(Loaded { value, dirty: dirty || repaired, revision })
 }
 
 /// Deserialize, dropping individual invalid or unknown-typed fields back to

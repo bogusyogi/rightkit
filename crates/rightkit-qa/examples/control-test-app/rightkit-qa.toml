@@ -1,0 +1,11 @@
+# Config for rightkit-control's standalone test app (the UI proof target).
+app = "control-test-app"
+app_root = "."
+evidence_dir = ".cache/rightkit-qa"
+scenarios = ["scenarios"]
+
+[ui]
+binaries = { darwin = "target/debug/control-test-app", windows = "target/debug/control-test-app.exe" }
+window_label = "main"
+mode = "hidden"
+package = "control-test-app"

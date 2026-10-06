@@ -1,0 +1,48 @@
+/* @rightkit/settings-ui — layout for the settings frame and standard sections. Reads the suite tokens from
+   @rightkit/app-shell/shell.css (--plane --ink --accent --line ...); brings no colours of its own. */
+.rk-settings { display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100%; min-height: 0; color: var(--ink); background: var(--plane); font-size: 13.5px; }
+.rk-settings *, .rk-settings *::before, .rk-settings *::after { box-sizing: border-box; }
+.rk-settings__nav { display: flex; flex-direction: column; gap: 2px; padding: 18px 12px; border-right: .5px solid var(--hairline); overflow-y: auto; background: var(--chrome); }
+.rk-settings__title { margin: 0 8px 10px; font-size: 15px; font-weight: 650; }
+.rk-settings__search { width: 100%; margin-bottom: 10px; }
+.rk-settings__group { margin: 14px 8px 4px; font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.rk-settings__item, .rk-settings__hit { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.rk-settings__item:hover, .rk-settings__hit:hover { background: var(--fill); }
+.rk-settings__item.is-active { background: var(--sel); font-weight: 600; }
+.rk-settings__item:focus-visible, .rk-settings__hit:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
+.rk-settings__hit { padding-left: 30px; color: var(--ink-2); font-size: 12.5px; }
+.rk-settings__icon { display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--ink-2); }
+.rk-settings__none { margin: 10px; color: var(--ink-2); }
+.rk-settings__body { position: relative; min-width: 0; overflow-y: auto; padding: 24px 32px 40px; }
+.rk-settings__section { max-width: 760px; }
+.rk-settings__h1 { margin: 0 0 18px; font-size: 22px; line-height: 1.2; font-weight: 650; letter-spacing: -.012em; }
+.rk-settings__loading { color: var(--ink-2); }
+.rk-settings__error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding: 9px 12px; border-radius: 10px; background: var(--bad-soft); color: var(--bad); }
+.rk-settings__saving { position: absolute; top: 10px; right: 16px; font-size: 12px; color: var(--ink-2); }
+.rk-sg { margin-bottom: 22px; }
+.rk-sg__title { margin: 0 0 6px; font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
+.rk-sg__desc { margin: 0 0 10px; color: var(--ink-2); font-size: 12.5px; max-width: 62ch; text-wrap: pretty; }
+.rk-sg__rows { background: var(--panel); border-radius: var(--radius); box-shadow: var(--card); }
+.rk-sr { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: .5px solid var(--hairline); transition: background-color .3s; }
+.rk-sr:last-child { border-bottom: 0; }
+.rk-sr--stacked { grid-template-columns: minmax(0, 1fr); }
+.rk-sr__label { font-weight: 600; }
+.rk-sr__desc { margin-top: 2px; color: var(--ink-2); font-size: 12.5px; text-wrap: pretty; }
+.rk-sr__err { color: var(--bad); }
+.rk-sr__control { min-width: 0; }
+.rk-sr__buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.rk-sr__inline { display: flex; gap: 8px; }
+.rk-sr__inline .rk-input { flex: 1; }
+.rk-sr.is-revealed { background: var(--accent-soft); }
+.rk-sprog { height: 6px; margin-top: 8px; border-radius: 99px; background: var(--fill-3); overflow: hidden; }
+.rk-sprog > i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+.rk-swatches { display: flex; gap: 8px; }
+.rk-swatch { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--line-strong); cursor: pointer; }
+.rk-swatch.is-on { box-shadow: 0 0 0 2px var(--plane), 0 0 0 4px var(--ink); }
+.rk-swatch:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.rk-diag { max-height: 260px; overflow: auto; margin: 0 0 22px; padding: 12px 14px; border-radius: 10px; background: var(--sunk); font: 12px/1.5 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 640px) {
+  .rk-settings { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .rk-settings__nav { border-right: 0; border-bottom: .5px solid var(--hairline); max-height: 40vh; }
+  .rk-settings__body { padding: 18px 16px 32px; }
+}

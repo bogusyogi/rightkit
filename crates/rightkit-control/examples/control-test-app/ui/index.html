@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><title>RkControlTest</title>
+<style>
+body{font:14px system-ui;margin:16px;background:#fff}
+button{padding:10px 18px;font-size:15px}
+#hov{width:160px;height:60px;background:#ddd;margin:12px 0;display:flex;align-items:center;justify-content:center}
+#hov:hover{background:#2a2}
+#box{width:80px;height:50px;background:#36c;position:relative;left:0;top:0;cursor:grab;user-select:none}
+#scroll{height:100px;overflow:auto;border:1px solid #999;width:300px}
+#scroll div{height:1000px}
+pre{background:#f4f4f4;padding:8px}
+</style>
+<button id="btn">Click me</button> <input id="inp" placeholder="type here" autocomplete="off"> <input id="pw" type="password" value="hunter2-not-a-real-secret">
+<div id="hov">hover me</div>
+<div id="box">drag</div>
+<div id="scroll"><div>tall</div></div>
+<pre id="state"></pre>
+<script>
+const S={clicks:0,trusted:[],hoverEnter:0,hoverNow:false,dragDx:0,dragDy:0,keys:[],value:'',scrollTop:0,cmdK:false};
+window.__state=S;
+const out=()=>{S.hoverNow=document.getElementById('hov').matches(':hover');S.value=document.getElementById('inp').value;S.scrollTop=document.getElementById('scroll').scrollTop;document.getElementById('state').textContent=JSON.stringify(S)};
+btn.addEventListener('click',e=>{S.clicks++;S.trusted.push(e.isTrusted);out()});
+hov.addEventListener('mouseenter',()=>{S.hoverEnter++;out()});
+let d=null;
+box.addEventListener('mousedown',e=>{d={x:e.clientX,y:e.clientY}});
+addEventListener('mousemove',e=>{if(d){S.dragDx=e.clientX-d.x;S.dragDy=e.clientY-d.y;box.style.left=S.dragDx+'px';box.style.top=S.dragDy+'px';out()}});
+addEventListener('mouseup',()=>{d=null;out()});
+addEventListener('keydown',e=>{S.keys.push(e.key+(e.metaKey?'+cmd':''));if(e.metaKey&&e.key==='k')S.cmdK=true;out()});
+inp.addEventListener('input',out);
+document.getElementById('scroll').addEventListener('scroll',out);
+setInterval(out,200);out();
+</script>

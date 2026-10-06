@@ -11,7 +11,25 @@
 //! The caller configures the dynamic runtime through `rightkit-ort`, supplies
 //! an absolute model directory, and supplies resolved artifact provenance.
 
+mod native;
+mod router;
 mod support;
+mod types;
+pub mod worker;
+
+pub use native::{canary_png, native_backend};
+pub use router::{
+    BackendPreference, Isolation, Ocr, OcrOptions, OcrResult, OnnxConfig,
+};
+pub use types::{
+    decode_encoded, is_backend_unavailable, OcrBackend, OcrLine, OcrRect, MACOS_VISION_UNAVAILABLE,
+    MAX_PIXELS, OCR_UNSUPPORTED_PLATFORM, WINDOWS_OCR_UNAVAILABLE,
+};
+pub use worker::WorkerCommand;
+#[cfg(target_os = "macos")]
+pub use native::vision;
+#[cfg(windows)]
+pub use native::win_native;
 
 use image::{imageops, RgbImage};
 use ort::{session::Session, value::Tensor};
@@ -19,8 +37,10 @@ use rightkit_ort::ProviderDiagnostic;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use support::ctc_greedy_decode;
 use support::{
-    build_session, crop_box, ctc_greedy_decode, dedup_boxes, det_chw_data, det_net_size,
+    build_session, crop_box, ctc_greedy_decode_scored, dedup_boxes, det_chw_data, det_net_size,
     extract_boxes, group_into_lines, load_image, load_vocab, rec_chw_data, BBox, DET_BAND_OVERLAP,
     DET_MAX_W, DET_TILE_H,
 };
@@ -153,6 +173,10 @@ pub enum OcrError {
         actual: String,
     },
     Runtime(String),
+    /// The requested backend cannot run on this machine (capability verdict).
+    BackendUnavailable(String),
+    /// A fallback ONNX engine was needed but no [`OnnxConfig`] was supplied.
+    NoFallbackConfigured(String),
 }
 
 impl fmt::Display for OcrError {
@@ -185,6 +209,10 @@ impl fmt::Display for OcrError {
                 path.display()
             ),
             Self::Runtime(message) => write!(f, "OCR runtime error: {message}"),
+            Self::BackendUnavailable(message) => write!(f, "OCR backend unavailable: {message}"),
+            Self::NoFallbackConfigured(message) => {
+                write!(f, "OCR native backend unavailable and no ONNX fallback configured: {message}")
+            }
         }
     }
 }
@@ -291,32 +319,73 @@ impl OcrEngine {
 
     /// OCR a pre-loaded RGB image; returns newline-joined text.
     pub fn run(&mut self, img: &RgbImage) -> Result<String, OcrError> {
+        let lines = self.run_lines(img)?;
+        Ok(lines
+            .into_iter()
+            .map(|l| l.text)
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
+
+    /// OCR with per-line geometry: one [`OcrLine`] per visual line, rect =
+    /// union of the line's detected boxes normalized to the image (top-left
+    /// origin), confidence = mean CTC character score when the recognizer
+    /// emits probabilities.
+    pub fn run_lines(&mut self, img: &RgbImage) -> Result<Vec<OcrLine>, OcrError> {
         let boxes = self.detect(img)?;
         if boxes.is_empty() {
-            return Ok(String::new());
+            return Ok(Vec::new());
         }
+        let (iw, ih) = (img.width().max(1) as f32, img.height().max(1) as f32);
         // Group boxes into visual lines (baseline-overlap), then read each line
         // left-to-right. Without this, higher-resolution detection fragments big
         // display text into per-word boxes that a naive top-down sort scrambles.
         let rows = group_into_lines(boxes);
-        let mut out_lines = Vec::new();
+        let mut out = Vec::new();
         for row in rows {
             let mut words = Vec::new();
+            let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
+            let (mut conf_sum, mut conf_n, mut conf_ok) = (0.0f32, 0u32, true);
             for bbox in &row {
                 let crop = crop_box(img, bbox);
                 if crop.width() == 0 || crop.height() == 0 {
                     continue;
                 }
-                let t = self.recognize(&crop)?.trim().to_string();
-                if !t.is_empty() {
-                    words.push(t);
+                let (text, conf) = self.recognize(&crop)?;
+                let t = text.trim().to_string();
+                if t.is_empty() {
+                    continue;
+                }
+                words.push(t);
+                x0 = x0.min(bbox.x0);
+                y0 = y0.min(bbox.y0);
+                x1 = x1.max(bbox.x1);
+                y1 = y1.max(bbox.y1);
+                match conf {
+                    Some(c) => {
+                        conf_sum += c;
+                        conf_n += 1;
+                    }
+                    None => conf_ok = false,
                 }
             }
-            if !words.is_empty() {
-                out_lines.push(words.join(" "));
+            if words.is_empty() {
+                continue;
             }
+            let (x0, y0) = (x0 as f32 / iw, y0 as f32 / ih);
+            let (x1, y1) = ((x1 as f32 / iw).min(1.0), (y1 as f32 / ih).min(1.0));
+            out.push(OcrLine {
+                text: words.join(" "),
+                rect: OcrRect {
+                    x: x0,
+                    y: y0,
+                    width: (x1 - x0).max(0.0),
+                    height: (y1 - y0).max(0.0),
+                },
+                confidence: (conf_ok && conf_n > 0).then(|| conf_sum / conf_n as f32),
+            });
         }
-        Ok(out_lines.join("\n"))
+        Ok(out)
     }
 
     // -----------------------------------------------------------------------
@@ -433,7 +502,7 @@ impl OcrEngine {
     // Recognition
     // -----------------------------------------------------------------------
 
-    fn recognize(&mut self, crop: &RgbImage) -> Result<String, String> {
+    fn recognize(&mut self, crop: &RgbImage) -> Result<(String, Option<f32>), String> {
         let (h, w) = (crop.height(), crop.width());
         let new_w = ((48.0 / h as f32) * w as f32).max(4.0) as u32;
         let strip = imageops::resize(crop, new_w, 48, imageops::FilterType::Lanczos3);
@@ -461,7 +530,12 @@ impl OcrEngine {
         // logits_flat: [1, T, V]; skip batch dim.
         let logits = &logits_flat[0..t_len * vocab_size];
 
-        Ok(ctc_greedy_decode(logits, t_len, vocab_size, &self.vocab))
+        Ok(ctc_greedy_decode_scored(
+            logits,
+            t_len,
+            vocab_size,
+            &self.vocab,
+        ))
     }
 }
 

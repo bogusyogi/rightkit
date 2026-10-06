@@ -1,0 +1,1 @@
+{"protocol_major":1,"protocol_minor":0,"schema_name":"engine_error","schema_version":1,"engine_version":"fake-engine/0.1.0","request_id":"r1","session_id":null,"trace_id":"svc-1","payload":null,"error":{"code":"speech_service_host_handoff","message":"speech service host is handing off","retryable":true,"diagnostics":null}}

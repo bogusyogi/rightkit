@@ -35,6 +35,40 @@ impl OwnedCommand {
         &mut self.command
     }
 
+    /// Run the child with a scrubbed environment: everything is cleared, then
+    /// only the named variables that are set in this process are copied
+    /// across (HeardRight's sidecar whitelist). Include `PATH` and the
+    /// platform basics yourself, or start from [`DEFAULT_ENV_ALLOWLIST`].
+    /// Variables set explicitly afterwards through [`Self::command_mut`] win.
+    pub fn env_allowlist<I, S>(&mut self, keys: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let kept: Vec<_> = keys
+            .into_iter()
+            .filter_map(|k| std::env::var_os(k.as_ref()).map(|v| (k.as_ref().to_os_string(), v)))
+            .collect();
+        self.command.env_clear();
+        for (k, v) in kept {
+            self.command.env(k, v);
+        }
+        self
+    }
+
+    /// Remove the named variables from the child's inherited environment
+    /// (secrets, BYOK keys) without clearing the rest.
+    pub fn env_strip<I, S>(&mut self, keys: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        for k in keys {
+            self.command.env_remove(k);
+        }
+        self
+    }
+
     pub fn windows_hide(&mut self) -> &mut Self {
         self.windows_hidden = true;
         self
@@ -45,9 +79,27 @@ impl OwnedCommand {
     }
 }
 
+/// Variables a sidecar normally needs to run at all; a base for
+/// [`OwnedCommand::env_allowlist`].
+pub const DEFAULT_ENV_ALLOWLIST: &[&str] = &[
+    "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP", "SystemRoot", "SYSTEMROOT",
+    "USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramData", "COMSPEC", "PATHEXT", "XDG_DATA_HOME", "XDG_RUNTIME_DIR",
+];
+
 #[derive(Debug)]
 pub struct OwnedChild {
     child: Option<Box<dyn StdChildWrapper>>,
+}
+
+/// Result of [`OwnedChild::terminate_tree_bounded`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReapOutcome {
+    /// Already gone, or the exit was observed within the bound.
+    Exited(ExitStatus),
+    /// The kill was issued but the OS did not report the exit in time (a
+    /// process wedged in the kernel, e.g. releasing a GPU model). The caller is
+    /// not blocked; the owned handle still reaps on drop.
+    TimedOut,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,6 +162,21 @@ impl OwnedChild {
         }
         self.child_mut().start_kill()?;
         self.child_mut().wait()
+    }
+
+    /// Kill the whole tree now and wait at most `timeout` for the OS to report
+    /// the exit. Unlike [`Self::terminate_tree`] this never blocks past the
+    /// bound, so tray-quit / window-close paths stay responsive even if the
+    /// child cannot be reaped promptly (HeardRight's bounded reap).
+    pub fn terminate_tree_bounded(&mut self, timeout: Duration) -> io::Result<ReapOutcome> {
+        if let Some(status) = self.try_wait()? {
+            return Ok(ReapOutcome::Exited(status));
+        }
+        self.child_mut().start_kill()?;
+        Ok(match self.wait_timeout(timeout)? {
+            Some(status) => ReapOutcome::Exited(status),
+            None => ReapOutcome::TimedOut,
+        })
     }
 
     fn child(&self) -> &dyn StdChildWrapper {

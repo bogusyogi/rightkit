@@ -1,0 +1,20 @@
+{
+  "identifier" : "TEMPLATE1",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "TEMPLATEPRO1",
+      "localizations" : [
+        { "description" : "Placeholder", "displayName" : "Template Pro", "locale" : "en_US" }
+      ],
+      "productID" : "com.rightsuite.template.pro",
+      "referenceName" : "Template Pro",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {},
+  "subscriptionGroups" : [],
+  "version" : { "major" : 4, "minor" : 0 }
+}

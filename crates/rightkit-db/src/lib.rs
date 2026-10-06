@@ -7,6 +7,19 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use zeroize::Zeroizing;
 
+mod backup;
+mod migrate;
+mod recover;
+
+pub use backup::{online_backup_to, BackupProgress};
+pub use migrate::{
+    add_column_if_missing, column_exists, migrate, pending_marker, rollback_to, user_version, Migration,
+    MigrationReport, MigrateOptions, PendingMarker, Step,
+};
+pub use recover::{quarantine_database, OpenOutcome, RecoveryPolicy};
+#[cfg(feature = "sqlcipher")]
+pub use recover::rekey;
+
 const BUSY_TIMEOUT_MS: u64 = 5_000;
 const JOURNAL_SIZE_LIMIT: i64 = 67_108_864;
 
@@ -26,6 +39,25 @@ pub enum DbError {
     InvalidPoolCapacity,
     #[error("database path has no file name")]
     InvalidDatabasePath,
+    #[error("database is at schema v{current}, newer than this build understands (v{max}) and not forward compatible")]
+    NewerDatabase { current: i64, max: i64 },
+    #[error("invalid migration list: {0}")]
+    InvalidMigrations(String),
+    #[error("migration v{version} ({name}) failed and was rolled back: {source}")]
+    MigrationFailed {
+        version: i64,
+        name: &'static str,
+        #[source]
+        source: rusqlite::Error,
+    },
+    #[error("cannot roll back: {0}")]
+    Rollback(String),
+    #[error("database backup failed: {0}")]
+    Backup(String),
+    #[error("no candidate key opened the database")]
+    NoKeyOpened,
+    #[error(transparent)]
+    Fs(#[from] rightkit_fs::FsError),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,14 +72,40 @@ pub enum DurabilityProfile {
     Normal,
 }
 
+/// How the journal mode is chosen. WAL needs working shared-memory locking, which network
+/// filesystems often lack and which SQLite will silently downgrade; the default therefore
+/// *verifies* the mode that took effect and falls back to a rollback journal.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum JournalSelect {
+    /// WAL when the filesystem honors it and is not a detected network mount; else DELETE.
+    WalWithFallback,
+    /// WAL or fail (no fallback).
+    WalStrict,
+    /// Rollback journal.
+    Delete,
+}
+
+/// Environment kill-switch (`wal` | `delete`) for a misclassified mount in the field.
+pub const JOURNAL_ENV: &str = "RIGHTKIT_SQLITE_JOURNAL_MODE";
+
+/// Post-key, pre-pragma per-connection initializer (register functions, collations, ...).
+pub type ConnInit = Arc<dyn Fn(&Connection) -> rusqlite::Result<()> + Send + Sync>;
+
 #[derive(Clone)]
 pub struct DbOptions {
     pub path: PathBuf,
+    /// SQLCipher passphrase-style key (base64-ish charset). See also [`DbOptions::raw_key`].
     pub key: Option<Zeroizing<String>>,
+    /// SQLCipher raw 256-bit key, applied as `x'<hex>'` (no KDF). Takes precedence over `key`.
+    pub raw_key: Option<Zeroizing<[u8; 32]>>,
     pub profile: CacheProfile,
     pub durability: DurabilityProfile,
     pub foreign_keys: bool,
     pub integrity_check_on_open: bool,
+    pub journal: JournalSelect,
+    /// Narrow the database and its sidecars to owner-only (0600) on unix. Default on.
+    pub owner_only: bool,
+    pub init: Option<ConnInit>,
 }
 
 impl DbOptions {
@@ -55,11 +113,31 @@ impl DbOptions {
         Self {
             path: path.into(),
             key: None,
+            raw_key: None,
             profile: CacheProfile::Default,
             durability: DurabilityProfile::Normal,
             foreign_keys: false,
             integrity_check_on_open: false,
+            journal: JournalSelect::WalWithFallback,
+            owner_only: true,
+            init: None,
         }
+    }
+
+    pub fn with_passphrase(mut self, key: impl Into<String>) -> Self {
+        self.key = Some(Zeroizing::new(key.into()));
+        self.raw_key = None;
+        self
+    }
+
+    pub fn with_raw_key(mut self, key: [u8; 32]) -> Self {
+        self.raw_key = Some(Zeroizing::new(key));
+        self.key = None;
+        self
+    }
+
+    pub fn is_keyed(&self) -> bool {
+        self.key.is_some() || self.raw_key.is_some()
     }
 
     pub fn open_writer(&self) -> Result<Connection> {
@@ -75,20 +153,57 @@ impl DbOptions {
     }
 
     fn open(&self, kind: ConnectionKind) -> Result<Connection> {
-        let key = self.key.as_ref().map(|key| key.as_str());
-        validate_key(key)?;
+        let key = self.key_pragma_value()?;
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = Connection::open_with_flags(&self.path, flags)?;
-        apply_key_first(&conn, key)?;
+        // Narrow the main file before any write so WAL/SHM sidecars inherit owner-only.
+        if self.owner_only {
+            rightkit_fs::restrict_owner_only(&self.path)?;
+        }
+        apply_key_first(&conn, key.as_ref().map(|k| k.as_str()))?;
         verify_key(&conn)?;
+        if let Some(init) = &self.init {
+            init(&conn)?;
+        }
         configure_connection(&conn, self, kind)?;
         if self.integrity_check_on_open {
-            integrity_check(&conn, self.key.is_some())?;
+            integrity_check(&conn, self.is_keyed())?;
+        }
+        if self.owner_only {
+            harden_sidecars(&self.path)?;
         }
         Ok(conn)
     }
+
+    /// The `PRAGMA key` right-hand side (already quoted), validated against injection.
+    fn key_pragma_value(&self) -> Result<Option<Zeroizing<String>>> {
+        if let Some(raw) = &self.raw_key {
+            #[cfg(not(feature = "sqlcipher"))]
+            {
+                let _ = raw;
+                return Err(DbError::SqlcipherFeatureRequired);
+            }
+            #[cfg(feature = "sqlcipher")]
+            {
+                let hex: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+                return Ok(Some(Zeroizing::new(format!("\"x'{hex}'\""))));
+            }
+        }
+        let key = self.key.as_ref().map(|key| key.as_str());
+        validate_key(key)?;
+        Ok(key.map(|k| Zeroizing::new(format!("'{k}'"))))
+    }
+}
+
+fn harden_sidecars(db: &Path) -> Result<()> {
+    for suffix in ["-wal", "-shm"] {
+        let mut name = OsString::from(db.file_name().ok_or(DbError::InvalidDatabasePath)?);
+        name.push(suffix);
+        rightkit_fs::restrict_owner_only(&db.with_file_name(name))?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -103,7 +218,7 @@ fn configure_connection(
     kind: ConnectionKind,
 ) -> Result<()> {
     conn.busy_timeout(std::time::Duration::from_millis(BUSY_TIMEOUT_MS))?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
+    configure_journal(conn, options, kind)?;
     let synchronous = match options.durability {
         DurabilityProfile::Full => "FULL",
         DurabilityProfile::Normal => "NORMAL",
@@ -125,6 +240,53 @@ fn configure_connection(
     Ok(())
 }
 
+fn configure_journal(conn: &Connection, options: &DbOptions, kind: ConnectionKind) -> Result<()> {
+    let wanted = effective_journal(options);
+    if wanted == JournalSelect::Delete {
+        if matches!(kind, ConnectionKind::Writer) {
+            conn.query_row("PRAGMA journal_mode=DELETE", [], |row| row.get::<_, String>(0))?;
+        }
+        return Ok(());
+    }
+    let honored = conn
+        .query_row("PRAGMA journal_mode=WAL", [], |row| row.get::<_, String>(0))
+        .map(|mode| mode.eq_ignore_ascii_case("wal"))
+        .unwrap_or(false)
+        // `journal_mode=WAL` can report success before the -shm/-wal sidecars are usable;
+        // one empty write transaction proves the sidecars work before anything depends on them.
+        && (matches!(kind, ConnectionKind::Reader)
+            || conn.execute_batch("BEGIN IMMEDIATE; ROLLBACK;").is_ok());
+    if honored {
+        return Ok(());
+    }
+    if wanted == JournalSelect::WalStrict {
+        return Err(DbError::Sqlite(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_IOERR),
+            Some("WAL journal mode was not honored by this filesystem".into()),
+        )));
+    }
+    let _ = conn.execute_batch("ROLLBACK;");
+    conn.query_row("PRAGMA journal_mode=DELETE", [], |row| row.get::<_, String>(0))?;
+    Ok(())
+}
+
+fn effective_journal(options: &DbOptions) -> JournalSelect {
+    match std::env::var(JOURNAL_ENV).ok().as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("wal") => return JournalSelect::WalStrict,
+        Some("delete") | Some("truncate") => return JournalSelect::Delete,
+        _ => {}
+    }
+    if options.journal == JournalSelect::WalWithFallback && rightkit_fs::is_network_filesystem(&options.path) {
+        return JournalSelect::Delete;
+    }
+    options.journal
+}
+
+/// The journal mode SQLite is actually running (`wal`, `delete`, ...).
+pub fn journal_mode(conn: &Connection) -> Result<String> {
+    Ok(conn.query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))?)
+}
+
 /// Start a transaction that reserves SQLite's single writer slot up front.
 /// This keeps read-then-write work out of the unretryable BUSY_SNAPSHOT path.
 pub fn write_txn(conn: &mut Connection) -> Result<Transaction<'_>> {
@@ -135,7 +297,7 @@ pub fn write_txn(conn: &mut Connection) -> Result<Transaction<'_>> {
 #[cfg(feature = "sqlcipher")]
 fn apply_key_first(conn: &Connection, key: Option<&str>) -> Result<()> {
     if let Some(key) = key {
-        let statement = Zeroizing::new(format!("PRAGMA key = '{key}';"));
+        let statement = Zeroizing::new(format!("PRAGMA key = {key};"));
         conn.execute_batch(statement.as_str())?;
     }
     Ok(())

@@ -75,3 +75,27 @@ private func config(legacyKey: String? = nil, maxFileBytes: Int = 1_000) -> Shar
     textItem.attachments = [text]
     #expect(await extractor.extractFirst(from: [textItem])?.text == "shared words")
 }
+
+@Test func stagedWriteIsDurableAndAnyFailedStepLeavesNoPartialFile() throws {
+    let cfg = config()
+    let dir = cfg.containerRoot!.appendingPathComponent(cfg.queueDirectoryName)
+    let good = PendingSharePayload(text: String(repeating: "x", count: 50_000), fileURL: nil, typeIdentifier: "public.plain-text")
+    var queue = SharedImportQueue(configuration: cfg)
+    try queue.enqueue(good)
+    #expect(try queue.pending().first?.text == good.text, "staged bytes read back exactly")
+
+    for failing in ["write", "fsync-file", "rename", "fsync-directory"] {
+        let before = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
+        queue.faultInjection = { if $0 == failing { throw CocoaError(.fileWriteUnknown) } }
+        let doomed = PendingSharePayload(text: "doomed-\(failing)", fileURL: nil, typeIdentifier: "public.plain-text")
+        #expect(throws: SharedImportQueue.QueueError.writeFailed) { try queue.enqueue(doomed) }
+        let after = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
+        // fsync-directory fails after the atomic rename, so only that step may leave a complete item.
+        let leftovers = after.filter { !before.contains($0) }
+        #expect(leftovers.allSatisfy { !$0.hasSuffix(".tmp") }, "no temp file after \(failing)")
+        if failing != "fsync-directory" { #expect(after == before, "no partial file after \(failing)") }
+        if failing == "fsync-directory" { try queue.acknowledge(doomed.id) }
+    }
+    queue.faultInjection = nil
+    #expect(try queue.pending().map(\.id) == [good.id])
+}

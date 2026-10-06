@@ -20,6 +20,8 @@ pub struct RemoteVersion {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Ledger {
+    /// Account scope this ledger belongs to (`AuthProvider::account_scope`).
+    pub scope: Option<String>,
     pub change_token: Option<Vec<u8>>,
     pub has_synced: bool,
     /// Item id -> deletion time. Blocks re-import and re-upload forever.
@@ -71,7 +73,11 @@ impl LedgerStore {
                 Err(_) => (Ledger::default(), true),
             },
         };
-        Ok(Self { storage, ledger, recovered_from_corruption: corrupt })
+        Ok(Self {
+            storage,
+            ledger,
+            recovered_from_corruption: corrupt,
+        })
     }
 
     pub fn ledger(&self) -> &Ledger {
@@ -82,8 +88,8 @@ impl LedgerStore {
     pub fn mutate<R>(&mut self, change: impl FnOnce(&mut Ledger) -> R) -> SyncResult<R> {
         let before = self.ledger.clone();
         let out = change(&mut self.ledger);
-        let bytes = serde_json::to_vec(&self.ledger)
-            .map_err(|e| SyncError::Persistence(e.to_string()))?;
+        let bytes =
+            serde_json::to_vec(&self.ledger).map_err(|e| SyncError::Persistence(e.to_string()))?;
         if let Err(e) = self.storage.save(&bytes) {
             self.ledger = before;
             return Err(SyncError::Persistence(e));

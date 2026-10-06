@@ -1,0 +1,60 @@
+{
+  "name": "@rightkit/doc-render",
+  "version": "0.1.0",
+  "description": "Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./styles.css"
+  },
+  "files": ["dist", "styles.css", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
+  "sideEffects": ["*.css"],
+  "peerDependencies": {
+    "react": ">=18 <21"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.16",
+    "github-slugger": "^2.0.0",
+    "katex": "^0.18.7",
+    "mermaid": "^11.17.2",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-smartypants": "^3.0.3",
+    "shiki": "^4.4.3",
+    "unified": "^11.0.5"
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.28.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:browser": "node test/browser-e2e.mjs"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bogusyogi/claude.git",
+    "directory": "tools/rightkit/packages/doc-render"
+  },
+  "packageManager": "pnpm@11.24.0"
+}

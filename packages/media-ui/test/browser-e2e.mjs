@@ -226,6 +226,59 @@ try {
       }
     }, 150); setTimeout(() => r(false), 8000); }))()`);
 
+  // H16: replacing src/kind on a mounted player must show the NEW media and
+  // release the old element (no remount of the MediaPlayer itself).
+  await check("source replacement shows new media and releases old element", `
+    (() => new Promise(r => {
+      const probe = () => document.querySelector('[data-probe=swap]');
+      const t0 = setInterval(() => { const v = probe()?.querySelector('video');
+        if (v && v.readyState >= 1) { clearInterval(t0); go(v); } }, 100);
+      function go(oldVideo) {
+        window.__swap({ src: '/fixtures/tone.wav', kind: 'audio' });
+        const t = setInterval(() => { const a = probe()?.querySelector('audio');
+          if (a && a.readyState >= 1) { clearInterval(t);
+            r(a.currentSrc.endsWith('tone.wav') && !probe().querySelector('video') &&
+              !oldVideo.isConnected && Math.abs(a.duration - 5) < 0.3 &&
+              probe().querySelector('.rk-media').dataset.playerStatus === 'ready'); } }, 100);
+        setTimeout(() => { clearInterval(t); r(false); }, 8000);
+      }
+      setTimeout(() => r(false), 12000);
+    }))()`, 15000);
+  // A compat copy still being prepared for the OLD source must not replace
+  // the NEW source when it resolves late.
+  await check("late compat copy of replaced source is discarded", `
+    (() => new Promise(r => {
+      window.__swap({ src: '/fixtures/missing-old.mkv', kind: 'video', playbackId: 'slow.mkv' });
+      setTimeout(() => {
+        window.__swap({ src: '/fixtures/tone.wav', kind: 'audio' });
+        setTimeout(() => {
+          const p = document.querySelector('[data-probe=swap]');
+          const a = p.querySelector('audio');
+          r(!!a && a.currentSrc.endsWith('tone.wav') && !p.querySelector('video') &&
+            p.querySelector('.rk-media').dataset.playerStatus !== 'error');
+        }, 2500);
+      }, 500);
+    }))()`, 8000);
+  // H16: crop chosen on a 100x50 preview must export the same region of the
+  // 400x200 original (top-right quadrant: green, 200x100).
+  await check("preview crop exports matching original-resolution region (pixels)", `
+    (async () => {
+      const deadline = Date.now() + 8000;
+      while (!window.__exportProbe.fn || !document.querySelector('[data-probe=quad] img')) {
+        if (Date.now() > deadline) return false;
+        await new Promise(r => setTimeout(r, 100));
+      }
+      await new Promise(r => setTimeout(r, 300));
+      const p = await window.__exportProbe.fn('png');
+      const bmp = await createImageBitmap(new Blob([p.buffer], { type: p.mime }));
+      const c = new OffscreenCanvas(bmp.width, bmp.height); const g = c.getContext('2d');
+      g.drawImage(bmp, 0, 0);
+      const px = (x, y) => Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
+      const green = a => a[0] < 40 && a[1] > 215 && a[2] < 40;
+      return bmp.width === 200 && bmp.height === 100 &&
+        [[2,2],[197,2],[2,97],[197,97],[100,50]].every(([x,y]) => green(px(x,y)));
+    })()`, 12000);
+
   await check("ImageViewer mounted and measured stage", `
     (() => !!document.querySelector('[data-rk-image-stage]') &&
        !!document.querySelector('[data-rk-image-stage] img'))()`);

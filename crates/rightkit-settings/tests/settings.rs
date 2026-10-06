@@ -100,3 +100,87 @@ fn failed_replace_keeps_old_file() {
     let leftovers = std::fs::read_dir(d.path()).unwrap().count();
     assert_eq!(leftovers, 1);
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+struct Counters {
+    counts: std::collections::BTreeMap<String, u32>,
+}
+
+/// Child half of the cross-process test: its own `Store` on the shared file.
+#[test]
+fn child_worker() {
+    let (Ok(root), Ok(name)) = (std::env::var("RK_SETTINGS_ROOT"), std::env::var("RK_SETTINGS_NAME")) else { return };
+    let s = Store::<Counters>::open(std::path::Path::new(&root), Schema::new("shared", 1)).unwrap();
+    for _ in 0..40 {
+        s.update(|c| {
+            *c.counts.entry(name.clone()).or_default() += 1;
+            Ok(())
+        })
+        .unwrap();
+    }
+}
+
+#[test]
+fn concurrent_processes_and_stores_never_lose_each_others_keys() {
+    let d = tempfile::tempdir().unwrap();
+    let exe = std::env::current_exe().unwrap();
+    let mut kids: Vec<_> = (0..3)
+        .map(|i| {
+            std::process::Command::new(&exe)
+                .args(["--exact", "child_worker", "--nocapture"])
+                .env("RK_SETTINGS_ROOT", d.path())
+                .env("RK_SETTINGS_NAME", format!("proc{i}"))
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    // Two more writers in this process, each with its own cached store.
+    let threads: Vec<_> = (0..2)
+        .map(|i| {
+            let root = d.path().to_path_buf();
+            std::thread::spawn(move || {
+                let s = Store::<Counters>::open(&root, Schema::new("shared", 1)).unwrap();
+                for _ in 0..40 {
+                    s.update(|c| {
+                        *c.counts.entry(format!("thread{i}")).or_default() += 1;
+                        Ok(())
+                    })
+                    .unwrap();
+                }
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().unwrap();
+    }
+    for k in &mut kids {
+        assert!(k.wait().unwrap().success());
+    }
+    let s = Store::<Counters>::open(d.path(), Schema::new("shared", 1)).unwrap();
+    let counts = s.get().counts;
+    assert_eq!(counts.len(), 5, "{counts:?}");
+    assert!(counts.values().all(|n| *n == 40), "lost update: {counts:?}");
+}
+
+#[test]
+fn stale_reader_sees_other_writers_and_cas_rejects_stale_revision() {
+    let d = tempfile::tempdir().unwrap();
+    let a = Store::<Prefs>::open(d.path(), schema()).unwrap();
+    let b = Store::<Prefs>::open(d.path(), schema()).unwrap();
+    let seen = a.revision();
+    b.update(|v| { v.font_px = 30; Ok(()) }).unwrap();
+    assert_eq!(a.get().font_px, 30, "get() reflects the other store's commit");
+
+    // `a` still holds the old revision: its compare-and-swap must fail, untouched.
+    let err = a.update_at(seen, |v| { v.theme = "dark".into(); Ok(()) }).unwrap_err();
+    assert!(matches!(err, Error::Conflict { .. }), "{err}");
+    assert_eq!(b.get().theme, "auto");
+    // Plain update merges onto the fresh value instead of clobbering font_px.
+    a.update(|v| { v.theme = "dark".into(); Ok(()) }).unwrap();
+    assert_eq!(b.get(), Prefs { theme: "dark".into(), font_px: 30, notify: true });
+    let now = a.revision();
+    a.update_at(now, |v| { v.notify = false; Ok(()) }).unwrap();
+    assert!(!b.get().notify);
+}

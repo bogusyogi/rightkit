@@ -1,11 +1,14 @@
 use std::fs::{File, OpenOptions};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use crate::error::{JobError, JobResult};
+use crate::error::{JobError, JobResult, HOST_HANDOFF};
+use crate::sched::{Gate, Priority};
 use crate::store::{Artifact, Event, Job, JobStore, CANCELLED};
 
 /// Attempts allowed before a job is failed with `max_attempts`.
@@ -63,22 +66,78 @@ pub struct JobControl {
     store: Arc<JobStore>,
     job_id: String,
     sink: Option<EventSink>,
+    gate: Arc<Gate>,
+    priority: Priority,
+    /// Set by the stall watchdog: this attempt was abandoned and must stop.
+    abandoned: AtomicBool,
+    started: Instant,
+    /// Milliseconds since `started` at the last sign of life.
+    beat_ms: AtomicU64,
 }
 
 impl JobControl {
     pub fn job_id(&self) -> &str {
         &self.job_id
     }
+    pub fn priority(&self) -> Priority {
+        self.priority
+    }
     /// Store and publish a progress event. Best-effort: never fails the job.
+    /// Counts as a sign of life for the stall watchdog.
     pub fn progress(&self, stage: &str, progress: Option<f64>, message: Option<&str>) {
+        self.heartbeat();
         if let Ok(ev) = self.store.add_event(&self.job_id, stage, progress, message) {
             if let Some(s) = &self.sink {
                 s(&ev);
             }
         }
     }
+    /// Tell the stall watchdog the handler is alive in the middle of a long step.
+    pub fn heartbeat(&self) {
+        self.beat_ms.store(self.started.elapsed().as_millis() as u64, Ordering::SeqCst);
+    }
+    fn idle(&self) -> Duration {
+        self.started.elapsed().saturating_sub(Duration::from_millis(self.beat_ms.load(Ordering::SeqCst)))
+    }
     pub fn is_cancelled(&self) -> bool {
         self.store.is_cancelled(&self.job_id).unwrap_or(false)
+    }
+    /// Why the handler must stop now, if it must: cancelled, abandoned after a
+    /// stall, or the host is handing off. Cheap enough to poll inside a step.
+    pub fn abort_reason(&self) -> Option<JobError> {
+        if self.abandoned.load(Ordering::SeqCst) {
+            return Some(JobError::stalled(self.idle().as_secs_f64()));
+        }
+        if self.is_cancelled() {
+            return Some(JobError::cancelled());
+        }
+        if self.gate.handoff_requested() {
+            return Some(JobError::handoff());
+        }
+        None
+    }
+    /// Call between steps (e.g. once per audio window). Returns `Err` when the
+    /// job was cancelled, abandoned, or the host is handing off (return it from
+    /// the handler as-is). Batch jobs block here, emitting `preempted` and
+    /// `resumed` events, while interactive work is active; interactive jobs
+    /// never wait.
+    pub fn step_boundary(&self) -> JobResult<()> {
+        self.heartbeat();
+        if let Some(e) = self.abort_reason() {
+            return Err(e);
+        }
+        if self.priority == Priority::Batch && self.gate.interactive_active() > 0 {
+            self.progress("preempted", None, Some("paused for interactive work"));
+            while self.gate.interactive_active() > 0 {
+                self.gate.wait_idle(Duration::from_millis(50));
+                self.heartbeat();
+                if let Some(e) = self.abort_reason() {
+                    return Err(e);
+                }
+            }
+            self.progress("resumed", None, None);
+        }
+        Ok(())
     }
     /// Artifacts recorded by earlier attempts whose file still matches its
     /// recorded size and sha256, so a resumed attempt can skip finished stages.
@@ -92,6 +151,9 @@ impl JobControl {
         Ok(ok)
     }
     pub fn add_artifact(&self, path: &Path, mime: &str) -> JobResult<Artifact> {
+        if self.abandoned.load(Ordering::SeqCst) {
+            return Err(JobError::stalled(self.idle().as_secs_f64()));
+        }
         self.store.add_artifact(&self.job_id, path, mime)
     }
 }
@@ -126,11 +188,13 @@ pub struct Runner {
     handler: Arc<dyn JobHandler>,
     sink: Option<EventSink>,
     max_attempts: i64,
+    gate: Arc<Gate>,
+    stall_timeout: Option<Duration>,
 }
 
 impl Runner {
     pub fn new(store: Arc<JobStore>, locks: JobLocks, handler: Arc<dyn JobHandler>) -> Self {
-        Self { store, locks, handler, sink: None, max_attempts: DEFAULT_MAX_ATTEMPTS }
+        Self { store, locks, handler, sink: None, max_attempts: DEFAULT_MAX_ATTEMPTS, gate: Gate::new(), stall_timeout: None }
     }
     pub fn with_sink(mut self, sink: EventSink) -> Self {
         self.sink = Some(sink);
@@ -140,6 +204,22 @@ impl Runner {
         self.max_attempts = n.max(1);
         self
     }
+    /// Share a [`Gate`] with the service handler so interactive work, batch work
+    /// and host handoff coordinate.
+    pub fn with_gate(mut self, gate: Arc<Gate>) -> Self {
+        self.gate = gate;
+        self
+    }
+    /// Pause a run that shows no sign of life (no `progress`, `step_boundary` or
+    /// `heartbeat`) for `d`. There is deliberately no total-duration limit: a
+    /// long file that keeps making progress is never cut off.
+    pub fn with_stall_timeout(mut self, d: Duration) -> Self {
+        self.stall_timeout = Some(d);
+        self
+    }
+    pub fn gate(&self) -> &Arc<Gate> {
+        &self.gate
+    }
     pub fn store(&self) -> &Arc<JobStore> {
         &self.store
     }
@@ -147,8 +227,17 @@ impl Runner {
         &self.locks
     }
 
-    fn control(&self, job_id: &str, sink: Option<EventSink>) -> JobControl {
-        JobControl { store: self.store.clone(), job_id: job_id.into(), sink }
+    fn control(&self, job_id: &str, sink: Option<EventSink>, priority: Priority) -> JobControl {
+        JobControl {
+            store: self.store.clone(),
+            job_id: job_id.into(),
+            sink,
+            gate: self.gate.clone(),
+            priority,
+            abandoned: AtomicBool::new(false),
+            started: Instant::now(),
+            beat_ms: AtomicU64::new(0),
+        }
     }
 
     /// Queued/running jobs with no live runner. Passive: does not run anything.
@@ -179,16 +268,18 @@ impl Runner {
         if job.attempts >= self.max_attempts {
             let e = JobError::new("max_attempts", "job used every allowed attempt");
             self.store.fail(job_id, &e)?;
-            self.control(job_id, sink).progress("failed", None, Some(&e.message));
+            self.control(job_id, sink, Priority::of(&job)).progress("failed", None, Some(&e.message));
             return Ok(RunOutcome::Finished(self.store.get(job_id)?));
         }
         let Some(job) = self.store.begin_attempt(job_id)? else {
             return Ok(RunOutcome::Finished(self.store.get(job_id)?));
         };
-        let ctl = self.control(job_id, sink);
+        let priority = Priority::of(&job);
+        // Interactive work holds the gate for the whole run so batch jobs yield at their boundaries.
+        let _interactive = (priority == Priority::Interactive).then(|| self.gate.begin_interactive());
+        let ctl = Arc::new(self.control(job_id, sink, priority));
         ctl.progress("started", None, None);
-        let result = catch_unwind(AssertUnwindSafe(|| self.handler.run(&job, &ctl)))
-            .unwrap_or_else(|_| Err(JobError::new("panic", "job handler panicked")));
+        let result = self.run_handler(&job, &ctl);
         match result {
             Ok(value) => {
                 if self.store.complete(job_id, &value)? {
@@ -199,6 +290,9 @@ impl Runner {
                 Ok(RunOutcome::Finished(self.store.get(job_id)?))
             }
             Err(e) if e.retryable => {
+                if e.code == HOST_HANDOFF {
+                    self.store.refund_attempt(job_id)?;
+                }
                 self.store.record_error(job_id, &e)?;
                 ctl.progress("paused", None, Some(&format!("paused, will resume: {}", e.message)));
                 Ok(RunOutcome::Paused(self.store.get(job_id)?))
@@ -206,8 +300,45 @@ impl Runner {
             Err(e) => {
                 if self.store.fail(job_id, &e)? {
                     ctl.progress("failed", None, Some(&e.message));
+                } else if self.store.get(job_id)?.status == CANCELLED {
+                    ctl.progress("cancelled", None, None);
                 }
                 Ok(RunOutcome::Finished(self.store.get(job_id)?))
+            }
+        }
+    }
+
+    /// Run the handler inline, or on a watched worker thread when a stall
+    /// timeout is set. A stalled attempt is abandoned: its thread is told to
+    /// stop (`abort_reason`), its result is discarded, and the job pauses.
+    fn run_handler(&self, job: &Job, ctl: &Arc<JobControl>) -> JobResult<Value> {
+        let Some(limit) = self.stall_timeout else {
+            return catch_unwind(AssertUnwindSafe(|| self.handler.run(job, ctl)))
+                .unwrap_or_else(|_| Err(JobError::new("panic", "job handler panicked")));
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (handler, job2, ctl2) = (self.handler.clone(), job.clone(), ctl.clone());
+        std::thread::Builder::new()
+            .name(format!("rk-job-{}", job.job_id))
+            .spawn(move || {
+                let r = catch_unwind(AssertUnwindSafe(|| handler.run(&job2, &ctl2)))
+                    .unwrap_or_else(|_| Err(JobError::new("panic", "job handler panicked")));
+                let _ = tx.send(r);
+            })
+            .map_err(JobError::from)?;
+        let poll = (limit / 4).clamp(Duration::from_millis(10), Duration::from_millis(250));
+        loop {
+            match rx.recv_timeout(poll) {
+                Ok(r) => return r,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if ctl.idle() > limit {
+                        ctl.abandoned.store(true, Ordering::SeqCst);
+                        return Err(JobError::stalled(ctl.idle().as_secs_f64()));
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(JobError::new("panic", "job handler thread ended without a result"))
+                }
             }
         }
     }

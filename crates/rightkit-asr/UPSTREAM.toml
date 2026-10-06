@@ -33,3 +33,19 @@ files = ["src/model_transducer.rs", "src/transducer.rs", "src/lib.rs"]
 [[patches]]
 id = "RKASR-006"
 files = ["Cargo.toml", "tests/runtime_contract.rs"]
+
+[[patches]]
+id = "RKASR-007"
+files = ["src/parakeet_core/mod.rs"]
+
+[[patches]]
+id = "RKASR-008"
+files = ["src/parakeet_coreml/mod.rs", "src/whisper/coreml/bridge.rs"]
+
+[[patches]]
+id = "RKASR-009"
+files = ["src/longform.rs"]
+
+[[patches]]
+id = "RKASR-010"
+files = ["src/onnx_beam.rs", "src/transducer.rs", "src/model_transducer.rs"]

@@ -1,0 +1,42 @@
+[package]
+name = "rightkit-shell"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bogusyogi/claude"
+publish = false
+
+[features]
+default = ["engine"]
+# Engine sidecar wiring over rightkit-jobs EngineClient + rightkit-process.
+engine = ["dep:rightkit-jobs", "dep:rightkit-process"]
+# Lets `Devtools::On` / `DebugBuilds` open the inspector in release builds. Off in production.
+devtools = ["tauri/devtools"]
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
+rightkit-jobs = { version = "=0.1.0", path = "../rightkit-jobs", optional = true }
+rightkit-process = { version = "=0.1.0", path = "../rightkit-process", optional = true }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSString", "NSURL", "NSValue", "NSGeometry", "NSObject", "NSBundle", "NSDictionary", "NSError"] }
+objc2-user-notifications = "0.3"
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSControl", "NSView", "NSResponder", "NSPasteboard", "NSPasteboardItem"] }
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_UI_Shell",
+] }

@@ -22,6 +22,9 @@ struct Zone {
     fail_after_saves: Option<usize>,
     save_calls: usize,
     saved_records: usize,
+    /// Another device's write that lands just before the next save call is
+    /// evaluated (the window between the engine's fetch and its save).
+    concurrent_write: Option<RawRecord>,
 }
 
 #[derive(Clone, Default)]
@@ -47,6 +50,10 @@ impl MemoryBackend {
     pub fn fail_after_saves(&self, n: Option<usize>) {
         self.zone.lock().unwrap().fail_after_saves = n;
     }
+    /// Simulate a concurrent write by another device between fetch and save.
+    pub fn concurrent_write_before_next_save(&self, record: RawRecord) {
+        self.zone.lock().unwrap().concurrent_write = Some(record);
+    }
     pub fn save_calls(&self) -> usize {
         self.zone.lock().unwrap().save_calls
     }
@@ -69,7 +76,12 @@ impl MemoryBackend {
         z.deletions.push((seq, name.to_string()));
     }
     pub fn record(&self, name: &str) -> Option<RawRecord> {
-        self.zone.lock().unwrap().records.get(name).map(|(_, r)| r.clone())
+        self.zone
+            .lock()
+            .unwrap()
+            .records
+            .get(name)
+            .map(|(_, r)| r.clone())
     }
     pub fn record_count(&self) -> usize {
         self.zone.lock().unwrap().records.len()
@@ -77,7 +89,10 @@ impl MemoryBackend {
 
     fn check(&self) -> SyncResult<()> {
         if self.zone.lock().unwrap().offline {
-            Err(SyncError::RetryAfter { secs: 15.0, detail: "no network".into() })
+            Err(SyncError::RetryAfter {
+                secs: 15.0,
+                detail: "no network".into(),
+            })
         } else {
             Ok(())
         }
@@ -100,10 +115,18 @@ impl Backend for MemoryBackend {
             .and_then(|b| <[u8; 8]>::try_from(b).ok())
             .map(u64::from_le_bytes)
             .unwrap_or(0);
-        let mut changed: Vec<(u64, RawRecord)> =
-            z.records.values().filter(|(s, _)| *s > token).cloned().collect();
+        let mut changed: Vec<(u64, RawRecord)> = z
+            .records
+            .values()
+            .filter(|(s, _)| *s > token)
+            .cloned()
+            .collect();
         changed.sort_by_key(|(s, _)| *s);
-        let limit = if z.page_size == 0 { usize::MAX } else { z.page_size };
+        let limit = if z.page_size == 0 {
+            usize::MAX
+        } else {
+            z.page_size
+        };
         let more = changed.len() > limit;
         changed.truncate(limit);
         let new_token = if more {
@@ -130,8 +153,16 @@ impl Backend for MemoryBackend {
         Ok(self.record(name))
     }
 
-    fn save_records(&self, records: &[RawRecord], _p: SavePolicy) -> SyncResult<Vec<RecordOutcome>> {
+    fn save_records(
+        &self,
+        records: &[RawRecord],
+        policy: SavePolicy,
+    ) -> SyncResult<Vec<RecordOutcome>> {
         self.check()?;
+        let injected = self.zone.lock().unwrap().concurrent_write.take();
+        if let Some(r) = injected {
+            self.put_record(r);
+        }
         let mut out = Vec::with_capacity(records.len());
         let mut budget = {
             let mut z = self.zone.lock().unwrap();
@@ -143,14 +174,42 @@ impl Backend for MemoryBackend {
                 Some(0) => out.push(RecordOutcome {
                     record_name: r.record_name.clone(),
                     result: Err(SyncError::Transient("injected save failure".into())),
+                    server_record: None,
                 }),
                 _ => {
+                    if policy == SavePolicy::IfServerUnchanged {
+                        let server = self.record(&r.record_name);
+                        let stale = match (&server, &r.change_tag) {
+                            (Some(s), tag) => s.change_tag != *tag,
+                            (None, Some(_)) => {
+                                out.push(RecordOutcome {
+                                    record_name: r.record_name.clone(),
+                                    result: Err(SyncError::Transient("unknown item".into())),
+                                    server_record: None,
+                                });
+                                continue;
+                            }
+                            (None, None) => false,
+                        };
+                        if stale {
+                            out.push(RecordOutcome {
+                                record_name: r.record_name.clone(),
+                                result: Err(SyncError::Conflict),
+                                server_record: server,
+                            });
+                            continue;
+                        }
+                    }
                     if let Some(b) = budget.as_mut() {
                         *b -= 1;
                     }
                     self.put_record(r.clone());
                     self.zone.lock().unwrap().saved_records += 1;
-                    out.push(RecordOutcome { record_name: r.record_name.clone(), result: Ok(()) });
+                    out.push(RecordOutcome {
+                        record_name: r.record_name.clone(),
+                        result: Ok(()),
+                        server_record: None,
+                    });
                 }
             }
         }

@@ -10,6 +10,8 @@ pub enum Error {
     Model(String),
     Tokenizer(String),
     Config(String),
+    /// Long-form decode stopped by the caller's cancellation flag.
+    Cancelled,
 }
 
 impl fmt::Display for Error {
@@ -21,6 +23,7 @@ impl fmt::Display for Error {
             Error::Model(msg) => write!(f, "Model error: {msg}"),
             Error::Tokenizer(msg) => write!(f, "Tokenizer error: {msg}"),
             Error::Config(msg) => write!(f, "Config error: {msg}"),
+            Error::Cancelled => write!(f, "cancelled"),
         }
     }
 }

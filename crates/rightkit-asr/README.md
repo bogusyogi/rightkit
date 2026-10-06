@@ -11,6 +11,14 @@ compatibility, model choice, model/artifact identity, private manifests,
 credentials, download policy, long-audio orchestration, experiments, and UI
 remain in application adapters.
 
+## Parakeet CoreML path and HeardRight decode parity
+
+macOS runs the 4-stage static Parakeet TDT bundle in-process on CoreML
+(`CoreMlParakeet`); ONNX keeps the `Transducer`. Both share
+`parakeet_core` (HeardRight beam, bias, detokenizer, policy) and `longform`
+(padded-window schedule, cancel/progress, SRT/VTT/JSON). See
+`tests/e2e_parakeet.rs` for the model gates and the exact files each needs.
+
 ## Provenance and license
 
 This derivative is based on crates.io `parakeet-rs 0.3.5`, upstream commit

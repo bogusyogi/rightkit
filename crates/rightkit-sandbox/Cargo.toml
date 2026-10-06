@@ -1,0 +1,18 @@
+[package]
+name = "rightkit-sandbox"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+rightkit-process = { path = "../rightkit-process" }
+portable-pty = "0.9"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.61.1", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_Security"] }

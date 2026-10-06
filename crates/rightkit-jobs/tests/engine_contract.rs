@@ -193,3 +193,140 @@ impl std::io::Write for SharedBuf {
         Ok(())
     }
 }
+
+/// An event callback may call back into the client: callbacks run on the
+/// caller's thread, not under the pending-map lock or on the reader.
+#[test]
+fn event_callback_can_reenter_the_client() {
+    let e = env();
+    let d = Arc::new(Dispatcher::new("test-engine", "1.0.0").with(Arc::new(JobCommands::new(e.runner.clone()))));
+    let (req_r, req_w) = std::io::pipe().unwrap();
+    let (res_r, res_w) = std::io::pipe().unwrap();
+    let dd = d.clone();
+    let server = std::thread::spawn(move || serve(dd, BufReader::new(req_r), res_w, false).unwrap());
+    let client = Arc::new(EngineClient::connect(BufReader::new(res_r), req_w).unwrap());
+    let inner = client.clone();
+    let pongs = Arc::new(AtomicUsize::new(0));
+    let p = pongs.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let c2 = client.clone();
+    std::thread::spawn(move || {
+        let r = c2.call_with_events(
+            "job.submit",
+            json!({"kind": "t", "run": true}),
+            Some(Box::new(move |_| {
+                if inner.call_timeout("ping", json!({}), None, std::time::Duration::from_secs(5)).is_ok() {
+                    p.fetch_add(1, Ordering::SeqCst);
+                }
+            })),
+        );
+        tx.send(r).unwrap();
+    });
+    let r = rx.recv_timeout(std::time::Duration::from_secs(20)).expect("re-entrant callback deadlocked").unwrap();
+    assert_eq!(r["status"], COMPLETE);
+    assert!(pongs.load(Ordering::SeqCst) >= 2, "callback re-entered the client");
+    client.shutdown(std::time::Duration::from_secs(1));
+    server.join().unwrap();
+}
+
+/// A real child that says hello, then never answers and ignores SIGTERM.
+#[cfg(unix)]
+#[test]
+fn shutdown_of_a_hung_engine_is_bounded_and_kills_the_child() {
+    use rightkit_process::OwnedCommand;
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let pidfile = dir.path().join("pid");
+    let script = format!(
+        r#"trap '' TERM; echo $$ > '{}'; echo '{{"type":"hello","engine":"hung","version":"0","contract_version":1}}'; while :; do sleep 1; done"#,
+        pidfile.display()
+    );
+    let mut cmd = OwnedCommand::new("sh");
+    cmd.command_mut().args(["-c", &script]);
+    let client = EngineClient::spawn(cmd).unwrap();
+    assert_eq!(client.hello()["engine"], "hung");
+    let pid: i32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
+    let alive = |pid: i32| std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().unwrap().success();
+    assert!(alive(pid));
+
+    // A bounded call against the hung engine times out instead of hanging.
+    let t = Instant::now();
+    let err = client.call_timeout("job.status", json!({}), None, Duration::from_millis(200)).unwrap_err();
+    assert_eq!(err.code, "timeout");
+    assert!(t.elapsed() < Duration::from_secs(3));
+
+    // Shutdown reaches the kill deadline even though the RPC never completes.
+    let t = Instant::now();
+    client.shutdown(Duration::from_millis(300));
+    assert!(t.elapsed() < Duration::from_secs(5), "shutdown took {:?}", t.elapsed());
+    let mut gone = false;
+    for _ in 0..50 {
+        if !alive(pid) {
+            gone = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(gone, "hung engine pid {pid} still alive after shutdown");
+}
+
+#[cfg(unix)]
+fn alive(pid: i32) -> bool {
+    std::process::Command::new("kill").args(["-0", &pid.to_string()]).stderr(std::process::Stdio::null()).status().unwrap().success()
+}
+
+/// Real child that never sends hello: spawn gives up, kills it, typed error.
+#[cfg(unix)]
+#[test]
+fn spawn_bounds_the_hello_wait_and_kills_a_silent_child() {
+    use rightkit_process::OwnedCommand;
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let pidfile = dir.path().join("pid");
+    let script = format!("trap '' TERM; echo $$ > '{}'; while :; do sleep 1; done", pidfile.display());
+    let mut cmd = OwnedCommand::new("sh");
+    cmd.command_mut().args(["-c", &script]);
+    let t = Instant::now();
+    let err = EngineClient::spawn_with(cmd, Duration::from_millis(400)).err().expect("must fail");
+    assert_eq!(err.code, "hello_timeout");
+    assert!(t.elapsed() < Duration::from_secs(5));
+    let pid: i32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
+    for _ in 0..50 {
+        if !alive(pid) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("silent engine {pid} survived");
+}
+
+/// Real child that says hello but never reads stdin: a request bigger than the
+/// pipe buffer blocks the write; call_timeout must fail and kill the child.
+#[cfg(unix)]
+#[test]
+fn call_timeout_covers_a_write_blocked_on_a_full_pipe() {
+    use rightkit_process::OwnedCommand;
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let pidfile = dir.path().join("pid");
+    let script = format!(
+        r#"echo $$ > '{}'; echo '{{"type":"hello","engine":"deaf","version":"0","contract_version":1}}'; while :; do sleep 1; done"#,
+        pidfile.display()
+    );
+    let mut cmd = OwnedCommand::new("sh");
+    cmd.command_mut().args(["-c", &script]);
+    let client = EngineClient::spawn(cmd).unwrap();
+    let pid: i32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
+    let big = "x".repeat(900_000); // under the frame limit, far over the pipe buffer
+    let t = Instant::now();
+    let err = client.call_timeout("job.submit", json!({"blob": big}), None, Duration::from_millis(400)).unwrap_err();
+    assert_eq!(err.code, "timeout");
+    assert!(t.elapsed() < Duration::from_secs(5), "took {:?}", t.elapsed());
+    for _ in 0..50 {
+        if !alive(pid) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("deaf engine {pid} survived");
+}

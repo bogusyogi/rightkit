@@ -1,0 +1,19 @@
+# Rust QA harness config (`rightkit-qa run --tier fast`). Replaces every Node e2e harness.
+# Scenarios are declarative TOML in tests/scenarios; the real engine binary runs in a fresh
+# per-scenario data dir, with system audio muted and no network.
+app = "rightapp"
+app_root = "."
+evidence_dir = ".cache/rightkit-qa"
+scenarios = ["tests/scenarios"]
+default_tier = "fast"
+
+[engine]
+package = "rightapp-engine"
+build = ["rightkit", "cargo", "build", "-p", "rightapp-engine"]
+data_dir_env = "RIGHTAPP_APP_DATA"
+
+[audio]
+system_mute = true
+
+# Native UI scenarios (hidden app driven through rightkit-control) are added with the shell's
+# `qa-native` feature; see README step 11. Until then the engine scenarios are the gate.

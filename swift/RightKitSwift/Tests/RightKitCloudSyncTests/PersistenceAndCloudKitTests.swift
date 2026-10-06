@@ -22,18 +22,33 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: url.path + ".corrupt"))
     }
 
-    @Test func ckRecordCodingRoundTripsAndOmitsEmptyListsAndClearsNulls() {
+    @Test func ckRecordCodingRoundTripsAndOmitsEmptyListsAndClearsNulls() throws {
         let record = CKRecord(recordType: "Note", recordID: CKRecord.ID(recordName: "n1"))
         record["old"] = "stale" as NSString
-        CloudKitRecordCoding.apply([
+        try CloudKitRecordCoding.apply([
             "text": .string("hi"), "n": .int(7), "x": .double(1.5), "when": .date(t(3)),
             "blob": .data(Data([9])), "tags": .strings(["a", "b"]), "empty": .strings([]), "old": .null,
         ], to: record)
-        let decoded = CloudKitRecordCoding.decode(record)
+        let decoded = try CloudKitRecordCoding.decode(record)
         #expect(decoded.fields["text"] == .string("hi") && decoded.fields["n"] == .int(7))
         #expect(decoded.fields["x"] == .double(1.5) && decoded.fields["when"] == .date(t(3)))
         #expect(decoded.fields["blob"] == .data(Data([9])) && decoded.fields["tags"] == .strings(["a", "b"]))
         #expect(decoded.fields["empty"] == nil && decoded.fields["old"] == nil)
+    }
+
+    @Test func assetBackedFieldsRoundTripThroughRealStagedFilesAndUnreadableAssetsFailLoudly() throws {
+        let body = Data((0..<300_000).map { UInt8($0 % 251) })
+        let record = CKRecord(recordType: "Note", recordID: CKRecord.ID(recordName: "big"))
+        let staged = try CloudKitRecordCoding.apply(["body": .asset(body), "title": .string("t")], to: record)
+        #expect(staged.count == 1)
+        #expect(try Data(contentsOf: staged[0]) == body, "staged file holds the exact bytes")
+        let decoded = try CloudKitRecordCoding.decode(record)
+        #expect(decoded.fields["body"] == .asset(body) && decoded.fields["body"]?.dataValue == body)
+        #expect(decoded.fields["title"] == .string("t"))
+
+        // The staged file vanishing must surface as a failure, never as a record missing its body.
+        try FileManager.default.removeItem(at: staged[0].deletingLastPathComponent())
+        #expect(throws: SyncTransportError.self) { try CloudKitRecordCoding.decode(record) }
     }
 
     @Test func ckErrorsClassifyWithServerRetryGuidanceIncludingPartialFailures() {
@@ -50,3 +65,15 @@ import Testing
         #expect(code == CKError.Code.partialFailure.rawValue)
     }
 }
+
+#if canImport(CloudKit)
+import CryptoKit
+@Test func syncScopeIsSha256OfContainerZoneAndUserAndSeparatesAccounts() {
+    let a = CloudKitRecordCoding.syncScope(container: "iCloud.x", zone: "Z", userRecordName: "u1")
+    let expected = SHA256.hash(data: Data("iCloud.x|Z|u1".utf8)).map { String(format: "%02x", $0) }.joined()
+    #expect(a == expected && a.count == 64)
+    #expect(a != CloudKitRecordCoding.syncScope(container: "iCloud.x", zone: "Z", userRecordName: "u2"))
+    #expect(a != CloudKitRecordCoding.syncScope(container: "iCloud.x", zone: "Z2", userRecordName: "u1"))
+    #expect(a != CloudKitRecordCoding.syncScope(container: "iCloud.y", zone: "Z", userRecordName: "u1"))
+}
+#endif

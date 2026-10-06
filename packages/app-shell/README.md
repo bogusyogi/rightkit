@@ -1,13 +1,16 @@
 # @rightkit/app-shell
 
-Brand-neutral desktop shell for Right Suite apps: fused sidebar + titlebar on one chrome surface, full-width active nav row with 12px antialiased SVG concave joins into the content plane, grouped nav, Jump-to search (Cmd/Ctrl+K), bottom-left wordmark with settings and appearance (system/light/dark), status-footer slot, macOS overlay traffic-light space, and Windows/Linux caption buttons driven by a `@rightkit/platform-ui` `WindowControlAdapter`.
+Brand-neutral React frame for Right Suite desktop apps. Everything is optional and composable:
+
+- **Default fused layout** (`AppShell`): sidebar + titlebar on one chrome surface, antialiased SVG concave join into the page plane, grouped nav with roving arrow keys, palette-trigger search, status footer, wordmark + settings + appearance, collapsible/narrow sidebar. Every region has a slot or override; `sidebar={false}` / `titlebar={false}` drop regions.
+- **Custom layouts** (MailRight-style): skip `AppShell`; compose `ShellProvider` + `AppFrame` + `Titlebar` + `Plane` + `NavList` or your own markup. Palette, shortcuts, toasts, dialogs and menus work unchanged.
+- **Command palette** (`CommandPalette`, `useCommands`), **shortcut registry + help** (`createShortcutRegistry`, `useShortcuts`, `ShortcutHelp`), **toasts** (`toast()`, `useToast`, `ToastViewport`), **modals** (`ModalShell`, `Dialog`, `ConfirmDialog`, `PromptDialog`, `shell.confirm()`/`prompt()`), **context menu** for app-owned menus (`ContextMenu`, `useContextMenu`), **ui kit** (`Button`, `IconButton`, `Input`, `Toggle`, `SegmentedControl`, `Card`, `Badge`, `EmptyState`, `Field`, `Pill`, `StatusRow`, `PageShell`, `ErrorBoundary`), **theme hooks** (`createThemeStore`, `useTheme`).
+- **Native bridge contract** (`AppShellBridge`): structural, no Tauri import; `@rightkit/shell` implements it.
 
 ```tsx
 import "@rightkit/app-shell/shell.css";
-import { AppShell, createThemeStore } from "@rightkit/app-shell/react";
+import { AppShell, PageShell } from "@rightkit/app-shell/react";
 ```
 
-Brand colour comes from CSS: `:root { --rk-brand: #7040c4; --rk-brand-dark: #9567f5; --rk-wordmark: "Tanker", sans-serif; }`.
-Flat suite tokens (`--chrome --plane --ink --accent --fill --line ...`) are defined by `shell.css` and shared with app views.
-
-The app owns routing, view bodies, settings content, and Tauri window calls (adapter). The package owns layout, chrome, theme persistence, and nav filtering.
+Brand colour is CSS only: `:root { --rk-brand: #7040c4; --rk-brand-dark: #9567f5; --rk-wordmark: "Tanker", sans-serif; }`.
+See `API.md` in the lane notes for the full reference and per-app migration. Tests: `pnpm test` runs real headless Chrome (muted) end to end.

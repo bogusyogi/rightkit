@@ -277,3 +277,122 @@ impl Transducer {
         })
     }
 }
+
+// ---------------------------------------------------------------------------
+// Production decode: beam search + shared detokenizer + long-form route
+// ---------------------------------------------------------------------------
+
+use crate::longform::{self, LongFormOptions, LongFormProgress, SeamPolicy};
+use crate::onnx_beam::{onnx_decode_policy, Hit};
+use crate::parakeet_core::detok::{assemble_timed_pieces, DetokPolicy};
+use crate::parakeet_core::policy::DecodePolicy;
+use crate::parakeet_core::DecodedPiece;
+use std::sync::atomic::AtomicBool;
+
+/// Beam decode options for the ONNX path. Defaults are the Windows /
+/// ONNX production policy (width 2, emission reward 0.10, duration-index cap 2,
+/// 10 symbols per frame, canonical N0 detokenizer).
+#[derive(Debug, Clone)]
+pub struct BeamOptions {
+    pub policy: DecodePolicy,
+    pub max_symbols: usize,
+    pub detok: DetokPolicy,
+    pub seam: SeamPolicy,
+}
+
+impl Default for BeamOptions {
+    fn default() -> Self {
+        Self {
+            policy: onnx_decode_policy(),
+            max_symbols: 10,
+            detok: DetokPolicy::canonical_rust(),
+            seam: SeamPolicy::DedupOverlap,
+        }
+    }
+}
+
+impl BeamOptions {
+    /// Keep `uh`/`um` (verbatim, quotable transcripts).
+    pub fn verbatim(mut self) -> Self {
+        self.detok.strip_fillers = false;
+        self
+    }
+
+    /// The pre-beam greedy loop (width 1, no reward).
+    pub fn greedy(mut self) -> Self {
+        self.policy.beam_width = 1;
+        self.policy.emit_reward = 0.0;
+        self
+    }
+}
+
+impl Transducer {
+    /// Model window in samples: the static encoder's fixed mel window, else the
+    /// 15 s padded-window contract.
+    pub fn window_samples(&self) -> usize {
+        self.model
+            .static_window
+            .map(|w| w * self.pre.hop_length)
+            .unwrap_or_else(longform::padded_window_samples)
+    }
+
+    /// Decode ONE window with beam search, fresh predictor state and the shared
+    /// first-party detokenizer. Times are relative to the window start. Use
+    /// [`transcribe_long`](Self::transcribe_long) for longer audio; the greedy
+    /// `transcribe*` methods keep the legacy hard-cut window loop.
+    pub fn transcribe_window_beam(
+        &mut self,
+        audio: &[f32],
+        opts: &BeamOptions,
+    ) -> Result<TranscriptionResult> {
+        if audio.len() > self.window_samples() + self.pre.hop_length {
+            return Err(Error::Audio(format!(
+                "audio is {:.1}s but this primitive decodes one {:.1}s window; use transcribe_long",
+                audio.len() as f32 / 16_000.0,
+                self.window_samples() as f32 / 16_000.0
+            )));
+        }
+        let features = self.extract_features(audio)?;
+        let bias = self.model.context_bias.clone();
+        let bonuses = |emitted: &[usize]| {
+            bias.as_ref()
+                .map(|b| b.next_token_bonuses(emitted))
+                .unwrap_or_default()
+        };
+        let hits: Vec<Hit> = self.model.decode_window_beam(
+            features,
+            &opts.policy,
+            opts.max_symbols,
+            0.0,
+            &bonuses,
+        )?;
+        let pieces: Vec<DecodedPiece> = hits
+            .iter()
+            .map(|&(id, start, dur)| DecodedPiece {
+                token_id: id,
+                piece: self.vocab.id_to_text(id).unwrap_or("").to_string(),
+                start,
+                end: start + dur as f32 * 0.08,
+            })
+            .collect();
+        Ok(assemble_timed_pieces(&pieces, opts.detok))
+    }
+
+    /// The one long-form route (padded window, quiet cut, seam stitching).
+    pub fn transcribe_long(
+        &mut self,
+        audio: &[f32],
+        opts: &BeamOptions,
+        cancel: Option<&AtomicBool>,
+        progress: &dyn Fn(&LongFormProgress),
+    ) -> Result<TranscriptionResult> {
+        let long_opts = LongFormOptions {
+            window_samples: self.window_samples(),
+            terminal_silence: cfg!(target_os = "windows"),
+            seam: opts.seam,
+        };
+        longform::transcribe_padded_window(audio, &long_opts, cancel, progress, |seg| {
+            self.transcribe_window_beam(seg, opts)
+        })
+    }
+}

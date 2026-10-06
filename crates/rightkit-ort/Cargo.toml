@@ -5,9 +5,25 @@ edition = "2021"
 rust-version = "1.98.0"
 publish = false
 license = "MIT OR Apache-2.0"
-description = "Safe product-neutral ONNX Runtime dynamic-library resolution and diagnostics"
+description = "Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin)"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/claude"
 include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[features]
+# `session` pulls in the pinned `ort` crate (load-dynamic only: no download, no
+# static link). Disable it to keep only the path/diagnostic resolver.
+default = ["session"]
+session = ["dep:ort"]
+
 [dependencies]
+# SUITE PIN: every Right Suite crate and app uses exactly this ort version.
+# See README.md "Version policy".
+ort = { version = "=2.0.0-rc.12", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_SystemInformation"] }
+
+[dev-dependencies]
+# E2E checks the real runtime file against the approved native-library catalog.
+rightkit-media = { path = "../rightkit-media", version = "=0.1.0" }

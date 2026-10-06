@@ -10,7 +10,11 @@ pub struct BackoffPolicy {
 
 impl Default for BackoffPolicy {
     fn default() -> Self {
-        Self { base_secs: 15.0, max_secs: 900.0, pending_floor_secs: 30.0 }
+        Self {
+            base_secs: 15.0,
+            max_secs: 900.0,
+            pending_floor_secs: 30.0,
+        }
     }
 }
 

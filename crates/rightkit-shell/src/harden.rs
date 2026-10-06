@@ -1,0 +1,207 @@
+//! Webview hardening: no stray webview context menu, devtools off in production, reload / zoom /
+//! history keys blocked, drag-drop cannot navigate, external links leave for the system browser.
+//!
+//! Three layers, because no single one covers every engine:
+//! 1. an initialisation script (every webview, every frame) that cancels the DOM events;
+//! 2. native webview settings (WKWebView preferences, WebView2 settings) for what JavaScript
+//!    cannot cancel (Cmd+Opt+I inspector, WebView2 accelerator keys, pinch zoom, swipe);
+//! 3. the Rust navigation hook (`NavPolicy`) that catches whatever navigates anyway.
+
+use serde::Serialize;
+use tauri::{Runtime, Webview};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Devtools {
+    /// Inspector unavailable in every build (the default).
+    Off,
+    /// Inspector available only in debug builds.
+    DebugBuilds,
+    /// Inspector always available (diagnostic builds only).
+    On,
+}
+
+impl Devtools {
+    pub fn enabled(self) -> bool {
+        match self {
+            Devtools::Off => false,
+            Devtools::DebugBuilds => cfg!(debug_assertions),
+            Devtools::On => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Hardening {
+    /// Cancel `contextmenu` outside designated surfaces.
+    pub block_context_menu: bool,
+    /// Keep the native Cut/Copy/Paste menu inside inputs, textareas and contenteditable
+    /// (HeardRight behaviour). Mark any other surface with `data-rk-native-menu`.
+    pub allow_editable_menu: bool,
+    /// Block F5, Cmd/Ctrl+R (+Shift), Ctrl+F5, view-source and print shortcuts.
+    pub block_reload: bool,
+    /// Block Cmd/Ctrl +/-/0, ctrl+wheel and trackpad pinch zoom.
+    pub block_zoom: bool,
+    /// Block Alt+Left/Right, Cmd+[ / ], browser back/forward keys and mouse buttons 4/5.
+    pub block_history_nav: bool,
+    /// Block F12, Ctrl+Shift+I/J/C and Cmd+Opt+I/J/C (and turn the inspector off natively).
+    pub devtools: Devtools,
+    /// A dropped file must never navigate the webview; only `data-rk-dropzone` accepts drops.
+    pub block_drop_navigation: bool,
+    /// Route http(s)/mailto link clicks and `window.open` to the system browser.
+    pub intercept_external_links: bool,
+}
+
+impl Default for Hardening {
+    fn default() -> Self {
+        Self {
+            block_context_menu: true,
+            allow_editable_menu: true,
+            block_reload: true,
+            block_zoom: true,
+            block_history_nav: true,
+            devtools: Devtools::Off,
+            block_drop_navigation: true,
+            intercept_external_links: true,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ScriptConfig {
+    block_context_menu: bool,
+    allow_editable_menu: bool,
+    block_reload: bool,
+    block_zoom: bool,
+    block_history_nav: bool,
+    block_devtools_keys: bool,
+    block_drop_navigation: bool,
+    intercept_external_links: bool,
+}
+
+const SCRIPT_BODY: &str = include_str!("harden.js");
+
+impl Hardening {
+    /// The initialisation script for this configuration (idempotent per document).
+    pub fn script(&self) -> String {
+        let cfg = ScriptConfig {
+            block_context_menu: self.block_context_menu,
+            allow_editable_menu: self.allow_editable_menu,
+            block_reload: self.block_reload,
+            block_zoom: self.block_zoom,
+            block_history_nav: self.block_history_nav,
+            block_devtools_keys: !self.devtools.enabled(),
+            block_drop_navigation: self.block_drop_navigation,
+            intercept_external_links: self.intercept_external_links,
+        };
+        let json = serde_json::to_string(&cfg).expect("static config serialises");
+        SCRIPT_BODY.replace("__RK_SHELL_CONFIG__", &json)
+    }
+}
+
+/// Apply the native (non-DOM) hardening to a freshly created webview.
+pub fn apply_native<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
+    // `close_devtools` exists only in debug builds or with tauri's `devtools` feature; production
+    // builds have no inspector to close (and the native settings below turn it off regardless).
+    #[cfg(any(debug_assertions, feature = "devtools"))]
+    if !h.devtools.enabled() {
+        webview.close_devtools();
+    }
+    #[cfg(target_os = "macos")]
+    macos::apply(webview, h);
+    #[cfg(windows)]
+    windows_impl::apply(webview, h);
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = (webview, h);
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::*;
+    use objc2::runtime::AnyObject;
+    use objc2::msg_send;
+    use objc2_foundation::{ns_string, NSNumber};
+
+    pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
+        let devtools = h.devtools.enabled();
+        let zoom_off = h.block_zoom;
+        let nav_off = h.block_history_nav;
+        let _ = webview.with_webview(move |platform| unsafe {
+            // SAFETY: Tauri hands over the live WKWebView for this webview; used only inside this
+            // main-thread closure.
+            let wk = &*(platform.inner() as *mut AnyObject);
+            let config: objc2::rc::Retained<AnyObject> = msg_send![wk, configuration];
+            let prefs: objc2::rc::Retained<AnyObject> = msg_send![&config, preferences];
+            // Wry enables the private `developerExtrasEnabled` preference, which also installs
+            // WebKit's own Cmd+Opt+I handler that JavaScript cannot cancel. Turning it off removes
+            // "Inspect Element" from the context menu and the shortcut together.
+            let flag = NSNumber::numberWithBool(devtools);
+            let (): () = msg_send![&prefs, setValue: Some(&*flag), forKey: ns_string!("developerExtrasEnabled")];
+            if zoom_off {
+                let (): () = msg_send![wk, setAllowsMagnification: false];
+            }
+            if nav_off {
+                let (): () = msg_send![wk, setAllowsBackForwardNavigationGestures: false];
+            }
+        });
+    }
+}
+
+#[cfg(windows)]
+mod windows_impl {
+    use super::*;
+    use webview2_com::ContextMenuRequestedEventHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2Settings3, ICoreWebView2Settings5, ICoreWebView2Settings6, ICoreWebView2_11,
+    };
+    use windows::core::Interface;
+    use windows::Win32::Foundation::BOOL;
+
+    /// WebView2 side of the same policy. NOT compiled on this (macOS) host: compile and verify on
+    /// the Windows agent with `rightkit cargo check -p rightkit-shell` (see API.md).
+    pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening) {
+        let h = h.clone();
+        let _ = webview.with_webview(move |platform| unsafe {
+            let Ok(core) = platform.controller().CoreWebView2() else { return };
+            let Ok(settings) = core.Settings() else { return };
+            let _ = settings.SetAreDevToolsEnabled(h.devtools.enabled());
+            let _ = settings.SetIsStatusBarEnabled(false);
+            if h.block_zoom {
+                let _ = settings.SetIsZoomControlEnabled(false);
+                if let Ok(s5) = settings.cast::<ICoreWebView2Settings5>() {
+                    let _ = s5.SetIsPinchZoomEnabled(false);
+                }
+            }
+            if h.block_history_nav {
+                if let Ok(s6) = settings.cast::<ICoreWebView2Settings6>() {
+                    let _ = s6.SetIsSwipeNavigationEnabled(false);
+                }
+            }
+            if h.block_reload || h.block_history_nav || !h.devtools.enabled() {
+                // F5, Ctrl+R, Alt+Left, F12 and friends are WebView2 "browser accelerator keys".
+                if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+                    let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
+                }
+            }
+            if h.block_context_menu {
+                // Keep default menus only so the editable-field menu can survive; every other
+                // target is marked handled (no menu shown).
+                let allow_editable = h.allow_editable_menu;
+                if let Ok(wv11) = core.cast::<ICoreWebView2_11>() {
+                    let handler = ContextMenuRequestedEventHandler::create(Box::new(move |_sender, args| {
+                        let Some(args) = args else { return Ok(()) };
+                        let target = args.ContextMenuTarget()?;
+                        let mut editable = BOOL(0);
+                        let _ = target.IsEditable(&mut editable);
+                        if !(allow_editable && editable.as_bool()) {
+                            args.SetHandled(true)?;
+                        }
+                        Ok(())
+                    }));
+                    let mut token: i64 = 0;
+                    let _ = wv11.add_ContextMenuRequested(&handler, &mut token);
+                }
+            }
+        });
+    }
+}

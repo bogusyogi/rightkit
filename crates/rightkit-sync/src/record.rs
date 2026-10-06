@@ -21,6 +21,10 @@ pub enum FieldValue {
     Date(i64),
     /// Out-of-line body (CKAsset on Apple platforms).
     Bytes(Vec<u8>),
+    /// List-of-strings field (e.g. HeardRight `tags`). An empty list is sent
+    /// as an absent field: CloudKit refuses to create a schema field from an
+    /// empty list (CKError 12).
+    Strings(Vec<String>),
 }
 
 impl FieldValue {
@@ -33,6 +37,12 @@ impl FieldValue {
     pub fn as_date_ms(&self) -> Option<i64> {
         match self {
             Self::Date(ms) => Some(*ms),
+            _ => None,
+        }
+    }
+    pub fn as_strings(&self) -> Option<&[String]> {
+        match self {
+            Self::Strings(v) => Some(v),
             _ => None,
         }
     }
@@ -115,6 +125,8 @@ pub fn write_tombstone(record: &mut RawRecord, id: &str, deleted_at_ms: i64, kee
 /// the record name for legacy tombstones that lost their `id` field.
 pub fn read_tombstone(record: &RawRecord) -> Option<(String, i64)> {
     let deleted_at = record.date_ms(field::DELETED_AT)?;
-    let id = record.text(field::ID).unwrap_or_else(|| record.record_name.clone());
+    let id = record
+        .text(field::ID)
+        .unwrap_or_else(|| record.record_name.clone());
     Some((id, deleted_at))
 }

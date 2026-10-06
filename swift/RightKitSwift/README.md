@@ -17,10 +17,13 @@ git-URL-native, so apps pin this repo by URL + version tag — the same
 "published, pinned, reproducible" property npm/crates give, with no registry to
 host.
 
+Pins are always exact (`exact:`), never `from:` ranges: a consumer upgrade is a deliberate
+edit of the pin, recorded in `rightkit-versions.json`.
+
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", from: "0.1.0"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.0"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -35,7 +38,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit-swift.git
-    from: "0.1.0"
+    exactVersion: "0.3.0"
 ```
 
 A clone of a consuming app resolves this straight from GitHub — no workspace

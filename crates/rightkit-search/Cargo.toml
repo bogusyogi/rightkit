@@ -1,0 +1,25 @@
+[package]
+name = "rightkit-search"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = ["sqlite"]
+# `Param: rusqlite::ToSql` so compiled predicates bind directly.
+sqlite = ["dep:rusqlite"]
+# Cockpit-derived in-memory filename index (substring/extension/size/kind, pagination).
+filename-index = []
+
+[dependencies]
+rusqlite = { version = "0.40.1", default-features = false, optional = true }
+
+[dev-dependencies]
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+tempfile = "3"

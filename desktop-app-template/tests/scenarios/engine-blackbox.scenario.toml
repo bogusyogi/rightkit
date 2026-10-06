@@ -1,0 +1,48 @@
+name = "engine black box: one-shot CLI contract"
+tier = "fast"
+target = "engine"
+
+[[step]]
+kind = "cli"
+label = "doctor reports version and the isolated data dir"
+command = "doctor"
+input = {}
+  [[step.expect]]
+  path = "code"
+  eq = 0
+  [[step.expect]]
+  path = "json.ok"
+  eq = true
+  [[step.expect]]
+  path = "json.version"
+  eq = "0.1.0"
+  [[step.expect]]
+  path = "json.app_data"
+  contains = "rightapp"
+
+[[step]]
+kind = "cli"
+label = "echo returns its input unchanged"
+command = "echo"
+input = { n = 1, s = "kept" }
+  [[step.expect]]
+  path = "json.n"
+  eq = 1
+  [[step.expect]]
+  path = "json.s"
+  eq = "kept"
+
+[[step]]
+kind = "cli"
+label = "unknown command is a typed error with a stable exit code"
+command = "frobnicate"
+allow_error = true
+  [[step.expect]]
+  path = "code"
+  eq = 3
+  [[step.expect]]
+  path = "json.error.code"
+  eq = "unknown_command"
+
+[[step]]
+kind = "assert_no_orphans"

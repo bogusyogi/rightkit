@@ -1,0 +1,266 @@
+use crate::backend::{system_backend, Backend, Interaction, MemoryBackend};
+use crate::error::{Error, Result};
+use crate::namespace::{check_account, Namespace};
+use crate::secret::Secret;
+use base64::Engine as _;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+/// Universal guard variable honoured by every app (in addition to the app's own variables).
+pub const UNIVERSAL_GUARD_ENV: &str = "RIGHTKIT_NO_KEYCHAIN";
+
+/// What a tripped guard does. Neither touches the OS credential store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuardMode {
+    /// Swap in a process-wide in-memory store (GenRight `GENRIGHT_NO_KEYCHAIN`).
+    Memory,
+    /// Every operation fails with [`Error::Guarded`] (CodeRight `CODERIGHT_DISABLE_OS_KEYCHAIN`).
+    Deny,
+}
+
+#[derive(Clone)]
+pub struct Config {
+    namespace: Namespace,
+    interaction: Interaction,
+    guard_envs: Vec<String>,
+    guard_mode: GuardMode,
+    forced_guard: bool,
+    timeout: Option<Duration>,
+    backend: Option<Arc<dyn Backend>>,
+}
+
+impl Config {
+    pub fn new(namespace: Namespace) -> Self {
+        Self {
+            namespace,
+            interaction: Interaction::NonInteractive,
+            guard_envs: Vec::new(),
+            guard_mode: GuardMode::Memory,
+            forced_guard: false,
+            timeout: None,
+            backend: None,
+        }
+    }
+    /// App-specific guard variable names, e.g. `GENRIGHT_NO_KEYCHAIN`. A guard is tripped by a
+    /// variable that is set to anything except empty/`0`/`false`/`off`/`no`.
+    pub fn guard_env(mut self, name: impl Into<String>) -> Self {
+        self.guard_envs.push(name.into());
+        self
+    }
+    pub fn guard_mode(mut self, mode: GuardMode) -> Self {
+        self.guard_mode = mode;
+        self
+    }
+    /// Force the guard from code, e.g. `.guard_when(cfg!(test), GuardMode::Deny)`; a consuming
+    /// crate's own test binaries are not visible to this library.
+    pub fn guard_when(mut self, condition: bool, mode: GuardMode) -> Self {
+        if condition {
+            self.forced_guard = true;
+            self.guard_mode = mode;
+        }
+        self
+    }
+    pub fn interaction(mut self, mode: Interaction) -> Self {
+        self.interaction = mode;
+        self
+    }
+    /// Per-operation cap (default 5s non-interactive, 90s interactive).
+    pub fn timeout(mut self, d: Duration) -> Self {
+        self.timeout = Some(d);
+        self
+    }
+    /// Replace the OS store (tests, isolated keychains). Guards still take precedence.
+    pub fn backend(mut self, backend: Arc<dyn Backend>) -> Self {
+        self.backend = Some(backend);
+        self
+    }
+}
+
+fn env_tripped(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(v) => !matches!(v.trim().to_ascii_lowercase().as_str(), "" | "0" | "false" | "off" | "no"),
+        Err(std::env::VarError::NotUnicode(_)) => true,
+        Err(_) => false,
+    }
+}
+
+/// Non-secret description of how a store is wired (safe for diagnostics and `/health`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Diagnostics {
+    pub namespace: String,
+    pub backend: &'static str,
+    pub interaction: &'static str,
+    pub guard: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct Store {
+    ns: Namespace,
+    backend: Arc<dyn Backend>,
+    mode: Interaction,
+    timeout: Duration,
+    guard: Option<(String, GuardMode)>,
+}
+
+struct Denied(String);
+
+impl Backend for Denied {
+    fn name(&self) -> &'static str {
+        "guard-deny"
+    }
+    fn get(&self, _: &Namespace, _: &str, _: Interaction) -> Result<Option<Secret>> {
+        Err(Error::Guarded { guard: self.0.clone() })
+    }
+    fn exists(&self, _: &Namespace, _: &str, _: Interaction) -> Result<bool> {
+        Err(Error::Guarded { guard: self.0.clone() })
+    }
+    fn set(&self, _: &Namespace, _: &str, _: &Secret, _: Interaction) -> Result<()> {
+        Err(Error::Guarded { guard: self.0.clone() })
+    }
+    fn add_if_absent(&self, _: &Namespace, _: &str, _: &Secret, _: Interaction) -> Result<bool> {
+        Err(Error::Guarded { guard: self.0.clone() })
+    }
+    fn delete(&self, _: &Namespace, _: &str, _: Interaction) -> Result<bool> {
+        Err(Error::Guarded { guard: self.0.clone() })
+    }
+}
+
+/// Serializes read→mint→persist inside this process; `add_if_absent` covers other processes.
+static MINT_LOCK: Mutex<()> = Mutex::new(());
+
+impl Store {
+    /// Resolve guards and the backend. Infallible: a tripped guard yields a memory or denying
+    /// store, never the OS store.
+    pub fn open(cfg: Config) -> Store {
+        let tripped = cfg
+            .guard_envs
+            .iter()
+            .map(String::as_str)
+            .chain(std::iter::once(UNIVERSAL_GUARD_ENV))
+            .find(|n| env_tripped(n))
+            .map(str::to_string)
+            .or_else(|| cfg.forced_guard.then(|| "forced-by-caller".to_string()));
+        let timeout = cfg.timeout.unwrap_or(match cfg.interaction {
+            Interaction::NonInteractive => Duration::from_secs(5),
+            Interaction::Interactive => Duration::from_secs(90),
+        });
+        let (backend, guard): (Arc<dyn Backend>, _) = match tripped {
+            Some(name) => match cfg.guard_mode {
+                GuardMode::Memory => (MemoryBackend::process_wide(), Some((name, GuardMode::Memory))),
+                GuardMode::Deny => (Arc::new(Denied(name.clone())), Some((name, GuardMode::Deny))),
+            },
+            None => (cfg.backend.unwrap_or_else(system_backend), None),
+        };
+        Store { ns: cfg.namespace, backend, mode: cfg.interaction, timeout, guard }
+    }
+
+    pub fn namespace(&self) -> &Namespace {
+        &self.ns
+    }
+    pub fn guard_active(&self) -> bool {
+        self.guard.is_some()
+    }
+    pub fn diagnostics(&self) -> Diagnostics {
+        Diagnostics {
+            namespace: self.ns.service().to_string(),
+            backend: self.backend.name(),
+            interaction: match self.mode {
+                Interaction::NonInteractive => "non-interactive",
+                Interaction::Interactive => "interactive",
+            },
+            guard: self.guard.as_ref().map(|(n, _)| n.clone()),
+        }
+    }
+
+    /// Same backend and policy, another namespace (legacy services, `SecretRef.service`).
+    pub fn with_namespace(&self, ns: Namespace) -> Store {
+        Store { ns, ..self.clone() }
+    }
+    /// Same store, interactive. Use only for an explicit user action such as "Save key".
+    pub fn interactive(&self) -> Store {
+        let timeout = if self.mode == Interaction::Interactive { self.timeout } else { Duration::from_secs(90) };
+        Store { mode: Interaction::Interactive, timeout, ..self.clone() }
+    }
+
+    fn run<T: Send + 'static>(
+        &self,
+        op: &'static str,
+        account: &str,
+        f: impl FnOnce(Arc<dyn Backend>, Namespace, String, Interaction) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        check_account(account)?;
+        let (backend, ns, acct, mode) = (self.backend.clone(), self.ns.clone(), account.to_string(), self.mode);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f(backend, ns, acct, mode));
+        });
+        // An abandoned thread stays blocked in the OS call until a prompt is dismissed, then exits.
+        rx.recv_timeout(self.timeout)
+            .unwrap_or(Err(Error::Timeout { op, secs: self.timeout.as_secs() }))
+    }
+
+    /// `Ok(None)` only when the store authoritatively reports the item absent.
+    pub fn get(&self, account: &str) -> Result<Option<Secret>> {
+        self.run("get", account, |b, ns, a, m| b.get(&ns, &a, m))
+    }
+    /// Passive presence. Never requests secret bytes and never prompts.
+    pub fn exists(&self, account: &str) -> Result<bool> {
+        self.run("presence", account, |b, ns, a, m| b.exists(&ns, &a, m))
+    }
+    /// Create or replace. An empty secret is rejected; use [`Store::delete`].
+    pub fn set(&self, account: &str, secret: &Secret) -> Result<()> {
+        if secret.is_empty() {
+            return Err(Error::Invalid { what: "secret", reason: "empty (use delete)".into() });
+        }
+        let s = secret.clone();
+        self.run("set", account, move |b, ns, a, m| b.set(&ns, &a, &s, m))
+    }
+    pub fn set_str(&self, account: &str, value: &str) -> Result<()> {
+        self.set(account, &Secret::from_string(value))
+    }
+    /// `Ok(true)` if an item was removed.
+    pub fn delete(&self, account: &str) -> Result<bool> {
+        self.run("delete", account, |b, ns, a, m| b.delete(&ns, &a, m))
+    }
+    pub fn add_if_absent(&self, account: &str, secret: &Secret) -> Result<bool> {
+        let s = secret.clone();
+        self.run("add", account, move |b, ns, a, m| b.add_if_absent(&ns, &a, &s, m))
+    }
+
+    /// Get-or-create a random key (SQLCipher DB key etc.), returned as standard base64 text
+    /// (HeardRight/MailRight compatible). A read failure is NEVER treated as absence: only an
+    /// authoritative "absent" mints, and creation is add-if-absent so concurrent processes adopt
+    /// the winner's key. Returns the key and whether this call created it.
+    pub fn get_or_create_key(&self, account: &str, bytes: usize) -> Result<(Secret, bool)> {
+        if !(16..=1024).contains(&bytes) {
+            return Err(Error::Invalid { what: "key length", reason: "must be 16..=1024 bytes".into() });
+        }
+        let _mint = MINT_LOCK.lock().map_err(|_| Error::Unavailable("mint lock poisoned".into()))?;
+        if let Some(existing) = self.get(account)?.filter(|s| !s.is_empty()) {
+            return Ok((existing, false));
+        }
+        let mut raw = zeroize::Zeroizing::new(vec![0u8; bytes]);
+        getrandom::fill(&mut raw).map_err(|_| Error::Unavailable("OS CSPRNG failed".into()))?;
+        let fresh = Secret::from_string(base64::engine::general_purpose::STANDARD.encode(&*raw));
+        if self.add_if_absent(account, &fresh)? {
+            return Ok((fresh, true));
+        }
+        match self.get(account)?.filter(|s| !s.is_empty()) {
+            Some(winner) => Ok((winner, false)),
+            None => Err(Error::Backend { op: "get_or_create_key", code: 0 }),
+        }
+    }
+}
+
+#[cfg(feature = "settings-probe")]
+impl rightkit_settings::SecretProbe for Store {
+    fn presence(&self, secret: &rightkit_settings::SecretRef) -> rightkit_settings::Presence {
+        use rightkit_settings::Presence;
+        let Ok(ns) = Namespace::new(secret.service.clone()) else { return Presence::Unknown };
+        match self.with_namespace(ns).exists(&secret.account) {
+            Ok(true) => Presence::Present,
+            Ok(false) => Presence::Absent,
+            Err(_) => Presence::Unknown,
+        }
+    }
+}

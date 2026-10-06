@@ -1,5 +1,6 @@
 #if canImport(CloudKit)
 import CloudKit
+import CryptoKit
 import Foundation
 
 /// Production transport: the user's PRIVATE CloudKit database, one custom zone, no server.
@@ -36,6 +37,15 @@ public actor CloudKitSyncTransport: SyncTransport {
             case .temporarilyUnavailable: return .temporarilyUnavailable
             @unknown default: return .couldNotDetermine
             }
+        } catch { throw SyncTransportError(error) }
+    }
+
+    /// Sync-state scope: sha256(container, zone, userRecordID). The ledger (token, versions,
+    /// aliases, tombstones, deletion queue) belongs to exactly this triple.
+    public func accountIdentity() async throws -> String? {
+        do {
+            let user = try await container.userRecordID().recordName
+            return CloudKitRecordCoding.syncScope(container: containerIdentifier, zone: zoneName, userRecordName: user)
         } catch { throw SyncTransportError(error) }
     }
 
@@ -76,17 +86,35 @@ public actor CloudKitSyncTransport: SyncTransport {
             // development containers and return every record.
             let changes = try await database.recordZoneChanges(inZoneWith: zoneID, since: serverToken)
             var records: [SyncRecord] = []
-            for (_, result) in changes.modificationResultsByID {
-                guard let ck = try? result.get().record else { continue }
-                cache[ck.recordID.recordName] = ck
-                records.append(CloudKitRecordCoding.decode(ck))
+            var failed: [String] = []
+            var undecodable: [String] = []
+            var retryAfter: TimeInterval?
+            for (id, result) in changes.modificationResultsByID {
+                // A per-record fetch failure must never vanish behind the advanced token: report
+                // it as transient so the engine aborts the pull and keeps its previous token.
+                let ck: CKRecord
+                do { ck = try result.get().record } catch {
+                    failed.append(id.recordName)
+                    if let delay = SyncTransportError(error).retryDelay { retryAfter = max(retryAfter ?? 0, delay) }
+                    continue
+                }
+                // A fetched record that cannot be decoded is permanent: quarantine, never retry-loop.
+                do {
+                    let decoded = try CloudKitRecordCoding.decode(ck)
+                    cache[ck.recordID.recordName] = ck
+                    records.append(decoded)
+                } catch {
+                    undecodable.append(id.recordName)
+                }
             }
             let deleted = changes.deletions.map(\.recordID.recordName)
             for name in deleted { cache[name] = nil }
             let archived = try NSKeyedArchiver.archivedData(withRootObject: changes.changeToken, requiringSecureCoding: true)
             return SyncChangePage(
                 records: records, deletedRecordNames: deleted,
-                token: SyncChangeToken(data: archived), moreComing: changes.moreComing
+                token: SyncChangeToken(data: archived), moreComing: changes.moreComing,
+                failedRecordNames: failed.sorted(), failedRecordRetryAfter: retryAfter,
+                undecodableRecordNames: undecodable.sorted()
             )
         } catch { throw SyncTransportError(error) }
     }
@@ -95,10 +123,12 @@ public actor CloudKitSyncTransport: SyncTransport {
         guard !writes.isEmpty else { return [:] }
         var outcomes: [String: SyncSaveOutcome] = [:]
         var records: [CKRecord] = []
+        var staged: [URL] = []
+        defer { for url in staged { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) } }
         for write in writes {
             do {
                 let base = try await baseRecord(name: write.recordName, type: write.recordType)
-                CloudKitRecordCoding.apply(write.fields, to: base)
+                staged += try CloudKitRecordCoding.apply(write.fields, to: base)
                 records.append(base)
             } catch {
                 outcomes[write.recordName] = .failed(SyncTransportError(error))
@@ -139,7 +169,18 @@ public actor CloudKitSyncTransport: SyncTransport {
 
 /// Pure CKRecord <-> neutral mapping (testable offline).
 public enum CloudKitRecordCoding {
-    public static func apply(_ fields: [String: SyncValue], to record: CKRecord) {
+    /// Hex sha256 of "container|zone|userRecordName", the same scope HeardRight's macOS sync uses.
+    public static func syncScope(container: String, zone: String, userRecordName: String) -> String {
+        SHA256.hash(data: Data("\(container)|\(zone)|\(userRecordName)".utf8))
+            .map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Applies `fields` to `record`. `.asset` values are staged as files; the returned URLs are
+    /// the staged files, which the caller removes once the save finished (CloudKit uploads them
+    /// during the operation, so they must outlive it).
+    @discardableResult
+    public static func apply(_ fields: [String: SyncValue], to record: CKRecord) throws -> [URL] {
+        var staged: [URL] = []
         for (key, value) in fields {
             switch value {
             case let .string(v): record[key] = v as NSString
@@ -148,12 +189,23 @@ public enum CloudKitRecordCoding {
             case let .date(v): record[key] = v as NSDate
             case let .data(v): record[key] = v as NSData
             case let .strings(v): record[key] = v.isEmpty ? nil : v as NSArray
+            case let .asset(v):
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("rightkit-assets-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let url = directory.appendingPathComponent("asset.bin")
+                try v.write(to: url, options: .atomic)
+                staged.append(url)
+                record[key] = CKAsset(fileURL: url)
             case .null: record[key] = nil
             }
         }
+        return staged
     }
 
-    public static func decode(_ record: CKRecord) -> SyncRecord {
+    /// Throws when an asset-backed field cannot be read back: dropping it would present a record
+    /// whose content silently vanished.
+    public static func decode(_ record: CKRecord) throws -> SyncRecord {
         var fields: [String: SyncValue] = [:]
         for key in record.allKeys() {
             switch record[key] {
@@ -161,6 +213,11 @@ public enum CloudKitRecordCoding {
             case let v as Date: fields[key] = .date(v)
             case let v as Data: fields[key] = .data(v)
             case let v as [String]: fields[key] = .strings(v)
+            case let v as CKAsset:
+                guard let url = v.fileURL, let bytes = try? Data(contentsOf: url) else {
+                    throw SyncTransportError.other(code: -2, message: "asset unreadable for field \(key)")
+                }
+                fields[key] = .asset(bytes)
             case let v as NSNumber:
                 fields[key] = CFNumberIsFloatType(v) ? .double(v.doubleValue) : .int(v.int64Value)
             default: break

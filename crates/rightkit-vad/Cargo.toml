@@ -1,0 +1,25 @@
+[package]
+name = "rightkit-vad"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+license = "MIT"
+description = "Product-neutral voice activity detection: Silero scorer, hysteresis/padding/chunking policy, streaming frame carry"
+repository = "https://github.com/adrdsouza/claude"
+include = ["src/**", "tests/**", "Cargo.toml"]
+
+[lib]
+name = "rightkit_vad"
+path = "src/lib.rs"
+
+[dependencies]
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "api-24"] }
+
+[dev-dependencies]
+hound = "3.5"
+
+[features]
+default = ["ort-defaults"]
+ort-defaults = ["ort/default"]
+load-dynamic = ["ort/load-dynamic"]

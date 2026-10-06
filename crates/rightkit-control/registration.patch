@@ -1,0 +1,9 @@
+# Workspace already globs crates/*; no Cargo.toml edit needed. Remaining registration:
+--- a/package.json
++++ b/package.json
+@@ scripts @@
++    "test:control": "rightkit cargo test -p rightkit-control",
+--- a/docs/rules/rightkit.md  (workspace docs/rules)
++| `rightkit-control` (crate) | `rightkit-control` | Background per-pid input, AX state reads, W3C WebDriver bridge for real desktop apps | Mac (verified), Windows (specified) |
+--- a/packages/qa/src/native.ts
++  (add `control?: { port: number; token?: string }` to RightQaConfig and a `createControlDriver()`; see design.md section 5)

@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.98.0"
 publish = false
 license = "MIT OR Apache-2.0"
-description = "Verified product-neutral two-stage ONNX OCR runtime"
+description = "Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/claude"
 include = [
@@ -23,9 +23,23 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "api-24", "load-dynamic"] }
 rightkit-ort = { version = "=0.1.0", path = "../rightkit-ort" }
 sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "rightkit-ocr"
+path = "src/bin/rightkit-ocr.rs"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSError", "NSDictionary", "NSValue", "NSGeometry"] }
+objc2-core-graphics = { version = "0.3", features = ["CGImage", "CGColorSpace", "CGDataProvider"] }
+objc2-vision = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "VNRequest", "VNRequestHandler", "VNRecognizeTextRequest", "VNObservation", "VNTypes", "VNError"] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 
 [target.'cfg(windows)'.dependencies]
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "api-24", "load-dynamic", "directml"] }
+windows = { version = "0.62", features = ["Foundation", "Foundation_Collections", "Globalization", "Graphics_Imaging", "Media_Ocr", "Security_Cryptography", "Storage_Streams"] }
 
 [dev-dependencies]
 base64 = "0.22"

@@ -15,6 +15,8 @@ public struct CloudSyncConfiguration: Sendable {
     public var publication: Publication = .batched
     /// Floor for the retry gate after failed uploads or still-pending deletions.
     public var failureRetryFloor: TimeInterval = 30
+    /// Quarantined records (permanent decode failures only) are retried by a full zone replay after this long.
+    public var quarantineReplayInterval: TimeInterval = 6 * 3600
     /// Subscription setup retry delays (bounded; setup never blocks data transport).
     public var subscriptionRetryDelays: [TimeInterval] = [15, 30]
     public var messages = SyncMessages()
@@ -39,6 +41,10 @@ public protocol CloudSyncRunning: Sendable {
 ///
 /// Durable-readback contract: the change token advances only after remote tombstones, uploads and
 /// the local merge all succeeded. A failed sync replays its page.
+///
+/// Pull before push: a pull that fails, including any transient per-record fetch error, aborts the
+/// pass before anything is uploaded or the cursor moves. Only permanently undecodable records are
+/// quarantined.
 public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
     private struct RemoteEntry {
         let itemID: String
@@ -54,6 +60,11 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
         var entries: [RemoteEntry]
         var token: SyncChangeToken?
         var unresolved: Int
+        /// Record names the server listed but could not deliver (transient; the pass aborts).
+        var failedNames: Set<String>
+        var failedRetryAfter: TimeInterval?
+        /// Record names fetched but permanently undecodable.
+        var undecodable: Set<String>
         /// True when the zone was read from the beginning, so absence means absence.
         var isFullReplay: Bool
     }
@@ -161,11 +172,20 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
                 throw stateLoadError
             }
             try fence(gen)
+            if try await bindAccount() { return await sync() }
+            try fence(gen)
             try await prepareZoneIfNeeded()
             try fence(gen)
 
             let fetched = try await fetchRemote(gen: gen)
             try fence(gen)
+            // Transient per-record failure: nothing is applied, uploaded or advanced from a partial
+            // snapshot; the previous token is kept and the server's retry guidance is honoured.
+            if !fetched.failedNames.isEmpty {
+                events.record("sync_record_fetch_failed", fields: ["count": String(fetched.failedNames.count)])
+                throw SyncTransportError.busy(retryAfter: fetched.failedRetryAfter)
+            }
+            try await verifyAccount(gen: gen)
             let remote = canonical(fetched.entries)
             for entry in fetched.entries { state.aliases[entry.itemID, default: []].insert(entry.recordName) }
 
@@ -190,7 +210,12 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
             let local = try await adapter.loadLocal()
             let localByID = Dictionary(local.map { (adapter.itemID(of: $0), $0) }, uniquingKeysWith: { a, _ in a })
             let remoteByID = Dictionary(remote.map { ($0.itemID, $0) }, uniquingKeysWith: { a, _ in a })
-            let upload = try await uploadChanges(local: local, remoteByID: remoteByID, isFullReplay: fetched.isFullReplay, gen: gen)
+            // A record the server has but we could not read must not be overwritten by a local "new" copy.
+            let unreadable = fetched.undecodable.union(state.quarantined.keys)
+            try await verifyAccount(gen: gen)
+            let upload = try await uploadChanges(
+                local: local, remoteByID: remoteByID, isFullReplay: fetched.isFullReplay, gen: gen, unreadable: unreadable
+            )
 
             // 4. Download / merge.
             try fence(gen)
@@ -228,6 +253,16 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
                 state.remoteVersions[entry.itemID] = .init(recordName: entry.recordName, version: entry.version)
             }
             for (id, version) in upload.versions { state.remoteVersions[id] = version }
+            // Only permanent decode failures are quarantined (the cursor moves past them); a record
+            // that arrives later leaves quarantine.
+            for entry in fetched.entries { state.quarantined[entry.recordName] = nil }
+            for name in fetched.undecodable where state.quarantined[name] == nil {
+                state.quarantined[name] = config.clock()
+                events.record("sync_record_quarantined", fields: ["record_name": name])
+            }
+            // The commit is account-fenced: a switch during this pass must not write the old
+            // account's token or versions over the new ledger.
+            try await verifyAccount(gen: gen)
             if let token = fetched.token { state.changeToken = token }
             try persist()
             if fetched.unresolved > 0 {
@@ -265,7 +300,8 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
     }
 
     private func uploadChanges(
-        local: [Adapter.Item], remoteByID: [String: RemoteEntry], isFullReplay: Bool, gen: UInt64
+        local: [Adapter.Item], remoteByID: [String: RemoteEntry], isFullReplay: Bool, gen: UInt64,
+        unreadable: Set<String>
     ) async throws -> UploadOutcome {
         var candidates: [Candidate] = []
         for item in local {
@@ -280,7 +316,9 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
                 guard known.version < adapter.version(of: item) else { continue }
                 candidates.append(Candidate(item: item, id: id, recordName: known.recordName, isNew: false))
             } else {
-                candidates.append(Candidate(item: item, id: id, recordName: adapter.recordName(forItemID: id), isNew: true))
+                let name = adapter.recordName(forItemID: id)
+                guard !unreadable.contains(name) else { continue }
+                candidates.append(Candidate(item: item, id: id, recordName: name, isNew: true))
             }
         }
         candidates.sort {
@@ -369,10 +407,20 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
     }
 
     private func fetchRemote(gen: UInt64, didResetToken: Bool = false, didRecreateZone: Bool = false) async throws -> Fetch {
+        if !didResetToken, state.changeToken != nil, let oldest = state.quarantined.values.min(),
+           config.clock().timeIntervalSince(oldest) >= config.quarantineReplayInterval {
+            // Give quarantined records another chance through a full replay; never discards user data.
+            state.changeToken = nil
+            state.quarantined = [:]
+            try persist()
+        }
         var token = state.changeToken
         let isFullReplay = token == nil
         var records: [SyncRecord] = []
         var deleted: [String] = []
+        var failedNames = Set<String>()
+        var undecodable = Set<String>()
+        var failedRetryAfter: TimeInterval?
         do {
             var more = true
             while more {
@@ -380,6 +428,9 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
                 try fence(gen)
                 records += page.records
                 deleted += page.deletedRecordNames
+                failedNames.formUnion(page.failedRecordNames)
+                undecodable.formUnion(page.undecodableRecordNames)
+                if let hint = page.failedRecordRetryAfter { failedRetryAfter = max(failedRetryAfter ?? 0, hint) }
                 token = page.token
                 more = page.moreComing
             }
@@ -413,8 +464,9 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
                     entries.append(RemoteEntry(itemID: itemID, recordName: record.recordName, version: version, item: nil))
                 }
             } catch {
-                // Quarantine instead of poisoning every future sync; a later server edit retries it.
+                // Permanent decode error: quarantine instead of poisoning every future sync.
                 unresolved += 1
+                undecodable.insert(record.recordName)
                 events.record("sync_record_decode_deferred", fields: ["record_name": record.recordName])
             }
         }
@@ -427,7 +479,13 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
             }
             entries.append(RemoteEntry(itemID: id, recordName: name, version: config.clock(), item: nil))
         }
-        return Fetch(entries: entries, token: token, unresolved: unresolved, isFullReplay: isFullReplay)
+        // A record that failed on one page may have been delivered on a later one.
+        failedNames.subtract(records.map(\.recordName))
+        undecodable.subtract(entries.map(\.recordName))
+        return Fetch(
+            entries: entries, token: token, unresolved: unresolved, failedNames: failedNames,
+            failedRetryAfter: failedRetryAfter, undecodable: undecodable, isFullReplay: isFullReplay
+        )
     }
 
     /// Legacy history can hold several records for one logical id. Tombstone beats live, newer beats
@@ -447,6 +505,52 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
             if replace { byID[entry.itemID] = entry }
         }
         return byID.values.sorted { $0.itemID < $1.itemID }
+    }
+
+    /// Binds the ledger to the signed-in account. Returns true when the account changed and the
+    /// ledger was reset (the caller restarts the pass). Fails closed: an unreadable identity throws.
+    private func bindAccount() async throws -> Bool {
+        guard let identity = try await transport.accountIdentity() else { return false }
+        guard let bound = state.accountID else {
+            // Ledger from before account binding has no known owner. Its tombstones keep
+            // suppressing local copies, but its cursor, versions, aliases and queued deletions are
+            // never imported into this account (they would upload another account's deletions).
+            var adopted = CloudSyncState()
+            adopted.accountID = identity
+            adopted.tombstones = state.tombstones
+            adopted.markers = state.markers
+            let dropped = state.changeToken != nil || !state.remoteVersions.isEmpty
+                || !state.aliases.isEmpty || !state.pendingDeletions.isEmpty
+            state = adopted
+            try persist()
+            if dropped { events.record("sync_legacy_ledger_unscoped", fields: [:]) }
+            return false
+        }
+        guard bound != identity else { return false }
+        try await adapter.accountDidSwitch(from: bound, to: identity)
+        var fresh = CloudSyncState()
+        fresh.accountID = identity
+        state = fresh
+        try persist()
+        generation &+= 1
+        zonePrepared = false
+        retryGate.clear()
+        resetSubscription()
+        events.record("sync_account_switched", fields: [:])
+        return true
+    }
+
+    /// Fences in-flight work to the account it started under: a different identity cancels the
+    /// pass before it can upload or commit (the next pass resets the ledger through `bindAccount`).
+    private func verifyAccount(gen: UInt64) async throws {
+        guard let bound = state.accountID else { return }
+        guard let identity = try await transport.accountIdentity() else { return }
+        try fence(gen)
+        guard identity == bound else {
+            events.record("sync_account_changed_in_flight", fields: [:])
+            generation &+= 1
+            throw CancellationError()
+        }
     }
 
     private func prepareZoneIfNeeded() async throws {

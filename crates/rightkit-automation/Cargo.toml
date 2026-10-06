@@ -1,0 +1,45 @@
+[package]
+name = "rightkit-automation"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts."
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Zero third-party dependencies on macOS (direct framework FFI). Windows uses the
+# `windows` crate already pinned in the workspace lock (UI Automation, GDI,
+# clipboard, SendInput). No Python or Node at runtime. The `windows` crate is
+# cfg(windows) only, so the Windows backend compiles on the Windows host.
+[dependencies]
+# Only for the fail-closed app-data root (`Suite::resolve`); no I/O at runtime beyond that.
+rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
+serde_json = "=1.0.150"
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Storage_FileSystem",
+  "Win32_Storage_Xps",
+  "Win32_System_JobObjects",
+  "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_System_Threading",
+  "Win32_System_Variant",
+  "Win32_UI_Accessibility",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+# Real-app gates. `harness = false`: the macOS gate must run on the main thread
+# (NSWorkspace state is published through the main run loop).
+[[test]]
+name = "e2e_mac"
+harness = false

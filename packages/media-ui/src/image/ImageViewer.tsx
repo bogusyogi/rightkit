@@ -243,9 +243,9 @@ export function ImageViewer(props: ImageViewerProps) {
   useEffect(() => {
     if (!active || !adapters.printImage) return;
     const onPrint = (event: Event) => {
-      if (!exportSrc) return;
+      if (!exportSrc || shownSrc !== displaySrc) return;
       event.preventDefault();
-      void exportImageEdit(exportSrc, edit, "png", fonts)
+      void exportImageEdit(exportSrc, edit, "png", fonts, imageSize)
         .then((payload) => {
           const blob = new Blob([payload.buffer], { type: payload.mime });
           return new Promise<string>((resolve, reject) => {
@@ -268,17 +268,20 @@ export function ImageViewer(props: ImageViewerProps) {
     };
     window.addEventListener(printEventName, onPrint);
     return () => window.removeEventListener(printEventName, onPrint);
-  }, [active, adapters, exportSrc, edit, fonts, printEventName]);
+  }, [active, adapters, exportSrc, edit, fonts, printEventName, imageSize, shownSrc, displaySrc]);
 
   useLayoutEffect(() => {
     if (!registerSave) return;
-    if (!exportSrc) {
+    // While a new display image is still decoding the recipe belongs to the
+    // previous image; exporting then would render the wrong content.
+    if (!exportSrc || shownSrc !== displaySrc) {
       registerSave(null);
       return;
     }
-    registerSave((outputExt = "png") => exportImageEdit(exportSrc, edit, outputExt, fonts));
+    const editSpace = imageSize;
+    registerSave((outputExt = "png") => exportImageEdit(exportSrc, edit, outputExt, fonts, editSpace));
     return () => registerSave(null);
-  }, [edit, exportSrc, registerSave, fonts]);
+  }, [edit, exportSrc, registerSave, fonts, imageSize, shownSrc, displaySrc]);
 
   const mutateEdit = useCallback(
     (fn: (current: ImageEdit) => ImageEdit) => {

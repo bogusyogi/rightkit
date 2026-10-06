@@ -4,6 +4,7 @@
 mod backoff;
 mod engine;
 mod error;
+pub mod helper;
 mod ledger;
 mod memory;
 mod record;

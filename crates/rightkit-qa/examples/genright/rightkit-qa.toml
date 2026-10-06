@@ -1,0 +1,32 @@
+# GenRight QA config: replaces right-qa.config.mjs and scripts/e2e.mjs.
+# Copy to /Volumes/D/claude/genright/rightkit-qa.toml; scenarios live in tests/e2e/.
+app = "genright"
+app_root = "."
+evidence_dir = ".cache/rightkit-qa"
+scenarios = ["tests/e2e"]
+default_tier = "fast"
+
+[env]                       # applied to every process the harness starts
+GENRIGHT_NO_KEYCHAIN = "1"  # mandatory, always
+
+[engine]
+package = "genright-engine"
+build = ["rightkit", "cargo", "build", "-p", "genright-engine"]
+data_dir_env = "GENRIGHT_APP_DATA"      # fresh per scenario
+# `binary` is optional: managed RightKit keeps targets outside the checkout, so
+# the runner takes the executable from the build's compiler-artifact message
+# (`rightkit-qa run --build`) or from --engine / RIGHTKIT_QA_ENGINE.
+
+[ui]
+binaries = { darwin = "target/debug/genright", windows = "target/debug/genright.exe" }
+window_label = "main"
+mode = "hidden"
+feature = "qa-native"
+package = "genright"
+build = ["rightkit", "cargo", "build", "-p", "genright", "--features", "qa-native"]
+cargo_toml = "src-tauri/Cargo.toml"
+rust_sources = ["src-tauri/src/lib.rs"]
+package_json = "package.json"
+
+[audio]
+system_mute = true          # macOS: mute output for the run, restored afterwards

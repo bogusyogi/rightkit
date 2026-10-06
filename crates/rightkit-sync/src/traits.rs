@@ -85,6 +85,12 @@ pub enum SavePolicy {
     /// engine uses: a write never needs a read first, and deletion is
     /// authoritative.
     Overwrite,
+    /// Conditional save (CloudKit `.ifServerRecordUnchanged`): the record's
+    /// `change_tag` must still be the server's (no tag = must not exist). A
+    /// mismatch yields `SyncError::Conflict` plus the server record in
+    /// `RecordOutcome::server_record`; the engine resolves it with the
+    /// conflict policy and retries, never overwriting blindly.
+    IfServerUnchanged,
 }
 
 #[derive(Debug, Default)]
@@ -100,6 +106,8 @@ pub struct ChangePage {
 pub struct RecordOutcome {
     pub record_name: String,
     pub result: SyncResult<()>,
+    /// Server's current record when `result` is `Err(Conflict)`.
+    pub server_record: Option<RawRecord>,
 }
 
 /// The cloud zone. Method set mirrors the iOS `CloudSyncService`.
@@ -132,6 +140,13 @@ pub trait AuthProvider: Send + Sync {
     fn availability(&self) -> SyncResult<()>;
     fn generation(&self) -> u64 {
         0
+    }
+    /// Stable opaque identity of the signed-in account/container/zone
+    /// (CloudKit helper: `sha256(container|zone|userRecordName)`), valid
+    /// after a successful `availability()`. The engine binds its ledger to
+    /// it and resets the ledger when it changes. `None` = no isolation.
+    fn account_scope(&self) -> Option<String> {
+        None
     }
     /// Bearer value for HTTP-style backends, fetched per pass by the app's
     /// own secure store; CloudKit backends return None.
@@ -188,6 +203,10 @@ pub trait PassHooks: Send + Sync {
     fn on_foreign_records(&self, _records: &[RawRecord], _extras: &mut Extras) -> Vec<RawRecord> {
         Vec::new()
     }
+    /// The account scope changed. The engine resets its own ledger for the
+    /// new scope (its `extras` start empty again); drop any app-owned state
+    /// that belonged to `from`.
+    fn on_account_switch(&self, _from: &str, _to: &str) {}
 }
 
 pub struct NoHooks;

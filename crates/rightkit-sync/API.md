@@ -46,10 +46,12 @@ engine.request_full_replay_once("flag")
 | `LocalStore<T>` | `all`, `remove(id)`, `apply_remote(items)->Applied/Deferred` | adapter over `EngineBridge`: history rows, `delete_transcript`, `import_transcript` (Deferred when the engine RPC is unavailable) |
 | `ConflictPolicy<T>` | `upload_local_over_remote`, `accept_remote_over_local` (default `LastWriterWins`) | default |
 | `Backend` | `prepare`, `fetch_changes` (one page), `fetch_record`, `save_records`, `max_batch` | `CloudKitBackend` (see 3) |
-| `AuthProvider` | `enabled`, `availability`, `generation`, `bearer` | iCloud account status + toggle; generation bumps on account change |
+| `AuthProvider` | `enabled`, `availability`, `generation`, `account_scope`, `bearer` | iCloud account status + toggle; generation bumps on account change |
 | `LedgerStorage` | `load`/`save` bytes (`FileStorage` atomic, `MemoryStorage`) | `FileStorage(<dir>/icloud-sync-ledger.json)` |
-| `PassHooks` | `outbound` (device announce), `on_foreign_records` (QueueRequest claim/status flow, uses `extras` for request ledger) | ScrapeRight coordinator's request code, unchanged domain logic |
+| `PassHooks` | `outbound` (device announce), `on_account_switch`, `on_foreign_records` (QueueRequest claim/status flow, uses `extras` for request ledger) | ScrapeRight coordinator's request code, unchanged domain logic |
 | `Clock`, `SyncObserver` | time, diagnostics | `tracing` bridge |
+
+Acknowledgement rule: `on_foreign_records` responses are written to the zone before the hook's `extras` are persisted, and a failed response write fails the pass (`PassOutcome::Failed`, backoff) without advancing the change token, so the request replays. Every local effect (tombstone removal, `apply_remote`) and the final token advance re-check the auth generation; a changed generation returns `Cancelled` and commits no cursor progress. Hooks must therefore be idempotent over replay.
 
 `PassOutcome`: `Synced`, `Pending(reason)`, `Deferred{secs}`, `Unavailable`, `Disabled`, `Cancelled`, `Failed`. `Pending` means the token advanced but queued uploads/tombstones/deferred applies remain.
 
@@ -57,28 +59,127 @@ Ledger JSON is a new document (`Ledger`); the ScrapeRight `icloud-sync-ledger.js
 
 ## 3. Backends
 
-`MemoryBackend` ships here as the reference zone/test fixture. A real `CloudKitBackend` is NOT in this crate (needs `objc2-cloud-kit`, entitlements, app container). Call map (from ScrapeRight `cloudkit.rs` header, validated against iOS):
-- `prepare`: `CKModifyRecordZonesOperation` + zone subscription (subscription failure non-fatal).
-- `fetch_changes`: `CKFetchRecordZoneChangesOperation`; `moreComing` => set `more_coming`; `.changeTokenExpired` => `TokenExpired`; `.zoneNotFound/.userDeletedZone` => `ZoneMissing`; per-record fetch failure counted by backend, not fatal.
-- `save_records`: `CKModifyRecordsOperation(savePolicy: .allKeys, atomically: false)`; map `.networkUnavailable/.networkFailure` => `RetryAfter 15`, `.requestRateLimited/.zoneBusy/.serviceUnavailable` => `RetryAfter 30` (or `CKErrorRetryAfterKey`).
-- `FieldValue::Bytes` <-> `CKAsset` (temp file on upload).
-- Blocking: wait on a completion channel (~120 s timeout).
-The change token is stored as opaque bytes; it never round-trips across platforms.
+| Backend | Where | Use |
+|---|---|---|
+| `MemoryBackend` | this crate | reference zone, in-process tests |
+| `helper::HelperBackend` + `HelperAuth` (via `CloudKitHelper`) | this crate | any zone behind a helper process speaking `rightkit-sync-helper/1`; the macOS CloudKit backend |
+| `rightkit-cloudkit-helper` | `tools/rightkit/swift/RightKitCloudKitHelper` | production helper: Swift CLI over `RightKitCloudSync.CloudKitSyncTransport` |
+| `rightkit-sync-fake-helper` | this crate (`src/bin`) | protocol fake with fault injection (E2E fixture) |
+
+```rust
+let helper = CloudKitHelper::new(
+    HelperConfig::new(path_to_helper).cloudkit("iCloud.com.example.app", "Items", "items-sub"),
+    observer,
+);
+SyncEngineBuilder::new(mapper, Arc::new(helper.backend()), local, storage)
+    .auth(Arc::new(helper.auth()))   // status, account scope, generation, user toggle
+    .build()?;
+```
+
+`HelperAuth::set_enabled(false)` is the user toggle (cancels an in-flight pass). `availability()` calls
+the helper's `status`; a changed `scope` bumps the generation and the engine resets its ledger.
+
+### Account/scope isolation
+
+`AuthProvider::account_scope()` (new) returns `sha256("container|zone|userRecordName")` from the
+helper. The ledger stores it (`Ledger.scope`) and the engine binds every pass to it:
+
+- first scoped pass on a pre-scope ledger: cursor, remote versions, aliases and queued tombstones are
+  dropped (never imported into the account), tombstones kept;
+- scope changed: `PassHooks::on_account_switch(from, to)`, then a fresh ledger for the new scope. The
+  old account's queued deletions and cursor can never reach the new account;
+- every helper request carries `expected_scope`; the helper refuses a mismatch before any I/O and
+  checks again after it, so a request that straddles an account change returns `scope_changed`
+  (engine outcome `Cancelled`, no cursor progress committed).
+
+### Wire protocol `rightkit-sync-helper/1`
+
+Transport: child process, UTF-8, one JSON object per line on stdin (requests) and stdout (responses);
+stderr is free-form diagnostics (last line is appended to errors). Responses carry the request `id`;
+the client kills and respawns the helper on timeout (default 120 s), EOF, crash or a malformed line
+(retry 15 s). Lines over 128 MiB are rejected. Helper state across restarts is irrelevant: the change
+cursor lives in the Rust ledger and travels in each request.
+
+Request: `{"v":1,"id":N,"cmd":"...", ...}`. Response: `{"id":N,"ok":true, ...}` or
+`{"id":N,"ok":false,"error":{"kind","message","retry_after_secs?"}}`.
+
+| cmd | params | ok response |
+|---|---|---|
+| `status` | none | `status:"ready"` + `scope`, or `status:"unavailable"` + `detail` |
+| `prepare` | `expected_scope` | `subscription_error?` (non-fatal) |
+| `fetch_changes` | `expected_scope`, `since` (base64 or null) | `records[]`, `deleted[]`, `token` (base64), `more_coming`, `failed_records[]`, `failed_retry_after_secs?`, `undecodable_records[]` |
+| `fetch_record` | `expected_scope`, `record_name` | `record` or null |
+| `save_records` | `expected_scope`, `policy:"overwrite"\|"if_server_unchanged"`, `records[]` (each with its `change_tag`) | `outcomes[{name, ok, error?, server_record?}]` (non-atomic, per record) |
+| `shutdown` | none | `{}` then exit |
+
+Every non-status ok response echoes `scope`; the client treats a different value as `Cancelled`.
+
+Record: `{"type","name","fields":{key:{"t":"text|i64|f64|date|bytes|strings","v":...}},"modified_ms?","created_ms?","change_tag?"}`.
+`date` is epoch ms, `bytes` is base64 (a `CKAsset` in CloudKit), `strings` is a list field (an empty list
+is omitted: CloudKit CKError 12). A save carries the full field set: fields the record held that are
+absent from the write are cleared (this is how tombstones erase content).
+
+Error kinds -> `SyncError`: `unavailable|not_authenticated|permission_denied|quota_exceeded` ->
+`Unavailable`; `network` (15 s) / `busy` (30 s) / `retry_after` -> `RetryAfter` (server hint wins);
+`token_expired` -> `TokenExpired`; `zone_missing` -> `ZoneMissing`; `scope_changed` -> `Cancelled`;
+anything else -> `Transient`.
+
+Cursor/H13 rule: `failed_records` non-empty (a record the feed listed but the helper could not
+fetch) fails the whole page with `RetryAfter` (hint or 30 s) so the cursor never advances past it; the
+page replays. `undecodable_records` (permanent) are reported through the observer and skipped.
+
+Engine rule added with the zone-loss path: on `ZoneMissing` the ledger also forgets remote versions and
+aliases (acknowledgements describe records that no longer exist), so local items republish.
+
+### Conditional saves (no blind overwrite)
+
+Every fetched record carries `change_tag` (CloudKit: archived `CKRecord` system fields, base64; the
+Rust side only echoes it). Edits and first publications are saved with `SavePolicy::IfServerUnchanged`
+(`.ifServerRecordUnchanged`): a record whose tag is no longer the server's (or an insert of a name that
+now exists) is refused with `SyncError::Conflict` and the server's record in
+`RecordOutcome::server_record`. The engine then (`resolve_conflict`, max 4 rounds): tombstone wins ->
+bury and remove locally; otherwise `ConflictPolicy::upload_local_over_remote` -> re-save on top of the
+server's tag; else `accept_remote_over_local` -> apply the server record locally; equal -> keep the
+server's. Rounds exhausted or undecodable -> upload stays pending. Tombstones and hook records stay
+`Overwrite` (deletion is authoritative).
+
+Donor semantics intentionally not carried over: per-request process spawn (now one long-lived helper),
+and the helper-side persisted cursor with `commit_pull` (the Rust ledger owns the cursor, committed with
+the local merge).
 
 ## 4. Per-app migration (no app edited by this lane; do not publish)
 
 | App | Change | Chat that must act |
 |---|---|---|
-| ScrapeRight desktop | Replace `cloud_sync/{engine,ledger,transport,coordinator}` sync logic with `rightkit-sync`; keep `schema.rs` as mapper + `PassHooks` (QueueRequest/Device) and `EngineBridge` as `LocalStore`; build the macOS `CloudKitBackend`; fix `created_at = now()`. Gate: crate stays internal until Windows+macOS gate | ScrapeRight desktop chat (also owns CloudKit backend) |
-| HeardRight desktop (Tauri) | Adopt crate when a desktop sync exists; mapper over `HRLibraryTranscript` schema fields (text/rawText/tags/folder/metadataJSON) | HeardRight chat |
-| HeardRight iOS | Stays Swift. No code change required; contract checks: tombstone fields, LWW, alias reduction, order, retry floors already match. Add `deletedAt`-only tombstone decode test vectors shared with `write_tombstone` | HeardRight iOS chat (optional vector tests) |
-| ScrapeRight iOS | Stays Swift; its `SyncLedger.swift` already mirrors the desktop ledger. Add fields `createdAt` immutability test | ScrapeRight iOS chat |
-| ViewRight, CutRight, GenRight | None (no cloud sync exists) | none |
-| RightKit integrator | Apply `registration.patch` (docs row; root `Cargo.lock` gains the `rightkit-sync` entry automatically on first workspace build, `crates/*` glob already includes it) | RightKit owner chat |
+| HeardRight desktop (Tauri, `src-tauri/src/cloud_sync*.rs`) | Replace `cloud_sync.rs` (pull/push/ledgers/tombstones), `cloud_sync_ack*.rs` (ack ledger = `Ledger.remote_versions`/`pending_uploads`), `cloud_sync_backoff.rs` (= `BackoffPolicy`, hint is a floor, uncapped) and `helper_process.rs` call sites with `SyncEngine<TranscriptMapper>` + `CloudKitHelper`. Mapper: `Transcript` record (`text`,`rawText`,`source`,`tags` as `FieldValue::Strings`,`folder`, aliases = engine aliases; `logical_cloud_id` UUID normalisation stays in the mapper's `record_name`/`header`). `LocalStore` over the history store (`remove` = delete row, `apply_remote`). Keep `cloud_sync_scheduler.rs` as the wake/coalesce loop calling `run_pass()` from one worker. Delete `macos-native/HeardRightCloudSync` and the `HeardRight*` container/zone constants; ship `rightkit-cloudkit-helper` packaged per `swift/RightKitCloudKitHelper/README.md` with `entitlements-cloudsync.plist` values. First run replays the zone (ledger is new); remote tombstones restore deletions. The donor's ack/tombstone/identity contract tests map to `tests/helper_e2e.rs` cases; port app-specific vectors as E2E over the fake helper | HeardRight desktop chat |
+| ScrapeRight desktop | Drop the stub `CloudKitBackend` plan; use `CloudKitHelper` as the transport; replace `cloud_sync/{engine,ledger,transport,coordinator}` with the engine; keep `schema.rs` as mapper and `PassHooks` (QueueRequest/Device), `EngineBridge` as `LocalStore`; fix `created_at = now()`; crate stays internal until the Windows+macOS gate | ScrapeRight desktop chat |
+| HeardRight iOS, ScrapeRight iOS | Stay Swift on `RightKitCloudSync`; the helper uses the same transport, so wire fields stay identical. Optional: shared tombstone vectors | iOS chats (optional) |
+| MailRight (Gmail-specific) | none; not CloudKit | none |
+| ViewRight, CutRight, GenRight, CodeRight | none (no cloud sync) | none |
+| RightKit integrator | apply `registration.patch` (capability-map row); `crates/*` glob already includes the crate; no new workspace member or dependency | RightKit owner chat |
 
-## 5. Tests (`tests/convergence.rs`, run via managed cargo)
+## 5. Tests (run via managed cargo; `tests/convergence.rs`, `tests/helper_e2e.rs`)
 
-1. Two devices over a paged zone: initial sync, concurrent edit (LWW), delete vs concurrent edit (tombstone wins, no re-upload, tombstone clears content).
-2. Offline then partial batch then restart: backoff window honoured with server hint, partial confirmation persisted, restart uploads only the remainder.
-3. Token expiry replay + malformed record quarantined without blocking.
-4. Desktop-style local-deletion inference writes exactly one tombstone and propagates.
+`convergence.rs` (in-memory zone): two-device convergence and tombstone semantics, offline and partial
+batch resume, token expiry and quarantine, local-deletion inference, acknowledgement and generation
+fencing.
+
+`helper_e2e.rs` (real child processes, files, line-JSON):
+1. Two Macs on one on-disk zone through two helper processes: paged feed, tags list + 300 KB asset-sized
+   bytes, LWW edit, delete-vs-edit tombstone wins with content cleared and no re-upload.
+2. Per-record fetch failure never advances the cursor; server retry hint honoured; replay lands all.
+3. Account switch: scope-bound ledger resets, the old account's queued deletion is not written to the
+   new account's zone, the old zone is untouched.
+4. Account flips while a request is in flight: `Cancelled`, no cursor progress, nothing written.
+5. Helper crash, hung request (deadline), throttle (hint beats base backoff), signed-out status, helper
+   respawn.
+6. Token expiry replay, zone loss republish, undecodable record reported.
+7. Conditional saves: another device writes between the engine's fetch and save (newer remote, older
+   remote, remote tombstone, racing first publication): no lost update on either device; conflict
+   counter proves the race happened.
+8. Missing helper binary reports `Unavailable`.
+9. The real Swift `rightkit-cloudkit-helper --backend memory` (when built) converges two engines
+   through the same protocol (tombstone content clearing, scope binding) and refuses a stale
+   conditional save, returning the server record and a new change tag.
+
+Real CloudKit: manual gate in `swift/RightKitCloudKitHelper/README.md`.

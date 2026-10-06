@@ -1,10 +1,15 @@
 use crate::error::{cdp, BrowserError, Result};
 use crate::keys::{self, KeyDef};
+use crate::policy::{ActionKind, AdmissionRequest, BlockedRequest, Guard};
 use chromiumoxide::cdp::browser_protocol::dom::SetFileInputFilesParams;
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
     MouseButton,
 };
+use chromiumoxide::cdp::browser_protocol::fetch::{
+    ContinueRequestParams, EnableParams as FetchEnableParams, EventRequestPaused, FailRequestParams, RequestPattern,
+};
+use chromiumoxide::cdp::browser_protocol::network::ErrorReason;
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::cdp::js_protocol::runtime::{EventConsoleApiCalled, EventExceptionThrown};
 use chromiumoxide::page::{Page, ScreenshotParams};
@@ -122,10 +127,12 @@ pub struct BrowserPage {
     lane: Mutex<()>,
     upload_root: Option<PathBuf>,
     pumps: StdMutex<Vec<JoinHandle<()>>>,
+    guard: Arc<Guard>,
+    blocked: Arc<StdMutex<Vec<BlockedRequest>>>,
 }
 
 impl BrowserPage {
-    pub(crate) async fn attach(id: String, inner: Page, upload_root: Option<PathBuf>) -> Result<Self> {
+    pub(crate) async fn attach(id: String, inner: Page, upload_root: Option<PathBuf>, guard: Arc<Guard>) -> Result<Self> {
         let console = Arc::new(Mutex::new(Vec::new()));
         let mut pumps = Vec::new();
         let mut ev = inner.event_listener::<EventConsoleApiCalled>().await.map_err(cdp)?;
@@ -155,6 +162,47 @@ impl BrowserPage {
                 push_capped(&sink, ConsoleLine { level: "exception".into(), text }).await;
             }
         }));
+        let blocked = Arc::new(StdMutex::new(Vec::new()));
+        if !guard.network.unrestricted {
+            // Pause every request (document, redirect hops, subresources) and
+            // decide before it leaves the browser. Enabled before any navigation.
+            let mut paused = inner.event_listener::<EventRequestPaused>().await.map_err(cdp)?;
+            let page = inner.clone();
+            let g = guard.clone();
+            let sink = blocked.clone();
+            pumps.push(tokio::spawn(async move {
+                while let Some(e) = paused.next().await {
+                    let page = page.clone();
+                    let g = g.clone();
+                    let sink = sink.clone();
+                    tokio::spawn(async move {
+                        let kind = format!("{:?}", e.resource_type);
+                        match g.network.check(&e.request.url, &kind).await {
+                            Ok(()) => {
+                                let _ = page.execute(ContinueRequestParams::new(e.request_id.clone())).await;
+                            }
+                            Err(reason) => {
+                                let _ = page
+                                    .execute(FailRequestParams::new(e.request_id.clone(), ErrorReason::BlockedByClient))
+                                    .await;
+                                g.emit(crate::policy::BrowserEvent::Denied {
+                                    session_id: g.session_id.clone(),
+                                    what: kind,
+                                    reason: reason.clone(),
+                                });
+                                let mut b = sink.lock().unwrap();
+                                if b.len() < 500 {
+                                    b.push(BlockedRequest { url: e.request.url.clone(), reason });
+                                }
+                            }
+                        }
+                    });
+                }
+            }));
+            let mut en = FetchEnableParams::default();
+            en.patterns = Some(vec![RequestPattern { url_pattern: Some("*".into()), resource_type: None, request_stage: None }]);
+            inner.execute(en).await.map_err(cdp)?;
+        }
         Ok(Self {
             id,
             inner,
@@ -165,11 +213,37 @@ impl BrowserPage {
             lane: Mutex::new(()),
             upload_root,
             pumps: StdMutex::new(pumps),
+            guard,
+            blocked,
         })
     }
 
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Requests the network policy refused on this page (redirect hops and subresources included).
+    pub fn blocked_requests(&self) -> Vec<BlockedRequest> {
+        self.blocked.lock().unwrap().clone()
+    }
+
+    /// Typed pre-effect admission. Reads no page state beyond the current URL.
+    async fn admit(&self, action: ActionKind, url: Option<String>, target: Option<String>, detail: Option<String>) -> Result<()> {
+        let url = match url {
+            Some(u) => Some(u),
+            None if self.guard.admission.is_some() => Some(self.url().await),
+            None => None,
+        };
+        self.guard
+            .admit(AdmissionRequest {
+                session_id: self.guard.session_id.clone(),
+                page_id: self.id.clone(),
+                action,
+                url,
+                target,
+                detail,
+            })
+            .await
     }
 
     /// Escape hatch to the underlying chromiumoxide page.
@@ -205,6 +279,8 @@ impl BrowserPage {
     }
 
     pub async fn goto(&self, url: &str) -> Result<()> {
+        self.admit(ActionKind::Navigate, Some(url.to_string()), None, None).await?;
+        self.guard.check_url(url, "Navigation").await?;
         let _l = self.lane.lock().await;
         self.inner.goto(url).await.map_err(|e| BrowserError::Cdp(format!("navigate '{url}': {e}")))?;
         self.inner.wait_for_navigation().await.map_err(cdp)?;
@@ -213,6 +289,7 @@ impl BrowserPage {
     }
 
     pub async fn reload(&self) -> Result<()> {
+        self.admit(ActionKind::Reload, None, None, None).await?;
         let _l = self.lane.lock().await;
         self.inner.reload().await.map_err(cdp)?;
         self.inner.wait_for_navigation().await.map_err(cdp)?;
@@ -221,6 +298,7 @@ impl BrowserPage {
     }
 
     pub async fn history(&self, delta: i32) -> Result<()> {
+        self.admit(ActionKind::History, None, None, Some(format!("delta={delta}"))).await?;
         let _l = self.lane.lock().await;
         self.inner.evaluate(format!("history.go({delta})")).await.map_err(cdp)?;
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -239,11 +317,18 @@ impl BrowserPage {
 
     /// Rendered text (`document.body.innerText`).
     pub async fn text(&self) -> Result<String> {
-        self.eval("document.body ? document.body.innerText : ''").await.map(|v| v.as_str().unwrap_or_default().to_string())
+        self.eval_internal("document.body ? document.body.innerText : ''").await.map(|v| v.as_str().unwrap_or_default().to_string())
     }
 
-    /// Evaluate a JS expression and return its JSON value.
+    /// Evaluate a JS expression and return its JSON value. Script can navigate and
+    /// act, so it is admitted like any other effect.
     pub async fn eval(&self, expr: &str) -> Result<Value> {
+        self.admit(ActionKind::Eval, None, None, Some(expr.chars().take(2000).collect())).await?;
+        self.eval_internal(expr).await
+    }
+
+    /// Runtime-owned evaluation (observation, geometry); never user script.
+    async fn eval_internal(&self, expr: &str) -> Result<Value> {
         let r = self.inner.evaluate(expr).await.map_err(cdp)?;
         Ok(r.value().cloned().unwrap_or(Value::Null))
     }
@@ -377,7 +462,7 @@ impl BrowserPage {
     }
 
     async fn unique(&self, selector: &str) -> Result<()> {
-        let n = self.eval(&format!("document.querySelectorAll({}).length", js(selector))).await?.as_u64().unwrap_or(0);
+        let n = self.eval_internal(&format!("document.querySelectorAll({}).length", js(selector))).await?.as_u64().unwrap_or(0);
         match n {
             1 => Ok(()),
             0 => Err(BrowserError::NoElement(selector.into())),
@@ -437,21 +522,26 @@ impl BrowserPage {
     }
 
     pub async fn hover(&self, target: &Target) -> Result<()> {
+        self.admit(ActionKind::Hover, None, Some(describe(target)), None).await?;
         let _l = self.lane.lock().await;
         let (x, y) = self.point_of(target).await?;
         self.move_to(x, y).await
     }
 
     pub async fn click(&self, target: &Target) -> Result<()> {
+        self.admit(ActionKind::Click, None, Some(describe(target)), None).await?;
+        let _l = self.lane.lock().await;
         self.click_n(target, 1).await
     }
 
     pub async fn double_click(&self, target: &Target) -> Result<()> {
+        self.admit(ActionKind::DoubleClick, None, Some(describe(target)), None).await?;
+        let _l = self.lane.lock().await;
         self.click_n(target, 2).await
     }
 
+    /// Caller holds the lane.
     async fn click_n(&self, target: &Target, count: i64) -> Result<()> {
-        let _l = self.lane.lock().await;
         let (x, y) = self.point_of(target).await?;
         self.move_to(x, y).await?;
         for n in 1..=count {
@@ -463,6 +553,7 @@ impl BrowserPage {
 
     /// Press at `from`, move in `steps` increments, release at `to`.
     pub async fn drag(&self, from: &Target, to: &Target, steps: u32) -> Result<()> {
+        self.admit(ActionKind::Drag, None, Some(format!("{} -> {}", describe(from), describe(to))), None).await?;
         let _l = self.lane.lock().await;
         let (x0, y0) = self.point_of(from).await?;
         let (x1, y1) = self.point_of(to).await?;
@@ -480,11 +571,12 @@ impl BrowserPage {
 
     /// Mouse-wheel scroll at the target (or viewport centre when `None`).
     pub async fn wheel(&self, at: Option<&Target>, dx: f64, dy: f64) -> Result<()> {
+        self.admit(ActionKind::Wheel, None, at.map(describe), Some(format!("dx={dx} dy={dy}"))).await?;
         let _l = self.lane.lock().await;
         let (x, y) = match at {
             Some(t) => self.point_of(t).await?,
             None => {
-                let v = self.eval("({x:innerWidth/2,y:innerHeight/2})").await?;
+                let v = self.eval_internal("({x:innerWidth/2,y:innerHeight/2})").await?;
                 (v["x"].as_f64().unwrap_or(100.0), v["y"].as_f64().unwrap_or(100.0))
             }
         };
@@ -532,13 +624,19 @@ impl BrowserPage {
 
     /// Press a key or chord (`Enter`, `Tab`, `Control+a`) on the focused element.
     pub async fn press(&self, spec: &str) -> Result<()> {
+        self.admit(ActionKind::Press, None, Some(spec.to_string()), None).await?;
         let _l = self.lane.lock().await;
         self.press_locked(spec).await
     }
 
     /// Type text one key event at a time into the focused element.
     pub async fn type_text(&self, text: &str) -> Result<()> {
+        self.admit(ActionKind::TypeText, None, None, Some(format!("chars={}", text.chars().count()))).await?;
         let _l = self.lane.lock().await;
+        self.type_locked(text).await
+    }
+
+    async fn type_locked(&self, text: &str) -> Result<()> {
         for c in text.chars() {
             let d = keys::char_key(c);
             self.key_event(DispatchKeyEventType::KeyDown, &d, 0, true).await?;
@@ -549,13 +647,21 @@ impl BrowserPage {
 
     /// Click the target to focus it, then type.
     pub async fn fill(&self, target: &Target, text: &str, clear: bool) -> Result<()> {
-        self.click(target).await?;
+        self.admit(
+            ActionKind::Fill,
+            None,
+            Some(describe(target)),
+            Some(format!("chars={} clear={clear}", text.chars().count())),
+        )
+        .await?;
+        let _l = self.lane.lock().await;
+        self.click_n(target, 1).await?;
         if clear {
             let sel_all = if cfg!(target_os = "macos") { "Meta+a" } else { "Control+a" };
-            self.press(sel_all).await?;
-            self.press("Backspace").await?;
+            self.press_locked(sel_all).await?;
+            self.press_locked("Backspace").await?;
         }
-        self.type_text(text).await
+        self.type_locked(text).await
     }
 
     // ---- other actions -----------------------------------------------------
@@ -563,6 +669,7 @@ impl BrowserPage {
     /// Choose a `<select>` option by value/label. Native popups cannot be driven
     /// over CDP, so this sets the value and fires `input`/`change` (documented gap).
     pub async fn select_option(&self, target: &Target, value: &str) -> Result<()> {
+        self.admit(ActionKind::Select, None, Some(describe(target)), Some(format!("value={value}"))).await?;
         let _l = self.lane.lock().await;
         let sel = self.resolve(target).await?.ok_or_else(|| BrowserError::Invalid("select needs an element".into()))?;
         let r = self
@@ -582,6 +689,7 @@ impl BrowserPage {
     }
 
     pub async fn upload(&self, target: &Target, file: &Path) -> Result<()> {
+        self.admit(ActionKind::Upload, None, Some(describe(target)), Some(file.display().to_string())).await?;
         let _l = self.lane.lock().await;
         let file = file.canonicalize()?;
         if !file.is_file() {
@@ -617,9 +725,10 @@ impl BrowserPage {
 
     /// Poll a JS expression until truthy.
     pub async fn wait_eval(&self, expr: &str, timeout: Duration) -> Result<()> {
+        self.admit(ActionKind::Eval, None, None, Some(expr.chars().take(2000).collect())).await?;
         let deadline = Instant::now() + timeout;
         loop {
-            let v = self.eval(expr).await?;
+            let v = self.eval_internal(expr).await?;
             if v.as_bool().unwrap_or(!v.is_null() && v != Value::Bool(false)) {
                 return Ok(());
             }
@@ -657,6 +766,14 @@ async fn push_capped(sink: &Arc<Mutex<Vec<ConsoleLine>>>, line: ConsoleLine) {
         g.remove(0);
     }
     g.push(line);
+}
+
+fn describe(t: &Target) -> String {
+    match t {
+        Target::Ref(r) => format!("ref:{r}"),
+        Target::Selector(s) => format!("css:{s}"),
+        Target::Point(x, y) => format!("point:{x},{y}"),
+    }
 }
 
 fn js(s: &str) -> String {

@@ -70,6 +70,8 @@ if (first === "--version" || first === "-v") {
   const rest = args.slice(1);
   if (rest[0] === "cargo") {
     run("publish-cargo.mjs", rest.slice(1));
+  } else if (rest[0] === "npm") {
+    run("publication-gate.mjs", rest.slice(1));
   } else if (rest[0] === "swift") {
     run("publish-swift.mjs", rest.slice(1));
   } else {
@@ -155,8 +157,10 @@ Commands:
                                                       Upload one sealed release; never builds
   release                                             Compatibility alias for build
   publish                                             Compatibility alias for upload
+  publish npm --package @rightkit/<name> [--dry-run]  Gate preflight for npm publish (no publish)
+  publish npm --package @rightkit/<name> [--dry-run]  Gate preflight for npm publish (never publishes)
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
-  publish swift [--scope <s>] [--url <u>] [--dry-run] Test, archive, scan, and publish RightKitSwift to a Swift registry
+  publish swift [--repo <git-url>] [--dry-run] Test, tag, resolve a fresh exact-pin consumer, and publish RightKitSwift to its git repo
   model promote --authority heardright --config <file> [--dry-run]
                                                       Sign and promote one runtime/model artifact
   addon doctor|build|upload|adopt <options>           Manage a signed headless add-on

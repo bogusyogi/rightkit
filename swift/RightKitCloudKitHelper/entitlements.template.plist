@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Per-app values in angle brackets are filled in by the consuming app's packaging step.
+	     CloudKit refuses to build a container without an explicit application-identifier, and the
+	     iCloud keys are honoured only when the helper is packaged as its OWN .app bundle with the
+	     app's provisioning profile at Contents/embedded.provisionprofile. -->
+	<key>com.apple.application-identifier</key>
+	<string>&lt;TEAMID&gt;.&lt;app bundle id&gt;</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>&lt;TEAMID&gt;</string>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>&lt;iCloud.container.id&gt;</string>
+	</array>
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>Production</string>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+</dict>
+</plist>

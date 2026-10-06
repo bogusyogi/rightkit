@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "jsx": "react-jsx", "strict": true, "noEmit": true, "skipLibCheck": true, "lib": ["ES2022", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "@rightkit/app-shell/react": ["../../../../packages/app-shell/dist/react.d.ts"],
+      "@rightkit/app-shell": ["../../../../packages/app-shell/dist/index.d.ts"],
+      "@rightkit/platform-ui": ["../../../../packages/platform-ui/dist/index.d.ts"],
+      "@rightkit/shell": ["../../../../packages/shell/dist/index.d.ts"],
+      "react": ["../../../../packages/app-shell/node_modules/@types/react"],
+      "react/*": ["../../../../packages/app-shell/node_modules/@types/react/*"],
+      "react-dom/client": ["../../../../packages/app-shell/node_modules/@types/react-dom/client"]
+    },
+    "types": []
+  },
+  "include": ["main.tsx"]
+}

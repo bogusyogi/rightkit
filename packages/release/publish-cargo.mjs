@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
+import { enforcePublicationGate, defaultEvidencePath } from "./publication-gate.mjs";
 
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.[^/]*)?|target(?:\/.*)?|node_modules(?:\/.*)?|[^/]+\.(?:p8|p12|pem|key))$/i;
 const SECRET_PATTERNS = [
@@ -16,7 +17,7 @@ export function parseCargoPublishArgs(argv, cwd = process.cwd()) {
   const crate = valueAfter(argv, "--crate");
   if (!crate) throw new Error("publish cargo requires --crate <name>");
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(crate)) throw new Error(`invalid crate name: ${crate}`);
-  const allowed = new Set(["--crate", "--workspace", "--dry-run", "--allow-dirty"]);
+  const allowed = new Set(["--crate", "--workspace", "--dry-run", "--allow-dirty", "--evidence"]);
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (!arg.startsWith("--")) continue;
@@ -31,6 +32,7 @@ export function parseCargoPublishArgs(argv, cwd = process.cwd()) {
     dryRun,
     allowDirty,
     workspaceRoot: path.resolve(valueAfter(argv, "--workspace") ?? cwd),
+    evidence: valueAfter(argv, "--evidence"),
   };
 }
 
@@ -78,6 +80,11 @@ export function runCargoPublish(options, execute = spawnSync) {
   const crateDir = path.join(options.workspaceRoot, "crates", options.crate);
   const manifest = path.join(crateDir, "Cargo.toml");
   if (!fs.existsSync(manifest)) throw new Error(`crate manifest not found: ${manifest}`);
+  const cargoVersion = fs.readFileSync(manifest, "utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  enforcePublicationGate({
+    kind: "cargo", name: options.crate, version: cargoVersion, packagePath: crateDir,
+    evidencePath: path.resolve(options.evidence ?? defaultEvidencePath(options.workspaceRoot, "cargo", options.crate)),
+  }, { dryRun: options.dryRun });
   const plan = buildCargoPublishPlan({ ...options, crateDir });
 
   for (const step of plan) {

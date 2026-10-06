@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "name": "talking-head",
+  "description": "Camera-mic or lav talking head for social delivery: moderate denoise, firmer leveling, de-ess.",
+  "chain": {
+    "high_pass": { "hz": 80.0, "poles": 2 },
+    "denoise": { "kind": "afftdn", "reduction_db": 25.0, "noise_floor_db": -40.0, "residual_floor_db": -70.0, "adaptivity": 0.9, "track": true },
+    "expander": { "threshold_db": -40.0, "ratio": 8.0, "attack_ms": 5.0, "release_ms": 120.0 },
+    "compressor": { "threshold_db": -18.0, "ratio": 2.5, "attack_ms": 10.0, "release_ms": 100.0, "makeup_db": 2.0 },
+    "deesser": { "intensity": 0.4, "max_reduction": 0.5, "frequency": 0.5 },
+    "limiter": { "ceiling_db": -1.5, "attack_ms": 5.0, "release_ms": 50.0 }
+  },
+  "room_tone": { "enabled": true, "gain_db": 0.0, "overlap_ms": 80, "params": {} },
+  "ducking": { "mode": "sidechain", "threshold_db": -38.0, "ratio": 8.0, "attack_ms": 20.0, "release_ms": 300.0, "makeup_db": 0.0 },
+  "gate": { "target_integrated_lufs": -14.0, "loudness_tolerance_lu": 1.0, "target_true_peak_dbtp": -1.5, "true_peak_tolerance_db": 0.5 }
+}

@@ -62,17 +62,17 @@ pub struct FileSpec {
 }
 
 impl RevisionSpec {
-    /// Directory-safe key unique per (revision, quant).
+    /// Directory-safe key unique per (revision, quant): an injective encoding
+    /// (see [`crate::ids::encode_revision_key`]). Fails for an empty or
+    /// over-long revision/quant.
+    pub fn checked_key(&self) -> crate::error::Result<crate::ids::RevisionKey> {
+        crate::ids::encode_revision_key(&self.revision, self.quant.as_deref())
+    }
+
+    /// String form of [`Self::checked_key`]; an unencodable revision yields an
+    /// empty string, which every store operation rejects.
     pub fn key(&self) -> String {
-        let clean = |s: &str| {
-            s.chars()
-                .map(|c| if c.is_ascii_alphanumeric() || "._-".contains(c) { c } else { '_' })
-                .collect::<String>()
-        };
-        match &self.quant {
-            Some(q) => format!("{}@{}", clean(&self.revision), clean(q)),
-            None => clean(&self.revision),
-        }
+        self.checked_key().map(|k| k.as_str().to_string()).unwrap_or_default()
     }
 
     pub fn files_for<'a>(&'a self, platform: &'a Platform) -> impl Iterator<Item = &'a FileSpec> {
@@ -98,7 +98,7 @@ impl ModelSpec {
     }
 
     pub fn by_key(&self, key: &str) -> Option<&RevisionSpec> {
-        self.revisions.iter().find(|r| r.key() == key)
+        self.revisions.iter().find(|r| !key.is_empty() && r.key() == key)
     }
 }
 

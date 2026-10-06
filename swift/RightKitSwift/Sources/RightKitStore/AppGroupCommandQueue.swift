@@ -52,13 +52,13 @@ public struct AppGroupCommandQueue<Command: AppGroupCommand>: @unchecked Sendabl
     /// submit honest: callers watching for an acknowledgement would otherwise wait forever.
     @discardableResult
     public func submit(_ command: Command, now: Date = Date()) -> Command? {
-        let queued: Void? = AppGroupFileLock.withExclusiveLock(configuration) {
+        let queued: Void? = try? configuration.locked {
             var entries = liveEntries(now: now)
             entries.append(Entry(command: command, claimedAt: nil))
             if entries.count > limits.maxCommands {
                 entries.removeFirst(entries.count - limits.maxCommands)
             }
-            save(entries)
+            try save(entries)
         }
         guard queued != nil else {
             configuration.report(.commandSubmitFailed(requestID: command.requestID))
@@ -68,42 +68,49 @@ public struct AppGroupCommandQueue<Command: AppGroupCommand>: @unchecked Sendabl
     }
 
     public func pending(now: Date = Date()) -> [Command] {
-        AppGroupFileLock.withExclusiveLock(configuration) {
+        (try? configuration.locked {
             liveEntries(now: now).filter { $0.claimedAt == nil }.map(\.command)
-        } ?? []
+        }) ?? []
     }
 
     public func claimAll(now: Date = Date()) -> [Command] {
-        AppGroupFileLock.withExclusiveLock(configuration) {
+        // A claim that cannot be persisted is not handed out: it would be delivered again next time.
+        (try? configuration.locked {
             var entries = liveEntries(now: now)
             var claimed: [Command] = []
             for index in entries.indices where entries[index].claimedAt == nil {
                 entries[index].claimedAt = now
                 claimed.append(entries[index].command)
             }
-            save(entries)
+            try save(entries)
             return claimed
-        } ?? []
+        }) ?? []
     }
 
     public func acknowledge(_ requestIDs: [UUID], now: Date = Date()) {
         guard !requestIDs.isEmpty else { return }
-        let removed: Void? = AppGroupFileLock.withExclusiveLock(configuration) {
+        let removed: Void? = try? configuration.locked {
             let ids = Set(requestIDs)
-            save(liveEntries(now: now).filter { !ids.contains($0.command.requestID) })
+            // Acknowledgement list first: a crash between the two writes then drops the command on
+            // the next read instead of re-running it.
             var acknowledged = acknowledgedRequestIDs()
             acknowledged.append(contentsOf: requestIDs)
             if acknowledged.count > limits.maxAcknowledged {
                 acknowledged.removeFirst(acknowledged.count - limits.maxAcknowledged)
             }
-            defaults?.set(acknowledged.map(\.uuidString), forKey: acknowledgedKey)
+            guard let defaults else { throw AppGroupStoreError.defaultsUnavailable }
+            defaults.set(acknowledged.map(\.uuidString), forKey: acknowledgedKey)
+            guard defaults.stringArray(forKey: acknowledgedKey) == acknowledged.map(\.uuidString) else {
+                throw AppGroupStoreError.persistenceFailed(key: acknowledgedKey)
+            }
+            try save(liveEntries(now: now).filter { !ids.contains($0.command.requestID) })
         }
         if removed == nil { configuration.report(.commandAcknowledgeFailed(requestIDs: requestIDs)) }
     }
 
     /// `nil` means either "none acknowledged yet" or "lock unavailable"; callers treat both as unknown.
     public func lastAcknowledgedRequestID() -> UUID? {
-        AppGroupFileLock.withExclusiveLock(configuration) { acknowledgedRequestIDs().last } ?? nil
+        (try? configuration.locked { acknowledgedRequestIDs().last }) ?? nil
     }
 
     private func acknowledgedRequestIDs() -> [UUID] {
@@ -123,7 +130,8 @@ public struct AppGroupCommandQueue<Command: AppGroupCommand>: @unchecked Sendabl
                 entries[index].claimedAt = nil
             }
         }
-        save(entries)
+        // Pruning is best effort; the authoritative writes (submit/claim/ack) verify their own save.
+        try? save(entries)
         return entries
     }
 
@@ -135,8 +143,8 @@ public struct AppGroupCommandQueue<Command: AppGroupCommand>: @unchecked Sendabl
         return commands.map { Entry(command: $0, claimedAt: nil) }
     }
 
-    private func save(_ entries: [Entry]) {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        defaults?.set(data, forKey: queueKey)
+    private func save(_ entries: [Entry]) throws {
+        let data = try JSONEncoder().encode(entries)
+        try configuration.durableSet(data, forKey: queueKey)
     }
 }

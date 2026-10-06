@@ -5,6 +5,7 @@ import {
   exportDimensionsFor,
   hasImageEdits,
   initialImageEdit,
+  scaleEditToSource,
   outputScaleForResize,
   sameImageEdit,
 } from "./image/imageEdit.js";
@@ -102,5 +103,21 @@ describe("save naming", () => {
     expect(defaultImageSaveName("/x/photo.jpg")).toBe("photo-edited.jpg");
     expect(ensureImageOutputPath("/x/scan.tiff", "png")).toBe("/x/scan.tiff.png");
     expect(ensureImageOutputPath("/x/photo.png", "webp")).toBe("/x/photo.png");
+  });
+});
+
+describe("scaleEditToSource", () => {
+  it("maps preview-pixel crop and text size onto the original", () => {
+    const edit = {
+      ...initialImageEdit(),
+      crop: { x: 50, y: 0, width: 50, height: 25 },
+      text: [
+        { id: "t", text: "x", x: 0.5, y: 0.5, width: 20, size: 10, color: "#fff", bold: false, angle: 0 },
+      ],
+    };
+    const out = scaleEditToSource(edit, { width: 100, height: 50 }, { width: 400, height: 200 });
+    expect(out.crop).toEqual({ x: 200, y: 0, width: 200, height: 100 });
+    expect(out.text[0]).toMatchObject({ size: 40, width: 80, x: 0.5, y: 0.5 });
+    expect(scaleEditToSource(edit, { width: 400, height: 200 }, { width: 400, height: 200 })).toBe(edit);
   });
 });

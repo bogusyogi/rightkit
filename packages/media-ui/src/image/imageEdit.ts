@@ -203,6 +203,54 @@ function clampScale(scale: number): number {
   return Math.min(8, Math.max(0.01, scale));
 }
 
+/**
+ * Re-express a recipe authored against a display-sized image in the pixel
+ * space of the original it will be rendered from. Crop rectangles and text
+ * size/width are stored in display pixels (text x/y are normalized); applying
+ * them to a larger original unscaled crops the wrong region and shrinks text.
+ */
+export function scaleEditToSource(
+  edit: ImageEdit,
+  editSpace: { width: number; height: number } | null | undefined,
+  source: { width: number; height: number },
+): ImageEdit {
+  if (!editSpace || editSpace.width <= 0 || editSpace.height <= 0) return edit;
+  if (editSpace.width === source.width && editSpace.height === source.height) return edit;
+  const sx = source.width / editSpace.width;
+  const sy = source.height / editSpace.height;
+  const crop = edit.crop
+    ? clampToImage(
+        {
+          x: edit.crop.x * sx,
+          y: edit.crop.y * sy,
+          width: edit.crop.width * sx,
+          height: edit.crop.height * sy,
+        },
+        source,
+      )
+    : null;
+  return {
+    ...edit,
+    crop,
+    text: edit.text.map((layer) => ({
+      ...layer,
+      size: layer.size * sx,
+      width: layer.width * sx,
+    })),
+  };
+}
+
+function clampToImage(crop: CropRect, image: { width: number; height: number }): CropRect {
+  const width = Math.min(image.width, Math.max(1, Math.round(crop.width)));
+  const height = Math.min(image.height, Math.max(1, Math.round(crop.height)));
+  return {
+    x: Math.min(image.width - width, Math.max(0, Math.round(crop.x))),
+    y: Math.min(image.height - height, Math.max(0, Math.round(crop.y))),
+    width,
+    height,
+  };
+}
+
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -238,8 +286,15 @@ export async function exportImageEdit(
   edit: ImageEdit,
   outputExt: ImageSaveExtension,
   fonts: MediaFontOption[] = [],
+  /** Pixel size of the image the recipe was authored against (the display variant). */
+  editSpace?: { width: number; height: number } | null,
 ): Promise<ImageSavePayload> {
   const image = await loadImage(source);
+  edit = scaleEditToSource(
+    edit,
+    editSpace,
+    { width: image.naturalWidth || image.width, height: image.naturalHeight || image.height },
+  );
   const crop = edit.crop ?? {
     x: 0,
     y: 0,

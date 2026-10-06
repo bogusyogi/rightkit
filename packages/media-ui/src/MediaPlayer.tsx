@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -128,6 +129,10 @@ export function MediaPlayer(props: MediaPlayerProps) {
   const attempted = useRef(false);
   const nativeFullscreenRef = useRef(false);
   const [source, setSource] = useState(src);
+  // Bumped whenever the requested media changes; async compat-copy results
+  // from an earlier generation are discarded instead of replacing the new source.
+  const sourceGeneration = useRef(0);
+  const lastIdentity = useRef(`${src}\u0000${playbackId ?? ""}`);
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
   const [elementFullscreen, setElementFullscreen] = useState(false);
   const [status, setStatus] = useState<Status>("loading");
@@ -192,6 +197,39 @@ export function MediaPlayer(props: MediaPlayerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mediaRef]);
 
+  // New media without a remount: drop everything that belonged to the old
+  // one (compat copy, error, progress) so the player never shows/plays it.
+  useLayoutEffect(() => {
+    const identity = `${src}\u0000${playbackId ?? ""}`;
+    if (lastIdentity.current === identity) return;
+    lastIdentity.current = identity;
+    sourceGeneration.current += 1;
+    if (request.current) void adapters.cancelPlayback?.(request.current);
+    request.current = null;
+    attempted.current = false;
+    setSource(src);
+    setStatus("loading");
+    setError("");
+    setPlaying(false);
+    setEnded(false);
+    setTime(0);
+    setDuration(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src, playbackId]);
+
+  // Release the decoder of whichever element is being replaced (the unmount
+  // cleanup above only covers the final one).
+  useEffect(() => {
+    const el = element.current;
+    return () => {
+      if (!el) return;
+      if (currentExclusive === el) currentExclusive = null;
+      el.pause();
+      el.removeAttribute("src");
+      el.load();
+    };
+  }, [source, retry]);
+
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape" && nativeFullscreenRef.current) {
@@ -243,6 +281,7 @@ export function MediaPlayer(props: MediaPlayerProps) {
     if (code === 1) return; // Abort during deliberate source replacement.
     if (!attempted.current && adapters.preparePlayback) {
       attempted.current = true;
+      const generation = sourceGeneration.current;
       setStatus("converting");
       const requestId = `playback-${crypto.randomUUID()}`;
       request.current = requestId;
@@ -251,13 +290,13 @@ export function MediaPlayer(props: MediaPlayerProps) {
           id: playbackId ?? src,
           requestId,
         });
-        if (!alive.current) return;
+        if (!alive.current || generation !== sourceGeneration.current) return;
         setTime(0);
         setStatus("loading");
         setSource(preview);
         return;
       } catch (cause) {
-        if (!alive.current) return;
+        if (!alive.current || generation !== sourceGeneration.current) return;
         setError(String(cause));
       }
     } else {

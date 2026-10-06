@@ -4,14 +4,14 @@ use std::path::Path;
 
 // Token with its timestamp information
 // start and end are in seconds
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TimedToken {
     pub text: String,
     pub start: f32,
     pub end: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TranscriptionResult {
     pub text: String,
     pub tokens: Vec<TimedToken>,

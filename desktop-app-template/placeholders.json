@@ -1,17 +1,19 @@
 {
-  "$comment": "Single list of every shared capability the template cannot yet consume by published version. `pnpm check:template` asserts none of these is declared as a real dependency; when one is published, add it to package.json/Cargo.toml at an exact pin, delete its stand-in, and remove the entry here.",
+  "$comment": "Single list of every shared capability the template cannot consume by published exact version yet. Each entry is gated: `check` fails if the capability appears in rightkit-versions.json while its stand-in still exists, if the entry is declared as a real dependency, or if its stand-in file is gone. When a package publishes: pin it exactly, delete the stand-in, delete the entry. Nothing else in the template is a local copy of shared code.",
   "npm": {
-    "@rightkit/app-shell": { "status": "UPCOMING", "standIn": "src/shell/AppShell.tsx" },
-    "@rightkit/media-ui": { "status": "in tools/rightkit/packages/media-ui, not in rightkit-versions.json", "standIn": "comment in src/App.tsx" },
-    "@rightkit/qa": { "status": "private until Windows+macOS phase gate", "standIn": "tests/e2e + puppeteer-core" }
+    "@rightkit/app-shell": { "blockedOn": "publish to the registry (packages/app-shell 0.1.0 is built; not in rightkit-versions.json)", "standIn": "src/shell/AppShell.tsx" },
+    "@rightkit/media-ui": { "blockedOn": "publish + rightkit-versions.json entry; add only when the app shows media", "standIn": "none (media apps add it)" }
   },
   "cargo": {
-    "rightkit-jobs": { "status": "UPCOMING", "standIn": "none (engine has no job store yet)" },
-    "rightkit-framed-sidecar": { "status": "publish = false", "standIn": "crates/protocol/src/framed.rs" },
-    "rightkit-db": { "status": "not in rightkit-versions.json", "standIn": "none (add when the app owns a database)" }
+    "rightkit-framed-sidecar": { "blockedOn": "crates.io publish (crate exists in the RightKit checkout, absent from the registry: pin =0.1.0 fails to resolve)", "standIn": "crates/protocol/src/framed.rs" },
+    "rightkit-jobs": { "blockedOn": "publish after rightkit-framed-sidecar; adds the durable job store", "standIn": "none (the engine has no job store until it publishes)" },
+    "rightkit-db": { "blockedOn": "rightkit-versions.json entry; add when the app owns a database", "standIn": "none" }
+  },
+  "harness": {
+    "rightkit-qa": { "blockedOn": "distribution of the `rightkit-qa` binary to app checkouts (crate is publish=false; apps invoke the managed binary)", "standIn": "none (rightkit-qa.toml + tests/scenarios are the real configuration)" }
   },
   "scripts": {
-    "scripts/package-placeholder.mjs": "copy GenRight scripts/{mac-dmg,win-nsis,sign-macos-bundle,install-macos-development}.mjs",
+    "scripts/package-placeholder.mjs": "release packaging is Node release tooling (right-release): copy GenRight scripts/{mac-dmg,win-nsis,sign-macos-bundle,install-macos-development}.mjs; fails loudly until then",
     "src-tauri/tauri.conf.json plugins.updater": "endpoint + pubkey are placeholders; use the suite updater pubkey and the app's R2/GitHub endpoint"
   }
 }

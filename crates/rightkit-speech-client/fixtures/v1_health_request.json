@@ -1,0 +1,1 @@
+{"protocol_major":1,"protocol_minor":0,"schema_name":"engine_health","schema_version":1,"engine_version":"fake-engine/0.1.0","request_id":"r1","session_id":null,"trace_id":"t","payload":{"kind":"health","status":"ok","diagnostics":null},"error":null}

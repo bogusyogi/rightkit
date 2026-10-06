@@ -1,4 +1,4 @@
-/* Generated from assets/brand/brand.json; edit that file, then pnpm brand:sync. */
+/* Generated from assets/brand/brand.json; edit that file, then run brand-sync. */
 @theme {
   --color-brand: #4F7CFF;
   --color-brand-action: #3A63D6;

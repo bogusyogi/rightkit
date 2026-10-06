@@ -1,0 +1,34 @@
+[package]
+name = "rightkit-agent-tools"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "One typed tool interface for agents over rightkit-automation, rightkit-control, rightkit-browser and each app's engine commands (via rightkit-service), plus the `right-ctl <app> <command>` CLI."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bogusyogi/claude"
+publish = false
+
+[features]
+default = ["automation", "browser", "speech"]
+automation = ["dep:rightkit-automation"]
+browser = ["dep:rightkit-browser", "dep:tokio"]
+speech = ["dep:rightkit-speech-client"]
+# Host the toolbox over MCP (needs rightkit-mcp; see API.md).
+mcp = ["dep:rightkit-mcp"]
+
+[dependencies]
+rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
+rightkit-automation = { version = "=0.1.0", path = "../rightkit-automation", optional = true }
+rightkit-browser = { version = "=0.1.0", path = "../rightkit-browser", optional = true }
+rightkit-speech-client = { version = "=0.1.0", path = "../rightkit-speech-client", optional = true }
+rightkit-mcp = { version = "=0.1.0", path = "../rightkit-mcp", optional = true }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "right-ctl"
+path = "src/bin/right-ctl.rs"

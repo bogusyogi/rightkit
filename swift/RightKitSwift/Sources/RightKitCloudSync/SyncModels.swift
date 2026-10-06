@@ -9,6 +9,11 @@ public enum SyncValue: Equatable, Sendable {
     case date(Date)
     case data(Data)
     case strings([String])
+    /// Large body stored as a CloudKit asset (`CKAsset`) instead of an inline field, so it is not
+    /// bound by the per-record size limit. A field keeps one kind for its lifetime: CloudKit
+    /// schemas cannot change a field between bytes and asset. Reads of an asset-backed record
+    /// return `.asset`; `dataValue` yields the bytes for either kind.
+    case asset(Data)
     /// Clears the field on the server. An empty `.strings([])` is treated the same way, because
     /// CloudKit refuses to create a new schema field from an empty list (CKError 12) — the failure
     /// that blocked every first sync in HeardRight before the fix.
@@ -16,7 +21,12 @@ public enum SyncValue: Equatable, Sendable {
 
     public var stringValue: String? { if case let .string(v) = self { v } else { nil } }
     public var dateValue: Date? { if case let .date(v) = self { v } else { nil } }
-    public var dataValue: Data? { if case let .data(v) = self { v } else { nil } }
+    public var dataValue: Data? {
+        switch self {
+        case let .data(v), let .asset(v): v
+        default: nil
+        }
+    }
     public var stringsValue: [String]? { if case let .strings(v) = self { v } else { nil } }
     public var intValue: Int64? { if case let .int(v) = self { v } else { nil } }
     public var doubleValue: Double? { if case let .double(v) = self { v } else { nil } }
@@ -73,12 +83,28 @@ public struct SyncChangePage: Sendable {
     public var deletedRecordNames: [String]
     public var token: SyncChangeToken
     public var moreComing: Bool
+    /// TRANSIENT per-record failures: the server listed these records but the fetch of them failed
+    /// (network, rate limit, busy zone) inside an otherwise successful page. The engine aborts the
+    /// pull, keeps its previous token and honours `failedRecordRetryAfter`. Never quarantined.
+    public var failedRecordNames: [String]
+    /// Server guidance for retrying `failedRecordNames`; nil lets the engine apply its floor.
+    public var failedRecordRetryAfter: TimeInterval?
+    /// PERMANENT per-record failures: the record was fetched but can never be decoded (corrupt
+    /// payload, unreadable asset). Quarantined at once; the cursor moves on.
+    public var undecodableRecordNames: [String]
 
-    public init(records: [SyncRecord], deletedRecordNames: [String], token: SyncChangeToken, moreComing: Bool) {
+    public init(
+        records: [SyncRecord], deletedRecordNames: [String], token: SyncChangeToken, moreComing: Bool,
+        failedRecordNames: [String] = [], failedRecordRetryAfter: TimeInterval? = nil,
+        undecodableRecordNames: [String] = []
+    ) {
         self.records = records
         self.deletedRecordNames = deletedRecordNames
         self.token = token
         self.moreComing = moreComing
+        self.failedRecordNames = failedRecordNames
+        self.failedRecordRetryAfter = failedRecordRetryAfter
+        self.undecodableRecordNames = undecodableRecordNames
     }
 }
 

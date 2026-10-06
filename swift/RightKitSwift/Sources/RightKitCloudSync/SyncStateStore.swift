@@ -24,8 +24,28 @@ public struct CloudSyncState: Codable, Equatable, Sendable {
     public var aliases: [String: Set<String>] = [:]
     /// One-shot migration/repair markers.
     public var markers: Set<String> = []
+    /// Opaque identity of the iCloud account this ledger belongs to. A different account never
+    /// reuses the token, versions, aliases or tombstones recorded here.
+    public var accountID: String?
+    /// record names that were fetched but can never be decoded (permanent), with the time they were
+    /// quarantined. Transient fetch failures are never recorded here. A scheduled full replay
+    /// retries them.
+    public var quarantined: [String: Date] = [:]
 
     public init() {}
+
+    // Hand-written so ledgers saved before the account/failure fields existed still load.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        changeToken = try c.decodeIfPresent(SyncChangeToken.self, forKey: .changeToken)
+        remoteVersions = try c.decodeIfPresent([String: RemoteVersion].self, forKey: .remoteVersions) ?? [:]
+        tombstones = try c.decodeIfPresent([String: Date].self, forKey: .tombstones) ?? [:]
+        pendingDeletions = try c.decodeIfPresent(Set<String>.self, forKey: .pendingDeletions) ?? []
+        aliases = try c.decodeIfPresent([String: Set<String>].self, forKey: .aliases) ?? [:]
+        markers = try c.decodeIfPresent(Set<String>.self, forKey: .markers) ?? []
+        accountID = try c.decodeIfPresent(String.self, forKey: .accountID)
+        quarantined = try c.decodeIfPresent([String: Date].self, forKey: .quarantined) ?? [:]
+    }
 }
 
 public protocol CloudSyncStateStoring: Sendable {

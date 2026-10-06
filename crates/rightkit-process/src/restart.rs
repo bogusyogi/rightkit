@@ -16,6 +16,38 @@ pub struct RestartPolicy {
     max_backoff: Duration,
 }
 
+impl RestartPolicy {
+    pub fn mode(&self) -> RestartMode {
+        self.mode
+    }
+    pub fn max_restarts(&self) -> u32 {
+        self.max_restarts
+    }
+    pub fn window(&self) -> Duration {
+        self.window
+    }
+    pub fn base_backoff(&self) -> Duration {
+        self.base_backoff
+    }
+    pub fn max_backoff(&self) -> Duration {
+        self.max_backoff
+    }
+}
+
+impl Default for RestartPolicy {
+    /// ScrapeRight's crash-recovery plan: restart automatically, at most 3
+    /// unexpected restarts per rolling 60 s window, backoff 250 ms doubling to 5 s.
+    fn default() -> Self {
+        Self {
+            mode: RestartMode::Automatic,
+            max_restarts: 3,
+            window: Duration::from_secs(60),
+            base_backoff: Duration::from_millis(250),
+            max_backoff: Duration::from_secs(5),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct InvalidRestartPolicy;
 
@@ -133,6 +165,19 @@ impl RestartTracker {
         }
         self.awaiting_demand = false;
         self.schedule(at)
+    }
+
+    /// Restarts granted inside the rolling window ending at `at` (diagnostics).
+    pub fn restarts_in_window(&self, at: Duration) -> u32 {
+        let window_start = at.saturating_sub(self.policy.window);
+        self.restart_times.iter().filter(|t| **t >= window_start).count() as u32
+    }
+
+    /// Forget the restart budget (a user-initiated start after a terminal stop).
+    pub fn reset_budget(&mut self) {
+        self.restart_times.clear();
+        self.awaiting_demand = false;
+        self.shutdown = false;
     }
 
     pub fn permit_valid(&self, permit: &RestartPermit, at: Duration) -> bool {

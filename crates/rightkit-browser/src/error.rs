@@ -28,6 +28,8 @@ pub enum BrowserError {
     Timeout(String),
     #[error("invalid argument: {0}")]
     Invalid(String),
+    #[error("denied before effect: {0}")]
+    Denied(String),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 }

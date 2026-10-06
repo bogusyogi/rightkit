@@ -144,8 +144,16 @@ impl std::error::Error for PlaybackError {}
 /// remembered briefly.
 #[derive(Default)]
 pub struct PlaybackRegistry {
-    active: Mutex<HashMap<String, CancellationToken>>,
-    pre_cancelled: Mutex<VecDeque<String>>,
+    state: Mutex<RegistryState>,
+}
+
+/// Active tokens and early cancels live under one lock so registration and
+/// cancellation are a single atomic transition: a cancel either finds the
+/// active token or is recorded for the `begin` that follows.
+#[derive(Default)]
+struct RegistryState {
+    active: HashMap<String, CancellationToken>,
+    pre_cancelled: VecDeque<String>,
 }
 
 impl PlaybackRegistry {
@@ -169,13 +177,13 @@ impl PlaybackRegistry {
         if !Self::valid_request_id(request_id) {
             return;
         }
-        if let Some(token) = self.active.lock().get(request_id) {
+        let mut state = self.state.lock();
+        if let Some(token) = state.active.get(request_id) {
             token.cancel();
         } else {
-            let mut cancelled = self.pre_cancelled.lock();
-            cancelled.push_back(request_id.to_owned());
-            while cancelled.len() > MAX_PRE_CANCELLED {
-                cancelled.pop_front();
+            state.pre_cancelled.push_back(request_id.to_owned());
+            while state.pre_cancelled.len() > MAX_PRE_CANCELLED {
+                state.pre_cancelled.pop_front();
             }
         }
     }
@@ -185,16 +193,17 @@ impl PlaybackRegistry {
         if !Self::valid_request_id(request_id) {
             return Err(PlaybackError::InvalidRequest);
         }
-        if self.pre_cancelled.lock().contains(&request_id.to_owned()) {
-            return Err(PlaybackError::Cancelled);
-        }
         let token = CancellationToken::new();
         {
-            let mut active = self.active.lock();
-            if active.contains_key(request_id) || active.len() >= MAX_JOBS {
+            let mut state = self.state.lock();
+            if let Some(i) = state.pre_cancelled.iter().position(|id| id == request_id) {
+                state.pre_cancelled.remove(i);
+                return Err(PlaybackError::Cancelled);
+            }
+            if state.active.contains_key(request_id) || state.active.len() >= MAX_JOBS {
                 return Err(PlaybackError::Busy);
             }
-            active.insert(request_id.to_owned(), token.clone());
+            state.active.insert(request_id.to_owned(), token.clone());
         }
         Ok(ActiveRequest {
             registry: Arc::clone(self),
@@ -220,7 +229,7 @@ impl ActiveRequest {
 
 impl Drop for ActiveRequest {
     fn drop(&mut self) {
-        self.registry.active.lock().remove(&self.request_id);
+        self.registry.state.lock().active.remove(&self.request_id);
     }
 }
 

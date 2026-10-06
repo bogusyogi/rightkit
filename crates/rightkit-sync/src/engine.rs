@@ -47,7 +47,9 @@ pub enum PassOutcome {
     /// Token advanced but some uploads/tombstones/applies remain queued.
     Pending(String),
     /// Backoff window still open; nothing was attempted.
-    Deferred { secs: f64 },
+    Deferred {
+        secs: f64,
+    },
     Unavailable(String),
     Disabled,
     /// Auth generation changed or sync was switched off mid-pass.
@@ -83,6 +85,16 @@ impl PassReport {
     }
 }
 
+const MAX_CONFLICT_ROUNDS: usize = 4;
+
+enum Resolved {
+    /// Re-saved on top of the server's version.
+    Saved,
+    /// The server version stands (applied locally, tombstoned, or equal).
+    RemoteWon,
+    Failed(String),
+}
+
 enum RemoteState<T> {
     Live(T),
     Tombstone,
@@ -104,7 +116,11 @@ impl<T> RemoteEntry<T> {
     /// Total order for alias reduction: tombstone > live, then newer
     /// version, then larger record name (deterministic on every device).
     fn rank(&self) -> (bool, i64, &str) {
-        (self.is_tombstone(), self.version_ms, self.record_name.as_str())
+        (
+            self.is_tombstone(),
+            self.version_ms,
+            self.record_name.as_str(),
+        )
     }
 }
 
@@ -185,7 +201,8 @@ impl<M: RecordMapper + 'static> SyncEngineBuilder<M> {
     pub fn build(self) -> SyncResult<SyncEngine<M>> {
         let store = LedgerStore::open(self.storage)?;
         if store.recovered_from_corruption {
-            self.observer.event("ledger_recovered", "ledger unreadable; full replay");
+            self.observer
+                .event("ledger_recovered", "ledger unreadable; full replay");
         }
         Ok(SyncEngine {
             mapper: self.mapper,
@@ -292,7 +309,10 @@ where
         }
         self.observer.event("pass_failed", &e.to_string());
         let failures = self.store.ledger().consecutive_failures.saturating_add(1);
-        let secs = self.config.backoff.delay_secs(failures, e.retry_hint_secs());
+        let secs = self
+            .config
+            .backoff
+            .delay_secs(failures, e.retry_hint_secs());
         let until = self.clock.now_ms() + (secs * 1000.0) as i64;
         let _ = self.store.mutate(|l| {
             l.consecutive_failures = failures;
@@ -303,6 +323,139 @@ where
             SyncError::Unavailable(d) => PassOutcome::Unavailable(d),
             other => PassOutcome::Failed(other.to_string()),
         };
+    }
+
+    /// A conditional save lost a race. Read the server record, decide with
+    /// the conflict policy (tombstone always wins) and either re-save on top
+    /// of the server's change tag, take the remote, or keep both unchanged.
+    /// Bounded: a record that keeps changing under us stays pending.
+    fn resolve_conflict(
+        &mut self,
+        header: &ItemHeader,
+        item: &M::Item,
+        name: &str,
+        mut server: Option<RawRecord>,
+        generation: u64,
+        rep: &mut PassReport,
+    ) -> SyncResult<Resolved> {
+        for _ in 0..MAX_CONFLICT_ROUNDS {
+            self.check_current(generation)?;
+            let server_rec = match server.take() {
+                Some(r) => r,
+                None => match self.backend.fetch_record(name)? {
+                    Some(r) => r,
+                    None => return Ok(Resolved::Failed("conflicting record vanished".into())),
+                },
+            };
+            self.observer.event("save_conflict", name);
+            if let Some((id, deleted_at)) = read_tombstone(&server_rec) {
+                self.local.remove(&id)?;
+                self.store.mutate(|l| l.bury(&id, deleted_at))?;
+                rep.tombstones_applied += 1;
+                return Ok(Resolved::RemoteWon);
+            }
+            let remote_item = match self.mapper.decode(&server_rec) {
+                Ok(i) => i,
+                Err(e) => {
+                    rep.quarantined += 1;
+                    return Ok(Resolved::Failed(format!("server record undecodable: {e}")));
+                }
+            };
+            let rh = self.mapper.header(&remote_item);
+            if self
+                .policy
+                .upload_local_over_remote(header, item, &rh, &remote_item)
+            {
+                let mut rec = server_rec;
+                rec.set(field::ID, FieldValue::Text(header.id.clone()));
+                rec.set(field::CREATED_AT, FieldValue::Date(header.created_at_ms));
+                rec.set(field::UPDATED_AT, FieldValue::Date(header.updated_at_ms));
+                rec.fields.remove(field::DELETED_AT);
+                self.mapper.encode(item, &mut rec);
+                let outcomes = self
+                    .backend
+                    .save_records(&[rec], SavePolicy::IfServerUnchanged)?;
+                let Some(o) = outcomes.into_iter().next() else {
+                    return Ok(Resolved::Failed("no save outcome".into()));
+                };
+                match o.result {
+                    Ok(()) => return Ok(Resolved::Saved),
+                    Err(SyncError::Conflict) => server = o.server_record,
+                    Err(e) => return Ok(Resolved::Failed(e.to_string())),
+                }
+                continue;
+            }
+            let version = RemoteVersion {
+                record_name: name.to_string(),
+                updated_at_ms: rh.updated_at_ms,
+            };
+            if self.policy.accept_remote_over_local(header, &rh) {
+                self.check_current(generation)?;
+                match self.local.apply_remote(&[remote_item])?.into_iter().next() {
+                    Some(ApplyOutcome::Deferred(_)) => {
+                        let id = header.id.clone();
+                        self.store.mutate(|l| {
+                            l.pending_apply.insert(id, server_rec);
+                        })?;
+                    }
+                    _ => rep.downloaded += 1,
+                }
+            }
+            let id = header.id.clone();
+            self.store.mutate(|l| {
+                l.pending_uploads.remove(&id);
+                l.remote_versions.insert(id, version);
+            })?;
+            return Ok(Resolved::RemoteWon);
+        }
+        Ok(Resolved::Failed("conflict retries exhausted".into()))
+    }
+
+    /// Bind the ledger to the signed-in account scope; reset it when the
+    /// scope changed so one account's cursor, versions and queued deletions
+    /// are never applied to another.
+    fn bind_account(&mut self, generation: u64) -> SyncResult<()> {
+        self.check_current(generation)?;
+        let Some(scope) = self.auth.account_scope() else {
+            return Ok(());
+        };
+        match self.store.ledger().scope.clone() {
+            Some(bound) if bound == scope => Ok(()),
+            None => {
+                // Ledger from before scoping: keep tombstones (they only
+                // suppress local copies); never import its cursor, versions,
+                // aliases or queued deletions into this account.
+                let dropped = {
+                    let l = self.store.ledger();
+                    l.change_token.is_some()
+                        || !l.remote_versions.is_empty()
+                        || !l.aliases.is_empty()
+                        || !l.pending_tombstones.is_empty()
+                };
+                self.store.mutate(|l| {
+                    l.scope = Some(scope);
+                    l.change_token = None;
+                    l.remote_versions.clear();
+                    l.aliases.clear();
+                    l.pending_tombstones.clear();
+                    l.has_synced = false;
+                })?;
+                if dropped {
+                    self.observer
+                        .event("legacy_ledger_unscoped", "pre-scope ledger state dropped");
+                }
+                Ok(())
+            }
+            Some(bound) => {
+                self.hooks.on_account_switch(&bound, &scope);
+                self.store.mutate(|l| {
+                    *l = crate::ledger::Ledger::default();
+                    l.scope = Some(scope.clone());
+                })?;
+                self.observer.event("account_switched", "ledger reset");
+                Ok(())
+            }
+        }
     }
 
     fn check_current(&self, generation: u64) -> SyncResult<()> {
@@ -316,16 +469,22 @@ where
     /// Returns `Some(reason)` when the pass finished with queued work left.
     fn pass_inner(&mut self, generation: u64, rep: &mut PassReport) -> SyncResult<Option<String>> {
         self.auth.availability()?;
+        // `availability` refreshes the account identity, which may bump the
+        // generation; the pass belongs to the generation observed after it.
+        let generation = self.auth.generation().max(generation);
+        self.bind_account(generation)?;
         self.backend.prepare()?;
         self.check_current(generation)?;
 
         // Domain announce-style records go first; failure fails the pass.
         let mut extras = self.store.ledger().extras.clone();
         let outbound = self.hooks.outbound(&mut extras);
-        self.store.mutate(|l| l.extras = extras)?;
         if !outbound.is_empty() {
+            self.check_current(generation)?;
             self.write_required(&outbound)?;
         }
+        self.check_current(generation)?;
+        self.store.mutate(|l| l.extras = extras)?;
 
         // One-shot full replays (repair migrations) reset only the cursor.
         if !self.replay_flags.is_empty() {
@@ -365,7 +524,10 @@ where
                 Err(why) => {
                     // A bad record never blocks the page (both platforms).
                     rep.quarantined += 1;
-                    self.observer.event("record_quarantined", &format!("{}: {why}", record.record_name));
+                    self.observer.event(
+                        "record_quarantined",
+                        &format!("{}: {why}", record.record_name),
+                    );
                 }
             }
         }
@@ -378,7 +540,13 @@ where
                 .iter()
                 .find(|(_, names)| names.contains(name))
                 .map(|(id, _)| id.clone())
-                .or_else(|| self.store.ledger().remote_versions.contains_key(name).then(|| name.clone()));
+                .or_else(|| {
+                    self.store
+                        .ledger()
+                        .remote_versions
+                        .contains_key(name)
+                        .then(|| name.clone())
+                });
             if let Some(id) = known {
                 if !entries.iter().any(|e| e.id == id && e.is_tombstone()) {
                     let mut record = RawRecord::new(&mapper_type, name);
@@ -401,8 +569,10 @@ where
 
         // Aliases: every record name ever seen for a logical id.
         {
-            let seen: Vec<(String, String)> =
-                entries.iter().map(|e| (e.id.clone(), e.record_name.clone())).collect();
+            let seen: Vec<(String, String)> = entries
+                .iter()
+                .map(|e| (e.id.clone(), e.record_name.clone()))
+                .collect();
             self.store.mutate(|l| {
                 for (id, name) in seen {
                     l.aliases.entry(id).or_default().insert(name);
@@ -425,12 +595,20 @@ where
         if !foreign.is_empty() {
             let mut extras = self.store.ledger().extras.clone();
             let responses = self.hooks.on_foreign_records(&foreign, &mut extras);
-            self.store.mutate(|l| l.extras = extras)?;
+            // Responses are durable on the zone BEFORE the extras that record
+            // them are persisted, and a failed write aborts the pass before
+            // the change token can pass the request: the delta replays and
+            // the idempotent hook answers again. Never acknowledge a request
+            // whose response never landed.
             if !responses.is_empty() {
+                self.check_current(generation)?;
                 if let Err(e) = self.write_required(&responses) {
                     self.observer.event("foreign_write_failed", &e.to_string());
+                    return Err(e);
                 }
             }
+            self.check_current(generation)?;
+            self.store.mutate(|l| l.extras = extras)?;
         }
 
         // Remote tombstones are authoritative: delete locally, block id.
@@ -440,6 +618,7 @@ where
             .map(|e| (e.id.clone(), e.version_ms))
             .collect();
         for (id, at) in &tombs {
+            self.check_current(generation)?;
             self.local.remove(id)?;
             let (id, at) = (id.clone(), *at);
             self.store.mutate(|l| {
@@ -527,9 +706,16 @@ where
             }
             let queued = self.store.ledger().pending_uploads.contains(&header.id);
             match canonical.get(&header.id) {
-                Some(RemoteEntry { state: RemoteState::Live(remote_item), record, .. }) => {
+                Some(RemoteEntry {
+                    state: RemoteState::Live(remote_item),
+                    record,
+                    ..
+                }) => {
                     let rh = self.mapper.header(remote_item);
-                    if self.policy.upload_local_over_remote(header, item, &rh, remote_item) {
+                    if self
+                        .policy
+                        .upload_local_over_remote(header, item, &rh, remote_item)
+                    {
                         uploads.push(Upload {
                             header: header.clone(),
                             item: item.clone(),
@@ -540,7 +726,9 @@ where
                 }
                 Some(_) => {}
                 None => {
-                    if let Some(known) = self.store.ledger().remote_versions.get(&header.id).cloned() {
+                    if let Some(known) =
+                        self.store.ledger().remote_versions.get(&header.id).cloned()
+                    {
                         // Cursor delta did not include it: unchanged remotely.
                         if known.updated_at_ms < header.updated_at_ms || queued {
                             match self.backend.fetch_record(&known.record_name) {
@@ -569,8 +757,14 @@ where
         }
         // Oldest origin first, ties by record name: deterministic history.
         uploads.sort_by(|a, b| {
-            (a.header.created_at_ms, self.mapper.record_name(&a.header.id))
-                .cmp(&(b.header.created_at_ms, self.mapper.record_name(&b.header.id)))
+            (
+                a.header.created_at_ms,
+                self.mapper.record_name(&a.header.id),
+            )
+                .cmp(&(
+                    b.header.created_at_ms,
+                    self.mapper.record_name(&b.header.id),
+                ))
         });
         let (new_ones, existing): (Vec<_>, Vec<_>) = uploads.into_iter().partition(|u| u.is_new);
         let size = self.config.batch_size.min(self.backend.max_batch()).max(1);
@@ -607,20 +801,58 @@ where
                 rec.set(field::UPDATED_AT, FieldValue::Date(u.header.updated_at_ms));
                 rec.fields.remove(field::DELETED_AT);
                 self.mapper.encode(&u.item, &mut rec);
-                by_name.insert(rec.record_name.clone(), (u.header.id.clone(), u.header.updated_at_ms));
+                by_name.insert(
+                    rec.record_name.clone(),
+                    (u.header.id.clone(), u.header.updated_at_ms),
+                );
                 records.push(rec);
             }
-            let outcomes = self.backend.save_records(&records, SavePolicy::Overwrite)?;
+            // Conditional: an edit based on a stale change tag (or an insert of
+            // a name that now exists) is refused, never overwritten.
+            let outcomes = self
+                .backend
+                .save_records(&records, SavePolicy::IfServerUnchanged)?;
             let mut saved: Vec<(String, String, i64)> = Vec::new();
             let mut chunk_failed = false;
             for o in outcomes {
-                let Some((id, version)) = by_name.get(&o.record_name) else { continue };
+                let Some((id, version)) = by_name.get(&o.record_name) else {
+                    continue;
+                };
                 match o.result {
                     Ok(()) => saved.push((id.clone(), o.record_name.clone(), *version)),
+                    Err(SyncError::Conflict) => {
+                        let upload = chunk
+                            .iter()
+                            .find(|u| self.mapper.record_name(&u.header.id) == o.record_name)
+                            .expect("outcome names an upload of this chunk");
+                        let (header, item) = (upload.header.clone(), upload.item.clone());
+                        match self.resolve_conflict(
+                            &header,
+                            &item,
+                            &o.record_name,
+                            o.server_record,
+                            generation,
+                            rep,
+                        )? {
+                            Resolved::Saved => {
+                                saved.push((id.clone(), o.record_name.clone(), *version))
+                            }
+                            Resolved::RemoteWon => {}
+                            Resolved::Failed(why) => {
+                                chunk_failed = true;
+                                failed_uploads += 1;
+                                self.observer.event(
+                                    "record_save_failed",
+                                    &format!("{}: {why}", o.record_name),
+                                );
+                            }
+                        }
+                    }
                     Err(e) => {
                         chunk_failed = true;
                         failed_uploads += 1;
-                        self.observer.event("record_save_failed", &format!("{}: {e}", o.record_name));
+                        self.observer
+                            .event("record_save_failed", &format!("{}: {e}", o.record_name));
                     }
                 }
             }
@@ -632,9 +864,17 @@ where
             self.store.mutate(|l| {
                 for (id, name, version) in saved {
                     l.pending_uploads.remove(&id);
-                    l.aliases.entry(id.clone()).or_default().insert(name.clone());
-                    l.remote_versions
-                        .insert(id, RemoteVersion { record_name: name, updated_at_ms: version });
+                    l.aliases
+                        .entry(id.clone())
+                        .or_default()
+                        .insert(name.clone());
+                    l.remote_versions.insert(
+                        id,
+                        RemoteVersion {
+                            record_name: name,
+                            updated_at_ms: version,
+                        },
+                    );
                 }
             })?;
         }
@@ -646,7 +886,9 @@ where
         let mut downloads: Vec<(ItemHeader, M::Item, RawRecord)> = Vec::new();
         let mut seen_ids: HashSet<String> = HashSet::new();
         for entry in canonical.values() {
-            let RemoteState::Live(item) = &entry.state else { continue };
+            let RemoteState::Live(item) = &entry.state else {
+                continue;
+            };
             if self.store.ledger().tombstones.contains_key(&entry.id) {
                 continue;
             }
@@ -680,10 +922,13 @@ where
             (a.0.created_at_ms, a.0.id.as_str()).cmp(&(b.0.created_at_ms, b.0.id.as_str()))
         });
         if !downloads.is_empty() {
+            self.check_current(generation)?;
             let items: Vec<M::Item> = downloads.iter().map(|d| d.1.clone()).collect();
             let outcomes = self.local.apply_remote(&items)?;
             if outcomes.len() != downloads.len() {
-                return Err(SyncError::Persistence("apply_remote returned wrong outcome count".into()));
+                return Err(SyncError::Persistence(
+                    "apply_remote returned wrong outcome count".into(),
+                ));
             }
             let mut deferred = 0usize;
             let mut applied_ids: Vec<String> = Vec::new();
@@ -696,7 +941,8 @@ where
                     }
                     ApplyOutcome::Deferred(why) => {
                         deferred += 1;
-                        self.observer.event("apply_deferred", &format!("{}: {why}", h.id));
+                        self.observer
+                            .event("apply_deferred", &format!("{}: {why}", h.id));
                         stash.push((h.id, record));
                     }
                 }
@@ -721,16 +967,25 @@ where
             .map(|e| {
                 (
                     e.id.clone(),
-                    RemoteVersion { record_name: e.record_name.clone(), updated_at_ms: e.version_ms },
+                    RemoteVersion {
+                        record_name: e.record_name.clone(),
+                        updated_at_ms: e.version_ms,
+                    },
                 )
             })
             .collect();
+        // Final guard: a pass whose account/enable generation changed during
+        // I/O must not advance the cursor or mark the ledger synced.
+        self.check_current(generation)?;
         let flags = std::mem::take(&mut self.replay_flags);
         let token = fetched.token;
         self.store.mutate(|l| {
             for (id, v) in versions {
                 // A local upload this pass may already hold a newer version.
-                let keep = l.remote_versions.get(&id).is_some_and(|k| k.updated_at_ms > v.updated_at_ms);
+                let keep = l
+                    .remote_versions
+                    .get(&id)
+                    .is_some_and(|k| k.updated_at_ms > v.updated_at_ms);
                 if !keep {
                     l.remote_versions.insert(id, v);
                 }
@@ -744,9 +999,14 @@ where
             }
         })?;
         if rep.blocked_reuploads > 0 {
-            self.observer.event("blocked_reupload", &rep.blocked_reuploads.to_string());
+            self.observer
+                .event("blocked_reupload", &rep.blocked_reuploads.to_string());
         }
-        Ok(if pending.is_empty() { None } else { Some(pending.join("; ")) })
+        Ok(if pending.is_empty() {
+            None
+        } else {
+            Some(pending.join("; "))
+        })
     }
 
     /// Fetch every page; reset the token once on expiry and re-prepare the
@@ -756,7 +1016,11 @@ where
         let mut recreated = false;
         'restart: loop {
             let mut token = self.store.ledger().change_token.clone();
-            let mut out = Fetched { records: Vec::new(), deleted: Vec::new(), token: None };
+            let mut out = Fetched {
+                records: Vec::new(),
+                deleted: Vec::new(),
+                token: None,
+            };
             loop {
                 self.check_current(generation)?;
                 match self.backend.fetch_changes(token.as_deref()) {
@@ -773,14 +1037,23 @@ where
                     }
                     Err(SyncError::TokenExpired) if !reset_token && token.is_some() => {
                         reset_token = true;
-                        self.observer.event("token_reset", "change token expired; full replay");
+                        self.observer
+                            .event("token_reset", "change token expired; full replay");
                         self.store.mutate(|l| l.change_token = None)?;
                         continue 'restart;
                     }
                     Err(SyncError::ZoneMissing) if !recreated => {
                         recreated = true;
-                        self.observer.event("zone_recreated", "zone missing; re-preparing");
-                        self.store.mutate(|l| l.change_token = None)?;
+                        self.observer
+                            .event("zone_recreated", "zone missing; re-preparing");
+                        // Every remote record is gone: what the ledger believes is
+                        // published no longer exists, so local items must
+                        // re-publish (donor: acknowledgements are invalidated).
+                        self.store.mutate(|l| {
+                            l.change_token = None;
+                            l.remote_versions.clear();
+                            l.aliases.clear();
+                        })?;
                         self.backend.prepare()?;
                         continue 'restart;
                     }
@@ -798,7 +1071,13 @@ where
         generation: u64,
         rep: &mut PassReport,
     ) -> SyncResult<bool> {
-        let ids: Vec<String> = self.store.ledger().pending_tombstones.iter().cloned().collect();
+        let ids: Vec<String> = self
+            .store
+            .ledger()
+            .pending_tombstones
+            .iter()
+            .cloned()
+            .collect();
         if ids.is_empty() {
             return Ok(true);
         }
@@ -809,15 +1088,27 @@ where
         let mut writes: Vec<Write> = Vec::new();
         let mut never_remote: Vec<String> = Vec::new();
         for id in &ids {
-            let mut names: BTreeSet<String> =
-                self.store.ledger().aliases.get(id).cloned().unwrap_or_default();
-            let known = self.store.ledger().remote_versions.contains_key(id) || canonical.contains_key(id);
+            let mut names: BTreeSet<String> = self
+                .store
+                .ledger()
+                .aliases
+                .get(id)
+                .cloned()
+                .unwrap_or_default();
+            let known =
+                self.store.ledger().remote_versions.contains_key(id) || canonical.contains_key(id);
             if names.is_empty() && !known {
                 never_remote.push(id.clone());
                 continue;
             }
             names.insert(self.mapper.record_name(id));
-            let at = self.store.ledger().tombstones.get(id).copied().unwrap_or_else(|| self.clock.now_ms());
+            let at = self
+                .store
+                .ledger()
+                .tombstones
+                .get(id)
+                .copied()
+                .unwrap_or_else(|| self.clock.now_ms());
             for name in names {
                 let mut record = match canonical.get(id).filter(|e| e.record_name == name) {
                     Some(e) => e.record.clone(),
@@ -829,7 +1120,10 @@ where
                         .unwrap_or_else(|| RawRecord::new(self.mapper.record_type(), &name)),
                 };
                 write_tombstone(&mut record, id, at, self.mapper.tombstone_keep_fields());
-                writes.push(Write { id: id.clone(), record });
+                writes.push(Write {
+                    id: id.clone(),
+                    record,
+                });
             }
         }
         if !never_remote.is_empty() {
@@ -841,7 +1135,11 @@ where
             })?;
         }
         let mut failed: BTreeSet<String> = BTreeSet::new();
-        let size = self.config.tombstone_batch.min(self.backend.max_batch()).max(1);
+        let size = self
+            .config
+            .tombstone_batch
+            .min(self.backend.max_batch())
+            .max(1);
         for chunk in writes.chunks(size) {
             self.check_current(generation)?;
             let records: Vec<RawRecord> = chunk.iter().map(|w| w.record.clone()).collect();
@@ -853,7 +1151,8 @@ where
                     .is_some_and(|o| o.result.is_ok());
                 if !ok {
                     failed.insert(w.id.clone());
-                    self.observer.event("tombstone_save_failed", &w.record.record_name);
+                    self.observer
+                        .event("tombstone_save_failed", &w.record.record_name);
                 }
             }
         }

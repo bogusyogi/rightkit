@@ -181,13 +181,13 @@ fn install_resume_extract_upgrade_rollback_uninstall() {
     assert!(store.verify("demo", "2@q4", VerifyMode::Full));
 
     // A corrupted active revision is not served.
-    std::fs::write(store.revision_dir("demo", "1@q4").join("model.bin"), b"short").unwrap();
+    std::fs::write(store.revision_dir("demo", "1@q4").unwrap().join("model.bin"), b"short").unwrap();
     assert!(store.active_dir("demo").is_none());
 
     store.uninstall_revision("demo", "1@q4").unwrap();
     assert_eq!(store.state("demo").unwrap().active.as_deref(), Some("2@q4"), "falls back to a verified revision");
     store.uninstall("demo").unwrap();
-    assert!(!store.model_dir("demo").exists());
+    assert!(!store.model_dir("demo").unwrap().exists());
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn cancel_keeps_partial_and_next_install_resumes() {
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::Cancelled);
     assert!(store.state("demo").unwrap().active.is_none(), "nothing activated");
-    let part = store.model_dir("demo").join(".staging/2@q4/model.bin.part");
+    let part = store.model_dir("demo").unwrap().join(".staging/2@q4/model.bin.part");
     assert!(part.is_file() && part.metadata().unwrap().len() > 0, "partial kept");
 
     store.install(&fx.spec, &opts("2"), |_| {}).unwrap();
@@ -260,4 +260,135 @@ fn fit_is_measured_only_with_evidence_for_the_profile() {
     assert_eq!(hw.estimate_fit(&huge, &[]).kind, FitKind::Unsupported);
     assert_eq!(hw.estimate_fit(&Requirements::default(), &[]).kind, FitKind::Unqualified);
     assert!(Hardware::probe().memory_gb.is_some_and(|g| g > 0.0), "real probe returns RAM");
+}
+
+#[test]
+fn hostile_ids_and_keys_cannot_leave_the_store_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("models");
+    let victim = tmp.path().join("other");
+    std::fs::create_dir_all(&victim).unwrap();
+    std::fs::write(victim.join("precious.txt"), b"keep").unwrap();
+    let store = Store::new(&root, "test-app");
+
+    for bad in ["../other", "..", ".", "", "a/b", "a\\b", "/abs", "C:", "x.lock", ".hidden", "trail.", "CON", "a\0b"] {
+        assert!(store.uninstall(bad).is_err(), "uninstall({bad:?}) must be rejected");
+        assert!(store.model_dir(bad).is_err(), "model_dir({bad:?}) must be rejected");
+        assert_eq!(store.state(bad).unwrap_err().code, ErrorCode::InvalidSpec);
+    }
+    for bad in ["../x", "..", "a/b", "", "UPPER", "a@b@c", "_zz", ".x"] {
+        assert!(store.revision_dir("demo", bad).is_err(), "key {bad:?} must be rejected");
+        assert!(store.uninstall_revision("demo", bad).is_err());
+        assert!(!store.verify("demo", bad, VerifyMode::Presence));
+    }
+    // A hostile manifest id never reaches the filesystem.
+    let mut fx = fixture();
+    fx.spec.id = "../other".into();
+    assert_eq!(store.install(&fx.spec, &opts("1"), |_| {}).unwrap_err().code, ErrorCode::InvalidSpec);
+    assert_eq!(std::fs::read(victim.join("precious.txt")).unwrap(), b"keep");
+}
+
+#[test]
+fn revision_keys_are_injective() {
+    let key = |r: &str, q: Option<&str>| {
+        RevisionSpec { revision: r.into(), quant: q.map(String::from), files: vec![], requirements: Default::default(), measured: vec![] }.checked_key()
+    };
+    assert_eq!(key("1", Some("q4")).unwrap().as_str(), "1@q4");
+    // The old sanitiser mapped all of these to the same directory.
+    let inputs = ["a/b", "a_b", "a b", "a:b", "A", "a", "a@b", "1.0", "1_0", "..", "é"];
+    let keys: Vec<String> = inputs.iter().map(|r| key(r, None).unwrap().as_str().to_string()).collect();
+    let unique: std::collections::BTreeSet<_> = keys.iter().collect();
+    assert_eq!(unique.len(), inputs.len(), "collision among {keys:?}");
+    assert_ne!(key("a", Some("b")).unwrap(), key("a@b", None).unwrap());
+    assert!(key("", None).is_err());
+    for k in &keys {
+        assert!(RevisionKey::parse(k).is_ok(), "encoded key {k} must parse");
+        assert!(!k.contains('/') && !k.contains("..") && !k.starts_with('.'));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn uninstall_never_follows_symlinks() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("models");
+    std::fs::create_dir_all(&root).unwrap();
+    let victim = tmp.path().join("victim");
+    std::fs::create_dir_all(victim.join("revisions/1@q4")).unwrap();
+    std::fs::write(victim.join("precious.txt"), b"keep").unwrap();
+    std::fs::write(victim.join("revisions/1@q4/f"), b"keep").unwrap();
+    let store = Store::new(&root, "test-app");
+
+    // <root>/demo -> victim: uninstall removes the link only.
+    std::os::unix::fs::symlink(&victim, root.join("demo")).unwrap();
+    store.uninstall("demo").unwrap();
+    assert!(!root.join("demo").exists() && std::fs::symlink_metadata(root.join("demo")).is_err());
+    assert_eq!(std::fs::read(victim.join("precious.txt")).unwrap(), b"keep");
+
+    // <root>/demo/revisions -> victim/revisions: mutations refuse to run through it.
+    std::fs::create_dir_all(root.join("demo")).unwrap();
+    std::os::unix::fs::symlink(victim.join("revisions"), root.join("demo/revisions")).unwrap();
+    std::fs::write(
+        root.join("demo/state.json"),
+        br#"{"id":"demo","active":null,"history":[],"revisions":{"1@q4":{"revision":"1","quant":"q4","installed_at_unix":0,"files":[{"path":"f","bytes":4,"sha256":"x"}]}}}"#,
+    )
+    .unwrap();
+    assert!(store.uninstall_revision("demo", "1@q4").is_err());
+    assert!(store.rollback("demo", Some("1@q4")).is_err());
+    assert_eq!(std::fs::read(victim.join("revisions/1@q4/f")).unwrap(), b"keep");
+    assert!(store.active_dir("demo").is_none());
+}
+
+/// Same-key repair where the repaired payload differs in size from the
+/// ledger. Kill the process after each durable step of the swap; the next
+/// lock holder must leave the model either fully old or fully new, never missing.
+#[test]
+fn repair_swap_survives_a_kill_at_every_durable_step() {
+    for point in [CrashPoint::AfterAside, CrashPoint::AfterSwap, CrashPoint::AfterState] {
+        let fx = fixture();
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::new(tmp.path(), "test-app");
+        let out = store.install(&fx.spec, &opts("2"), |_| {}).unwrap();
+        let model = out.dir.join("model.bin");
+        assert_eq!(std::fs::read(&model).unwrap(), fx.v2);
+
+        // Corrupt one byte (size unchanged), and re-pin the manifest to v1's payload.
+        let mut bad = fx.v2.clone();
+        bad[10] ^= 0xff;
+        std::fs::write(&model, &bad).unwrap();
+        let mut spec = fx.spec.clone();
+        spec.revisions[1].files[0] = {
+            let mut f = spec.revisions[0].files[0].clone();
+            f.path = "model.bin".into();
+            f
+        };
+
+        let mut o = opts("2");
+        o.crash_after = Some(point);
+        let err = store.install(&spec, &o, |_| {}).unwrap_err();
+        assert!(err.message.contains("injected crash"), "{err}");
+
+        // "Restart": the next operation recovers before anything else.
+        let restored = store.recover("demo").unwrap();
+        let dir = store.revision_dir("demo", "2@q4").unwrap();
+        assert!(dir.is_dir(), "{point:?}: revision directory must exist after recovery");
+        assert!(!store.model_dir("demo").unwrap().join(".aside").exists(), "{point:?}: aside cleaned up");
+        let body = std::fs::read(dir.join("model.bin")).unwrap();
+        match point {
+            CrashPoint::AfterAside | CrashPoint::AfterSwap => {
+                assert!(restored, "{point:?}: previous revision restored");
+                assert_eq!(body, bad, "{point:?}: ledger-consistent previous content back in place");
+                assert!(store.active_dir("demo").is_some());
+            }
+            CrashPoint::AfterState => {
+                assert!(!restored);
+                assert_eq!(body, fx.v1, "{point:?}: committed replacement kept");
+                assert!(store.verify("demo", "2@q4", VerifyMode::Full));
+            }
+        }
+        // Retrying always converges on the new payload.
+        store.install(&spec, &opts("2"), |_| {}).unwrap();
+        assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), fx.v1);
+        assert!(store.verify("demo", "2@q4", VerifyMode::Full));
+    }
 }

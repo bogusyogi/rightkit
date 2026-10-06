@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "podcast",
+  "description": "Treated room, close mic: light denoise, gentle leveling, light de-ess.",
+  "chain": {
+    "high_pass": { "hz": 80.0, "poles": 2 },
+    "denoise": { "kind": "afftdn", "reduction_db": 10.0, "noise_floor_db": -50.0, "residual_floor_db": -60.0, "adaptivity": 0.5, "track": true },
+    "compressor": { "threshold_db": -20.0, "ratio": 3.0, "attack_ms": 15.0, "release_ms": 120.0, "makeup_db": 3.0 },
+    "deesser": { "intensity": 0.3, "max_reduction": 0.5, "frequency": 0.5 },
+    "limiter": { "ceiling_db": -1.0, "attack_ms": 5.0, "release_ms": 50.0 }
+  },
+  "room_tone": { "enabled": true, "gain_db": 0.0, "overlap_ms": 80, "params": {} },
+  "ducking": { "mode": "sidechain", "threshold_db": -38.0, "ratio": 6.0, "attack_ms": 20.0, "release_ms": 350.0, "makeup_db": 0.0 },
+  "gate": { "target_integrated_lufs": -16.0, "loudness_tolerance_lu": 1.0, "target_true_peak_dbtp": -1.0, "true_peak_tolerance_db": 0.5 }
+}

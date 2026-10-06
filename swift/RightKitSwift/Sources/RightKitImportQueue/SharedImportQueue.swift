@@ -82,16 +82,46 @@ public struct SharedImportQueue: @unchecked Sendable {
         let url = fileURL(for: payload.id)
         let temporary = url.appendingPathExtension("tmp")
         do {
-            try data.write(to: temporary, options: .atomic)
-            if FileManager.default.fileExists(atPath: url.path) {
-                _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
-            } else {
-                try FileManager.default.moveItem(at: temporary, to: url)
-            }
+            try durableWrite(data, to: temporary)
+            try step("rename")
+            // rename(2) is atomic and replaces an existing file in one step.
+            guard rename(temporary.path, url.path) == 0 else { throw QueueError.writeFailed }
+            try step("fsync-directory")
+            try fsyncDirectory(url.deletingLastPathComponent())
         } catch {
             try? FileManager.default.removeItem(at: temporary)
             throw QueueError.writeFailed
         }
+    }
+
+    /// Test seam: throws at the named step to prove no partial file survives. Nil in production.
+    var faultInjection: (@Sendable (String) throws -> Void)?
+
+    private func step(_ name: String) throws { try faultInjection?(name) }
+
+    private func durableWrite(_ data: Data, to url: URL) throws {
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+        guard fd >= 0 else { throw QueueError.writeFailed }
+        defer { close(fd) }
+        try step("write")
+        var offset = 0
+        try data.withUnsafeBytes { raw in
+            while offset < raw.count {
+                let n = Foundation.write(fd, raw.baseAddress! + offset, raw.count - offset)
+                if n < 0 && errno == EINTR { continue }
+                guard n > 0 else { throw QueueError.writeFailed }
+                offset += n
+            }
+        }
+        try step("fsync-file")
+        guard fsync(fd) == 0 else { throw QueueError.writeFailed }
+    }
+
+    private func fsyncDirectory(_ directory: URL) throws {
+        let fd = open(directory.path, O_RDONLY)
+        guard fd >= 0 else { throw QueueError.writeFailed }
+        defer { close(fd) }
+        guard fsync(fd) == 0 else { throw QueueError.writeFailed }
     }
 
     private func decode(_ data: Data) -> PendingSharePayload? {

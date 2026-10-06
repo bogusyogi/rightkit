@@ -2,7 +2,7 @@
 //! and diagnostics live here; all product work lives in `crates/engine` behind the framed protocol.
 
 mod diagnostics;
-mod engine_supervisor;
+pub mod engine_supervisor;
 
 use std::sync::Mutex;
 

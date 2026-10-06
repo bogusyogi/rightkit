@@ -171,4 +171,144 @@ import Testing
         let subs = await zone.subscriptionCount
         #expect(subs == 1)
     }
+
+    @Test func transientPerRecordFetchErrorAbortsThePullKeepsTheTokenAndNeverQuarantines() async throws {
+        let zone = InMemorySyncTransport()
+        let a = Device(transport: zone), b = Device(transport: zone)
+        a.adapter.put(Note(id: "n1", text: "one", updatedAt: t(1), createdAt: t(1)))
+        a.adapter.put(Note(id: "n2", text: "two", updatedAt: t(2), createdAt: t(2)))
+        _ = await a.engine.sync()
+        // b has its own unsynced note: a partial pull must not push it.
+        b.adapter.put(Note(id: "local", text: "l", updatedAt: t(3), createdAt: t(3)))
+        let saves = await zone.saveCallCount
+
+        // The page succeeds and its token advances, but n2 fails to fetch (rate limited) many times.
+        await zone.setFailingFetches(["n2": 100])
+        await zone.setFailingFetchRetryAfter(120)
+        for _ in 0..<8 {
+            let r = await b.engine.sync()
+            guard case .unavailable = r.status else { Issue.record("expected unavailable"); return }
+        }
+        let held = await b.engine.snapshot
+        #expect(held.changeToken == nil, "token must not advance past an unfetched record")
+        #expect(held.quarantined.isEmpty, "a transient error is never quarantined, however often it repeats")
+        #expect(b.adapter.notes.keys.sorted() == ["local"], "nothing is applied from a partial snapshot")
+        #expect(await zone.saveCallCount == saves, "no push before a successful pull")
+        let wait = await b.engine.retryDelayRemaining()
+        #expect((wait ?? 0) >= 100, "server retryAfter is honoured")
+
+        await zone.setFailingFetches([:])
+        let ok = await CloudSyncEngine(adapter: b.adapter, transport: zone, stateStore: b.store, enabledStore: b.enabled).sync()
+        #expect(ok.status == .ready)
+        #expect(b.adapter.notes["n1"]?.text == "one" && b.adapter.notes["n2"]?.text == "two")
+        #expect(await zone.record("local") != nil)
+    }
+
+    @Test func permanentlyUndecodableRecordIsQuarantinedAtOnceAndRetriedByScheduledReplay() async throws {
+        let zone = InMemorySyncTransport()
+        let a = Device(transport: zone)
+        a.adapter.put(Note(id: "bad", text: "x", updatedAt: t(1), createdAt: t(1)))
+        a.adapter.put(Note(id: "good", text: "y", updatedAt: t(2), createdAt: t(2)))
+        _ = await a.engine.sync()
+
+        var config = CloudSyncConfiguration()
+        let now = ManualClock()
+        config.clock = { now.value }
+        let adapter = NoteAdapter(), store = InMemorySyncStateStore(), enabled = InMemorySyncEnabledStore(enabled: true)
+        let engine = CloudSyncEngine(adapter: adapter, transport: zone, stateStore: store, enabledStore: enabled, configuration: config)
+        await zone.setUndecodableRecords(["bad"])
+        let first = await engine.sync()
+        #expect(first.status == .ready, "a permanent decode error never blocks the pass")
+        let quarantined = await engine.snapshot
+        #expect(quarantined.changeToken != nil && quarantined.quarantined["bad"] != nil)
+        #expect(adapter.notes.keys.sorted() == ["good"])
+        #expect(await zone.record("bad")?.fields["text"] == .string("x"), "unreadable server record is never overwritten")
+
+        await zone.setUndecodableRecords([])
+        now.value = now.value.addingTimeInterval(config.quarantineReplayInterval + 1)
+        let replay = await engine.sync()
+        #expect(replay.status == .ready && adapter.notes["bad"]?.text == "x")
+        #expect(await engine.snapshot.quarantined.isEmpty)
+    }
+
+    @Test func legacyUnscopedLedgerKeepsTombstonesButNeverImportsItsCursorOrDeletionQueue() async throws {
+        let zone = InMemorySyncTransport()
+        let d = Device(transport: zone)
+        var legacy = CloudSyncState()
+        legacy.tombstones["old"] = t(1)
+        legacy.pendingDeletions = ["old"]
+        legacy.changeToken = SyncChangeToken(data: Data([1]))
+        legacy.remoteVersions["x"] = .init(recordName: "x", version: t(1))
+        try d.store.save(legacy)
+        let engine = CloudSyncEngine(adapter: d.adapter, transport: zone, stateStore: d.store, enabledStore: d.enabled)
+        d.adapter.put(Note(id: "old", text: "o", updatedAt: t(1), createdAt: t(1)))
+        let r = await engine.sync()
+        #expect(r.status == .ready)
+        let state = await engine.snapshot
+        #expect(state.accountID == "in-memory-account")
+        #expect(state.tombstones["old"] != nil && d.adapter.notes["old"] == nil, "legacy deletion still suppresses local history")
+        #expect(state.remoteVersions["x"] == nil && state.pendingDeletions.isEmpty)
+        #expect(await zone.record("old") == nil, "legacy deletion never enters this account's outbound queue")
+    }
+
+    @Test func accountChangeDuringAPassFencesTheCommitAndNextPassRebinds() async throws {
+        let zone = InMemorySyncTransport()
+        let a = Device(transport: zone)
+        a.adapter.put(Note(id: "n1", text: "one", updatedAt: t(1), createdAt: t(1)))
+        _ = await a.engine.sync()
+        let b = Device(transport: zone)
+        _ = await b.engine.sync()
+        let boundToken = await b.engine.snapshot.changeToken
+        a.adapter.put(Note(id: "n2", text: "two", updatedAt: t(2), createdAt: t(2)))
+        _ = await a.engine.sync()
+        b.adapter.put(Note(id: "mine", text: "m", updatedAt: t(5), createdAt: t(5)))
+
+        // The user switches iCloud accounts while b's fetch is in flight.
+        await zone.setOnFetch { await zone.setAccountID("account-b") }
+        let during = await b.engine.sync()
+        #expect(during.status == .disabled, "in-flight pass for the old account is cancelled")
+        let after = await b.engine.snapshot
+        #expect(after.changeToken == boundToken && after.accountID == "in-memory-account", "old ledger untouched by the fenced pass")
+        #expect(await zone.record("mine") == nil, "nothing uploads under the new account from the old pass")
+
+        await zone.setOnFetch(nil)
+        _ = await b.engine.sync()
+        #expect(await b.engine.snapshot.accountID == "account-b")
+        #expect(b.adapter.switches == ["in-memory-account->account-b"])
+    }
+
+    @Test func accountSwitchDropsTheOldLedgerAndReplaysTheNewAccountZone() async throws {
+        let zone = InMemorySyncTransport()
+        let d = Device(transport: zone)
+        d.adapter.put(Note(id: "mine", text: "m", updatedAt: t(1), createdAt: t(1)))
+        _ = await d.engine.sync()
+        let bound = await d.engine.snapshot
+        #expect(bound.accountID == "in-memory-account" && bound.changeToken != nil && !bound.remoteVersions.isEmpty)
+        try await d.engine.markDeleted("gone")
+
+        // Another iCloud account signs in on the same device: a different (empty) zone.
+        await zone.deleteZone()
+        await zone.setAccountID("account-b")
+        d.adapter.purgeOnSwitch = true
+        await zone.seed(SyncRecord(recordName: "theirs", recordType: "Note", fields: [
+            "id": .string("theirs"), "text": .string("t"), "updatedAt": .date(t(5)), "createdAt": .date(t(5)),
+        ]))
+        let result = await d.engine.sync()
+        #expect(result.status == .ready)
+        #expect(d.adapter.switches == ["in-memory-account->account-b"])
+        let state = await d.engine.snapshot
+        #expect(state.accountID == "account-b")
+        #expect(state.tombstones["gone"] == nil && state.remoteVersions["mine"] == nil, "old account ledger is gone")
+        #expect(d.adapter.notes.keys.sorted() == ["theirs"])
+        #expect(await zone.record("mine") == nil, "previous account's item never uploads into the new account")
+    }
+}
+
+final class ManualClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = t(0)
+    var value: Date {
+        get { lock.withLock { current } }
+        set { lock.withLock { current = newValue } }
+    }
 }

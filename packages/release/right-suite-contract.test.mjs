@@ -483,6 +483,7 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.npm["@rightkit/tauri"], "0.1.0");
   assert.equal(versions.npm["@rightkit/updates"], "0.2.3");
   assert.deepEqual(versions.stagedNpm, {
+    "@rightkit/app-shell": "0.1.0",
     "@rightkit/ax": "0.2.4",
     "@rightkit/git": "0.2.25",
     "@rightkit/hooks": "0.1.1",
@@ -490,9 +491,10 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal-ui": "0.1.1",
     "@rightkit/license": "0.1.8",
     "@rightkit/logs": "0.1.4",
+    "@rightkit/media-ui": "0.1.0",
     "@rightkit/platform-ui": "0.1.1",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.111",
+    "@rightkit/release": "0.2.112",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4",
   });
@@ -503,7 +505,7 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/hooks": ["0.1.0"],
     "@rightkit/legal": ["0.3.0"],
     "@rightkit/license": ["0.1.6", "0.1.7"],
-    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69", "0.2.70", "0.2.71", "0.2.72", "0.2.73", "0.2.74", "0.2.75", "0.2.76", "0.2.82", "0.2.83", "0.2.91", "0.2.92", "0.2.94", "0.2.95", "0.2.96", "0.2.97", "0.2.98", "0.2.99", "0.2.104", "0.2.105", "0.2.106", "0.2.107", "0.2.108", "0.2.109", "0.2.110"],
+    "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69", "0.2.70", "0.2.71", "0.2.72", "0.2.73", "0.2.74", "0.2.75", "0.2.76", "0.2.82", "0.2.83", "0.2.91", "0.2.92", "0.2.94", "0.2.95", "0.2.96", "0.2.97", "0.2.98", "0.2.99", "0.2.104", "0.2.105", "0.2.106", "0.2.107", "0.2.108", "0.2.109", "0.2.110", "0.2.111"],
     "@rightkit/qa": ["0.1.0", "0.2.0"],
   });
   assert.ok(
@@ -523,9 +525,22 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
   assert.equal(versions.cargo["rightkit-tauri"], "0.1.0");
   assert.deepEqual(versions.stagedCargo, {
+    "rightkit-automation": "0.1.0",
+    "rightkit-browser": "0.1.0",
+    "rightkit-control": "0.1.0",
+    "rightkit-framed-sidecar": "0.1.0",
+    "rightkit-jobs": "0.1.0",
+    "rightkit-media": "0.1.0",
+    "rightkit-models": "0.1.0",
+    "rightkit-playback": "0.1.0",
+    "rightkit-qa": "0.1.0",
+    "rightkit-service": "0.1.0",
+    "rightkit-settings": "0.1.0",
+    "rightkit-sync": "0.1.0",
     "rightkit-license": "0.1.3",
     "rightkit-tauri": "0.1.1",
   });
+  assert.deepEqual(versions.stagedSwift, { "rightkit-swift": { url: "https://github.com/bogusyogi/rightkit-swift.git", version: "0.3.0" } });
   getCurrentCargoVersionContract();
 });
 

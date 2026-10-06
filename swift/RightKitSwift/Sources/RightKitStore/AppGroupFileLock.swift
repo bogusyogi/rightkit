@@ -23,12 +23,17 @@ public enum AppGroupFileLock {
         if let directory = configuration.lockDirectory {
             primary = directory.appendingPathComponent(configuration.lockName)
         } else {
-            let group = configuration.containerURL?.appendingPathComponent(configuration.lockName)
-            // Unentitled callers (unsigned command-line tests) can resolve the container path but
-            // cannot open it, so the temporary directory is the shared fallback for that context.
             let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(configuration.lockName)
-            primary = group ?? temporary
-            if group != nil { fallback = temporary }
+            if let group = configuration.containerURL?.appendingPathComponent(configuration.lockName) {
+                primary = group
+                if configuration.allowTemporaryLockFallback { fallback = temporary }
+            } else if configuration.allowTemporaryLockFallback {
+                primary = temporary
+            } else {
+                // No shared container and no explicit directory: a private lock would be a lie.
+                configuration.report(.lockAcquireFailed(reason: "no_shared_container", errno: ENOENT, waitedMilliseconds: 0))
+                return nil
+            }
         }
         var descriptor = open(primary.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         var openErrno = errno
@@ -68,8 +73,8 @@ public enum AppGroupFileLock {
         defer { flock(descriptor, LOCK_UN) }
         return try body()
         #else
-        // Platforms without flock have no App Group container either.
-        return try body()
+        // Platforms without flock have no App Group container: fail closed.
+        return nil
         #endif
     }
 }

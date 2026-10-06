@@ -16,6 +16,24 @@ use rightkit_process::OwnedCommand;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+// Runner / probe / progress / cancel / loudness modules (media-runner lane). Kept in
+// separate files so the catalog lane's edits to this file stay independent.
+pub mod command;
+pub mod dev_resolve;
+pub mod loudnorm;
+pub mod native;
+pub mod probe;
+pub mod quickprobe;
+pub mod runner;
+
+pub use command::{
+    transcode_audio_command, AudioTranscode, DevFfmpeg, FfmpegArg, FfmpegBinary, FfmpegCommand,
+};
+pub use runner::{
+    run_capture, run_checked, run_with_progress, Captured, ProgressEvent, ProgressParser,
+    RunError, RunOptions, RunReport,
+};
+
 pub const APPROVED_CATALOG_JSON: &str = include_str!("../catalog/artifacts.json");
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

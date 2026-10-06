@@ -11,7 +11,33 @@ keywords = ["logging", "diagnostics", "privacy", "jsonl"]
 categories = ["development-tools::debugging"]
 include = ["src/**", "tests/**", "README.md"]
 
+[features]
+default = ["http"]
+# HTTPS transport for the consented outbox uploader. Without it the crate has no
+# network dependency and callers supply their own `Transport`.
+http = ["dep:ureq"]
+# Loopback mock ingest server for app e2e tests.
+testing = []
+
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+ureq = { version = "3.4", default-features = false, features = ["rustls"], optional = true }
+getrandom = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = "0.3"
+libc = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Registry",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+rightkit-logs = { path = ".", features = ["testing"] }

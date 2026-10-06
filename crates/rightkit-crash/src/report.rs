@@ -1,0 +1,97 @@
+use rightkit_logs::{redact_quoted, scrub_text, scrub_value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+pub const CRASH_SCHEMA_VERSION: u32 = 1;
+const MAX_MESSAGE_CHARS: usize = 2_000;
+const MAX_BACKTRACE_BYTES: usize = 48 * 1024;
+
+/// A crash report that is already redacted when constructed: there is no
+/// "raw" form to leak. Contains process/thread state only, never app content.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CrashReport {
+    pub schema_version: u32,
+    /// `panic`, `hang`, `sidecar_crash`, or an app-defined fixed string.
+    pub kind: String,
+    pub app_name: String,
+    pub app_version: String,
+    pub build: Option<String>,
+    pub os: String,
+    pub arch: String,
+    pub unix_time: u64,
+    pub pid: u32,
+    pub thread: String,
+    pub location: Option<String>,
+    pub message: String,
+    pub backtrace: String,
+    /// File names (not paths) of local-only native captures next to this report.
+    #[serde(default)]
+    pub native_artifacts: Vec<String>,
+}
+
+pub(crate) struct RawCrash<'a> {
+    pub kind: &'a str,
+    pub app_name: &'a str,
+    pub app_version: &'a str,
+    pub build: Option<&'a str>,
+    pub thread: &'a str,
+    pub location: Option<&'a str>,
+    pub message: &'a str,
+    pub backtrace: &'a str,
+}
+
+impl CrashReport {
+    pub(crate) fn redacted(raw: RawCrash<'_>, unix_time: u64) -> Self {
+        let message: String = scrub_text(&redact_quoted(raw.message))
+            .chars()
+            .take(MAX_MESSAGE_CHARS)
+            .collect();
+        let mut backtrace = scrub_text(raw.backtrace);
+        if backtrace.len() > MAX_BACKTRACE_BYTES {
+            let mut cut = MAX_BACKTRACE_BYTES;
+            while !backtrace.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            backtrace.truncate(cut);
+            backtrace.push_str("\n[truncated]");
+        }
+        Self {
+            schema_version: CRASH_SCHEMA_VERSION,
+            kind: sanitize_kind(raw.kind),
+            app_name: scrub_text(raw.app_name),
+            app_version: scrub_text(raw.app_version),
+            build: raw.build.map(scrub_text),
+            os: std::env::consts::OS.to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+            unix_time,
+            pid: std::process::id(),
+            thread: scrub_text(raw.thread),
+            location: raw.location.map(scrub_text),
+            message,
+            backtrace,
+            native_artifacts: Vec::new(),
+        }
+    }
+
+    /// Final defence-in-depth pass over the serialized form, used again before
+    /// anything is queued or bundled.
+    pub fn to_scrubbed_value(&self) -> Value {
+        let mut value = serde_json::to_value(self).unwrap_or(Value::Null);
+        scrub_value(&mut value);
+        value
+    }
+}
+
+/// `kind` lands in file names: keep a small safe alphabet.
+pub(crate) fn sanitize_kind(kind: &str) -> String {
+    let cleaned: String = kind
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .take(32)
+        .collect();
+    if cleaned.is_empty() {
+        "unknown".into()
+    } else {
+        cleaned
+    }
+}

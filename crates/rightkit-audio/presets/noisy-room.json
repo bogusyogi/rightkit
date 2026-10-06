@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "noisy-room",
+  "description": "Untreated room, fans or street noise: strong denoise, higher high-pass, harder leveling.",
+  "chain": {
+    "high_pass": { "hz": 100.0, "poles": 2 },
+    "denoise": { "kind": "afftdn", "reduction_db": 35.0, "noise_floor_db": -35.0, "residual_floor_db": -75.0, "adaptivity": 0.9, "track": true },
+    "compressor": { "threshold_db": -20.0, "ratio": 3.5, "attack_ms": 8.0, "release_ms": 90.0, "makeup_db": 3.0 },
+    "deesser": { "intensity": 0.5, "max_reduction": 0.6, "frequency": 0.5 },
+    "limiter": { "ceiling_db": -1.5, "attack_ms": 5.0, "release_ms": 50.0 }
+  },
+  "room_tone": { "enabled": true, "gain_db": 0.0, "overlap_ms": 100, "params": { "max_level_db": -25.0 } },
+  "ducking": { "mode": "spans", "duck_db": -14.0, "fade_ms": 250 },
+  "gate": { "target_integrated_lufs": -14.0, "loudness_tolerance_lu": 1.5, "target_true_peak_dbtp": -1.5, "true_peak_tolerance_db": 0.5 }
+}

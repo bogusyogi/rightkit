@@ -1,0 +1,126 @@
+# Drives the real app launched hidden: refusal without the bearer secret, typed
+# command, trusted click, hover, drag, typing, wheel, DOM/AX reads, screenshot,
+# then a clean stop (port closed, pid gone, frontmost app unchanged).
+name = "control-test-app hidden UI"
+tier = "fast"
+target = "ui"
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+  [[step.expect]]
+  path = "health.ok"
+  eq = true
+
+[[step]]
+kind = "ui_auth_probe"
+  [[step.expect]]
+  path = "status_without_token"
+  eq = 401
+
+[[step]]
+kind = "ui_command"
+name = "ping"
+  [[step.expect]]
+  eq = "pong"
+
+[[step]]
+kind = "ui_click"
+label = "trusted click"
+selector = "#btn"
+
+[[step]]
+kind = "ui_eval"
+js = "return {clicks: window.__state.clicks, trusted: window.__state.trusted};"
+  [[step.expect]]
+  path = "clicks"
+  eq = 1
+  [[step.expect]]
+  path = "trusted"
+  contains = true
+
+[[step]]
+kind = "ui_move"
+label = "hover"
+selector = "#hov"
+
+[[step]]
+kind = "ui_eval"
+js = "return {entered: window.__state.hoverEnter, hover: document.getElementById('hov').matches(':hover')};"
+  [[step.expect]]
+  path = "entered"
+  gte = 1
+  [[step.expect]]
+  path = "hover"
+  eq = true
+
+[[step]]
+kind = "ui_drag"
+from_selector = "#box"
+x2 = 300
+y2 = 300
+
+[[step]]
+kind = "ui_eval"
+js = "return {dx: window.__state.dragDx, dy: window.__state.dragDy};"
+  [[step.expect]]
+  path = "dx"
+  gte = 20
+  [[step.expect]]
+  path = "dy"
+  gte = 20
+
+[[step]]
+kind = "ui_click"
+selector = "#inp"
+
+[[step]]
+kind = "ui_type"
+text = "Hello 42"
+
+[[step]]
+kind = "ui_eval"
+js = "return document.getElementById('inp').value;"
+  [[step.expect]]
+  eq = "Hello 42"
+
+[[step]]
+kind = "ui_wheel"
+selector = "#scroll"
+dy = 150
+
+[[step]]
+kind = "ui_eval"
+label = "wheel scrolled the pane"
+js = "return document.getElementById('scroll').scrollTop;"
+  [[step.expect]]
+  gte = 1
+
+[[step]]
+kind = "ui_dom"
+selector = "#btn"
+  [[step.expect]]
+  path = "elements[0].text"
+  eq = "Click me"
+
+[[step]]
+kind = "ui_ax"
+  [[step.expect]]
+  path = "nodes"
+  not_empty = true
+
+[[step]]
+kind = "ui_screenshot"
+name = "after-interactions"
+  [[step.expect]]
+  path = "size.width"
+  gte = 100
+
+[[step]]
+kind = "ui_stop"
+  [[step.expect]]
+  path = "port_closed"
+  eq = true
+  [[step.expect]]
+  path = "frontmost_unchanged"
+  eq = true

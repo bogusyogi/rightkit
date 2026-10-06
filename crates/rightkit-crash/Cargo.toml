@@ -1,0 +1,39 @@
+[package]
+name = "rightkit-crash"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+keywords = ["crash", "panic", "diagnostics", "privacy"]
+categories = ["development-tools::debugging"]
+publish = false
+
+[lib]
+name = "rightkit_crash"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rightkit-dump-helper"
+path = "src/bin/rightkit-dump-helper.rs"
+
+[dependencies]
+rightkit-logs = { version = "=0.1.0", path = "../rightkit-logs", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_System_Kernel",
+  "Win32_System_Memory",
+  "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+rightkit-logs = { version = "=0.1.0", path = "../rightkit-logs", features = ["testing"] }

@@ -296,6 +296,13 @@ impl JobStore {
         self.get(job_id).map(Some)
     }
 
+    /// Give back the attempt a paused-by-handoff run consumed (a handoff is
+    /// not the job's fault, so it must not count toward `max_attempts`).
+    pub fn refund_attempt(&self, job_id: &str) -> JobResult<()> {
+        self.c().execute("UPDATE jobs SET attempts=MAX(attempts-1,0), updated_at=?2 WHERE job_id=?1", params![job_id, now()])?;
+        Ok(())
+    }
+
     /// Record a non-fatal error without changing status (paused, recoverable).
     pub fn record_error(&self, job_id: &str, error: &JobError) -> JobResult<()> {
         self.c().execute(

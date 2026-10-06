@@ -1,0 +1,374 @@
+//! Owner-only files and directories.
+//!
+//! Donor: CodeRight `private_fs` (perm/atomic/sweep). Unix uses mode bits applied at
+//! creation time (never chmod-after-create for new files); Windows applies one protected
+//! owner-only DACL through native security APIs with a bounded `icacls` fallback.
+
+use crate::atomic::{atomic_write_with, AtomicOptions};
+use crate::error::{FsError, Result};
+use std::path::{Path, PathBuf};
+
+pub const FILE_MODE_OWNER_ONLY: u32 = 0o600;
+pub const DIR_MODE_OWNER_ONLY: u32 = 0o700;
+
+/// Narrow an existing file or directory to owner-only. A missing path is a no-op.
+/// Symlinks are never followed on unix: a symlink is refused rather than chmod-ing its target.
+pub fn restrict_owner_only(path: &Path) -> Result<()> {
+    restrict_owner_only_impl(path)
+}
+
+#[cfg(unix)]
+fn restrict_owner_only_impl(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(FsError::io(path, e)),
+    };
+    if meta.file_type().is_symlink() {
+        return Err(FsError::Symlink(path.to_path_buf()));
+    }
+    let mode = if meta.is_dir() { DIR_MODE_OWNER_ONLY } else { FILE_MODE_OWNER_ONLY };
+    if meta.permissions().mode() & 0o7777 == mode {
+        return Ok(());
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .map_err(|e| FsError::io(path, e))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn restrict_owner_only_impl(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// True when no group/other access exists on unix; on Windows true when the DACL is not
+/// inherited-open (approximated by a successful hardening having been applied: always true
+/// here, callers needing proof use `restrict_owner_only` and trust its error).
+pub fn is_owner_only(path: &Path) -> Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::symlink_metadata(path).map_err(|e| FsError::io(path, e))?;
+        Ok(meta.permissions().mode() & 0o077 == 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(true)
+    }
+}
+
+/// Create `dir` and any missing ancestors. Each *newly created* directory is owner-only
+/// before a child is created inside it; pre-existing ancestors are left alone, and the leaf
+/// is always hardened. A symlinked leaf is refused.
+pub fn ensure_private_dir(dir: &Path) -> Result<()> {
+    if dir.as_os_str().is_empty() {
+        return Err(FsError::io(dir, std::io::Error::new(std::io::ErrorKind::InvalidInput, "empty path")));
+    }
+    let mut missing: Vec<PathBuf> = Vec::new();
+    for ancestor in dir.ancestors() {
+        if ancestor.as_os_str().is_empty() || ancestor.symlink_metadata().is_ok() {
+            break;
+        }
+        missing.push(ancestor.to_path_buf());
+    }
+    for path in missing.iter().rev() {
+        create_private_dir_one(path)?;
+    }
+    let meta = std::fs::symlink_metadata(dir).map_err(|e| FsError::io(dir, e))?;
+    if meta.file_type().is_symlink() {
+        return Err(FsError::Symlink(dir.to_path_buf()));
+    }
+    if !meta.is_dir() {
+        return Err(FsError::NotADirectory(dir.to_path_buf()));
+    }
+    restrict_owner_only(dir)
+}
+
+fn create_private_dir_one(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    let result = {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().mode(DIR_MODE_OWNER_ONLY).create(path)
+    };
+    #[cfg(not(unix))]
+    let result = std::fs::create_dir(path);
+    match result {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(FsError::io(path, e)),
+    }
+    #[cfg(not(unix))]
+    restrict_owner_only(path)?;
+    Ok(())
+}
+
+/// Atomically write an owner-only file (the temp inode is owner-only from creation, so the
+/// secret is never visible under the destination name with a permissive mode).
+pub fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    atomic_write_with(path, AtomicOptions::private(), |f| f.write_all(bytes))
+}
+
+pub fn write_private_text(path: &Path, text: &str) -> Result<()> {
+    write_private_file(path, text.as_bytes())
+}
+
+/// Exclusively create an owner-only file, never following a symlink at `path`.
+/// For files that are appended to or locked rather than replaced (logs, lock files).
+pub fn create_private_new(path: &Path) -> Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(FILE_MODE_OWNER_ONLY).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let file = options.open(path).map_err(|e| FsError::io(path, e))?;
+    #[cfg(not(unix))]
+    restrict_owner_only(path)?;
+    Ok(file)
+}
+
+/// Owner-only repair for the named entries directly inside `dir`, plus `dir` itself.
+/// One level deep and by exact name only: foreign entries are untouched and no symlink is
+/// followed. Returns how many entries were narrowed.
+pub fn sweep_owner_only(dir: &Path, owned_names: &[&str]) -> Result<usize> {
+    restrict_owner_only(dir)?;
+    let mut narrowed = 0;
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(FsError::io(dir, e)),
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if owned_names.iter().any(|owned| name == *owned)
+            && (cfg!(windows) || !is_owner_only(&entry.path())?)
+        {
+            restrict_owner_only(&entry.path())?;
+            narrowed += 1;
+        }
+    }
+    Ok(narrowed)
+}
+
+#[cfg(windows)]
+fn restrict_owner_only_impl(path: &Path) -> crate::error::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    native_restrict_owner_only(path).or_else(|native_error| {
+        let win_path = path.to_string_lossy().replace('/', "\\");
+        let sid = match current_process_sid_string(path) {
+            Ok(sid) => sid,
+            Err(_) => return Err(native_error),
+        };
+        let grant = format!("*{sid}:(F)");
+        use std::os::windows::process::CommandExt;
+        let status = std::process::Command::new("icacls")
+            .args([&win_path, "/inheritance:r", "/grant:r", &grant])
+            .stdin(std::process::Stdio::null())
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW: never flash a console
+            .status()
+            .map_err(|source| crate::error::FsError::io(path, source))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(native_error)
+        }
+    })
+}
+
+#[cfg(windows)]
+fn current_process_token_user(path: &Path) -> crate::error::Result<Vec<usize>> {
+    use std::ffi::c_void;
+
+    type Handle = *mut c_void;
+    const TOKEN_QUERY: u32 = 0x0008;
+    const TOKEN_USER: u32 = 1;
+
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn OpenProcessToken(process: Handle, access: u32, token: *mut Handle) -> i32;
+        fn GetTokenInformation(
+            token: Handle,
+            class: u32,
+            buffer: *mut c_void,
+            len: u32,
+            needed: *mut u32,
+        ) -> i32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> Handle;
+        fn CloseHandle(handle: Handle) -> i32;
+    }
+
+    unsafe {
+        let mut token = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(crate::error::FsError::io(
+                path,
+                std::io::Error::last_os_error(),
+            ));
+        }
+        let mut needed = 0;
+        let _ = GetTokenInformation(token, TOKEN_USER, std::ptr::null_mut(), 0, &mut needed);
+        if needed == 0 {
+            let error = std::io::Error::last_os_error();
+            let _ = CloseHandle(token);
+            return Err(crate::error::FsError::io(path, error));
+        }
+        let words = (needed as usize).div_ceil(std::mem::size_of::<usize>());
+        let mut token_info = vec![0usize; words];
+        if GetTokenInformation(
+            token,
+            TOKEN_USER,
+            token_info.as_mut_ptr().cast(),
+            needed,
+            &mut needed,
+        ) == 0
+        {
+            let error = std::io::Error::last_os_error();
+            let _ = CloseHandle(token);
+            return Err(crate::error::FsError::io(path, error));
+        }
+        let _ = CloseHandle(token);
+        Ok(token_info)
+    }
+}
+
+#[cfg(windows)]
+fn current_process_sid_string(path: &Path) -> crate::error::Result<String> {
+    use std::ffi::c_void;
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn ConvertSidToStringSidW(sid: *mut c_void, string_sid: *mut *mut u16) -> i32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LocalFree(memory: *mut c_void) -> *mut c_void;
+    }
+
+    let token_info = current_process_token_user(path)?;
+    unsafe {
+        let sid = *(token_info.as_ptr().cast::<*mut c_void>());
+        let mut sid_text = std::ptr::null_mut();
+        if ConvertSidToStringSidW(sid, &mut sid_text) == 0 {
+            return Err(crate::error::FsError::io(
+                path,
+                std::io::Error::last_os_error(),
+            ));
+        }
+        let sid_len = (0..).take_while(|&i| *sid_text.add(i) != 0).count();
+        let sid_string = String::from_utf16_lossy(std::slice::from_raw_parts(sid_text, sid_len));
+        let _ = LocalFree(sid_text.cast());
+        Ok(sid_string)
+    }
+}
+
+#[cfg(windows)]
+fn native_restrict_owner_only(path: &Path) -> crate::error::Result<()> {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+
+    #[repr(C)]
+    struct TrusteeW {
+        multiple_trustee: *mut TrusteeW,
+        multiple_trustee_operation: i32,
+        trustee_form: i32,
+        trustee_type: i32,
+        name: *mut u16,
+    }
+
+    #[repr(C)]
+    struct ExplicitAccessW {
+        access_permissions: u32,
+        access_mode: i32,
+        inheritance: u32,
+        trustee: TrusteeW,
+    }
+
+    const DACL_SECURITY_INFORMATION: u32 = 0x0000_0004;
+    const PROTECTED_DACL_SECURITY_INFORMATION: u32 = 0x8000_0000;
+    const SE_FILE_OBJECT: u32 = 1;
+    const GENERIC_ALL: u32 = 0x1000_0000;
+    const SET_ACCESS: i32 = 2;
+    const NO_MULTIPLE_TRUSTEE: i32 = 0;
+    const TRUSTEE_IS_SID: i32 = 0;
+    const TRUSTEE_IS_USER: i32 = 1;
+    const SUB_CONTAINERS_AND_OBJECTS_INHERIT: u32 = 0x3;
+
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn SetEntriesInAclW(
+            count: u32,
+            entries: *mut ExplicitAccessW,
+            old_acl: *mut c_void,
+            new_acl: *mut *mut c_void,
+        ) -> u32;
+        fn SetNamedSecurityInfoW(
+            path: *mut u16,
+            object_type: u32,
+            information: u32,
+            owner: *mut c_void,
+            group: *mut c_void,
+            dacl: *mut c_void,
+            sacl: *mut c_void,
+        ) -> u32;
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LocalFree(memory: *mut c_void) -> *mut c_void;
+    }
+
+    let token_info = current_process_token_user(path)?;
+    unsafe {
+        let sid = *(token_info.as_ptr().cast::<*mut c_void>());
+        let mut entry = ExplicitAccessW {
+            access_permissions: GENERIC_ALL,
+            access_mode: SET_ACCESS,
+            inheritance: if path.is_dir() {
+                SUB_CONTAINERS_AND_OBJECTS_INHERIT
+            } else {
+                0
+            },
+            trustee: TrusteeW {
+                multiple_trustee: std::ptr::null_mut(),
+                multiple_trustee_operation: NO_MULTIPLE_TRUSTEE,
+                trustee_form: TRUSTEE_IS_SID,
+                trustee_type: TRUSTEE_IS_USER,
+                name: sid.cast(),
+            },
+        };
+        let mut dacl = std::ptr::null_mut();
+        let acl_result = SetEntriesInAclW(1, &mut entry, std::ptr::null_mut(), &mut dacl);
+        if acl_result != 0 {
+            return Err(crate::error::FsError::io(
+                path,
+                std::io::Error::from_raw_os_error(acl_result as i32),
+            ));
+        }
+        let mut wide_path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let result = SetNamedSecurityInfoW(
+            wide_path.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            dacl,
+            std::ptr::null_mut(),
+        );
+        let _ = LocalFree(dacl);
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(crate::error::FsError::io(
+                path,
+                std::io::Error::from_raw_os_error(result as i32),
+            ))
+        }
+    }
+}
+

@@ -1,0 +1,100 @@
+# Port of genright/tests/e2e/fast-smoke.test.mjs
+name = "engine doctor + capability surface (CLI + stdio)"
+tier = "fast"
+target = "engine"
+
+[[step]]
+kind = "cli"
+label = "doctor"
+command = "doctor"
+input = {}
+  [[step.expect]]
+  path = "json.contract_version"
+  gte = 2
+  [[step.expect]]
+  path = "json.capabilities[*].name"
+  contains = "generate"
+  [[step.expect]]
+  path = "json.capabilities[*].name"
+  contains = "job.wait"
+  [[step.expect]]
+  path = "json.capabilities[*].name"
+  contains = "media.generate"
+  [[step.expect]]
+  path = "json.capabilities[*].name"
+  contains = "sidecar.stdio"
+  [[step.expect]]
+  path = "json.capabilities[*].name"
+  contains = "artifacts.index"
+  [[step.expect]]
+  path = "json.commands"
+  len_gte = 20
+
+[[step]]
+kind = "sidecar_start"
+id = "sc"
+  [[step.expect]]
+  path = "type"
+  eq = "hello"
+  [[step.expect]]
+  path = "pid"
+  gte = 1
+
+[[step]]
+kind = "sidecar_command"
+label = "stdio doctor"
+id = "sc"
+name = "doctor"
+  [[step.expect]]
+  path = "contract_version"
+  gte = 2
+
+[[step]]
+kind = "sidecar_command"
+id = "sc"
+name = "job.list"
+input = { limit = 5 }
+  [[step.expect]]
+  path = "jobs"
+  len_eq = 0
+
+[[step]]
+kind = "sidecar_close"
+id = "sc"
+
+[[step]]
+kind = "cli"
+label = "unknown command is a typed error, not a crash"
+command = "nonsense-command"
+allow_error = true
+  [[step.expect]]
+  path = "code"
+  eq = 2
+  [[step.expect]]
+  path = "json.error.code"
+  eq = "unknown_command"
+
+[[step]]
+kind = "cli"
+command = "spend set_cap"
+input = { cap_usd = 0.01 }
+
+[[step]]
+kind = "cli"
+label = "spend cap is durable across processes"
+command = "spend status"
+input = {}
+  [[step.expect]]
+  path = "json.cap_usd"
+  eq = 0.01
+
+[[step]]
+kind = "cli"
+command = "spend.status"
+input = {}
+  [[step.expect]]
+  path = "json.cap_usd"
+  eq = 0.01
+
+[[step]]
+kind = "assert_no_orphans"

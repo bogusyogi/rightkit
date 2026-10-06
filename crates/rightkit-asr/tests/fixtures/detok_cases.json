@@ -1,0 +1,14 @@
+[
+  {"name":"thirteen","pieces":["▁","1","3"],"expected":"13"},
+  {"name":"ten","pieces":["▁","1","0"],"expected":"10"},
+  {"name":"ninety","pieces":["▁","9","0"],"expected":"90"},
+  {"name":"decimal_13_2","pieces":["▁","1","3",".","2"],"expected":"13.2"},
+  {"name":"decimal_then_group","pieces":["▁","3",".","8","▁2","7"],"expected":"3.8 27"},
+  {"name":"word_then_number","pieces":["▁at","6","0"],"expected":"at 60"},
+  {"name":"uppercase_identifier","pieces":["▁A","4"],"expected":"A4"},
+  {"name":"article_then_number","pieces":["▁a","2","4"],"expected":"a 24"},
+  {"name":"currency","pieces":["$","1","0","0"],"expected":"$100"},
+  {"name":"year_after_word","pieces":["▁In","2","0","2","1"],"expected":"In 2021"},
+  {"name":"special_token_skip","pieces":["<pad>","▁hello"],"expected":"hello"},
+  {"name":"unk_kept","pieces":["▁the","▁<unk>"],"expected":"the <unk>"}
+]

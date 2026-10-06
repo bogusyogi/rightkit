@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/app-shell",
   "version": "0.1.0",
-  "description": "Brand-neutral fused sidebar + titlebar desktop shell for Right Suite apps.",
+  "description": "Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
@@ -17,8 +17,16 @@
     },
     "./shell.css": "./shell.css"
   },
-  "files": ["dist", "shell.css", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
-  "sideEffects": ["*.css"],
+  "files": [
+    "dist",
+    "shell.css",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
   "peerDependencies": {
     "@rightkit/platform-ui": ">=0.1.1 <1",
     "react": ">=18 <20"
@@ -30,7 +38,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.0",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "vite": "^6.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

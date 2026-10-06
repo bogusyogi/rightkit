@@ -1,0 +1,1 @@
+{"protocol_major":1,"protocol_minor":0,"schema_name":"file_transcription_request","schema_version":1,"engine_version":"fake-engine/0.1.0","request_id":"r1","session_id":null,"trace_id":"t","payload":{"kind":"file_transcription_request","path":"a.wav"},"error":null}

@@ -17,7 +17,8 @@ bundled = ["rusqlite/bundled"]
 sqlcipher = ["rusqlite/bundled-sqlcipher-vendored-openssl"]
 
 [dependencies]
-rusqlite = { version = "0.40.1", default-features = false }
+rusqlite = { version = "0.40.1", default-features = false, features = ["backup"] }
+rightkit-fs = { version = "=0.1.0", path = "../rightkit-fs" }
 thiserror = "2"
 zeroize = "1.8"
 

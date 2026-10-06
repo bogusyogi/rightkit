@@ -1,6 +1,6 @@
 //! Outcome tests: real headless Chrome against a local static page. Every
 //! assertion reads page state produced by trusted browser input.
-use rightkit_browser::{BrowserError, BrowserSession, LaunchOptions, Target};
+use rightkit_browser::{BrowserError, BrowserSession, LaunchOptions, NetworkPolicy, Target};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::Duration;
@@ -25,6 +25,11 @@ addEventListener('mouseup',e=>{if(drag){drag=false;const z=document.getElementBy
  window.__drag.dropped=e.clientX>z.left&&e.clientX<z.right&&e.clientY>z.top&&e.clientY<z.bottom}});
 console.log('hello-console');console.error('boom-console');
 </script></body></html>"##;
+
+/// Loopback fixtures are blocked by default; this suite opts in explicitly.
+fn fixture_opts() -> LaunchOptions {
+    LaunchOptions::default().network(NetworkPolicy::default().allow_host("127.0.0.1"))
+}
 
 fn serve() -> String {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -52,7 +57,7 @@ fn serve() -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn browser_runtime_outcomes() {
     let base = serve();
-    let session = BrowserSession::launch(LaunchOptions::default()).await.expect("launch");
+    let session = BrowserSession::launch(fixture_opts()).await.expect("launch");
     let p = session.new_page(&format!("{base}/")).await.unwrap();
     assert_eq!(p.title().await, "RK Test");
 
@@ -125,7 +130,7 @@ async fn browser_runtime_outcomes() {
 async fn named_profile_persists_and_is_exclusive() {
     let base = serve();
     let root = tempfile::tempdir().unwrap();
-    let opts = || LaunchOptions::default().named_profile(root.path(), "qa");
+    let opts = || fixture_opts().named_profile(root.path(), "qa");
     let s1 = BrowserSession::launch(opts()).await.unwrap();
     assert!(matches!(BrowserSession::launch(opts()).await, Err(BrowserError::ProfileInUse(_))));
     let p = s1.new_page(&format!("{base}/")).await.unwrap();
@@ -142,7 +147,7 @@ async fn named_profile_persists_and_is_exclusive() {
 #[ignore = "opens a visible window; run with --ignored"]
 async fn headed_smoke() {
     let base = serve();
-    let s = BrowserSession::launch(LaunchOptions::default().headed()).await.unwrap();
+    let s = BrowserSession::launch(fixture_opts().headed()).await.unwrap();
     assert!(!s.is_headless());
     let p = s.new_page(&format!("{base}/")).await.unwrap();
     p.click(&Target::css("#btn")).await.unwrap();

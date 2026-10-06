@@ -22,7 +22,12 @@ impl RecordMapper for NoteMapper {
         "Note"
     }
     fn header(&self, n: &Note) -> ItemHeader {
-        ItemHeader { id: n.id.clone(), created_at_ms: n.created, updated_at_ms: n.updated, origin_device: None }
+        ItemHeader {
+            id: n.id.clone(),
+            created_at_ms: n.created,
+            updated_at_ms: n.updated,
+            origin_device: None,
+        }
     }
     fn encode(&self, n: &Note, r: &mut RawRecord) {
         r.set("text", FieldValue::Text(n.text.clone()));
@@ -43,7 +48,12 @@ impl Local {
     fn put(&self, id: &str, text: &str, created: i64, updated: i64) {
         self.0.lock().unwrap().insert(
             id.into(),
-            Note { id: id.into(), text: text.into(), created, updated },
+            Note {
+                id: id.into(),
+                text: text.into(),
+                created,
+                updated,
+            },
         );
     }
     fn text(&self, id: &str) -> Option<String> {
@@ -89,7 +99,12 @@ fn device(backend: &MemoryBackend, infer: bool) -> Device {
     let storage = MemoryStorage::default();
     let clock = Arc::new(TestClock(AtomicI64::new(1_000_000)));
     let engine = build(backend, &local, &storage, &clock, infer);
-    Device { local, engine, storage, clock }
+    Device {
+        local,
+        engine,
+        storage,
+        clock,
+    }
 }
 
 fn build(
@@ -106,7 +121,10 @@ fn build(
         Box::new(storage.clone()),
     )
     .clock(clock.clone())
-    .config(SyncConfig { infer_local_deletions: infer, ..SyncConfig::default() })
+    .config(SyncConfig {
+        infer_local_deletions: infer,
+        ..SyncConfig::default()
+    })
     .build()
     .unwrap()
 }
@@ -150,7 +168,11 @@ fn two_devices_converge_edits_lww_and_tombstone_wins() {
     let before = zone.saved_records();
     b.pass();
     assert!(b.local.text("n1").is_none());
-    assert_eq!(zone.saved_records(), before, "blocked id must not be re-uploaded");
+    assert_eq!(
+        zone.saved_records(),
+        before,
+        "blocked id must not be re-uploaded"
+    );
     let tomb = zone.record("n1").unwrap();
     assert!(tomb.date_ms("deletedAt").is_some());
     assert!(tomb.get("text").is_none(), "tombstone clears content");
@@ -167,9 +189,16 @@ fn offline_queue_partial_batch_and_restart_resume_without_duplicates() {
     // Offline: pass fails, backoff window opens, nothing lost.
     zone.set_offline(true);
     let r = a.engine.run_pass();
-    assert!(matches!(r.outcome, PassOutcome::Failed(_)), "{:?}", r.outcome);
+    assert!(
+        matches!(r.outcome, PassOutcome::Failed(_)),
+        "{:?}",
+        r.outcome
+    );
     assert_eq!(r.retry_after_secs, Some(15.0), "server hint honoured");
-    assert!(matches!(a.engine.run_pass().outcome, PassOutcome::Deferred { .. }));
+    assert!(matches!(
+        a.engine.run_pass().outcome,
+        PassOutcome::Deferred { .. }
+    ));
     a.clock.0.fetch_add(3_600_000, Ordering::SeqCst);
 
     // Back online but the zone accepts only 2 records: partial success.
@@ -186,7 +215,11 @@ fn offline_queue_partial_batch_and_restart_resume_without_duplicates() {
     let mut a2 = build(&zone, &a.local, &a.storage, &a.clock, false);
     let r = a2.run_pass();
     assert_eq!(r.outcome, PassOutcome::Synced);
-    assert_eq!(zone.saved_records() - saves_before, 2, "only the unacknowledged remainder uploads");
+    assert_eq!(
+        zone.saved_records() - saves_before,
+        2,
+        "only the unacknowledged remainder uploads"
+    );
     assert_eq!(zone.record_count(), 4);
     assert!(a2.ledger().change_token.is_some() && a2.ledger().pending_uploads.is_empty());
 }
@@ -206,7 +239,10 @@ fn token_expiry_replays_once_and_bad_records_are_quarantined() {
     let r = b.pass();
     assert_eq!(r.outcome, PassOutcome::Synced);
     assert_eq!(b.local.len(), 1);
-    assert_eq!(r.quarantined, 1, "replay re-sees the junk record, counted not fatal");
+    assert_eq!(
+        r.quarantined, 1,
+        "replay re-sees the junk record, counted not fatal"
+    );
     assert!(b.engine.ledger().quarantined_total >= 2);
 }
 
@@ -223,4 +259,136 @@ fn desktop_style_local_deletion_inference_writes_one_tombstone() {
     assert_eq!(r.tombstones_written, 1);
     b.pass();
     assert_eq!(b.local.len(), 0);
+}
+
+/// Answers each unseen "Req" record with one "Resp" record and remembers the
+/// answered names in the ledger extras.
+struct ReqHooks;
+impl PassHooks for ReqHooks {
+    fn on_foreign_records(&self, records: &[RawRecord], extras: &mut Extras) -> Vec<RawRecord> {
+        let mut out = Vec::new();
+        let answered = extras
+            .entry("answered".into())
+            .or_insert_with(|| serde_json::json!([]));
+        for r in records.iter().filter(|r| r.record_type == "Req") {
+            let seen = answered
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == r.record_name.as_str());
+            if seen {
+                continue;
+            }
+            answered
+                .as_array_mut()
+                .unwrap()
+                .push(r.record_name.clone().into());
+            let mut resp = RawRecord::new("Resp", &format!("resp-{}", r.record_name));
+            resp.set("answer", FieldValue::Text("ok".into()));
+            out.push(resp);
+        }
+        out
+    }
+}
+
+#[test]
+fn failed_foreign_response_write_replays_the_request_instead_of_acknowledging_it() {
+    let zone = MemoryBackend::new();
+    let local = Local::default();
+    let storage = MemoryStorage::default();
+    let clock = Arc::new(TestClock(AtomicI64::new(1_000_000)));
+    let mut engine = SyncEngineBuilder::new(
+        Arc::new(NoteMapper),
+        Arc::new(zone.clone()),
+        Arc::new(local.clone()),
+        Box::new(storage.clone()),
+    )
+    .clock(clock.clone())
+    .hooks(Arc::new(ReqHooks))
+    .build()
+    .unwrap();
+    zone.put_record(RawRecord::new("Req", "req-1"));
+
+    zone.fail_after_saves(Some(0));
+    let r = engine.run_pass();
+    assert!(
+        matches!(r.outcome, PassOutcome::Failed(_)),
+        "{:?}",
+        r.outcome
+    );
+    assert!(
+        engine.ledger().change_token.is_none(),
+        "feed position advanced past an unanswered request"
+    );
+    assert!(
+        !engine.ledger().extras.contains_key("answered"),
+        "request marked answered without a response"
+    );
+    assert!(zone.record("resp-req-1").is_none());
+
+    zone.fail_after_saves(None);
+    clock.0.fetch_add(3_600_000, Ordering::SeqCst);
+    let r = engine.run_pass();
+    assert_eq!(r.outcome, PassOutcome::Synced);
+    let resp = zone
+        .record("resp-req-1")
+        .expect("response must land after retry");
+    assert_eq!(resp.text("answer").as_deref(), Some("ok"));
+    assert!(engine.ledger().change_token.is_some());
+}
+
+struct BumpingAuth(Arc<std::sync::atomic::AtomicU64>);
+impl AuthProvider for BumpingAuth {
+    fn availability(&self) -> SyncResult<()> {
+        Ok(())
+    }
+    fn generation(&self) -> u64 {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// Local store that switches the account while the pass is applying downloads.
+struct SwitchOnApply(Local, Arc<std::sync::atomic::AtomicU64>);
+impl LocalStore<Note> for SwitchOnApply {
+    fn all(&self) -> SyncResult<Vec<Note>> {
+        self.0.all()
+    }
+    fn remove(&self, id: &str) -> SyncResult<()> {
+        self.0.remove(id)
+    }
+    fn apply_remote(&self, items: &[Note]) -> SyncResult<Vec<ApplyOutcome>> {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        self.0.apply_remote(items)
+    }
+}
+
+#[test]
+fn account_switch_during_io_never_commits_feed_progress() {
+    let zone = MemoryBackend::new();
+    let mut other = device(&zone, false);
+    other.local.put("n1", "hello", 1, 1);
+    other.pass();
+
+    let gen = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let local = Local::default();
+    let storage = MemoryStorage::default();
+    let mut engine = SyncEngineBuilder::new(
+        Arc::new(NoteMapper),
+        Arc::new(zone.clone()),
+        Arc::new(SwitchOnApply(local.clone(), gen.clone())),
+        Box::new(storage.clone()),
+    )
+    .auth(Arc::new(BumpingAuth(gen.clone())))
+    .build()
+    .unwrap();
+    let r = engine.run_pass();
+    assert_eq!(r.outcome, PassOutcome::Cancelled);
+    assert!(
+        engine.ledger().change_token.is_none(),
+        "stale pass advanced the feed position"
+    );
+    assert!(!engine.ledger().has_synced);
+    let r = engine.run_pass();
+    assert_eq!(r.outcome, PassOutcome::Synced);
+    assert!(engine.ledger().change_token.is_some());
 }

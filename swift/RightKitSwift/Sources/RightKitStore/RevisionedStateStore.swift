@@ -9,8 +9,8 @@ public protocol RevisionedState: Codable, Equatable, Sendable {
 }
 
 /// Read/write access to one `RevisionedState` in the App Group. Every `write` bumps `revision` and
-/// stamps `updatedAt`. Sole-writer discipline belongs to the caller: extensions observe, one owning
-/// process writes.
+/// stamps `updatedAt`, under the cross-process lock, and throws unless the stored bytes read back.
+/// The revision therefore never advances for a write that did not persist.
 public struct RevisionedStateStore<State: RevisionedState>: @unchecked Sendable {
     private let configuration: AppGroupConfiguration
     private let key: String
@@ -26,14 +26,14 @@ public struct RevisionedStateStore<State: RevisionedState>: @unchecked Sendable 
     }
 
     @discardableResult
-    public func write(now: Date = Date(), _ mutate: (inout State) -> Void) -> State {
-        var current = snapshot ?? State()
-        mutate(&current)
-        current.revision &+= 1
-        current.updatedAt = now
-        if let data = try? JSONEncoder().encode(current) {
-            configuration.defaults?.set(data, forKey: key)
+    public func write(now: Date = Date(), _ mutate: (inout State) -> Void) throws -> State {
+        try configuration.locked {
+            var current = snapshot ?? State()
+            mutate(&current)
+            current.revision &+= 1
+            current.updatedAt = now
+            try configuration.durableSet(try JSONEncoder().encode(current), forKey: key)
+            return current
         }
-        return current
     }
 }

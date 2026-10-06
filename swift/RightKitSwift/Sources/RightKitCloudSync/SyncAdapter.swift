@@ -60,12 +60,21 @@ public protocol CloudSyncAdapter: Sendable {
     /// change token where it was so the page replays. Must not clobber a local item that became
     /// newer while the sync was suspended.
     func apply(upserts: [Item], deletedIDs: Set<String>) async throws
+
+    // MARK: Account isolation
+    /// The iCloud account changed (`previous` is nil for a ledger that predates account binding).
+    /// The engine has NOT yet reset its ledger: throw to abort and retry. Decide what happens to
+    /// local items that belong to the previous account (purge them, or keep them to be uploaded to
+    /// the new account) before returning. After this returns the engine drops the old account's
+    /// token, versions, aliases and tombstones and replays the new account's zone from the start.
+    func accountDidSwitch(from previous: String, to current: String) async throws
 }
 
 public extension CloudSyncAdapter {
     var conflictPolicy: SyncConflictPolicy { .lastWriterWins }
     func recordName(forItemID id: String) -> String { id }
     func itemID(forDeletedRecordName name: String) -> String? { name }
+    func accountDidSwitch(from previous: String, to current: String) async throws {}
 
     func resolve(local: Item, remote: Item) -> SyncResolution {
         let l = version(of: local), r = version(of: remote)

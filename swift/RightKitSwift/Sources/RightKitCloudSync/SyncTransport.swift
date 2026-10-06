@@ -14,6 +14,13 @@ public protocol SyncTransport: Sendable {
     /// row never blocks the rest. Implementations resolve server change tags themselves.
     /// Throw only when the whole request failed.
     func save(_ writes: [SyncRecordWrite]) async throws -> [String: SyncSaveOutcome]
+    /// Stable opaque identity of the signed-in account, or nil when the transport has none. The
+    /// engine binds its ledger to this value and resets it when it changes.
+    func accountIdentity() async throws -> String?
+}
+
+public extension SyncTransport {
+    func accountIdentity() async throws -> String? { nil }
 }
 
 /// In-process zone with change-token, pagination, expiry and zone-deletion semantics.
@@ -36,6 +43,13 @@ public actor InMemorySyncTransport: SyncTransport {
     public var failNextFetch: SyncTransportError?
     public var failNextSave: SyncTransportError?
     public var failNextSubscription: SyncTransportError?
+    /// Record name -> number of fetch passes in which that record is reported as a TRANSIENT
+    /// failure (the page still succeeds and its token advances, like a CloudKit per-record error).
+    public var failingFetches: [String: Int] = [:]
+    /// Records reported as PERMANENTLY undecodable on every fetch.
+    public var undecodableRecords: Set<String> = []
+    public var failingFetchRetryAfter: TimeInterval?
+    public var accountID: String? = "in-memory-account"
     /// Runs inside `fetchChanges` before it reads the zone (to inject mid-sync events).
     public var onFetch: (@Sendable () async -> Void)?
     public var now: @Sendable () -> Date = { Date() }
@@ -49,6 +63,11 @@ public actor InMemorySyncTransport: SyncTransport {
     public func setFailingSaves(_ failures: [String: SyncTransportError]) { failingSaves = failures }
     public func setFailNextFetch(_ error: SyncTransportError?) { failNextFetch = error }
     public func setFailNextSave(_ error: SyncTransportError?) { failNextSave = error }
+    public func setFailingFetches(_ failures: [String: Int]) { failingFetches = failures }
+    public func setUndecodableRecords(_ names: Set<String>) { undecodableRecords = names }
+    public func setFailingFetchRetryAfter(_ delay: TimeInterval?) { failingFetchRetryAfter = delay }
+    public func setAccountID(_ id: String?) { accountID = id }
+    public func accountIdentity() async throws -> String? { accountID }
     public func setFailNextSubscription(_ error: SyncTransportError?) { failNextSubscription = error }
 
     // MARK: Test controls
@@ -110,11 +129,24 @@ public actor InMemorySyncTransport: SyncTransport {
         let cursor = more ? last : seq
         var out: [SyncRecord] = []
         var deleted: [String] = []
+        var failed: [String] = []
+        var undecodable: [String] = []
         for (name, event) in page {
-            if event.deleted { deleted.append(name) } else if let r = records[name] { out.append(r) }
+            if event.deleted {
+                deleted.append(name)
+            } else if undecodableRecords.contains(name) {
+                undecodable.append(name)
+            } else if let remaining = failingFetches[name], remaining > 0 {
+                failingFetches[name] = remaining - 1
+                failed.append(name)
+            } else if let r = records[name] {
+                out.append(r)
+            }
         }
         let data = try JSONEncoder().encode(Token(epoch: epoch, seq: cursor))
-        return SyncChangePage(records: out, deletedRecordNames: deleted, token: SyncChangeToken(data: data), moreComing: more)
+        return SyncChangePage(records: out, deletedRecordNames: deleted, token: SyncChangeToken(data: data), moreComing: more,
+                              failedRecordNames: failed, failedRecordRetryAfter: failingFetchRetryAfter,
+                              undecodableRecordNames: undecodable)
     }
 
     public func save(_ writes: [SyncRecordWrite]) async throws -> [String: SyncSaveOutcome] {

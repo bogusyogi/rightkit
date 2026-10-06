@@ -1,0 +1,1355 @@
+//! Store orchestration: readiness checks, download/repair, legacy migration,
+//! and unreferenced-entry pruning — the operations the shell's model commands
+//! and the engine's path resolution compose.
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::suite::archive;
+use crate::suite::catalog::{ModelSpec, RemoteFile, SpecSource};
+use crate::download::{self, DownloadRequest};
+use crate::lock;
+use crate::suite::manifest::{self, FileState, VerifyMode};
+use crate::suite::migration;
+use crate::suite::paths;
+use crate::suite::refs;
+
+const INSTALL_WAIT: Duration = Duration::from_secs(30 * 60);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryState {
+    /// No usable copy in the store.
+    Missing,
+    /// Some files present; at least one expected file missing or mismatched.
+    Partial,
+    /// Verified against the manifest at the requested depth.
+    Ready,
+    /// Another process holds the entry lock (install/migration in flight).
+    InProgress,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelStatus {
+    pub id: String,
+    pub label: String,
+    pub version: String,
+    pub state: EntryState,
+    /// `<models-root>/<id>` — the shared location, even when missing.
+    pub dir: PathBuf,
+    pub files_ok: usize,
+    pub files_total: usize,
+    /// Relative paths that would be (re-)fetched by `ensure`.
+    pub needed: Vec<String>,
+    pub bytes_on_disk: u64,
+    pub size_hint_bytes: u64,
+    pub can_download: bool,
+    pub requires_auth: bool,
+    /// True while a live lock file exists (this or another process).
+    pub in_progress: bool,
+}
+
+/// Read the entry's manifest (written at install/migrate time). A store dir
+/// without one is *not* trusted — it may be a failed or hand-placed copy —
+/// so absence degrades to Partial rather than silently passing.
+fn entry_manifest_trusted(entry_dir: &Path, spec: &ModelSpec) -> bool {
+    matches!(manifest::read_manifest(entry_dir), Ok(Some(ref actual))
+        if manifest::matches_trusted(actual, &spec.expected_manifest()))
+}
+
+/// Store readiness at `mode` depth for one spec.
+pub fn status_at(models_root: &Path, spec: &ModelSpec, mode: VerifyMode) -> ModelStatus {
+    status_in(paths::model_dir_at(models_root, spec.id), spec, mode)
+}
+
+/// Readiness of `spec` in an explicit entry directory (same trusted-manifest
+/// and file checks as the shared store).
+pub fn status_in(entry_dir: PathBuf, spec: &ModelSpec, mode: VerifyMode) -> ModelStatus {
+    // Readiness is observational: recovery belongs to a locked mutation,
+    // never a doctor or dry-run read.
+    let in_progress = lock::install_in_progress(&entry_dir);
+
+    let manifest = spec.expected_manifest();
+    let identity_ok = entry_manifest_trusted(&entry_dir, spec);
+    let report = if entry_dir.is_dir() {
+        manifest::verify_dir(&entry_dir, &manifest, mode)
+    } else {
+        // Nothing on disk: every expected file is "missing" so `needed`
+        // lists the whole set.
+        manifest::VerifyReport {
+            checks: manifest
+                .files
+                .iter()
+                .map(|f| manifest::FileCheck {
+                    path: f.path.clone(),
+                    state: FileState::Missing,
+                    size: 0,
+                })
+                .collect(),
+        }
+    };
+    let bytes_on_disk = dir_size(&entry_dir);
+    let state = if !entry_dir.is_dir() {
+        EntryState::Missing
+    } else if identity_ok && report.is_ready() {
+        // A complete entry stays Ready even while locked — the lock guards
+        // mutation, not reads, and the caller (often the lock holder itself)
+        // needs to know the files verify.
+        EntryState::Ready
+    } else if in_progress {
+        EntryState::InProgress
+    } else {
+        EntryState::Partial
+    };
+    ModelStatus {
+        id: spec.id.to_string(),
+        label: spec.label.to_string(),
+        version: spec.version.to_string(),
+        state,
+        dir: entry_dir,
+        files_ok: report.files_ok(),
+        files_total: report.checks.len(),
+        needed: report.needed().iter().map(|c| c.path.clone()).collect(),
+        bytes_on_disk,
+        size_hint_bytes: spec.size_hint_bytes,
+        can_download: spec.can_download(),
+        requires_auth: spec.requires_auth(),
+        in_progress,
+    }
+}
+
+/// Resolve a ready shared-store copy of `spec` — the engine's fast lookup
+/// path (size-verify, not hash: ~700 MB of hashing on every engine start is
+/// not acceptable, and a deeper check runs in `model_store status`/`ensure`
+/// and after any install). `None` = fall back to the app-seeded copy.
+pub fn resolve_ready_dir(models_root: &Path, spec: &ModelSpec) -> Option<PathBuf> {
+    let status = status_at(models_root, spec, VerifyMode::Size);
+    (status.state == EntryState::Ready).then_some(status.dir)
+}
+
+/// Progress phases surfaced to the UI via `model-store://progress` events.
+#[derive(Debug, Clone)]
+pub enum Progress {
+    Verify,
+    Download {
+        file: String,
+        received: u64,
+        total: u64,
+    },
+    Install,
+    Done,
+}
+
+pub struct EnsureOptions<'a> {
+    /// Directory containing bundled-seed files for `SpecSource::Files` entries
+    /// with `url: None` (the app's resource models dir). `None` errors only
+    /// if such a file actually needs fetching.
+    pub seed_dir: Option<&'a Path>,
+    /// `Authorization` header value for gated routes (e.g. `Bearer …`).
+    pub authorization: Option<&'a str>,
+    /// App id recorded in `refs/` on success.
+    pub app_id: &'a str,
+}
+
+/// Ensure a verified store copy of `spec`: verify → repair missing/mismatched
+/// files → re-verify → write manifest → register the app ref. Waits for a
+/// peer install already in flight instead of racing it.
+///
+/// Archive-sourced models repair whole-archive (the worker serves one blob);
+/// `Files`-sourced models repair only the affected files.
+pub fn ensure_ready(
+    agent: &ureq::Agent,
+    models_root: &Path,
+    spec: &ModelSpec,
+    opts: &EnsureOptions<'_>,
+    progress: impl FnMut(Progress),
+) -> Result<ModelStatus, String> {
+    ensure_ready_cancellable(agent, models_root, spec, opts, &|| false, progress)
+}
+
+/// As [`ensure_ready`]; `cancelled` is polled between body chunks. A cancelled
+/// download keeps its `.part` file so the next call resumes it.
+pub fn ensure_ready_cancellable(
+    agent: &ureq::Agent,
+    models_root: &Path,
+    spec: &ModelSpec,
+    opts: &EnsureOptions<'_>,
+    cancelled: &dyn Fn() -> bool,
+    mut progress: impl FnMut(Progress),
+) -> Result<ModelStatus, String> {
+    // Keep the registry guard from initial readiness check through ref
+    // registration so GC cannot delete a ready entry between those steps.
+    let refs_dir = paths::model_refs_dir_at(models_root);
+    let mut ref_dirs = vec![refs_dir.clone()];
+    let current_models = paths::models_root();
+    let legacy_models = paths::legacy_suite_root().join("models");
+    if models_root == current_models && legacy_models != *models_root {
+        ref_dirs.push(paths::model_refs_dir_at(&legacy_models));
+    }
+    let ref_dir_refs: Vec<&Path> = ref_dirs.iter().map(PathBuf::as_path).collect();
+    let (_ref_guard_paths, _refs_guards) = refs::acquire_registries(&ref_dir_refs)?;
+    progress(Progress::Verify);
+    let status = status_at(models_root, spec, VerifyMode::Full);
+    if status.state == EntryState::Ready {
+        refs::register_locked(&refs_dir, opts.app_id, spec.id)?;
+        return Ok(status);
+    }
+    let entry_dir = paths::model_dir_at(models_root, spec.id);
+    let _guard = lock::lock_timeout(&entry_dir, opts.app_id, INSTALL_WAIT)?
+        .ok_or_else(|| format!("{} is still being installed by another process", spec.label))?;
+
+    // Re-verify under the lock: the peer we waited on may have finished.
+    let status = status_at(models_root, spec, VerifyMode::Full);
+    if status.state == EntryState::Ready {
+        refs::register_locked(&refs_dir, opts.app_id, spec.id)?;
+        return Ok(status);
+    }
+
+    archive::recover_orphaned_install(models_root, spec.id)?;
+    // Hand-placed or legacy bytes may be adopted only after a full check
+    // against trusted catalog metadata, never their self-described manifest.
+    if manifest::verify_dir(&entry_dir, &spec.expected_manifest(), VerifyMode::Full).is_ready() {
+        manifest::write_manifest(&entry_dir, &spec.expected_manifest())?;
+        refs::register_locked(&refs_dir, opts.app_id, spec.id)?;
+        progress(Progress::Done);
+        return Ok(status_at(models_root, spec, VerifyMode::Full));
+    }
+    if !spec.can_download() {
+        return Err(format!(
+            "{} is not installed and no download endpoint exists for this platform",
+            spec.label
+        ));
+    }
+
+    match &spec.source {
+        SpecSource::Archive {
+            url,
+            sha256,
+            requires_auth,
+            ..
+        } => {
+            let url = url.ok_or("no download endpoint configured for this platform")?;
+            if *requires_auth && opts.authorization.is_none() {
+                return Err(format!(
+                    "{} download requires an app download token (none configured)",
+                    spec.label
+                ));
+            }
+            download_archive(
+                agent,
+                models_root,
+                spec,
+                url,
+                *sha256,
+                opts.authorization,
+                cancelled,
+                &mut progress,
+            )?;
+        }
+        SpecSource::Files(remote) => {
+            download_files(
+                agent,
+                models_root,
+                spec,
+                remote,
+                &status.needed,
+                opts,
+                cancelled,
+                &mut progress,
+            )?;
+        }
+    }
+
+    progress(Progress::Install);
+    // Post-install contract: every spec file present + all pins matching.
+    // The recorded manifest then carries real hashes for every file.
+    let manifest = spec.expected_manifest();
+    let verify = manifest::verify_dir(&entry_dir, &spec.expected_manifest(), VerifyMode::Full);
+    if !verify.is_ready() {
+        let missing: Vec<String> = verify.needed().iter().map(|c| c.path.clone()).collect();
+        return Err(format!(
+            "{} install incomplete — files still bad: {}",
+            spec.label,
+            missing.join(", ")
+        ));
+    }
+    manifest::write_manifest(&entry_dir, &manifest)?;
+    refs::register_locked(&refs_dir, opts.app_id, spec.id)?;
+    let mut referenced = BTreeSet::new();
+    for refs_dir in &ref_dirs {
+        referenced.extend(refs::referenced_ids_locked(refs_dir)?);
+    }
+    prune_retired_store_ids(models_root, spec, &referenced)?;
+    cleanup_incoming(models_root, spec.id);
+    progress(Progress::Done);
+    // Release before the status read: our own live lock would otherwise
+    // report the freshly-installed entry as InProgress.
+    drop(_guard);
+    Ok(status_at(models_root, spec, VerifyMode::Size))
+}
+
+fn download_archive(
+    agent: &ureq::Agent,
+    models_root: &Path,
+    spec: &ModelSpec,
+    url: &str,
+    sha256: Option<&'static str>,
+    authorization: Option<&str>,
+    cancelled: &dyn Fn() -> bool,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<(), String> {
+    let incoming = models_root.join(".incoming");
+    let dest = incoming.join(format!("{}.tar.gz", spec.id));
+    let part = download::part_path_for(&dest);
+    let file = spec.id.to_string();
+    download::download_resumable(
+        agent,
+        DownloadRequest {
+            url,
+            part_path: &part,
+            dest_path: &dest,
+            expected_sha256: sha256,
+            authorization,
+            cancelled,
+        },
+        |received, total| {
+            progress(Progress::Download {
+                file: file.clone(),
+                received,
+                total,
+            })
+        },
+    )
+    .map_err(|error| error.message)?;
+    progress(Progress::Install);
+    archive::install_tar_gz(&dest, models_root, spec.id)?;
+    let _ = fs::remove_file(&dest);
+    Ok(())
+}
+
+fn download_files(
+    agent: &ureq::Agent,
+    models_root: &Path,
+    spec: &ModelSpec,
+    remote: &[RemoteFile],
+    needed: &[String],
+    opts: &EnsureOptions<'_>,
+    cancelled: &dyn Fn() -> bool,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<(), String> {
+    let entry_dir = paths::model_dir_at(models_root, spec.id);
+    fs::create_dir_all(&entry_dir).map_err(|e| format!("create {}: {e}", entry_dir.display()))?;
+    for file in remote {
+        // Repair semantics: only fetch files the verify pass flagged — unless
+        // the file has no spec-level pin (then presence is the check).
+        if !needed.iter().any(|n| n == file.path) {
+            continue;
+        }
+        let Some(rel) = manifest::safe_rel_path(file.path) else {
+            return Err(format!("invalid catalog path {:?}", file.path));
+        };
+        let dest = entry_dir.join(&rel);
+        match file.url {
+            Some(url) => {
+                let part = download::part_path_for(&dest);
+                let name = file.path.to_string();
+                download::download_resumable(
+                    agent,
+                    DownloadRequest {
+                        url,
+                        part_path: &part,
+                        dest_path: &dest,
+                        expected_sha256: file.sha256,
+                        authorization: opts.authorization,
+                        cancelled,
+                    },
+                    |received, total| {
+                        progress(Progress::Download {
+                            file: name.clone(),
+                            received,
+                            total,
+                        })
+                    },
+                )
+                .map_err(|error| error.message)?;
+            }
+            None => {
+                // Bundled seed file — copy from the caller's resource dir.
+                let seed_dir = opts.seed_dir.ok_or_else(|| {
+                    format!(
+                        "{} requires bundled file {} but no seed dir was provided",
+                        spec.label, file.path
+                    )
+                })?;
+                let src = seed_dir.join(&rel);
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|e| format!("create {}: {e}", parent.display()))?;
+                }
+                fs::copy(&src, &dest)
+                    .map_err(|e| format!("seed {} -> {}: {e}", src.display(), dest.display()))?;
+                // A pinned bundled file proves the seed itself is right —
+                // catching a stale resource dir is the point of the pin.
+                if let Some(pin) = file.sha256 {
+                    let got = manifest::sha256_file(&dest)?;
+                    if !got.eq_ignore_ascii_case(pin) {
+                        let _ = fs::remove_file(&dest);
+                        return Err(format!(
+                            "bundled file {} failed integrity check: got {got}, expected {pin}",
+                            file.path
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Remove store entries superseded by this spec — but only entries that are
+/// unreferenced or referenced only by this app, and never while another
+/// process holds their lock.
+fn identical_payloads(left: &Path, right: &Path) -> bool {
+    let (Ok(left), Ok(right)) = (
+        manifest::manifest_from_dir(left, "compare", "compare"),
+        manifest::manifest_from_dir(right, "compare", "compare"),
+    ) else {
+        return false;
+    };
+    !left.files.is_empty()
+        && left.files.len() == right.files.len()
+        && left.files.iter().zip(&right.files).all(|(a, b)| {
+            a.path == b.path && a.sha256.is_some() && a.sha256 == b.sha256 && a.size == b.size
+        })
+}
+
+fn directories_byte_identical(left: &Path, right: &Path) -> bool {
+    identical_payloads(left, right)
+}
+
+fn prune_retired_store_ids(
+    models_root: &Path,
+    spec: &ModelSpec,
+    referenced: &BTreeSet<String>,
+) -> Result<(), String> {
+    let suite_root = models_root.parent().unwrap_or(models_root);
+    let Some(_lease_guard) = crate::suite::lease::try_acquire_for_gc(suite_root, "model-store")? else {
+        return Ok(());
+    };
+    for id in spec.retired_store_ids {
+        if referenced.contains(*id) {
+            continue;
+        }
+        let dir = paths::model_dir_at(models_root, id);
+        if lock::install_in_progress(&dir) {
+            continue;
+        }
+        let Some(_entry_guard) = lock::try_lock(&dir, "model-store")? else {
+            continue;
+        };
+        if identical_payloads(&dir, &paths::model_dir_at(models_root, spec.id)) {
+            fs::remove_dir_all(&dir)
+                .map_err(|e| format!("remove retired model {}: {e}", dir.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn cleanup_incoming(models_root: &Path, id: &str) {
+    let incoming = models_root.join(".incoming");
+    for suffix in [".tar.gz", ".tar.gz.part", ".tar.gz.part.meta"] {
+        let _ = fs::remove_file(incoming.join(format!("{id}{suffix}")));
+    }
+    let _ = fs::remove_dir(&incoming); // no-op unless now empty
+}
+
+/// Record `app_id → model_id` in refs registry, surfacing write failures so
+/// callers never proceed with an untracked install.
+pub fn register_ref(models_root: &Path, app_id: &str, model_id: &str) -> Result<(), String> {
+    refs::register(&paths::model_refs_dir_at(models_root), app_id, model_id)
+}
+
+// ---------------------------------------------------------------------------
+// Migration — first-run move of a verified legacy copy into the store.
+// ---------------------------------------------------------------------------
+
+/// Deprecated unchecked entrypoint. Mutation requires native load validation.
+pub fn migrate_legacy(
+    _models_root: &Path,
+    _spec: &ModelSpec,
+    _legacy_models_root: &Path,
+    _app_id: &str,
+) -> MigrateOutcome {
+    let mut out = MigrateOutcome::default();
+    out.errors
+        .push("unchecked legacy migration declined; use migrate_legacy_checked".to_string());
+    out
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct MigrateOutcome {
+    /// Spec ids migrated into the store.
+    pub migrated: Vec<String>,
+    /// `(legacy path, reason)` entries left in place — kept as the app's
+    /// fallback because they did not verify against the spec.
+    pub skipped: Vec<(String, String)>,
+    /// Retired variants deleted under the legacy models root.
+    pub removed: Vec<String>,
+    pub errors: Vec<String>,
+    #[serde(default)]
+    pub deferred: bool,
+}
+
+/// Checked single-source migration. Source is fully pin-verified before any
+/// mutation; destination is load-checked before source retirement.
+pub fn migrate_source_checked(
+    models_root: &Path,
+    spec: &ModelSpec,
+    source_dir: &Path,
+    app_id: &str,
+    load_check: &dyn Fn(&Path) -> Result<(), String>,
+) -> MigrateOutcome {
+    let mut out = MigrateOutcome::default();
+    let destination = paths::model_dir_at(models_root, spec.id);
+    let journal_path = migration::journal_path(models_root, spec.id);
+    let journal_source = if journal_path.exists() {
+        match migration::read_journal(&journal_path) {
+            Ok(journal)
+                if journal.version == migration::JOURNAL_VERSION
+                    && journal.model_id == spec.id
+                    && journal.destination == destination
+                    && journal.source == source_dir =>
+            {
+                Some(journal.source)
+            }
+            Ok(_) => {
+                out.errors
+                    .push("migration journal identity/source mismatch".into());
+                return out;
+            }
+            Err(error) => {
+                out.errors.push(error);
+                return out;
+            }
+        }
+    } else {
+        None
+    };
+    let source_for_guards = journal_source.as_deref().unwrap_or(source_dir);
+    let source_models = source_for_guards
+        .ancestors()
+        .skip(1)
+        .find(|dir| dir.file_name().is_some_and(|name| name == "models"))
+        .or_else(|| {
+            source_for_guards
+                .parent()
+                .filter(|dir| dir.file_name().is_some_and(|name| name == "asr"))
+                .and_then(Path::parent)
+        });
+    let destination_root = models_root.parent().unwrap_or(models_root);
+    let refs_dir = paths::model_refs_dir_at(models_root);
+    let mut ref_paths = vec![refs_dir.clone()];
+    let mut lease_root_paths = vec![destination_root.to_path_buf()];
+    if models_root == paths::models_root() {
+        let legacy = paths::legacy_suite_root();
+        ref_paths.push(legacy.join("models/refs"));
+        lease_root_paths.push(legacy);
+    }
+    if let Some(source_models) = source_models {
+        ref_paths.push(paths::model_refs_dir_at(source_models));
+        lease_root_paths.push(
+            source_models
+                .parent()
+                .unwrap_or(source_models)
+                .to_path_buf(),
+        );
+    }
+    let ref_path_refs: Vec<&Path> = ref_paths.iter().map(PathBuf::as_path).collect();
+    let _refs_guards = match refs::acquire_registries(&ref_path_refs) {
+        Ok(guards) => guards,
+        Err(error) => {
+            out.errors.push(error);
+            return out;
+        }
+    };
+    // Unknown/corrupt references make source retirement unsafe.
+    for refs_dir in &ref_paths {
+        if let Err(error) = refs::referenced_ids_locked(refs_dir) {
+            out.errors.push(error);
+            return out;
+        }
+    }
+    let lease_roots: Vec<&Path> = lease_root_paths.iter().map(PathBuf::as_path).collect();
+    let Some(_runtime_guards) =
+        (match crate::suite::lease::try_acquire_for_gc_at_roots(&lease_roots, "model-migration") {
+            Ok(guard) => guard,
+            Err(error) => {
+                out.errors.push(error);
+                return out;
+            }
+        })
+    else {
+        out.skipped.push((
+            source_dir.display().to_string(),
+            "model runtime lease active; migration deferred".to_string(),
+        ));
+        out.deferred = true;
+        return out;
+    };
+    let mut entry_paths = vec![destination.clone(), source_for_guards.to_path_buf()];
+    entry_paths.sort();
+    entry_paths.dedup();
+    let mut entry_guards = Vec::new();
+    for path in &entry_paths {
+        match lock::try_lock(path, app_id) {
+            Ok(Some(guard)) => entry_guards.push(guard),
+            Ok(None) => {
+                out.skipped.push((
+                    path.display().to_string(),
+                    "migration entry is in progress; migration deferred".to_string(),
+                ));
+                out.deferred = true;
+                return out;
+            }
+            Err(error) => {
+                out.errors.push(error);
+                return out;
+            }
+        }
+    }
+    if let Err(error) = recover_migration_journal(models_root, spec, load_check) {
+        out.errors.push(error);
+        return out;
+    }
+    if let Err(error) = migration::verify_trusted_source(source_dir, spec) {
+        out.skipped.push((source_dir.display().to_string(), error));
+        return out;
+    }
+    let same_payload_path = source_dir == destination
+        || source_dir.canonicalize().ok() == destination.canonicalize().ok();
+    if same_payload_path {
+        if let Err(error) = refs::register_locked(&refs_dir, app_id, spec.id) {
+            out.errors.push(error);
+        }
+        return out;
+    }
+    if is_symlink(source_dir) {
+        // Renaming a directory alias would move only its pointer, not payload.
+        out.skipped.push((
+            source_dir.display().to_string(),
+            "source aliases another location; migrate its real directory instead".into(),
+        ));
+        return out;
+    }
+    let txn = format!("{}-{}", std::process::id(), migration_nonce());
+    let staging = models_root.join(format!(".{}.migration-{txn}", spec.id));
+    let aside = source_dir.with_file_name(format!(".{}.migration-aside-{txn}", spec.id));
+    let mut journal = migration::MigrationJournal {
+        version: migration::JOURNAL_VERSION,
+        model_id: spec.id.to_string(),
+        source: source_dir.to_path_buf(),
+        destination: destination.clone(),
+        staging: Some(staging.clone()),
+        aside: Some(aside.clone()),
+        backup: None,
+        destination_created: false,
+        source_moved: false,
+        phase: migration::JournalPhase::Planned,
+    };
+    if let Err(error) = migration::write_journal(&journal_path, &journal) {
+        out.errors.push(error);
+        return out;
+    }
+    journal.phase = migration::JournalPhase::SourceVerified;
+    if let Err(error) = migration::write_journal(&journal_path, &journal) {
+        out.errors.push(error);
+        return out;
+    }
+
+    let destination_ready =
+        status_at(models_root, spec, VerifyMode::Full).state == EntryState::Ready;
+    journal.destination_created = !destination_ready;
+    if destination_ready && !directories_byte_identical(source_dir, &destination) {
+        if let Err(error) = fs::remove_file(&journal_path) {
+            out.errors
+                .push(format!("remove migration journal: {error}"));
+            return out;
+        }
+        out.skipped.push((
+            source_dir.display().to_string(),
+            "distinct payload preserved".to_string(),
+        ));
+        return out;
+    }
+    let mut backup: Option<PathBuf> = None;
+    if !destination_ready {
+        if staging.exists() {
+            out.errors.push(format!(
+                "migration staging path already exists: {}",
+                staging.display()
+            ));
+            return out;
+        }
+        // Journal intent before rename so a crash cannot orphan source bytes.
+        // Rename preserves file identity on one volume; only EXDEV permits copy.
+        journal.source_moved = true;
+        if let Err(error) = migration::write_journal(&journal_path, &journal) {
+            out.errors.push(error);
+            return out;
+        }
+        let staged = match fs::rename(source_dir, &staging) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+                journal.source_moved = false;
+                migration::write_journal(&journal_path, &journal)
+                    .and_then(|()| copy_dir_recursive(source_dir, &staging))
+            }
+            Err(error) => Err(format!("stage migration source: {error}")),
+        };
+        if let Err(error) = staged
+            .and_then(|()| {
+                let report =
+                    manifest::verify_dir(&staging, &spec.expected_manifest(), VerifyMode::Full);
+                if report.is_ready() {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "staged destination failed trusted verification: {}",
+                        report.needed().len()
+                    ))
+                }
+            })
+            .and_then(|()| manifest::write_manifest(&staging, &spec.expected_manifest()))
+        {
+            if let Err(restore) = restore_renamed_source(&mut journal, spec) {
+                out.errors.push(restore);
+                out.errors.push(error);
+                return out;
+            }
+            if staging.exists() {
+                if let Err(cleanup) = fs::remove_dir_all(&staging) {
+                    out.errors
+                        .push(format!("remove failed migration staging: {cleanup}"));
+                }
+            }
+            if let Err(cleanup) = fs::remove_file(&journal_path) {
+                out.errors
+                    .push(format!("remove failed migration journal: {cleanup}"));
+            }
+            out.errors.push(error);
+            return out;
+        }
+        journal.phase = migration::JournalPhase::Staged;
+        if let Err(error) = migration::write_journal(&journal_path, &journal) {
+            out.errors.push(error);
+            return out;
+        }
+        if destination.exists() {
+            let replaced = destination.with_file_name(format!(".{}.replaced-{}", spec.id, txn));
+            if replaced.exists() {
+                out.errors.push(format!(
+                    "migration backup path already exists: {}",
+                    replaced.display()
+                ));
+                return out;
+            }
+            backup = Some(replaced.clone());
+            journal.backup = backup.clone();
+            if let Err(error) = migration::write_journal(&journal_path, &journal) {
+                out.errors.push(error);
+                return out;
+            }
+            if let Err(error) = fs::rename(&destination, &replaced) {
+                out.errors
+                    .push(format!("move existing destination aside: {error}"));
+                return out;
+            }
+            if let Err(error) = fs::rename(&staging, &destination) {
+                let _ = fs::rename(&replaced, &destination);
+                out.errors
+                    .push(format!("publish migration destination: {error}"));
+                return out;
+            }
+        } else if let Err(error) = fs::rename(&staging, &destination) {
+            out.errors
+                .push(format!("publish migration destination: {error}"));
+            return out;
+        }
+    }
+    journal.phase = migration::JournalPhase::DestinationVerified;
+    if let Err(error) = migration::write_journal(&journal_path, &journal) {
+        out.errors.push(error);
+        return out;
+    }
+    if let Err(error) = load_check(&destination) {
+        journal.phase = migration::JournalPhase::Rollback;
+        // Keep active recovery metadata until every rollback step succeeds.
+        if let Err(rollback) = migration::write_journal(&journal_path, &journal)
+            .and_then(|()| restore_source_from_aside(&journal))
+            .and_then(|()| restore_renamed_source(&mut journal, spec))
+            .and_then(|()| restore_destination_backup(&mut journal))
+            .and_then(|()| archive_migration_journal(&journal_path, &journal))
+        {
+            out.errors.push(rollback);
+        }
+        out.errors
+            .push(format!("destination load check failed: {error}"));
+        return out;
+    }
+    // Replaced content can be another variant or user-owned extras. Retain
+    // its journaled backup unless every payload byte is identical.
+    if let Some(backup) = backup.as_ref() {
+        if identical_payloads(backup, &destination) {
+            if let Err(error) = fs::remove_dir_all(backup) {
+                out.errors
+                    .push(format!("remove identical migration backup: {error}"));
+                return out;
+            }
+        }
+    }
+    if let Err(error) = refs::register_locked(&refs_dir, app_id, spec.id) {
+        out.errors.push(error);
+        return out;
+    }
+    if let Err(error) = complete_source_retirement(&journal_path, &mut journal) {
+        out.errors.push(error);
+        return out;
+    }
+    out.migrated.push(source_dir.display().to_string());
+    out
+}
+
+pub fn migrate_legacy_checked(
+    models_root: &Path,
+    spec: &ModelSpec,
+    legacy_models_root: &Path,
+    app_id: &str,
+    load_check: &dyn Fn(&Path) -> Result<(), String>,
+) -> MigrateOutcome {
+    let mut out = MigrateOutcome::default();
+    let journal_path = migration::journal_path(models_root, spec.id);
+    let mut sources: Vec<PathBuf> = spec
+        .legacy_dirs
+        .iter()
+        .map(|rel| legacy_models_root.join(rel))
+        .collect();
+    if journal_path.exists() {
+        match migration::read_journal(&journal_path) {
+            Ok(journal) => {
+                sources.retain(|source| source != &journal.source);
+                sources.insert(0, journal.source);
+            }
+            Err(error) => {
+                out.errors.push(error);
+                return out;
+            }
+        }
+    }
+    let destination = paths::model_dir_at(models_root, spec.id);
+    // Retired payloads qualify only when all bytes match current destination.
+    // Checked activation preserves their old paths as working aliases.
+    sources.extend(
+        spec.retired_legacy_paths
+            .iter()
+            .map(|rel| legacy_models_root.join(rel))
+            .filter(|source| source.is_dir()),
+    );
+    for (index, source) in sources.into_iter().enumerate() {
+        if !source.exists() && !(index == 0 && journal_path.exists()) {
+            continue;
+        }
+        let retired = spec
+            .retired_legacy_paths
+            .iter()
+            .any(|rel| legacy_models_root.join(rel) == source);
+        if retired && !identical_payloads(&source, &destination) {
+            continue;
+        }
+        let result = migrate_source_checked(models_root, spec, &source, app_id, load_check);
+        if retired && !result.migrated.is_empty() {
+            out.removed.push(source.display().to_string());
+        }
+        out.migrated.extend(result.migrated);
+        out.skipped.extend(result.skipped);
+        out.removed.extend(result.removed);
+        out.deferred |= result.deferred;
+        out.errors.extend(result.errors);
+        if !out.errors.is_empty() || out.deferred {
+            break;
+        }
+    }
+    out
+}
+
+fn create_legacy_alias(source: &Path, destination: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(destination, source).map_err(|error| {
+            format!(
+                "symlink {} -> {}: {error}",
+                source.display(),
+                destination.display()
+            )
+        })
+    }
+    #[cfg(windows)]
+    {
+        // Directory junction (no privilege needed, unlike a symlink).
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(source)
+            .arg(destination)
+            .output()
+            .map_err(|error| format!("junction {}: {error}", source.display()))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "junction {} -> {}: {}",
+                source.display(),
+                destination.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
+    }
+}
+
+fn recover_migration_journal(
+    models_root: &Path,
+    spec: &ModelSpec,
+    load_check: &dyn Fn(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    let path = migration::journal_path(models_root, spec.id);
+    if !path.exists() {
+        return Ok(());
+    }
+    let journal = migration::read_journal(&path)?;
+    if journal.version != migration::JOURNAL_VERSION || journal.model_id != spec.id {
+        return Err(format!(
+            "invalid migration journal identity: {}",
+            path.display()
+        ));
+    }
+    let expected_destination = paths::model_dir_at(models_root, spec.id);
+    if journal.destination != expected_destination {
+        return Err(format!(
+            "migration journal destination mismatch: {}",
+            path.display()
+        ));
+    }
+    let scratch_ok = |candidate: &Path| {
+        candidate
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(&format!(".{}.", spec.id)))
+            && candidate.parent() == Some(models_root)
+    };
+    if let Some(staging) = journal.staging.as_deref() {
+        if !scratch_ok(staging) {
+            return Err("migration journal staging path is outside owned scratch".to_string());
+        }
+    }
+    if let Some(backup) = journal.backup.as_deref() {
+        if !scratch_ok(backup) {
+            return Err("migration journal backup path is outside owned scratch".to_string());
+        }
+    }
+    if let Some(aside) = journal.aside.as_deref() {
+        let aside_name_ok = aside
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.starts_with(&format!(".{}.", spec.id)))
+            .unwrap_or(false);
+        if !aside_name_ok || aside.parent() != journal.source.parent() {
+            return Err("migration journal aside path is not owned scratch".to_string());
+        }
+    }
+    let mut journal = journal;
+    match journal.phase {
+        migration::JournalPhase::Planned
+        | migration::JournalPhase::SourceVerified
+        | migration::JournalPhase::Staged => {
+            restore_renamed_source(&mut journal, spec)?;
+            if !journal.source.exists() {
+                return Err("migration source disappeared before retirement".to_string());
+            }
+            let abandoned_staging = journal.staging.clone();
+            journal.phase = migration::JournalPhase::Rollback;
+            migration::write_journal(&path, &journal)?;
+            restore_destination_backup(&mut journal)?;
+            if let Some(staging) = abandoned_staging {
+                if staging.exists() {
+                    fs::remove_dir_all(&staging)
+                        .map_err(|error| format!("remove abandoned migration staging: {error}"))?;
+                }
+            }
+            archive_migration_journal(&path, &journal)?;
+        }
+        migration::JournalPhase::DestinationVerified => {
+            if let Err(error) = migration::verify_trusted_source(&journal.destination, spec)
+                .and_then(|()| load_check(&journal.destination))
+            {
+                journal.phase = migration::JournalPhase::Rollback;
+                migration::write_journal(&path, &journal)?;
+                restore_source_from_aside(&journal)?;
+                restore_renamed_source(&mut journal, spec)?;
+                restore_destination_backup(&mut journal)?;
+                archive_migration_journal(&path, &journal)?;
+                return Err(format!("recovered destination load check failed: {error}"));
+            }
+            if let Some(backup) = journal.backup.as_deref() {
+                if backup.exists() && identical_payloads(backup, &journal.destination) {
+                    fs::remove_dir_all(backup)
+                        .map_err(|e| format!("remove identical recovered backup: {e}"))?;
+                }
+            }
+            complete_source_retirement(&path, &mut journal)?;
+        }
+        migration::JournalPhase::SourceAside
+        | migration::JournalPhase::AliasCreated
+        | migration::JournalPhase::Complete => {
+            if let Err(error) = migration::verify_trusted_source(&journal.destination, spec)
+                .and_then(|()| load_check(&journal.destination))
+            {
+                journal.phase = migration::JournalPhase::Rollback;
+                migration::write_journal(&path, &journal)?;
+                restore_source_from_aside(&journal)?;
+                restore_renamed_source(&mut journal, spec)?;
+                restore_destination_backup(&mut journal)?;
+                archive_migration_journal(&path, &journal)?;
+                return Err(format!("recovered destination load check failed: {error}"));
+            }
+            complete_source_retirement(&path, &mut journal)?;
+        }
+        migration::JournalPhase::Rollback => {
+            restore_source_from_aside(&journal)?;
+            restore_renamed_source(&mut journal, spec)?;
+            restore_destination_backup(&mut journal)?;
+            archive_migration_journal(&path, &journal)?;
+        }
+    }
+    Ok(())
+}
+
+fn restore_destination_backup(journal: &mut migration::MigrationJournal) -> Result<(), String> {
+    if let Some(backup) = journal.backup.as_deref().filter(|path| path.exists()) {
+        if journal.destination.exists() {
+            let failed = journal.destination.with_file_name(format!(
+                ".{}.failed-{}",
+                journal.model_id,
+                migration_nonce()
+            ));
+            // Record failed destination path before preserving it during rollback.
+            journal.staging = Some(failed.clone());
+            let models = journal
+                .destination
+                .parent()
+                .ok_or("destination has no model root")?;
+            migration::write_journal(&migration::journal_path(models, &journal.model_id), journal)?;
+            fs::rename(&journal.destination, failed)
+                .map_err(|error| format!("preserve failed destination: {error}"))?;
+        }
+        fs::rename(backup, &journal.destination)
+            .map_err(|error| format!("restore destination backup: {error}"))?;
+    } else if journal.backup.is_none()
+        && journal.destination_created
+        && journal.destination.exists()
+    {
+        let failed = journal.destination.with_file_name(format!(
+            ".{}.failed-{}",
+            journal.model_id,
+            migration_nonce()
+        ));
+        journal.staging = Some(failed.clone());
+        let models = journal
+            .destination
+            .parent()
+            .ok_or("destination has no model root")?;
+        migration::write_journal(&migration::journal_path(models, &journal.model_id), journal)?;
+        fs::rename(&journal.destination, failed)
+            .map_err(|error| format!("preserve failed new destination: {error}"))?;
+    }
+    Ok(())
+}
+
+fn restore_renamed_source(
+    journal: &mut migration::MigrationJournal,
+    spec: &ModelSpec,
+) -> Result<(), String> {
+    if !journal.source_moved {
+        return Ok(());
+    }
+    if is_symlink(&journal.source) {
+        if journal.source.canonicalize().ok() != journal.destination.canonicalize().ok() {
+            return Err("cannot roll back an unrelated legacy alias".into());
+        }
+        remove_legacy_alias(&journal.source)?;
+    } else if journal.source.exists() {
+        // Rename intent can precede the move, or restoration can precede crash.
+        journal.source_moved = false;
+        return Ok(());
+    }
+    let payload = if let Some(staging) = journal.staging.as_deref().filter(|dir| dir.exists()) {
+        staging.to_path_buf()
+    } else if journal.destination_created && journal.destination.exists() {
+        // A pre-existing partial destination must never masquerade as source.
+        migration::verify_trusted_source(&journal.destination, spec)?;
+        journal.destination.clone()
+    } else {
+        return Err("renamed migration source payload is missing; journal retained".into());
+    };
+    fs::rename(&payload, &journal.source)
+        .map_err(|error| format!("restore renamed migration source: {error}"))?;
+    journal.source_moved = false;
+    Ok(())
+}
+
+fn complete_source_retirement(
+    path: &Path,
+    journal: &mut migration::MigrationJournal,
+) -> Result<(), String> {
+    let aside = journal
+        .aside
+        .as_deref()
+        .ok_or_else(|| "migration has no journaled source backup".to_string())?;
+    let already_alias = is_symlink(&journal.source);
+    if already_alias {
+        if journal.source.canonicalize().ok() != journal.destination.canonicalize().ok() {
+            return Err("legacy alias does not point to migration destination".into());
+        }
+    } else if journal.source.exists() {
+        if aside.exists() || !identical_payloads(&journal.source, &journal.destination) {
+            return Err("migration source changed; original content preserved".into());
+        }
+        fs::rename(&journal.source, aside)
+            .map_err(|error| format!("retire migration source: {error}"))?;
+        journal.phase = migration::JournalPhase::SourceAside;
+        migration::write_journal(path, journal)?;
+    }
+    if !already_alias {
+        create_legacy_alias(&journal.source, &journal.destination)?;
+    }
+    journal.phase = migration::JournalPhase::AliasCreated;
+    migration::write_journal(path, journal)?;
+    if aside.exists() {
+        if !identical_payloads(aside, &journal.destination) {
+            return Err("retired source differs from destination; backup preserved".into());
+        }
+        fs::remove_dir_all(aside)
+            .map_err(|error| format!("remove identical retired source: {error}"))?;
+    }
+    journal.phase = migration::JournalPhase::Complete;
+    migration::write_journal(path, journal)?;
+    archive_migration_journal(path, journal)
+}
+
+fn is_symlink(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        // std reports directory junctions (name-surrogate reparse points) as links.
+        fs::symlink_metadata(path)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        fs::symlink_metadata(path)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+    }
+}
+
+fn remove_legacy_alias(path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    let result = fs::remove_dir(path);
+    #[cfg(not(windows))]
+    let result = fs::remove_file(path);
+    result.map_err(|error| format!("remove legacy alias {}: {error}", path.display()))
+}
+
+fn restore_source_from_aside(journal: &migration::MigrationJournal) -> Result<(), String> {
+    let Some(aside) = journal.aside.as_deref() else {
+        return Ok(());
+    };
+    if !aside.exists() {
+        return Ok(());
+    }
+    if is_symlink(&journal.source) {
+        remove_legacy_alias(&journal.source)?;
+    } else if journal.source.exists() {
+        return Err("cannot restore migration source over existing path".to_string());
+    }
+    fs::rename(aside, &journal.source).map_err(|e| format!("restore migration source: {e}"))
+}
+
+fn archive_migration_journal(
+    path: &Path,
+    journal: &migration::MigrationJournal,
+) -> Result<(), String> {
+    let completed = path
+        .parent()
+        .ok_or_else(|| "migration journal has no parent".to_string())?
+        .join("completed");
+    fs::create_dir_all(&completed)
+        .map_err(|error| format!("create completed migration dir: {error}"))?;
+    let target = completed.join(format!(
+        "{}-{}.json",
+        path.file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| "migration journal has no filename".to_string())?,
+        migration_nonce()
+    ));
+    migration::write_journal(&target, journal)?;
+    fs::remove_file(path).map_err(|error| format!("remove active migration journal: {error}"))
+}
+
+fn migration_nonce() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_else(|_| std::process::id() as u128)
+}
+
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
+    fs::create_dir_all(dest).map_err(|e| format!("create {}: {e}", dest.display()))?;
+    for entry in fs::read_dir(src).map_err(|e| format!("read {}: {e}", src.display()))? {
+        let entry = entry.map_err(|e| format!("read entry: {e}"))?;
+        let path = entry.path();
+        let target = dest.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(&path, &target)?;
+        } else {
+            fs::copy(&path, &target)
+                .map_err(|e| format!("copy {} -> {}: {e}", path.display(), target.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Delete store entries no app references (uninstall/prune path). Never
+/// removes an entry while a live install lock exists. `keep` protects ids
+/// that must survive even unreferenced (e.g. the running app's current spec
+/// mid-onboarding).
+pub fn prune_unref_entries(models_root: &Path, keep: &[&str]) -> Result<Vec<String>, String> {
+    prune_unref_entries_with(models_root, keep, &crate::suite::catalog::catalog())
+}
+
+/// As [`prune_unref_entries`], protecting the replacement ids of every spec in
+/// `catalog` whose legacy names are still referenced (apps with their own
+/// trusted catalog pass it here instead of the built-in one).
+pub fn prune_unref_entries_with(
+    models_root: &Path,
+    keep: &[&str],
+    catalog: &[ModelSpec],
+) -> Result<Vec<String>, String> {
+    let refs_dir = paths::model_refs_dir_at(models_root);
+    let mut ref_dirs = vec![refs_dir.clone()];
+    let current_models = paths::models_root();
+    let legacy_models = paths::legacy_suite_root().join("models");
+    if models_root == current_models && legacy_models != *models_root {
+        ref_dirs.push(paths::model_refs_dir_at(&legacy_models));
+    }
+    let ref_dir_refs: Vec<&Path> = ref_dirs.iter().map(PathBuf::as_path).collect();
+    let (_guard_paths, _refs_guards) = refs::acquire_registries(&ref_dir_refs)?;
+    let mut referenced = std::collections::BTreeSet::new();
+    for refs_dir in &ref_dirs {
+        referenced.extend(refs::referenced_ids_locked(refs_dir)?);
+    }
+    // Legacy apps may register generic ids after one-shot migration. Protect
+    // their trusted immutable replacement while compatibility remains active.
+    for spec in catalog {
+        let legacy_name_referenced = spec.legacy_dirs.iter().any(|legacy_dir| {
+            Path::new(legacy_dir)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| referenced.contains(name))
+        });
+        if legacy_name_referenced
+            || spec
+                .retired_store_ids
+                .iter()
+                .any(|legacy| referenced.contains(*legacy))
+        {
+            referenced.insert(spec.id.to_string());
+        }
+    }
+    let mut removed = Vec::new();
+    let entries = match fs::read_dir(models_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(removed),
+        Err(error) => {
+            return Err(format!(
+                "read model store {}: {error}",
+                models_root.display()
+            ))
+        }
+    };
+    let suite_root = models_root.parent().unwrap_or(models_root);
+    let lease_roots = if models_root == current_models && legacy_models != *models_root {
+        vec![suite_root, legacy_models.parent().unwrap_or(&legacy_models)]
+    } else {
+        vec![suite_root]
+    };
+    let lease_root_refs: Vec<&Path> = lease_roots;
+    let Some(_lease_guard) =
+        crate::suite::lease::try_acquire_for_gc_at_roots(&lease_root_refs, "model-store")?
+    else {
+        return Ok(removed);
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("read model store entry: {error}"))?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with('.') || name == "refs" || keep.contains(&name) {
+            continue;
+        }
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if referenced.contains(name) {
+            continue;
+        }
+        let Some(_entry_guard) = lock::try_lock(&path, "model-store")? else {
+            continue;
+        };
+        match fs::remove_dir_all(&path) {
+            Ok(()) => removed.push(name.to_string()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("remove model {}: {error}", path.display())),
+        }
+    }
+    Ok(removed)
+}
+
+fn dir_size(dir: &Path) -> u64 {
+    fn walk(path: &Path) -> u64 {
+        let Ok(entries) = fs::read_dir(path) else {
+            return 0;
+        };
+        entries
+            .flatten()
+            .map(|e| {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p)
+                } else {
+                    e.metadata().map(|m| m.len()).unwrap_or(0)
+                }
+            })
+            .sum()
+    }
+    if dir.is_dir() {
+        walk(dir)
+    } else {
+        0
+    }
+}
+
+/// Build the shared http agent used by all store downloads (connect and
+/// body-idle timeouts, no global cap: a multi-hundred-MB model must not be
+/// killed mid-transfer by a wall-clock limit).
+pub fn http_agent() -> ureq::Agent {
+    crate::download::http_agent()
+}

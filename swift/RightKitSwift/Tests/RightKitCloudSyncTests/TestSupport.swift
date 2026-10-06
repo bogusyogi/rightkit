@@ -17,6 +17,9 @@ final class NoteAdapter: CloudSyncAdapter, @unchecked Sendable {
     private var rows: [String: Note] = [:]
     private var failApplyFlag = false
     private(set) var applyCalls = 0
+    private(set) var switches: [String] = []
+    /// What an app does with the previous account's local data on a switch.
+    var purgeOnSwitch = false
 
     let recordType = "Note"
     var notes: [String: Note] { lock.withLock { rows } }
@@ -46,6 +49,13 @@ final class NoteAdapter: CloudSyncAdapter, @unchecked Sendable {
 
     func tombstoneFields(itemID: String, deletedAt: Date) -> [String: SyncValue] {
         SyncTombstone.fields(itemID: itemID, deletedAt: deletedAt, clearing: ["text", "createdAt"])
+    }
+
+    func accountDidSwitch(from previous: String, to current: String) async throws {
+        lock.withLock {
+            switches.append("\(previous)->\(current)")
+            if purgeOnSwitch { rows = [:] }
+        }
     }
 
     func loadLocal() async throws -> [Note] { Array(notes.values) }

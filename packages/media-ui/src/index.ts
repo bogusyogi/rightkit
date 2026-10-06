@@ -28,6 +28,7 @@ export { ImageViewer, ImageEditor, type ImageViewerProps } from "./image/ImageVi
 export type { ImageTool } from "./image/ImageViewerToolbar.js";
 export {
   exportImageEdit,
+  scaleEditToSource,
   initialImageEdit,
   hasImageEdits,
   hasAdjustmentEdits,

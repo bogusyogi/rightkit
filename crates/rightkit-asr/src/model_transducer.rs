@@ -13,7 +13,6 @@ use crate::execution::ExecutionProvider;
 use ndarray::{Array1, Array2, Array3};
 use ort::session::Session;
 use ort::value::{TensorElementType, ValueType};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -26,68 +25,21 @@ pub struct TransducerConfig {
     pub debug_diagnostics: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct ContextBias {
-    phrase_token_ids: Vec<Vec<usize>>,
-    score: f32,
-}
-
-impl ContextBias {
-    pub fn new(phrase_token_ids: Vec<Vec<usize>>, score: f32) -> Self {
-        let phrase_token_ids = phrase_token_ids
-            .into_iter()
-            .filter(|phrase| !phrase.is_empty())
-            .collect();
-        Self {
-            phrase_token_ids,
-            score,
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.phrase_token_ids.is_empty() || self.score == 0.0
-    }
-
-    fn next_token_bonuses(&self, emitted: &[usize]) -> HashMap<usize, f32> {
-        let mut bonuses = HashMap::new();
-        if self.is_empty() {
-            return bonuses;
-        }
-        for phrase in &self.phrase_token_ids {
-            let matched = matching_prefix_len(emitted, phrase);
-            if matched < phrase.len() {
-                bonuses
-                    .entry(phrase[matched])
-                    .and_modify(|score: &mut f32| *score = score.max(self.score))
-                    .or_insert(self.score);
-            }
-        }
-        bonuses
-    }
-}
-
-fn matching_prefix_len(emitted: &[usize], phrase: &[usize]) -> usize {
-    let max = emitted.len().min(phrase.len().saturating_sub(1));
-    for len in (0..=max).rev() {
-        if len == 0 || emitted[emitted.len() - len..] == phrase[..len] {
-            return len;
-        }
-    }
-    0
-}
+/// One context-bias implementation for every runtime (shared parakeet_core).
+pub use crate::parakeet_core::bias::ContextBias;
 
 pub struct TransducerModel {
-    encoder: Session,
-    decoder_joint: Session,
-    config: TransducerConfig,
-    context_bias: Option<ContextBias>,
-    encoder_audio_signal_type: TensorElementType,
+    pub(crate) encoder: Session,
+    pub(crate) decoder_joint: Session,
+    pub(crate) config: TransducerConfig,
+    pub(crate) context_bias: Option<ContextBias>,
+    pub(crate) encoder_audio_signal_type: TensorElementType,
     /// `Some(W)` when the encoder's `audio_signal` time axis is a FIXED length `W`
     /// (the static-shape export, e.g. 1500 mel frames = 15 s). Drives windowed
     /// decode: the encoder can only ingest exactly `W` frames, so longer audio is
     /// split into `W`-frame windows, each encoded + decoded with a fresh decoder
     /// state. `None` = dynamic encoder, full-sequence encode in one pass.
-    static_window: Option<usize>,
+    pub(crate) static_window: Option<usize>,
 }
 
 impl TransducerModel {
@@ -312,7 +264,7 @@ impl TransducerModel {
     /// `length` frames. For static-window calls `features` is padded to the fixed
     /// window length while `length` is the unpadded count, so `encoded_lengths`
     /// reflects only real audio.
-    fn run_encoder_len(&mut self, features: &Array2<f32>, length: i64) -> Result<(Array3<f32>, i64)> {
+    pub(crate) fn run_encoder_len(&mut self, features: &Array2<f32>, length: i64) -> Result<(Array3<f32>, i64)> {
         let time_steps = features.shape()[0];
         let feat = features.shape()[1];
         let input = features.t().to_shape((1, feat, time_steps))

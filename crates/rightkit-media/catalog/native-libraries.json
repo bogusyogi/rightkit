@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "libraries": [
+    {
+      "id": "onnxruntime-1.24.4-macos-arm64",
+      "library": "onnxruntime",
+      "version": "1.24.4",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libonnxruntime.1.24.4.dylib",
+      "sha256": "872533f130f1839a5bc01788ddb4f75c83a189763441ba1178788ed965449289",
+      "archive": {
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-osx-arm64-1.24.4.tgz",
+        "sha256": "93787795f47e1eee369182e43ed51b9e5da0878ab0346aecf4258979b8bba989"
+      },
+      "sourceUrl": "https://github.com/microsoft/onnxruntime/releases/tag/v1.24.4",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/ONNXRuntime-MIT.txt"],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "genright .cache batch5/voice/dl onnxruntime-osx-arm64-1.24.4(.tgz) loaded and run by rightkit-ort e2e"
+      }
+    },
+    {
+      "id": "onnxruntime-1.24.4-macos-x86_64",
+      "library": "onnxruntime",
+      "version": "1.24.4",
+      "os": "macos",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "sourceUrl": "https://github.com/microsoft/onnxruntime/releases/tag/v1.24.4",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/ONNXRuntime-MIT.txt"],
+      "verification": { "method": "none", "evidence": "no x86_64 artifact staged yet" }
+    },
+    {
+      "id": "onnxruntime-1.24.4-windows-x64-directml",
+      "library": "onnxruntime",
+      "version": "1.24.4",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "onnxruntime.dll",
+      "sourceUrl": "https://github.com/microsoft/onnxruntime/releases/tag/v1.24.4",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/ONNXRuntime-MIT.txt"],
+      "verification": { "method": "none", "evidence": "DirectML build pinned by HeardRight (1.24.4 fusion workaround); digest to be recorded on the Windows host" }
+    },
+    {
+      "id": "pdfium-chromium-8021-macos-arm64",
+      "library": "pdfium",
+      "version": "chromium/8021",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "pinned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libpdfium.dylib",
+      "archive": {
+        "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8021/pdfium-mac-arm64.tgz",
+        "sha256": "994600fa28974ce09a1c51c35039e808a6bc8ea3839050322c101ab229ad5c96"
+      },
+      "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
+      "licenseSpdx": "BSD-3-Clause",
+      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt"],
+      "verification": { "method": "archive-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin (archive not re-downloaded here)" }
+    },
+    {
+      "id": "pdfium-chromium-8021-macos-x86_64",
+      "library": "pdfium",
+      "version": "chromium/8021",
+      "os": "macos",
+      "arch": "x86_64",
+      "status": "pinned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libpdfium.dylib",
+      "archive": {
+        "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8021/pdfium-mac-x64.tgz",
+        "sha256": "0e770fda56c6726a08fab84c6306ad91eceb10589020ce3a407fad3ebcbe7bb2"
+      },
+      "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
+      "licenseSpdx": "BSD-3-Clause",
+      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt"],
+      "verification": { "method": "archive-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin (archive not re-downloaded here)" }
+    },
+    {
+      "id": "pdfium-chromium-8021-windows-x64",
+      "library": "pdfium",
+      "version": "chromium/8021",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "pdfium.dll",
+      "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
+      "licenseSpdx": "BSD-3-Clause",
+      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt"],
+      "verification": { "method": "none", "evidence": "ScrapeRight Windows pin is chromium/7920; unify to 8021 on the Windows host" }
+    },
+    {
+      "id": "sherpa-onnx-1.13.4-macos-universal",
+      "library": "sherpa-onnx",
+      "version": "1.13.4",
+      "os": "macos",
+      "arch": "universal",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libsherpa-onnx-c-api.dylib",
+      "sha256": "1f16f3dc70afaa25e774f36113365f7ace836c927ea485350124ac3f3d836ecf",
+      "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.4",
+      "licenseSpdx": "Apache-2.0",
+      "noticeFiles": ["third-party/Apache-2.0.txt"],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "HeardRight resources/runtime and CutRight packs/speech/PACK.json (revision 142807252687d81b40d6315f23470a1512a00de3)"
+      }
+    },
+    {
+      "id": "sqlite-vec-0.1.9-any",
+      "library": "sqlite-vec",
+      "version": "0.1.9",
+      "os": "any",
+      "arch": "any",
+      "status": "approved",
+      "linkage": "static-crate",
+      "cargo": {
+        "crate": "sqlite-vec",
+        "version": "0.1.9",
+        "checksum": "d0ba424237a9a5db2f6071f193319e2b6a32f7f3961debb2fbbfe67067abce3f"
+      },
+      "sourceUrl": "https://crates.io/crates/sqlite-vec/0.1.9",
+      "licenseSpdx": "MIT OR Apache-2.0",
+      "verification": { "method": "cargo-checksum", "evidence": "MailRight src-tauri/Cargo.lock" }
+    },
+    {
+      "id": "libgit2-1.9.7-any",
+      "library": "libgit2",
+      "version": "1.9.7",
+      "os": "any",
+      "arch": "any",
+      "status": "approved",
+      "linkage": "static-crate",
+      "cargo": {
+        "crate": "libgit2-sys",
+        "version": "0.18.8+1.9.7",
+        "checksum": "7f7c568b25d7489bc3fb2988ed69ab111d2944d2f5fec3d5c987fe545ea97b50"
+      },
+      "sourceUrl": "https://crates.io/crates/libgit2-sys/0.18.8+1.9.7",
+      "licenseSpdx": "GPL-2.0-only WITH GCC-exception-2.0",
+      "verification": { "method": "cargo-checksum", "evidence": "CodeRight engine/Cargo.lock (bundled libgit2 1.9.7, static, linking exception applies)" }
+    },
+    {
+      "id": "whisper-cpp-8ef5277-any",
+      "library": "whisper-cpp",
+      "version": "git-8ef5277ad13ea3b9a99c41f6272acefc8109ad9f",
+      "os": "any",
+      "arch": "any",
+      "status": "planned",
+      "linkage": "static-crate",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "verification": { "method": "none", "evidence": "CutRight runtime/source/whisper.cpp checkout is at this commit; rightkit-asr must declare its own pin before approval" }
+    },
+    {
+      "id": "ggml-0.20.0-macos-arm64",
+      "library": "ggml",
+      "version": "0.20.0",
+      "os": "macos",
+      "arch": "aarch64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libggml.0.dylib",
+      "sourceUrl": "https://github.com/ggml-org/ggml",
+      "licenseSpdx": "MIT",
+      "verification": { "method": "none", "evidence": "only observed inside a llama.cpp b10448 build; whisper.cpp vendors its own ggml, so the suite ggml pin follows the whisper.cpp pin" }
+    }
+  ]
+}

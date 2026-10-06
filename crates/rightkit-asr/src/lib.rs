@@ -54,6 +54,7 @@ mod model_eou;
 mod model_nemotron;
 mod model_tdt;
 mod model_transducer;
+mod onnx_beam;
 mod model_unified;
 mod nemotron;
 mod parakeet;
@@ -74,14 +75,29 @@ pub mod cohere;
 mod timestamps;
 mod transcriber;
 mod vocab;
+pub mod whisper;
+pub mod routing;
+pub mod chunked;
+pub mod parakeet_core;
+pub mod longform;
+#[cfg(target_os = "macos")]
+pub mod parakeet_coreml;
 
 pub use error::{Error, Result};
 pub use execution::{ExecutionProvider, ModelConfig as ExecutionConfig};
 pub use parakeet::Parakeet;
 pub use parakeet_tdt::ParakeetTDT;
-pub use transducer::{Transducer, TransducerOptions};
+pub use transducer::{BeamOptions, Transducer, TransducerOptions};
 pub use timestamps::{process_timestamps, TimestampMode};
 pub use transcriber::*;
+pub use whisper::{Language, Whisper, WhisperCpp, WhisperModel, WhisperOptions};
+#[cfg(target_os = "macos")]
+pub use whisper::{ComputeUnits, WhisperCoreMl};
+pub use routing::{select_engine, Availability, EngineKind, EngineSelection, RoutingPolicy};
+pub use chunked::{transcribe_spans, ChunkResult};
+#[cfg(target_os = "macos")]
+pub use parakeet_coreml::{CoreMlParakeet, CoreMlParakeetOptions, LongFormTranscript, PipelineMeta};
+pub use longform::{LongFormOptions, LongFormProgress, SeamPolicy, TimedExports, TimedWord};
 
 pub use config::{ModelConfig as ModelConfigJson, PreprocessorConfig};
 

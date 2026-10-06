@@ -8,9 +8,10 @@ use crate::disk;
 use crate::download::{download_resumable, http_agent, DownloadRequest};
 use crate::error::{Error, ErrorCode, Result};
 use crate::hash::sha256_file;
+use crate::ids::ModelId;
 use crate::platform::Platform;
 use crate::spec::{safe_rel_path, Extract, FileSpec, ModelSpec};
-use crate::store::{FileRecord, RevisionRecord, Store, VerifyMode};
+use crate::store::{remove_tree, FileRecord, RevisionRecord, Store, VerifyMode};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -46,8 +47,27 @@ pub struct InstallOptions {
     pub keep_revisions: usize,
     /// Test/override hook for the free-space probe.
     pub free_bytes_override: Option<u64>,
+    /// Trusted-catalog mode: refuse any file without a pinned sha256 and byte
+    /// size (and, for archive members, pinned installed-payload hash/size).
+    pub require_pinned: bool,
     /// How long to wait for another process holding the model lock.
     pub lock_wait: Duration,
+    /// Test hook: simulate the process dying right after the named durable
+    /// step of a same-key swap (no cleanup runs, exactly like a kill).
+    #[doc(hidden)]
+    pub crash_after: Option<CrashPoint>,
+}
+
+/// Durable steps of replacing an existing same-key revision directory.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrashPoint {
+    /// Previous revision moved to `.aside`, replacement not yet renamed in.
+    AfterAside,
+    /// Replacement renamed in, ledger (`state.json`) not yet written.
+    AfterSwap,
+    /// Ledger written, aside copy not yet deleted.
+    AfterState,
 }
 
 impl Default for InstallOptions {
@@ -60,7 +80,9 @@ impl Default for InstallOptions {
             cancel: Arc::new(AtomicBool::new(false)),
             keep_revisions: 1,
             free_bytes_override: None,
+            require_pinned: false,
             lock_wait: Duration::ZERO,
+            crash_after: None,
         }
     }
 }
@@ -92,9 +114,24 @@ impl Store {
                 return Err(Error::new(ErrorCode::InvalidSpec, format!("unsafe file path {:?}", f.path)));
             }
         }
-        let key = rev.key();
-        let id = spec.id.as_str();
+        if opts.require_pinned {
+            for f in &files {
+                let archive_pinned = f.sha256.is_some() && f.bytes.is_some();
+                let member_pinned = !matches!(f.extract, Some(Extract::Member(_)))
+                    || (f.installed_sha256.is_some() && f.installed_bytes.is_some());
+                if !archive_pinned || !member_pinned {
+                    return Err(Error::new(
+                        ErrorCode::InvalidSpec,
+                        format!("{}: file {:?} is not hash- and size-pinned", spec.id, f.path),
+                    ));
+                }
+            }
+        }
+        let key = rev.checked_key()?.as_str().to_string();
+        let id = ModelId::parse(&spec.id)?.as_str().to_string();
+        let id = id.as_str();
         let _lock = self.acquire(id, opts.lock_wait)?;
+        self.reject_links(id)?;
         let mut state = self.state(id)?;
         state.id = id.to_string();
         let cancelled = || opts.cancel.load(Ordering::Relaxed);
@@ -106,10 +143,10 @@ impl Store {
             let previous = self.activate(&mut state, &key)?;
             sink(Event::Activated { key: key.clone(), previous: previous.clone() });
             self.prune(&mut state, opts.keep_revisions, &mut sink)?;
-            return Ok(InstallOutcome { dir: self.revision_dir(id, &key), key, already_installed: true, previous });
+            return Ok(InstallOutcome { dir: self.revision_dir(id, &key)?, key, already_installed: true, previous });
         }
 
-        let staging = self.staging_dir(id, &key);
+        let staging = self.staging_dir(id, &key)?;
         fs::create_dir_all(staging.join(".dl")).map_err(|e| Error::io(staging.display(), e))?;
 
         // Disk preflight: remaining payload (minus resumable partials) + 10% headroom.
@@ -154,14 +191,35 @@ impl Store {
             overall_base += f.bytes.unwrap_or(0);
         }
 
-        // Atomic swap: move any broken same-key dir aside, rename staging in.
+        // Atomic swap. A same-key directory is never deleted before its
+        // replacement is durable: it is renamed to `.aside/<key>`, the new tree
+        // renamed in, the ledger written, and only then the aside dropped.
+        // `Store::recover` (run under every lock acquisition) finishes or undoes
+        // whichever step a crash interrupted.
         let _ = fs::remove_dir_all(staging.join(".dl"));
-        let dest = self.revision_dir(id, &key);
+        let dest = self.revision_dir(id, &key)?;
         fs::create_dir_all(dest.parent().unwrap()).map_err(|e| Error::io(dest.display(), e))?;
-        if dest.exists() {
-            fs::remove_dir_all(&dest).map_err(|e| Error::io(dest.display(), e))?;
+        let crash = |p: CrashPoint| -> Result<()> {
+            if opts.crash_after == Some(p) {
+                return Err(Error::new(ErrorCode::Io, format!("injected crash {p:?}")));
+            }
+            Ok(())
+        };
+        let aside = self.aside_dir(id, &key)?;
+        let had_previous = fs::symlink_metadata(&dest).is_ok();
+        if had_previous {
+            fs::create_dir_all(aside.parent().unwrap()).map_err(|e| Error::io(aside.display(), e))?;
+            remove_tree(&aside)?;
+            fs::rename(&dest, &aside).map_err(|e| Error::io(format!("move aside {}", dest.display()), e))?;
+            crash(CrashPoint::AfterAside)?;
         }
-        fs::rename(&staging, &dest).map_err(|e| Error::io(format!("activate {}", dest.display()), e))?;
+        if let Err(e) = fs::rename(&staging, &dest) {
+            if had_previous {
+                let _ = fs::rename(&aside, &dest);
+            }
+            return Err(Error::io(format!("activate {}", dest.display()), e));
+        }
+        crash(CrashPoint::AfterSwap)?;
         records.sort_by(|a, b| a.path.cmp(&b.path));
         state.revisions.insert(
             key.clone(),
@@ -176,6 +234,10 @@ impl Store {
             },
         );
         let previous = self.activate(&mut state, &key)?;
+        crash(CrashPoint::AfterState)?;
+        if had_previous {
+            remove_tree(&aside)?;
+        }
         sink(Event::Activated { key: key.clone(), previous: previous.clone() });
         self.prune(&mut state, opts.keep_revisions, &mut sink)?;
         Ok(InstallOutcome { dir: dest, key, already_installed: false, previous })
@@ -213,7 +275,9 @@ impl Store {
         }
         self.save_state(state)?;
         for k in doomed {
-            let _ = fs::remove_dir_all(self.revision_dir(&id, &k));
+            if let Ok(dir) = self.revision_dir(&id, &k) {
+                let _ = remove_tree(&dir);
+            }
             sink(Event::Pruned { key: k });
         }
         Ok(())

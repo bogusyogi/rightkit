@@ -65,8 +65,24 @@ async function extract(archive, destination) {
   return join(destination, 'package');
 }
 
-export async function verifyRegistryParity({ allowUnpublished = false, fetchImpl = fetch } = {}) {
-  const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+// Every npm package RightKit publishes: the names in rightkit-versions.json (adopted, staged, legacy).
+export async function publishedPackageNames() {
+  const versions = JSON.parse(await readFile(join(packageRoot, 'rightkit-versions.json'), 'utf8'));
+  return [...new Set([...Object.keys(versions.npm ?? {}), ...Object.keys(versions.stagedNpm ?? {}), ...Object.keys(versions.legacyNpm ?? {})])].sort();
+}
+
+export async function verifyAllRegistryParity({ allowUnpublished = false, fetchImpl = fetch, names } = {}) {
+  const results = [];
+  for (const name of names ?? await publishedPackageNames()) {
+    results.push(await verifyRegistryParity({ allowUnpublished, fetchImpl, packageName: name }));
+  }
+  return Object.freeze(results);
+}
+
+export async function verifyRegistryParity({ allowUnpublished = false, fetchImpl = fetch, packageName = '@rightkit/release' } = {}) {
+  const sourceRoot = packageName === '@rightkit/release' ? packageRoot : join(packageRoot, '..', packageName.replace('@rightkit/', ''));
+  const manifest = JSON.parse(await readFile(join(sourceRoot, 'package.json'), 'utf8'));
+  if (manifest.name !== packageName) throw new Error(`source ${sourceRoot} is ${manifest.name}, expected ${packageName}`);
   const encodedName = encodeURIComponent(manifest.name);
   const metadata = await fetchImpl(`https://registry.npmjs.org/${encodedName}/${manifest.version}`);
   if (metadata.status === 404 && allowUnpublished) return Object.freeze({ status: 'UNPUBLISHED', name: manifest.name, version: manifest.version });
@@ -77,7 +93,7 @@ export async function verifyRegistryParity({ allowUnpublished = false, fetchImpl
   try {
     const localDir = join(root, 'local'); const publishedArchive = join(root, 'published.tgz');
     await mkdir(localDir, { recursive: true });
-    const packed = runPnpm(['pack', '--pack-destination', localDir, '--json'], { cwd: packageRoot, encoding: 'utf8' });
+    const packed = runPnpm(['pack', '--pack-destination', localDir, '--json'], { cwd: sourceRoot, encoding: 'utf8' });
     const localArchive = join(localDir, basename(packedArchivePath(packed)));
     const response = await fetchImpl(record.dist.tarball);
     if (!response.ok) throw new Error(`registry tarball failed: HTTP ${response.status}`);
@@ -93,7 +109,9 @@ export async function verifyRegistryParity({ allowUnpublished = false, fetchImpl
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  verifyRegistryParity({ allowUnpublished: process.argv.includes('--allow-unpublished') })
+  const flag = process.argv.indexOf('--package');
+  const allowUnpublished = process.argv.includes('--allow-unpublished');
+  (flag > 0 ? verifyRegistryParity({ allowUnpublished, packageName: process.argv[flag + 1] }) : verifyAllRegistryParity({ allowUnpublished }))
     .then((result) => process.stdout.write(`${JSON.stringify(result)}\n`))
     .catch((error) => { process.stderr.write(`${error.message}\n`); process.exitCode = 1; });
 }

@@ -6,6 +6,11 @@
 //!   out: `{"type":"event","id":<request id>,"event":{..}}` zero or more, then exactly one
 //!        `{"type":"response","id","ok":true,"result":{..}}` or
 //!        `{"type":"response","id","ok":false,"error":{"code","message"}}`.
+//!
+//! Errors carry `retryable` (a retryable error means resubmitting can succeed,
+//! e.g. `host_handoff`). A request may set `cancel_on_disconnect: true` on
+//! `job.submit|run`: if the client connection closes while the job runs, the
+//! job is cancelled (`CommandSet::connection_closed`).
 //! CLI (`run_cli`): `<words> [--input <json>|-] [--dry-run] [--wait]
 //!   [--wait-timeout <s>] [--request-id <id>]`; pretty JSON result on stdout
 //!   (exit 0) or `{"error":{"code","message"}}` (exit 1; 2 for usage); progress
@@ -38,6 +43,13 @@ pub trait CommandSet: Send + Sync {
         false
     }
     fn call(&self, method: &str, params: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value>;
+    /// Like [`CommandSet::call`] but told which client connection asked (`0` for
+    /// stdio and the CLI), so disconnect can be tied to the request.
+    fn call_conn(&self, _conn: u64, method: &str, params: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value> {
+        self.call(method, params, dry_run, emit)
+    }
+    /// A client connection closed (possibly while its request was still running).
+    fn connection_closed(&self, _conn: u64) {}
     /// Called once when the engine is shutting down or stdin closed.
     fn shutdown(&self) {}
 }
@@ -58,7 +70,10 @@ fn ok(id: u64, result: Value) -> Value {
     json!({"type": "response", "id": id, "ok": true, "result": result})
 }
 fn err(id: u64, code: &str, message: &str) -> Value {
-    json!({"type": "response", "id": id, "ok": false, "error": {"code": code, "message": message}})
+    json!({"type": "response", "id": id, "ok": false, "error": {"code": code, "message": message, "retryable": false}})
+}
+fn err_job(id: u64, e: &JobError) -> Value {
+    json!({"type": "response", "id": id, "ok": false, "error": {"code": e.code, "message": e.message, "retryable": e.retryable}})
 }
 
 const BUILTINS: [&str; 3] = ["ping", "doctor", "shutdown"];
@@ -100,13 +115,25 @@ impl Dispatcher {
 
     /// Run one method (shared by both transports).
     pub fn call(&self, method: &str, params: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value> {
+        self.call_conn(0, method, params, dry_run, emit)
+    }
+
+    /// A client connection closed: let command sets cancel what was tied to it.
+    pub fn connection_closed(&self, conn: u64) {
+        for s in &self.sets {
+            s.connection_closed(conn);
+        }
+    }
+
+    /// Run one method on behalf of connection `conn`.
+    pub fn call_conn(&self, conn: u64, method: &str, params: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value> {
         match method {
             "ping" => Ok(json!({"pong": true})),
             "shutdown" => Ok(json!({})),
             "doctor" => Ok(json!({"engine": self.engine, "version": self.version,
                 "contract_version": CONTRACT_VERSION, "methods": self.methods(), "dry_run": dry_run})),
             m => match self.set_for(m) {
-                Some(s) => s.call(m, params, dry_run, emit),
+                Some(s) => s.call_conn(conn, m, params, dry_run, emit),
                 None => Err(JobError::new("unknown_method", format!("unknown method: {m}"))),
             },
         }
@@ -136,7 +163,7 @@ impl Dispatcher {
         let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
         let response = match self.call(method, &params, dry_run, &frames) {
             Ok(v) => ok(id, v),
-            Err(e) => err(id, &e.code, &e.message),
+            Err(e) => err_job(id, &e),
         };
         Outcome { response, shutdown: method == "shutdown" }
     }
@@ -194,6 +221,8 @@ where
             Err(FrameError::Json(e)) => emit(err(0, "bad_request", &format!("bad frame: {e}"))),
         }
     }
+    // The client is gone (EOF) or asked to shut down: cancel jobs tied to this connection first.
+    d.connection_closed(0);
     d.shutdown_all();
     for t in threads {
         let _ = t.join();
@@ -359,11 +388,13 @@ pub fn run_cli(
 /// `job.submit` with `run`/`wait`, `job.wait` with `resume`.
 pub struct JobCommands {
     runner: Arc<Runner>,
+    /// Jobs whose request set `cancel_on_disconnect`, by client connection.
+    watched: Mutex<std::collections::HashMap<u64, Vec<String>>>,
 }
 
 impl JobCommands {
     pub fn new(runner: Arc<Runner>) -> Self {
-        Self { runner }
+        Self { runner, watched: Mutex::new(Default::default()) }
     }
 
     fn target(&self, p: &Value) -> JobResult<crate::store::Job> {
@@ -375,10 +406,23 @@ impl JobCommands {
         }
     }
 
-    fn run(&self, id: &str, emit: &Sink) -> JobResult<Value> {
+    fn run(&self, id: &str, emit: &Sink, conn: u64, cancel_on_disconnect: bool) -> JobResult<Value> {
         let emit = Arc::clone(emit);
         let sink: EventSink = Arc::new(move |ev| emit(ev.to_value()));
-        Ok(self.runner.run_with(id, Some(sink))?.to_value())
+        if cancel_on_disconnect {
+            self.watched.lock().unwrap_or_else(|p| p.into_inner()).entry(conn).or_default().push(id.to_string());
+        }
+        let out = self.runner.run_with(id, Some(sink));
+        if cancel_on_disconnect {
+            if let Some(v) = self.watched.lock().unwrap_or_else(|p| p.into_inner()).get_mut(&conn) {
+                v.retain(|j| j != id);
+            }
+        }
+        match out? {
+            // A handoff is an error the client must see so it can resubmit to the new host.
+            RunOutcome::Paused(j) if j.error.as_ref().is_some_and(|e| e["code"] == crate::error::HOST_HANDOFF) => Err(JobError::handoff()),
+            o => Ok(o.to_value()),
+        }
     }
 }
 
@@ -398,7 +442,23 @@ impl CommandSet for JobCommands {
     }
 
     fn call(&self, method: &str, p: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value> {
+        self.call_conn(0, method, p, dry_run, emit)
+    }
+
+    fn connection_closed(&self, conn: u64) {
+        let ids = self.watched.lock().unwrap_or_else(|p| p.into_inner()).remove(&conn).unwrap_or_default();
+        for id in ids {
+            if let Ok(j) = self.runner.store().get(&id) {
+                if !j.is_terminal() && self.runner.store().cancel(&id).is_ok() {
+                    let _ = self.runner.store().add_event(&id, "cancelled", None, Some("client disconnected"));
+                }
+            }
+        }
+    }
+
+    fn call_conn(&self, conn: u64, method: &str, p: &Value, dry_run: bool, emit: &Sink) -> JobResult<Value> {
         let store = self.runner.store();
+        let cod = p["cancel_on_disconnect"] == true;
         match method {
             "job.submit" => {
                 let kind = p["kind"].as_str().filter(|k| !k.is_empty())
@@ -413,7 +473,7 @@ impl CommandSet for JobCommands {
                 }
                 let (job, dedup) = store.submit(&new)?;
                 let mut v = if p["run"] == true || p["wait"] == true {
-                    self.run(&job.job_id, emit)?
+                    self.run(&job.job_id, emit, conn, cod)?
                 } else {
                     job.to_value()
                 };
@@ -454,7 +514,7 @@ impl CommandSet for JobCommands {
                 let who = p["consumer"].as_str().unwrap_or("cli");
                 Ok(store.ack(&self.target(p)?.job_id, who)?.to_value())
             }
-            "job.run" => self.run(&self.target(p)?.job_id, emit),
+            "job.run" => self.run(&self.target(p)?.job_id, emit, conn, cod),
             "job.recoverable" => Ok(json!({"job_ids": self.runner.recoverable_ids()?})),
             "job.recover" => {
                 let emit2 = Arc::clone(emit);

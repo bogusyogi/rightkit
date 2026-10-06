@@ -9,6 +9,11 @@ pub struct JobError {
     pub retryable: bool,
 }
 
+/// Stable wire code for [`JobError::handoff`].
+pub const HOST_HANDOFF: &str = "host_handoff";
+/// Stable wire code for [`JobError::stalled`].
+pub const STALLED: &str = "stalled";
+
 pub type JobResult<T> = Result<T, JobError>;
 
 impl JobError {
@@ -18,11 +23,24 @@ impl JobError {
     pub fn retryable(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self { code: code.into(), message: message.into(), retryable: true }
     }
+    /// The host is handing the service to a higher-ranked host. Retryable: the
+    /// job pauses (still recoverable) without spending an attempt, and the
+    /// client resubmits against the new host.
+    pub fn handoff() -> Self {
+        Self::retryable(HOST_HANDOFF, "host is handing the service to a higher-ranked host; retry")
+    }
+    /// No progress for the stall timeout. Retryable, and it spends an attempt.
+    pub fn stalled(idle_secs: f64) -> Self {
+        Self::retryable(STALLED, format!("no progress for {idle_secs:.1}s"))
+    }
+    pub fn cancelled() -> Self {
+        Self::new("cancelled", "job was cancelled")
+    }
     pub fn bad_input(message: impl Into<String>) -> Self {
         Self::new("bad_input", message)
     }
     pub fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({"code": self.code, "message": self.message})
+        serde_json::json!({"code": self.code, "message": self.message, "retryable": self.retryable})
     }
 }
 

@@ -2,7 +2,7 @@
 # Profiles live HERE only: Cargo honours the root's profile.
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/protocol", "crates/engine"]
+members = ["src-tauri", "crates/protocol", "crates/engine", "crates/tools"]
 
 [profile.dev]
 debug = "line-tables-only"
