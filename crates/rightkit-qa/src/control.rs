@@ -287,6 +287,34 @@ fn check_env(env: &[(String, String)]) -> Result<()> {
     Ok(())
 }
 
+/// Absolute path of the executable that `open` will actually run for `bundle`, read from
+/// `Contents/Info.plist` `CFBundleExecutable`. `None` (fail closed) when the key is absent,
+/// names a path component trick, or the file is not a regular file inside `Contents/MacOS`.
+#[cfg(target_os = "macos")]
+#[doc(hidden)]
+pub fn resolve_bundle_executable(bundle: &Path) -> Option<String> {
+    let plist = bundle.join("Contents").join("Info.plist");
+    let out = Command::new("plutil")
+        .args(["-extract", "CFBundleExecutable", "raw", "-o", "-"])
+        .arg(&plist)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let name = String::from_utf8(out.stdout).ok()?;
+    let name = name.trim();
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\0') {
+        return None;
+    }
+    let exe = bundle.join("Contents").join("MacOS").join(name);
+    let meta = fs::metadata(&exe).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    Some(exe.to_string_lossy().into_owned())
+}
+
 #[cfg(target_os = "macos")]
 fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<PathBuf> {
     let exe = binary.file_name().and_then(|n| n.to_str()).ok_or_else(|| Error("binary has no file name".into()))?;
@@ -436,8 +464,12 @@ fn start_process(
             make_bundle(&ws.root, &spec.binary, &id[..8], spec.mode != Mode::Visible)?
         };
         let needle = format!("{}/Contents/MacOS/", bundle.display());
-        let executable = format!("{needle}{}", bundle.file_name().and_then(|n| n.to_str()).unwrap_or_default().trim_end_matches(".app"));
-        focus.track_prefix(executable.clone());
+        // Register the REAL executable (CFBundleExecutable) before `open`. When it cannot be
+        // resolved and validated, register nothing: the launch interval stays unverified and
+        // `owned_never_frontmost` fails closed instead of matching a guessed name.
+        if let Some(executable) = resolve_bundle_executable(&bundle) {
+            focus.track_prefix(executable);
+        }
         let mut cmd = Command::new("open");
         match spec.mode {
             Mode::Hidden => cmd.args(["-g", "-j", "-n"]),

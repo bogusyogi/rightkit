@@ -464,15 +464,15 @@ public func displayIsPro(_ license: StoredLicense?, graceDays: Int = 7, now: Dat
 
 public extension StoredLicense {
     /// The only authorization source: a signed token that verifies against `publicKeyBase64url`
-    /// and is bound to `app`, to this record's device (and to `deviceId` when the caller supplies
-    /// the live device identity), and to an unexpired `exp`. The record must also still be
+    /// and is bound to `app`, to this record's device (and to the live `deviceId` the caller must supply
+    /// (the cached record device ID alone is never trusted), and to an unexpired `exp`. The record must also still be
     /// `active`; a missing, unsigned, forged, wrong-app, wrong-device or expired token yields nil.
     func authorizedClaims(
-        publicKeyBase64url: String, app: String, deviceId expectedDeviceId: String? = nil,
+        publicKeyBase64url: String, app: String, deviceId expectedDeviceId: String,
         now: Int = Int(Date().timeIntervalSince1970)
     ) -> LicenseClaims? {
         guard status == "active" else { return nil }
-        if let expectedDeviceId, expectedDeviceId != deviceId { return nil }
+        guard !expectedDeviceId.isEmpty, expectedDeviceId == deviceId else { return nil }
         return verifiedClaims(publicKeyBase64url: publicKeyBase64url, app: app, now: now)
     }
 }
@@ -491,11 +491,11 @@ public extension LicenseClaims {
     }
 }
 
-public func isPro(_ license: StoredLicense?, publicKeyBase64url: String, app: String, deviceId: String? = nil, now: Int = Int(Date().timeIntervalSince1970)) -> Bool {
+public func isPro(_ license: StoredLicense?, publicKeyBase64url: String, app: String, deviceId: String, now: Int = Int(Date().timeIntervalSince1970)) -> Bool {
     license?.authorizedClaims(publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now)?.isPro == true
 }
 
-public func satisfiesRequirement(_ license: StoredLicense?, _ requirement: LicenseRequirement, publicKeyBase64url: String, app: String, deviceId: String? = nil, now: Int = Int(Date().timeIntervalSince1970)) -> Bool {
+public func satisfiesRequirement(_ license: StoredLicense?, _ requirement: LicenseRequirement, publicKeyBase64url: String, app: String, deviceId: String, now: Int = Int(Date().timeIntervalSince1970)) -> Bool {
     license?.authorizedClaims(publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now)?.satisfies(requirement) == true
 }
 
@@ -521,7 +521,9 @@ public struct StoredLicenseResolver: LicenseEntitlementResolving, Sendable {
         } else {
             license = await client.load()
         }
-        return license?.verifiedClaims(publicKeyBase64url: publicKeyBase64url, app: app, now: now())
+        return license?.authorizedClaims(
+            publicKeyBase64url: publicKeyBase64url, app: app, deviceId: client.configuration.deviceID(), now: now()
+        )
     }
 }
 
@@ -541,7 +543,9 @@ public final class LicenseController: ObservableObject {
 
     public var isProCandidate: Bool {
         guard let key = client.configuration.publicKeyBase64url else { return false }
-        return license?.isProCandidate(publicKeyBase64url: key, app: client.configuration.app) == true
+        return license?.authorizedClaims(
+            publicKeyBase64url: key, app: client.configuration.app, deviceId: client.configuration.deviceID()
+        )?.isPro == true
     }
 
     public func activate(_ key: String) async {

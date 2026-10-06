@@ -128,3 +128,34 @@ fn sha_of(p: &Path) -> String {
     let out = std::process::Command::new("shasum").args(["-a", "256"]).arg(p).output().unwrap();
     String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap().to_string()
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn bundle_executable_is_resolved_from_info_plist_not_the_app_directory_name() {
+    use rightkit_qa::control::resolve_bundle_executable;
+    let root = tmp("bundle");
+    let plist = |exe: &str| format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>{exe}</string><key>CFBundleIdentifier</key><string>x.y</string></dict></plist>\n");
+    let make = |name: &str, exe_key: &str, create: Option<&str>| {
+        let app = root.join(name);
+        fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
+        fs::write(app.join("Contents/Info.plist"), plist(exe_key)).unwrap();
+        if let Some(f) = create {
+            fs::write(app.join("Contents/MacOS").join(f), "#!/bin/sh\n").unwrap();
+        }
+        app
+    };
+    // Product.app whose executable is `runner`: the guessed name `Product` must NOT be used.
+    let app = make("Product.app", "runner", Some("runner"));
+    let got = resolve_bundle_executable(&app).expect("resolved");
+    assert_eq!(got, app.join("Contents/MacOS/runner").to_string_lossy());
+    assert!(!got.ends_with("/Product"));
+    // Fail closed: declared executable missing, traversal, empty, or no plist at all.
+    assert!(resolve_bundle_executable(&make("A.app", "runner", None)).is_none());
+    assert!(resolve_bundle_executable(&make("B.app", "../../evil", Some("evil"))).is_none());
+    assert!(resolve_bundle_executable(&make("C.app", "", Some("c"))).is_none());
+    let bare = root.join("D.app");
+    fs::create_dir_all(bare.join("Contents/MacOS")).unwrap();
+    fs::write(bare.join("Contents/MacOS/D"), "x").unwrap();
+    assert!(resolve_bundle_executable(&bare).is_none());
+    let _ = fs::remove_dir_all(&root);
+}

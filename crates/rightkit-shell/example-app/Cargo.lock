@@ -2662,6 +2662,7 @@ dependencies = [
 name = "rightkit-service"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "rightkit-framed-sidecar",
  "serde",
  "serde_json",

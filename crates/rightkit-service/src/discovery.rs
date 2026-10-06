@@ -214,71 +214,70 @@ impl From<io::Error> for SpawnClaimError {
     fn from(e: io::Error) -> Self { Self::Io(e) }
 }
 
-/// The short-lived create-new claim around one process spawn attempt.
-pub struct SpawnClaim { path: PathBuf }
-
-/// A claim older than this is abandoned even if its pid was recycled.
-const SPAWN_CLAIM_MAX_AGE: Duration = Duration::from_secs(60);
-
-fn claim_body() -> String {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    format!("{} {}", std::process::id(), now)
-}
-
-fn claim_is_stale(body: &str) -> bool {
-    let mut it = body.split_whitespace();
-    let pid = it.next().and_then(|v| v.parse::<u32>().ok());
-    let at = it.next().and_then(|v| v.parse::<u128>().ok());
-    let (Some(pid), Some(at)) = (pid, at) else { return true };
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    !pid_alive(pid) || now.saturating_sub(at) > SPAWN_CLAIM_MAX_AGE.as_millis()
-}
+/// The claim around one process spawn attempt, backed by an OS exclusive lock
+/// on `spawn.claim`. The lock lives as long as the open file: the kernel
+/// releases it when the owner dies (any signal), and there is no time-based
+/// eviction of a live owner. The file is never unlinked, so every contender
+/// always locks the same inode; Drop closes only this claim's own handle.
+pub struct SpawnClaim { _file: std::fs::File, path: PathBuf }
 
 impl SpawnClaim {
     pub fn path(suite: &Suite, service: &str) -> PathBuf {
         suite.service_dir(service).join("spawn.claim")
     }
 
-    fn create(path: &Path) -> io::Result<()> {
-        use std::io::Write;
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
-        f.write_all(claim_body().as_bytes())
-    }
-
     pub fn acquire(suite: &Suite, service: &str) -> Result<Self, SpawnClaimError> {
         make_private_dir(&suite.service_dir(service)).map_err(|e| SpawnClaimError::Io(io::Error::other(e.to_string())))?;
         let path = Self::path(suite, service);
-        match Self::create(&path) {
-            Ok(()) => return Ok(Self { path }),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(SpawnClaimError::Io(e)),
-        }
-        // Recover a claim left by a crashed launcher: its pid is dead, or it is
-        // far older than any spawn attempt. An empty body (writer mid-create) is
-        // judged by file age. Rename first so only one recoverer takes the file.
-        let body = std::fs::read_to_string(&path).unwrap_or_default();
-        let stale = if body.trim().is_empty() {
-            std::fs::metadata(&path).and_then(|m| m.modified()).ok()
-                .and_then(|m| m.elapsed().ok()).is_some_and(|age| age > SPAWN_CLAIM_MAX_AGE)
-        } else {
-            claim_is_stale(&body)
-        };
-        if !stale {
-            return Err(SpawnClaimError::AlreadyHeld(path));
-        }
-        let grave = path.with_extension(format!("stale{}", std::process::id()));
-        if std::fs::rename(&path, &grave).is_ok() {
-            let _ = std::fs::remove_file(&grave);
-        }
-        match Self::create(&path) {
-            Ok(()) => Ok(Self { path }),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(SpawnClaimError::AlreadyHeld(path)),
+        match try_lock_exclusive(&path) {
+            Ok(Some(file)) => Ok(Self { _file: file, path }),
+            Ok(None) => Err(SpawnClaimError::AlreadyHeld(path)),
             Err(e) => Err(SpawnClaimError::Io(e)),
         }
     }
+
+    /// Path of the claim file (for diagnostics).
+    pub fn claim_path(&self) -> &Path { &self.path }
 }
-impl Drop for SpawnClaim {
-    fn drop(&mut self) { let _ = std::fs::remove_file(&self.path); }
+
+/// Open `path` and take a non-blocking exclusive lock. `Ok(None)` = held elsewhere.
+#[cfg(unix)]
+fn try_lock_exclusive(path: &Path) -> io::Result<Option<std::fs::File>> {
+    use std::io::Write;
+    use std::os::unix::io::AsRawFd;
+    let mut f = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)?;
+    loop {
+        // SAFETY: valid open fd; flock has no memory effects.
+        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 { break; }
+        let e = io::Error::last_os_error();
+        match e.raw_os_error() {
+            Some(c) if c == libc::EWOULDBLOCK || c == libc::EAGAIN => return Ok(None),
+            Some(c) if c == libc::EINTR => continue,
+            _ => return Err(e),
+        }
+    }
+    // Informational only (we hold the lock, so the write is ours).
+    let _ = f.set_len(0);
+    let _ = f.write_all(std::process::id().to_string().as_bytes());
+    Ok(Some(f))
+}
+
+/// Windows: open with share mode 0 (no sharing). A second open fails with
+/// ERROR_SHARING_VIOLATION (32) while the first handle lives; the kernel closes
+/// the handle on process death. Not compiled on this host; std-only API
+/// (`OpenOptionsExt::share_mode`), checked by reasoning against its docs.
+#[cfg(windows)]
+fn try_lock_exclusive(path: &Path) -> io::Result<Option<std::fs::File>> {
+    use std::io::Write;
+    use std::os::windows::fs::OpenOptionsExt;
+    match std::fs::OpenOptions::new().write(true).create(true).truncate(false).share_mode(0).open(path) {
+        Ok(mut f) => {
+            let _ = f.write_all(std::process::id().to_string().as_bytes());
+            Ok(Some(f))
+        }
+        Err(e) if e.raw_os_error() == Some(32) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

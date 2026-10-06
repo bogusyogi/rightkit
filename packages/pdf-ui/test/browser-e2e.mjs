@@ -22,6 +22,7 @@ const server = createServer((req, res) => {
   if (url === "/pdf-ui.css") { res.setHeader("content-type", "text/css"); return res.end(readFileSync(pdfCss)); }
   if (url === "/doc-render.css") { res.setHeader("content-type", "text/css"); return res.end(readFileSync(docCss)); }
   if (url === "/pdf.worker.min.mjs") { res.setHeader("content-type", "text/javascript"); return res.end(readFileSync(pdfWorker)); }
+  if (url === "/fixtures/c:1" || url === "/fixtures/c") { res.setHeader("content-type", "application/pdf"); return res.end(readFileSync(path.join(fixtures, url === "/fixtures/c:1" ? "report.pdf" : "memo.pdf"))); }
   if (url.startsWith("/fixtures/")) { const file = path.join(fixtures, path.basename(url)); if (existsSync(file)) { res.setHeader("content-type", "application/pdf"); return res.end(readFileSync(file)); } }
   res.statusCode = 404; res.end();
 });
@@ -109,6 +110,11 @@ try {
   await until("document.querySelector('.rk-pdf-page .textLayer')?.textContent.includes('OMEGA')", "loader replaced with identical-text closure OMEGA");
   const loaderText = await pageText();
   if (loaderText.includes("ALPHA")) throw new Error(`stale loader document: ${loaderText}`);
+  // URL/revision pairs that concatenate identically ('a:1'+'2' vs 'a'+'1:2') still load the new document.
+  await send("Page.navigate", { url: `http://127.0.0.1:${port}/?case=collide` }, sessionId);
+  await until("document.querySelectorAll('.rk-pdf-page').length === 3", "collide first doc (report, 3 pages)");
+  await evaluate("document.querySelector('#swap-collide').click()");
+  await until("document.querySelectorAll('.rk-pdf-page').length === 1", "colliding URL/revision shows the new document (memo, 1 page)");
   console.log(`external-find=${externalFind} replace=bytes+loader(size ${sizes.alpha})`);
   console.log(`PASS: pdf pages=${checks.pages}, canvases=${checks.canvases}, textSpans=${checks.text}, navigation=page+thumbs, zoom=${zoomBefore}->${checks.zoom}, find=Quarterly, source-replace=clean, sanitizer=clean`);
 } finally {

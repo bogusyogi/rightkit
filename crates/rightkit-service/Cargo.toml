@@ -13,6 +13,9 @@ rightkit-framed-sidecar = { version = "=0.1.0", path = "../rightkit-framed-sidec
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Windows named pipes with a current-user-only DACL. cfg(windows) only: this
 # backend compiles on the Windows host (see API.md for the exact command).
 [target.'cfg(windows)'.dependencies]

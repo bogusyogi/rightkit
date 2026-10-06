@@ -156,28 +156,34 @@ private func signedToken(_ key: Curve25519.Signing.PrivateKey, app: String = "co
     // is fooled by design; authorization must deny.
     let unsigned = StoredLicense(status: "active", deviceId: "dev", entitlements: entitlements)
     #expect(displayIsPro(unsigned))
-    #expect(!isPro(unsigned, publicKeyBase64url: pub, app: "coderight", now: now))
-    #expect(!satisfiesRequirement(unsigned, .pro, publicKeyBase64url: pub, app: "coderight", now: now))
+    #expect(!isPro(unsigned, publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
+    #expect(!satisfiesRequirement(unsigned, .pro, publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
 
     let forgedBy = Curve25519.Signing.PrivateKey()
     let forged = StoredLicense(status: "active", deviceId: "dev", entitlements: entitlements, signedToken: signedToken(forgedBy))
-    #expect(!isPro(forged, publicKeyBase64url: pub, app: "coderight", now: now))
+    #expect(!isPro(forged, publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
 
     let good = StoredLicense(status: "active", deviceId: "dev", entitlements: LicenseEntitlements(v: 1, tier: "free"), signedToken: signedToken(key))
-    #expect(isPro(good, publicKeyBase64url: pub, app: "coderight", now: now), "claims, not cached entitlements, decide")
-    #expect(satisfiesRequirement(good, LicenseRequirement(feature: "routing"), publicKeyBase64url: pub, app: "coderight", now: now))
-    #expect(!satisfiesRequirement(good, LicenseRequirement(tier: "max"), publicKeyBase64url: pub, app: "coderight", now: now))
-    #expect(!satisfiesRequirement(good, LicenseRequirement(), publicKeyBase64url: pub, app: "coderight", now: now))
+    #expect(isPro(good, publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now), "claims, not cached entitlements, decide")
+    #expect(satisfiesRequirement(good, LicenseRequirement(feature: "routing"), publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
+    #expect(!satisfiesRequirement(good, LicenseRequirement(tier: "max"), publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
+    #expect(!satisfiesRequirement(good, LicenseRequirement(), publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
 
     // Bound to app, device and expiry; record status must still be active.
-    #expect(!isPro(good, publicKeyBase64url: pub, app: "otherapp", now: now))
+    #expect(!isPro(good, publicKeyBase64url: pub, app: "otherapp", deviceId: "dev", now: now))
     #expect(!isPro(good, publicKeyBase64url: pub, app: "coderight", deviceId: "other-device", now: now))
     #expect(isPro(good, publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
-    #expect(!isPro(good, publicKeyBase64url: pub, app: "coderight", now: 2_000_000_001))
+    #expect(!isPro(good, publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: 2_000_000_001))
     var revoked = good; revoked.status = "revoked"
-    #expect(!isPro(revoked, publicKeyBase64url: pub, app: "coderight", now: now))
+    #expect(!isPro(revoked, publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
     let wrongDevice = StoredLicense(status: "active", deviceId: "dev", signedToken: signedToken(key, deviceID: "someone-else"))
-    #expect(!isPro(wrongDevice, publicKeyBase64url: pub, app: "coderight", now: now))
+    #expect(!isPro(wrongDevice, publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
+
+    // A record copied from device A (token + matching cached device ID) is denied on device B.
+    let copiedFromA = StoredLicense(status: "active", deviceId: "device-a", signedToken: signedToken(key, deviceID: "device-a"))
+    #expect(isPro(copiedFromA, publicKeyBase64url: pub, app: "coderight", deviceId: "device-a", now: now))
+    #expect(!isPro(copiedFromA, publicKeyBase64url: pub, app: "coderight", deviceId: "device-b", now: now))
+    #expect(!isPro(copiedFromA, publicKeyBase64url: pub, app: "coderight", deviceId: "", now: now))
 }
 
 @Test func licenseAndDeviceIDRecordsAreDeviceOnlyAndNonSynchronizable() {
@@ -195,4 +201,23 @@ private func signedToken(_ key: Curve25519.Signing.PrivateKey, app: String = "co
     #expect(await store.load() == license)
     try await store.remove()
     #expect(await store.load() == nil)
+}
+
+@Test func storedLicenseResolverDeniesRecordCopiedFromAnotherDevice() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let pub = key.publicKey.rawRepresentation.base64URLEncodedString()
+    let copied = StoredLicense(status: "active", deviceId: "device-a", signedToken: signedToken(key, deviceID: "device-a"))
+    func resolver(liveDevice: String, record: StoredLicense) async throws -> StoredLicenseResolver {
+        let store = InMemoryLicenseStore()
+        try await store.save(record)
+        let client = LicenseActivationClient(
+            configuration: LicenseClientConfiguration(app: "coderight", baseURL: URL(string: "http://127.0.0.1:9")!, deviceID: { liveDevice }, publicKeyBase64url: pub),
+            store: store
+        )
+        return StoredLicenseResolver(client: client, publicKeyBase64url: pub, app: "coderight", now: { 1_700_000_010 })
+    }
+    #expect(try await resolver(liveDevice: "device-a", record: copied).resolve()?.isPro == true)
+    #expect(try await resolver(liveDevice: "device-b", record: copied).resolve() == nil)
+    var revoked = copied; revoked.status = "revoked"
+    #expect(try await resolver(liveDevice: "device-a", record: revoked).resolve() == nil)
 }

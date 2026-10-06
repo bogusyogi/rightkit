@@ -302,11 +302,57 @@ fn legacy_record_published_long_after_start_is_live_and_dead_spawn_claim_is_reco
     reused.process_started_ms += 3_600_000;
     assert!(!record_process_matches(&reused));
 
-    // Stale spawn claim: dead pid is recovered; live fresh claim is held.
+    // A leftover claim file from a dead launcher (no lock holder) is reclaimable;
+    // a held claim is never taken.
     let claim = SpawnClaim::path(&suite, "demo");
     std::fs::write(&claim, "4000000000 1").unwrap();
-    let got = SpawnClaim::acquire(&suite, "demo").expect("dead-pid claim recovered");
+    let got = SpawnClaim::acquire(&suite, "demo").expect("unlocked leftover claim recovered");
     assert!(matches!(SpawnClaim::acquire(&suite, "demo"), Err(SpawnClaimError::AlreadyHeld(_))));
     drop(got);
-    assert!(!claim.exists());
+    SpawnClaim::acquire(&suite, "demo").expect("released on drop");
+}
+
+fn claim_bin() -> PathBuf {
+    let exe = std::env::current_exe().unwrap();
+    exe.parent().unwrap().parent().unwrap().join("examples").join(if cfg!(windows) { "svc_claim.exe" } else { "svc_claim" })
+}
+
+#[test]
+fn competing_recoverer_processes_yield_exactly_one_owner_and_killed_owner_is_reclaimable() {
+    let (d, suite) = setup();
+    let go = d.path().join("go");
+    // Seed a stale-looking claim (dead pid, ancient timestamp) that every racer will see.
+    std::fs::create_dir_all(suite.service_dir("demo")).unwrap();
+    std::fs::write(SpawnClaim::path(&suite, "demo"), "4000000000 1").unwrap();
+    let mut racers: Vec<Host> = Vec::new();
+    for _ in 0..8 {
+        let mut child = Command::new(claim_bin())
+            .args([suite.root().to_str().unwrap(), "demo", go.to_str().unwrap(), "4000"])
+            .stdout(Stdio::piped()).spawn().expect("spawn claim racer");
+        let out = child.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || { for l in BufReader::new(out).lines().map_while(Result::ok) { let _ = tx.send(l); } });
+        racers.push(Host { child, lines: rx });
+    }
+    std::thread::sleep(Duration::from_millis(500)); // all racers are polling for the go file
+    std::fs::write(&go, "go").unwrap();
+    let results: Vec<String> = racers.iter().map(|r| r.line(20)).collect();
+    let owners: Vec<usize> = results.iter().enumerate().filter(|(_, l)| l.starts_with("OWNER")).map(|(i, _)| i).collect();
+    assert_eq!(owners.len(), 1, "exactly one owner among racers: {results:?}");
+    assert_eq!(results.iter().filter(|l| l.starts_with("HELD")).count(), 7, "{results:?}");
+    // Owner is live and still holds: this process cannot take it.
+    assert!(matches!(SpawnClaim::acquire(&suite, "demo"), Err(SpawnClaimError::AlreadyHeld(_))));
+    // SIGKILL the owner: the claim becomes reclaimable immediately.
+    let mut owner = racers.swap_remove(owners[0]);
+    owner.child.kill().unwrap();
+    owner.child.wait().unwrap();
+    drop(racers);
+    let t = Instant::now();
+    loop {
+        match SpawnClaim::acquire(&suite, "demo") {
+            Ok(_) => break,
+            Err(SpawnClaimError::AlreadyHeld(_)) if t.elapsed() < Duration::from_secs(10) => std::thread::sleep(Duration::from_millis(50)),
+            Err(e) => panic!("killed owner's claim not reclaimable: {e}"),
+        }
+    }
 }

@@ -11,12 +11,14 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
 pub const CONTROLS_SUPPORTED: bool = cfg!(target_os = "macos");
 pub const POLL_SECONDS: u64 = 2;
+/// How long an observation injected through `rk_shell_presence_evaluate` overrides live polling.
+pub const OBSERVATION_HOLD: Duration = Duration::from_secs(30);
 const FULLSCREEN_OVERLAP: f64 = 0.97;
 const MEETING_OVERLAP: f64 = 0.18;
 
@@ -81,6 +83,8 @@ pub struct PresenceDnd {
     auto_hidden: AtomicBool,
     auto_dnd: AtomicBool,
     prefs: Mutex<AutoPrefs>,
+    /// While set and in the future, the poller leaves an injected observation in place.
+    observed_until: Mutex<Option<Instant>>,
 }
 
 impl PresenceDnd {
@@ -95,6 +99,23 @@ impl PresenceDnd {
         let h = self.auto_hidden.swap(next.hidden_for_fullscreen, Ordering::Relaxed);
         let d = self.auto_dnd.swap(next.dnd_for_meeting, Ordering::Relaxed);
         (h != next.hidden_for_fullscreen, d != next.dnd_for_meeting)
+    }
+    /// Apply an injected observation and hold it against live polling for [`OBSERVATION_HOLD`].
+    /// The hold and the write happen under one lock, so a concurrent poll cannot interleave.
+    pub fn apply_observation(&self, next: AutoState) -> (bool, bool) {
+        let mut until = self.observed_until.lock().unwrap_or_else(|e| e.into_inner());
+        *until = Some(Instant::now() + OBSERVATION_HOLD);
+        self.set_auto(next)
+    }
+    /// Apply a live sample unless an injected observation is still held. `None` when held.
+    pub fn apply_live(&self, next: AutoState) -> Option<(bool, bool)> {
+        let mut until = self.observed_until.lock().unwrap_or_else(|e| e.into_inner());
+        match *until {
+            Some(t) if Instant::now() < t => return None,
+            Some(_) => *until = None,
+            None => {}
+        }
+        Some(self.set_auto(next))
     }
     pub fn effective_dnd(&self) -> bool {
         self.manual.load(Ordering::Relaxed) || self.auto_dnd.load(Ordering::Relaxed)
@@ -190,9 +211,6 @@ pub fn start_loop(state: Arc<PresenceDnd>, own_name: String, on_change: impl Fn(
     if !CONTROLS_SUPPORTED {
         return;
     }
-    // Edge-triggered: apply a sample only when the live result changes, so a state applied by
-    // `rk_shell_presence_evaluate` holds until the real environment actually moves.
-    let mut last: Option<AutoState> = None;
     let _ = std::thread::Builder::new().name("rk-shell-presence".into()).spawn(move || loop {
         std::thread::sleep(Duration::from_secs(POLL_SECONDS));
         let prefs = state.prefs();
@@ -204,11 +222,9 @@ pub fn start_loop(state: Arc<PresenceDnd>, own_name: String, on_change: impl Fn(
         } else {
             AutoState::default()
         };
-        if last == Some(next) {
+        let Some((hidden, dnd)) = state.apply_live(next) else {
             continue;
-        }
-        last = Some(next);
-        let (hidden, dnd) = state.set_auto(next);
+        };
         if hidden || dnd {
             on_change(state.snapshot());
         }

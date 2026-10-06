@@ -69,9 +69,10 @@ function identityOf(value: object): number {
  *  text therefore never collide. */
 function sourceKey(source: PdfSource): string {
   const revision = "revision" in source && source.revision !== undefined ? String(source.revision) : "";
-  if (source.kind === "url") return `url:${source.url}:${revision}`;
-  if (source.kind === "loader") return `loader:${identityOf(source.load)}:${revision}`;
-  return `bytes:${identityOf(source.data.buffer)}:${source.data.byteOffset}:${source.data.byteLength}:${revision}`;
+  // Structured tuple: arbitrary URL/revision text can never collide through a delimiter.
+  if (source.kind === "url") return JSON.stringify(["url", source.url, revision]);
+  if (source.kind === "loader") return JSON.stringify(["loader", identityOf(source.load), revision]);
+  return JSON.stringify(["bytes", identityOf(source.data.buffer), source.data.byteOffset, source.data.byteLength, revision]);
 }
 
 async function loadSource(source: PdfSource): Promise<Uint8Array | string> {

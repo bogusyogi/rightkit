@@ -55,6 +55,18 @@ function ReplaceApp() {
   </main>;
 }
 
+// Delimiter-collision pair: both used to key as `url:<origin>/fixtures/c:1:2`.
+function CollideApp() {
+  const [second, setSecond] = useState(false);
+  const source: PdfSource = second
+    ? { kind: "url", url: `${location.origin}/fixtures/c`, revision: "1:2" }
+    : { kind: "url", url: `${location.origin}/fixtures/c:1`, revision: "2" };
+  return <main style={{ height: "100vh" }}>
+    <button id="swap-collide" type="button" onClick={() => setSecond(true)}>Switch to colliding source</button>
+    <div style={{ height: "calc(100vh - 40px)" }}><PdfViewer source={source} initialView={{ fit: null, scale: 1 }} /></div>
+  </main>;
+}
+
 function App() {
   const [source, setSource] = useState<"report" | "memo">("report");
   const onLoadingChange = useCallback((loading: boolean) => {
@@ -75,5 +87,5 @@ function App() {
   </main>;
 }
 
-createRoot(document.getElementById("root")!).render(new URLSearchParams(location.search).get("case") === "replace" ? <ReplaceApp /> : <App />);
+createRoot(document.getElementById("root")!).render(({ replace: <ReplaceApp />, collide: <CollideApp /> } as Record<string, JSX.Element>)[new URLSearchParams(location.search).get("case") ?? ""] ?? <App />);
 (window as unknown as { __harness?: boolean }).__harness = true;

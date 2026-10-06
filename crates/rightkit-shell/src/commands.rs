@@ -320,7 +320,7 @@ pub async fn rk_shell_presence_probe(app: AppHandle<Wry>) -> Result<Value, Shell
 pub fn rk_shell_presence_evaluate(monitor: Rect, windows: Vec<WindowObservation>, apply: Option<bool>, state: State<'_, ShellState>) -> Value {
     let env: Environment = crate::presence::detect(monitor, &windows, &state.app_name);
     if apply.unwrap_or(false) {
-        state.presence.set_auto(crate::presence::reconcile(state.presence.prefs(), env));
+        state.presence.apply_observation(crate::presence::reconcile(state.presence.prefs(), env));
     }
     json!({"environment": env, "state": state.presence.snapshot()})
 }
