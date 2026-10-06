@@ -1,0 +1,50 @@
+{
+  "name": "@rightkit/app-shell",
+  "version": "0.1.0",
+  "description": "Brand-neutral fused sidebar + titlebar desktop shell for Right Suite apps.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./shell.css": "./shell.css"
+  },
+  "files": ["dist", "shell.css", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
+  "sideEffects": ["*.css"],
+  "peerDependencies": {
+    "@rightkit/platform-ui": ">=0.1.1 <1",
+    "react": ">=18 <20"
+  },
+  "devDependencies": {
+    "@rightkit/platform-ui": "workspace:*",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bogusyogi/claude.git",
+    "directory": "tools/rightkit/packages/app-shell"
+  },
+  "packageManager": "pnpm@11.24.0"
+}

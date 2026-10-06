@@ -1,0 +1,26 @@
+[package]
+name = "rightkit-playback"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+keywords = ["ffmpeg", "playback", "media", "remux"]
+categories = ["multimedia::video"]
+publish = false
+include = ["src/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+default = []
+tauri = ["dep:tauri"]
+
+[dependencies]
+rightkit-media = { path = "../rightkit-media", version = "=0.1.0" }
+rightkit-process = { path = "../rightkit-process", version = "=0.1.0" }
+parking_lot = "=0.12.5"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+sha2 = "=0.10.9"
+tauri = { version = "2", optional = true, default-features = false }

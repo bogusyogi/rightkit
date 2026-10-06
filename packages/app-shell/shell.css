@@ -1,0 +1,142 @@
+/* @rightkit/app-shell — fused sidebar + titlebar on one --chrome surface.
+   The active nav row joins the --plane content surface through 12px concave
+   radial-mask corners. Apps supply brand colour only:
+
+     :root { --rk-brand: #7040c4; --rk-brand-dark: #9567f5; --rk-wordmark: "Tanker", sans-serif; }
+
+   Flat suite tokens (--chrome --plane --ink --accent ...) are defined here and
+   shared with app view CSS. Dark follows the OS unless html[data-theme] is set. */
+
+:root {
+  --rk-brand: #7040c4;
+  --rk-brand-dark: var(--rk-brand);
+  --rk-sidebar-width: 220px;
+  --rk-titlebar-height: 52px;
+  --rk-lights-width: 72px;
+  --wordmark: var(--rk-wordmark, inherit);
+
+  --chrome: #eee9df; --plane: #fffcf5; --elevated: #ffffff;
+  --win: var(--plane); --side: var(--chrome); --bg: var(--plane); --panel: #ffffff; --sunk: #f6f1e8;
+  --fill: rgba(35,31,26,.05); --fill-2: rgba(35,31,26,.085); --fill-3: rgba(35,31,26,.13);
+  --line: rgba(35,31,26,.11); --line-strong: rgba(35,31,26,.18); --hairline: rgba(35,31,26,.11);
+  --ink: #231f1a; --ink-2: #6b655c; --ink-3: #8a8378;
+  --accent: var(--rk-brand);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-ink: #ffffff;
+  --focus: color-mix(in srgb, var(--accent) 35%, transparent);
+  --ok: #1e7f3c; --ok-dot: #2ba24a; --ok-soft: rgba(43,162,74,.14);
+  --warn: #b25000; --warn-dot: #e08a00; --warn-soft: rgba(224,138,0,.14);
+  --bad: #c4001a; --bad-soft: rgba(196,0,26,.1);
+  --radius: 12px; --card: 0 0 0 .5px rgba(35,31,26,.09), 0 1px 3px rgba(35,31,26,.06);
+  --knob: 0 1px 2px rgba(35,31,26,.14), 0 0 0 .5px rgba(35,31,26,.06);
+  --sel: rgba(35,31,26,.06); --seg-on: #ffffff; --ghost: #ffffff;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --chrome: #0f0f10; --plane: #17171a; --elevated: #1f1f23; --panel: #1f1f23; --sunk: #1c1c1f;
+    --fill: rgba(242,240,236,.055); --fill-2: rgba(242,240,236,.09); --fill-3: rgba(242,240,236,.14);
+    --line: rgba(242,240,236,.09); --line-strong: rgba(242,240,236,.16); --hairline: rgba(242,240,236,.09);
+    --ink: #f2f0ec; --ink-2: #969390; --ink-3: #6e6b68;
+    --accent: var(--rk-brand-dark); --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+    --focus: color-mix(in srgb, var(--accent) 50%, transparent);
+    --ok: #4cd07d; --ok-dot: #4cd07d; --ok-soft: rgba(76,208,125,.16);
+    --warn: #ffb340; --warn-dot: #ffb340; --warn-soft: rgba(255,179,64,.16);
+    --bad: #ff6961; --bad-soft: rgba(255,105,97,.12);
+    --card: 0 0 0 .5px rgba(242,240,236,.08); --knob: 0 1px 2px rgba(0,0,0,.4);
+    --sel: rgba(242,240,236,.1); --seg-on: #3a3a42; --ghost: #2a2a30;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --chrome: #0f0f10; --plane: #17171a; --elevated: #1f1f23; --panel: #1f1f23; --sunk: #1c1c1f;
+  --fill: rgba(242,240,236,.055); --fill-2: rgba(242,240,236,.09); --fill-3: rgba(242,240,236,.14);
+  --line: rgba(242,240,236,.09); --line-strong: rgba(242,240,236,.16); --hairline: rgba(242,240,236,.09);
+  --ink: #f2f0ec; --ink-2: #969390; --ink-3: #6e6b68;
+  --accent: var(--rk-brand-dark); --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --focus: color-mix(in srgb, var(--accent) 50%, transparent);
+  --ok: #4cd07d; --ok-dot: #4cd07d; --ok-soft: rgba(76,208,125,.16);
+  --warn: #ffb340; --warn-dot: #ffb340; --warn-soft: rgba(255,179,64,.16);
+  --bad: #ff6961; --bad-soft: rgba(255,105,97,.12);
+  --card: 0 0 0 .5px rgba(242,240,236,.08); --knob: 0 1px 2px rgba(0,0,0,.4);
+  --sel: rgba(242,240,236,.1); --seg-on: #3a3a42; --ghost: #2a2a30;
+  color-scheme: dark;
+}
+
+.rk-shell, .rk-shell *, .rk-shell *::before, .rk-shell *::after { box-sizing: border-box; }
+.rk-shell {
+  display: flex; flex-direction: column; height: 100vh; background: var(--chrome); color: var(--ink);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; letter-spacing: -.003em; user-select: none; -webkit-user-select: none;
+}
+.rk-shell button { font: inherit; color: inherit; cursor: default; }
+.rk-shell input, .rk-shell textarea, .rk-shell .selectable { user-select: text; -webkit-user-select: text; }
+
+/* Fused titlebar: spans the window on the same chrome surface as the sidebar. */
+.rk-top { display: flex; align-items: center; gap: 10px; height: var(--rk-titlebar-height); padding: 0 14px 0 0; background: var(--chrome); flex: none; }
+.rk-top__side { display: flex; align-items: center; width: var(--rk-sidebar-width); flex: none; height: 100%; padding: 0 14px 0 16px; gap: 10px; }
+.rk-top__lights { width: var(--rk-lights-width); height: 100%; flex: none; }
+.rk-top__title { font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.rk-top__drag { flex: 1; align-self: stretch; }
+.rk-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border: 0; border-radius: 99px; background: var(--fill-2); font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+.rk-pill--warn { background: var(--warn-soft); color: var(--warn); }
+
+/* Windows / Linux caption buttons. */
+.rk-caption { display: flex; align-self: stretch; margin-right: -14px; margin-left: 6px; }
+.rk-caption__btn { width: 46px; border: 0; background: transparent; color: var(--ink-2); display: flex; align-items: center; justify-content: center; }
+.rk-caption__btn:hover { background: var(--fill-2); color: var(--ink); }
+.rk-caption__btn:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.rk-caption__close:hover { background: #c42b1c; color: #fff; }
+
+.rk-body { flex: 1; min-height: 0; display: flex; }
+.rk-side { background: var(--chrome); width: var(--rk-sidebar-width); flex: none; display: flex; flex-direction: column; min-height: 0; }
+.rk-plane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--plane); border-top-left-radius: 20px; overflow: hidden; }
+
+.rk-search { margin: 8px 10px 6px; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: 7px; background: var(--fill-2); color: var(--ink-3); font-size: 13px; flex: none; }
+.rk-search:focus-within { background: var(--elevated); box-shadow: 0 0 0 2px var(--focus); }
+.rk-search svg { width: 14px; height: 14px; flex: none; }
+.rk-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; }
+.rk-search .rightkit-kbd-chord { display: inline-flex; gap: var(--rightkit-kbd-gap, 2px); margin-left: auto; }
+.rk-search .rightkit-kbd-key { font: 11px -apple-system, system-ui, sans-serif; color: var(--ink-3); }
+
+.rk-nav { overflow-y: auto; overflow-x: hidden; padding: 0 0 14px; flex: 1; scrollbar-width: thin; }
+.rk-group { margin-top: 14px; }
+.rk-group h6 { margin: 0 8px 3px; padding: 0 10px; font-size: 11px; font-weight: 600; color: var(--ink-3); }
+
+/* The active row extends to the plane edge and joins it with concave 12px
+   radial-mask corners — never a detached pill. */
+.rk-item { position: relative; display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); height: 30px; margin: 0 8px; padding: 0 8px 0 10px; border: 0; background: none; border-radius: 8px; color: var(--ink); text-align: left; font-size: 13px; transition: background-color .12s; }
+.rk-item:hover { background: var(--fill); }
+.rk-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.rk-item > svg:not(.rk-fuse) { width: 16px; height: 16px; flex: none; color: var(--accent); }
+.rk-item__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-item__badge { margin-left: auto; font-size: 11px; color: var(--ink-3); display: inline-flex; align-items: center; }
+.rk-item.is-active { z-index: 1; width: calc(100% - 8px); margin-right: 0; border-radius: 12px 0 0 12px; background: var(--plane); }
+.rk-item .rk-fuse { position: absolute; right: 0; width: 12px; height: 12px; fill: var(--plane); color: initial; pointer-events: none; }
+.rk-item .rk-fuse--top { top: -12px; }
+.rk-item .rk-fuse--bottom { bottom: -12px; transform: scaleY(-1); }
+
+.rk-side__foot { display: flex; flex-direction: column; flex: none; }
+.rk-status { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--ink-2); padding: 10px 18px; }
+.rk-status__row { display: flex; justify-content: space-between; }
+.rk-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--ink-3); }
+.rk-dot--ok { background: var(--ok-dot); }
+.rk-dot--warn { background: var(--warn-dot); }
+.rk-dot--bad { background: var(--bad); }
+
+/* Bottom-left wordmark with settings and appearance beside it. */
+.rk-brand-foot { display: flex; align-items: center; gap: 2px; height: 44px; padding: 0 10px 0 16px; border-top: .5px solid var(--hairline); }
+.rk-wordmark { margin-right: auto; font: 400 20px/1 var(--wordmark); color: var(--ink); white-space: nowrap; user-select: none; }
+.rk-wordmark em, .rk-wordmark span { font-style: normal; color: var(--accent); }
+.rk-icon-btn { width: 28px; height: 28px; flex: none; border-radius: 7px; display: grid; place-items: center; color: var(--ink-2); border: 0; background: none; transition: background-color .12s, color .12s; }
+.rk-icon-btn:hover, .rk-icon-btn.is-open, .rk-pop[open] .rk-icon-btn { background: var(--fill-2); color: var(--ink); }
+.rk-icon-btn svg { width: 16px; height: 16px; }
+.rk-pop { position: relative; }
+.rk-pop > summary { list-style: none; }
+.rk-pop > summary::-webkit-details-marker { display: none; }
+.rk-popup { position: absolute; bottom: 36px; right: 0; min-width: 150px; background: var(--elevated); border-radius: 10px; box-shadow: 0 0 0 .5px var(--line-strong), 0 12px 32px rgba(0,0,0,.2); padding: 5px; z-index: 60; display: flex; flex-direction: column; }
+.rk-popup__label { font-size: 11px; color: var(--ink-3); padding: 4px 8px; }
+.rk-popup button { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; font-size: 12.5px; color: var(--ink); text-align: left; }
+.rk-popup button:hover { background: var(--fill-2); }
+.rk-popup button:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }

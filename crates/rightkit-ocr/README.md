@@ -41,7 +41,7 @@ Runtime binary is bundled.
 - ~~Authoritative model label/source and license record.~~ Resolved 2026-07-14
   (PP-OCRv6, official PaddlePaddle, Apache-2.0 — see `PROVENANCE.toml`).
 - Signed Right Release model and per-OS ORT artifact catalog.
-- macOS bundled-dylib parity evidence.
+- ~~macOS bundled-dylib parity evidence.~~ Passed 2026-10-06 (`tests/real_model_e2e.rs`).
 - Adapter parity after both apps migrate.
 
 Licensed under MIT OR Apache-2.0. Models and ONNX Runtime retain independent

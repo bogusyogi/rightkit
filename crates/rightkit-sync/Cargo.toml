@@ -1,0 +1,16 @@
+[package]
+name = "rightkit-sync"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Brand-neutral desktop/mobile cloud sync engine: change tokens, tombstones, last-writer-wins conflicts, resumable batches, offline queue, retry/backoff."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+keywords = ["sync", "cloudkit", "tombstone", "offline"]
+categories = ["data-structures"]
+include = ["src/**", "tests/**", "README.md", "API.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"

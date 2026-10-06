@@ -15,6 +15,7 @@ Shared, platform-neutral primitives for every Right Suite app.
 | [`@rightkit/legal-ui`](packages/legal-ui) | TypeScript + React | Shared desktop legal acceptance gate |
 | [`@rightkit/license`](packages/license) | TypeScript | License network, storage, and UX client |
 | [`@rightkit/logs`](packages/logs) | TypeScript + Rust payload | Durable local JSONL logging and privacy-safe diagnostics bundles |
+| [`@rightkit/media-ui`](packages/media-ui) + [`rightkit-playback`](crates/rightkit-playback) | TypeScript + React, Rust | Brand-neutral media player, image viewer/editor, and FFmpeg playback-compat core |
 | [`@rightkit/platform-ui`](packages/platform-ui) | TypeScript + React | Platform detection, shortcut rendering, capabilities, and headless window controls |
 | [`@rightkit/qa`](packages/qa) | Node CLI | Cross-platform desktop QA gates |
 | [`@rightkit/release`](packages/release) | Node CLI | Native-host signed release, hardening, explicit GitHub/R2 distribution, and add-on adoption |

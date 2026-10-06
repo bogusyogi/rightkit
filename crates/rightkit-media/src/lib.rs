@@ -637,6 +637,37 @@ mod tests {
     }
 
     #[test]
+    fn embedded_catalog_approves_exactly_one_artifact_per_shipped_platform() {
+        let catalog = ArtifactCatalog::parse(APPROVED_CATALOG_JSON).unwrap();
+        for (os, arch, id, digest) in [
+            (
+                "windows",
+                "x86_64",
+                "ffmpeg-7.1.5-windows-x64",
+                "ded75c0edf344b9eed5876cd6cc469b7366b00c4dd0f25b3965062965c33990d",
+            ),
+            (
+                "macos",
+                "aarch64",
+                "ffmpeg-7.1.5-macos-arm64",
+                "a42a50dbfa8502481db21da247f7fe45ee0c8e8b1bb98bd68558faf64faf4258",
+            ),
+            (
+                "macos",
+                "x86_64",
+                "ffmpeg-7.1.5-macos-x86_64",
+                "2ba456b336d5faa75e2783e4e2c49434d9b26e765621eae6669d10e5b4303929",
+            ),
+        ] {
+            let artifact = catalog.approved(os, arch).unwrap();
+            assert_eq!(artifact.id, id);
+            assert_eq!(artifact.sha256, digest);
+            assert_eq!(artifact.version, "7.1.5");
+            assert_eq!(artifact.attribution.license_spdx, "LGPL-2.1-or-later");
+        }
+    }
+
+    #[test]
     fn catalog_rejects_unknown_fields_instead_of_silently_ignoring_them() {
         let mut value: serde_json::Value = serde_json::from_str(APPROVED_CATALOG_JSON).unwrap();
         value["artifacts"][0]["unreviewedPolicy"] = serde_json::Value::Bool(true);

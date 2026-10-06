@@ -7,6 +7,9 @@ overrides:
 allowBuilds:
   # Transitive WDIO browser drivers. The native lane drives Tauri's own WebDriver,
   # never Edge or Firefox, so their download postinstalls stay off.
+  # node-canvas (fabric transitive) is unused — media-ui renders on the DOM
+  # canvas only, so its native postinstall stays off.
+  canvas: false
   edgedriver: false
   esbuild: true
   geckodriver: false

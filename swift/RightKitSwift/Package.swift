@@ -11,6 +11,12 @@ let package = Package(
         .library(name: "RightKitLicense", targets: ["RightKitLicense"]),
         .library(name: "RightKitDiagnostics", targets: ["RightKitDiagnostics"]),
         .library(name: "RightKitArtifacts", targets: ["RightKitArtifacts"]),
+        .library(name: "RightKitPurchases", targets: ["RightKitPurchases"]),
+        .library(name: "RightKitCloudSync", targets: ["RightKitCloudSync"]),
+        .library(name: "RightKitStore", targets: ["RightKitStore"]),
+        .library(name: "RightKitImportQueue", targets: ["RightKitImportQueue"]),
+        .library(name: "RightKitLiveActivity", targets: ["RightKitLiveActivity"]),
+        .library(name: "RightKitWatchBridge", targets: ["RightKitWatchBridge"]),
     ],
     targets: [
         .target(name: "RightKitLicense"),
@@ -24,5 +30,21 @@ let package = Package(
             dependencies: ["RightKitLicense"],
             resources: [.process("Contracts")],
         ),
+        // StoreKit 2 purchases, entitlement ledger, and the bridge into RightKitLicense access.
+        .target(name: "RightKitPurchases", dependencies: ["RightKitLicense"]),
+        .testTarget(name: "RightKitPurchasesTests", dependencies: ["RightKitPurchases", "RightKitLicense"]),
+        // Generic CloudKit record sync; Foundation/CloudKit/Network only.
+        .target(name: "RightKitCloudSync"),
+        .testTarget(name: "RightKitCloudSyncTests", dependencies: ["RightKitCloudSync"]),
+        // App Group primitives, share-extension intake queue, Live Activity lifecycle, WatchConnectivity
+        // delivery ledger. Foundation-only (ActivityKit/WatchConnectivity guarded by canImport).
+        .target(name: "RightKitStore"),
+        .testTarget(name: "RightKitStoreTests", dependencies: ["RightKitStore"]),
+        .target(name: "RightKitImportQueue", dependencies: ["RightKitStore"]),
+        .testTarget(name: "RightKitImportQueueTests", dependencies: ["RightKitImportQueue"]),
+        .target(name: "RightKitLiveActivity"),
+        .testTarget(name: "RightKitLiveActivityTests", dependencies: ["RightKitLiveActivity"]),
+        .target(name: "RightKitWatchBridge"),
+        .testTarget(name: "RightKitWatchBridgeTests", dependencies: ["RightKitWatchBridge"]),
     ],
 )

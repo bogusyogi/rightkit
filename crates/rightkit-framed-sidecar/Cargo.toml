@@ -10,7 +10,6 @@ repository = "https://github.com/bogusyogi/claude"
 keywords = ["sidecar", "ipc", "jsonl", "stdio"]
 categories = ["encoding"]
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
-publish = false
 
 [dependencies]
 serde = { version = "=1.0.228", features = ["derive"] }

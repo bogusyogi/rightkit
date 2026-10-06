@@ -1,0 +1,17 @@
+{
+  "$comment": "Single list of every shared capability the template cannot yet consume by published version. `pnpm check:template` asserts none of these is declared as a real dependency; when one is published, add it to package.json/Cargo.toml at an exact pin, delete its stand-in, and remove the entry here.",
+  "npm": {
+    "@rightkit/app-shell": { "status": "UPCOMING", "standIn": "src/shell/AppShell.tsx" },
+    "@rightkit/media-ui": { "status": "in tools/rightkit/packages/media-ui, not in rightkit-versions.json", "standIn": "comment in src/App.tsx" },
+    "@rightkit/qa": { "status": "private until Windows+macOS phase gate", "standIn": "tests/e2e + puppeteer-core" }
+  },
+  "cargo": {
+    "rightkit-jobs": { "status": "UPCOMING", "standIn": "none (engine has no job store yet)" },
+    "rightkit-framed-sidecar": { "status": "publish = false", "standIn": "crates/protocol/src/framed.rs" },
+    "rightkit-db": { "status": "not in rightkit-versions.json", "standIn": "none (add when the app owns a database)" }
+  },
+  "scripts": {
+    "scripts/package-placeholder.mjs": "copy GenRight scripts/{mac-dmg,win-nsis,sign-macos-bundle,install-macos-development}.mjs",
+    "src-tauri/tauri.conf.json plugins.updater": "endpoint + pubkey are placeholders; use the suite updater pubkey and the app's R2/GitHub endpoint"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "name": "rightapp",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm brand:sync && vite --host 127.0.0.1 --port 5190 --strictPort",
+    "build": "pnpm brand:sync && tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "brand:sync": "node scripts/generate-brand-theme.mjs",
+    "build:engine": "node scripts/build-engine-for-tauri.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "test": "pnpm run test:rust && pnpm run test:e2e",
+    "test:rust": "rightkit cargo test --manifest-path Cargo.toml",
+    "test:e2e": "node scripts/e2e.mjs --tier fast",
+    "check:template": "node scripts/check-template.mjs",
+    "init:app": "node scripts/init-from-template.mjs",
+    "dev:build:win": "right-release dev --platform win",
+    "dev:build:mac": "right-release dev --platform mac",
+    "release:doctor": "right-release doctor",
+    "release:build:mac": "right-release build --platform mac",
+    "release:build:win": "right-release build --platform win",
+    "release:upload:patch:mac": "right-release upload --config right-release.config.mjs --platform mac --tier patch",
+    "release:upload:patch:win": "right-release upload --config right-release.config.mjs --platform win --tier patch",
+    "release:upload:update:mac": "right-release upload --config right-release.config.mjs --platform mac --tier update",
+    "release:upload:update:win": "right-release upload --config right-release.config.mjs --platform win --tier update",
+    "deps:check": "right-release deps --check",
+    "deps:audit": "right-release deps --audit",
+    "deps:update": "right-release deps --update",
+    "rightkit:package:mac": "node scripts/package-placeholder.mjs mac",
+    "rightkit:package:win": "node scripts/package-placeholder.mjs win"
+  },
+  "dependencies": {
+    "@rightkit/logs": "0.1.4",
+    "@rightkit/platform-ui": "0.1.0",
+    "@rightkit/tauri": "0.1.1",
+    "@rightkit/updates": "0.2.4",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-os": "^2.3.2",
+    "@tauri-apps/plugin-process": "2.3.1",
+    "@tauri-apps/plugin-updater": "2.10.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@rightkit/release": "0.2.110",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.0",
+    "puppeteer-core": "^25.9.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.2"
+  }
+}

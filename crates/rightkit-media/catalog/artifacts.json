@@ -23,6 +23,52 @@
         "--disable-nonfree",
         "--disable-autodetect"
       ]
+    },
+    {
+      "id": "ffmpeg-7.1.5-macos-arm64",
+      "os": "macos",
+      "arch": "aarch64",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "a42a50dbfa8502481db21da247f7fe45ee0c8e8b1bb98bd68558faf64faf4258",
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "attribution": {
+        "licenseSpdx": "LGPL-2.1-or-later",
+        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+        "buildProvenance": "third-party/BUILD-NOTES-macos-arm64.txt",
+        "noticeFiles": [
+          "third-party/LGPL-2.1.txt",
+          "third-party/BUILD-NOTES-macos-arm64.txt"
+        ]
+      },
+      "requiredConfigureFlags": [
+        "--disable-gpl",
+        "--disable-nonfree",
+        "--disable-autodetect"
+      ]
+    },
+    {
+      "id": "ffmpeg-7.1.5-macos-x86_64",
+      "os": "macos",
+      "arch": "x86_64",
+      "version": "7.1.5",
+      "status": "approved",
+      "sha256": "2ba456b336d5faa75e2783e4e2c49434d9b26e765621eae6669d10e5b4303929",
+      "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "attribution": {
+        "licenseSpdx": "LGPL-2.1-or-later",
+        "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+        "buildProvenance": "third-party/BUILD-NOTES-macos-x86_64.txt",
+        "noticeFiles": [
+          "third-party/LGPL-2.1.txt",
+          "third-party/BUILD-NOTES-macos-x86_64.txt"
+        ]
+      },
+      "requiredConfigureFlags": [
+        "--disable-gpl",
+        "--disable-nonfree",
+        "--disable-autodetect"
+      ]
     }
   ]
 }

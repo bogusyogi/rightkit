@@ -1,0 +1,14 @@
+FFmpeg 7.1.5 — LGPL static build for macOS arm64 (Right Suite shared)
+Built: 2026-07-15 on Apple Silicon, Apple clang 21.
+configure: --disable-gpl --disable-nonfree --disable-autodetect --enable-static
+           --disable-shared --disable-doc --disable-debug --disable-ffplay --enable-small
+           --arch=arm64 --cc="clang -arch arm64"
+License: LGPL v2.1+ (configure reports "License: LGPL version 2.1 or later";
+         config.mak has !CONFIG_GPL, !CONFIG_NONFREE, !CONFIG_LIBX264,
+         !CONFIG_LIBX265, !CONFIG_LIBFDK_AAC — all disabled).
+Source: https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz (unmodified upstream).
+Use: decode-only (audio extraction). Shipped as a separate executable we shell
+     out to, so there is no static-linking/relinking obligation — notice + source
+     offer only. Wire via HR_FFMPEG_DARWIN_SRC (HeardRight) / FFMPEG_DARWIN_SRC
+     (ScrapeRight).
+sha256: a42a50dbfa8502481db21da247f7fe45ee0c8e8b1bb98bd68558faf64faf4258

@@ -1,0 +1,12 @@
+{
+  "code": "rightapp",
+  "name": "RightApp",
+  "colors": {
+    "brand": "#4F7CFF",
+    "brand-action": "#3A63D6",
+    "brand-action-hover": "#2F52B8",
+    "brand-soft": "#EAF0FF",
+    "brand-ink": "#25408F",
+    "brand-border": "#B9CCFF"
+  }
+}

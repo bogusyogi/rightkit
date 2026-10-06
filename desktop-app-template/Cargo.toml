@@ -1,0 +1,23 @@
+# One Cargo workspace, one lockfile, one target tree (HeardRight/GenRight/ScrapeRight convention).
+# Profiles live HERE only: Cargo honours the root's profile.
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/protocol", "crates/engine"]
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# Fast dev packaging profile named by right-release.config.mjs `development` targets.
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
