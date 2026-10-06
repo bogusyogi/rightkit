@@ -36,3 +36,17 @@ test('cargo install is intentionally denied, including nested and external shado
   assert.throws(() => policy.classifyNested(null, 'cargo', ['install', 'some-crate']), { code: 'RK_COMMAND_DENIED' });
   assert.throws(() => new ThinCommandPolicy({ externalCommands: [{ shim: 'cargo', command: 'install', toolId: 'evil', digest }] }), /cannot shadow/);
 });
+
+test('cargo login is a credential-stdin control command; publish builds; tokens never ride argv', () => {
+  const login = policy.classify('cargo', ['login']);
+  assert.equal(login.lane, 'CONTROL'); assert.equal(login.credentialStdin, true); assert.equal(login.compile, false);
+  assert.equal(policy.classify('cargo', ['login', '--registry', 'crates-io', '-q']).credentialStdin, true);
+  assert.equal(policy.classify('cargo', ['+stable', 'login', '--registry=crates-io']).credentialStdin, true);
+  for (const argv of [['login', 'test-token-value'], ['login', '--registry', 'r', 'test-token-value'], ['login', '--', '--secret']]) {
+    assert.throws(() => policy.classify('cargo', argv), (error) => error.code === 'RK_COMMAND_DENIED' && !error.message.includes('test-token-value'));
+  }
+  const publish = policy.classify('cargo', ['publish', '-p', 'rightkit-db', '--dry-run']);
+  assert.equal(publish.lane, 'BUILD'); assert.equal(publish.compile, true); assert.equal(publish.credentialStdin, undefined);
+  assert.throws(() => policy.classify('cargo', ['publish', '--token', 'test-token-value']), /never on the command line/);
+  assert.throws(() => policy.classify('cargo', ['publish', '--token=test-token-value']), /never on the command line/);
+});

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { cancelManagedAgentJob, createManagedAgentRequest, loadRuntimeIdentity, submitAndWatchManagedAgentJob, rerunOnCurrentRuntime } from './index.mjs';
+import { cancelManagedAgentJob, createManagedAgentRequest, loadRuntimeIdentity, submitAndWatchManagedAgentJob, rerunOnCurrentRuntime, attachCargoLoginCredential } from './index.mjs';
 
 const write = (value, stream) => { if (typeof value === 'string' && value) stream.write(value); };
 const jobEvent = (event) => event.type === 'JOB_EVENT' ? event.event : event;
 const argv0 = process.env.RIGHTKIT_MANAGED_AGENT_SHIM ?? process.argv[1];
 try {
-  const message = createManagedAgentRequest({ argv0, argv: process.argv.slice(2), workspace: process.cwd(), environment: process.env, runtimeIdentity: await loadRuntimeIdentity() });
+  const message = await attachCargoLoginCredential(createManagedAgentRequest({ argv0, argv: process.argv.slice(2), workspace: process.cwd(), environment: process.env, runtimeIdentity: await loadRuntimeIdentity() }));
   let requestId; let cancelling;
   const cancel = (signal) => {
     if (!requestId || cancelling) return;

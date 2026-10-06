@@ -405,3 +405,13 @@ test('Windows job root gets a windowless console that the whole job tree inherit
   assert.equal(options.windowsHide, true); assert.equal(options.detached, false);
   assert.equal(options.stdio.some((entry) => entry === 'inherit' || Number.isInteger(entry)), false); // inherited stdio would suppress CREATE_NO_WINDOW
 });
+
+test('managed launcher stdin is the null device unless a job pipes a credential', () => {
+  const seen = [];
+  const addon = () => ({ assignRunningProcessToNewJob: () => ({ processHandle: 1 }), closeProcessHandle: () => {} });
+  const capture = (_command, _argv, spawnOptions) => { seen.push(spawnOptions.stdio[0]); return Object.assign(new EventEmitter(), { pid: 72 }); };
+  spawnManagedProcess('cargo', ['build'], { platform: 'win32', stdio: ['ignore', 'pipe', 'pipe'], loadJobAddon: addon }, capture);
+  spawnManagedProcess('cargo', ['login'], { platform: 'win32', stdio: ['pipe', 'pipe', 'pipe'], loadJobAddon: addon }, capture);
+  spawnManagedProcess('cargo', ['build'], { platform: 'win32', stdio: ['inherit', 'pipe', 'pipe'], loadJobAddon: addon }, capture);
+  assert.deepEqual(seen, ['ignore', 'pipe', 'ignore']);
+});

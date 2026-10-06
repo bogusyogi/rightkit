@@ -418,3 +418,22 @@ test('submit rides out a runtime cutover, then hands off on a runtime change', a
   // source checkout has no runtime-current sibling: nothing to hand off to
   assert.equal(rerunOnCurrentRuntime(new URL('./index.mjs', import.meta.url).href, [], { run: () => { throw new Error('must not run'); } }), null);
 });
+
+test('cargo login sends the token as credentialStdin only; argv tokens are refused before sending', async () => {
+  const { attachCargoLoginCredential, readCredentialLine } = await import('./index.mjs');
+  const login = (argv) => ({ shim: 'cargo', request: { argv } });
+  const read = async () => 'test-token-value';
+  assert.equal((await attachCargoLoginCredential(login(['login']), { read })).credentialStdin, 'test-token-value');
+  assert.equal((await attachCargoLoginCredential(login(['+stable', 'login', '--registry', 'crates-io']), { read })).credentialStdin, 'test-token-value');
+  for (const argv of [['login', 'test-token-value'], ['login', '--', 'x'], ['publish', '--token', 'test-token-value'], ['publish', '--token=test-token-value']]) {
+    await assert.rejects(attachCargoLoginCredential(login(argv), { read: async () => { throw new Error('must not prompt'); } }), /never on the command line/);
+  }
+  const build = login(['build']); assert.equal(await attachCargoLoginCredential(build, { read }), build);
+  const other = { shim: 'rustc', request: { argv: ['login'] } }; assert.equal(await attachCargoLoginCredential(other, { read }), other);
+  await assert.rejects(attachCargoLoginCredential(login(['login']), { read: async () => '' }), /no registry token/);
+  // piped stdin: first line, trimmed
+  const { PassThrough } = await import('node:stream');
+  const piped = new PassThrough(); const line = readCredentialLine({ stdin: piped, stderr: new PassThrough() });
+  piped.end('test-token-value\r\nignored\n');
+  assert.equal(await line, 'test-token-value');
+});

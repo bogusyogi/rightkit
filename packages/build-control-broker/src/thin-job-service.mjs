@@ -94,6 +94,21 @@ const BROKER_ENDPOINT_ENVIRONMENT_KEY = 'RIGHTKIT_BUILD_BROKER_SOCKET';
 // and even cancel hang forever (CodeRight, 2026-10-06). After the root process exits, wait a bounded
 // time for output to drain, then release the pipes and settle on the exit status.
 export const STDIO_DRAIN_MS = 10_000;
+
+/** A registry token travels only as credentialStdin, and only to a capability that pipes it (cargo login). */
+export function validateCredentialStdin(capability, credential) {
+  if (capability?.credentialStdin) {
+    if (typeof credential !== 'string' || !credential.trim() || credential.length > 8192 || /[\0\r\n]/.test(credential)) throw Object.assign(new TypeError('cargo login needs the registry token on stdin: run `rightkit cargo login` and paste it at the prompt, or pipe it in'), { code: 'RK_CREDENTIAL_REQUIRED' });
+  } else if (credential !== undefined) throw Object.assign(new TypeError('credentialStdin is accepted only for cargo login'), { code: 'RK_CREDENTIAL_UNEXPECTED' });
+}
+
+/** Rejection receipts record the attempted command; never let a token typed into argv reach them. */
+export function redactCredentialArgv(shim, argv) {
+  if (shim !== 'cargo' || !Array.isArray(argv)) return Array.isArray(argv) ? argv : [];
+  const login = argv.indexOf('login');
+  const redacted = login < 0 ? [...argv] : [...argv.slice(0, login + 1), ...argv.slice(login + 1).map((value) => value.startsWith('-') && !value.startsWith('--token') ? value : '<redacted>')];
+  return redacted.map((value, index) => value.startsWith('--token=') ? '--token=<redacted>' : redacted[index - 1] === '--token' ? '<redacted>' : value);
+}
 export function childExit(child, { drainMs = STDIO_DRAIN_MS, onStdioHeld = () => {} } = {}) {
   return new Promise((resolve, reject) => {
     let settled = false; let timer = null;
@@ -228,7 +243,7 @@ function hostResourceSnapshot() {
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #rustupHome; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #readResources; #readHostResources; #statfs; #now; #platform; #nativeOpenSsl; #jobs = new Map(); #admissions = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #rustupHome; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #readResources; #readHostResources; #statfs; #now; #platform; #nativeOpenSsl; #jobs = new Map(); #credentials = new WeakMap(); #admissions = new Map(); #stopping = false;
 
   static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, readResources = readManagedProcessResources, readHostResources = hostResourceSnapshot, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform, nativeOpenSsl = undefined } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
@@ -378,7 +393,7 @@ export class ThinJobService {
     if (rootAdmissionId) this.#admissions.set(rootAdmissionId, Object.freeze({
       id: rootAdmissionId,
       state: 'ADMITTING',
-      command: `${submittedMessage.shim} ${(submittedMessage.request?.argv ?? []).join(' ')}`.trim(),
+      command: `${submittedMessage.shim} ${redactCredentialArgv(submittedMessage.shim, submittedMessage.request?.argv ?? []).join(' ')}`.trim(),
       workspace: submittedMessage.request?.workspace ?? null,
       submittedAt: this.#now()
     }));
@@ -424,12 +439,14 @@ export class ThinJobService {
     let job;
     try {
       job = await this.#normalize(message, reservedId);
+      // Held only in memory, outside the job record: never persisted, logged, listed, or put in argv.
+      if (job.capability.credentialStdin) this.#credentials.set(job, message.credentialStdin);
     } catch (error) {
       if (reservedId) this.#admissions.delete(reservedId);
       // Receipted pre-execution failure (v2.7 §20): a request that fails before
       // admission still persists a typed rejection receipt so callers can
       // STATUS/ATTACH well-formed failures instead of losing them to a socket.
-      const shim = message?.shim; const argv = (message?.request?.argv ?? []);
+      const shim = message?.shim; const argv = redactCredentialArgv(shim, message?.request?.argv ?? []);
       const attempted = Object.freeze({
         id: reservedId ?? randomUUID(), state: 'REJECTED', status: 'REJECTED',
         command: `${shim} ${argv.join(' ')}`.trim(),
@@ -463,6 +480,7 @@ export class ThinJobService {
     const parent = parentId ? this.#jobs.get(parentId) : null;
     if (parentId && (!parent || parent.terminal)) throw Object.assign(new Error('nested parent request is not active'), { code: 'RK_PARENT_NOT_ACTIVE' });
     const capability = parent ? this.#policy.classifyNested(parent.capability, message.shim, request.argv) : this.#policy.classify(message.shim, request.argv);
+    validateCredentialStdin(capability, message.credentialStdin);
     const delegatedWorkspaceWrite = parent?.capability.external === true && parent.capability.lane === 'WORKSPACE_WRITE' && capability.lane === 'WORKSPACE_WRITE';
     const nestedCompiler = Boolean(parent) && ['rustc', 'rustdoc'].includes(message.shim);
     const delegatedCompiler = nestedCompiler && parent.capability.lane === 'BUILD' && parent.capability.compile === true;
@@ -599,7 +617,9 @@ export class ThinJobService {
         job.fingerprintCensusStart = job.freshnessTracker ? null : await fingerprintCensusStart(job.workspace.layout.target, job.invokeArgv, job.targetTriple ?? null).catch(() => null);
         this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: targetConsoleLine({ phase: 'start', target: job.targetAtStart }) } });
       }
-      job.child = spawnManagedProcess(job.tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: ['ignore', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
+      const credential = this.#credentials.get(job); this.#credentials.delete(job);
+      job.child = spawnManagedProcess(job.tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: [credential === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
+      if (credential !== undefined && job.child.stdin) { job.child.stdin.on('error', () => {}); job.child.stdin.end(`${credential}\n`); }
       job.exit = childExit(job.child, { onStdioHeld: () => void this.#logStdioHeld(job) });
       job.child.stdout?.on('data', (chunk) => this.#output(job, 'STDOUT', chunk));
       job.child.stderr?.on('data', (chunk) => this.#output(job, 'STDERR', chunk));

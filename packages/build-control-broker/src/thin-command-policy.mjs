@@ -27,6 +27,10 @@ const BUILD = commandCapability('BUILD', 'write', { compile: true, artifactWrite
 // BUILD permit for application lifetime would serialize unrelated development.
 const CARGO_RUN = commandCapability('BUILD', 'write', { compile: true, artifactWrite: true, cache: true, residentAfterBuild: true });
 const TOOLCHAIN_WRITE = commandCapability('TOOLCHAIN_WRITE', 'none');
+// `cargo login` writes the registry token into the broker-managed CARGO_HOME, where managed
+// `cargo publish` reads it. The token arrives only as the request's credentialStdin and is piped to
+// cargo's stdin, never as argv: argv is logged, listed, and visible in process tables.
+const CREDENTIAL_LOGIN = Object.freeze({ ...commandCapability('CONTROL', 'none'), credentialStdin: true });
 
 const CARGO_EXTERNAL_POLICY = Object.freeze({
   about: ANALYSIS,
@@ -85,6 +89,22 @@ function hasFlag(argv, flag) {
   return argv.slice(0, end < 0 ? argv.length : end).includes(flag);
 }
 
+const NO_ARGV_TOKEN = 'pass registry tokens only through `rightkit cargo login` (prompted or piped on stdin), never on the command line';
+const LOGIN_FLAGS_WITH_VALUE = new Set(['--registry', '--color', '--manifest-path', '--config', '-C', '-Z']);
+const LOGIN_FLAGS = new Set(['--quiet', '-q', '--verbose', '-v', '-vv', '--locked', '--frozen', '--offline']);
+
+/** `cargo login` may take only flags: a positional token or `--` credential-provider arguments would leak the secret into argv. */
+function assertLoginArgv(argv) {
+  let seenCommand = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (!seenCommand) { if (value === 'login') seenCommand = true; else if (LOGIN_FLAGS_WITH_VALUE.has(value)) index += 1; continue; }
+    if (LOGIN_FLAGS_WITH_VALUE.has(value)) { index += 1; continue; }
+    if (LOGIN_FLAGS.has(value) || /^--(registry|color|config)=/.test(value)) continue;
+    throw new DeniedThinCommandError('cargo', 'login', NO_ARGV_TOKEN);
+  }
+}
+
 function cargoCapability(command, argv) {
   if (DENIED_CARGO_COMMANDS.has(command)) throw new DeniedThinCommandError('cargo', command, DENIED_CARGO_COMMANDS.get(command));
   if (['--version', '-V', '-vV', 'version', 'help', 'locate-project', 'read-manifest'].includes(command)) return CONTROL;
@@ -96,6 +116,12 @@ function cargoCapability(command, argv) {
   if (['update', 'vendor', 'generate-lockfile', 'add', 'remove'].includes(command)) return WORKSPACE_WRITE;
   if (command === 'clean') return ARTIFACT_WRITE;
   if (command === 'run') return CARGO_RUN;
+  if (command === 'login') { assertLoginArgv(argv); return CREDENTIAL_LOGIN; }
+  if (command === 'publish') {
+    const end = argv.indexOf('--');
+    if (argv.slice(0, end < 0 ? argv.length : end).some((value) => value === '--token' || value.startsWith('--token='))) throw new DeniedThinCommandError('cargo', 'publish', NO_ARGV_TOKEN);
+    return BUILD;
+  }
   if (['build', 'check', 'test', 'bench', 'clippy', 'doc', 'rustc', 'rustdoc'].includes(command)) return BUILD;
   return null;
 }

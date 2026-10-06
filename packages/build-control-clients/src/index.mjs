@@ -295,6 +295,64 @@ export async function submitManagedAgentJobAcrossCutover(message, options = {}) 
   }
 }
 
+const CARGO_VALUE_FLAGS = new Set(['--manifest-path', '--config', '-C', '-Z', '--color', '--target-dir', '--registry']);
+const ARGV_TOKEN_REFUSAL = 'pass registry tokens only through `rightkit cargo login` (prompted or piped on stdin), never on the command line';
+
+/** Index of the Cargo subcommand in argv (skipping toolchain selectors and global flags), or -1. */
+export function cargoSubcommandIndex(argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (value === '--') return -1;
+    if (CARGO_VALUE_FLAGS.has(value)) { index += 1; continue; }
+    if (value.startsWith('-') || (value.startsWith('+') && value.length > 1)) continue;
+    return index;
+  }
+  return -1;
+}
+
+/** Reads one secret line: a hidden prompt on a terminal, otherwise the first line of piped stdin. */
+export function readCredentialLine({ stdin = process.stdin, stderr = process.stderr, prompt = 'rightkit: paste the registry token (input hidden), then Enter: ' } = {}) {
+  if (!stdin.isTTY) {
+    return new Promise((resolveRead, rejectRead) => {
+      let data = ''; stdin.setEncoding('utf8');
+      stdin.on('data', (chunk) => { data += chunk; }); stdin.once('error', rejectRead);
+      stdin.once('end', () => resolveRead(data.split(/\r?\n/)[0].trim()));
+    });
+  }
+  return new Promise((resolveRead, rejectRead) => {
+    let value = '';
+    stderr.write(prompt); stdin.setRawMode(true); stdin.setEncoding('utf8'); stdin.resume();
+    const finish = (error) => { stdin.off('data', onData); stdin.setRawMode(false); stdin.pause(); stderr.write('\n'); if (error) rejectRead(error); else resolveRead(value.trim()); };
+    const onData = (chunk) => {
+      for (const character of chunk) {
+        if (character === '\r' || character === '\n') return finish();
+        if (character === '\u0003' || character === '\u0004') return finish(new Error('cargo login cancelled'));
+        if (character === '\u007f' || character === '\b') { value = value.slice(0, -1); continue; }
+        if (character >= ' ') value += character;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
+/** `cargo login` carries its token as credentialStdin (piped to cargo by the broker), never in argv. Other requests pass through. */
+export async function attachCargoLoginCredential(message, { read = readCredentialLine } = {}) {
+  const argv = message?.shim === 'cargo' ? message.request?.argv ?? [] : [];
+  const login = cargoSubcommandIndex(argv);
+  if (argv[login] !== 'login') {
+    const end = argv.indexOf('--');
+    if (argv[login] === 'publish' && argv.slice(0, end < 0 ? argv.length : end).some((value) => value === '--token' || value.startsWith('--token='))) throw new TypeError(ARGV_TOKEN_REFUSAL);
+    return message;
+  }
+  for (let index = login + 1; index < argv.length; index += 1) {
+    if (CARGO_VALUE_FLAGS.has(argv[index])) { index += 1; continue; }
+    if (argv[index] === '--' || !argv[index].startsWith('-')) throw new TypeError(ARGV_TOKEN_REFUSAL);
+  }
+  const credential = await read();
+  if (!credential) throw new TypeError('no registry token entered');
+  return Object.freeze({ ...message, credentialStdin: credential });
+}
+
 /** Hand a RuntimeChangedError off to the same entry script in runtime-current; refuses to re-run itself. */
 export function rerunOnCurrentRuntime(entryUrl, argv = process.argv.slice(2), { run = spawnSync, environment = process.env } = {}) {
   const entry = fileURLToPath(entryUrl);

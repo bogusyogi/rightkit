@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cancelManagedAgentJob, createRightkitRequest, listManagedAgentJobs, loadRuntimeIdentity, statusManagedAgentJob, submitAndWatchManagedAgentJob, watchManagedAgentJob, rerunOnCurrentRuntime } from './index.mjs';
+import { cancelManagedAgentJob, createRightkitRequest, listManagedAgentJobs, loadRuntimeIdentity, statusManagedAgentJob, submitAndWatchManagedAgentJob, watchManagedAgentJob, rerunOnCurrentRuntime, attachCargoLoginCredential } from './index.mjs';
 import { createRemoteCoordinator } from './remote-coordinator.mjs';
 
 const write = (value, stream) => { if (typeof value === 'string' && value) stream.write(value); };
@@ -34,7 +34,7 @@ try {
     const result = await operation(argv[1], { runtimeIdentity, onEvent: streamJobEvent });
     process.stdout.write(`${JSON.stringify(result)}\n`); process.exitCode = result.exitCode ?? 0;
   } else {
-    const message = createRightkitRequest({ argv, workspace: process.cwd(), environment: process.env, runtimeIdentity });
+    const message = await attachCargoLoginCredential(createRightkitRequest({ argv, workspace: process.cwd(), environment: process.env, runtimeIdentity }));
     let requestId; let cancelling;
     const cancel = (signal) => {
       if (!requestId || cancelling) return;

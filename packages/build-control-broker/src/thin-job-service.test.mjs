@@ -787,3 +787,17 @@ test('a root whose stdio is held open by a survivor still settles after exit', a
   normal.emit('exit', 1, null); normal.emit('close', 1, null);
   assert.deepEqual(await clean, { code: 1, signal: null });
 });
+
+test('registry tokens are accepted only for credential capabilities and redacted from rejection records', async () => {
+  const { validateCredentialStdin, redactCredentialArgv } = await import('./thin-job-service.mjs');
+  const login = { credentialStdin: true };
+  assert.doesNotThrow(() => validateCredentialStdin(login, 'test-token-value'));
+  for (const bad of [undefined, '', '  ', 'a\nb', 'a\0b', 'x'.repeat(8193)]) assert.throws(() => validateCredentialStdin(login, bad), (error) => error.code === 'RK_CREDENTIAL_REQUIRED');
+  assert.throws(() => validateCredentialStdin({ lane: 'BUILD' }, 'test-token-value'), (error) => error.code === 'RK_CREDENTIAL_UNEXPECTED');
+  assert.doesNotThrow(() => validateCredentialStdin({ lane: 'BUILD' }, undefined));
+  assert.deepEqual(redactCredentialArgv('cargo', ['login', '--registry', 'test-token-value']), ['login', '--registry', '<redacted>']);
+  assert.deepEqual(redactCredentialArgv('cargo', ['login', 'test-token-value', '-q']), ['login', '<redacted>', '-q']);
+  assert.deepEqual(redactCredentialArgv('cargo', ['publish', '--token', 'test-token-value', '-p', 'x']), ['publish', '--token', '<redacted>', '-p', 'x']);
+  assert.deepEqual(redactCredentialArgv('cargo', ['publish', '--token=test-token-value']), ['publish', '--token=<redacted>']);
+  assert.deepEqual(redactCredentialArgv('cargo', ['build', '-p', 'x']), ['build', '-p', 'x']);
+});

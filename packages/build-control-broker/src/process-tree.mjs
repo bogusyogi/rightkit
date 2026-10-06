@@ -21,6 +21,10 @@ export const WINDOWS_CONTAINMENT_CONTRACT = Object.freeze({
 });
 function windowsContainmentError() { return Object.assign(new Error(WINDOWS_CONTAINMENT_CONTRACT.required), WINDOWS_CONTAINMENT_CONTRACT); }
 
+// stdin is 'ignore' unless a job explicitly pipes a credential (cargo login); the launcher passes its own
+// stdin straight through to the payload, so 'ignore' still means the null device all the way down.
+const launcherStdin = (spawnOptions) => spawnOptions.stdio?.[0] === 'pipe' ? 'pipe' : 'ignore';
+
 export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpawn) {
   if (typeof command !== 'string' || !command || !Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) throw new TypeError('managed command & argv are required');
   // `umask` travels in the payload, never in spawnOptions: it is applied by the
@@ -36,7 +40,7 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
     // windowsHide with no inherited stdio makes libuv pass CREATE_NO_WINDOW (never DETACHED_PROCESS): the
     // launcher gets a windowless console that cargo, rustc, build scripts & test binaries inherit, so their
     // console-subsystem children open no window whether or not the broker itself has a hidden console.
-    const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: ['ignore', spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: false, windowsHide: true });
+    const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: [launcherStdin(spawnOptions), spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: false, windowsHide: true });
     // Immediately, before any await: Node owns process creation so its IPC
     // channel can hold this pinned launcher at the START gate. The launcher
     // cannot spawn the managed payload until startManagedProcess sends START,
@@ -49,7 +53,7 @@ export function spawnManagedProcess(command, argv, options = {}, spawn = nodeSpa
     child.once('close', () => { try { addon.closeProcessHandle(handles.processHandle); } catch { /* best effort */ } });
     return child;
   }
-  const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: ['ignore', spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: true });
+  const child = spawn(process.execPath, [launcherPath, payload], { ...spawnOptions, stdio: [launcherStdin(spawnOptions), spawnOptions.stdio?.[1] ?? 'pipe', spawnOptions.stdio?.[2] ?? 'pipe', 'ipc'], detached: true });
   observeClose(child);
   if (platform === 'darwin') {
     child.on?.('message', (message) => {

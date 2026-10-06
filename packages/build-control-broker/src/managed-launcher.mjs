@@ -79,7 +79,7 @@ process.once('message', (message) => {
   started = true;
   clearTimeout(startupDeadline);
   if (Number.isSafeInteger(payload.umask)) process.umask(payload.umask);
-  child = spawn(payload.command, payload.argv, { stdio: ['ignore', 'inherit', 'inherit'], env: process.env, cwd: process.cwd() });
+  child = spawn(payload.command, payload.argv, { stdio: ['inherit', 'inherit', 'inherit'], env: process.env, cwd: process.cwd() });
   child.once('spawn', () => {
     process.send?.({ type: 'STARTED', pid: child.pid });
     beginResourceTelemetry(child.pid);
