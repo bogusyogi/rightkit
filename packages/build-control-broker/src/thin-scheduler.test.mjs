@@ -192,3 +192,12 @@ test('the memory guard never blocks the first compile root', async () => {
   const scheduler = new ThinScheduler({ compileBudget: 51, costUnitBytes: 1024 ** 3, hostAvailableMemory: () => 0 });
   (await scheduler.acquire({ id: 'only', capability: BUILD, workspaceKey: 'a', compileCost: 20 }).permit).release();
 });
+
+test('same-workspace waits are attributed to workspace exclusion, not host memory', async () => {
+  const scheduler = new ThinScheduler({ buildConcurrency: 2, compileBudget: 51, costUnitBytes: 1024 ** 3, hostAvailableMemory: () => 0 });
+  const first = await scheduler.acquire({ id: 'b-1', capability: BUILD, workspaceKey: 'same', compileCost: 20 }).permit;
+  const second = scheduler.acquire({ id: 'b-2', capability: BUILD, workspaceKey: 'same', compileCost: 20 });
+  await tick();
+  assert.deepEqual(second.blockers(), [{ id: 'b-1', reason: 'workspace-exclusion' }]);
+  first.release(); (await second.permit).release();
+});

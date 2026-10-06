@@ -118,14 +118,14 @@ export class ThinScheduler {
     if (ticket.lane === 'TOOLCHAIN_WRITE') { for (const other of this.#active.values()) note(other, 'toolchain-exclusive'); return; }
     if (this.#toolchainActive) for (const other of this.#active.values()) if (other.lane === 'TOOLCHAIN_WRITE') note(other, 'toolchain-write-active');
     if (this.#laneCount(ticket.lane) >= this.#limits[ticket.lane]) for (const other of this.#active.values()) if (other.lane === ticket.lane) note(other, `lane-cap:${ticket.lane}`);
+    const state = this.#workspaceState(ticket.workspaceKey);
+    if (state && ((ticket.access === 'read' && state.writer) || (ticket.access === 'write' && (state.writer || state.readers > 0)))) {
+      for (const other of this.#active.values()) if (other.workspaceKey === ticket.workspaceKey && (other.access === 'write' || ticket.access === 'write')) note(other, 'workspace-exclusion');
+    }
     if (ticket.cost !== null) {
       let used = 0; for (const other of this.#active.values()) used += other.cost ?? 0;
       const reason = used + ticket.cost > this.#compileBudget ? 'compile-budget' : used > 0 && this.#memoryShort(ticket) ? 'host-memory' : null;
       if (reason) for (const other of this.#active.values()) if (other.cost) note(other, reason);
-    }
-    const state = this.#workspaceState(ticket.workspaceKey);
-    if (state && ((ticket.access === 'read' && state.writer) || (ticket.access === 'write' && (state.writer || state.readers > 0)))) {
-      for (const other of this.#active.values()) if (other.workspaceKey === ticket.workspaceKey && (other.access === 'write' || ticket.access === 'write')) note(other, 'workspace-exclusion');
     }
   }
 

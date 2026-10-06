@@ -598,7 +598,7 @@ export class ThinJobService {
         ? Object.freeze({ mode: 'sccache-inherited', status: 'OK', delta: null })
         : await this.#cache.finish(job.cachePrepared);
       const status = job.cancelReason === 'deadline' ? 'TIMED_OUT' : job.cancelReason ? 'CANCELLED' : result.code === 0 ? 'SUCCEEDED' : 'FAILED';
-      return this.#finish(job, status, { exitCode: safeExit(result.code, status), signal: result.signal, reap, reason: job.cancelReason ?? (result.code === 0 ? null : 'tool-exit') });
+      return await this.#finish(job, status, { exitCode: safeExit(result.code, status), signal: result.signal, reap, reason: job.cancelReason ?? (result.code === 0 ? null : 'tool-exit') });
     } catch (error) {
       job.teardownStartedAt ??= this.#now();
       if (!job.parentId && job.cachePrepared && !job.cacheResult) job.cacheResult = await this.#cache.finish(job.cachePrepared).catch(() => null);
@@ -607,13 +607,13 @@ export class ThinJobService {
         const cacheEvent = Object.freeze({ type: 'CACHE_ADMISSION_BLOCKED', id: job.id, command: job.command, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cache: error.cache, code: error.code, error: error.message });
         this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: cacheEvent });
         await this.#log(cacheEvent);
-        return this.#finish(job, 'REJECTED', { exitCode: 125, reason: error.code, error: error.message });
+        return await this.#finish(job, 'REJECTED', { exitCode: 125, reason: error.code, error: error.message });
       }
       if (job.child) {
         const reap = await (job.termination ?? this.#terminate(job.child, { graceMs: integer(this.#config.bounds?.processGraceMs, 5_000, 1), platform: this.#platform }).catch((cause) => ({ reaped: false, reason: cause.message })));
-        return this.#finish(job, job.cancelReason === 'deadline' ? 'TIMED_OUT' : job.cancelReason || error.code === 'RK_QUEUE_CANCELLED' ? 'CANCELLED' : 'FAILED', { exitCode: 125, reason: job.cancelReason ?? error.code, error: error.message, reap });
+        return await this.#finish(job, job.cancelReason === 'deadline' ? 'TIMED_OUT' : job.cancelReason || error.code === 'RK_QUEUE_CANCELLED' ? 'CANCELLED' : 'FAILED', { exitCode: 125, reason: job.cancelReason ?? error.code, error: error.message, reap });
       }
-      return this.#finish(job, job.cancelReason === 'deadline' ? 'TIMED_OUT' : job.cancelReason || error.code === 'RK_QUEUE_CANCELLED' ? 'CANCELLED' : 'FAILED', { exitCode: 125, reason: job.cancelReason ?? error.code, error: error.message });
+      return await this.#finish(job, job.cancelReason === 'deadline' ? 'TIMED_OUT' : job.cancelReason || error.code === 'RK_QUEUE_CANCELLED' ? 'CANCELLED' : 'FAILED', { exitCode: 125, reason: job.cancelReason ?? error.code, error: error.message });
     } finally {
       if (job.sampleTimer) clearInterval(job.sampleTimer);
       job.permit?.release();
