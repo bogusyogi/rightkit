@@ -6,25 +6,6 @@ import Testing
     #expect(RightKitAppIntentError.commandRejected.errorDescription?.isEmpty == false)
 }
 
-@Test @MainActor func extensionDispatchRequiresQueueAdapter() async {
-    RightKitRecordingBridge.driver = nil
-    do {
-        _ = try await RightKitRecordingBridge.dispatch(.start)
-        Issue.record("dispatch unexpectedly succeeded without driver or queue")
-    } catch let error as RightKitAppIntentError {
-        #expect(error == .driverUnavailable)
-    } catch {
-        Issue.record("unexpected error: \(error)")
-    }
-}
-
-@Test @MainActor func extensionDispatchQueuesAndPostsWithoutDriver() async throws {
-    RightKitRecordingBridge.driver = nil
-    var queued = false
-    _ = try await RightKitRecordingBridge.dispatch(.toggle) { queued = true }
-    #expect(queued)
-}
-
 @MainActor private final class StubDriver: RightKitRecordingDriver {
     let processHandle = "stub"
     var isRecording = false
@@ -45,16 +26,38 @@ import Testing
     func copyLatestTranscript(source: String) async throws -> String { "latest transcript from \(source)" }
 }
 
-@Test @MainActor func copyLatestTranscriptDispatchesToDriverOrFailsExplicitly() async throws {
-    defer { RightKitRecordingBridge.driver = nil }
-    RightKitRecordingBridge.driver = TranscriptDriver()
-    #expect(try await RightKitRecordingBridge.dispatch(.copyLatestTranscript, source: "shortcut") == "latest transcript from shortcut")
-
-    RightKitRecordingBridge.driver = StubDriver()
-    await #expect(throws: RightKitAppIntentError.actionUnsupported("copyLatestTranscript")) {
-        _ = try await RightKitRecordingBridge.dispatch(.copyLatestTranscript)
+/// These tests share the process-wide `RightKitRecordingBridge.driver`, so they never run in parallel.
+@Suite(.serialized) @MainActor struct RecordingBridgeDispatchTests {
+    @Test func extensionDispatchRequiresQueueAdapter() async {
+        RightKitRecordingBridge.driver = nil
+        do {
+            _ = try await RightKitRecordingBridge.dispatch(.start)
+            Issue.record("dispatch unexpectedly succeeded without driver or queue")
+        } catch let error as RightKitAppIntentError {
+            #expect(error == .driverUnavailable)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
     }
-    await #expect(throws: RightKitAppIntentError.actionUnsupported("openApp")) {
-        _ = try await RightKitRecordingBridge.dispatch(.openApp)
+
+    @Test func extensionDispatchQueuesAndPostsWithoutDriver() async throws {
+        RightKitRecordingBridge.driver = nil
+        var queued = false
+        _ = try await RightKitRecordingBridge.dispatch(.toggle) { queued = true }
+        #expect(queued)
+    }
+
+    @Test func copyLatestTranscriptDispatchesToDriverOrFailsExplicitly() async throws {
+        defer { RightKitRecordingBridge.driver = nil }
+        RightKitRecordingBridge.driver = TranscriptDriver()
+        #expect(try await RightKitRecordingBridge.dispatch(.copyLatestTranscript, source: "shortcut") == "latest transcript from shortcut")
+
+        RightKitRecordingBridge.driver = StubDriver()
+        await #expect(throws: RightKitAppIntentError.actionUnsupported("copyLatestTranscript")) {
+            _ = try await RightKitRecordingBridge.dispatch(.copyLatestTranscript)
+        }
+        await #expect(throws: RightKitAppIntentError.actionUnsupported("openApp")) {
+            _ = try await RightKitRecordingBridge.dispatch(.openApp)
+        }
     }
 }
