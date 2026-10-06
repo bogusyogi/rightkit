@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "swift",
+  "name": "RightKitSwift",
+  "version": "0.3.0",
+  "commit": "9bf2454a9e4511bd5e674e8389febcb4dc4a36ca",
+  "artifactSha256": "a43c5e99a9e995b696e965f57565960f9b1c5380c98d9b7fc31687dd1e548c5d",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "9bf2454a9e4511bd5e674e8389febcb4dc4a36ca",
+      "command": "swift test --no-parallel --package-path tools/rightkit/swift/RightKitSwift",
+      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
+      "timestamp": "2026-10-06T23:29:18Z",
+      "passed": 91,
+      "failed": 0
+    }
+  ]
+}
