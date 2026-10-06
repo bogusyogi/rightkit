@@ -264,8 +264,13 @@ mod platform {
         let mut out = Vec::new();
         for i in 0..list.count() {
             let d = list.objectAtIndex(i);
-            let frame = d.objectForKey(&NSString::from_str("kCGWindowBounds")).and_then(|o| o.downcast::<Dict>().ok());
-            let bounds = frame.and_then(|f| Some(Rect { x: number(&f, "X")?, y: number(&f, "Y")?, width: number(&f, "Width")?, height: number(&f, "Height")? }));
+            let frame = d.objectForKey(&NSString::from_str("kCGWindowBounds")).and_then(|o| o.downcast::<NSDictionary>().ok());
+            let bounds = frame.and_then(|f| {
+                // CoreGraphics returns an untyped NSDictionary; reinterpret its known NSString /
+                // AnyObject parameters before using typed objectForKey accessors.
+                let f: &Dict = unsafe { f.cast_unchecked() };
+                Some(Rect { x: number(f, "X")?, y: number(f, "Y")?, width: number(f, "Width")?, height: number(f, "Height")? })
+            });
             out.push(WindowObservation {
                 owner: string(&d, "kCGWindowOwnerName").unwrap_or_default(),
                 title: string(&d, "kCGWindowName").unwrap_or_default(),

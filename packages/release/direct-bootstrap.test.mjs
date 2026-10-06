@@ -44,6 +44,7 @@ const manifestInput = {
   assets: [asset],
 };
 const acceptedSigner = { ...RIGHTRELEASE_MANIFEST_SIGNER, certificateSha256: "e".repeat(64) };
+const hasPwsh = spawnSync("pwsh", ["-NoProfile", "-Command", "exit 0"], { encoding: "utf8", windowsHide: true }).status === 0;
 
 test("release asset binds archive, provenance, and SBOM as immutable GitHub assets", () => {
   const dir = mkdtempSync(join(tmpdir(), "rightrelease-assets-"));
@@ -83,7 +84,7 @@ test("manifest authority identity and bound checksums are fixed", () => {
   });
 });
 
-test("generated PowerShell owns signed-manifest install, health, and rollback contract", () => {
+test("generated PowerShell owns signed-manifest install, health, and rollback contract", { skip: !hasPwsh }, () => {
   const script = renderPowerShellBootstrap({
     product: "legion",
     repository: "Orthic-Labs/legion",
@@ -178,7 +179,7 @@ test("generated Windows junction cutover preserves stable current path", { skip:
   }
 });
 
-test("opt-in local release root reuses verified install transaction without network acquisition", () => {
+test("opt-in local release root reuses verified install transaction without network acquisition", { skip: !hasPwsh }, () => {
   const script = renderPowerShellBootstrap({
     product: "membrane",
     repository: "Orthic-Labs/membrane",

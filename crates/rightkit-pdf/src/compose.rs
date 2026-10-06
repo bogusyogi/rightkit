@@ -85,7 +85,7 @@ use crate::inspect::{simple_font_identity_bytes, walk_page_graph};
 use crate::model::{
     document_sha256, effective_pdf_edit_commands, ComposedCandidate, PdfColor, PdfEditCommand,
     PdfEditError, PdfFontResolver, PdfOcrBackgroundProof, PdfPoint, PdfRect, PdfSourceLocator,
-    PdfSourceSpan, PdfTextAppearance, PdfTextEditState, ResolvedPdfFont,
+    PdfSourceSpan, PdfTextAppearance, PdfTextEditState, ResolvedPdfFont, Matrix,
 };
 
 // -------------------------------------------------------------------------------------------
@@ -426,6 +426,7 @@ fn apply_local_text_object_rewrite(
     let resource_name = add_font_resource(doc, page_id, font_obj_id)?;
 
     let mut content = decode_stream_content(doc, stream_id)?;
+    let reset_ctm = inverse_matrix(content_ctm(&content.operations));
 
     // Blank covered glyph bytes from the end backward so earlier spans' byte offsets (captured
     // against the pristine operand) stay valid while later ones are removed.
@@ -454,6 +455,7 @@ fn apply_local_text_object_rewrite(
         &after.appearance,
         anchor,
         &cid_codes,
+        reset_ctm,
     ));
 
     write_stream_content(doc, stream_id, &content)
@@ -520,10 +522,16 @@ fn apply_add_text(
 
     let (font_obj_id, cid_codes) = embed_type0_font(doc, &resolved, text)?;
     let resource_name = add_font_resource(doc, page_id, font_obj_id)?;
+    let reset_ctm = inverse_matrix(page_content_ctm(doc, page_id)?);
 
     let mut content = Content::decode(&[]).map_err(|_| PdfEditError::MalformedContent)?;
-    content.operations =
-        build_text_object_operations(&resource_name, appearance, anchor, &cid_codes);
+    content.operations = build_text_object_operations(
+        &resource_name,
+        appearance,
+        anchor,
+        &cid_codes,
+        reset_ctm,
+    );
     let encoded = content
         .encode()
         .map_err(|_| PdfEditError::MalformedContent)?;
@@ -567,10 +575,17 @@ fn apply_correct_ocr_text(
     }
     let (font_obj_id, cid_codes) = embed_type0_font(doc, &resolved, text)?;
     let resource_name = add_font_resource(doc, page_id, font_obj_id)?;
+    let reset_ctm = inverse_matrix(page_content_ctm(doc, page_id)?);
 
     let mut content = Content::decode(&[]).map_err(|_| PdfEditError::MalformedContent)?;
-    content.operations =
-        build_ocr_correction_operations(&resource_name, appearance, rect, cover_color, &cid_codes);
+    content.operations = build_ocr_correction_operations(
+        &resource_name,
+        appearance,
+        rect,
+        cover_color,
+        &cid_codes,
+        reset_ctm,
+    );
     let encoded = content
         .encode()
         .map_err(|_| PdfEditError::MalformedContent)?;
@@ -881,6 +896,128 @@ fn dict_entry_clone(doc: &Document, dict: &Dictionary, key: &[u8]) -> Dictionary
     }
 }
 
+fn matrix_from_operands(operands: &[Object]) -> Option<Matrix> {
+    let values: Vec<f64> = operands.iter().filter_map(object_number).collect();
+    match values.as_slice() {
+        [a, b, c, d, e, f] => Some(Matrix { a: *a, b: *b, c: *c, d: *d, e: *e, f: *f }),
+        _ => None,
+    }
+}
+
+fn content_ctm(operations: &[Operation]) -> Matrix {
+    let mut ctm = Matrix::IDENTITY;
+    let mut stack = Vec::new();
+    for operation in operations {
+        match operation.operator.as_str() {
+            "q" => stack.push(ctm),
+            "Q" => {
+                if let Some(saved) = stack.pop() {
+                    ctm = saved;
+                }
+            }
+            "cm" => {
+                if let Some(matrix) = matrix_from_operands(&operation.operands) {
+                    ctm = matrix.then(ctm);
+                }
+            }
+            _ => {}
+        }
+    }
+    ctm
+}
+
+fn page_content_ctm(doc: &Document, page_id: ObjectId) -> Result<Matrix, PdfEditError> {
+    let page = doc
+        .get_object(page_id)
+        .map_err(|_| PdfEditError::MalformedContent)?
+        .as_dict()
+        .map_err(|_| PdfEditError::MalformedContent)?;
+    let contents = page.get(b"Contents").map_err(|_| PdfEditError::MalformedContent)?;
+    let ids: Vec<ObjectId> = match contents {
+        Object::Reference(id) => vec![*id],
+        Object::Array(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                Object::Reference(id) => Some(*id),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mut ctm = Matrix::IDENTITY;
+    let mut stack = Vec::new();
+    for id in ids {
+        let stream = doc
+            .get_object(id)
+            .map_err(|_| PdfEditError::MalformedContent)?
+            .as_stream()
+            .map_err(|_| PdfEditError::MalformedContent)?;
+        let bytes = stream
+            .decompressed_content()
+            .map_err(|_| PdfEditError::MalformedContent)?;
+        let content = Content::decode(&bytes).map_err(|_| PdfEditError::MalformedContent)?;
+        for operation in content.operations {
+            match operation.operator.as_str() {
+                "q" => stack.push(ctm),
+                "Q" => {
+                    if let Some(saved) = stack.pop() {
+                        ctm = saved;
+                    }
+                }
+                "cm" => {
+                    if let Some(matrix) = matrix_from_operands(&operation.operands) {
+                        ctm = matrix.then(ctm);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(ctm)
+}
+
+fn inverse_matrix(matrix: Matrix) -> Option<Matrix> {
+    if (matrix.a - 1.0).abs() < f64::EPSILON
+        && matrix.b.abs() < f64::EPSILON
+        && matrix.c.abs() < f64::EPSILON
+        && (matrix.d - 1.0).abs() < f64::EPSILON
+        && matrix.e.abs() < f64::EPSILON
+        && matrix.f.abs() < f64::EPSILON
+    {
+        return None;
+    }
+    let determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+    if !determinant.is_finite() || determinant.abs() < f64::EPSILON {
+        return None;
+    }
+    let a = matrix.d / determinant;
+    let b = -matrix.b / determinant;
+    let c = -matrix.c / determinant;
+    let d = matrix.a / determinant;
+    Some(Matrix {
+        a,
+        b,
+        c,
+        d,
+        e: -(matrix.e * a + matrix.f * c),
+        f: -(matrix.e * b + matrix.f * d),
+    })
+}
+
+fn matrix_operation(matrix: Matrix) -> Operation {
+    Operation::new(
+        "cm",
+        vec![
+            Object::Real(matrix.a as f32),
+            Object::Real(matrix.b as f32),
+            Object::Real(matrix.c as f32),
+            Object::Real(matrix.d as f32),
+            Object::Real(matrix.e as f32),
+            Object::Real(matrix.f as f32),
+        ],
+    )
+}
+
 /// One isolated `q / BT / Tf / rg / Tm / Tj / ET / Q` block showing `cid_codes` (Identity-H,
 /// 2-byte-per-code) through `resource_name` at `anchor`, in `appearance.color`/`appearance.size_pt`
 /// — the shared building block for both §9.2's appended local rewrite and §9.3's Add Text stream.
@@ -889,14 +1026,18 @@ fn build_text_object_operations(
     appearance: &PdfTextAppearance,
     anchor: PdfPoint,
     cid_codes: &[u16],
+    reset_ctm: Option<Matrix>,
 ) -> Vec<Operation> {
     let mut hex_bytes = Vec::with_capacity(cid_codes.len() * 2);
     for code in cid_codes {
         hex_bytes.extend_from_slice(&code.to_be_bytes());
     }
 
-    vec![
-        Operation::new("q", vec![]),
+    let mut operations = vec![Operation::new("q", vec![])];
+    if let Some(matrix) = reset_ctm {
+        operations.push(matrix_operation(matrix));
+    }
+    operations.extend([
         Operation::new("BT", vec![]),
         Operation::new(
             "Tf",
@@ -930,7 +1071,8 @@ fn build_text_object_operations(
         ),
         Operation::new("ET", vec![]),
         Operation::new("Q", vec![]),
-    ]
+    ]);
+    operations
 }
 
 /// Isolated correction stream: opaque cover first, then embedded text with the same Type0 font
@@ -941,9 +1083,13 @@ fn build_ocr_correction_operations(
     rect: PdfRect,
     cover_color: PdfColor,
     cid_codes: &[u16],
+    reset_ctm: Option<Matrix>,
 ) -> Vec<Operation> {
-    let mut operations = vec![
-        Operation::new("q", vec![]),
+    let mut operations = vec![Operation::new("q", vec![])];
+    if let Some(matrix) = reset_ctm {
+        operations.push(matrix_operation(matrix));
+    }
+    operations.extend([
         Operation::new(
             "rg",
             vec![
@@ -963,7 +1109,7 @@ fn build_ocr_correction_operations(
         ),
         Operation::new("f", vec![]),
         Operation::new("Q", vec![]),
-    ];
+    ]);
     operations.extend(build_text_object_operations(
         resource_name,
         appearance,
@@ -972,6 +1118,7 @@ fn build_ocr_correction_operations(
             y: rect.y + rect.height * 0.18,
         },
         cid_codes,
+        reset_ctm,
     ));
     operations
 }

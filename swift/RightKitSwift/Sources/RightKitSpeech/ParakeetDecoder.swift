@@ -6,6 +6,7 @@ struct ParakeetDecodeControlflowResult {
     let hits: [(id: Int, startSec: Float, durationFrames: Int)]
     let predictorCalls: Int
     let jointCalls: Int
+    let biasApplications: Int
 }
 
 /// Fixed-shape Joint inputs reused for every frame in one decode window.
@@ -66,6 +67,7 @@ func parakeetDecodeBeam(
     ]
     var predictorCalls = 0
     var jointCalls = 0
+    var biasApplications = 0
     let maxRounds = (realFrames + 1) * max(maxSymbols, 1) + 4
     var rounds = 0
 
@@ -101,6 +103,7 @@ func parakeetDecodeBeam(
 
             let emitted = hyp.hits.map(\.id)
             let bonuses = bias.nextTokenBonuses(emitted: emitted)
+            if !bonuses.isEmpty { biasApplications += 1 }
             let children: [ParakeetBeamHyp]
             if isTDT {
                 guard logits.count > durations.count else {
@@ -172,7 +175,8 @@ func parakeetDecodeBeam(
     return ParakeetDecodeControlflowResult(
         hits: beam.first?.hyp.hits ?? [],
         predictorCalls: predictorCalls,
-        jointCalls: jointCalls
+        jointCalls: jointCalls,
+        biasApplications: biasApplications
     )
 }
 
@@ -285,6 +289,7 @@ extension ParakeetCoreMLRuntime {
         )
         timer.predictorCalls = result.predictorCalls
         timer.jointCalls = result.jointCalls
+        timer.biasApplications += result.biasApplications
         timer.decoderMS += (CFAbsoluteTimeGetCurrent() - decodeStart) * 1000
         hits.append(contentsOf: result.hits.map { ($0.id, $0.startSec) })
     }

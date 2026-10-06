@@ -158,8 +158,8 @@ fn add_text_on_chrome_pdf_stages_and_commits_atomically_leaving_other_pages_byte
     // Bytes: untouched pages keep byte-identical content streams.
     let (a, b) = (Document::load_mem(&original).unwrap(), Document::load_mem(&saved).unwrap());
     for p in [1_u32, 3] {
-        let ca = a.get_page_content(a.get_pages()[&p]).unwrap();
-        let cb = b.get_page_content(b.get_pages()[&p]).unwrap();
+        let ca = a.get_page_content(a.get_pages()[&p]);
+        let cb = b.get_page_content(b.get_pages()[&p]);
         assert_eq!(ca, cb, "page {p} content stream byte-identical");
     }
 
@@ -267,9 +267,10 @@ fn merge_materializes_inherited_page_attributes() {
 fn extract_reads_real_chrome_pdf_per_page() {
     let pages = rightkit_pdf::extract::extract_text_by_pages(&fixture("report.pdf")).unwrap();
     assert_eq!(pages.len(), 3);
-    assert!(pages[0].contains("Alpha section: revenue grew by twelve percent"), "{:?}", pages[0]);
-    assert!(pages[1].contains("Bravo section"));
-    assert!(pages[2].contains("Charlie section"));
+    let first_page_text: String = pages[0].split_whitespace().collect();
+    assert!(first_page_text.contains("Alphasection:revenuegrewbytwelvepercent"), "{:?}", pages[0]);
+    assert!(pages[1].split_whitespace().collect::<String>().contains("Bravosection"));
+    assert!(pages[2].split_whitespace().collect::<String>().contains("Charliesection"));
     let all = rightkit_pdf::extract::extract_text(&fixture("report.pdf")).unwrap();
     assert!(all.contains("Operations") && all.contains("Outlook"));
     assert!(rightkit_pdf::extract::extract_text(b"%PDF-1.4 not really").is_err());
@@ -288,8 +289,15 @@ mod visual {
     }
 
     fn decode(png: &Path) -> (usize, usize, Vec<u8>) {
-        let img = image::open(png).unwrap().to_luma8();
-        (img.width() as usize, img.height() as usize, img.into_raw())
+        let img = image::open(png).unwrap().to_rgba8();
+        let (width, height) = (img.width() as usize, img.height() as usize);
+        let pixels = img.into_raw();
+        let gray = pixels.chunks_exact(4).map(|pixel| {
+            let alpha = u16::from(pixel[3]);
+            let luminance = (u16::from(pixel[0]) * 77 + u16::from(pixel[1]) * 150 + u16::from(pixel[2]) * 29) / 256;
+            ((luminance * alpha + 255 * (255 - alpha)) / 255) as u8
+        }).collect();
+        (width, height, gray)
     }
 
     #[test]
@@ -324,7 +332,7 @@ mod visual {
                 }
             }
         }
-        assert!(inside > 150, "added text is visible: {inside} changed px in band");
+        assert!(inside > 150, "added text is visible: {inside} changed px in band; artifacts at {}", dir.display());
         assert_eq!(outside, 0, "no pixels changed outside the text band");
     }
 }

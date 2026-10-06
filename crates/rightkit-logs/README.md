@@ -1,19 +1,21 @@
 # rightkit-logs
 
-GUI-free local logging and diagnostics for Right Suite Tauri apps.
+GUI-free local logging, diagnostics, and consented telemetry for Right Suite apps.
 
-The crate deliberately has no Tauri, async-runtime, network, or tracing dependency. Apps supply their log paths and content-free metadata; the crate owns the shared mechanics:
+The crate has no Tauri, async-runtime, or tracing dependency. Apps supply log paths, content-free metadata, consent, and an endpoint; the crate owns shared mechanics:
 
 - one JSON object per line with stable `schema_version`, `ts_ms`, `level`, and `event` fields;
-- synchronous, serialized append so crash-adjacent events are not intentionally buffered;
+- synchronous serialized append and a bounded non-blocking async writer;
 - size rotation to one `.1` predecessor;
 - bounded reads from current and rotated JSONL without loading whole logs;
 - one bundle-wide recent-event cap, followed by the most-recent-error anchor;
 - recursive privacy redaction with non-removable secret/content defaults;
 - malformed-row, missing-file, and truncation statistics instead of report failure;
-- a final serialized-byte cap that removes whole oldest events, never slices JSON.
+- a final serialized-byte cap that removes whole oldest events, never slices JSON;
+- a consent-gated durable outbox with key and free-text redaction before disk;
+- HTTPS upload with loopback HTTP reserved for local test servers, persisted backoff, and a pluggable transport.
 
-Nothing is uploaded. The host decides when a user copies or saves the returned bundle.
+The host decides when to grant consent, enqueue events, flush, revoke consent, or let a user copy and save a returned bundle. Revocation purges queued and quarantined bytes.
 
 ## Registry integration
 
@@ -58,10 +60,9 @@ Apps may add redaction keys/fragments. The built-in privacy keys cannot be remov
 
 ## Verification
 
-```powershell
-cargo test -p rightkit-logs
-cargo fmt --check
-cargo clippy -p rightkit-logs --all-targets -- -D warnings
+```text
+rightkit cargo test -p rightkit-logs --target <native-target>
+rightkit cargo fmt --check --manifest-path crates/rightkit-logs/Cargo.toml
 ```
 
 Licensed under either MIT or Apache-2.0, at your option.

@@ -5,11 +5,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { loadBrokerConfig } from './config.mjs';
+import { deriveHostSizing } from './host-sizing.mjs';
 import {
   buildConfig, buildMacosResourceAddon, defaultBounds, defaultCargoBuildJobs, discoverTools, ensureMacOSRustToolLoaderLinks, parseArgs, renderPlist, resolveVolumeId, rustcVersionTriple, shimTable, stageManagedTools, supportsClientSideSccache, whichUnmanaged,
 } from './bootstrap-macos-cli.mjs';
 
 const macOSOnly = { skip: process.platform === 'win32' ? 'macOS-only test' : false };
+const explicitMacTopology = {
+  cpus: 12,
+  totalMemoryBytes: 24 * 1024 ** 3,
+  managedVolumeBytes: 927 * 1024 ** 3,
+};
 
 test('parseArgs accepts the documented flags & rejects anything else', () => {
   assert.deepEqual(parseArgs([]), { force: false, drainTimeoutMs: 0, timeoutMs: 120_000 });
@@ -135,7 +141,8 @@ test('macOS bootstrap supplies rust-objcopy its toolchain-root libLLVM companion
 test('buildConfig produces a config the broker’s own schema accepts', macOSOnly, async (t) => {
   const scratch = mkdtempSync(join(tmpdir(), 'rk-bootstrap-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
-  const config = await buildConfig({ externalRoot: scratch });
+  const sizing = deriveHostSizing(explicitMacTopology);
+  const config = await buildConfig({ externalRoot: scratch, cargoBuildJobs: sizing.cargoBuildJobs, sizing });
   const configPath = join(scratch, 'config.json');
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   // This is the actual validator the live broker runs on startup — if this
@@ -144,7 +151,8 @@ test('buildConfig produces a config the broker’s own schema accepts', macOSOnl
   assert.equal(loaded.broker.externalRoot.path, scratch);
   assert.equal(loaded.sccache.mode, loaded.defaults.sccacheToolId ? 'managed' : 'disabled');
   assert.equal(loaded.sccache.clientSide, loaded.sccache.mode === 'managed');
-  assert.equal(loaded.bounds.buildConcurrency, 3);
+  // 24 GiB * 0.8 = 19 GiB budget; 12 jobs cost 12 GiB, so one root fits.
+  assert.equal(loaded.bounds.buildConcurrency, 1);
   assert.equal(loaded.bounds.analysisConcurrency, 2);
   const nativeTriple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
   const otherTriple = nativeTriple === 'aarch64-apple-darwin' ? 'x86_64-apple-darwin' : 'aarch64-apple-darwin';
@@ -198,9 +206,10 @@ test('macOS Cargo-job derivation uses the same shared host sizing rule as Window
 test('Mac bootstrap accepts a measured compiler-worker override', macOSOnly, async (t) => {
   const scratch = mkdtempSync(join(tmpdir(), 'rk-bootstrap-jobs-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
-  const config = await buildConfig({ externalRoot: scratch, cargoBuildJobs: 6 });
+  const sizing = deriveHostSizing({ ...explicitMacTopology, cargoBuildJobs: 6 });
+  const config = await buildConfig({ externalRoot: scratch, cargoBuildJobs: 6, sizing });
   assert.equal(config.defaults.cargoBuildJobs, 6);
-  await assert.rejects(buildConfig({ externalRoot: scratch, cargoBuildJobs: 0 }), /from 1 to 256/);
+  await assert.rejects(buildConfig({ externalRoot: scratch, cargoBuildJobs: 0, sizing }), /from 1 to 256/);
 });
 
 test('client-side sccache requires version 0.17 or newer', async () => {

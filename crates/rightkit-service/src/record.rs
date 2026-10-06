@@ -84,7 +84,7 @@ pub fn read_takeover(suite: &Suite, service: &str) -> Option<TakeoverRequest> {
 /// rule: a dead pid means the record is stale). Does not probe the endpoint;
 /// connecting does that and reports `service_unavailable`.
 pub fn read_live_record(suite: &Suite, service: &str) -> Option<ServiceRecord> {
-    read_record(suite, service).filter(|r| crate::transport::pid_alive(r.pid))
+    read_record(suite, service).filter(crate::discovery::record_process_matches)
 }
 
 /// Publish a takeover request (atomic, owner-only).

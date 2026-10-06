@@ -27,6 +27,7 @@
 //! `hello`, `request{id,method,params}`, `event{id,event}`, `response{id,ok,result|error}`.
 
 mod client;
+mod discovery;
 mod error;
 mod record;
 mod server;
@@ -34,6 +35,11 @@ mod suite;
 mod transport;
 
 pub use client::{Client, RetryPolicy, DEFAULT_DEADLINE};
+pub use discovery::{
+    adopt_or_spawn, discover_apps, discover_macos, discover_windows, parse_plist_string, parse_reg_query,
+    record_process_matches, resolve_install_dir, wait_for_claim_winner, AdoptOrSpawn, InstalledApp, SpawnClaim,
+    SpawnClaimError, UninstallEntry, KNOWN_APPS,
+};
 pub use error::{ServiceError, ERROR_CONNECTION_CLOSED, ERROR_HOST_HANDOFF, ERROR_NOT_ALLOWED, ERROR_TIMEOUT, ERROR_UNAVAILABLE};
 pub use record::{
     clear_takeover_if_owner, read_live_record, read_record, read_takeover, record_path, takeover_path, write_atomic, write_takeover, Allowlist, ServiceRecord,

@@ -5,7 +5,55 @@
 //! (not skip) so a missing gate is never reported green; set
 //! `RIGHTKIT_VAD_ALLOW_MISSING_MODEL=1` to downgrade to a printed skip.
 use rightkit_vad::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+fn init_ort_runtime() {
+    #[cfg(target_os = "macos")]
+    {
+        static READY: OnceLock<()> = OnceLock::new();
+        READY.get_or_init(|| {
+            use rightkit_media::native::{NativeCatalog, NativeLibrary};
+            use rightkit_ort::{
+                init_environment, resolve_runtime, CandidateSource, EnvironmentOptions, GlobalPool,
+                RuntimeCandidate, runtime_filename,
+            };
+
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap();
+            let runtime = std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    root.join(
+                        "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
+                    )
+                });
+            assert!(runtime.is_file(), "no approved ONNX Runtime 1.24.4 dylib at {}; set RIGHTKIT_ORT_TEST_DYLIB", runtime.display());
+            let staged_dir = std::env::temp_dir().join(format!("rightkit-vad-ort-e2e-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&staged_dir);
+            std::fs::create_dir_all(&staged_dir).unwrap();
+            let staged = staged_dir.join(runtime_filename());
+            std::fs::copy(&runtime, &staged).unwrap();
+            let catalog = NativeCatalog::embedded().unwrap();
+            let record = catalog
+                .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
+                .unwrap();
+            assert_eq!(record.version, "1.24.4");
+            record.verify_file(&staged).expect("ORT dylib must match approved catalog");
+            let selection = resolve_runtime([RuntimeCandidate::new(&staged, CandidateSource::Explicit)])
+                .expect("approved ORT dylib must resolve before initialization");
+            init_environment(
+                &selection,
+                &EnvironmentOptions { global_pool: Some(GlobalPool::from_budget()) },
+            )
+            .expect("approved ORT dylib must initialize before any session");
+        });
+    }
+}
+
+fn load_model(path: &Path) -> Silero {
+    init_ort_runtime();
+    Silero::load(path).unwrap()
+}
 
 fn model() -> Option<PathBuf> {
     let mut c: Vec<PathBuf> = std::env::var_os("RIGHTKIT_VAD_MODEL").map(PathBuf::from).into_iter().collect();
@@ -44,7 +92,7 @@ fn with_silence(speech: &[f32], lead_ms: usize, tail_ms: usize) -> Vec<f32> {
 fn detects_speech_inside_silence_and_not_the_silence() {
     let model = need_model!();
     let audio = with_silence(&load_wav(), 2000, 2000);
-    let mut s = Silero::load(&model).unwrap();
+    let mut s = load_model(&model);
     let spans = detect(&mut s, &audio, &VadConfig::default()).unwrap();
     assert!(!spans.is_empty());
     let first = spans.first().unwrap();
@@ -58,7 +106,7 @@ fn detects_speech_inside_silence_and_not_the_silence() {
 #[test]
 fn pure_silence_and_noise_floor_yield_no_spans() {
     let model = need_model!();
-    let mut s = Silero::load(&model).unwrap();
+    let mut s = load_model(&model);
     assert!(detect(&mut s, &vec![0.0; 16_000 * 3], &VadConfig::default()).unwrap().is_empty());
 }
 
@@ -67,13 +115,13 @@ fn streaming_with_odd_callbacks_matches_batch_scores() {
     let model = need_model!();
     let audio = load_wav();
     // Batch reference.
-    let mut batch = Silero::load(&model).unwrap();
+    let mut batch = load_model(&model);
     let mut ref_scores = Vec::new();
     for c in audio.chunks_exact(FRAME_SAMPLES) {
         ref_scores.push(batch.score(c.try_into().unwrap()).unwrap());
     }
     // Streaming through awkward callback sizes (HeardRight chunking A/B pattern).
-    let mut stream = FrameStream::new(Silero::load(&model).unwrap(), 0.5);
+    let mut stream = FrameStream::new(load_model(&model), 0.5);
     let mut got = Vec::new();
     let (mut off, mut i) = (0, 0);
     let pattern = [3840usize, 4160, 137];
@@ -99,7 +147,7 @@ fn chunking_respects_max_and_splits_on_quiet_frames() {
         audio.extend_from_slice(&one);
         audio.extend(vec![0.0; 150 * 16]);
     }
-    let mut s = Silero::load(&model).unwrap();
+    let mut s = load_model(&model);
     let mut scores = Vec::new();
     for c in audio.chunks(FRAME_SAMPLES) {
         let mut f = [0f32; FRAME_SAMPLES];

@@ -113,8 +113,10 @@ pub struct FileSetWatcher {
 
 impl FileSetWatcher {
     /// Arm a watch over `paths`. `on_change` runs on the debounce thread once per batch with the
-    /// watched files that changed (deduplicated, sorted). Directories that cannot be watched are
-    /// skipped so one bad path never disarms the rest; if none could be watched, that is an error.
+    /// watched files that changed (deduplicated, sorted). Parent-directory events are reconciled
+    /// against target stats so child deletion remains observable on FSEvents. Directories that
+    /// cannot be watched are skipped so one bad path never disarms the rest; if none could be
+    /// watched, that is an error.
     pub fn watch(
         paths: &[PathBuf],
         quiet: Duration,
@@ -131,6 +133,13 @@ impl FileSetWatcher {
             }
             display.insert(key, path.clone());
         }
+        // Keep the last observed stat for every requested target. FSEvents can
+        // report a parent-directory change instead of the removed child; the
+        // debounce flush reconciles that parent event against this snapshot.
+        let known_exists: HashMap<PathBuf, bool> = display
+            .keys()
+            .map(|path| (path.clone(), path.symlink_metadata().is_ok()))
+            .collect();
 
         let (tx, rx) = mpsc::channel::<Event>();
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
@@ -158,9 +167,11 @@ impl FileSetWatcher {
         let thread = thread::Builder::new()
             .name("rightkit-watch-files".into())
             .spawn(move || {
+                let mut known_exists = known_exists;
                 run_debounce_loop(rx, quiet, max_wait, |coalescer| {
                     let batch = coalescer.drain();
                     let mut out: Vec<FileChange> = Vec::new();
+                    let mut reported = HashSet::new();
                     let mut push = |canonical: &PathBuf, kind: FileChangeKind| {
                         if let Some(shown) = display.get(canonical) {
                             if grants.is_granted(canonical) {
@@ -169,10 +180,31 @@ impl FileSetWatcher {
                         }
                     };
                     for path in &batch.changed {
+                        reported.insert(path.clone());
                         push(path, FileChangeKind::Changed);
                     }
                     for path in &batch.removed {
+                        reported.insert(path.clone());
                         push(path, FileChangeKind::Removed);
+                    }
+                    // Reconcile target state after every backend event. This
+                    // closes FSEvents' parent-only remove gap while preserving
+                    // the same grant gate and requested display path.
+                    for canonical in display.keys() {
+                        let now_exists = canonical.symlink_metadata().is_ok();
+                        let was_exists = known_exists.get(canonical).copied().unwrap_or(now_exists);
+                        if was_exists != now_exists && !reported.contains(canonical) {
+                            reported.insert(canonical.clone());
+                            push(
+                                canonical,
+                                if now_exists {
+                                    FileChangeKind::Changed
+                                } else {
+                                    FileChangeKind::Removed
+                                },
+                            );
+                        }
+                        known_exists.insert(canonical.clone(), now_exists);
                     }
                     if !out.is_empty() {
                         out.sort_by(|a, b| a.path.cmp(&b.path));

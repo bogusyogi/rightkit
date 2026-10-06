@@ -179,7 +179,8 @@ mod platform {
     use objc2::runtime::Bool;
     use objc2_foundation::{NSArray, NSBundle, NSError, NSString};
     use objc2_user_notifications::{
-        UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification, UNNotificationRequest, UNNotificationSettings, UNNotificationSound,
+        UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification, UNNotificationInterruptionLevel, UNNotificationRequest,
+        UNNotificationSettings, UNNotificationSound,
         UNUserNotificationCenter,
     };
 
@@ -200,7 +201,7 @@ mod platform {
         Ok(UNUserNotificationCenter::currentNotificationCenter())
     }
 
-    fn settings(center: &UNUserNotificationCenter) -> Result<UNAuthorizationStatus, ShellError> {
+    fn settings(center: &Retained<UNUserNotificationCenter>) -> Result<UNAuthorizationStatus, ShellError> {
         let (tx, rx) = mpsc::channel();
         let block = RcBlock::new(move |s: std::ptr::NonNull<UNNotificationSettings>| {
             // SAFETY: the OS passes a live settings object for the duration of the callback.
@@ -222,9 +223,12 @@ mod platform {
         .to_owned())
     }
 
-    fn ensure_authorized(center: &UNUserNotificationCenter) -> Result<(), ShellError> {
+    fn ensure_authorized(center: &Retained<UNUserNotificationCenter>) -> Result<(), ShellError> {
         let status = settings(center)?;
         if status == UNAuthorizationStatus::NotDetermined {
+            if std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref() == Some(std::ffi::OsStr::new("1")) {
+                return Err(ShellError::PermissionDenied("notification authorization is not determined; background QA never opens a permission dialog".into()));
+            }
             let (tx, rx) = mpsc::channel();
             let block = RcBlock::new(move |granted: Bool, _err: *mut NSError| {
                 let _ = tx.send(granted.as_bool());
@@ -253,7 +257,11 @@ mod platform {
         content.setTitle(&NSString::from_str(&req.title));
         content.setBody(&NSString::from_str(&req.body));
         content.setThreadIdentifier(&NSString::from_str(&plan.key));
-        if let Some(name) = &plan.sound_name {
+        let quiet_qa = std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref() == Some(std::ffi::OsStr::new("1"));
+        if quiet_qa {
+            content.setInterruptionLevel(UNNotificationInterruptionLevel::Passive);
+            content.setSound(None);
+        } else if let Some(name) = &plan.sound_name {
             content.setSound(Some(&UNNotificationSound::soundNamed(&NSString::from_str(name))));
         }
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(id), &content, None);

@@ -15,7 +15,15 @@ export const EVENTS = {
     stall: 'rightkit-shell://stall',
     engine: 'rightkit-shell://engine',
     window: 'rightkit-shell://window',
+    idle: 'rightkit-shell://idle',
+    presence: 'rightkit-shell://presence',
 };
+/** Normalise any rejection (typed envelope or a legacy plain string) to `{code, message}`. */
+export function asShellError(e) {
+    if (e && typeof e === 'object' && 'code' in e && 'message' in e)
+        return e;
+    return { code: 'other', message: String(e) };
+}
 /** Transport over `window.__TAURI_INTERNALS__`. */
 export function tauriTransport() {
     const internals = globalThis.__TAURI_INTERNALS__;
@@ -41,7 +49,7 @@ const toBase64 = (b) => {
 const fromBase64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 export function createShell(transport = tauriTransport()) {
     const { invoke, listen } = transport;
-    return {
+    const api = {
         /** Tell the host the UI is listening: queued deep links are delivered now. Call once after subscribing. */
         ready: () => invoke('rk_shell_ready'),
         status: () => invoke('rk_shell_status'),
@@ -98,6 +106,48 @@ export function createShell(transport = tauriTransport()) {
                 },
             }),
         },
+        notifications: {
+            /** Post a native notification (suppressed while Do-Not-Disturb is on). May wait on the OS permission prompt. */
+            post: (request) => invoke('rk_shell_notify', { request }),
+            /** Authorization plus what the OS reports as delivered to this app. */
+            status: () => invoke('rk_shell_notify_status'),
+            clear: (ids) => invoke('rk_shell_notify_clear', { ids: ids ?? null }),
+            setBadge: (count) => invoke('rk_shell_badge', { count }),
+        },
+        presence: {
+            state: () => invoke('rk_shell_presence'),
+            setDnd: (enabled) => invoke('rk_shell_set_dnd', { enabled }),
+            setAuto: (prefs) => invoke('rk_shell_presence_prefs', { prefs: { autoHideFullscreen: prefs.autoHideFullscreen ?? false, autoDndMeetings: prefs.autoDndMeetings ?? false } }),
+            /** Sample the real OS: fullscreen / meeting detection over the visible windows. */
+            probe: () => invoke('rk_shell_presence_probe'),
+            /** Run the detection policy over an injected observation; `apply` makes it the automatic state. */
+            evaluate: (monitor, windows, apply = false) => invoke('rk_shell_presence_evaluate', { monitor, windows, apply }),
+            onChange: (h) => listen(EVENTS.presence, h),
+        },
+        idle: {
+            status: () => invoke('rk_shell_idle_status'),
+            /** Tell the idle machine the main window was hidden (`true`) or shown (`false`) by the app. */
+            note: (hidden) => invoke('rk_shell_idle_note', { hidden }),
+            onChange: (h) => listen(EVENTS.idle, h),
+        },
+        paths: {
+            /** Canonical path if the broker granted it; rejects `broker_denied` otherwise. `write` checks a save target. */
+            require: (path, write = false) => invoke('rk_shell_path_require', { path, write }),
+            revoke: (path) => invoke('rk_shell_path_revoke', { path }),
+            /** Trade a one-shot recent-file id (minted by the app in Rust) for a grant. */
+            grantRecent: (id) => invoke('rk_shell_path_grant_recent', { id }),
+            regrantSaved: (path) => invoke('rk_shell_path_regrant_saved', { path }),
+            /** Stream URL for a granted file (`<scheme>://localhost/<id>`); supports Range requests. */
+            streamUrl: (path) => invoke('rk_shell_stream_grant', { path }),
+        },
+        recovery: {
+            save: (snapshot) => invoke('rk_shell_recovery_save', { snapshot: typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot) }),
+            load: async () => {
+                const raw = await invoke('rk_shell_recovery_load');
+                return raw == null ? null : JSON.parse(raw);
+            },
+            clear: () => invoke('rk_shell_recovery_clear'),
+        },
         engine: {
             /** One engine call over the stdio contract. Events stream through `onEvent` meanwhile. */
             call: (method, params) => invoke('rk_shell_engine_call', { method, params: params ?? null }),
@@ -105,4 +155,27 @@ export function createShell(transport = tauriTransport()) {
             onEvent: (h) => listen(EVENTS.engine, h),
         },
     };
+    const bridge = () => ({
+        window: {
+            minimize: () => api.window.minimize(),
+            toggleMaximize: () => api.window.toggleMaximize(),
+            close: () => api.window.close(),
+        },
+        openExternal: (url) => api.openExternal(url),
+        // One id stream for native menu items, tray menu items and deep links (`deep-link:<raw url>`),
+        // which is what app-shell routes to a command or shortcut with the same id.
+        onMenuAction: async (handler) => {
+            const offs = await Promise.all([
+                api.menu.onClick(handler),
+                api.tray.onEvent((e) => {
+                    if (e.kind === 'menu')
+                        handler(e.id);
+                }),
+                api.deepLinks.on((l) => handler(`deep-link:${l.raw}`)),
+            ]);
+            return () => offs.forEach((off) => off());
+        },
+        setNativeTheme: (theme) => invoke('rk_shell_set_theme', { theme }),
+    });
+    return { ...api, bridge };
 }

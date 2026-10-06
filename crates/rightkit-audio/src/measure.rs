@@ -7,7 +7,7 @@
 //! [`rightkit_media::FfmpegBinary`] (catalog-verified in production).
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rightkit_media::{runner::run_checked, CancellationToken, FfmpegBinary};
@@ -94,7 +94,9 @@ impl<'a> AudioTools<'a> {
     fn run(&self, args: &[OsString]) -> Result<rightkit_media::Captured, AudioError> {
         let mut cmd = rightkit_media::FfmpegCommand::new();
         for a in args {
-            cmd.path(a);
+            // Keep OsString bytes intact while adapting to FfmpegCommand's
+            // path-oriented argument type; flags are represented identically.
+            cmd.path(PathBuf::from(a.clone()));
         }
         Ok(run_checked(self.ffmpeg, &cmd, self.timeout, &self.cancel)?)
     }

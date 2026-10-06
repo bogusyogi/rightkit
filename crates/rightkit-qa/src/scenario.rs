@@ -212,8 +212,8 @@ impl<'a> Ctx<'a> {
                     if !r.process_gone || !r.endpoint_closed {
                         problems.push(format!("UI app pid {} not fully stopped (process_gone={}, endpoint_closed={})", r.pid, r.process_gone, r.endpoint_closed));
                     }
-                    if mode != Mode::Visible && !r.frontmost_unchanged {
-                        problems.push(format!("frontmost app changed {:?} -> {:?}", r.frontmost_before, r.frontmost_after));
+                    if mode != Mode::Visible && !r.owned_never_frontmost {
+                        problems.push(format!("owned UI process reached foreground: {:?}", r.owned_frontmost_pids));
                     }
                 }
                 Err(e) => problems.push(e.0),
@@ -482,10 +482,10 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             if !r.process_gone || !r.endpoint_closed {
                 return err(format!("app pid {} not fully stopped (process_gone={}, endpoint_closed={})", r.pid, r.process_gone, r.endpoint_closed));
             }
-            if mode != Mode::Visible && !r.frontmost_unchanged {
-                return err(format!("frontmost app changed {:?} -> {:?}", r.frontmost_before, r.frontmost_after));
+            if mode != Mode::Visible && !r.owned_never_frontmost {
+                return err(format!("owned UI process reached foreground: {:?}", r.owned_frontmost_pids));
             }
-            Ok(json!({"pid": r.pid, "endpoint_closed": r.endpoint_closed, "process_gone": r.process_gone, "frontmost_unchanged": r.frontmost_unchanged}))
+            Ok(json!({"pid": r.pid, "endpoint_closed": r.endpoint_closed, "process_gone": r.process_gone, "frontmost_unchanged": r.frontmost_unchanged, "owned_never_frontmost": r.owned_never_frontmost, "owned_frontmost_pids": r.owned_frontmost_pids}))
         }
         "ui_auth_probe" => {
             let c = ctx.ui()?;

@@ -21,7 +21,14 @@ let work: string;
 const q = (sel: string) => JSON.stringify(sel);
 const text = (sel: string) => page.eval<string>(`document.querySelector(${q(sel)})?.textContent ?? ""`);
 const exists = (sel: string) => page.eval<boolean>(`!!document.querySelector(${q(sel)})`);
-const settingsOnDisk = () => JSON.parse(readFileSync(host.settingsFile, "utf8")) as { values: Record<string, unknown>; revision: number };
+const settingsOnDisk = () => (existsSync(host.settingsFile) ? JSON.parse(readFileSync(host.settingsFile, "utf8")) : { values: {}, revision: 1 }) as { values: Record<string, unknown>; revision: number };
+const waitHost = async (check: () => boolean, timeoutMs = 5000) => {
+  const start = Date.now();
+  while (!check()) {
+    if (Date.now() - start > timeoutMs) throw new Error("timed out waiting for host state");
+    await page.sleep(40);
+  }
+};
 const open = async (query = "", theme: "light" | "dark" = "light") => {
   await page.setColorScheme(theme);
   await page.setViewport(1180, 760);
@@ -79,6 +86,8 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     // Back to system so later tests start from the OS scheme.
     await page.click(".rk-seg__item:nth-child(1)");
     await page.waitFor("!document.documentElement.hasAttribute('data-theme')");
+    await page.waitFor("document.querySelector('.rk-settings__saving')?.textContent === ''");
+    await waitHost(() => settingsOnDisk().values["appearance.theme"] === "system");
   });
 
   it("applies an accent preset on top of the brand and saves only its id", async () => {
@@ -86,23 +95,29 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     const before = await page.eval<string>("getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()");
     await page.click(".rk-swatch[aria-label='Teal']");
     await page.waitFor("getComputedStyle(document.documentElement).getPropertyValue('--rk-brand').trim().toUpperCase() === '#0C8A7B'");
+    await waitHost(() => settingsOnDisk().values["appearance.accent"] === "teal");
     expect(settingsOnDisk().values["appearance.accent"]).toBe("teal");
     expect(before.length).toBeGreaterThan(0);
     await page.click(".rk-swatch[aria-label='Brand']");
     await page.waitFor(`document.querySelector('[data-setting-id="appearance.accent"] .rk-swatch.is-on')?.getAttribute('aria-label') === 'Brand'`);
+    await page.waitFor("document.querySelector('.rk-settings__saving')?.textContent === ''");
+    await waitHost(() => !("appearance.accent" in settingsOnDisk().values));
     expect("appearance.accent" in settingsOnDisk().values).toBe(false);
   });
 
   it("rolls back a failed write and shows the host's error", async () => {
     await open("section=dictation");
     host.failNextSettingsPatch = true;
-    await page.click("[data-setting-id='dictation.cleanup'] .rk-toggle");
+    await page.eval("document.querySelector('[data-setting-id=\\\"dictation.cleanup\\\"] .rk-toggle')?.focus()");
+    await page.press("Enter");
+    await waitHost(() => host.wire.some((w) => w.method === "rightkit.settings.patch" && w.body.includes("dictation.cleanup")));
     await page.waitFor("document.querySelector('.rk-settings__error')");
     expect(await text(".rk-settings__error")).toContain("disk full");
     expect(await page.eval<string>("document.querySelector('[data-setting-id=\"dictation.cleanup\"] .rk-toggle').getAttribute('aria-checked')")).toBe("true");
     expect("dictation.cleanup" in settingsOnDisk().values).toBe(false);
     await clickText("Dismiss");
-    await page.click("[data-setting-id='dictation.cleanup'] .rk-toggle");
+    await page.eval("document.querySelector('[data-setting-id=\\\"dictation.cleanup\\\"] .rk-toggle')?.focus()");
+    await page.press("Enter");
     await page.waitFor("document.querySelector('[data-setting-id=\"dictation.cleanup\"] .rk-toggle').getAttribute('aria-checked') === 'false'");
     await page.waitFor("document.querySelector('.rk-settings__saving')?.textContent === ''");
     expect(settingsOnDisk().values["dictation.cleanup"]).toBe(false);
@@ -136,6 +151,7 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
   it("stores an API key only in the credential store: value never reaches settings, DOM or later responses", async () => {
     const secret = "sk-test-NOT-A-REAL-KEY-12345";
     await open("section=api-keys");
+    await page.waitFor("document.querySelector('[data-setting-id=\"apikeys.openai\"] input[aria-label=\"Provider API key value\"]')");
     await page.click("input[aria-label='Provider API key value']");
     await page.type(secret);
     await shot("settings-apikeys-typing-light");
@@ -162,10 +178,16 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
 
   it("activates a licence against the license host, rejects a bad key, and deactivates with confirmation", async () => {
     await open("section=license");
+    await page.waitFor("document.querySelector('[data-setting-id=\"license.activate\"] input[aria-label=\"Licence key\"]')");
     await page.click("input[aria-label='Licence key']");
     await page.type("WRONG-KEY");
     await clickText("Activate");
-    await page.waitFor("document.querySelector('[data-setting-id=\"license.activate\"] .rk-sr__desc')?.textContent.includes('not recognised')");
+    try {
+      await page.waitFor("document.querySelector('[data-setting-id=\"license.activate\"] .rk-sr__desc')?.textContent.includes('not recognised')");
+    } catch (e) {
+      const state = await page.eval<string>("JSON.stringify({active: document.activeElement?.outerHTML, body: document.querySelector('[data-setting-id=\\\"license.activate\\\"]')?.outerHTML, requests: performance.getEntriesByType('resource').map(x => x.name).filter(x => x.includes('/v1/licenses'))})");
+      throw new Error(`${String(e)} state=${state}`);
+    }
     await page.eval("document.querySelector('input[aria-label=\"Licence key\"]').select()");
     await page.type("GOOD-KEY-0001");
     await clickText("Activate");
@@ -214,6 +236,7 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
 
   it("collects a content-free diagnostics report and clears logs", async () => {
     await open("section=diagnostics");
+    await page.waitFor("document.querySelector('[data-setting-id=\"diagnostics.collect\"]')");
     await clickText("Collect");
     await page.waitFor("document.querySelector('.rk-diag')");
     const report = await text(".rk-diag");
@@ -223,7 +246,7 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     await shot("settings-diagnostics-light");
     await clickText("Clear");
     await clickText("Confirm");
-    await page.waitFor("document.querySelector('[data-setting-id=\"diagnostics.clear\"]').textContent.includes('Logs cleared')");
+    await page.waitFor("document.querySelector('[data-setting-id=\"diagnostics.collect\"]').textContent.includes('Logs cleared')");
     expect(host.logs).toHaveLength(0);
   });
 
@@ -236,7 +259,7 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     expect(await text("[data-setting-id='about.version']")).toContain("Acme 1.4.2 · build 8841 · macOS");
     await open("section=legal");
     expect(await text(".rk-settings__section")).toContain("Terms of Service");
-    expect(await text(".rk-settings__section")).toContain("1 September 2026");
+    expect(await text(".rk-settings__section")).toMatch(/(?:1 September|September 1), 2026/);
     await shot("settings-legal-light");
   });
 
@@ -245,6 +268,7 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     await page.setViewport(520, 800);
     await page.goto(`${host.origin}/index.html?section=models`);
     await page.waitFor("document.querySelector('.rk-settings__section')");
+    await page.waitFor("document.querySelector('[data-setting-id=\"models.asr-large\"]')");
     expect(await page.eval<boolean>("document.documentElement.scrollWidth <= window.innerWidth + 1")).toBe(true);
     await shot("settings-models-narrow-dark");
     await open("section=models", "dark");

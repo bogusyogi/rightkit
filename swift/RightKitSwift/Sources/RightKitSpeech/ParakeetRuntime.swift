@@ -23,6 +23,8 @@ public struct ParakeetOptions: Sendable, Equatable {
 /// Per-decode phase timings in milliseconds, for diagnostics and benchmarks.
 public struct ParakeetTimings: Sendable, Equatable {
     public var totalMS = 0, melMS = 0, encoderMS = 0, decodeStepMS = 0, jointMS = 0
+    /// Number of Joint steps that received at least one contextual vocabulary bonus.
+    public var biasApplications = 0
     public var predictorCalls = 0, jointCalls = 0, tokens = 0
 }
 
@@ -87,12 +89,13 @@ struct ParakeetCoreMLRuntime {
     final class PhaseTimer {
         var melMS = 0.0, encoderMS = 0.0, encoderReadMS = 0.0
         var decoderMS = 0.0, jointMS = 0.0, logitsMS = 0.0, gatherMS = 0.0
-        var predictorCalls = 0, jointCalls = 0
+        var predictorCalls = 0, jointCalls = 0, biasApplications = 0
         func emit(totalMS: Double, tokens: Int, sink: TimingsBox) {
             sink.set(ParakeetTimings(
                 totalMS: Int(totalMS), melMS: Int(melMS), encoderMS: Int(encoderMS + encoderReadMS),
                 decodeStepMS: Int(decoderMS), jointMS: Int(jointMS),
-                predictorCalls: predictorCalls, jointCalls: jointCalls, tokens: tokens
+                biasApplications: biasApplications, predictorCalls: predictorCalls, jointCalls: jointCalls,
+                tokens: tokens
             ))
         }
     }

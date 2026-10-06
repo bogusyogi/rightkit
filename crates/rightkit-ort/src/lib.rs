@@ -15,8 +15,8 @@ pub mod session;
 
 #[cfg(feature = "session")]
 pub use environment::{
-    cpu_thread_budget, init_environment, shared_pool_active, EnvironmentOptions,
-    EnvironmentReport, GlobalPool,
+    cpu_thread_budget, init_environment, shared_pool_active, EnvironmentOptions, EnvironmentReport,
+    GlobalPool,
 };
 #[cfg(feature = "session")]
 pub use probe::{probe_providers, ProviderDiagnostic, ProviderKind};

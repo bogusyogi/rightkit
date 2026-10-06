@@ -1,4 +1,5 @@
 use crate::error::{ServiceError, ERROR_NOT_ALLOWED};
+use crate::discovery::record_process_matches;
 use crate::record::*;
 use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
 use crate::transport::{self, endpoint_for, pid_alive, probe_endpoint, Conn, Listener};
@@ -237,7 +238,7 @@ pub fn host(suite: &Suite, cfg: ServiceConfig, handler: Arc<dyn Handler>) -> Res
     let mut requested = false;
     loop {
         match read_record(suite, &cfg.service) {
-            Some(rec) if rec.pid != me && pid_alive(rec.pid) && probe_endpoint(&rec.endpoint) => {
+            Some(rec) if rec.pid != me && record_process_matches(&rec) && probe_endpoint(&rec.endpoint) => {
                 let their = resolve_rank(&cfg, &rec.role, rec.rank);
                 if their == RANK_UNKNOWN || cfg.rank >= their {
                     return Err(HostError::Held(rec));
@@ -279,7 +280,7 @@ pub fn host(suite: &Suite, cfg: ServiceConfig, handler: Arc<dyn Handler>) -> Res
         endpoint: endpoint.clone(),
         version: cfg.version.clone(),
         engine_version: cfg.version.clone(),
-        started_ms: now_ms(),
+        started_ms: crate::discovery::own_start_ms().unwrap_or(0),
     };
     write_atomic(&record_path(suite, &cfg.service), &serde_json::to_vec_pretty(&record).unwrap_or_default())?;
     if read_takeover(suite, &cfg.service).is_some_and(|t| t.pid == me) {

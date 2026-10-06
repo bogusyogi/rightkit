@@ -31,6 +31,14 @@ pub struct WindowSpec {
     pub always_on_top: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct WindowReadback {
+    pub visible: bool,
+    pub focused: bool,
+    pub main: bool,
+    pub level: Option<i64>,
+}
+
 pub fn safe_label(raw: &str) -> Option<String> {
     let c = raw.trim();
     (!c.is_empty() && c.len() <= 80 && c.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))).then(|| c.to_owned())
@@ -77,7 +85,7 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
         return Ok(w.label().to_owned());
     }
     let title = spec.title.as_deref().map(str::trim).filter(|t| !t.is_empty()).unwrap_or(&app.state::<ShellState>().app_name).to_owned();
-    let focused = spec.focused.unwrap_or(true);
+    let focused = !crate::lifecycle::qa_background() && spec.focused.unwrap_or(true);
     let window = builder(app, &label, WebviewUrl::App(app_path(spec.path.as_deref()).into()))
         .title(title)
         .inner_size(dim(spec.width, 900.0, MIN_WIDTH), dim(spec.height, 640.0, MIN_HEIGHT))
@@ -87,20 +95,136 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
         .build()
         .map_err(|e| format!("create window {label}: {e}"))?;
     let _ = app.emit(EVENT_WINDOW, serde_json::json!({"label": label, "kind": "created"}));
-    let _ = window.show();
+    show_background_aware(&window)?;
     Ok(label)
 }
 
 fn reveal_window(app: &AppHandle<Wry>, w: &WebviewWindow<Wry>) {
+    if crate::lifecycle::qa_background() {
+        // Native order-back is the only QA reveal operation; never unminimize or focus.
+        if show_background_aware(w).is_err() {
+            return;
+        }
+    } else {
     #[cfg(target_os = "macos")]
-    let _ = app.show();
-    let _ = (app,);
-    let _ = w.unminimize();
-    let _ = w.show();
-    let _ = w.set_focus();
+        let _ = app.show();
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
     if w.label() == app.state::<ShellState>().main_label {
         crate::idle::note_visible(app);
     }
+}
+
+/// Show a QA window without activating it or taking keyboard focus. On macOS the
+/// native order-back keeps its real pixels available to AX/readback while preserving
+/// whatever app the user is using. Production launches use ordinary `show` semantics.
+pub(crate) fn show_background_aware(w: &WebviewWindow<Wry>) -> Result<(), String> {
+    if !crate::lifecycle::qa_background() {
+        return w.show().map_err(|e| e.to_string());
+    }
+    // Native AppKit ordering must run on the Tauri main thread. Window commands
+    // arrive on rightkit-service connection threads; dispatch synchronously there
+    // so errors are returned to the caller after WindowServer applies the order.
+    #[cfg(target_os = "macos")]
+    {
+        dispatch_native(w, order_back_native)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = w;
+        Err("background native ordering is unimplemented on this platform".into())
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn dispatch_native<T, F>(w: &WebviewWindow<Wry>, f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&WebviewWindow<Wry>) -> Result<T, String> + Send + 'static,
+{
+    let Some(state) = w.app_handle().try_state::<ShellState>() else {
+        return Err("shell state unavailable for native dispatch".into());
+    };
+    if state.exiting.load(std::sync::atomic::Ordering::Acquire) {
+        return Err("native dispatch rejected during shutdown".into());
+    }
+    if std::thread::current().id() == state.main_thread_id {
+        return f(w);
+    }
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cancelled_task = std::sync::Arc::clone(&cancelled);
+    let app = w.app_handle().clone();
+    let window = w.clone();
+    w.run_on_main_thread(move || {
+        if cancelled_task.load(std::sync::atomic::Ordering::Acquire) {
+            let _ = tx.send(Err("native dispatch cancelled".into()));
+            return;
+        }
+        let Some(state) = app.try_state::<ShellState>() else {
+            let _ = tx.send(Err("shell state unavailable for native dispatch".into()));
+            return;
+        };
+        if state.exiting.load(std::sync::atomic::Ordering::Acquire) {
+            let _ = tx.send(Err("native dispatch rejected during shutdown".into()));
+            return;
+        }
+        let _ = tx.send(f(&window));
+    }).map_err(|e| e.to_string())?;
+    match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(result) => result,
+        Err(e) => {
+            cancelled.store(true, std::sync::atomic::Ordering::Release);
+            Err(format!("main-thread native dispatch: {e}"))
+        }
+    }
+}
+
+fn order_back_native(w: &WebviewWindow<Wry>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSWindow;
+        let ptr = w.ns_window().map_err(|e| e.to_string())?;
+        if ptr.is_null() { return Err("native window handle unavailable".into()); }
+        // SAFETY: Tauri returns the live NSWindow for this window; used synchronously.
+        let native = unsafe { &*(ptr as *const NSWindow) };
+        // Keep QA windows below normal user windows even if AppKit reorders them later.
+        native.setLevel(-1);
+        native.orderBack(None);
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = w;
+        Err("background native ordering is unimplemented on this platform".into())
+    }
+}
+
+/// Read native window visibility/order after a show or order operation. macOS values
+/// come from NSWindow, so Tauri's logical `is_visible` cannot mask a failed native order.
+pub fn readback(w: &WebviewWindow<Wry>) -> Result<WindowReadback, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return dispatch_native(w, |w| {
+        use objc2_app_kit::NSWindow;
+        let ptr = w.ns_window().map_err(|e| e.to_string())?;
+        if ptr.is_null() {
+            return Err("native window handle unavailable".into());
+        }
+        // SAFETY: Tauri returns the live NSWindow for this window; used synchronously.
+        let native = unsafe { &*(ptr as *const NSWindow) };
+        Ok(WindowReadback { visible: native.isVisible(), focused: native.isKeyWindow(), main: native.isMainWindow(), level: Some(native.level() as i64) })
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    Ok(WindowReadback {
+        visible: w.is_visible().unwrap_or(false),
+        focused: w.is_focused().unwrap_or(false),
+        main: false,
+        level: None,
+    })
 }
 
 /// Show + unminimize + focus. `None` targets the main window.

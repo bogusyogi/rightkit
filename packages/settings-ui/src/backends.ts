@@ -8,6 +8,7 @@ import type {
   SettingsSnapshot,
   SettingsValues,
 } from "./types.js";
+import type { Shell } from "@rightkit/shell";
 
 /** The slice of `@rightkit/shell`'s `createShell()` these adapters need (structural, so no import cycle). */
 export interface EngineShell {
@@ -16,6 +17,9 @@ export interface EngineShell {
     onEvent(handler: (e: { call: string; event: unknown }) => void): Promise<() => void>;
   };
 }
+
+/** Native shell bridge accepted by createShellBackends; exported for app adapters. */
+export type SettingsShell = Pick<Shell, "engine">;
 
 /** Engine method names: the wire contract between this package and the host's `rightkit-settings` / `rightkit-models` handlers. */
 export const METHODS = {
@@ -42,7 +46,7 @@ export interface ShellBackends {
 }
 
 /** Backends over the `@rightkit/shell` engine bridge. */
-export function createShellBackends(shell: EngineShell): ShellBackends {
+export function createShellBackends(shell: EngineShell | SettingsShell): ShellBackends {
   const call = shell.engine.call;
   const on = <T>(name: string, pick: (event: unknown) => T | null, handler: (v: T) => void) =>
     shell.engine.onEvent((e) => {

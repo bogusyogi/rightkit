@@ -2,6 +2,10 @@
 resolver = "2"
 members = ["crates/*"]
 
+[workspace.dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+
 # Build-time profile tuning. The managed broker forbids `.cargo/config.toml`
 # (it rejects any workspace config that redirects tools, outputs, or flags), so
 # manifest profiles are the only place workspace-wide build cost can be shaped.

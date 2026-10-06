@@ -1,0 +1,53 @@
+[package]
+name = "rightkit-qts"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/adrdsouza/claude"
+description = "Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit"
+readme = "README.md"
+include = ["src/**", "proto/**", "build.rs", "Cargo.toml", "README.md", "LICENSE", "NOTICE", "PINNED.md", "testdata/**"]
+
+[lib]
+name = "qts"
+
+[features]
+default = []  # GenRight: backends are selected by genright-qts features
+metal = ["rightkit-qts-ggml/metal"]
+vulkan = ["rightkit-qts-ggml/vulkan"]
+blas = ["rightkit-qts-ggml/blas"]
+native = ["rightkit-qts-ggml/native"]
+acl = ["ort/acl"]
+armnn = ["ort/armnn"]
+azure = ["ort/azure"]
+cann = ["ort/cann"]
+coreml = ["ort/coreml"]
+cuda = ["ort/cuda"]
+directml = ["ort/directml"]
+migraphx = ["ort/migraphx"]
+nnapi = ["ort/nnapi"]
+nvrtx = ["ort/nvrtx"]
+onednn = ["ort/onednn"]
+openvino = ["ort/openvino"]
+qnn = ["ort/qnn"]
+rknpu = ["ort/rknpu"]
+tensorrt = ["ort/tensorrt"]
+tvm = ["ort/tvm"]
+vitis = ["ort/vitis"]
+webgpu = ["ort/webgpu"]
+xnnpack = ["ort/xnnpack"]
+
+[dependencies]
+rightkit-qts-ggml = { path = "../rightkit-qts-ggml", version = "0.1.0", default-features = false }
+thiserror = "2"
+rand = "0.10"
+hound = "3.5.1"
+rustfft = "6.4.1"
+prost = "0.14"
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "tracing", "load-dynamic", "api-24"] }
+
+
+[build-dependencies]
+prost-build = "0.13"
+protoc-bin-vendored = "3"
+

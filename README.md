@@ -17,6 +17,8 @@ Shared, platform-neutral primitives for every Right Suite app.
 | [`@rightkit/logs`](packages/logs) | TypeScript + Rust payload | Durable local JSONL logging and privacy-safe diagnostics bundles |
 | [`@rightkit/media-ui`](packages/media-ui) + [`rightkit-playback`](crates/rightkit-playback) | TypeScript + React, Rust | Brand-neutral media player, image viewer/editor, and FFmpeg playback-compat core |
 | [`@rightkit/platform-ui`](packages/platform-ui) | TypeScript + React | Platform detection, shortcut rendering, capabilities, and headless window controls |
+| [`@rightkit/pdf-ui`](packages/pdf-ui) + [`@rightkit/doc-render`](packages/doc-render) + [`rightkit-pdf`](crates/rightkit-pdf) | TypeScript + React, Rust | PDF viewing, editing, merge/extract & sanitized Markdown/HTML rendering |
+| [`@rightkit/theme`](packages/theme), [`@rightkit/settings-ui`](packages/settings-ui) & [`@rightkit/onboarding`](packages/onboarding) | TypeScript + React | Theme tokens, settings sections & legal-first onboarding |
 | [`@rightkit/qa`](packages/qa) | Node CLI | Cross-platform desktop QA gates |
 | [`@rightkit/release`](packages/release) | Node CLI | Native-host signed release, hardening, explicit GitHub/R2 distribution, and add-on adoption |
 | [`@rightkit/tauri`](packages/tauri) | TypeScript | Typed Tauri host adapter for license and device commands |

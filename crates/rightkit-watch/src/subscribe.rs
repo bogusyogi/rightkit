@@ -775,7 +775,22 @@ fn actual_watch_path(requested: &WatchPath) -> (WatchPath, WatchPath, bool) {
             .path
             .canonicalize()
             .unwrap_or_else(|_| requested.path.clone());
-        let actual = requested.clone();
+        // Keep watching a file's parent directory. macOS FSEvents can stop
+        // delivering after a watched file is replaced or removed; the parent
+        // continues to report both atomic saves and deletion.
+        let actual = if requested.path.is_file() {
+            let parent = requested
+                .path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| requested.path.clone());
+            WatchPath {
+                path: parent.canonicalize().unwrap_or(parent),
+                recursive: false,
+            }
+        } else {
+            requested.clone()
+        };
         let matched = WatchPath {
             path: matched_path,
             recursive: requested.recursive,
@@ -794,7 +809,10 @@ fn actual_watch_path(requested: &WatchPath) -> (WatchPath, WatchPath, bool) {
                 .map(|suffix| actual_path.join(suffix))
                 .unwrap_or_else(|_| requested.path.clone());
             let actual = WatchPath {
-                path: path.to_path_buf(),
+                // Keep the OS watch in the backend's canonical namespace so a
+                // missing target's first create does not re-arm `/var` as
+                // `/private/var` and lose the following remove event.
+                path: actual_path.clone(),
                 recursive: false,
             };
             let matched = WatchPath {
@@ -880,4 +898,3 @@ fn changed_path_for_matched_path(
             .unwrap_or_else(|_| event_path.to_path_buf()),
     )
 }
-

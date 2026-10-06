@@ -36,7 +36,7 @@ fn spawn_role(role: &str, args: &[&str]) -> Child {
 fn wait_ready(child: &mut Child) {
     let out = child.stdout.take().unwrap();
     for line in BufReader::new(out).lines() {
-        if line.unwrap().trim() == "READY" {
+        if line.unwrap().trim_end().ends_with("READY") {
             return;
         }
     }

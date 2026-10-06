@@ -27,6 +27,16 @@ pub fn launched_in_background() -> bool {
     std::env::args().any(|a| a == crate::autostart::BACKGROUND_ARG)
 }
 
+/// QA-only launch policy. The harness sets this before the frontend exists so every
+/// shell-owned show/reopen path can preserve the user's foreground app.
+pub fn qa_hidden() -> bool {
+    std::env::var_os("RIGHTKIT_QA_HIDDEN").as_deref() == Some(std::ffi::OsStr::new("1"))
+}
+
+pub fn qa_background() -> bool {
+    std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref() == Some(std::ffi::OsStr::new("1"))
+}
+
 pub fn quit(app: &AppHandle<Wry>) {
     app.state::<ShellState>().exiting.store(true, Ordering::SeqCst);
     app.exit(0);

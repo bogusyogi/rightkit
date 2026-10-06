@@ -1,1 +1,366 @@
-//! Placeholder; implementation in progress.
+//! OAuth 2.0 authorization-code flow for native desktop applications.
+//!
+//! [`OAuthClient::begin_loopback`] binds only to `127.0.0.1` on an ephemeral
+//! port, creates a fresh state and S256 PKCE verifier, and returns an
+//! authorization URL. [`OAuthClient::finish_loopback`] consumes the callback,
+//! checks state before exchanging the code, and returns redacted tokens.
+
+use std::fmt;
+use std::io::{BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
+use std::time::{Duration, SystemTime};
+
+use rightkit_http::{percent_decode, percent_encode, Client, HttpError, Request, Secret};
+use sha2::{Digest, Sha256};
+
+const GOOGLE_AUTHORIZATION_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+
+#[derive(Debug)]
+pub enum OAuthError {
+    InvalidConfig(String),
+    Http(HttpError),
+    Callback(String),
+    StateMismatch,
+    NeedsReauth,
+    Provider { status: u16, error: String, description: Option<String> },
+}
+
+impl fmt::Display for OAuthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidConfig(m) => write!(f, "invalid OAuth configuration: {m}"),
+            Self::Http(e) => write!(f, "OAuth HTTP error: {e}"),
+            Self::Callback(m) => write!(f, "OAuth callback error: {m}"),
+            Self::StateMismatch => f.write_str("OAuth callback state mismatch"),
+            Self::NeedsReauth => f.write_str("OAuth authorization is no longer valid; reauthorization required"),
+            Self::Provider { status, error, description } => {
+                write!(f, "OAuth provider error {error} (HTTP {status})")?;
+                if let Some(d) = description { write!(f, ": {d}")?; }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl std::error::Error for OAuthError {}
+
+impl From<HttpError> for OAuthError {
+    fn from(e: HttpError) -> Self { Self::Http(e) }
+}
+
+/// OAuth provider endpoints and client parameters.
+#[derive(Debug, Clone)]
+pub struct OAuthConfig {
+    pub authorization_url: String,
+    pub token_url: String,
+    pub client_id: String,
+    pub client_secret: Option<Secret>,
+    pub scopes: Vec<String>,
+    /// Extra query parameters for provider-specific consent behavior.
+    pub authorization_params: Vec<(String, String)>,
+}
+
+impl OAuthConfig {
+    pub fn new(client_id: impl Into<String>, authorization_url: impl Into<String>, token_url: impl Into<String>) -> Self {
+        Self {
+            authorization_url: authorization_url.into(),
+            token_url: token_url.into(),
+            client_id: client_id.into(),
+            client_secret: None,
+            scopes: Vec::new(),
+            authorization_params: Vec::new(),
+        }
+    }
+
+    /// Google defaults use an overridable client id, endpoints, and scopes.
+    pub fn google(client_id: impl Into<String>, scopes: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        let mut c = Self::new(client_id, GOOGLE_AUTHORIZATION_URL, GOOGLE_TOKEN_URL);
+        c.scopes = scopes.into_iter().map(Into::into).collect();
+        c.authorization_params.push(("access_type".into(), "offline".into()));
+        c.authorization_params.push(("prompt".into(), "consent".into()));
+        c
+    }
+
+    pub fn with_client_secret(mut self, secret: impl Into<String>) -> Self {
+        self.client_secret = Some(Secret::new(secret));
+        self
+    }
+
+    pub fn with_scope(mut self, scope: impl Into<String>) -> Self {
+        self.scopes.push(scope.into());
+        self
+    }
+
+    pub fn with_authorization_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.authorization_params.push((name.into(), value.into()));
+        self
+    }
+}
+
+/// Tokens returned by an OAuth provider. Secret values never appear in Debug or Display output.
+#[derive(Clone)]
+pub struct TokenSet {
+    pub access_token: Secret,
+    pub token_type: String,
+    pub expires_in: Option<Duration>,
+    pub refresh_token: Option<Secret>,
+    pub scope: Option<String>,
+    pub obtained_at: SystemTime,
+}
+
+impl fmt::Debug for TokenSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TokenSet")
+            .field("access_token", &self.access_token)
+            .field("token_type", &self.token_type)
+            .field("expires_in", &self.expires_in)
+            .field("refresh_token", &self.refresh_token.as_ref().map(|_| "[redacted]"))
+            .field("scope", &self.scope)
+            .field("obtained_at", &self.obtained_at)
+            .finish()
+    }
+}
+
+impl TokenSet {
+    pub fn access_token(&self) -> &str { self.access_token.expose() }
+
+    pub fn is_expired(&self, skew: Duration) -> bool {
+        self.expires_in
+            .and_then(|d| self.obtained_at.checked_add(d))
+            .map(|at| match at.duration_since(SystemTime::now()) {
+                Ok(remaining) => remaining <= skew,
+                Err(_) => true,
+            })
+            .unwrap_or(false)
+    }
+}
+
+/// A store for application-selected durable token storage.
+pub trait TokenStore: Send + Sync {
+    fn load(&self, account: &str) -> Result<Option<TokenSet>, OAuthError>;
+    fn save(&self, account: &str, tokens: &TokenSet) -> Result<(), OAuthError>;
+    fn delete(&self, account: &str) -> Result<(), OAuthError>;
+}
+
+/// State created before opening the user's browser.
+#[derive(Debug)]
+pub struct AuthorizationRequest {
+    pub authorization_url: String,
+    pub state: String,
+    pub redirect_uri: String,
+    verifier: String,
+}
+
+impl AuthorizationRequest {
+    pub fn code_verifier(&self) -> &str { &self.verifier }
+}
+
+/// A pending callback listener. Keep it alive while the browser is completing authorization.
+pub struct LoopbackAuthorization {
+    pub request: AuthorizationRequest,
+    listener: TcpListener,
+}
+
+impl fmt::Debug for LoopbackAuthorization {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LoopbackAuthorization").field("request", &self.request).finish()
+    }
+}
+
+pub struct OAuthClient {
+    config: OAuthConfig,
+    http: Client,
+}
+
+impl OAuthClient {
+    pub fn new(config: OAuthConfig, http: Client) -> Result<Self, OAuthError> {
+        validate_config(&config)?;
+        Ok(Self { config, http })
+    }
+
+    pub fn config(&self) -> &OAuthConfig { &self.config }
+
+    /// Bind the callback listener before constructing the authorization URL.
+    pub fn begin_loopback(&self) -> Result<LoopbackAuthorization, OAuthError> {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .map_err(|e| OAuthError::Callback(format!("bind loopback listener: {e}")))?;
+        listener
+            .set_nonblocking(false)
+            .map_err(|e| OAuthError::Callback(format!("configure loopback listener: {e}")))?;
+        let port = listener.local_addr().map_err(|e| OAuthError::Callback(e.to_string()))?.port();
+        let redirect_uri = format!("http://127.0.0.1:{port}/oauth/callback");
+        let state = random_urlsafe(32)?;
+        let verifier = random_urlsafe(48)?;
+        let challenge = base64url(&Sha256::digest(verifier.as_bytes()));
+        let mut pairs = vec![
+            ("response_type", "code".to_string()),
+            ("client_id", self.config.client_id.clone()),
+            ("redirect_uri", redirect_uri.clone()),
+            ("state", state.clone()),
+            ("code_challenge", challenge),
+            ("code_challenge_method", "S256".into()),
+        ];
+        if !self.config.scopes.is_empty() {
+            pairs.push(("scope", self.config.scopes.join(" ")));
+        }
+        for (k, v) in &self.config.authorization_params {
+            pairs.push((k.as_str(), v.clone()));
+        }
+        let query = pairs.iter().map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v))).collect::<Vec<_>>().join("&");
+        let authorization_url = format!("{}{}{}", self.config.authorization_url, if self.config.authorization_url.contains('?') { '&' } else { '?' }, query);
+        Ok(LoopbackAuthorization { request: AuthorizationRequest { authorization_url, state, redirect_uri, verifier }, listener })
+    }
+
+    /// Wait for one browser callback and exchange its authorization code.
+    pub fn finish_loopback(&self, flow: LoopbackAuthorization, timeout: Duration) -> Result<TokenSet, OAuthError> {
+        flow.listener.set_nonblocking(true).map_err(|e| OAuthError::Callback(e.to_string()))?;
+        let started = std::time::Instant::now();
+        let (stream, _) = loop {
+            match flow.listener.accept() {
+                Ok(pair) => break pair,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && started.elapsed() < timeout => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    return Err(OAuthError::Callback("timed out waiting for browser callback".into()));
+                }
+                Err(e) => return Err(OAuthError::Callback(format!("accept callback: {e}"))),
+            }
+        };
+        let callback = read_callback(stream)?;
+        if callback.state.as_deref() != Some(flow.request.state.as_str()) {
+            return Err(OAuthError::StateMismatch);
+        }
+        if let Some(e) = callback.error {
+            if e == "access_denied" { return Err(OAuthError::NeedsReauth); }
+            return Err(OAuthError::Callback(e));
+        }
+        let code = callback.code.ok_or_else(|| OAuthError::Callback("callback did not contain a code".into()))?;
+        self.exchange_code(&flow.request, &code)
+    }
+
+    pub fn exchange_code(&self, authorization: &AuthorizationRequest, code: &str) -> Result<TokenSet, OAuthError> {
+        if code.is_empty() { return Err(OAuthError::InvalidConfig("authorization code is empty".into())); }
+        let pairs = vec![
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", authorization.redirect_uri.as_str()),
+            ("client_id", self.config.client_id.as_str()),
+            ("code_verifier", authorization.verifier.as_str()),
+        ];
+        self.token_request(&pairs, None)
+    }
+
+    /// Refresh an access token. A missing refresh token is a reauthorization requirement.
+    pub fn refresh(&self, current: &TokenSet) -> Result<TokenSet, OAuthError> {
+        let refresh = current.refresh_token.as_ref().ok_or(OAuthError::NeedsReauth)?;
+        let pairs = vec![
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh.expose()),
+            ("client_id", self.config.client_id.as_str()),
+        ];
+        self.token_request(&pairs, Some(refresh))
+    }
+
+    fn token_request(&self, pairs: &[(&str, &str)], old_refresh: Option<&Secret>) -> Result<TokenSet, OAuthError> {
+        let mut owned: Vec<(String, String)> = pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect();
+        if let Some(secret) = &self.config.client_secret { owned.push(("client_secret".into(), secret.expose().into())); }
+        let refs: Vec<(&str, &str)> = owned.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let response = self.http.send(&Request::post(&self.config.token_url).form(&refs))
+            .map_err(|e| provider_or_http(e))?;
+        let value: serde_json::Value = response.json()?;
+        parse_tokens(&value, old_refresh)
+    }
+}
+
+fn validate_config(c: &OAuthConfig) -> Result<(), OAuthError> {
+    if c.client_id.trim().is_empty() { return Err(OAuthError::InvalidConfig("client_id is empty".into())); }
+    if !(c.authorization_url.starts_with("https://") || c.authorization_url.starts_with("http://127.0.0.1:") || c.authorization_url.starts_with("http://localhost:")) {
+        return Err(OAuthError::InvalidConfig("authorization_url must use HTTPS (or loopback in tests)".into()));
+    }
+    if !(c.token_url.starts_with("https://") || c.token_url.starts_with("http://127.0.0.1:") || c.token_url.starts_with("http://localhost:")) {
+        return Err(OAuthError::InvalidConfig("token_url must use HTTPS (or loopback in tests)".into()));
+    }
+    Ok(())
+}
+
+fn provider_or_http(e: HttpError) -> OAuthError {
+    match e {
+        HttpError::Status { status, body, .. } => {
+            let v: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+            let error = v.get("error").and_then(|x| x.as_str()).unwrap_or("token_request_failed").to_string();
+            let description = v.get("error_description").and_then(|x| x.as_str()).map(String::from);
+            if error == "invalid_grant" { OAuthError::NeedsReauth } else { OAuthError::Provider { status, error, description } }
+        }
+        other => OAuthError::Http(other),
+    }
+}
+
+fn parse_tokens(v: &serde_json::Value, old_refresh: Option<&Secret>) -> Result<TokenSet, OAuthError> {
+    let access = v.get("access_token").and_then(|x| x.as_str()).filter(|s| !s.is_empty())
+        .ok_or_else(|| OAuthError::Callback("token response omitted access_token".into()))?;
+    let refresh = v.get("refresh_token").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(Secret::new)
+        .or_else(|| old_refresh.cloned());
+    Ok(TokenSet {
+        access_token: Secret::new(access),
+        token_type: v.get("token_type").and_then(|x| x.as_str()).unwrap_or("Bearer").to_string(),
+        expires_in: v.get("expires_in").and_then(|x| x.as_u64()).map(Duration::from_secs),
+        refresh_token: refresh,
+        scope: v.get("scope").and_then(|x| x.as_str()).map(String::from),
+        obtained_at: SystemTime::now(),
+    })
+}
+
+struct Callback {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+}
+
+fn read_callback(mut stream: TcpStream) -> Result<Callback, OAuthError> {
+    stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
+    let mut reader = BufReader::new(stream.try_clone().map_err(|e| OAuthError::Callback(e.to_string()))?);
+    let mut first = String::new();
+    reader.read_line(&mut first).map_err(|e| OAuthError::Callback(e.to_string()))?;
+    let target = first.split_whitespace().nth(1).ok_or_else(|| OAuthError::Callback("malformed callback request".into()))?;
+    let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
+    let mut callback = Callback { code: None, state: None, error: None };
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match percent_decode(key).as_str() {
+            "code" => callback.code = Some(percent_decode(value)),
+            "state" => callback.state = Some(percent_decode(value)),
+            "error" => callback.error = Some(percent_decode(value)),
+            _ => {}
+        }
+    }
+    let body = b"Authorization complete. You may close this window.";
+    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+    stream.write_all(response.as_bytes()).map_err(|e| OAuthError::Callback(e.to_string()))?;
+    stream.write_all(body).map_err(|e| OAuthError::Callback(e.to_string()))?;
+    Ok(callback)
+}
+
+fn random_urlsafe(bytes: usize) -> Result<String, OAuthError> {
+    let mut b = vec![0u8; bytes];
+    getrandom::fill(&mut b).map_err(|e| OAuthError::Callback(format!("randomness unavailable: {e}")))?;
+    Ok(base64url(&b))
+}
+
+fn base64url(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity((bytes.len() * 4 + 2) / 3);
+    let mut i = 0;
+    while i < bytes.len() {
+        let a = bytes[i] as u32;
+        let b = bytes.get(i + 1).copied().unwrap_or(0) as u32;
+        let c = bytes.get(i + 2).copied().unwrap_or(0) as u32;
+        out.push(TABLE[((a >> 2) & 63) as usize] as char);
+        out.push(TABLE[(((a & 3) << 4) | (b >> 4)) as usize] as char);
+        if i + 1 < bytes.len() { out.push(TABLE[(((b & 15) << 2) | (c >> 6)) as usize] as char); }
+        if i + 2 < bytes.len() { out.push(TABLE[(c & 63) as usize] as char); }
+        i += 3;
+    }
+    out
+}

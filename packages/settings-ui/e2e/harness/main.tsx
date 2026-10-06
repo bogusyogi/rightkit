@@ -1,4 +1,4 @@
-import { StrictMode, useMemo, useState } from "react";
+import { StrictMode, useLayoutEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell, PageShell, Toggle, createThemeStore, type NavGroup } from "./shell.js";
 import { createAutoUpdateClient } from "@rightkit/updates";
@@ -32,7 +32,14 @@ const shell: EngineShell = {
     onEvent: async (handler) => {
       const es = new EventSource("/events");
       es.onmessage = (m) => handler(JSON.parse(m.data));
-      return () => es.close();
+      // A navigated-away document must release its stream: the browser allows 6 connections per origin, and
+      // leaked streams starve the next document's requests.
+      const release = () => es.close();
+      window.addEventListener("pagehide", release, { once: true });
+      return () => {
+        window.removeEventListener("pagehide", release);
+        es.close();
+      };
     },
   },
 };
@@ -98,6 +105,9 @@ const noop = async () => {};
 
 function App() {
   const [page, setPage] = useState("settings");
+  useLayoutEffect(() => {
+    (window as unknown as { __ready: boolean }).__ready = true;
+  }, []);
   const sections = useMemo(
     () =>
       mergeSections(
@@ -129,4 +139,3 @@ function App() {
   );
 }
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
-(window as unknown as { __ready: boolean }).__ready = true;

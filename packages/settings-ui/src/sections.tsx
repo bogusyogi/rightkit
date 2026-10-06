@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Badge, Button, Input, SegmentedControl, Toggle, createThemeStore, useMediaQuery, useShellOptional, type ThemeChoice, type ThemeStore } from "@rightkit/app-shell/react";
 import { isLicensed, tier as licenseTier, type StoredLicense, type createLicenseClient } from "@rightkit/license";
 import type { LogsClient } from "@rightkit/logs";
@@ -594,19 +594,24 @@ function ApiKeyRow({ slot, secrets, ctx, presence, onChanged }: { slot: ApiKeySl
 }
 
 function ApiKeysBody({ o, ctx }: { o: ApiKeysOptions; ctx: SettingsContext }) {
-  const [presence, setPresence] = useState<SecretPresence[] | null>(null);
+  // Render rows immediately while host checks credential presence.
+  const [presence, setPresence] = useState<SecretPresence[]>(() => o.slots.map(() => "unknown"));
+  const presenceGeneration = useRef(0);
   useEffect(() => {
     let live = true;
-    o.secrets.presence(o.slots.map((s) => s.ref)).then((p) => live && setPresence(p), () => live && setPresence(o.slots.map(() => "unknown")));
+    const generation = ++presenceGeneration.current;
+    o.secrets.presence(o.slots.map((s) => s.ref)).then(
+      (p) => live && generation === presenceGeneration.current && setPresence(p),
+      () => live && generation === presenceGeneration.current && setPresence(o.slots.map(() => "unknown")),
+    );
     return () => {
       live = false;
     };
   }, [o.secrets, o.slots]);
-  if (!presence) return <p className="rk-settings__loading">Checking the credential store…</p>;
   return (
     <SettingsGroup description="Keys are stored in your system credential store. They are never written to settings, logs or diagnostics, and cannot be shown again.">
       {o.slots.map((slot, i) => (
-        <ApiKeyRow key={slot.id} slot={slot} secrets={o.secrets} ctx={ctx} presence={presence[i] ?? "unknown"} onChanged={(p) => setPresence((cur) => (cur ?? []).map((x, j) => (j === i ? p : x)))} />
+        <ApiKeyRow key={slot.id} slot={slot} secrets={o.secrets} ctx={ctx} presence={presence[i] ?? "unknown"} onChanged={(p) => { presenceGeneration.current += 1; setPresence((cur) => cur.map((x, j) => (j === i ? p : x))); }} />
       ))}
     </SettingsGroup>
   );

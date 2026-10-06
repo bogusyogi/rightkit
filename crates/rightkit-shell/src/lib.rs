@@ -76,6 +76,7 @@ type PresenceCallback = Arc<dyn Fn(&AppHandle<Wry>, PresenceState) + Send + Sync
 
 /// Everything the shell shares at runtime (managed Tauri state).
 pub struct ShellState {
+    pub(crate) main_thread_id: std::thread::ThreadId,
     pub app_id: String,
     pub app_name: String,
     pub main_label: String,
@@ -318,9 +319,9 @@ impl Shell {
                 if let Some(state) = app.try_state::<ShellState>() {
                     let _ = state.windows.restore(&app, &label);
                 }
-                if show_on_ready && label == main_label && !lifecycle::launched_in_background() {
+                if show_on_ready && label == main_label && !lifecycle::launched_in_background() && !lifecycle::qa_hidden() {
                     if let Some(w) = app.get_webview_window(&label) {
-                        let _ = w.show();
+                        let _ = crate::windows::show_background_aware(&w);
                     }
                 }
             })
@@ -392,6 +393,7 @@ fn setup(app: &AppHandle<Wry>, cfg: ShellBuilder, nav: Arc<NavPolicy>, opener: A
     }
     let recovery = cfg.recovery.clone().map(|spec| recovery::RecoveryStore::new(spec, &state_dir));
     app.manage(ShellState {
+        main_thread_id: std::thread::current().id(),
         app_id: cfg.app_id.clone(),
         app_name: cfg.app_name.clone(),
         main_label: cfg.main_label.clone(),

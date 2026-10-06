@@ -7,7 +7,9 @@ import { useSettings } from "./useSettings.js";
 export function orderSections(sections: readonly SettingsSection[]): SettingsSection[] {
   const groups: string[] = [];
   for (const s of sections) if (!groups.includes(s.group ?? "")) groups.push(s.group ?? "");
-  return [...sections].sort((a, b) => groups.indexOf(a.group ?? "") - groups.indexOf(b.group ?? "") || (a.order ?? 1000) - (b.order ?? 1000) || a.label.localeCompare(b.label));
+  const first = new Map(groups.map((group, index) => [group, index]));
+  const groupOrder = new Map(groups.map((group) => [group, Math.min(...sections.filter((s) => (s.group ?? "") === group).map((s) => s.order ?? 1000))]));
+  return [...sections].sort((a, b) => groupOrder.get(a.group ?? "")! - groupOrder.get(b.group ?? "")! || first.get(a.group ?? "")! - first.get(b.group ?? "")! || (a.order ?? 1000) - (b.order ?? 1000) || a.label.localeCompare(b.label));
 }
 
 /**

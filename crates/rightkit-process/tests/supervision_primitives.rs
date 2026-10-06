@@ -22,7 +22,7 @@ mod child {
         c
     }
 
-    fn run_env(c: &mut OwnedCommand) -> String {
+    fn run_env(mut c: OwnedCommand) -> String {
         c.command_mut().stdout(Stdio::piped());
         let mut child = c.spawn().unwrap();
         let mut out = String::new();
@@ -40,7 +40,7 @@ mod child {
         // Allowlist: only named variables survive; the rest are cleared.
         let mut c = OwnedCommand::new("/usr/bin/env");
         c.env_allowlist(DEFAULT_ENV_ALLOWLIST.iter().copied().chain(["RK_TEST_KEEP"]));
-        let out = run_env(&mut c);
+        let out = run_env(c);
         assert!(out.contains("RK_TEST_KEEP=kept-value"), "{out}");
         assert!(!out.contains("RK_TEST_HIDDEN") && !out.contains("RK_TEST_OTHER"), "{out}");
         assert!(out.contains("PATH="), "PATH is in the default allowlist: {out}");
@@ -49,12 +49,12 @@ mod child {
         let mut c = OwnedCommand::new("/usr/bin/env");
         c.env_allowlist(["PATH"]);
         c.command_mut().env("RK_TEST_ADDED", "added");
-        assert!(run_env(&mut c).contains("RK_TEST_ADDED=added"));
+        assert!(run_env(c).contains("RK_TEST_ADDED=added"));
 
         // Strip: only the named variable disappears.
         let mut c = OwnedCommand::new("/usr/bin/env");
         c.env_strip(["RK_TEST_HIDDEN"]);
-        let out = run_env(&mut c);
+        let out = run_env(c);
         assert!(!out.contains("RK_TEST_HIDDEN") && out.contains("RK_TEST_OTHER=other-value"), "{out}");
     }
 

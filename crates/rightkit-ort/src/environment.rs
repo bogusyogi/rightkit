@@ -80,7 +80,11 @@ fn physical_cores() -> Option<usize> {
     // u64 storage supplies required alignment; record sizes are variable.
     let mut storage = vec![0_u64; (bytes as usize).div_ceil(8)];
     if unsafe {
-        GetLogicalProcessorInformationEx(RelationProcessorCore, storage.as_mut_ptr().cast(), &mut bytes)
+        GetLogicalProcessorInformationEx(
+            RelationProcessorCore,
+            storage.as_mut_ptr().cast(),
+            &mut bytes,
+        )
     } == 0
     {
         return None;
@@ -121,7 +125,8 @@ pub(crate) fn use_private_pools(reason: &str) {
 /// True once [`init_environment`] succeeded with a shared pool and no session
 /// has since fallen back to private pools.
 pub fn shared_pool_active() -> bool {
-    matches!(REPORT.get(), Some(Ok(r)) if r.shared_pool_active) && !PRIVATE_POOLS.load(Ordering::Acquire)
+    matches!(REPORT.get(), Some(Ok(r)) if r.shared_pool_active)
+        && !PRIVATE_POOLS.load(Ordering::Acquire)
 }
 
 /// Initialise ORT exactly once for the process. Later calls return the first

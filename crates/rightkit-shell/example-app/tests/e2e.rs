@@ -1,5 +1,5 @@
-//! End-to-end proof of `rightkit-shell` through a real hidden Tauri app: the example binary is
-//! launched by the rightkit-qa harness (hidden, never activated), driven with the in-app control
+//! End-to-end proof of `rightkit-shell` through a real backgrounded Tauri app: the example binary is
+//! launched by the rightkit-qa harness (shown behind the user's app, never activated), driven with the in-app control
 //! server (trusted native input into the webview), and every claim is read back from the app, the
 //! OS, or disk. Nothing is mocked except the link handler, which records instead of opening a
 //! browser.
@@ -58,7 +58,7 @@ fn start_with(tracker: &Tracker, label: &str, state_dir: Option<PathBuf>, extra_
     env.extend(extra_env.iter().filter(|(k, _)| k.starts_with("RIGHTKIT_")).map(|(k, v)| (k.to_string(), v.to_string())));
     let spec = LaunchSpec {
         binary: PathBuf::from(EXE),
-        mode: if extra_env.iter().any(|(k, _)| *k == "RK_MODE_BACKGROUND") { Mode::Background } else { Mode::Hidden },
+        mode: if extra_env.iter().any(|(k, _)| *k == "RK_MODE_HIDDEN") { Mode::Hidden } else { Mode::Background },
         env,
         startup_timeout: Duration::from_secs(60),
         label: label.into(),
@@ -70,12 +70,27 @@ fn start_with(tracker: &Tracker, label: &str, state_dir: Option<PathBuf>, extra_
 /// Run an async bridge call in the page and wait for its outcome: `{ok}` or `{err}`.
 fn bridge(c: &Control, expr: &str) -> Value {
     c.eval("window.__r = undefined; return 1;").unwrap();
-    c.eval(&format!("({expr}).then(function(v){{window.__r={{ok:v===undefined?null:v}};}},function(e){{window.__r={{err:String(e)}};}}); return 1;")).unwrap();
+    let expr_json = serde_json::to_string(expr).unwrap();
+    c.eval(&format!("({expr}).then(function(v){{window.__r={{ok:v===undefined?null:v}};}},function(e){{window.__r={{err:String(e),expr:{expr_json}}};}}); return 1;")).unwrap();
     c.wait_eval("return window.__r;", Duration::from_secs(20)).unwrap_or_else(|e| panic!("bridge `{expr}`: {e}"))
+}
+
+fn bridge_error(c: &Control, expr: &str) -> Value {
+    c.eval("window.__r = undefined; return 1;").unwrap();
+    c.eval(&format!("({expr}).then(function(v){{window.__r={{ok:v===undefined?null:v}};}},function(e){{window.__r={{err:{{code:e&&e.code||'other',message:e&&e.message||String(e)}}}};}}); return 1;")).unwrap();
+    c.wait_eval("return window.__r;", Duration::from_secs(20)).unwrap_or_else(|e| panic!("bridge `{expr}`: {e}"))
+}
+
+fn js_string(s: &str) -> String {
+    serde_json::to_string(s).unwrap()
 }
 fn ok(v: &Value) -> &Value {
     assert!(v.get("err").is_none(), "bridge call failed: {v}");
     &v["ok"]
+}
+
+fn ok_owned(v: Value) -> Value {
+    ok(&v).clone()
 }
 
 fn wait_for(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
@@ -138,6 +153,19 @@ fn pid_windows(pid: u32) -> Vec<rightkit_control::mac::Win> {
     rightkit_control::mac::windows(pid as i32)
 }
 
+fn assert_window_server_background(pid: u32) {
+    let foreground = rightkit_control::mac::frontmost_pid().expect("WindowServer foreground pid");
+    assert_ne!(foreground, pid as i32, "QA app became foreground");
+    // rightkit-control's CGWindowList wrapper documents front-to-back order; native
+    // level is the stable below-normal proof, so do not infer z-order from indices.
+    let fixture_windows: Vec<_> = rightkit_control::mac::windows(0)
+        .into_iter()
+        .filter(|w| w.pid == pid as i32 && w.onscreen)
+        .collect();
+    assert!(!fixture_windows.is_empty(), "fixture onscreen window");
+    assert!(fixture_windows.iter().all(|w| w.layer == -1), "every onscreen fixture window must use below-normal layer -1: {fixture_windows:?}");
+}
+
 #[test]
 fn shell_hardens_the_webview_and_wires_menu_tray_links_engine_and_exit() {
     let tracker = Tracker::new();
@@ -150,6 +178,9 @@ fn shell_hardens_the_webview_and_wires_menu_tray_links_engine_and_exit() {
     let st0 = status(c);
     assert_eq!(st0["instance"], "primary");
     assert_eq!(st0["tray"], true, "tray icon registered");
+    assert_eq!(st0["windows"][0]["native"]["visible"], true, "native main window is visible");
+    assert_eq!(st0["windows"][0]["native"]["level"], -1, "background QA window stays below normal user windows");
+    assert_window_server_background(pid);
     let rows: Vec<String> = st0["menu"].as_array().unwrap().iter().map(|r| format!("{}|{}", r["path"].as_str().unwrap(), r["label"].as_str().unwrap())).collect();
     for want in ["Edit/", "Window/", "Help/", "Demo/demo.ping|Ping", "Help/help.docs|Documentation", "View/"] {
         assert!(rows.iter().any(|r| r.contains(want)), "menu lacks {want}: {rows:?}");
@@ -175,7 +206,7 @@ fn shell_hardens_the_webview_and_wires_menu_tray_links_engine_and_exit() {
     // A secondary window: label validated, created through the shell, visible to the OS.
     let wins_before = pid_windows(pid).len();
     assert_eq!(ok(&bridge(c, "rk.window.open({label: 'mini', title: 'Mini', width: 420, height: 300})")), "mini");
-    wait_for("secondary window", 10, || status(c)["windows"].as_array().unwrap().iter().any(|w| w["label"] == "mini" && w["visible"] == true && w["title"] == "Mini"));
+    wait_for("secondary window", 10, || status(c)["windows"].as_array().unwrap().iter().any(|w| w["label"] == "mini" && w["visible"] == true && w["native"]["visible"] == true && w["title"] == "Mini"));
     assert!(pid_windows(pid).len() > wins_before, "OS sees the new window");
     assert!(bridge(c, "rk.window.open({label: '../evil'})")["err"].as_str().unwrap_or("").contains("invalid window label"));
 
@@ -345,7 +376,10 @@ fn shell_hardens_the_webview_and_wires_menu_tray_links_engine_and_exit() {
     assert!(!record.exists(), "single-instance record released");
     let rep = run.c.stop().unwrap();
     assert!(rep.process_gone && rep.endpoint_closed);
-    assert!(rep.frontmost_unchanged, "frontmost app never changed: {rep:?}");
+    // User may switch Finder/Safari while QA runs. The strict invariant is that
+    // every owned shell PID stayed out of foreground; app-name stability remains
+    // diagnostic in StopReport only.
+    assert!(rep.owned_never_frontmost, "owned shell process reached foreground: {rep:?}");
     tracker.assert_no_orphans().unwrap();
     let _ = std::fs::remove_dir_all(&run.state_dir);
     workspace::dispose(&run.ws, false, 5, 200);
@@ -381,6 +415,7 @@ fn window_geometry_is_saved_and_restored_across_launches() {
 }
 
 #[test]
+#[ignore = "background-only QA forbids native popup over user work"]
 fn positive_control_native_menu_is_detectable_where_the_shell_allows_it() {
     let tracker = Tracker::new();
     let mut run = start(&tracker, "shell-positive", None);
@@ -402,6 +437,7 @@ fn positive_control_native_menu_is_detectable_where_the_shell_allows_it() {
 /// separate from the main test because walking the Apple menu through AX briefly activates other
 /// apps, which would invalidate that test's frontmost-app-unchanged proof.
 #[test]
+#[ignore = "background-only QA forbids global menu activation"]
 fn native_menu_bar_matches_the_spec_through_accessibility() {
     if !rightkit_control::mac::accessibility_trusted() {
         println!("native menu bar AX check NOT RUN: this process has no Accessibility permission (run the test binary from an interactive terminal)");
@@ -497,6 +533,130 @@ fn app_shell_runs_on_the_real_shell_bridge() {
     assert!(Command::new("/usr/bin/open").args(["-g", "-j", "-n", "--env"]).arg(format!("RIGHTKIT_SUITE_ROOT={}", suite.display())).arg(&bundle).args(["--args", "rkshell-example://open/doc/7"]).status().unwrap().success());
     wait_for("app-shell ran the command for the native action", 20, || c.eval("return window.__appshell.ran.indexOf('deep-link:doc/7') >= 0;").unwrap() == json!(true));
     let _ = run.c.stop();
+    tracker.assert_no_orphans().unwrap();
+    workspace::dispose(&run.ws, false, 5, 200);
+}
+
+#[test]
+fn shell_native_capabilities_cover_paths_ranges_errors_presence_dnd_idle_and_recovery() {
+    let tracker = Tracker::new();
+    let fixture = internal_tmp().join(format!("rk-shell-capabilities-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&fixture);
+    std::fs::create_dir_all(&fixture).unwrap();
+    let file = fixture.join("sample.txt");
+    std::fs::write(&file, b"0123456789").unwrap();
+    let cache = fixture.join("cache");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(fixture.join("missing-cache"), &cache).unwrap();
+    let idle_ms = "100";
+    let file_s = file.to_string_lossy().to_string();
+    let cache_s = cache.to_string_lossy().to_string();
+    let mut run = start_with(
+        &tracker,
+        "shell-capabilities",
+        None,
+        &[
+            ("RIGHTKIT_EXAMPLE_IDLE_MS", idle_ms),
+            ("RIGHTKIT_EXAMPLE_CACHE_DIR", &cache_s),
+            ("RIGHTKIT_EXAMPLE_GRANT_FILE", &file_s),
+        ],
+    );
+    let c = &run.c;
+    c.wait_eval("return window.__ready;", Duration::from_secs(20)).unwrap();
+
+    let st = status(c);
+    assert_window_server_background(run.c.pid);
+    assert_eq!(st["streamScheme"], "rk-stream");
+    assert_eq!(st["cacheRepair"]["outcome"], "repaired");
+
+    let ungranted = fixture.join("ungranted.txt");
+    std::fs::write(&ungranted, b"private").unwrap();
+    let denied = bridge_error(c, &format!("rk.paths.require({})", js_string(&ungranted.to_string_lossy())));
+    assert_eq!(denied["err"]["code"], "broker_denied");
+
+    let granted = ok_owned(bridge(c, &format!("rk.paths.require({})", js_string(&file_s))));
+    assert_eq!(granted, json!(std::fs::canonicalize(&file).unwrap().to_string_lossy()));
+    let stream = ok_owned(bridge(c, &format!("rk.paths.streamUrl({})", js_string(&file_s))));
+    let url = stream["url"].as_str().unwrap().to_owned();
+    let ranged = ok_owned(bridge(c, &format!("fetch({}, {{headers: {{Range: 'bytes=2-5'}}}}).then(async r => ({{status:r.status, range:r.headers.get('content-range'), body:await r.text()}}))", js_string(&url))));
+    assert_eq!(ranged, json!({"status": 206, "range": "bytes 2-5/10", "body": "2345"}));
+
+    let snapshot = json!({"version":1,"documents":[{"document":{"path":file_s}}]});
+    let recovery = bridge_error(c, &format!("rk.recovery.save({})", snapshot));
+    assert!(recovery.get("err").is_none(), "recovery save: {recovery}");
+    let loaded = ok_owned(bridge(c, "rk.recovery.load()"));
+    assert_eq!(loaded["version"], 1);
+    let denied_recovery = bridge_error(c, "rk.recovery.save({version:1,documents:[{document:{path:'/private/etc/hosts'}}]})");
+    assert_eq!(denied_recovery["err"]["code"], "broker_denied");
+    ok(&bridge(c, "rk.recovery.clear()"));
+
+    let revoked = ok_owned(bridge(c, &format!("rk.paths.revoke({})", js_string(&file_s))));
+    assert_eq!(revoked, Value::Null);
+    let after_revoke = ok_owned(bridge(c, &format!("fetch({}).then(async r => ({{status:r.status, body:await r.text()}}))", js_string(&url))));
+    assert_eq!(after_revoke["status"], 403);
+
+    // Automatic meeting detection and manual DND both suppress native posting without touching
+    // user notification state; the status call below is the OS read-back for this throwaway app.
+    ok(&bridge(c, "rk.presence.setAuto({autoDndMeetings:true})"));
+    ok(&bridge(c, "rk.presence.evaluate({x:0,y:0,width:1440,height:900}, [{owner:'Zoom',title:'Meeting',layer:0,bounds:{x:0,y:0,width:800,height:600}}], true)"));
+    let suppressed = ok_owned(bridge(c, "rk.notifications.post({title:'rk-shell meeting suppression',body:'test'})"));
+    assert_eq!(suppressed["delivered"], false);
+    assert_eq!(suppressed["suppressed"], "dnd");
+    ok(&bridge(c, "rk.presence.setDnd(false)"));
+    ok(&bridge(c, "rk.presence.setAuto({autoDndMeetings:false})"));
+    ok(&bridge(c, "rk.idle.note(true)"));
+    wait_for("idle suspend", 5, || ok(&bridge(c, "rk.idle.status()"))["suspended"].as_bool().unwrap_or(false));
+    ok(&bridge(c, "rk.idle.note(false)"));
+    wait_for("idle resume", 5, || !ok(&bridge(c, "rk.idle.status()"))["suspended"].as_bool().unwrap_or(true));
+
+    let pid = run.c.pid;
+    let _ = c.eval("rk.quit(); return 1;");
+    wait_for("capability app exit", 15, || !is_alive(pid));
+    run.c.stop().unwrap();
+    tracker.assert_no_orphans().unwrap();
+    workspace::dispose(&run.ws, false, 5, 200);
+    let _ = std::fs::remove_dir_all(&fixture);
+}
+
+#[test]
+fn shell_native_notification_delivery_gate() {
+    let tracker = Tracker::new();
+    let mut run = start(&tracker, "shell-notification-delivery", None);
+    let c = &run.c;
+    c.wait_eval("return window.__ready;", Duration::from_secs(20)).expect("frontend ready via bridge");
+
+    let title = format!("rk-shell delivery gate {}", std::process::id());
+    let post = bridge_error(c, &format!("rk.notifications.post({{title:{},body:'delivery-gate',soundEnabled:false}})", js_string(&title)));
+    if let Some(err) = post.get("err") {
+        match err["code"].as_str() {
+            Some("permission_denied" | "unsupported") => {
+                eprintln!("NOT DONE notification delivery gate: {err}");
+                let _ = c.eval("rk.quit(); return 1;");
+                let pid = run.c.pid;
+                wait_for("notification gate app exit", 15, || !is_alive(pid));
+                run.c.stop().unwrap();
+                tracker.assert_no_orphans().unwrap();
+                workspace::dispose(&run.ws, false, 5, 200);
+                return;
+            }
+            _ => panic!("notification post unexpected error: {post}"),
+        }
+    }
+    assert_eq!(post["ok"]["delivered"], true, "authorized notification must report delivered: {post}");
+
+    let mut last_status = Value::Null;
+    wait_for("notification OS delivery read-back", 10, || {
+        let status = bridge_error(c, "rk.notifications.status()");
+        last_status = status.clone();
+        status["ok"]["delivered"].as_array().map(|rows| rows.iter().any(|row| row["title"] == title)).unwrap_or(false)
+    });
+    assert!(last_status["ok"]["authorization"].as_str().is_some(), "notification status lacks authorization: {last_status}");
+
+    ok(&bridge(c, "rk.notifications.clear()"));
+    let pid = run.c.pid;
+    let _ = c.eval("rk.quit(); return 1;");
+    wait_for("notification gate app exit", 15, || !is_alive(pid));
+    run.c.stop().unwrap();
     tracker.assert_no_orphans().unwrap();
     workspace::dispose(&run.ws, false, 5, 200);
 }

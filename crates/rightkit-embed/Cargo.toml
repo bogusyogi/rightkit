@@ -1,8 +1,22 @@
 [package]
 name = "rightkit-embed"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
+rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
 publish = false
+description = "Product-neutral local text embeddings and persistent cosine vector store."
+readme = "README.md"
+repository = "https://github.com/bogusyogi/claude"
+include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "api-24", "load-dynamic"] }
+rightkit-ort = { version = "=0.1.0", path = "../rightkit-ort" }
+rusqlite = { version = "0.40.1", default-features = false }
+thiserror = "2"
+tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
+
+[dev-dependencies]
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+tempfile = "3"

@@ -2,7 +2,10 @@
 //! HeardRight `heardright-onnx-asr/session.rs`; `HR_ONNX_*_EXPERIMENT`
 //! environment switches dropped as product policy).
 
-use std::{fmt, path::{Path, PathBuf}};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 
 use crate::environment;
 
@@ -36,7 +39,9 @@ impl fmt::Display for SessionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingArtifact(p) => write!(f, "model file missing: {}", p.display()),
-            Self::ProviderUnsupported(p) => write!(f, "execution provider {p:?} unsupported on this OS"),
+            Self::ProviderUnsupported(p) => {
+                write!(f, "execution provider {p:?} unsupported on this OS")
+            }
             Self::Runtime(m) => write!(f, "{m}"),
         }
     }
@@ -60,7 +65,10 @@ pub struct SessionOptions {
 
 impl SessionOptions {
     pub fn new(provider: ExecutionProvider) -> Self {
-        Self { provider, ..Self::default() }
+        Self {
+            provider,
+            ..Self::default()
+        }
     }
 
     pub fn with_device_id(mut self, device_id: Option<i32>) -> Self {
@@ -75,7 +83,10 @@ impl SessionOptions {
 
     /// Same options forced to CPU, for dispatch-bound stages (mel, decoder/joint).
     pub fn cpu_for_stage(&self) -> Self {
-        Self { provider: ExecutionProvider::Cpu, ..self.clone() }
+        Self {
+            provider: ExecutionProvider::Cpu,
+            ..self.clone()
+        }
     }
 
     pub fn build_from_file(&self, path: &Path) -> Result<ort::session::Session, SessionError> {
@@ -91,36 +102,40 @@ impl SessionOptions {
 
     fn build(
         &self,
-        commit: impl FnOnce(&mut ort::session::builder::SessionBuilder) -> ort::Result<ort::session::Session>,
+        commit: impl FnOnce(
+            &mut ort::session::builder::SessionBuilder,
+        ) -> ort::Result<ort::session::Session>,
         what: &str,
     ) -> Result<ort::session::Session, SessionError> {
         if !self.provider.supported_on_this_os() {
             return Err(SessionError::ProviderUnsupported(self.provider));
         }
-        let rt = |label: &str| {
-            let label = label.to_owned();
-            move |e: ort::Error| SessionError::Runtime(format!("{label}: {e}"))
-        };
         let mut builder = ort::session::Session::builder().map_err(rt("session builder"))?;
         let shared_pool = environment::shared_pool_active();
 
         let directml = self.provider == ExecutionProvider::DirectMl;
         if directml {
-            builder = builder.with_independent_thread_pool().map_err(rt("independent DirectML pool"))?;
+            builder = builder
+                .with_independent_thread_pool()
+                .map_err(|e| map_ort_error("independent DirectML pool", e))?;
         }
         // Explicit CPU threads need a private pool; ORT ignores them otherwise.
         if self.provider == ExecutionProvider::Cpu && self.threads.is_some() && shared_pool {
-            builder = builder.with_independent_thread_pool().map_err(rt("independent CPU stage"))?;
+            builder = builder
+                .with_independent_thread_pool()
+                .map_err(|e| map_ort_error("independent CPU stage", e))?;
         }
         if let Some(threads) = self.threads {
-            builder = builder.with_intra_threads(threads).map_err(rt("intra threads"))?;
+            builder = builder
+                .with_intra_threads(threads)
+                .map_err(|e| map_ort_error("intra threads", e))?;
         }
         if self.directml_static_shape_workaround && directml {
             builder = builder
                 .with_config_entry("ep.dml.disable_graph_fusion", "1")
-                .map_err(rt("disable_graph_fusion"))?
+                .map_err(|e| map_ort_error("disable_graph_fusion", e))?
                 .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level1)
-                .map_err(rt("optimization level"))?;
+                .map_err(|e| map_ort_error("optimization level", e))?;
         }
         builder = match self.provider {
             ExecutionProvider::Cpu => builder,
@@ -131,12 +146,21 @@ impl SessionOptions {
                 }
                 builder
                     .with_execution_providers([ep.build().error_on_failure()])
-                    .map_err(rt("directml"))?
+                    .map_err(|e| map_ort_error("directml", e))?
             }
             ExecutionProvider::CoreMl => builder
                 .with_execution_providers([ort::ep::CoreML::default().build().error_on_failure()])
-                .map_err(rt("coreml"))?,
+                .map_err(|e| map_ort_error("coreml", e))?,
         };
         commit(&mut builder).map_err(|e| SessionError::Runtime(format!("load {what}: {e}")))
     }
+}
+
+fn rt(label: &str) -> impl FnOnce(ort::Error) -> SessionError {
+    let label = label.to_owned();
+    move |error| SessionError::Runtime(format!("{label}: {error}"))
+}
+
+fn map_ort_error<R>(label: &str, error: ort::Error<R>) -> SessionError {
+    SessionError::Runtime(format!("{label}: {error}"))
 }

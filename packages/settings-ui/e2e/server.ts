@@ -22,6 +22,8 @@ export interface TestHost {
   logs: unknown[];
   failNextSettingsPatch: boolean;
   licenseRequests: Array<{ path: string; body: Record<string, unknown> }>;
+  /** Open server-sent-event streams right now (a browser allows only 6 connections per origin). */
+  sseOpen(): number;
   close(): void;
 }
 
@@ -66,7 +68,9 @@ export async function startHost(staticDir: string, settingsFile: string): Promis
       case "rightkit.settings.get":
         return { status: 200, body: readSettings() };
       case "rightkit.settings.patch": {
-        if (host.failNextSettingsPatch) {
+        // Scope the injected disk failure to its intended dictation rollback write so
+        // delayed writes from earlier pages cannot consume this test control flag.
+        if (host.failNextSettingsPatch && Object.prototype.hasOwnProperty.call(params.patch, "dictation.cleanup")) {
           host.failNextSettingsPatch = false;
           return { status: 500, body: { error: "disk full" } };
         }
@@ -187,6 +191,7 @@ export async function startHost(staticDir: string, settingsFile: string): Promis
     logs,
     failNextSettingsPatch: false,
     licenseRequests,
+    sseOpen: () => sse.size,
     close() {
       for (const t of timers.values()) clearInterval(t);
       for (const r of sse) r.end();

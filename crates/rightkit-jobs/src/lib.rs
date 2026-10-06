@@ -11,7 +11,7 @@ mod store;
 mod supervisor;
 
 pub use client::{ClientOptions, EngineClient, DEFAULT_HELLO_TIMEOUT};
-pub use supervisor::{EngineSupervisor, ExitReason, Lifecycle, LifecycleEvent, SupervisorConfig, SupervisorStatus, HealthCheck};
+pub use supervisor::{CallOptions, EngineSupervisor, ExitReason, HealthCheck, Lifecycle, LifecycleEvent, SupervisorConfig, SupervisorStatus};
 pub use contract::{
     parse_flags, run_cli, serve, CommandSet, Dispatcher, Flags, JobCommands, Outcome, Sink,
     CONTRACT_VERSION, DEFAULT_FRAME_LIMIT,

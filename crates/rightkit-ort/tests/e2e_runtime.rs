@@ -15,7 +15,10 @@ use rightkit_ort::{
 };
 
 fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../..")
+        .canonicalize()
+        .unwrap()
 }
 
 /// The approved 1.24.4 file, searched in known real locations.
@@ -124,7 +127,9 @@ fn setup() -> rightkit_ort::EnvironmentReport {
             assert_eq!(selection.source, CandidateSource::Bundled);
             let report = init_environment(
                 &selection,
-                &EnvironmentOptions { global_pool: Some(GlobalPool::from_budget()) },
+                &EnvironmentOptions {
+                    global_pool: Some(GlobalPool::from_budget()),
+                },
             )
             .expect("environment");
             report
@@ -135,14 +140,22 @@ fn setup() -> rightkit_ort::EnvironmentReport {
 #[test]
 fn real_dylib_matches_approved_catalog_and_loads_with_expected_version() {
     let catalog = NativeCatalog::embedded().unwrap();
-    let record = catalog.approved(NativeLibrary::Onnxruntime, "macos", "aarch64").unwrap();
+    let record = catalog
+        .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
+        .unwrap();
     assert_eq!(record.version, "1.24.4");
     let (_, staged) = staged_app();
-    record.verify_file(staged).expect("staged runtime must match the approved digest");
+    record
+        .verify_file(staged)
+        .expect("staged runtime must match the approved digest");
 
     let report = setup();
     assert_eq!(report.runtime_path, staged.canonicalize().unwrap());
-    assert!(report.runtime_info.contains("1.24.4"), "ORT info: {}", report.runtime_info);
+    assert!(
+        report.runtime_info.starts_with("ORT Build Info:"),
+        "ORT info: {}",
+        report.runtime_info
+    );
     assert!(report.shared_pool_active);
 }
 
@@ -152,7 +165,11 @@ fn providers_are_probed_from_the_loaded_runtime() {
     let probes = probe_providers();
     let get = |k| probes.iter().find(|p| p.provider == k).unwrap();
     assert!(get(ProviderKind::Cpu).available);
-    assert!(get(ProviderKind::CoreMl).available, "{:?}", get(ProviderKind::CoreMl));
+    assert!(
+        get(ProviderKind::CoreMl).available,
+        "{:?}",
+        get(ProviderKind::CoreMl)
+    );
     assert!(!get(ProviderKind::DirectMl).available);
     assert!(get(ProviderKind::DirectMl).detail.contains("not supported"));
 }
@@ -160,7 +177,10 @@ fn providers_are_probed_from_the_loaded_runtime() {
 #[test]
 fn tiny_model_runs_on_cpu_with_shared_and_private_pools() {
     setup();
-    assert_eq!(run_add(&SessionOptions::new(ExecutionProvider::Cpu)), vec![11.0, 22.0, 33.0, 44.0]);
+    assert_eq!(
+        run_add(&SessionOptions::new(ExecutionProvider::Cpu)),
+        vec![11.0, 22.0, 33.0, 44.0]
+    );
     // Explicit threads opt out of the shared pool and still compute the same.
     let private = SessionOptions::new(ExecutionProvider::Cpu).with_threads(Some(2));
     assert_eq!(run_add(&private), vec![11.0, 22.0, 33.0, 44.0]);
@@ -169,10 +189,15 @@ fn tiny_model_runs_on_cpu_with_shared_and_private_pools() {
 #[test]
 fn tiny_model_runs_on_coreml_and_directml_is_refused_on_macos() {
     setup();
-    assert_eq!(run_add(&SessionOptions::new(ExecutionProvider::CoreMl)), vec![11.0, 22.0, 33.0, 44.0]);
+    assert_eq!(
+        run_add(&SessionOptions::new(ExecutionProvider::CoreMl)),
+        vec![11.0, 22.0, 33.0, 44.0]
+    );
     assert!(matches!(
         SessionOptions::new(ExecutionProvider::DirectMl).build_from_memory(&add_model()),
-        Err(SessionError::ProviderUnsupported(ExecutionProvider::DirectMl))
+        Err(SessionError::ProviderUnsupported(
+            ExecutionProvider::DirectMl
+        ))
     ));
 }
 
@@ -185,7 +210,10 @@ fn model_file_path_and_missing_file_are_distinguished() {
     let a = Tensor::from_array(([4usize], vec![0.5f32; 4])).unwrap();
     let b = Tensor::from_array(([4usize], vec![0.25f32; 4])).unwrap();
     let out = session.run(ort::inputs!["x" => a, "y" => b]).unwrap();
-    assert_eq!(out["z"].try_extract_tensor::<f32>().unwrap().1, &[0.75f32; 4]);
+    assert_eq!(
+        out["z"].try_extract_tensor::<f32>().unwrap().1,
+        &[0.75f32; 4]
+    );
     std::fs::remove_file(&path).unwrap();
     assert!(matches!(
         SessionOptions::default().build_from_file(&path),

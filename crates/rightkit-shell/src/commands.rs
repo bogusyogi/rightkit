@@ -48,7 +48,7 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
     let windows: Vec<Value> = app
         .webview_windows()
         .iter()
-        .map(|(label, w)| json!({"label": label, "visible": w.is_visible().unwrap_or(false), "title": w.title().unwrap_or_default()}))
+        .map(|(label, w)| json!({"label": label, "visible": w.is_visible().unwrap_or(false), "title": w.title().unwrap_or_default(), "native": crate::windows::readback(w).map(|native| json!(native)).unwrap_or_else(|e| json!({"error": e}))}))
         .collect();
     let menu_enabled: BTreeMap<String, bool> =
         state.menu_items.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(id, i)| (id.clone(), i.is_enabled().unwrap_or(false))).collect();
@@ -69,33 +69,37 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
 
 #[tauri::command]
 pub fn rk_shell_window(action: String, window: WebviewWindow<Wry>) -> Result<(), String> {
-    let r = match action.as_str() {
-        "minimize" => window.minimize(),
-        "maximize" => window.maximize(),
-        "unmaximize" => window.unmaximize(),
+    let r: Result<(), String> = match action.as_str() {
+        "minimize" => window.minimize().map_err(|e| e.to_string()),
+        "maximize" => window.maximize().map_err(|e| e.to_string()),
+        "unmaximize" => window.unmaximize().map_err(|e| e.to_string()),
         "toggle-maximize" => {
-            if window.is_maximized().unwrap_or(false) { window.unmaximize() } else { window.maximize() }
+            if window.is_maximized().unwrap_or(false) { window.unmaximize() } else { window.maximize() }.map_err(|e| e.to_string())
         }
-        "fullscreen" => window.set_fullscreen(!window.is_fullscreen().unwrap_or(false)),
+        "fullscreen" => window.set_fullscreen(!window.is_fullscreen().unwrap_or(false)).map_err(|e| e.to_string()),
         "hide" => {
             let r = window.hide();
             if window.label() == "main" {
                 crate::idle::note_hidden(window.app_handle(), false);
             }
-            r
+            r.map_err(|e| e.to_string())
         }
         "show" => {
-            let r = window.show().and_then(|_| window.set_focus());
+            let r = if crate::lifecycle::qa_background() {
+                crate::windows::show_background_aware(&window)
+            } else {
+                window.show().and_then(|_| window.set_focus()).map_err(|e| e.to_string())
+            };
             if window.label() == "main" {
                 crate::idle::note_visible(window.app_handle());
             }
             r
         }
-        "close" => window.close(),
-        "start-drag" => window.start_dragging(),
+        "close" => window.close().map_err(|e| e.to_string()),
+        "start-drag" => window.start_dragging().map_err(|e| e.to_string()),
         other => return Err(format!("unknown window action {other}")),
     };
-    r.map_err(|e| e.to_string())
+    r
 }
 
 #[tauri::command]

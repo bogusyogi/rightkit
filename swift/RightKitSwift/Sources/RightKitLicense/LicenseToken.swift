@@ -7,6 +7,11 @@ public struct LicenseClaims: Equatable, Sendable {
     public init(
         version: Int, id: String, app: String, tier: String,
         features: [String], deviceId: String, issuedAt: Int, expiresAt: Int,
+        scope: String? = nil,
+        licenseKind: String? = nil,
+        entitlementStage: String? = nil,
+        licenseIssuedAt: Int? = nil,
+        confirmationDueAt: Int? = nil,
     ) {
         self.version = version
         self.id = id
@@ -16,6 +21,11 @@ public struct LicenseClaims: Equatable, Sendable {
         self.deviceId = deviceId
         self.issuedAt = issuedAt
         self.expiresAt = expiresAt
+        self.scope = scope
+        self.licenseKind = licenseKind
+        self.entitlementStage = entitlementStage
+        self.licenseIssuedAt = licenseIssuedAt
+        self.confirmationDueAt = confirmationDueAt
     }
 
     public let version: Int
@@ -26,6 +36,12 @@ public struct LicenseClaims: Equatable, Sendable {
     public let deviceId: String
     public let issuedAt: Int
     public let expiresAt: Int
+    /// Server-owned entitlement scope. Missing means legacy full scope.
+    public let scope: String?
+    public let licenseKind: String?
+    public let entitlementStage: String?
+    public let licenseIssuedAt: Int?
+    public let confirmationDueAt: Int?
 
     public func hasFeature(_ feature: String) -> Bool { features.contains(feature) }
 
@@ -46,6 +62,29 @@ public enum LicenseError: Error, Equatable, Sendable {
     case wrongDevice(expected: String, actual: String)
     case expired(expiresAt: Int, now: Int)
     case unsupportedVersion(Int)
+    case malformedLeaseSignature
+    case badLeaseSignature
+    case invalidResponse
+    case serverStatus(Int, String)
+    case transport(String)
+}
+
+extension LicenseError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .malformedToken: return "License token is malformed."
+        case .malformedPublicKey: return "License public key is malformed."
+        case .badSignature, .badLeaseSignature: return "License signature is invalid."
+        case let .wrongApp(expected, actual): return "License belongs to \(actual), not \(expected)."
+        case let .wrongDevice(expected, actual): return "License belongs to \(actual), not \(expected)."
+        case let .expired(expiresAt, now): return "License expired at \(expiresAt) (now \(now))."
+        case let .unsupportedVersion(version): return "License version \(version) is unsupported."
+        case .malformedLeaseSignature: return "License lease signature is missing or malformed."
+        case .invalidResponse: return "License server returned an unreadable response."
+        case let .serverStatus(status, message): return message.isEmpty ? "License server returned HTTP \(status)." : message
+        case let .transport(message): return message
+        }
+    }
 }
 
 /// Verifies `base64url(payload).base64url(signature)` Ed25519 entitlement tokens — the same wire
@@ -100,6 +139,11 @@ public struct LicenseVerifier: Sendable {
             deviceId: payload.device_id,
             issuedAt: payload.iat,
             expiresAt: payload.exp,
+            scope: payload.scope,
+            licenseKind: payload.license_kind,
+            entitlementStage: payload.entitlement_stage,
+            licenseIssuedAt: payload.license_issued_at,
+            confirmationDueAt: payload.confirmation_due_at,
         )
     }
 
@@ -112,6 +156,11 @@ public struct LicenseVerifier: Sendable {
         let device_id: String
         let iat: Int
         let exp: Int
+        let scope: String?
+        let license_kind: String?
+        let entitlement_stage: String?
+        let license_issued_at: Int?
+        let confirmation_due_at: Int?
     }
 }
 

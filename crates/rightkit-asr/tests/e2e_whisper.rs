@@ -13,6 +13,47 @@ use rightkit_asr::{
     transcribe_spans, Language, Transcriber, Whisper, WhisperModel, WhisperOptions,
 };
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+#[cfg(target_os = "macos")]
+fn init_ort_runtime() {
+    static READY: OnceLock<()> = OnceLock::new();
+    READY.get_or_init(|| {
+        use rightkit_media::native::{NativeCatalog, NativeLibrary};
+        use rightkit_ort::{
+            init_environment, resolve_runtime, CandidateSource, EnvironmentOptions, GlobalPool,
+            RuntimeCandidate, runtime_filename,
+        };
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap();
+        let runtime = std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                root.join(
+                    "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
+                )
+            });
+        assert!(runtime.is_file(), "no approved ONNX Runtime 1.24.4 dylib at {}; set RIGHTKIT_ORT_TEST_DYLIB", runtime.display());
+        let staged_dir = std::env::temp_dir().join(format!("rightkit-asr-ort-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&staged_dir);
+        std::fs::create_dir_all(&staged_dir).unwrap();
+        let staged = staged_dir.join(runtime_filename());
+        std::fs::copy(&runtime, &staged).unwrap();
+        let catalog = NativeCatalog::embedded().unwrap();
+        let record = catalog
+            .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
+            .unwrap();
+        assert_eq!(record.version, "1.24.4");
+        record.verify_file(&staged).expect("ORT dylib must match approved catalog");
+        let selection = resolve_runtime([RuntimeCandidate::new(&staged, CandidateSource::Explicit)])
+            .expect("approved ORT dylib must resolve before initialization");
+        init_environment(
+            &selection,
+            &EnvironmentOptions { global_pool: Some(GlobalPool::from_budget()) },
+        )
+        .expect("approved ORT dylib must initialize before any session");
+    });
+}
 
 const SHORT: (&str, &[&str]) = (
     "short_9s.wav",
@@ -125,6 +166,7 @@ mod coreml {
         let mut audio = vec![0.0f32; 16_000 * 3];
         audio.extend(wav(SHORT.0));
         audio.extend(vec![0.0f32; 16_000 * 3]);
+        init_ort_runtime();
         let mut silero = rightkit_vad::Silero::load(vad_model).unwrap();
         let spans = rightkit_vad::detect(&mut silero, &audio, &rightkit_vad::VadConfig::default()).unwrap();
         assert!(!spans.is_empty());

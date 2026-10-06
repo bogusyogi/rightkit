@@ -1,0 +1,38 @@
+[package]
+name = "rightkit-tts"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Shared local QTS and operating-system speech synthesis for Right Suite apps"
+repository = "https://github.com/adrdsouza/claude"
+include = ["src/**", "tests/**", "Cargo.toml", "README.md"]
+
+[lib]
+name = "rightkit_tts"
+path = "src/lib.rs"
+
+[features]
+default = ["system"]
+system = []
+engine = ["dep:qts"]
+metal = ["engine", "qts/metal"]
+vulkan = ["engine", "qts/vulkan"]
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+sha2 = "0.10"
+thiserror = "2"
+rightkit-process = { version = "=0.1.0", path = "../rightkit-process" }
+rightkit-transcript = { path = "../rightkit-transcript" }
+qts = { package = "rightkit-qts", version = "0.1.0", path = "../rightkit-qts", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[[bin]]
+name = "rightkit-tts-worker"
+path = "src/bin/rightkit-tts-worker.rs"
+required-features = ["engine"]

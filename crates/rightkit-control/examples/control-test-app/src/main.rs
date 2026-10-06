@@ -4,6 +4,11 @@ use rightkit_control::embedded::Control;
 
 fn main() {
     let mut builder = tauri::Builder::default();
+    // Hidden QA launches must not activate this app or steal foreground focus.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.activate_ignoring_other_apps(false);
+    }
     let control = Control::<tauri::Wry>::new()
         .command("ping", |_app, _body| Ok(r#""pong""#.into()))
         .command("echo", |_app, body| Ok(format!("{{\"echo\":\"{}\"}}", rightkit_control::json::esc(&rightkit_control::json::str_field(body, "args").unwrap_or_default()))));

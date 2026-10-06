@@ -1,0 +1,26 @@
+[package]
+name = "rightkit-qts-ggml-sys"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 AND MIT"
+repository = "https://github.com/adrdsouza/claude"
+description = "Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0"
+readme = "README.md"
+links = "rightkit_ggml"
+build = "build.rs"
+include = ["src/**", "build.rs", "wrapper.h", "bindings-*.rs", "vendor/**", "Cargo.toml", "README.md", "LICENSE", "NOTICE", "PINNED.md"]
+
+[lib]
+name = "ggml_sys"
+
+[features]
+default = []
+metal = []
+vulkan = []
+blas = []
+# Optimize CPU kernels for the host CPU (less portable binaries).
+native = []
+
+[build-dependencies]
+bindgen = "0.72"
+cmake = "0.1"

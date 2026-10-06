@@ -25,7 +25,7 @@ pub fn style<'a>(b: WebviewWindowBuilder<'a, Wry, tauri::AppHandle<Wry>>, framel
 #[derive(Default)]
 pub struct TrafficLights {
     #[cfg(target_os = "macos")]
-    inner: macos::Inner,
+    inner: std::sync::Arc<macos::Inner>,
 }
 
 impl TrafficLights {
@@ -33,14 +33,26 @@ impl TrafficLights {
     /// No-op off macOS.
     pub fn set_offset(&self, window: &WebviewWindow<Wry>, dx: f64, dy: f64) {
         #[cfg(target_os = "macos")]
-        macos::apply(window, dx, dy, &self.inner);
+        {
+            let inner = std::sync::Arc::clone(&self.inner);
+            let _ = crate::windows::dispatch_native(window, move |window| {
+                macos::apply(window, dx, dy, &inner);
+                Ok(())
+            });
+        }
         #[cfg(not(target_os = "macos"))]
         let _ = (window, dx, dy);
     }
     /// Re-assert the last offset (call from resize / focus / fullscreen events).
     pub fn reapply(&self, window: &WebviewWindow<Wry>) {
         #[cfg(target_os = "macos")]
-        macos::reapply(window, &self.inner);
+        {
+            let inner = std::sync::Arc::clone(&self.inner);
+            let _ = crate::windows::dispatch_native(window, move |window| {
+                macos::reapply(window, &inner);
+                Ok(())
+            });
+        }
         #[cfg(not(target_os = "macos"))]
         let _ = window;
     }

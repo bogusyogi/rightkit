@@ -1,6 +1,6 @@
 import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
@@ -48,7 +48,8 @@ export function validateDevelopmentConfig(config, platform) {
     if (target.install.manifestPath && path.isAbsolute(target.install.manifestPath)) throw new Error("install.manifestPath must be relative to app root");
   } else if (target.install?.kind === "portable") {
     const descriptor = target.install;
-    if (descriptor.activation?.kind !== "current" || !path.isAbsolute(descriptor.installRoot ?? "")) throw new Error("portable development installer requires absolute installRoot and current activation");
+    const absoluteInstallRoot = platform === "win" ? path.win32.isAbsolute(descriptor.installRoot ?? "") : path.isAbsolute(descriptor.installRoot ?? "");
+    if (descriptor.activation?.kind !== "current" || !absoluteInstallRoot) throw new Error("portable development installer requires absolute installRoot and current activation");
     for (const key of ["sourceDirectory", "entrypoint"]) {
       if (typeof descriptor[key] !== "string" || !descriptor[key] || path.isAbsolute(descriptor[key]) || path.win32.isAbsolute(descriptor[key]) || descriptor[key].split(/[\\/]/).includes("..")) throw new Error(`portable development ${key} must be a contained relative path`);
     }
@@ -231,9 +232,19 @@ export function resolvePnpmCli({ root, env = process.env } = {}) {
     const match = /"%~dp0\\([^"]*pnpm\.(?:mjs|cjs|js))"/i.exec(readFileSync(shim, "utf8"));
     if (match) candidates.push(path.resolve(dir, match[1]));
   }
-  const selected = candidates.find((candidate) => existsSync(candidate));
+  // Unix global pnpm exposes its JavaScript entry through a PATH symlink.
+  for (const dir of String(env.PATH ?? env.Path ?? "").split(path.delimiter).filter(Boolean)) candidates.push(path.join(dir, "pnpm"));
+  const selected = candidates.map(resolveJavaScriptEntrypoint).find(Boolean);
   if (!selected) throw new Error("could not resolve pnpm JavaScript CLI entrypoint; install/pin pnpm through Corepack");
   return selected;
+}
+function resolveJavaScriptEntrypoint(candidate) {
+  try {
+    const resolved = realpathSync(candidate);
+    return /pnpm\.(?:mjs|cjs|js)$/i.test(resolved) && statSync(resolved).isFile() ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
 }
 function git(cwd, args) { const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true }); if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed`); return result.stdout.trim(); }
 function inside(root, child) { const rel = path.relative(path.resolve(root), path.resolve(child)); return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)); }

@@ -287,7 +287,8 @@ impl Client {
     pub fn send_any(&self, req: &Request) -> Result<Response, HttpError> {
         let timeout = req.timeout.unwrap_or(self.config.request_timeout);
         let mut raw = self.execute(req, Some(timeout))?;
-        let body = read_limited(&mut raw.body.as_reader(), self.config.max_response_bytes)?;
+        let mut reader = raw.body.as_reader();
+        let body = read_limited(&mut reader, self.config.max_response_bytes)?;
         Ok(Response { status: raw.status, headers: raw.headers, body, attempts: raw.attempts })
     }
 
@@ -296,7 +297,8 @@ impl Client {
     pub fn stream(&self, req: &Request) -> Result<StreamResponse, HttpError> {
         let mut raw = self.execute(req, self.config.stream_timeout)?;
         if !(200..300).contains(&raw.status) {
-            let body = read_limited(&mut raw.body.as_reader(), MAX_ERROR_BODY_BYTES).unwrap_or_default();
+            let mut reader = raw.body.as_reader();
+            let body = read_limited(&mut reader, MAX_ERROR_BODY_BYTES).unwrap_or_default();
             return Err(status_error(raw.status, &raw.headers, body, raw.attempts));
         }
         Ok(StreamResponse {
@@ -328,7 +330,8 @@ impl Client {
                     let ra = header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
                     // Drain so the connection is released.
                     let mut body = raw.body;
-                    let _ = read_limited(&mut body.as_reader(), MAX_ERROR_BODY_BYTES);
+                    let mut reader = body.as_reader();
+                    let _ = read_limited(&mut reader, MAX_ERROR_BODY_BYTES);
                     (format!("HTTP {}", raw.status), ra)
                 }
                 Err(err) => {
@@ -410,13 +413,13 @@ fn map_ureq_error(err: ureq::Error) -> HttpError {
     use ureq::Error as E;
     match err {
         E::Timeout(t) => HttpError::Timeout(format!("{t:?}")),
-        E::HostNotFound | E::ConnectionFailed => {
-            HttpError::Transport { message: err.to_string(), connect_phase: true }
-        }
-        E::Io(ref io) if matches!(
+        E::HostNotFound => HttpError::Transport { message: "host not found".into(), connect_phase: true },
+        E::ConnectionFailed => HttpError::Transport { message: "connection failed".into(), connect_phase: true },
+        E::Io(io) if matches!(
             io.kind(),
             std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
-        ) => HttpError::Transport { message: err.to_string(), connect_phase: true },
+        ) => HttpError::Transport { message: io.to_string(), connect_phase: true },
+        E::Io(io) => HttpError::Transport { message: io.to_string(), connect_phase: false },
         E::BadUri(m) => HttpError::InvalidRequest(m),
         E::Http(e) => HttpError::InvalidRequest(e.to_string()),
         other => HttpError::Transport { message: other.to_string(), connect_phase: false },

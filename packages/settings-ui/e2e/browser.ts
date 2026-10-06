@@ -54,6 +54,7 @@ export interface Page {
 }
 
 const MOD: Record<string, number> = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
+let navigationSerial = 0;
 // DOM `code` and Windows virtual key for keys the app-shell binds.
 const KEYS: Record<string, { code: string; vk: number; text?: string }> = {
   Enter: { code: "Enter", vk: 13, text: "\r" },
@@ -78,7 +79,7 @@ export async function launch(chrome: string) {
   const profile = mkdtempSync(join(tmpdir(), "rk-app-shell-chrome-"));
   const proc: ChildProcess = spawn(
     chrome,
-    ["--headless=new", "--mute-audio", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars=false", `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--window-size=1100,720", "about:blank"],
+    ["--headless=new", "--mute-audio", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars=false", "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion", `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--window-size=1100,720", "about:blank"],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
   const wsUrl = await new Promise<string>((resolve, reject) => {
@@ -114,16 +115,26 @@ export async function launch(chrome: string) {
   const send = <T = any>(method: string, params: object = {}) =>
     new Promise<T>((resolve, reject) => {
       const n = ++id;
-      pending.set(n, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(n);
+        reject(new Error(`DevTools call ${method} did not answer in 10s ${JSON.stringify(params).slice(0, 200)}`));
+      }, 10000);
+      pending.set(n, { resolve: (v) => (clearTimeout(timer), resolve(v)), reject: (e) => (clearTimeout(timer), reject(e)) });
       ws.send(JSON.stringify({ id: n, method, params }));
     });
   await send("Page.enable");
   await send("Runtime.enable");
+  // A background/occluded headless tab neither focuses controls nor answers navigation reliably; pin it active.
+  await send("Emulation.setFocusEmulationEnabled", { enabled: true });
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   const page: Page = {
     async goto(url) {
-      await send("Page.navigate", { url });
+      // Force a unique URL so same-query reloads cannot satisfy waits from prior DOM.
+      const target = new URL(url);
+      target.searchParams.set("__rk_nav", String(++navigationSerial));
+      await send("Page.navigate", { url: target.href });
+      await page.waitFor(`location.href === ${JSON.stringify(target.href)}`, 15000);
       await page.waitFor("window.__ready === true", 15000);
     },
     async eval<T>(expression: string) {
@@ -141,7 +152,13 @@ export async function launch(chrome: string) {
       await sleep(30);
     },
     async type(text) {
-      await send("Input.insertText", { text });
+      await page.eval("(document.activeElement instanceof HTMLElement) && document.activeElement.focus()");
+      for (const char of text) {
+        const info = keyInfo(char);
+        const common = { key: char, code: info.code, windowsVirtualKeyCode: info.vk, nativeVirtualKeyCode: info.vk, text: char };
+        await send("Input.dispatchKeyEvent", { type: "keyDown", ...common });
+        await send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
+      }
       await sleep(30);
     },
     async rect(selector) {
@@ -158,6 +175,9 @@ export async function launch(chrome: string) {
       await sleep(60);
     },
     async click(selector, button = "left") {
+      // Keep the target as the active document control before dispatching real mouse input.
+      await send("Page.bringToFront");
+      await page.eval(`document.querySelector(${JSON.stringify(selector)})?.focus()`);
       const r = await page.rect(selector);
       await page.clickAt(r.x + r.width / 2, r.y + r.height / 2, button);
     },

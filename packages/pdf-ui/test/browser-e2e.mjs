@@ -1,0 +1,88 @@
+// Real Chrome smoke test for pdf.js rendering plus doc-render XSS boundaries.
+// Chrome is always muted; no media APIs are used.
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildSync } from "esbuild";
+
+const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const outDir = path.join(packageRoot, "test", ".e2e-out");
+mkdirSync(outDir, { recursive: true });
+buildSync({ entryPoints: [path.join(packageRoot, "test", "harness.tsx")], bundle: true, format: "esm", jsx: "automatic", outfile: path.join(outDir, "harness.js"), loader: { ".css": "empty", ".wasm": "file" }, logLevel: "silent" });
+const pdfWorker = path.join(packageRoot, "node_modules", "pdfjs-dist", "build", "pdf.worker.min.mjs");
+const fixtures = path.join(packageRoot, "test", "fixtures");
+const pdfCss = path.join(packageRoot, "src", "styles.css");
+const docCss = path.join(packageRoot, "..", "doc-render", "src", "styles.css");
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+  if (url === "/") { res.setHeader("content-type", "text/html"); return res.end('<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/pdf-ui.css"><link rel="stylesheet" href="/doc-render.css"><div id="root"></div><script type="module" src="/harness.js"></script>'); }
+  if (url === "/harness.js") { res.setHeader("content-type", "text/javascript"); return res.end(readFileSync(path.join(outDir, "harness.js"))); }
+  if (url === "/pdf-ui.css") { res.setHeader("content-type", "text/css"); return res.end(readFileSync(pdfCss)); }
+  if (url === "/doc-render.css") { res.setHeader("content-type", "text/css"); return res.end(readFileSync(docCss)); }
+  if (url === "/pdf.worker.min.mjs") { res.setHeader("content-type", "text/javascript"); return res.end(readFileSync(pdfWorker)); }
+  if (url.startsWith("/fixtures/")) { const file = path.join(fixtures, path.basename(url)); if (existsSync(file)) { res.setHeader("content-type", "application/pdf"); return res.end(readFileSync(file)); } }
+  res.statusCode = 404; res.end();
+});
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const port = server.address().port;
+const candidates = [process.env.RIGHTKIT_CHROME, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium", "C:/Program Files/Google/Chrome/Application/chrome.exe"].filter(Boolean);
+const chrome = candidates.find((candidate) => existsSync(candidate));
+if (!chrome) { console.log("SKIP: no Chrome binary found"); server.close(); process.exit(0); }
+const profile = path.join(outDir, "profile");
+const proc = spawn(chrome, ["--headless=new", "--mute-audio", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+const wsUrl = await new Promise((resolve, reject) => { let output = ""; const timeout = setTimeout(() => reject(new Error("Chrome DevTools timeout")), 15000); proc.stderr.on("data", (chunk) => { output += chunk; const match = output.match(/DevTools listening on (ws:\/\/\S+)/); if (match) { clearTimeout(timeout); resolve(match[1]); } }); proc.on("exit", () => reject(new Error("Chrome exited early"))); });
+const ws = new WebSocket(wsUrl);
+await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+let sequence = 0; const pending = new Map();
+ws.onmessage = ({ data }) => { const message = JSON.parse(data); const callback = pending.get(message.id); if (callback) { pending.delete(message.id); callback(message); } };
+const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, (message) => message.error ? reject(new Error(message.error.message)) : resolve(message.result)); ws.send(JSON.stringify({ id, method, params, sessionId })); });
+const { targetId } = await send("Target.createTarget", { url: `http://127.0.0.1:${port}/` });
+const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
+await send("Runtime.enable", {}, sessionId); await send("Page.enable", {}, sessionId);
+const evaluate = async (expression) => { const result = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, sessionId); if (result.exceptionDetails) throw new Error(result.exceptionDetails.text); return result.result.value; };
+const until = async (expression, label, timeout = 20000) => { const deadline = Date.now() + timeout; while (Date.now() < deadline) { if (await evaluate(expression)) return; await new Promise((resolve) => setTimeout(resolve, 150)); } throw new Error(`timeout: ${label}`); };
+try {
+  await until("window.__harness === true", "harness");
+  await until("document.querySelectorAll('.rk-pdf-page canvas').length >= 1", "first PDF canvas");
+  await until("document.querySelectorAll('.rk-pdf-page').length === 3", "all PDF slots");
+  await until("document.querySelectorAll('.rk-pdf-page .textLayer span').length > 0", "PDF text layer");
+  await until("document.querySelector('button[aria-label=\\\"Next page\\\"]')?.disabled === false", "page navigation");
+  await evaluate("document.querySelector('button[aria-label=\\\"Next page\\\"]').click()");
+  await until("document.querySelector('input[aria-label=\\\"Page number\\\"]').value === '2'", "navigate to page 2");
+  const zoomBefore = await evaluate("Number(document.querySelector('input[aria-label=\\\"Zoom percentage\\\"]')?.value || 0)");
+  await evaluate("document.querySelector('button[aria-label=\\\"Zoom in\\\"]').click()");
+  await until(`Number(document.querySelector('input[aria-label=\\\"Zoom percentage\\\"]').value) > ${zoomBefore}`, "zoom in");
+  await evaluate("(() => { const input = document.querySelector('input[aria-label=\\\"Find in PDF\\\"]'); input.focus(); input.select(); })()");
+  await send("Input.insertText", { text: "Quarterly" }, sessionId);
+  await evaluate("document.querySelector('input[aria-label=\\\"Find in PDF\\\"]').form.requestSubmit()");
+  await until("document.querySelector('.rk-pdf-find button[type=submit]') && !document.querySelector('.rk-pdf-find button:last-child').disabled", "find result");
+  await evaluate("[...document.querySelectorAll('.rk-pdf-toolbar > button')].find((button) => button.textContent === 'Pages')?.click()");
+  await until("document.querySelector('.rk-pdf-thumbs button[aria-label=\\\"Page 3\\\"]') !== null", "thumbnail panel");
+  await evaluate("document.querySelector('.rk-pdf-thumbs button[aria-label=\\\"Page 3\\\"]').click()");
+  await until("document.querySelector('input[aria-label=\\\"Page number\\\"]').value === '3'", "thumbnail navigation");
+  await evaluate("document.querySelector('#replace-source').click()");
+  await until("document.querySelectorAll('.rk-pdf-page').length === 1", "source replacement");
+  await until("(window.__loadingEvents || []).filter(Boolean).length >= 2", "source cleanup/loading lifecycle");
+  await evaluate("document.querySelector('#replace-source').click()");
+  await until("document.querySelectorAll('.rk-pdf-page').length === 3", "source restore");
+  await until("(window.__loadingEvents || []).length >= 4", "restored loading lifecycle");
+  const checks = await evaluate(`(() => ({
+    pages: document.querySelectorAll('.rk-pdf-page').length,
+    canvases: document.querySelectorAll('.rk-pdf-page canvas').length,
+    text: document.querySelectorAll('.rk-pdf-page .textLayer span').length,
+    scripts: document.querySelectorAll('#doc-fixtures script').length,
+    handlers: [...document.querySelectorAll('#doc-fixtures *')].some((n) => [...n.attributes].some((a) => /^on/i.test(a.name))),
+    unsafeHref: [...document.querySelectorAll('#doc-fixtures a')].some((a) => /^javascript:/i.test(a.getAttribute('href') || '')),
+    safeHref: [...document.querySelectorAll('#doc-fixtures a')].some((a) => a.href === 'https://example.com/')
+    ,zoom: document.querySelector('input[aria-label="Zoom percentage"]')?.value
+    ,loadingEvents: (window.__loadingEvents || []).length
+  }))()`);
+  if (checks.pages !== 3 || checks.canvases < 1 || checks.text < 1 || checks.scripts !== 0 || checks.handlers || checks.unsafeHref || !checks.safeHref || Number(checks.zoom) <= zoomBefore || checks.loadingEvents < 4) throw new Error(`browser assertions failed: ${JSON.stringify(checks)}`);
+  const screenshot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true }, sessionId);
+  writeFileSync(path.join(outDir, "pdf-viewer.png"), Buffer.from(screenshot.data, "base64"));
+  console.log(`PASS: pdf pages=${checks.pages}, canvases=${checks.canvases}, textSpans=${checks.text}, navigation=page+thumbs, zoom=${zoomBefore}->${checks.zoom}, find=Quarterly, source-replace=clean, sanitizer=clean`);
+} finally {
+  ws.close(); proc.kill("SIGTERM"); server.close();
+}

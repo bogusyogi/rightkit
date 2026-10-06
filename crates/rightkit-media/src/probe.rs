@@ -134,7 +134,10 @@ pub fn parse_ffmpeg_info(stderr: &str) -> Result<MediaProbe, ProbeError> {
                 .and_then(|n| n.parse().ok());
         } else if t.starts_with("Stream #0:") {
             parse_stream(t, &mut p);
-        } else if let Some(rest) = t.strip_prefix("displaymatrix: rotation of ") {
+        } else if let Some(rest) = t
+            .strip_prefix("displaymatrix: rotation of ")
+            .or_else(|| t.strip_prefix("Display Matrix: rotation of "))
+        {
             // Side data belongs to the most recent video stream. FFmpeg reports it
             // counter-clockwise; the display rotation is its normalisation.
             if let (Some(v), Some(deg)) = (

@@ -1,6 +1,10 @@
 packages:
   - packages/*
 
+# Internal development uses canonical sources; consumer manifests keep registry pins.
+linkWorkspacePackages: true
+preferWorkspacePackages: true
+
 overrides:
   '@wdio/native-utils': 2.5.0
 

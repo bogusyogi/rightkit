@@ -9,7 +9,7 @@ use std::time::Duration;
 use rightkit_control::embedded::Control;
 use rightkit_process::OwnedCommand;
 use rightkit_shell::engine::EngineSpec;
-use rightkit_shell::{ExternalOpener, MenuEntry, MenuGroup, MenuSpec, Shell, TraySpec, WatchdogConfig};
+use rightkit_shell::{ExternalOpener, MenuEntry, MenuGroup, MenuSpec, RecoverySpec, Shell, StreamPolicy, TraySpec, WatchdogConfig};
 use serde_json::json;
 
 /// Records the link instead of launching a browser (tests must not open real applications).
@@ -77,12 +77,22 @@ fn main() {
                 }
             })),
         }))
+        .stream_protocol("rk-stream", StreamPolicy::default())
+        .recovery(RecoverySpec::documents())
         .engine(EngineSpec::new(|| {
             let mut c = OwnedCommand::new(std::env::current_exe().expect("exe"));
             c.command_mut().arg("--engine");
             c.windows_hide();
             c
         }));
+    if let Ok(ms) = std::env::var("RIGHTKIT_EXAMPLE_IDLE_MS") {
+        if let Ok(ms) = ms.parse::<u64>() {
+            shell = shell.webview_idle(Duration::from_millis(ms));
+        }
+    }
+    if let Some(dir) = std::env::var_os("RIGHTKIT_EXAMPLE_CACHE_DIR") {
+        shell = shell.cache_dir(PathBuf::from(dir));
+    }
     if std::env::var_os("RIGHTKIT_EXAMPLE_CLOSE_TO_TRAY").is_some() {
         shell = shell.close_to_tray(true);
     }
@@ -94,6 +104,19 @@ fn main() {
     }
 
     let mut builder = tauri::Builder::default().plugin(shell.build().plugin());
+    // QA background/hidden launches must opt out before tao starts its event loop.
+    // The shell plugin's setup hook runs after Tauri has created configured windows.
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("RIGHTKIT_QA_BACKGROUND").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        builder = builder.activate_ignoring_other_apps(false);
+    }
+    builder = builder.setup(|app| {
+        use tauri::Manager;
+        if let Some(path) = std::env::var_os("RIGHTKIT_EXAMPLE_GRANT_FILE") {
+            app.state::<rightkit_shell::ShellState>().broker.grant_file(path)?;
+        }
+        Ok(())
+    });
     let control = Control::<tauri::Wry>::new()
         .command("block_main_thread", |app, _| {
             app.run_on_main_thread(|| std::thread::sleep(Duration::from_millis(1800))).map_err(|e| e.to_string())?;

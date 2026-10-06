@@ -57,7 +57,10 @@ fn print(v: &Value) {
 fn mcp_serve(tb: Arc<Toolbox>) -> ExitCode {
     match rightkit_agent_tools::mcp::serve_stdio(tb, CTL_CALLER) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => fail(&e),
+        Err(e) => {
+            eprintln!("{}", json!({"error": {"code": "mcp_error", "message": e.to_string(), "retryable": false}}));
+            ExitCode::from(1)
+        }
     }
 }
 #[cfg(not(feature = "mcp"))]

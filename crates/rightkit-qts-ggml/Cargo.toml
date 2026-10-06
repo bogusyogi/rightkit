@@ -1,0 +1,22 @@
+[package]
+name = "rightkit-qts-ggml"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/adrdsouza/claude"
+description = "Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0"
+readme = "README.md"
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE", "NOTICE", "PINNED.md"]
+
+[lib]
+name = "qts_ggml"
+
+[features]
+default = []
+metal = ["rightkit-qts-ggml-sys/metal"]
+vulkan = ["rightkit-qts-ggml-sys/vulkan"]
+blas = ["rightkit-qts-ggml-sys/blas"]
+native = ["rightkit-qts-ggml-sys/native"]
+
+[dependencies]
+rightkit-qts-ggml-sys = { path = "../rightkit-qts-ggml-sys", version = "0.1.0", default-features = false }

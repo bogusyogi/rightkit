@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { test } from "node:test";
-import { assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolveTauriArtifact, runDevelopment, validateDevelopmentConfig } from "./development.mjs";
+import { assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment, validateDevelopmentConfig } from "./development.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
 const nativePlatform = process.platform === "win32" ? "win" : "mac";
@@ -37,6 +37,21 @@ test("Windows pnpm command resolves to its JavaScript CLI and node uses current 
   assert.equal(pnpm.command, process.execPath);
   assert.match(pnpm.args[0], /pnpm\.(?:js|cjs|mjs)$/i);
   assert.equal(resolveCommand("node", ["--version"]).command, process.execPath);
+});
+
+test("pnpm resolver follows a Unix PATH symlink to its JavaScript CLI", { skip: process.platform === "win32" }, () => {
+  const root = temp();
+  try {
+    const bin = path.join(root, "bin");
+    const entry = path.join(root, "global", "node_modules", "pnpm", "bin", "pnpm.mjs");
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(path.dirname(entry), { recursive: true });
+    writeFileSync(entry, "// fixture\n");
+    symlinkSync(entry, path.join(bin, "pnpm"));
+    const wrapper = path.join(root, "wrapper-pnpm");
+    writeFileSync(wrapper, "#!/bin/sh\nexit 1\n");
+    assert.equal(resolvePnpmCli({ root, env: { PATH: bin, npm_execpath: wrapper } }), realpathSync(entry));
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("public dev dry-run is read-only while actual compilation remains GitHub Actions only", () => {

@@ -1,0 +1,37 @@
+/* @rightkit/onboarding — uses app-shell tokens and legal-ui's locked light gate. */
+.rk-onboarding { min-height: 100vh; display: grid; grid-template-columns: 220px minmax(0, 1fr); background: var(--plane, #fffcf5); color: var(--ink, #231f1a); font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+.rk-onboarding *, .rk-onboarding *::before, .rk-onboarding *::after { box-sizing: border-box; }
+.rk-onboarding__rail { display: flex; flex-direction: column; gap: 22px; padding: 28px 14px; background: var(--chrome, #eee9df); border-right: .5px solid var(--hairline, rgba(35,31,26,.11)); }
+.rk-onboarding__brand { padding: 0 10px; font-size: 19px; font-weight: 650; letter-spacing: -.02em; }
+.rk-onboarding__rail nav { display: grid; gap: 3px; }
+.rk-onboarding__step { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2, #6b655c); font: inherit; text-align: left; cursor: pointer; }
+.rk-onboarding__step span { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--line-strong, rgba(35,31,26,.18)); border-radius: 50%; font-size: 11px; }
+.rk-onboarding__step:hover { background: var(--fill, rgba(35,31,26,.05)); color: var(--ink); }
+.rk-onboarding__step.is-active { background: var(--sel, rgba(35,31,26,.06)); color: var(--ink); font-weight: 600; }
+.rk-onboarding__step.is-done span { border-color: var(--ok, #1e7f3c); color: var(--ok, #1e7f3c); }
+.rk-onboarding__main { display: flex; flex-direction: column; min-width: 0; max-width: 840px; width: 100%; padding: 64px clamp(24px, 7vw, 88px) 32px; }
+.rk-onboarding__main header { max-width: 620px; }
+.rk-onboarding__eyebrow { margin: 0 0 8px; color: var(--accent, #7040c4); font-size: 12px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.rk-onboarding__main h1 { margin: 0; font-size: clamp(24px, 4vw, 34px); line-height: 1.1; letter-spacing: -.025em; }
+.rk-onboarding__description { margin: 10px 0 0; color: var(--ink-2, #6b655c); font-size: 15px; max-width: 58ch; }
+.rk-onboarding__content { flex: 1; padding: 30px 0; }
+.rk-onboarding__card { display: grid; gap: 2px; max-width: 680px; padding: 6px 0; }
+.rk-onboarding__card > p { color: var(--ink-2, #6b655c); }
+.rk-onboarding__row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; border-bottom: .5px solid var(--hairline, rgba(35,31,26,.11)); }
+.rk-onboarding__row:last-child { border-bottom: 0; }
+.rk-onboarding__row p { margin: 3px 0 0; color: var(--ink-2, #6b655c); font-size: 12.5px; }
+.rk-onboarding__row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; flex: none; }
+.rk-onboarding__grow { min-width: 0; flex: 1; }
+.rk-onboarding__muted { color: var(--ink-2, #6b655c); }
+.rk-onboarding__error { color: var(--bad, #c4001a); }
+.rk-onboarding__state { color: var(--ink-2, #6b655c); text-transform: capitalize; }
+.rk-onboarding__progress { height: 6px; margin-top: 8px; border-radius: 99px; background: var(--fill-3, rgba(35,31,26,.13)); overflow: hidden; }
+.rk-onboarding__progress i { display: block; height: 100%; background: var(--accent, #7040c4); }
+.rk-onboarding__license-state { display: flex; align-items: center; gap: 10px; margin: 8px 0 18px; }
+.rk-onboarding__license-state small { color: var(--ink-2, #6b655c); }
+.rk-onboarding__form { display: flex; gap: 8px; margin-bottom: 14px; }
+.rk-onboarding__form .rk-input { flex: 1; }
+.rk-onboarding footer { display: flex; align-items: center; gap: 8px; padding-top: 16px; border-top: .5px solid var(--hairline, rgba(35,31,26,.11)); }
+.rk-onboarding footer span { flex: 1; }
+.rk-onboarding--legal { display: block; }
+@media (max-width: 640px) { .rk-onboarding { grid-template-columns: 1fr; } .rk-onboarding__rail { padding: 18px 12px; border-right: 0; border-bottom: .5px solid var(--hairline, rgba(35,31,26,.11)); } .rk-onboarding__rail nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rk-onboarding__main { padding: 34px 20px 24px; } .rk-onboarding__row { align-items: flex-start; flex-direction: column; gap: 10px; } .rk-onboarding__row-actions { justify-content: flex-start; } }

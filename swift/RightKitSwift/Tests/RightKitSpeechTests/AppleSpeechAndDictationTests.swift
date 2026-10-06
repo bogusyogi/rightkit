@@ -20,6 +20,6 @@ struct DictationDraftTests {
         #expect(ids.first == "fr_fr")
         #expect(ids.count == Set(ids).count)
         #expect(!ids.contains("es_es"), "only the first three preferred languages count")
-        #expect(ids.last == "en_us")
+        #expect(ids.last == "de_de")
     }
 }

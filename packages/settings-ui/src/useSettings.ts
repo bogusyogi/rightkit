@@ -19,6 +19,9 @@ export function useSettings(backend: SettingsBackend): SettingsContext & { loade
 
   useEffect(() => {
     alive.current = true;
+    // Per-run flag: `alive` is shared, so a StrictMode/backend re-run flips it back to true before the first run's
+    // subscribe promise settles, which would keep (and leak) the first subscription.
+    let cancelled = false;
     let off: (() => void) | undefined;
     const reload = () =>
       backend.load().then(
@@ -34,10 +37,11 @@ export function useSettings(backend: SettingsBackend): SettingsContext & { loade
     void backend.subscribe?.(() => {
       if (pending.current === 0) void reload();
     }).then((u) => {
-      if (alive.current) off = u;
-      else u();
+      if (cancelled) u();
+      else off = u;
     });
     return () => {
+      cancelled = true;
       alive.current = false;
       off?.();
     };

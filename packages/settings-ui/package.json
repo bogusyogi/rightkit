@@ -17,6 +17,7 @@
   "sideEffects": ["*.css"],
   "peerDependencies": {
     "@rightkit/app-shell": ">=0.1.0 <1",
+    "@rightkit/shell": ">=0.1.0 <1",
     "@rightkit/license": ">=0.1.0",
     "@rightkit/logs": ">=0.1.0",
     "@rightkit/theme": ">=0.1.0 <1",
@@ -24,6 +25,7 @@
     "react": ">=18 <20"
   },
   "devDependencies": {
+    "@rightkit/shell": "workspace:*",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",

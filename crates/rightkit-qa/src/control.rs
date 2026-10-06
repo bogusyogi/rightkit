@@ -62,6 +62,11 @@ pub struct StopReport {
     pub frontmost_unchanged: bool,
     /// Every distinct foreground state sampled during the session (empty when unmeasurable).
     pub frontmost_states: Vec<String>,
+    /// Every sampled foreground PID belonged to no app process started by this control session.
+    /// This is the background invariant; `frontmost_unchanged` remains diagnostic only.
+    pub owned_never_frontmost: bool,
+    /// Owned fixture PIDs observed in foreground, if any.
+    pub owned_frontmost_pids: Vec<u32>,
 }
 
 pub struct Control {
@@ -170,43 +175,95 @@ pub fn frontmost() -> Option<String> {
 struct FocusMonitor {
     stop: Arc<std::sync::atomic::AtomicBool>,
     seen: Arc<Mutex<(usize, usize, Vec<String>)>>, // (measured, unavailable, distinct states in order)
+    owned: Arc<Mutex<(Vec<u32>, Option<String>)>>, // primary PID(s), exact executable prefix
+    enforce_owned: bool,
+    owned_frontmost: Arc<Mutex<Vec<u32>>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl FocusMonitor {
-    fn start() -> FocusMonitor {
+    fn start(enforce_owned: bool) -> FocusMonitor {
         let seen: Arc<Mutex<(usize, usize, Vec<String>)>> = Arc::new(Mutex::new((0, 0, vec![])));
-        let record = |seen: &Mutex<(usize, usize, Vec<String>)>| {
-            let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
-            match frontmost() {
-                Some(f) => {
-                    g.0 += 1;
-                    if g.2.last() != Some(&f) {
-                        g.2.push(f);
+        let owned: Arc<Mutex<(Vec<u32>, Option<String>)>> = Arc::new(Mutex::new((vec![], None)));
+        let owned_frontmost = Arc::new(Mutex::new(vec![]));
+        let record = move |seen: &Mutex<(usize, usize, Vec<String>)>, owned: &Mutex<(Vec<u32>, Option<String>)>, owned_frontmost: &Mutex<Vec<u32>>| {
+            {
+                let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
+                match frontmost() {
+                    Some(f) => {
+                        g.0 += 1;
+                        if g.2.last() != Some(&f) {
+                            g.2.push(f);
+                        }
+                    }
+                    None => g.1 += 1,
+                }
+            }
+            #[cfg(target_os = "macos")]
+            if enforce_owned {
+                match rightkit_control::mac::frontmost_pid() {
+                    Some(pid) => {
+                        let (primary, prefix) = owned.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                        let mut candidates = primary;
+                        let mut inventory_ok = true;
+                        if let Some(prefix) = prefix {
+                            match pids_with_command_prefix(&prefix) {
+                                Ok(pids) => candidates.extend(pids),
+                                Err(_) => inventory_ok = false,
+                            }
+                        }
+                        if !inventory_ok {
+                            let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
+                            g.1 += 1;
+                        }
+                        if candidates.into_iter().any(|p| p == pid as u32) {
+                            let mut observed = owned_frontmost.lock().unwrap_or_else(|e| e.into_inner());
+                            if !observed.contains(&(pid as u32)) {
+                                observed.push(pid as u32);
+                            }
+                        }
+                    }
+                    None => {
+                        // An unmeasurable PID makes the strict background proof fail.
+                        let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
+                        g.1 += 1;
                     }
                 }
-                None => g.1 += 1,
             }
         };
-        record(&seen);
+        record(&seen, &owned, &owned_frontmost);
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (s2, seen2) = (stop.clone(), seen.clone());
+        let (s2, seen2, owned2, observed2) = (stop.clone(), seen.clone(), owned.clone(), owned_frontmost.clone());
         let thread = std::thread::spawn(move || {
             while !s2.load(std::sync::atomic::Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(20));
-                record(&seen2);
+                record(&seen2, &owned2, &observed2);
             }
         });
-        FocusMonitor { stop, seen, thread: Some(thread) }
+        FocusMonitor { stop, seen, owned, enforce_owned, owned_frontmost, thread: Some(thread) }
     }
-    /// `(unchanged, states)`: unchanged only if measured at least once, never unmeasurable, one state.
-    fn finish(&mut self) -> (bool, Vec<String>) {
+    fn track_primary(&self, pid: u32) {
+        self.owned.lock().unwrap_or_else(|e| e.into_inner()).0.push(pid);
+    }
+    fn track_prefix(&self, prefix: String) {
+        self.owned.lock().unwrap_or_else(|e| e.into_inner()).1 = Some(prefix);
+    }
+    /// `(unchanged, states, owned_never_frontmost, owned_frontmost_pids)`.
+    fn finish(&mut self) -> (bool, Vec<String>, bool, Vec<u32>) {
         self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
         let g = self.seen.lock().unwrap_or_else(|e| e.into_inner());
-        (g.0 > 0 && g.1 == 0 && g.2.len() == 1, g.2.clone())
+        let unchanged = g.0 > 0 && g.1 == 0 && g.2.len() == 1;
+        let observed = self.owned_frontmost.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        #[cfg(target_os = "macos")]
+        let owned_never_frontmost = !self.enforce_owned || (g.1 == 0 && observed.is_empty());
+        #[cfg(not(target_os = "macos"))]
+        // No native foreground-PID sampler exists on these targets yet; background
+        // claims fail closed instead of treating name-only sampling as proof.
+        let owned_never_frontmost = !self.enforce_owned;
+        (unchanged, g.2.clone(), owned_never_frontmost, observed)
     }
 }
 
@@ -228,7 +285,7 @@ fn check_env(env: &[(String, String)]) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn make_bundle(dir: &Path, binary: &Path, id: &str) -> Result<PathBuf> {
+fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<PathBuf> {
     let exe = binary.file_name().and_then(|n| n.to_str()).ok_or_else(|| Error("binary has no file name".into()))?;
     let app = dir.join(format!("{exe}.app"));
     let macos = app.join("Contents").join("MacOS");
@@ -241,8 +298,10 @@ fn make_bundle(dir: &Path, binary: &Path, id: &str) -> Result<PathBuf> {
     if fs::hard_link(&abs, &target).is_err() {
         fs::copy(&abs, &target)?;
     }
+    // Background fixtures must be non-activating before AppKit creates any window.
+    let ui_element = if background { "<key>LSUIElement</key><true/>\n" } else { "" };
     let plist = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>CFBundleExecutable</key><string>{exe}</string>\n<key>CFBundleIdentifier</key><string>app.rightkit.qa.{id}</string>\n<key>CFBundleName</key><string>{exe}</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleVersion</key><string>1</string>\n</dict></plist>\n"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>CFBundleExecutable</key><string>{exe}</string>\n<key>CFBundleIdentifier</key><string>app.rightkit.qa.{id}</string>\n<key>CFBundleName</key><string>{exe}</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n<key>CFBundleVersion</key><string>1</string>\n{ui_element}</dict></plist>\n"
     );
     fs::write(app.join("Contents").join("Info.plist"), plist)?;
     Ok(app)
@@ -251,19 +310,23 @@ fn make_bundle(dir: &Path, binary: &Path, id: &str) -> Result<PathBuf> {
 #[cfg(target_os = "macos")]
 /// Pids whose command line STARTS with `prefix` (so `open`, which merely carries the
 /// bundle path as an argument, is never mistaken for the app).
-fn pids_with_command_prefix(prefix: &str) -> Vec<u32> {
-    let out = Command::new("ps").args(["-ax", "-o", "pid=,command="]).output();
-    out.map(|o| {
-        String::from_utf8_lossy(&o.stdout)
-            .lines()
-            .filter_map(|l| {
-                let l = l.trim_start();
-                let (pid, cmd) = l.split_once(' ')?;
-                cmd.trim_start().starts_with(prefix).then(|| pid.parse().ok()).flatten()
-            })
-            .collect()
-    })
-    .unwrap_or_default()
+fn pids_with_command_prefix(prefix: &str) -> std::result::Result<Vec<u32>, String> {
+    let out = Command::new("ps")
+        .args(["-ax", "-o", "pid=,command="])
+        .output()
+        .map_err(|e| format!("ps PID inventory failed: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("ps PID inventory exited with {}", out.status));
+    }
+    let mut pids = vec![];
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let line = line.trim_start();
+        let Some((pid, cmd)) = line.split_once(' ') else { continue };
+        if cmd.trim_start().starts_with(prefix) {
+            pids.push(pid.trim().parse::<u32>().map_err(|e| format!("invalid PID inventory row: {e}"))?);
+        }
+    }
+    Ok(pids)
 }
 
 pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<Control> {
@@ -283,13 +346,20 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     env.push(("RIGHTKIT_CONTROL_SERVICE".into(), service.clone()));
     env.push(("RIGHTKIT_SUITE_ROOT".into(), suite.root().to_string_lossy().into()));
     env.push(("RIGHTKIT_QA_HIDDEN".into(), if spec.mode == Mode::Hidden { "1" } else { "0" }.into()));
+    // Hidden runs stay hidden until a test explicitly reveals a window; any such
+    // reveal still uses the background window policy and target-pid input.
+    env.push(("RIGHTKIT_QA_BACKGROUND".into(), if spec.mode != Mode::Visible { "1" } else { "0" }.into()));
     env.extend(spec.env.iter().cloned());
     check_env(&env)?;
     let frontmost_before = frontmost();
-    let focus = FocusMonitor::start();
+    let focus = FocusMonitor::start(spec.mode != Mode::Visible);
     let deadline = Instant::now() + spec.startup_timeout;
 
-    let (pid, child) = start_process(spec, ws, &env, &raw_log, &id, tracker, deadline)?;
+    let (pid, child, executable_prefix) = start_process(spec, ws, &env, &raw_log, &id, tracker, deadline)?;
+    focus.track_primary(pid);
+    if let Some(prefix) = executable_prefix {
+        focus.track_prefix(prefix);
+    }
     tracker.register(pid, &spec.label);
 
     let mut control = Control {
@@ -354,15 +424,16 @@ fn start_process(
     id: &str,
     _tracker: &Tracker,
     deadline: Instant,
-) -> Result<(u32, Option<OwnedChild>)> {
+) -> Result<(u32, Option<OwnedChild>, Option<String>)> {
     #[cfg(target_os = "macos")]
     {
         let bundle = if spec.binary.extension().map(|e| e == "app").unwrap_or(false) {
             spec.binary.clone()
         } else {
-            make_bundle(&ws.root, &spec.binary, &id[..8])?
+            make_bundle(&ws.root, &spec.binary, &id[..8], spec.mode != Mode::Visible)?
         };
         let needle = format!("{}/Contents/MacOS/", bundle.display());
+        let executable = format!("{needle}{}", bundle.file_name().and_then(|n| n.to_str()).unwrap_or_default().trim_end_matches(".app"));
         let mut cmd = Command::new("open");
         match spec.mode {
             Mode::Hidden => cmd.args(["-g", "-j", "-n"]),
@@ -381,8 +452,8 @@ fn start_process(
             return err(format!("open exited {st}"));
         }
         loop {
-            if let Some(pid) = pids_with_command_prefix(&needle).into_iter().next() {
-                return Ok((pid, None));
+            if let Some(pid) = pids_with_command_prefix(&needle).ok().and_then(|pids| pids.into_iter().next()) {
+                return Ok((pid, None, Some(executable.clone())));
             }
             if Instant::now() >= deadline {
                 return err("launched app pid not found");
@@ -406,7 +477,7 @@ fn start_process(
         }
         let _ = deadline;
         let child = owned.spawn().map_err(|e| Error(format!("failed to start {}: {e}", spec.binary.display())))?;
-        Ok((child.id(), Some(child)))
+        Ok((child.id(), Some(child), None))
     }
 }
 
@@ -591,7 +662,11 @@ impl Control {
         let _ = fs::copy(&self.raw_log, &self.log_path);
         let _ = fs::remove_file(&self.raw_log);
         let after = frontmost();
-        let (steady, states) = self.focus.take().map(|mut f| f.finish()).unwrap_or((false, vec![]));
+        let (steady, states, owned_never_frontmost, owned_frontmost_pids) = self
+            .focus
+            .take()
+            .map(|mut f| f.finish())
+            .unwrap_or((false, vec![], false, vec![]));
         let process_gone = !is_alive(self.pid);
         let endpoint_closed = self.endpoint.is_empty() || !endpoint_open(&self.endpoint);
         if process_gone {
@@ -605,6 +680,8 @@ impl Control {
             frontmost_states: states,
             frontmost_before: self.frontmost_before.clone(),
             frontmost_after: after,
+            owned_never_frontmost: owned_never_frontmost,
+            owned_frontmost_pids: owned_frontmost_pids,
         })
     }
 }

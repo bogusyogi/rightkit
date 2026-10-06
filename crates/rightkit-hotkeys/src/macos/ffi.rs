@@ -41,6 +41,7 @@ extern "C" {
     pub fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     pub fn CGEventGetFlags(event: CGEventRef) -> u64;
     pub fn CGEventSetFlags(event: CGEventRef, flags: u64);
+    pub fn CGEventSetIntegerValueField(event: CGEventRef, field: u32, value: i64);
     pub fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
     pub fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
     pub fn CGEventCreateKeyboardEvent(
@@ -222,3 +223,15 @@ pub const CARBON_CONTROL_KEY: u32 = 1 << 12;
 pub const EVENT_HOTKEY_EXISTS_ERR: i32 = -9878;
 /// `eventHotKeyInvalidErr`.
 pub const EVENT_HOTKEY_INVALID_ERR: i32 = -9879;
+
+// ---- Objective-C runtime (background app host) ---------------------------------------------
+
+#[link(name = "objc")]
+extern "C" {
+    pub fn objc_getClass(name: *const u8) -> *mut c_void;
+    pub fn sel_registerName(name: *const u8) -> *mut c_void;
+    pub fn objc_msgSend();
+}
+
+#[link(name = "AppKit", kind = "framework")]
+extern "C" {}

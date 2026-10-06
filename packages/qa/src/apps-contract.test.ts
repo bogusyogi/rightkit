@@ -15,7 +15,7 @@ const apps = [
   {
     name: 'HeardRight',
     root: path.join(repoRoot, 'heardright', 'tauri-app-next'),
-    rustSources: ['src-tauri/src/app_lib.rs', 'src-tauri/src/app_lib_sections/section08.rs'],
+    rustSources: ['src-tauri/src/app_lib.rs', 'src-tauri/src/app_run.rs'],
   },
   {
     name: 'ViewRight',

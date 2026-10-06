@@ -1,0 +1,10 @@
+.rk-doc-markdown, .rk-doc-html { box-sizing:border-box; max-width:78rem; margin:0 auto; padding:2rem 1.25rem; line-height:1.65; overflow-wrap:anywhere; }
+.rk-doc-markdown h1, .rk-doc-markdown h2, .rk-doc-markdown h3, .rk-doc-markdown h4, .rk-doc-html h1, .rk-doc-html h2, .rk-doc-html h3, .rk-doc-html h4 { margin:1.5em 0 .5em; line-height:1.25; }
+.rk-doc-markdown p, .rk-doc-html p { margin:0 0 1rem; }
+.rk-doc-markdown a, .rk-doc-html a { color:#2563a9; text-decoration:underline; }
+.rk-doc-markdown img, .rk-doc-html img { max-width:100%; height:auto; }
+.rk-doc-markdown blockquote, .rk-doc-html blockquote { margin:1rem 0; padding:.5rem 1rem; border-left:4px solid #c7c7c7; color:#555; }
+.rk-doc-markdown pre, .rk-doc-html pre { overflow:auto; padding:.8rem 1rem; border-radius:.35rem; background:#f1f3f5; }
+.rk-doc-markdown code, .rk-doc-html code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.rk-doc-markdown table, .rk-doc-html table { width:100%; border-collapse:collapse; margin:1rem 0; }
+.rk-doc-markdown th, .rk-doc-markdown td, .rk-doc-html th, .rk-doc-html td { padding:.4rem .6rem; border:1px solid #d5d5d5; text-align:left; vertical-align:top; }

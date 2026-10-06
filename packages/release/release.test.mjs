@@ -664,6 +664,7 @@ jobs:
 test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", () => {
   const config = fixture({
     platform: hostPlatform,
+    macSigning: hostPlatform === "mac",
     cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.2"`,
     cargoConfig: `[net]\nretry = 2\n[registries.private]\nindex = "https://example.test/index"`,
   });
@@ -681,7 +682,7 @@ test("doctor rejects a selected target with missing or empty buildInputs.include
 });
 
 test("doctor passes a clean selected target", () => {
-  const result = runDoctor(fixture({ platform: hostPlatform }));
+  const result = runDoctor(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }));
   assert.equal(result.status, 0, result.stderr);
   // Derived from the version manifest, not hardcoded: a literal here has to be
   // hand-edited on every bump and fails the suite when someone forgets.
@@ -690,7 +691,7 @@ test("doctor passes a clean selected target", () => {
 });
 
 test("doctor handles a real src-tauri target according to host Cargo ownership", () => {
-  const config = fixture({ platform: hostPlatform });
+  const config = fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" });
   mkdirSync(path.join(path.dirname(config), "src-tauri", "target"));
   const result = runDoctor(config);
   const output = `${result.stdout}\n${result.stderr}`;
@@ -705,7 +706,7 @@ test("doctor handles a real src-tauri target according to host Cargo ownership",
 });
 
 test("doctor permits unrelated dirt", () => {
-  const config = fixture({ platform: hostPlatform });
+  const config = fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" });
   const root = path.dirname(config);
   mkdirSync(path.join(root, "notes"));
   writeFileSync(path.join(root, "notes", "scratch.md"), "unrelated\n");
@@ -763,6 +764,7 @@ test("doctor rejects linked and detached checkouts like build runtime", () => {
 test("doctor scopes Cargo inspection to the configured app inside a monorepo", () => {
   const config = fixture({
     platform: hostPlatform,
+    macSigning: hostPlatform === "mac",
     cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.2"`,
     repoCargoConfig: `[net]\nretry = 2`,
     siblingCargoManifest: `[package]\nname = "archived-copy"\nversion = "0.0.0"\n[dependencies]\nrightkit-license = { path = "../../rightkit-license" }`,

@@ -75,13 +75,18 @@ impl Drop for Cleanup {
         let confirm = ActOptions { confirm: vec![RiskClass::Close, RiskClass::Delete], guard: Guard::Off, ..Default::default() };
         for pid in self.pids.lock().unwrap().iter().copied() {
             for _ in 0..5 {
-                let _ = self.a.terminate(pid);
+                let t = self.a.terminate(pid);
+                if std::env::var("RK_DEBUG").is_ok() { eprintln!("cleanup terminate({pid}) -> {t:?}"); }
                 sleep(700);
                 if !self.a.apps().iter().any(|x| x.pid == pid) {
                     break;
                 }
                 // A "save changes" sheet blocks quitting: discard (explicitly confirmed).
                 if let Ok(s) = self.a.snapshot(Target::app(pid), Limits { max_depth: 14, max_nodes: 900 }) {
+                    if std::env::var("RK_DEBUG").is_ok() {
+                        fn names(n: &Node, out: &mut Vec<String>) { if n.role == "button" { out.push(format!("{:?}/{:?}", n.name, n.description)); } n.children.iter().for_each(|c| names(c, out)); }
+                        let mut v = vec![]; names(&s.root, &mut v); eprintln!("cleanup buttons: {v:?}");
+                    }
                     if let Some(b) = find(&s, |n| n.role == "button" && matches!(n.name.as_deref(), Some("Delete") | Some("Don’t Save") | Some("Don't Save"))) {
                         let _ = self.a.act(&s.id, Some(&b.id), Action::Press, &confirm);
                         sleep(400);
