@@ -772,3 +772,18 @@ test('broker owns Mac account identity without changing other platforms', async 
     } finally { await item.close(); }
   }
 });
+
+test('a root whose stdio is held open by a survivor still settles after exit', async () => {
+  const { EventEmitter } = await import('node:events');
+  const { childExit } = await import('./thin-job-service.mjs');
+  const child = new EventEmitter(); let destroyed = 0; let held = 0;
+  child.stdout = { destroy: () => { destroyed += 1; } }; child.stderr = { destroy: () => { destroyed += 1; } };
+  const settled = childExit(child, { drainMs: 20, onStdioHeld: () => { held += 1; } });
+  child.emit('exit', 0, null); // 'close' never arrives: a descendant still holds the pipes
+  assert.deepEqual(await settled, { code: 0, signal: null, stdioHeldOpen: true });
+  assert.equal(destroyed, 2); assert.equal(held, 1);
+  const normal = new EventEmitter(); normal.stdout = null; normal.stderr = null;
+  const clean = childExit(normal, { drainMs: 1_000 });
+  normal.emit('exit', 1, null); normal.emit('close', 1, null);
+  assert.deepEqual(await clean, { code: 1, signal: null });
+});

@@ -88,6 +88,28 @@ const pathIsWithin = (root, candidate) => {
 };
 const BROKER_ENDPOINT_ENVIRONMENT_KEY = 'RIGHTKIT_BUILD_BROKER_SOCKET';
 
+// A surviving descendant (e.g. a detached server a test or build spawned) can inherit the root's
+// stdout/stderr pipes and hold them open, so 'close' never fires and the job, its workspace lease,
+// and even cancel hang forever (CodeRight, 2026-10-06). After the root process exits, wait a bounded
+// time for output to drain, then release the pipes and settle on the exit status.
+export const STDIO_DRAIN_MS = 10_000;
+export function childExit(child, { drainMs = STDIO_DRAIN_MS, onStdioHeld = () => {} } = {}) {
+  return new Promise((resolve, reject) => {
+    let settled = false; let timer = null;
+    const done = (value) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); resolve(value); };
+    child.once('error', (error) => { if (!settled) { settled = true; if (timer) clearTimeout(timer); reject(error); } });
+    child.once('close', (code, signal) => done({ code, signal }));
+    child.once('exit', (code, signal) => {
+      timer = setTimeout(() => {
+        onStdioHeld();
+        child.stdout?.destroy(); child.stderr?.destroy();
+        done({ code, signal, stdioHeldOpen: true });
+      }, drainMs);
+      timer.unref?.();
+    });
+  });
+}
+
 export function brokerEndpointForPlatform(config, platform = process.platform) {
   const field = platform === 'win32' ? 'windowsPipe' : 'unixSocket';
   const endpoint = config?.[field];
@@ -577,7 +599,7 @@ export class ThinJobService {
         this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: targetConsoleLine({ phase: 'start', target: job.targetAtStart }) } });
       }
       job.child = spawnManagedProcess(job.tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: ['ignore', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
-      job.exit = new Promise((resolve, reject) => { job.child.once('error', reject); job.child.once('close', (code, signal) => resolve({ code, signal })); });
+      job.exit = childExit(job.child, { onStdioHeld: () => void this.#log({ type: 'STDIO_HELD_OPEN_AFTER_EXIT', id: job.id, pid: job.child.pid, drainMs: STDIO_DRAIN_MS }) });
       job.child.stdout?.on('data', (chunk) => this.#output(job, 'STDOUT', chunk));
       job.child.stderr?.on('data', (chunk) => this.#output(job, 'STDERR', chunk));
       const observed = await this.#identity(job.child.pid); if (observed.status !== 'OK') throw Object.assign(new Error(`process identity unavailable: ${observed.reason}`), { code: 'RK_PROCESS_IDENTITY_UNAVAILABLE' });
