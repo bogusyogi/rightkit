@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/pdf-ui",
+  "version": "0.1.0",
+  "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
+  "artifactSha256": "e047eda577eb2f164b8f78381e8ff1a274fe7d255ec48d06fd71392bd98d2f2c",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
+      "command": "pnpm test (packages/pdf-ui)",
+      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
+      "timestamp": "2026-10-06T22:28:43.881Z",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "win32"
+      },
+      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
+      "command": "pnpm test (packages/pdf-ui, D:\\rk-gate\\3107b240 export)",
+      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
+      "timestamp": "2026-10-06T22:29:05.913Z",
+      "passed": 2,
+      "failed": 0
+    }
+  ]
+}

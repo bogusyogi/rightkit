@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/app-shell",
+  "version": "0.1.0",
+  "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
+  "artifactSha256": "9b3d23663683178dd3c1896e8f988356acf2ec08bb645dc352dce02842ad10c2",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
+      "command": "pnpm test (packages/app-shell)",
+      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
+      "timestamp": "2026-10-06T22:28:28.961Z",
+      "passed": 13,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "win32"
+      },
+      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
+      "command": "pnpm test (packages/app-shell, D:\\rk-gate\\3107b240 export)",
+      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
+      "timestamp": "2026-10-06T22:28:40.971Z",
+      "passed": 13,
+      "failed": 0
+    }
+  ]
+}
