@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Publication gate: refuse to publish a shared npm package, crate, or Swift tag unless a gate
 // evidence file names the exact current commit SHA (clean tree for the package path) and carries
-// passing macOS and Windows host run receipts from that same SHA.
+// passing host run receipts from that same SHA: macOS and Windows, or macOS only for Swift.
 // Format: docs/RIGHTKIT-SHARED-PACKAGES.md, "Publication gate" -> "Evidence file format".
 import fs from "node:fs";
 import path from "node:path";
@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 
 export const GATE_SCHEMA = 1;
 export const REQUIRED_HOSTS = Object.freeze(["darwin", "win32"]);
+// Swift packages (RightKitSwift) are Apple-only; Windows cannot run them.
+export const requiredHosts = (kind) => (kind === "swift" ? Object.freeze(["darwin"]) : REQUIRED_HOSTS);
 const SHA = /^[0-9a-f]{40}$/;
 
 export function defaultEvidencePath(workspaceRoot, kind, name) {
@@ -41,7 +43,7 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
     if (!SHA.test(String(evidence.commit ?? ""))) missing.push("evidence commit is not a full 40-character SHA");
     else if (head && evidence.commit !== head) missing.push(`evidence commit ${evidence.commit} != current HEAD ${head}`);
     const runs = Array.isArray(evidence.runs) ? evidence.runs : [];
-    for (const host of REQUIRED_HOSTS) {
+    for (const host of requiredHosts(kind)) {
       const label = host === "darwin" ? "macOS" : "Windows";
       const matching = runs.filter((run) => run?.host?.os === host);
       if (!matching.length) { missing.push(`no ${label} host run receipt`); continue; }

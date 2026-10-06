@@ -32,3 +32,9 @@ test('enforce refuses a real publish and only reports under dry-run', () => {
   assert.equal(result.ok, false);
   assert.match(out, /would be refused/);
 });
+
+test('Swift packages need only a macOS receipt', () => {
+  const swift = (runs) => checkPublicationGate({ ...base(evidence({ kind: 'swift', name: 'RightKitSwift', runs })), kind: 'swift', name: 'RightKitSwift' });
+  assert.deepEqual(swift([run('darwin')]).missing, []);
+  assert.match(swift([run('win32')]).missing.join('\n'), /no macOS host run receipt/);
+});
