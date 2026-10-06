@@ -16,7 +16,7 @@ async function fixture() {
 }
 
 const input = (item, endpoint = item.endpoint) => ({ configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', taskName: 'RightKitBuildControl', endpoint, healthWorkspace: item.health, timeoutMs: 100 });
-const drainDependencies = { beginDrain: async () => ({ path: 'test', token: 'test' }), endDrain: async () => {}, proveBrokerDrain: async () => ({ open: 0, inFlight: [] }) };
+const drainDependencies = { restartManaged: async () => {}, beginDrain: async () => ({ path: 'test', token: 'test' }), endDrain: async () => {}, proveBrokerDrain: async () => ({ open: 0, inFlight: [] }) };
 
 test('stopManagedTask polls until named pipe releases', async () => {
   let probes = 0;
@@ -155,4 +155,23 @@ test('Windows cutover waits (bounded) for in-flight work to drain, then activate
     await assert.rejects(runWindowsCutover({ ...input(item), drainTimeoutMs: 1_500 }, { ...drainDependencies, platform: 'win32', now: () => clock, sleep: async (ms) => { clock += ms; }, proveThinDrain: async () => { throw new Error('cannot activate while 1 thin request(s) are in flight: job-1'); }, stopManaged: async () => { stopped = true; }, install: async () => {} }), /in flight/);
     assert.equal(stopped, false);
   } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
+test('Windows cutover restarts the stopped broker when install fails before the runtime switch', async () => {
+  const item = await fixture();
+  try {
+    const calls = [];
+    const error = await runWindowsCutover(input(item), { ...drainDependencies, platform: 'win32', stopManaged: async () => { calls.push('stop'); return { stopped: true }; }, restartManaged: async ({ taskName }) => { calls.push(`restart:${taskName}`); }, install: async () => { throw new Error('runtime source packages root is dirty'); } }).catch((caught) => caught);
+    assert.match(error.message, /dirty/); assert.equal(error.brokerRestored, true);
+    assert.deepEqual(calls, ['stop', 'restart:RightKitBuildControl']);
+    const both = await runWindowsCutover(input(item), { ...drainDependencies, platform: 'win32', stopManaged: async () => ({}), restartManaged: async () => { throw new Error('task missing'); }, install: async () => { throw new Error('stage failed'); } }).catch((caught) => caught);
+    assert.match(both.message, /stage failed; broker restart also failed: task missing/); assert.equal(both.brokerRestored, false);
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
+test('restartManagedTask re-enables then runs the task', async () => {
+  const { restartManagedTask } = await import('./runtime-cutover-windows-cli.mjs');
+  const calls = [];
+  await restartManagedTask({ taskName: 'T', execFile: async (file, args) => { calls.push([file, ...args]); } });
+  assert.deepEqual(calls, [['schtasks', '/Change', '/TN', 'T', '/ENABLE'], ['schtasks', '/Run', '/TN', 'T']]);
 });

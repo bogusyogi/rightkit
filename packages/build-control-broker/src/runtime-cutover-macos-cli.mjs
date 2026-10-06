@@ -54,6 +54,13 @@ function plistProgramArguments(contents) {
   if (!block) throw new Error('plist ProgramArguments are required');
   return [...block.matchAll(/<string>([\s\S]*?)<\/string>/g)].map((match) => match[1].replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>'));
 }
+/** Undo stopManagedLaunchd: enable, load & start the LaunchAgent on whatever runtime-current selects. */
+export async function restartManagedLaunchd({ launchdLabel, uid, plistPath, execFile = execDefault }) {
+  const target = `gui/${uid}/${launchdLabel}`;
+  await execFile('launchctl', ['enable', target]);
+  await execFile('launchctl', ['bootstrap', `gui/${uid}`, plistPath]).catch(() => {}); // already loaded is fine
+  await execFile('launchctl', ['kickstart', target]);
+}
 export function launchdGuiDomainAvailable(uid, { execFile = execDefault } = {}) {
   return execFile('launchctl', ['print', `gui/${uid}`]).then(() => true, () => false);
 }
@@ -76,7 +83,7 @@ export async function stopManagedLaunchd({ launchdLabel, uid, plistPath, endpoin
  * selection before allowing runtime.mjs to stage or switch runtime-current.
  */
 export async function runMacOSCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopManaged = stopManagedLaunchd, guiDomainAvailable = launchdGuiDomainAvailable, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds)), now = Date.now } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeMacOS, canonicalize = realpath, load = readFile, statFile = stat, stopManaged = stopManagedLaunchd, restartManaged = restartManagedLaunchd, guiDomainAvailable = launchdGuiDomainAvailable, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds)), now = Date.now } = dependencies;
   if (platform !== 'darwin') throw new Error('macOS cutover may only run on darwin');
   const options = typeof input?.configPath === 'string' ? input : parseMacOSCutoverArgs(input);
   const [configPath, externalRoot, sourcePackagesRoot, plistPath, healthWorkspace] = await Promise.all([
@@ -113,12 +120,20 @@ export async function runMacOSCutover(input, dependencies = {}) {
         await sleep(Math.min(1_000, (options.drainTimeoutMs ?? 0) - elapsed));
       }
     }
-    const stopProof = await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
-    const result = await install({
+    // From the stop on, any failure must bring the broker back (see runWindowsCutover).
+    let stopProof; let result;
+    try {
+    stopProof = await stopManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath, endpoint: options.endpoint });
+    result = await install({
       externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, launchdLabel: options.launchdLabel, uid: options.uid, endpoint: options.endpoint,
       plistPath, configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs, macosResourceAddon: options.macosResourceAddon,
       drainProbe: async () => proveThinDrain(externalRoot),
     });
+    } catch (error) {
+      try { await restartManaged({ launchdLabel: options.launchdLabel, uid: options.uid, plistPath }); error.brokerRestored = true; }
+      catch (restartError) { error.brokerRestored = false; error.message += `; broker restart also failed: ${restartError?.message ?? restartError}`; }
+      throw error;
+    }
     return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, plistPath, brokerDrain, thinDrain, stopProof, result });
   } finally { await endDrain(drainFence); }
 }

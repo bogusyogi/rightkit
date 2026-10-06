@@ -43,6 +43,12 @@ export function parseWindowsCutoverArgs(argv) {
   });
 }
 
+/** Re-enable & start the scheduled task: the broker it launches runs whatever runtime-current selects. */
+export async function restartManagedTask({ taskName, execFile = execDefault }) {
+  await execFile('schtasks', ['/Change', '/TN', taskName, '/ENABLE']);
+  await execFile('schtasks', ['/Run', '/TN', taskName]);
+}
+
 export async function stopManagedTask({ taskName, endpoint, configPath = null, brokerScript = null, execFile = execDefault, netModule = net, pipeReleaseTimeoutMs = 20_000, pipePollIntervalMs = 250, orphanTakeoverMs = 5_000, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   const end = () => execFile('schtasks', ['/End', '/TN', taskName]).catch(() => {});
   await end();
@@ -85,7 +91,7 @@ export async function stopManagedTask({ taskName, endpoint, configPath = null, b
  * legacy service is stopped.
  */
 export async function runWindowsCutover(input, dependencies = {}) {
-  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeWindows, canonicalize = realpath, statFile = stat, stopManaged = stopManagedTask, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, execFile = execDefault, now = Date.now, sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)) } = dependencies;
+  const { platform = process.platform, loadConfig = loadBrokerConfig, install = installManagedRuntimeWindows, canonicalize = realpath, statFile = stat, stopManaged = stopManagedTask, restartManaged = restartManagedTask, proveThinDrain = proveThinRequestsDrained, beginDrain = beginCutoverDrain, endDrain = endCutoverDrain, proveBrokerDrain = proveBrokerRequestsDrained, execFile = execDefault, now = Date.now, sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)) } = dependencies;
   if (platform !== 'win32') throw new Error('windows cutover may only run on win32');
   const options = typeof input?.configPath === 'string' ? input : parseWindowsCutoverArgs(input);
   const [configPath, externalRoot, sourcePackagesRoot, healthWorkspace] = await Promise.all([
@@ -119,18 +125,27 @@ export async function runWindowsCutover(input, dependencies = {}) {
         await sleep(Math.min(1_000, (options.drainTimeoutMs ?? 0) - elapsed));
       }
     }
-    const stopProof = await stopManaged({ taskName: options.taskName, endpoint: options.endpoint, configPath, brokerScript: runtimeScript, execFile });
+    // From the stop on, any failure (a pre-switch precondition included) must bring the broker back; installManagedRuntime
+    // only rolls back failures after it selects the new runtime (2026-10-06: a dirty-tree refusal left Windows down ~5 min).
+    let stopProof; let result;
+    try {
+    stopProof = await stopManaged({ taskName: options.taskName, endpoint: options.endpoint, configPath, brokerScript: runtimeScript, execFile });
     // Persist the hidden-window launcher the task action references; every
     // start (including logon-trigger starts) goes through it so no console
     // window ever appears on the operator's desktop.
     const launcherScript = resolve(externalRoot, 'broker-launch.vbs');
     await writeFile(launcherScript, renderBrokerLauncherVbs({ nodePath, brokerScript: runtimeScript, configPath }), 'utf8');
     const definition = renderTaskDefinition({ taskName: options.taskName, nodePath, brokerScript: runtimeScript, configPath, launcherScript });
-    const result = await withTaskDefinitionFile(definition, (taskXmlPath) => install({
+    result = await withTaskDefinitionFile(definition, (taskXmlPath) => install({
       externalRoot, sourcePackagesRoot, sourceRevision: options.sourceRevision, sourceTreeDigest: options.sourceTreeDigest, config, version: options.version, taskName: options.taskName, endpoint: options.endpoint,
       configPath, nodePath, healthWorkspace, healthTimeoutMs: options.timeoutMs, timeoutMs: options.timeoutMs, taskXmlPath,
       drainProbe: async () => proveThinDrain(externalRoot),
     }));
+    } catch (error) {
+      try { await restartManaged({ taskName: options.taskName, execFile }); error.brokerRestored = true; }
+      catch (restartError) { error.brokerRestored = false; error.message += `; broker restart also failed: ${restartError?.message ?? restartError}`; }
+      throw error;
+    }
     return Object.freeze({ configPath, externalRoot, sourcePackagesRoot, brokerDrain, thinDrain, stopProof, result });
   } finally { await endDrain(drainFence); }
 }

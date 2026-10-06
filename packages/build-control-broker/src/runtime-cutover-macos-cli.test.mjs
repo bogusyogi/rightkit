@@ -16,7 +16,7 @@ async function fixture() {
 }
 
 const input = (item) => ({ configPath: item.config, externalRoot: item.external, sourcePackagesRoot: item.source, sourceRevision: 'a'.repeat(40), sourceTreeDigest: 'b'.repeat(40), version: 'v2-test', launchdLabel: 'dev.rightkit.broker', uid: 501, endpoint: item.endpoint, plistPath: item.plist, healthWorkspace: item.health, timeoutMs: 100 });
-const drainDependencies = { guiDomainAvailable: async () => true, beginDrain: async () => ({ path: 'test', token: 'test' }), endDrain: async () => {}, proveBrokerDrain: async () => ({ open: 0, inFlight: [] }) };
+const drainDependencies = { restartManaged: async () => {}, guiDomainAvailable: async () => true, beginDrain: async () => ({ path: 'test', token: 'test' }), endDrain: async () => {}, proveBrokerDrain: async () => ({ open: 0, inFlight: [] }) };
 
 test('argument parser rejects unknown switches & requires exact activation identity', () => {
   assert.throws(() => parseMacOSCutoverArgs(['--config', '/a']), /--external-root is required/);
@@ -85,4 +85,20 @@ test('macOS cutover refuses before stopping the broker when no GUI login session
     await assert.rejects(runMacOSCutover(input(item), { ...drainDependencies, platform: 'darwin', guiDomainAvailable: async () => false, stopManaged: async () => { stopped = true; }, install: async () => {} }), /no GUI login session/);
     assert.equal(stopped, false);
   } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
+test('macOS cutover restarts the stopped LaunchAgent when install fails before the runtime switch', async () => {
+  const item = await fixture();
+  try {
+    const calls = [];
+    const error = await runMacOSCutover(input(item), { ...drainDependencies, platform: 'darwin', stopManaged: async () => { calls.push('stop'); return { stopped: true }; }, restartManaged: async () => { calls.push('restart'); }, install: async () => { throw new Error('runtime source packages root is dirty'); } }).catch((caught) => caught);
+    assert.match(error.message, /dirty/); assert.equal(error.brokerRestored, true); assert.deepEqual(calls, ['stop', 'restart']);
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
+test('restartManagedLaunchd enables, loads and kickstarts the LaunchAgent', async () => {
+  const { restartManagedLaunchd } = await import('./runtime-cutover-macos-cli.mjs');
+  const calls = [];
+  await restartManagedLaunchd({ launchdLabel: 'L', uid: 501, plistPath: '/p.plist', execFile: async (file, args) => { calls.push([file, ...args]); } });
+  assert.deepEqual(calls, [['launchctl', 'enable', 'gui/501/L'], ['launchctl', 'bootstrap', 'gui/501', '/p.plist'], ['launchctl', 'kickstart', 'gui/501/L']]);
 });
