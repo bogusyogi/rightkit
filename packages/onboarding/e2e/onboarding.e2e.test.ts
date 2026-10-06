@@ -40,6 +40,8 @@ describe.skipIf(!chrome)("onboarding in real headless Chrome (muted)", () => {
   it("keeps legal first, persists acceptance, then exposes ordered steps", async () => {
     await page.setColorScheme("light");
     await page.goto(`${origin}/`);
+    // Settings load asynchronously; the legal gate renders once they resolve.
+    await page.waitFor("document.querySelector('[data-testid=onboarding-legal]')", 5000);
     expect(await page.eval<string>("document.querySelector('[data-testid=onboarding-legal]')?.textContent ?? ''")).toContain("Agree & continue");
     await page.screenshot(join(shotsDir, "onboarding-legal-light.png"));
     await page.click("input[type=radio]");
