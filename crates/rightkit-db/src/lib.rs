@@ -12,6 +12,10 @@ mod backup;
 #[allow(unsafe_code)]
 mod host;
 pub use host::per_host_path;
+/// The exact `rusqlite` this crate links (`links = "sqlite3"` allows one per build). Apps name
+/// `Connection`, `params!`, `Row`, `OptionalExtension`, `TransactionBehavior` through this path
+/// instead of declaring their own `rusqlite` dependency.
+pub use rusqlite;
 mod migrate;
 mod recover;
 
