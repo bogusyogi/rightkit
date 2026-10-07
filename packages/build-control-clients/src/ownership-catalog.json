@@ -287,7 +287,16 @@
         {
           "id": "ort.env.dylib",
           "type": "source",
-          "pattern": "ORT_DYLIB_PATH"
+          "pattern": "\\b(?:set_var|remove_var)\\s*\\(\\s*(?:\"ORT_DYLIB_PATH\"|ORT_DYLIB_PATH)\\s*(?=[,)])|\\bprocess\\s*\\.\\s*env\\s*\\.\\s*ORT_DYLIB_PATH\\s*=(?!=|>)|\\bdelete\\s+process\\s*\\.\\s*env\\s*\\.\\s*ORT_DYLIB_PATH\\b",
+          "codeOnly": true,
+          "extensions": [".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"]
+        },
+        {
+          "id": "ort.api.init",
+          "type": "source",
+          "pattern": "\\bort\\s*::\\s*init(?:_from)?\\s*\\(",
+          "codeOnly": true,
+          "extensions": [".rs"]
         }
       ]
     },

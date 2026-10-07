@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -48,7 +48,7 @@ function signedEvent(log, input, signer) {
 }
 
 function pinnedFixture({ includeDevice = true, unsignedAdd = false, revokeRoot = false, rootPin } = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-keylog-evidence-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-keylog-evidence-")));
   git(root, "init", "-q");
   git(root, "config", "user.email", "test@example.invalid");
   git(root, "config", "user.name", "test");
@@ -83,7 +83,7 @@ function pinnedFixture({ includeDevice = true, unsignedAdd = false, revokeRoot =
 }
 
 test("release evidence binds scan to catalog, approvals, and immutable commit", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-evidence-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-evidence-")));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.email", "test@example.invalid");
@@ -117,7 +117,7 @@ test("release evidence binds scan to catalog, approvals, and immutable commit", 
 });
 
 test("protected evidence scans exact committed blobs & binds source tree", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-committed-evidence-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-committed-evidence-")));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.email", "test@example.invalid");
@@ -135,7 +135,7 @@ test("protected evidence scans exact committed blobs & binds source tree", () =>
     assert.ok(checked.evidence.tree);
     assert.equal(checked.result.metadata.tree, checked.evidence.tree);
     assert.deepEqual(checked.result.findings.map((finding) => finding.file), ["source.rs"]);
-    assert.equal(checked.evidence.scannerVersion, "2.3.0");
+    assert.equal(checked.evidence.scannerVersion, "2.4.0");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -146,7 +146,7 @@ test("release ownership fails closed when protected enrollment is absent", () =>
 });
 
 test("one-key enrollment produces clearly advisory evidence and retains backlog findings", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-pending-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-pending-")));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.email", "test@example.invalid");
@@ -183,7 +183,7 @@ test("one-key enrollment produces clearly advisory evidence and retains backlog 
 });
 
 test("absent trust has advisory scan without fabricated registry binding", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-no-trust-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-no-trust-")));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.email", "test@example.invalid");
@@ -223,7 +223,7 @@ test("advisory evidence fails when scan source cannot produce a HEAD commit", ()
 });
 
 test("pending trust registration and floor problems remain diagnostics", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-pending-registration-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-pending-registration-")));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.email", "test@example.invalid");
@@ -256,7 +256,7 @@ test("malformed existing trust remains fail closed", () => {
 });
 
 test("fully enrolled invalid approval stays a hard ownership failure", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-invalid-approval-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-invalid-approval-")));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.email", "test@example.invalid");
@@ -283,7 +283,7 @@ test("fully enrolled invalid approval stays a hard ownership failure", () => {
 });
 
 test("nested release app cannot narrow scan below every protected repository root", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-roots-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-roots-")));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.email", "test@example.invalid");
@@ -321,7 +321,7 @@ test("nested release app cannot narrow scan below every protected repository roo
 });
 
 test("test seam defaults scan root to repository root", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-default-root-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-default-root-")));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.email", "test@example.invalid");
@@ -336,7 +336,7 @@ test("test seam defaults scan root to repository root", () => {
 });
 
 test("approval bytes changed after scan invalidate release evidence", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-approvals-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-ownership-approvals-")));
   try {
     git(root, "init", "-q");
     git(root, "config", "user.email", "test@example.invalid");
@@ -463,7 +463,7 @@ test("ordinary evidence uses committed key history for enrollment grace", () => 
 
 test("shared workspace authority approves nested product exceptions without copying its log", () => {
   const authority = pinnedFixture();
-  const product = mkdtempSync(path.join(tmpdir(), "rightkit-product-repo-"));
+  const product = realpathSync(mkdtempSync(path.join(tmpdir(), "rightkit-product-repo-")));
   try {
     git(product, "init", "-q");
     git(product, "config", "user.email", "test@example.invalid");

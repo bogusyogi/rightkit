@@ -15,7 +15,7 @@ export const EXCEPTIONS_FILE = path.join(".rightkit", "ownership-exceptions.json
 const CODE_EXT = new Set([".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".swift", ".m", ".mm", ".c", ".cc", ".cpp", ".h", ".py", ".go", ".kt", ".java", ".cs"]);
 // Listed installed/build inputs retain explicit coverage diagnostics.
 const OPAQUE_DIRS = new Set(["target", ".build", "DerivedData", "Pods"]);
-export const SCANNER_VERSION = "2.3.0";
+export const SCANNER_VERSION = "2.4.0";
 export const catalogDigest = (manifest) => sha256(manifest);
 const byteDigest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const inputDigest = (file) => file.digest ?? byteDigest(file.bytes);
@@ -25,7 +25,7 @@ const catalogCache = new Map();
 function sourceMatchers(manifest) {
   const digest = catalogDigest(manifest);
   if (catalogCache.has(digest)) return catalogCache.get(digest);
-  const sources = manifest.capabilities.flatMap((c) => c.fingerprints.filter((f) => f.type === "source").map((f) => ({ c, f, re: new RegExp(f.pattern, f.flags ?? "") })));
+  const sources = manifest.capabilities.flatMap((c) => c.fingerprints.filter((f) => f.type === "source").map((f) => ({ c, f, re: new RegExp(f.pattern, f.codeOnly ? `${(f.flags ?? "").replace(/[gy]/g, "")}g` : f.flags ?? "") })));
   let prefilter;
   try {
     // Backreferences cannot be relocated safely inside one alternation. In that
@@ -40,14 +40,73 @@ function sourceMatchers(manifest) {
   return matchers;
 }
 
+// Code-only patterns may consume string arguments, but must start outside
+// literals/comments. Keep offsets/newlines intact for multiline call reporting.
+function sourceNonCode(text, rust) {
+  const nonCode = new Uint8Array(text.length);
+  for (let i = 0; i < text.length;) {
+    const start = i;
+    if (text.startsWith("//", i) || text.startsWith("/*", i)) {
+      if (text[i + 1] === "/") {
+        i = text.indexOf("\n", i + 2);
+        if (i === -1) i = text.length;
+      } else {
+        i += 2;
+        let depth = 1;
+        while (i < text.length && depth) {
+          if (rust && text.startsWith("/*", i)) { depth++; i += 2; }
+          else if (text.startsWith("*/", i)) { depth--; i += 2; }
+          else i++;
+        }
+      }
+      nonCode.fill(1, start, i);
+      continue;
+    }
+    const raw = rust && (i === 0 || !/[\w]/.test(text[i - 1])) && /^(?:br|cr|r)(#*)"/.exec(text.slice(i));
+    if (raw) {
+      const closing = `"${raw[1]}`, end = text.indexOf(closing, i + raw[0].length);
+      i = end === -1 ? text.length : end + closing.length;
+    } else if (text[i] === '"' || (!rust && (text[i] === "'" || text[i] === "`")) ||
+      (rust && text[i] === "'" && /^'(?:\\(?:u\{[\da-fA-F]+\}|x[\da-fA-F]{2}|[^\r\n])|[^'\\\r\n])'/.test(text.slice(i)))) {
+      const quote = text[i++];
+      while (i < text.length) {
+        if (text[i] === "\\") i = Math.min(i + 2, text.length);
+        else if (text[i++] === quote) break;
+      }
+    } else { i++; continue; }
+    nonCode.fill(1, start, i);
+  }
+  return nonCode;
+}
+
 function sourceFindings(file, matchers) {
-  const key = `${matchers.digest}:${file.cacheKey ?? inputDigest(file)}`;
+  const ext = path.posix.extname(file.rel).toLowerCase();
+  const key = `${matchers.digest}:${ext}:${file.cacheKey ?? inputDigest(file)}`;
   if (sourceCache.has(key)) return sourceCache.get(key);
   const text = file.bytes.toString("utf8"), findings = [];
   if (matchers.prefilter.test(text)) {
-    for (const [i, line] of text.split(/\r?\n/).entries()) if (!commentOnly(line)) for (const { c, f, re } of matchers.sources) {
+    const lines = text.split(/\r?\n/);
+    const applicable = matchers.sources.filter(({ f }) => !f.extensions || f.extensions.includes(ext));
+    const lineMatchers = applicable.filter(({ f }) => !f.codeOnly);
+    for (const [i, line] of lines.entries()) if (!commentOnly(line)) for (const { c, f, re } of lineMatchers) {
       re.lastIndex = 0;
       if (re.test(line)) findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, line: i + 1, text: line.trim().slice(0, 160) });
+    }
+    const codeMatchers = applicable.filter(({ f }) => f.codeOnly);
+    if (codeMatchers.length) {
+      const nonCode = sourceNonCode(text, ext === ".rs");
+      for (const { c, f, re } of codeMatchers) {
+        re.lastIndex = 0;
+        const reported = new Set();
+        let line = 1, offset = 0;
+        for (const match of text.matchAll(re)) {
+          if (!match[0] || nonCode[match.index]) continue;
+          for (; offset < match.index; offset++) if (text[offset] === "\n") line++;
+          if (reported.has(line)) continue;
+          reported.add(line);
+          findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, line, text: lines[line - 1].trim().slice(0, 160) });
+        }
+      }
     }
   }
   sourceCache.set(key, findings);

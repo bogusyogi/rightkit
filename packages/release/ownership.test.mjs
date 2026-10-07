@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,7 +25,8 @@ const SAMPLES = {
   "sandbox.api.appcontainer": "unsafe { CreateAppContainerProfile(name, display, desc, caps, 0, &mut sid) }",
   "sandbox.api.seatbelt": "let rc = unsafe { sandbox_init(profile.as_ptr(), 0, &mut err) };",
   "process.api.kill-on-job-close": "info.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;",
-  "ort.env.dylib": 'std::env::var("ORT_DYLIB_PATH")',
+  "ort.env.dylib": 'std::env::set_var("ORT_DYLIB_PATH", p)',
+  "ort.api.init": "ort::init()",
   "browser.source.chrome-discovery": 'let path = r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";',
   "control.api.cgevent-post": "unsafe { CGEventPostToPid(pid, event) };",
   "control.api.ax-element": "let app = unsafe { AXUIElementCreateApplication(pid) };",
@@ -35,7 +36,7 @@ const SAMPLES = {
 const NEUTRAL = "let greeting = 'hello';";
 
 function app(files = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), "rk-ownership-"));
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "rk-ownership-")));
   assert.equal(spawnSync("git", ["-C", root, "init", "-q"], { windowsHide: true }).status, 0);
   for (const [rel, text] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -76,6 +77,83 @@ test("every source fingerprint has a realistic positive and neutral negative sam
     assert.ok(!re.test(NEUTRAL), `${f.id} matches neutral source`);
     if (f.id === "secrets.swift.scoped-migration") assert.ok(!re.test("store.copySyncedToDeviceOnly(account)"), "API use must remain valid without being classified as copied implementation");
   }
+});
+
+test("rightkit-ort adoption permits ORT mentions, reads, docs, logs and comments", () => {
+  const root = app({
+    "Cargo.toml": '[package]\nname = "ort-consumer"\nversion = "0.1.0"\n[dependencies]\nrightkit-ort = "0.1.0"\n',
+    "src/doctor.rs": [
+      'let doctor = "Set ORT_DYLIB_PATH to select a runtime";',
+      'let runtime = std::env::var("ORT_DYLIB_PATH");',
+      'let runtime_os = std::env::var_os("ORT_DYLIB_PATH");',
+      '// std::env::set_var("ORT_DYLIB_PATH", p); ort::init();',
+      'let ready = true; // remove_var("ORT_DYLIB_PATH"); ort::init_from(p);',
+      '/* documentation',
+      'set_var("ORT_DYLIB_PATH", p); ort::init();',
+      '/* nested comment */ ort::init_from(p);',
+      '*/',
+      'println!(r#"Example: set_var("ORT_DYLIB_PATH", p); ort::init();"#);',
+      'let example = r"ort::init_from(p)";',
+    ].join("\n"),
+    "src/doctor.ts": [
+      'console.log("Doctor: ORT_DYLIB_PATH selects runtime");',
+      'const runtime = process.env.ORT_DYLIB_PATH;',
+      'const matches = process.env.ORT_DYLIB_PATH === expected;',
+      'const matchesAgain = process.env.ORT_DYLIB_PATH == expected;',
+      'const example = \'process.env.ORT_DYLIB_PATH = "runtime"\';',
+      'console.log("delete process.env.ORT_DYLIB_PATH");',
+      'const template = `Example:\nprocess.env.ORT_DYLIB_PATH = "runtime"`;',
+      '// process.env.ORT_DYLIB_PATH = runtime;',
+      'const ready = true; // delete process.env.ORT_DYLIB_PATH;',
+      '/* documentation',
+      'process.env.ORT_DYLIB_PATH = runtime; delete process.env.ORT_DYLIB_PATH;',
+      '*/',
+    ].join("\n"),
+    "README.md": 'ORT_DYLIB_PATH\nstd::env::set_var("ORT_DYLIB_PATH", p);\nort::init();',
+  });
+  try {
+    const result = checkApp(root, shipped, { trust: { enrolled: true, trust: null } });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.findings, []);
+    assert.deepEqual(result.violations, []);
+    assert.equal(result.rows.find((row) => row.capability === "onnx-runtime").status, "declared-dependency");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("ORT source findings require env mutation or direct Rust initialization", () => {
+  const cases = [
+    ["set.rs", 'std::env::set_var("ORT_DYLIB_PATH", p);', "ort.env.dylib", 1],
+    ["remove.rs", 'std::env::remove_var("ORT_DYLIB_PATH");', "ort.env.dylib", 1],
+    ["unqualified-set.rs", 'set_var ( "ORT_DYLIB_PATH" , p );', "ort.env.dylib", 1],
+    ["unqualified-remove.rs", 'remove_var ( "ORT_DYLIB_PATH" );', "ort.env.dylib", 1],
+    ["spaced.rs", 'std :: env :: set_var\t(\t"ORT_DYLIB_PATH"\t, p);', "ort.env.dylib", 1],
+    ["multiline.rs", 'unsafe {\n std::env::set_var\n (\n "ORT_DYLIB_PATH",\n p\n );\n}', "ort.env.dylib", 2],
+    ["init.rs", "ort::init();", "ort.api.init", 1],
+    ["init-from.rs", 'ort::init_from("runtime.dylib");', "ort.api.init", 1],
+    ["spaced-init.rs", "ort \n :: \n init_from \n (p);", "ort.api.init", 1],
+    ["set.ts", "process.env.ORT_DYLIB_PATH = p;", "ort.env.dylib", 1],
+    ["remove.js", "delete process.env.ORT_DYLIB_PATH;", "ort.env.dylib", 1],
+    ["spaced.tsx", "process \n . env \n . ORT_DYLIB_PATH \n = p;", "ort.env.dylib", 1],
+    ["spaced-remove.mjs", "delete \n process . env . ORT_DYLIB_PATH;", "ort.env.dylib", 1],
+    ["after-log.cjs", 'console.log("delete process.env.ORT_DYLIB_PATH"); delete process.env.ORT_DYLIB_PATH;', "ort.env.dylib", 1],
+    ["after-comment.jsx", "/* process.env.ORT_DYLIB_PATH = fake; */ process.env.ORT_DYLIB_PATH = p;", "ort.env.dylib", 1],
+  ];
+  const root = app({
+    ...Object.fromEntries(cases.map(([file, source]) => [`src/${file}`, source])),
+    // Identical blobs in different languages must not share filtered findings.
+    "src/init-copy.ts": "ort::init();",
+    "src/not-init.rs": "ort::initialize(); other_ort::init(); ort::init_from_path(p);",
+    "src/not-env.ts": "process.env.ORT_DYLIB_PATH_EXTRA = p; delete process.env.ORT_DYLIB_PATH_EXTRA;",
+    "src/not-env.rs": 'std::env::set_var("OTHER_ENV", "ORT_DYLIB_PATH");',
+  });
+  try {
+    const findings = scanApp(root, shipped);
+    const expected = cases.map(([file, , fingerprint, line]) => ({ file: `src/${file}`, fingerprint, line }));
+    const summarize = (items) => items.map(({ file, fingerprint, line }) => ({ file, fingerprint, line })).sort((a, b) => a.file.localeCompare(b.file));
+    assert.deepEqual(summarize(findings), summarize(expected));
+    assert.ok(findings.every((finding) => finding.package === "rightkit-ort" && finding.capability === "onnx-runtime"));
+    assert.deepEqual(scanApp(root, shipped), findings, "warm cache preserves code-only findings");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("Cargo renames/workspace/target/build/dev, npm aliases/local wrappers & Swift identities resolve", () => {
