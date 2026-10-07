@@ -8,6 +8,7 @@ import test from "node:test";
 import { canonicalJson, canonicalRepositoryIdentity, createDraft, keyIdForPublicKey, provenanceContentDigest, sha256 } from "./ownership-approval.mjs";
 import { aggregateOwnership, catalogDigest, checkApp, checkCommittedAppForTest, contentInventory, directDependencies, evaluate, MANIFEST_FILE, scanApp } from "./ownership.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
+import { buildOwnershipReport, renderOwnershipMarkdown } from "./ownership-report.mjs";
 
 const rightkitRoot = path.resolve(import.meta.dirname, "../..");
 const shipped = JSON.parse(readFileSync(path.join(import.meta.dirname, MANIFEST_FILE), "utf8"));
@@ -92,6 +93,77 @@ test("Cargo renames/workspace/target/build/dev, npm aliases/local wrappers & Swi
     assert.ok(deps.some((d) => d.alias === "authAlias" && d.name === "oauth4webapi"));
     assert.ok(deps.some((d) => d.local && d.name === "wrapper"));
     assert.ok(deps.coverage.some((x) => /local-npm-dependency-path-unresolved/.test(x.reason)));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("QA-only dev dependency stays visible without a product capability violation", () => {
+  const root = app({
+    "package.json": JSON.stringify({ devDependencies: { "puppeteer-core": "24" } }),
+    "tests/a.test.ts": "import puppeteer from 'puppeteer-core';",
+    "scripts/qa-capture.ts": "const puppeteer = await import('puppeteer-core');",
+  });
+  try {
+    const result = checkApp(root, shipped, { trust: { enrolled: true, trust: null } });
+    assert.equal(result.ok, true);
+    assert.equal(result.violations.length, 0);
+    assert.equal(result.findings.length, 1);
+    assert.equal(result.findings[0].fingerprint, "browser.npm.puppeteer-core");
+    assert.equal(result.findings[0].qaOnly, true);
+    assert.deepEqual(result.qaOnly, result.findings);
+    assert.equal(result.rows.find((row) => row.capability === "browser-automation").status, "qa-only");
+    assert.equal(result.rows.find((row) => row.capability === "browser-automation").count, 1);
+    const report = buildOwnershipReport({ workspaceRoot: root, manifest: shipped, versions: {},
+      apps: [{ key: "fixture", root: "." }], scanner: () => result });
+    assert.equal(report.blocks.length, 0);
+    assert.equal(report.apps[0].findings[0].qaOnly, true);
+    assert.equal(report.apps[0].rows.find((row) => row.capability === "browser-automation").status, "qa-only");
+    assert.match(renderOwnershipMarkdown(report), /browser-automation \| qa-only/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const [label, declarations, sources, qaOnly] of [
+  ["product import", { devDependencies: { "puppeteer-core": "24" } }, { "src/main.ts": "import puppeteer from 'puppeteer-core';" }, false],
+  ["mixed QA and product imports", { devDependencies: { "puppeteer-core": "24" } }, {
+    "tests/a.test.ts": "import puppeteer from 'puppeteer-core';", "src/main.ts": "require('puppeteer-core/lib/x');" }, false],
+  ["production declaration", { dependencies: { "puppeteer-core": "24" } }, { "tests/a.test.ts": "require('puppeteer-core');" }, false],
+  ["unused dev dependency", { devDependencies: { "puppeteer-core": "24" } }, {}, false],
+  ["subpath import", { devDependencies: { "puppeteer-core": "24" } }, { "tests/a.test.ts": "import { x } from 'puppeteer-core/lib/x';" }, true],
+  ["compact and multiline imports", { devDependencies: { "puppeteer-core": "24" } }, { "tests/a.ts": "import{x}from'puppeteer-core';\nimport {\n y\n} from 'puppeteer-core/lib/x';" }, true],
+  ...["dependencies", "optionalDependencies", "peerDependencies"].map((field) => [`dev plus ${field}`, {
+    devDependencies: { "puppeteer-core": "24" }, [field]: { "puppeteer-core": "24" },
+  }, { "tests/a.test.ts": "import('puppeteer-core');" }, false]),
+  ...["test/a.ts", "__tests__/a.ts", "e2e/a.ts", "qa/a.ts", "fixtures/a.ts", "src/a.test.ts", "src/a.spec.ts", "src/qa-a.ts"].map((file) => [
+    `QA path ${file}`, { devDependencies: { "puppeteer-core": "24" } }, { [file]: "require('puppeteer-core');" }, true,
+  ]),
+  ["ordinary script", { devDependencies: { "puppeteer-core": "24" } }, { "scripts/capture.ts": "import('puppeteer-core');" }, false],
+]) test(`npm dependency classification: ${label}`, () => {
+  const root = app({ "package.json": JSON.stringify(declarations), ...sources });
+  try {
+    const result = checkApp(root, shipped, { trust: { enrolled: true, trust: null } });
+    assert.ok(result.findings.length);
+    assert.equal(result.findings.every((finding) => finding.qaOnly === true), qaOnly);
+    assert.equal(result.violations.length, qaOnly ? 0 : result.findings.length);
+    assert.equal(result.rows.find((row) => row.capability === "browser-automation").status, qaOnly ? "qa-only" : "blocked");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("QA classification preserves desktop-qa dependencies and source-pattern violations", () => {
+  const manifest = { capabilities: [
+    shipped.capabilities.find((capability) => capability.capability === "browser-automation"),
+    { package: "@rightkit/qa", capability: "desktop-qa", fingerprints: [
+      { id: "qa.npm.puppeteer-core", type: "dependency", ecosystem: "npm", name: "puppeteer-core" },
+    ] },
+  ] };
+  const root = app({
+    "package.json": JSON.stringify({ devDependencies: { "puppeteer-core": "24" } }),
+    "tests/a.ts": `import puppeteer from 'puppeteer-core';\n${SAMPLES["browser.source.chrome-discovery"]}`,
+  });
+  try {
+    const result = checkApp(root, manifest, { trust: { enrolled: true, trust: null } });
+    assert.equal(result.qaOnly.length, 1);
+    assert.deepEqual(result.violations.map((finding) => finding.fingerprint).sort(), ["browser.source.chrome-discovery", "qa.npm.puppeteer-core"]);
+    assert.ok(result.violations.every((finding) => finding.qaOnly === undefined));
+    assert.equal(result.rows.find((row) => row.capability === "browser-automation").status, "blocked");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

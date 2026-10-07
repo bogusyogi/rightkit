@@ -133,7 +133,7 @@ test("protected evidence scans exact committed blobs & binds source tree", () =>
     assert.ok(checked.evidence.tree);
     assert.equal(checked.result.metadata.tree, checked.evidence.tree);
     assert.deepEqual(checked.result.findings.map((finding) => finding.file), ["source.rs"]);
-    assert.equal(checked.evidence.scannerVersion, "2.2.0");
+    assert.equal(checked.evidence.scannerVersion, "2.3.0");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

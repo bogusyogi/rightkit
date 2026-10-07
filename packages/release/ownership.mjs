@@ -15,7 +15,7 @@ export const EXCEPTIONS_FILE = path.join(".rightkit", "ownership-exceptions.json
 const CODE_EXT = new Set([".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".swift", ".m", ".mm", ".c", ".cc", ".cpp", ".h", ".py", ".go", ".kt", ".java", ".cs"]);
 // Listed installed/build inputs retain explicit coverage diagnostics.
 const OPAQUE_DIRS = new Set(["target", ".build", "DerivedData", "Pods"]);
-export const SCANNER_VERSION = "2.2.0";
+export const SCANNER_VERSION = "2.3.0";
 export const catalogDigest = (manifest) => sha256(manifest);
 const byteDigest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const inputDigest = (file) => file.digest ?? byteDigest(file.bytes);
@@ -249,7 +249,8 @@ function dependenciesFromInventory(appRoot, inventory) {
         const alias = spec.match(/^(?:npm:)(@[^/]+\/[^@]+|[^@]+)(?:@|$)/)?.[1];
         const localPath = spec.match(/^(?:file:|link:)(.+)$/)?.[1];
         const isGit = /^(git\+|https?:.*\.git)/i.test(spec);
-        addDependency(deps, "npm", alias ?? name, rel, { alias: alias ? name : undefined, local: !!localPath, source: localPath ? spec.split(":")[0] : isGit ? "git" : spec.startsWith("workspace:") ? "workspace" : undefined });
+        const devOnly = field === "devDependencies" && !["dependencies", "optionalDependencies", "peerDependencies"].some((section) => Object.hasOwn(pkg[section] ?? {}, name));
+        addDependency(deps, "npm", alias ?? name, rel, { alias: alias ? name : undefined, local: !!localPath, source: localPath ? spec.split(":")[0] : isGit ? "git" : spec.startsWith("workspace:") ? "workspace" : undefined, ...(devOnly ? { devOnly: true } : {}) });
         if (localPath) {
           resolveLocalPath(appRoot, rel, localPath, coverage, rel, inventory, "local-npm-dependency", name);
         } else if (isGit) coverage.push({ path: rel, status: "unscanned", reason: `git-npm-dependency-source:${name}` });
@@ -359,13 +360,29 @@ function trustedProvenance(appRoot, inventory, trust, repositoryIdentity, covera
   return { excluded, classifications };
 }
 
+function npmImportUsage(inventory) {
+  const usage = new Map(), qaSegments = new Set(["test", "tests", "__tests__", "e2e", "qa", "fixtures"]);
+  for (const { rel, bytes } of inventory.files) {
+    if (!CODE_EXT.has(path.posix.extname(rel).toLowerCase()) || !bytes) continue;
+    const qaPath = rel.split("/").some((segment) => qaSegments.has(segment)) || /(?:\.(?:test|spec)\.|^qa-.*\.)/.test(path.posix.basename(rel));
+    for (const match of bytes.toString("utf8").matchAll(/\bimport\b\s*(?:[\w$*{},\s]+?\bfrom\s*)?["']([^"']+)["']|\b(?:import|require)\s*\(\s*["']([^"']+)["']/g)) {
+      const specifier = match[1] ?? match[2];
+      const name = specifier.split("/").slice(0, specifier.startsWith("@") ? 2 : 1).join("/");
+      usage.set(name, (usage.get(name) ?? true) && qaPath);
+    }
+  }
+  return usage;
+}
+
 function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), trust, repositoryIdentity, repositoryRoot = appRoot, pathPrefix = "" } = {}) {
   const findings = [], coverage = [...inventory.coverage], deps = dependenciesFromInventory(appRoot, inventory), contentDigests = [...(deps.contentDigests ?? [])];
   coverage.push(...(deps.coverage ?? []));
   const provenance = trustedProvenance(appRoot, inventory, trust, repositoryIdentity, coverage, repositoryRoot, pathPrefix);
+  const npmUsage = npmImportUsage(inventory);
   for (const c of manifest.capabilities) for (const f of c.fingerprints.filter((x) => x.type === "dependency")) for (const d of deps) {
     if (d.ecosystem === f.ecosystem && (d.name === f.name || d.alias === f.name)) {
-      findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, file: d.file, line: 0, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, local: d.local, provenance: d.source });
+      const qaOnly = c.capability !== "desktop-qa" && d.ecosystem === "npm" && d.devOnly && npmUsage.get(d.alias ?? d.name) === true;
+      findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, file: d.file, line: 0, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, local: d.local, provenance: d.source, ...(qaOnly ? { qaOnly: true } : {}) });
     }
   }
   const matchers = sourceMatchers(manifest);
@@ -469,16 +486,18 @@ export function evaluate(findings, exceptions, options = {}) {
   }
   const pending = enrollmentPending(options.trust, options.trustEnrollment);
   if (pending) warnings.push("approval enrollment pending; detected findings remain open backlog requests until distinct Windows & macOS keys are enrolled");
-  for (const f of findings) if (!covered.some((x) => x.occurrenceHash === occurrenceHash(f))) violations.push({ ...f, occurrenceHash: occurrenceHash(f) });
-  return { violations, covered, problems, warnings, enrollmentPending: pending };
+  const qaOnly = findings.filter((f) => f.qaOnly === true && f.capability !== "desktop-qa");
+  for (const f of findings) if (!qaOnly.includes(f) && !covered.some((x) => x.occurrenceHash === occurrenceHash(f))) violations.push({ ...f, occurrenceHash: occurrenceHash(f) });
+  return { violations, covered, qaOnly, problems, warnings, enrollmentPending: pending };
 }
 
 export function capabilityTable(manifest, deps, result) {
   return [...new Map(manifest.capabilities.map((c) => [c.capability, c.package])).entries()].map(([capability, owner]) => {
     const declared = deps.some((d) => d.name === owner || d.name === owner.replace(/^rightkit-/, "@rightkit/"));
     const own = result.violations.filter((x) => x.capability === capability), covered = result.covered.filter((x) => x.capability === capability);
-    const status = own.length ? "blocked" : covered.length ? "excepted" : declared ? "declared-dependency" : result.coverage?.length ? "unscanned" : "not-detected";
-    return { capability, owner, uses: declared, status, count: own.length + covered.length };
+    const qaOnly = (result.qaOnly ?? []).filter((x) => x.capability === capability && !covered.some((item) => item.occurrenceHash === x.occurrenceHash));
+    const status = own.length ? "blocked" : covered.length ? "excepted" : qaOnly.length ? "qa-only" : declared ? "declared-dependency" : result.coverage?.length ? "unscanned" : "not-detected";
+    return { capability, owner, uses: declared, status, count: own.length + covered.length + qaOnly.length };
   });
 }
 export function formatTable(rows) { return ["capability  owner  status", ...rows.map((x) => `${x.capability}  ${x.owner}  ${x.status}`)].join("\n"); }
