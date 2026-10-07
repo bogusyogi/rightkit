@@ -62,3 +62,15 @@ test("consumer copies are byte-exact and only rewritten when they differ", async
     assert.deepEqual(syncConsumerCopies(root), []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("checked-in consumer copies match the canonical catalog and versions (run: node rightkit-sync.mjs)", async () => {
+  const packages = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
+  const pairs = [
+    ["release/rightkit-ownership.json", "build-control-clients/src/ownership-catalog.json"],
+    ["release/rightkit-versions.json", "build-control-clients/src/rightkit-versions.json"],
+    ["release/rightkit-ownership.json", "build-control-policy/src/ownership-session-catalog.json"],
+    ["release/rightkit-ownership.json", "build-control-policy/src/ownership-fingerprints.json"],
+    ["release/rightkit-versions.json", "build-control-policy/src/ownership-session-versions.json"],
+  ];
+  for (const [source, copy] of pairs) assert.equal(await readFile(path.join(packages, copy), "utf8"), await readFile(path.join(packages, source), "utf8"), `${copy} is stale`);
+});
