@@ -1,3 +1,6 @@
 
 # Test run output (browser profiles, captures)
 .e2e-out/
+
+# Machine-local test inputs (artifact paths only, never secrets)
+**/tests/inputs.local.json

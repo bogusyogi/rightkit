@@ -10,6 +10,13 @@ use thiserror::Error;
 use tokenizers::{EncodeInput, Tokenizer};
 
 pub const EMBEDDINGGEMMA_MODEL_ID: &str = "embeddinggemma-300m-q4";
+/// EmbeddingGemma 2 text-only Q4 export (b64, accuracy level 4). Selected when
+/// the model directory's top-level `config.json` `model_type` is
+/// `embedding_gemma2`.
+pub const EMBEDDINGGEMMA2_MODEL_ID: &str = "embeddinggemma2-q4";
+/// Literal special tokens that encode to EmbeddingGemma 2's image, video and
+/// audio sentinel ids; the text-only graph is exact only without them.
+const GEMMA2_MODALITY_SENTINELS: [&str; 3] = ["<|image|>", "<|video|>", "<|audio|>"];
 pub const EMBEDDINGGEMMA_NATIVE_DIM: usize = 768;
 pub const DEFAULT_TRUNCATE_DIM: usize = 256;
 pub const MAX_SEQUENCE_TOKENS: usize = 2048;
@@ -73,11 +80,13 @@ pub struct Embedder {
     truncate_dim: usize,
     max_tokens: usize,
     model_id: String,
+    gemma2: bool,
 }
 
 impl Embedder {
     pub fn load(config: EmbedderConfig) -> Result<Self, EmbedError> {
         validate_config(&config)?;
+        let gemma2 = bundle_is_gemma2(&config.model_dir)?;
         let tokenizer = Tokenizer::from_file(config.model_dir.join("tokenizer.json"))
             .map_err(|e| EmbedError::Tokenizer(e.to_string()))?;
         let selection = configure_runtime([RuntimeCandidate::new(
@@ -102,7 +111,13 @@ impl Embedder {
             native_dim: EMBEDDINGGEMMA_NATIVE_DIM,
             truncate_dim: config.truncate_dim,
             max_tokens: config.max_tokens,
-            model_id: EMBEDDINGGEMMA_MODEL_ID.to_owned(),
+            model_id: if gemma2 {
+                EMBEDDINGGEMMA2_MODEL_ID
+            } else {
+                EMBEDDINGGEMMA_MODEL_ID
+            }
+            .to_owned(),
+            gemma2,
         })
     }
 
@@ -119,11 +134,14 @@ impl Embedder {
     }
 
     pub fn embed(&self, text: &str) -> Result<Vec<f32>, EmbedError> {
-        self.embed_prompt(&format!("title: none | text: {text}"))
+        self.embed_prompt(&format!("title: none | text: {}", self.model_text(text)))
     }
 
     pub fn embed_query(&self, text: &str) -> Result<Vec<f32>, EmbedError> {
-        self.embed_prompt(&format!("task: search result | query: {text}"))
+        self.embed_prompt(&format!(
+            "task: search result | query: {}",
+            self.model_text(text)
+        ))
     }
 
     pub fn embed_batch<'a, I>(&self, texts: I) -> Result<Vec<Vec<f32>>, EmbedError>
@@ -141,6 +159,19 @@ impl Embedder {
             .into_iter()
             .map(|text| self.embed_query(text))
             .collect()
+    }
+
+    /// EmbeddingGemma 2's text-only graph must never see modality sentinels;
+    /// their literal spellings are defanged before tokenization.
+    fn model_text<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
+        if !self.gemma2 || !GEMMA2_MODALITY_SENTINELS.iter().any(|s| text.contains(s)) {
+            return std::borrow::Cow::Borrowed(text);
+        }
+        let mut owned = text.to_owned();
+        for sentinel in GEMMA2_MODALITY_SENTINELS {
+            owned = owned.replace(sentinel, &sentinel.replace('|', "\u{2502}"));
+        }
+        std::borrow::Cow::Owned(owned)
     }
 
     fn embed_prompt(&self, prompt: &str) -> Result<Vec<f32>, EmbedError> {
@@ -184,6 +215,19 @@ impl Embedder {
         let native = sentence_embedding(shape.as_ref(), values, &mask, self.native_dim)?;
         Ok(truncate_and_normalize(&native, self.truncate_dim))
     }
+}
+
+/// Reads only the top-level `model_type`; nested sub-configs (audio, text,
+/// vision) carry their own types and are ignored. A missing config.json is the
+/// original EmbeddingGemma bundle.
+fn bundle_is_gemma2(model_dir: &std::path::Path) -> Result<bool, EmbedError> {
+    let path = model_dir.join("config.json");
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Ok(false);
+    };
+    let config: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|e| EmbedError::InvalidConfig(format!("{}: {e}", path.display())))?;
+    Ok(config["model_type"] == "embedding_gemma2")
 }
 
 fn validate_config(config: &EmbedderConfig) -> Result<(), EmbedError> {

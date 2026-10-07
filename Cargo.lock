@@ -4773,11 +4773,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ort",
  "rightkit-ort",
  "rusqlite",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tokenizers",
