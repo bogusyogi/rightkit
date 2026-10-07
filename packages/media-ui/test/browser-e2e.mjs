@@ -50,6 +50,9 @@ buildSync({
   jsx: "automatic",
   outfile: path.join(outDir, "harness.js"),
   loader: { ".css": "empty" },
+  // Development React, as every app's dev server runs it: StrictMode then
+  // really mounts → cleans up → remounts effects, which production skips.
+  define: { "process.env.NODE_ENV": '"development"' },
   logLevel: "silent",
 });
 
@@ -182,6 +185,12 @@ const check = async (name, expr, timeout) => {
 
 try {
   await until("!!window.__harness && !!document.querySelector('video')", 15000, "harness mount");
+
+  // Before any interaction: a mounted player loads its source by itself, even
+  // after StrictMode's mount → cleanup → remount stripped the element's src.
+  await check("player loads its source untouched after StrictMode remount", `
+    (() => { const a = document.querySelector('[data-testid=plain-player] audio');
+      return !!a && !!a.getAttribute('src') && a.readyState >= 1 && a.duration > 4; })()`, 8000);
 
   // Video: play → currentTime advances → seek → ended.
   await check("video plays", `

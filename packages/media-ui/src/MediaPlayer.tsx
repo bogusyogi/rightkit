@@ -221,6 +221,13 @@ export function MediaPlayer(props: MediaPlayerProps) {
   // cleanup above only covers the final one).
   useEffect(() => {
     const el = element.current;
+    // A cleanup that ran without a re-render (StrictMode's mount → cleanup →
+    // mount, or a remounted effect) stripped `src`; React will not re-apply an
+    // unchanged attribute, so restore it here or the element never loads.
+    if (el && source && !el.getAttribute("src")) {
+      el.setAttribute("src", resolveSrc(source));
+      el.load();
+    }
     return () => {
       if (!el) return;
       if (currentExclusive === el) currentExclusive = null;
@@ -228,6 +235,7 @@ export function MediaPlayer(props: MediaPlayerProps) {
       el.removeAttribute("src");
       el.load();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, retry]);
 
   useEffect(() => {

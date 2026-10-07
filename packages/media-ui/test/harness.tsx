@@ -175,3 +175,14 @@ exportImageEdit(
   });
 
 window.__harness = { ready: true };
+
+// A second root holding only a provider-less player under StrictMode, the way an
+// app mounts one: it must load by itself after the mount → cleanup → remount.
+const plainHost = document.createElement("div");
+plainHost.dataset.testid = "plain-player";
+document.body.appendChild(plainHost);
+createRoot(plainHost).render(
+  <StrictMode>
+    <MediaPlayer src={fx("tone.wav")} kind="audio" title="plain" />
+  </StrictMode>,
+);
