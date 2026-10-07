@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { __testOnly, canonicalJson, canonicalRepositoryIdentity, createDraft, keyIdForPublicKey, provenanceContentDigest, sha256, validateOwnershipFloor, verifyException, verifyProtectedProvenance, verifyRepositoryRegistration } from "./ownership-approval.mjs";
+import { __testOnly, canonicalJson, canonicalRepositoryIdentity, createDraft, evaluateWindowsAcl, keyIdForPublicKey, provenanceContentDigest, sha256, validateOwnershipFloor, verifyException, verifyProtectedProvenance, verifyRepositoryRegistration } from "./ownership-approval.mjs";
 
 const finding = { fingerprint: "oauth.device", file: "src/auth.rs", line: 12, text: "device grant endpoint" };
 const context = { repositoryIdentity: "https://github.com/orthic-labs/example", catalogDigest: "a".repeat(64), findings: [finding], today: "2026-10-07", scannerVersion: "2", catalogVersion: "4" };
@@ -14,6 +14,9 @@ const keys = Object.fromEntries(["windows", "macos"].map((host) => {
   return [host, { keyId: keyIdForPublicKey(host, publicKeyPem), privateKey: kp.privateKey, publicKeyPem }];
 }));
 const trust = { schema: 1, minimumScannerVersion: "1", minimumCatalogVersion: "3", revokedKeyIds: [], verifiedTrackingEvidence: [sha256({ repositoryIdentity: context.repositoryIdentity, requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true } })], repositories: [{ repositoryIdentity: context.repositoryIdentity, roots: ["."], visibility: "public" }], provenance: [], hosts: Object.fromEntries(Object.entries(keys).map(([host, k]) => [host, { keyId: k.keyId, publicKeyPem: k.publicKeyPem }])) };
+const winAce = (identitySID, mask, propagationFlags = 0) => ({ identitySID, mask, propagationFlags, type: "Allow" });
+const nativeRootAcl = { ownerSID: "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464", ownerName: "NT SERVICE\\TrustedInstaller", attributes: "Directory", directory: true, nonempty: true, elevated: false, access: [winAce("S-1-5-11", 4), winAce("S-1-5-11", -536805376, 2), winAce("S-1-5-18", 2032127), winAce("S-1-5-32-544", 2032127), winAce("S-1-5-32-545", 1179817), winAce("S-1-15-3-65536-1888954469-739942743-1668119174-2468466756-4239452838-1296943325-355587736-700089176", 1048737)] };
+const nativeProgramDataAcl = { ownerSID: "S-1-5-18", ownerName: "NT AUTHORITY\\SYSTEM", attributes: "Directory", directory: true, nonempty: true, elevated: false, access: [winAce("S-1-3-0", 268435456, 2), winAce("S-1-5-18", 2032127), winAce("S-1-5-32-544", 2032127), winAce("S-1-5-32-545", 1179817), winAce("S-1-5-32-545", 278)] };
 function signed(overrides = {}, signingHost = "windows") {
   const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, catalogDigest: context.catalogDigest, fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "bounded migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true }, ...overrides });
   const data = Buffer.from(canonicalJson(draft.payload));
@@ -65,6 +68,13 @@ test("protected scanner and catalog floors reject downgrade and accept current v
 test("byte hashing uses raw SHA-256 bytes and public-key IDs use SPKI DER", () => {
   assert.equal(sha256(Buffer.from("abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   assert.equal(keyIdForPublicKey("windows", keys.windows.publicKeyPem), keys.windows.keyId);
+});
+test("release Windows ACL evaluator accepts native ancestors & rejects untrusted descendant rights", () => {
+  assert.equal(evaluateWindowsAcl(nativeRootAcl, { target: "C:\\" }).ok, true);
+  assert.equal(evaluateWindowsAcl(nativeProgramDataAcl, { target: "C:\\ProgramData" }).ok, true);
+  const descendant = { ...nativeProgramDataAcl, access: [winAce("S-1-5-32-545", 64)] };
+  assert.equal(evaluateWindowsAcl(descendant, { target: "C:\\ProgramData\\Orthic Labs\\RightKit" }).ok, false);
+  assert.equal(evaluateWindowsAcl({ ...nativeProgramDataAcl, access: [winAce("S-1-5-32-545", "278")] }, { target: "C:\\ProgramData" }).ok, false);
 });
 test("protected repository registrations canonicalize identity and bound scan roots", () => {
   assert.equal(canonicalRepositoryIdentity("git@github.com:Orthic-Labs/Example.git"), context.repositoryIdentity);

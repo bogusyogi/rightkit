@@ -11,6 +11,50 @@ export const DEFAULT_TRUST_PATH = Object.freeze({
   darwin: "/Library/Application Support/Orthic Labs/RightKit/ownership/trust.json",
 });
 const HEX = /^[a-f0-9]{64}$/;
+const WINDOWS_TRUSTED_SIDS = new Set(["S-1-5-18", "S-1-5-32-544"]);
+const WINDOWS_READ_MASK = 0x001200a9;
+const WINDOWS_ANCESTOR_CREATE_MASK = 0x00000116;
+const WINDOWS_GENERIC_WRITE = 0x40000000;
+const WINDOWS_GENERIC_ALL = 0x10000000;
+
+/** Evaluate one native Windows security descriptor using numeric SIDs & masks. */
+export function evaluateWindowsAcl(info, { target, requireNonElevated = true } = {}) {
+  const problems = [];
+  const fail = (message) => problems.push(message);
+  const ownerSID = info?.ownerSID;
+  const ownerName = info?.ownerName;
+  const trustedInstallerOwner = ownerSID === "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+  const trustedOwner = WINDOWS_TRUSTED_SIDS.has(ownerSID) || trustedInstallerOwner;
+  if (!/^S-1-\d+(?:-\d+)+$/.test(ownerSID ?? "") || !trustedOwner) fail("owner is not SYSTEM, Administrators, or the native TrustedInstaller service owner");
+  if (/ReparsePoint/i.test(info?.attributes ?? "")) fail("path object is a reparse point");
+  if (requireNonElevated && info?.elevated !== false) fail("current process is elevated or elevation state is unknown");
+
+  const normalizedTarget = String(target ?? "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+  const isDriveRoot = /^[a-z]:$/.test(normalizedTarget);
+  const isProgramData = /^[a-z]:\\programdata$/.test(normalizedTarget);
+  const permitCreation = (isDriveRoot || isProgramData) && info?.directory === true && info?.nonempty === true;
+  if ((isDriveRoot || isProgramData) && !permitCreation) fail("system ancestor must be an existing nonempty directory before create rights are accepted");
+  if (!Array.isArray(info?.access) || !info.access.length) fail("ACL access entries are missing, empty, or malformed");
+  for (const ace of Array.isArray(info?.access) ? info.access : []) {
+    const sid = ace?.identitySID;
+    const mask = ace?.mask;
+    const propagationFlags = ace?.propagationFlags;
+    if (!/^S-1-\d+(?:-\d+)+$/.test(sid ?? "") || !Number.isInteger(mask) || mask < -2147483648 || mask > 4294967295 || !Number.isInteger(propagationFlags) || propagationFlags < 0 || propagationFlags > 3 || !["Allow", "Deny"].includes(ace?.type)) {
+      fail("ACL contains a malformed ACE");
+      continue;
+    }
+    if ((propagationFlags & 2) !== 0 || ace.type !== "Allow") continue;
+    if (WINDOWS_TRUSTED_SIDS.has(sid) || (trustedInstallerOwner && sid === ownerSID)) continue;
+    const unsignedMask = mask >>> 0;
+    if ((unsignedMask & (WINDOWS_GENERIC_WRITE | WINDOWS_GENERIC_ALL)) !== 0) {
+      fail(`untrusted principal ${sid} has generic write or all access`);
+      continue;
+    }
+    const allowedMask = permitCreation ? (WINDOWS_READ_MASK | WINDOWS_ANCESTOR_CREATE_MASK) : WINDOWS_READ_MASK;
+    if ((unsignedMask & ~allowedMask) !== 0) fail(`untrusted principal ${sid} has write, delete, control, or unknown access mask 0x${unsignedMask.toString(16)}`);
+  }
+  return { ok: problems.length === 0, problems };
+}
 
 export function canonicalRepositoryIdentity(value) {
   if (typeof value !== "string" || !value.trim()) throw new Error("repository identity is required");
@@ -160,31 +204,23 @@ export function validateOwnershipFloor(trust, { scannerVersion, catalogVersion, 
 function protectedLocation(file, platform) {
   const problems = [];
   if (platform === "win32") {
-    const base = "C:\\ProgramData";
     const dirs = [];
     let current = path.dirname(file);
-    while (current.toLowerCase().startsWith(base.toLowerCase())) {
+    while (true) {
       dirs.push(current);
-      if (current.toLowerCase() === base.toLowerCase()) break;
+      if (current.toLowerCase() === "c:\\") break;
       current = path.dirname(current);
     }
     dirs.push(file);
     for (const target of dirs) {
       try { if (lstatSync(target).isSymbolicLink()) problems.push(`trust path contains a reparse/symlink: ${target}`); } catch { problems.push(`cannot inspect trust path: ${target}`); continue; }
-      const script = "$ErrorActionPreference='Stop'; $a=Get-Acl -LiteralPath $env:RK_TRUST_CHECK_TARGET; $item=Get-Item -Force -LiteralPath $env:RK_TRUST_CHECK_TARGET; $id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id); $out=[ordered]@{owner=$a.Owner;attributes=$item.Attributes.ToString();elevated=$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);access=@($a.Access | ForEach-Object { [ordered]@{identity=$_.IdentityReference.Value;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()} })}; $out | ConvertTo-Json -Compress -Depth 5";
+      const script = "$ErrorActionPreference='Stop'; $a=Get-Acl -LiteralPath $env:RK_TRUST_CHECK_TARGET; $item=Get-Item -Force -LiteralPath $env:RK_TRUST_CHECK_TARGET; $id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id); $ownerSid=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value; $ownerName=$a.Owner; $out=[ordered]@{ownerSID=$ownerSid;ownerName=$ownerName;attributes=$item.Attributes.ToString();directory=[bool]$item.PSIsContainer;nonempty=(!$item.PSIsContainer -or [System.IO.Directory]::EnumerateFileSystemEntries($item.FullName).GetEnumerator().MoveNext());elevated=$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);access=@($a.Access | ForEach-Object { [ordered]@{identitySID=$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;type=$_.AccessControlType.ToString();mask=[int64]$_.FileSystemRights.value__;propagationFlags=[int]$_.PropagationFlags} })}; $out | ConvertTo-Json -Compress -Depth 5";
       const r = spawnSync("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: { ...process.env, RK_TRUST_CHECK_TARGET: target } });
       if (r.status !== 0) { problems.push(`cannot inspect trust ACL: ${target}`); continue; }
       try {
         const acl = JSON.parse(r.stdout.trim());
-        if (/ReparsePoint/i.test(acl.attributes ?? "")) problems.push(`trust path contains a reparse point: ${target}`);
-        if (acl.elevated) problems.push("current process is elevated; same-token agent protection cannot be established");
-        if (!/^(NT AUTHORITY\\SYSTEM|BUILTIN\\Administrators)$/.test(acl.owner)) problems.push(`trust path owner is not SYSTEM or Administrators: ${target}`);
-        for (const ace of acl.access ?? []) {
-          if (ace.type !== "Allow") continue;
-          const allowed = /^(NT AUTHORITY\\SYSTEM|BUILTIN\\Administrators)$/.test(ace.identity);
-          const writable = /FullControl|Modify|Write|Delete|ChangePermissions|TakeOwnership|CreateFiles|CreateDirectories|DeleteSubdirectoriesAndFiles/i.test(ace.rights);
-          if (!allowed && writable) problems.push(`trust path grants write authority to ${ace.identity}: ${target}`);
-        }
+        const result = evaluateWindowsAcl(acl, { target });
+        problems.push(...result.problems.map((problem) => `${problem}: ${target}`));
       } catch { problems.push(`malformed ACL result: ${target}`); }
     }
     return { ok: problems.length === 0, problems };
@@ -200,7 +236,7 @@ function protectedLocation(file, platform) {
     if (acl.status !== 0) problems.push(`cannot inspect trust ACL: ${current}`);
     else for (const line of acl.stdout.split(/\r?\n/).slice(1)) {
       if (!/allow/i.test(line) || !/\b(?:write|delete|append|writeattr|writeextattr|chown|delete_child|add_file|add_subdirectory)\b/i.test(line)) continue;
-      if (!/\b(?:root|wheel|admin|system)\b/i.test(line)) problems.push(`trust ACL grants write authority to a non-admin principal: ${current}`);
+      if (!/^\s*\d+:\s+user:root\s+allow\b/i.test(line)) problems.push(`trust ACL grants write authority to a non-root principal: ${current}`);
     }
     const parent = path.dirname(current);
     if (parent === current || current === "/") break;
