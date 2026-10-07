@@ -275,7 +275,12 @@ fn detect_gpus() -> Vec<Gpu> {
 fn detect_gpus() -> Vec<Gpu> {
     const CLASS: &str = r"HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
     let query = |value: &str| {
-        std::process::Command::new("reg").args(["query", CLASS, "/s", "/v", value]).output().ok()
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("reg")
+            .args(["query", CLASS, "/s", "/v", value])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .output()
+            .ok()
     };
     let names: Vec<String> = query("DriverDesc")
         .map(|o| {
@@ -332,8 +337,14 @@ fn detect_gpus() -> Vec<Gpu> {
 /// is authoritative for NVIDIA cards and is added when no entry covers them.
 #[cfg(not(target_os = "macos"))]
 fn apply_nvidia_smi(gpus: &mut Vec<Gpu>) {
-    let Ok(out) = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])
+    let mut nvidia_smi = std::process::Command::new("nvidia-smi");
+    nvidia_smi.args(["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        nvidia_smi.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
+    }
+    let Ok(out) = nvidia_smi
         .output()
     else {
         return;

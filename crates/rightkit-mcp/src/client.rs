@@ -74,6 +74,11 @@ impl StdioConn {
         let ServerSpec::Stdio { command, args, env, cwd } = spec else { unreachable!() };
         let mut cmd = Command::new(command);
         cmd.args(args).envs(env).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
+        }
         if let Some(c) = cwd {
             cmd.current_dir(c);
         }

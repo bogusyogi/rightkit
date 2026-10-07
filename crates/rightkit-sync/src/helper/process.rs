@@ -96,6 +96,11 @@ impl HelperProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
+        }
         for (k, v) in &self.cfg.envs {
             cmd.env(k, v);
         }

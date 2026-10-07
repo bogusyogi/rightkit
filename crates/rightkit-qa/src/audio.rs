@@ -2,6 +2,7 @@
 //! and Chrome gets `--mute-audio`; on macOS the system output can additionally
 //! be muted for the run and restored afterwards (opt-in, restored on drop).
 //! Playback is asserted from DOM/engine state, never from sound.
+#[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 
 pub struct SystemMute {
@@ -40,6 +41,8 @@ impl SystemMute {
 
 impl Drop for SystemMute {
     fn drop(&mut self) {
+        // Only the macOS path ever records a mute to restore.
+        #[cfg(target_os = "macos")]
         if self.restore == Some(false) {
             let _ = Command::new("osascript")
                 .args(["-e", "set volume without output muted"])

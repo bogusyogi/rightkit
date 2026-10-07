@@ -474,11 +474,14 @@ fn file_sha(path: &std::path::Path) -> Result<String> {
 
 fn git_revision(root: &std::path::Path) -> Value {
     let git = |args: &[&str]| {
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(args)
-            .output()
+        let mut git = std::process::Command::new("git");
+        git.arg("-C").arg(root).args(args);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            git.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
+        }
+        git.output()
             .ok()
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())

@@ -198,6 +198,11 @@ pub fn run_owned(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
+    }
     if let Some(cwd) = &opts.cwd {
         cmd.current_dir(cwd);
     }

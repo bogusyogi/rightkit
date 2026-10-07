@@ -182,6 +182,10 @@ impl SystemTts {
             let script = "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; if ($env:RK_TTS_VOICE) { $v=$s.GetInstalledVoices() | ? { $_.VoiceInfo.Name -eq $env:RK_TTS_VOICE } | select -First 1; if ($v) { $s.SelectVoice($v.VoiceInfo.Name) } }; if ($env:RK_TTS_RATE) { $s.Rate=[int]$env:RK_TTS_RATE }; $s.SetOutputToWaveFile($env:RK_TTS_OUT); $s.Speak($env:RK_TTS_TEXT); $s.Dispose()";
             let mut cmd = Command::new("powershell.exe");
             cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            }
             cmd.env("RK_TTS_OUT", out).env("RK_TTS_TEXT", text);
             if let Some(voice) = &options.voice { cmd.env("RK_TTS_VOICE", voice); }
             if let Some(rate) = options.rate { cmd.env("RK_TTS_RATE", rate.to_string()); }

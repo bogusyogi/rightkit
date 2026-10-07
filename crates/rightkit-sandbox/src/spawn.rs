@@ -89,6 +89,7 @@ impl Sandbox {
         policy.validate()?;
         validate_command(&command)?;
         let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
+        // windowless: `finish` spawns it through OwnedCommand (CREATE_NO_WINDOW on Windows).
         let mut cmd = Command::new(&command.program);
         cmd.args(&command.args);
         if let Some(cwd) = &command.cwd {
@@ -108,6 +109,7 @@ impl Sandbox {
     ) -> Result<SandboxedChild, SandboxError> {
         validate_command(&command)?;
         let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
+        // windowless: `finish` spawns it through OwnedCommand (CREATE_NO_WINDOW on Windows).
         let mut cmd = Command::new(&command.program);
         cmd.args(&command.args);
         if let Some(cwd) = &command.cwd {

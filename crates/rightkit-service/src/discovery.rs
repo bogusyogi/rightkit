@@ -481,9 +481,14 @@ fn read_windows_uninstall_entries() -> Vec<UninstallEntry> {
         r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall",
         r"HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
     ] {
-        if let Ok(output) = std::process::Command::new("reg")
-            .args(["query", key, "/s"])
-            .output()
+        let mut reg = std::process::Command::new("reg");
+        reg.args(["query", key, "/s"]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            reg.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
+        }
+        if let Ok(output) = reg.output()
         {
             all.push_str(&String::from_utf8_lossy(&output.stdout));
             all.push('\n');

@@ -21,13 +21,16 @@ pub struct OwnedCommand {
 
 impl OwnedCommand {
     pub fn new(program: impl AsRef<OsStr>) -> Self {
+        // windowless: from_command enables CREATE_NO_WINDOW for every OwnedCommand.
         Self::from_command(Command::new(program))
     }
 
+    /// On Windows the child gets CREATE_NO_WINDOW by default: RightKit hosts are GUI apps and
+    /// background services, so a console window would only ever flash on the user's desktop.
     pub fn from_command(command: Command) -> Self {
         Self {
             command,
-            windows_hidden: false,
+            windows_hidden: true,
         }
     }
 
@@ -69,6 +72,7 @@ impl OwnedCommand {
         self
     }
 
+    /// Kept for callers written before hiding became the default; it is now a no-op.
     pub fn windows_hide(&mut self) -> &mut Self {
         self.windows_hidden = true;
         self
@@ -501,6 +505,12 @@ fn process_is_running(pid: NonZeroU32) -> io::Result<bool> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn owned_commands_hide_their_console_window_by_default() {
+        assert!(super::OwnedCommand::new("x").windows_hidden);
+        assert!(super::OwnedCommand::from_command(std::process::Command::new("x")).windows_hidden);
+    }
+
     #[test]
     fn a_failure_after_spawn_cleans_up_the_partially_wrapped_child() {
         use std::{
