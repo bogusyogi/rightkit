@@ -1,5 +1,7 @@
 # `@rightkit/qa`
 
+> **Which QA tool?** To drive a Right Suite desktop app under test, use the Rust **`rightkit-qa`** crate with **`rightkit-control`**; that is the one supported engine. For a test browser only, use the zero-dependency **`@rightkit/qa-chrome`**. For an agent driving an installed app, use **`right-ctl`**. This package's WebdriverIO native lane is deprecated and will be removed once its last consumer (Cockpit hub) has moved; do not adopt it in new apps.
+
 Shared native QA primitives for Right Suite desktop apps. The package owns run locking, bearer-authenticated loopback control, deterministic evidence bundles, exact owned-process cleanup, and the guard that keeps development WebDriver access out of production builds.
 
 This package is intentionally private until the Windows and macOS phase gate passes. App repositories must never consume it through a Git, path, `file:`, `link:`, or `workspace:` dependency; adoption happens only after a registry version is published.
