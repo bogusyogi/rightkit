@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/git",
+  "version": "0.2.26",
+  "commit": "96189e707ce03a2f1dc0bfacb2fc31aa2002fca5",
+  "artifactSha256": "c141c4f88ca412c589c946393356ea922504ad47a2024d9d0362a886b0da9737",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "96189e707ce03a2f1dc0bfacb2fc31aa2002fca5",
+      "command": "pnpm run test",
+      "features": [
+        "default"
+      ],
+      "operator": "Codex for adrdsouza",
+      "timestamp": "2026-10-07T22:09:40.825213+00:00",
+      "passed": 99,
+      "failed": 0
+    }
+  ]
+}
