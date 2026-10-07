@@ -157,8 +157,10 @@ Commands:
                                                       Upload one sealed release; never builds
   release                                             Compatibility alias for build
   publish                                             Compatibility alias for upload
-  publish npm --package @rightkit/<name> [--dry-run]  Gate preflight for npm publish (no publish)
-  publish npm --package @rightkit/<name> [--dry-run]  Gate preflight for npm publish (never publishes)
+  publish npm --package @rightkit/<name> [--dry-run]  Gate preflight for npm publish
+  publish npm --package @rightkit/<name> --publish --tarball <gated.tgz>
+                                                      Publish the gated tarball with the Keychain token
+                                                      (npm-rightkit-publish) and verify registry bytes
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
   publish swift [--repo <git-url>] [--dry-run] Test, tag, resolve a fresh exact-pin consumer, and publish RightKitSwift to its git repo
   model promote --authority heardright --config <file> [--dry-run]
