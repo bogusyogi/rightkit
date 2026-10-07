@@ -12,7 +12,13 @@
 //! * Chrome: `browser` feature, through `rightkit-browser`.
 //!
 //! Scenarios are declarative TOML ([`scenario`]) run by the CLI, or plain Rust
-//! integration tests that use the same library types directly.
+//! integration tests wrapped by [`harness::Harness::scenario`] (tier gating, requires-skip,
+//! per-scenario evidence, orphan check). Knobs reach managed (`rightkit cargo`) test runs
+//! through cargo features plus a [`settings::Settings`] file, never the caller's environment.
+//!
+//! Validators: [`media`] (WAV stats, PNG/frame non-uniformity) and [`loudness`]
+//! (BS.1770 integrated loudness, range, true peak), pure Rust except where a compressed
+//! container needs a caller-supplied ffmpeg. [`mock::MockServer`] stands in for paid providers.
 pub mod audio;
 #[cfg(feature = "browser")]
 pub mod browser;
@@ -22,13 +28,16 @@ pub mod control;
 pub mod engine;
 pub mod evidence;
 pub mod guard;
+pub mod harness;
 pub mod http;
 pub mod lock;
+pub mod loudness;
 pub mod media;
 pub mod mock;
 pub mod page;
 pub mod process;
 pub mod scenario;
+pub mod settings;
 pub mod suite;
 pub mod util;
 pub mod workspace;
