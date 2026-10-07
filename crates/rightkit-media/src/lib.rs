@@ -1224,25 +1224,22 @@ mod tests {
             commands: vec!["recipes/build-ffmpeg-macos.sh build ...".into()],
             promote: "record sha256".into(),
         });
-        artifact.attribution.license_spdx =
-            "LGPL-2.1-or-later AND ISC".into();
+        artifact.attribution.license_spdx = "LGPL-2.1-or-later AND ISC".into();
         artifact
             .attribution
             .notice_files
             .push("libass-COPYING.txt".into());
-        artifact.attribution.components = vec![
-            Component {
-                name: "libass".into(),
-                version: "0.17.3".into(),
-                license_spdx: "ISC".into(),
-                source_url:
-                    "https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz"
-                        .into(),
-                source_sha256: None,
-                enable_flag: Some("--enable-libass".into()),
-                notice_file: "libass-COPYING.txt".into(),
-            },
-        ];
+        artifact.attribution.components = vec![Component {
+            name: "libass".into(),
+            version: "0.17.3".into(),
+            license_spdx: "ISC".into(),
+            source_url:
+                "https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz"
+                    .into(),
+            source_sha256: None,
+            enable_flag: Some("--enable-libass".into()),
+            notice_file: "libass-COPYING.txt".into(),
+        }];
         artifact
             .required_configure_flags
             .push("--enable-libass".into());
@@ -1318,8 +1315,7 @@ mod tests {
         ));
 
         let mut not_ffmpeg_first = base.clone();
-        not_ffmpeg_first.attribution.license_spdx =
-            "ISC AND LGPL-2.1-or-later".into();
+        not_ffmpeg_first.attribution.license_spdx = "ISC AND LGPL-2.1-or-later".into();
         assert!(not_ffmpeg_first.validate().is_err());
 
         let mut flag_missing = base.clone();
@@ -1422,10 +1418,7 @@ mod tests {
                 .commands
                 .iter()
                 .any(|c| c.contains("build-ffmpeg-macos.sh build")));
-            for flag in [
-                "--enable-libass",
-                "--disable-autodetect",
-            ] {
+            for flag in ["--enable-libass", "--disable-autodetect"] {
                 assert!(export.required_configure_flags.iter().any(|f| f == flag));
             }
             assert!(export
