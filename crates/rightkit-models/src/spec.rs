@@ -72,11 +72,15 @@ impl RevisionSpec {
     /// String form of [`Self::checked_key`]; an unencodable revision yields an
     /// empty string, which every store operation rejects.
     pub fn key(&self) -> String {
-        self.checked_key().map(|k| k.as_str().to_string()).unwrap_or_default()
+        self.checked_key()
+            .map(|k| k.as_str().to_string())
+            .unwrap_or_default()
     }
 
     pub fn files_for<'a>(&'a self, platform: &'a Platform) -> impl Iterator<Item = &'a FileSpec> {
-        self.files.iter().filter(move |f| platform.allows(&f.platforms))
+        self.files
+            .iter()
+            .filter(move |f| platform.allows(&f.platforms))
     }
 
     /// Bytes that must be downloaded plus unpacked for `platform`.
@@ -98,14 +102,21 @@ impl ModelSpec {
     }
 
     pub fn by_key(&self, key: &str) -> Option<&RevisionSpec> {
-        self.revisions.iter().find(|r| !key.is_empty() && r.key() == key)
+        self.revisions
+            .iter()
+            .find(|r| !key.is_empty() && r.key() == key)
     }
 }
 
 pub(crate) fn safe_rel_path(path: &str) -> Option<std::path::PathBuf> {
     let mut out = std::path::PathBuf::new();
     for part in path.split('/') {
-        if part.is_empty() || part == "." || part == ".." || part.contains('\\') || part.contains(':') {
+        if part.is_empty()
+            || part == "."
+            || part == ".."
+            || part.contains('\\')
+            || part.contains(':')
+        {
             return None;
         }
         out.push(part);

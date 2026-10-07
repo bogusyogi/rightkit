@@ -15,7 +15,11 @@ pub fn free_bytes(path: &Path) -> Option<u64> {
 
 #[cfg(unix)]
 fn free_bytes_at(path: &Path) -> Option<u64> {
-    let out = std::process::Command::new("df").args(["-k"]).arg(path).output().ok()?;
+    let out = std::process::Command::new("df")
+        .args(["-k"])
+        .arg(path)
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     // `df -k` wraps long device names onto a second line; the numbers are the
     // last line's fields: ... Used Available Capacity ...
@@ -32,7 +36,12 @@ fn free_bytes_at(path: &Path) -> Option<u64> {
     use std::os::windows::ffi::OsStrExt;
     #[link(name = "kernel32")]
     extern "system" {
-        fn GetDiskFreeSpaceExW(dir: *const u16, free_avail: *mut u64, total: *mut u64, total_free: *mut u64) -> i32;
+        fn GetDiskFreeSpaceExW(
+            dir: *const u16,
+            free_avail: *mut u64,
+            total: *mut u64,
+            total_free: *mut u64,
+        ) -> i32;
     }
     let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
     let (mut avail, mut total, mut free) = (0u64, 0u64, 0u64);

@@ -15,7 +15,8 @@ fn ex(msg: impl std::fmt::Display) -> Error {
 }
 
 fn open_tar(archive: &Path) -> Result<tar::Archive<Box<dyn Read>>> {
-    let mut file = fs::File::open(archive).map_err(|e| ex(format!("open {}: {e}", archive.display())))?;
+    let mut file =
+        fs::File::open(archive).map_err(|e| ex(format!("open {}: {e}", archive.display())))?;
     let mut magic = [0u8; 2];
     let n = file.read(&mut magic).map_err(ex)?;
     let file = fs::File::open(archive).map_err(ex)?;
@@ -33,7 +34,10 @@ fn open_tar(archive: &Path) -> Result<tar::Archive<Box<dyn Read>>> {
 
 fn is_zip(archive: &Path) -> bool {
     let mut magic = [0u8; 4];
-    fs::File::open(archive).and_then(|mut f| f.read_exact(&mut magic)).is_ok() && &magic == b"PK\x03\x04"
+    fs::File::open(archive)
+        .and_then(|mut f| f.read_exact(&mut magic))
+        .is_ok()
+        && &magic == b"PK\x03\x04"
 }
 
 /// Extract the regular-file `member` of `archive` to exactly `dest` (parent
@@ -89,7 +93,9 @@ pub fn unpack_wrapped(archive: &Path, dest_dir: &Path) -> Result<()> {
         if is_ignorable_apple_metadata(&member) {
             continue;
         }
-        let Some(rel) = checked_member_path(&member, &mut wrapper).map_err(ex)? else { continue };
+        let Some(rel) = checked_member_path(&member, &mut wrapper).map_err(ex)? else {
+            continue;
+        };
         let kind = entry.header().entry_type();
         if kind.is_dir() {
             fs::create_dir_all(dest_dir.join(rel)).map_err(ex)?;
@@ -98,9 +104,14 @@ pub fn unpack_wrapped(archive: &Path, dest_dir: &Path) -> Result<()> {
             if let Some(p) = out.parent() {
                 fs::create_dir_all(p).map_err(ex)?;
             }
-            entry.unpack(&out).map_err(|e| ex(format!("extract {}: {e}", member.display())))?;
+            entry
+                .unpack(&out)
+                .map_err(|e| ex(format!("extract {}: {e}", member.display())))?;
         } else {
-            return Err(ex(format!("unsupported archive member type at {}", member.display())));
+            return Err(ex(format!(
+                "unsupported archive member type at {}",
+                member.display()
+            )));
         }
         saw = true;
     }
@@ -172,4 +183,3 @@ fn is_ignorable_apple_metadata(path: &Path) -> bool {
     }
     false
 }
-

@@ -40,7 +40,9 @@ pub fn install_tar_gz(
         // failed rename between the two would leave no model at all. Move the
         // existing install aside, commit the new one, and only then drop the
         // aside copy; restore it if the commit fails.
-        let aside = dest.exists().then(|| previous_aside_path(dest_root, installed_name));
+        let aside = dest
+            .exists()
+            .then(|| previous_aside_path(dest_root, installed_name));
         if let Some(aside) = aside.as_ref() {
             let _ = fs::remove_dir_all(aside);
             fs::rename(&dest, aside)

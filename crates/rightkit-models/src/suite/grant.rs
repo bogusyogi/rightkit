@@ -65,7 +65,10 @@ pub fn acquire_grant(
     agent: &ureq::Agent,
     request: ModelGrantRequest<'_>,
 ) -> Result<ModelGrant, String> {
-    let endpoint = format!("{}/v1/model-grants", request.worker_base.trim_end_matches('/'));
+    let endpoint = format!(
+        "{}/v1/model-grants",
+        request.worker_base.trim_end_matches('/')
+    );
     let body = serde_json::to_string(&GrantRequestBody {
         route: request.route,
         model: request.model,

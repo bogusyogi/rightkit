@@ -7,10 +7,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::suite::archive;
-use crate::suite::catalog::{ModelSpec, RemoteFile, SpecSource};
 use crate::download::{self, DownloadRequest};
 use crate::lock;
+use crate::suite::archive;
+use crate::suite::catalog::{ModelSpec, RemoteFile, SpecSource};
 use crate::suite::manifest::{self, FileState, VerifyMode};
 use crate::suite::migration;
 use crate::suite::paths;
@@ -434,7 +434,8 @@ fn prune_retired_store_ids(
     referenced: &BTreeSet<String>,
 ) -> Result<(), String> {
     let suite_root = models_root.parent().unwrap_or(models_root);
-    let Some(_lease_guard) = crate::suite::lease::try_acquire_for_gc(suite_root, "model-store")? else {
+    let Some(_lease_guard) = crate::suite::lease::try_acquire_for_gc(suite_root, "model-store")?
+    else {
         return Ok(());
     };
     for id in spec.retired_store_ids {

@@ -25,8 +25,8 @@ pub mod store;
 pub mod suite;
 
 pub use error::{Error, ErrorCode, Result};
-pub use ids::{encode_revision_key, ModelId, RevisionKey};
 pub use hardware::{Fit, FitKind, Gpu, Hardware, Measurement, Requirements};
+pub use ids::{encode_revision_key, ModelId, RevisionKey};
 pub use install::{CrashPoint, Event, InstallOptions, InstallOutcome};
 pub use platform::Platform;
 pub use spec::{Extract, FileSpec, ModelSpec, RevisionSpec};

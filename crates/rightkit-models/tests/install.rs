@@ -7,7 +7,10 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 fn sha(b: &[u8]) -> String {
-    Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()
+    Sha256::digest(b)
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect()
 }
 
 struct Server {
@@ -26,7 +29,12 @@ fn serve(routes: HashMap<String, Vec<u8>>, truncate_first: Vec<String>) -> Serve
     let truncated = Arc::new(Mutex::new(Vec::<String>::new()));
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            let (routes, log, truncated, trunc) = (routes.clone(), log2.clone(), truncated.clone(), truncate_first.clone());
+            let (routes, log, truncated, trunc) = (
+                routes.clone(),
+                log2.clone(),
+                truncated.clone(),
+                truncate_first.clone(),
+            );
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut line = String::new();
@@ -57,8 +65,12 @@ fn serve(routes: HashMap<String, Vec<u8>>, truncate_first: Vec<String>) -> Serve
                         let _ = out.write_all(&body[start..]);
                     }
                     _ => {
-                        let _ = write!(out, "HTTP/1.1 200 OK\r\nETag: {etag}\r\nContent-Length: {total}\r\n\r\n");
-                        let first = trunc.contains(&path) && !truncated.lock().unwrap().contains(&path);
+                        let _ = write!(
+                            out,
+                            "HTTP/1.1 200 OK\r\nETag: {etag}\r\nContent-Length: {total}\r\n\r\n"
+                        );
+                        let first =
+                            trunc.contains(&path) && !truncated.lock().unwrap().contains(&path);
                         if first {
                             truncated.lock().unwrap().push(path.clone());
                             let _ = out.write_all(&body[..total / 2]);
@@ -79,7 +91,8 @@ fn tar_gz(wrapper: &str, member: &str, data: &[u8]) -> Vec<u8> {
     h.set_size(data.len() as u64);
     h.set_mode(0o644);
     h.set_cksum();
-    tar.append_data(&mut h, format!("{wrapper}/{member}"), data).unwrap();
+    tar.append_data(&mut h, format!("{wrapper}/{member}"), data)
+        .unwrap();
     let raw = tar.into_inner().unwrap();
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
     gz.write_all(&raw).unwrap();
@@ -87,7 +100,9 @@ fn tar_gz(wrapper: &str, member: &str, data: &[u8]) -> Vec<u8> {
 }
 
 fn blob(seed: u8, n: usize) -> Vec<u8> {
-    (0..n).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed)).collect()
+    (0..n)
+        .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed))
+        .collect()
 }
 
 fn file(path: &str, url: String, data: &[u8]) -> FileSpec {
@@ -131,22 +146,52 @@ fn fixture() -> Fixture {
     runtime.installed_sha256 = Some(sha(&lib));
     let mut foreign = file("other.bin", u("/other.bin"), &other_os);
     // Foreign to whichever host runs the test (unknown tokens like "plan9" never match).
-    let other_host = if cfg!(windows) { "macos-aarch64" } else { "windows-x86_64" };
+    let other_host = if cfg!(windows) {
+        "macos-aarch64"
+    } else {
+        "windows-x86_64"
+    };
     foreign.platforms = vec![other_host.into(), "plan9".into()];
 
     let spec = ModelSpec {
         id: "demo".into(),
         label: "Demo".into(),
         revisions: vec![
-            RevisionSpec { revision: "1".into(), quant: Some("q4".into()), files: vec![file("model.bin", u("/v1.bin"), &v1), runtime.clone(), foreign], requirements: Default::default(), measured: vec![] },
-            RevisionSpec { revision: "2".into(), quant: Some("q4".into()), files: vec![file("model.bin", u("/v2.bin"), &v2), runtime], requirements: Default::default(), measured: vec![] },
+            RevisionSpec {
+                revision: "1".into(),
+                quant: Some("q4".into()),
+                files: vec![
+                    file("model.bin", u("/v1.bin"), &v1),
+                    runtime.clone(),
+                    foreign,
+                ],
+                requirements: Default::default(),
+                measured: vec![],
+            },
+            RevisionSpec {
+                revision: "2".into(),
+                quant: Some("q4".into()),
+                files: vec![file("model.bin", u("/v2.bin"), &v2), runtime],
+                requirements: Default::default(),
+                measured: vec![],
+            },
         ],
     };
-    Fixture { server, spec, v1, v2, lib }
+    Fixture {
+        server,
+        spec,
+        v1,
+        v2,
+        lib,
+    }
 }
 
 fn opts(rev: &str) -> InstallOptions {
-    InstallOptions { revision: Some(rev.into()), quant: Some("q4".into()), ..Default::default() }
+    InstallOptions {
+        revision: Some(rev.into()),
+        quant: Some("q4".into()),
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -157,37 +202,80 @@ fn install_resume_extract_upgrade_rollback_uninstall() {
 
     // v1: server truncates the first body; the downloader resumes by Range.
     let mut events = Vec::new();
-    let out = store.install(&fx.spec, &opts("1"), |e| events.push(e)).unwrap();
+    let out = store
+        .install(&fx.spec, &opts("1"), |e| events.push(e))
+        .unwrap();
     assert!(!out.already_installed);
     assert_eq!(std::fs::read(out.dir.join("model.bin")).unwrap(), fx.v1);
-    assert_eq!(std::fs::read(out.dir.join("runtime.bin")).unwrap(), fx.lib, "member extracted from archive");
-    assert!(!out.dir.join("other.bin").exists(), "foreign-platform file skipped");
+    assert_eq!(
+        std::fs::read(out.dir.join("runtime.bin")).unwrap(),
+        fx.lib,
+        "member extracted from archive"
+    );
+    assert!(
+        !out.dir.join("other.bin").exists(),
+        "foreign-platform file skipped"
+    );
     let log = fx.server.log.lock().unwrap().clone();
-    assert!(!log.iter().any(|l| l.contains("/other.bin")), "foreign file never fetched: {log:?}");
-    assert!(log.iter().any(|l| l.contains("/v1.bin") && l.contains("range=Some(")), "resumed with Range: {log:?}");
-    assert!(events.iter().any(|e| matches!(e, Event::Progress { overall_total, .. } if *overall_total > 0)));
-    assert!(matches!(events.last(), Some(Event::Activated { previous: None, .. })));
+    assert!(
+        !log.iter().any(|l| l.contains("/other.bin")),
+        "foreign file never fetched: {log:?}"
+    );
+    assert!(
+        log.iter()
+            .any(|l| l.contains("/v1.bin") && l.contains("range=Some(")),
+        "resumed with Range: {log:?}"
+    );
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::Progress { overall_total, .. } if *overall_total > 0)));
+    assert!(matches!(
+        events.last(),
+        Some(Event::Activated { previous: None, .. })
+    ));
     assert!(store.verify("demo", &out.key, VerifyMode::Full));
 
     // Re-install is idempotent.
-    assert!(store.install(&fx.spec, &opts("1"), |_| {}).unwrap().already_installed);
+    assert!(
+        store
+            .install(&fx.spec, &opts("1"), |_| {})
+            .unwrap()
+            .already_installed
+    );
 
     // Upgrade keeps v1 for rollback.
     let up = store.install(&fx.spec, &opts("2"), |_| {}).unwrap();
     assert_eq!(up.previous.as_deref(), Some("1@q4"));
-    assert_eq!(std::fs::read(store.active_dir("demo").unwrap().join("model.bin")).unwrap(), fx.v2);
+    assert_eq!(
+        std::fs::read(store.active_dir("demo").unwrap().join("model.bin")).unwrap(),
+        fx.v2
+    );
 
     // Rollback flips the pointer; both revisions still verify.
     assert_eq!(store.rollback("demo", None).unwrap(), "1@q4");
-    assert_eq!(std::fs::read(store.active_dir("demo").unwrap().join("model.bin")).unwrap(), fx.v1);
+    assert_eq!(
+        std::fs::read(store.active_dir("demo").unwrap().join("model.bin")).unwrap(),
+        fx.v1
+    );
     assert!(store.verify("demo", "2@q4", VerifyMode::Full));
 
     // A corrupted active revision is not served.
-    std::fs::write(store.revision_dir("demo", "1@q4").unwrap().join("model.bin"), b"short").unwrap();
+    std::fs::write(
+        store
+            .revision_dir("demo", "1@q4")
+            .unwrap()
+            .join("model.bin"),
+        b"short",
+    )
+    .unwrap();
     assert!(store.active_dir("demo").is_none());
 
     store.uninstall_revision("demo", "1@q4").unwrap();
-    assert_eq!(store.state("demo").unwrap().active.as_deref(), Some("2@q4"), "falls back to a verified revision");
+    assert_eq!(
+        store.state("demo").unwrap().active.as_deref(),
+        Some("2@q4"),
+        "falls back to a verified revision"
+    );
     store.uninstall("demo").unwrap();
     assert!(!store.model_dir("demo").unwrap().exists());
 }
@@ -209,13 +297,26 @@ fn cancel_keeps_partial_and_next_install_resumes() {
         })
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::Cancelled);
-    assert!(store.state("demo").unwrap().active.is_none(), "nothing activated");
-    let part = store.model_dir("demo").unwrap().join(".staging/2@q4/model.bin.part");
-    assert!(part.is_file() && part.metadata().unwrap().len() > 0, "partial kept");
+    assert!(
+        store.state("demo").unwrap().active.is_none(),
+        "nothing activated"
+    );
+    let part = store
+        .model_dir("demo")
+        .unwrap()
+        .join(".staging/2@q4/model.bin.part");
+    assert!(
+        part.is_file() && part.metadata().unwrap().len() > 0,
+        "partial kept"
+    );
 
     store.install(&fx.spec, &opts("2"), |_| {}).unwrap();
     let log = fx.server.log.lock().unwrap().clone();
-    assert!(log.iter().any(|l| l.contains("/v2.bin") && l.contains("range=Some(")), "resumed: {log:?}");
+    assert!(
+        log.iter()
+            .any(|l| l.contains("/v2.bin") && l.contains("range=Some(")),
+        "resumed: {log:?}"
+    );
 }
 
 #[test]
@@ -228,7 +329,10 @@ fn bad_hash_and_low_disk_never_activate() {
     let before = fx.server.log.lock().unwrap().len();
     let mut o = opts("2");
     o.free_bytes_override = Some(1_000);
-    assert_eq!(store.install(&fx.spec, &o, |_| {}).unwrap_err().code, ErrorCode::DiskSpace);
+    assert_eq!(
+        store.install(&fx.spec, &o, |_| {}).unwrap_err().code,
+        ErrorCode::DiskSpace
+    );
     assert_eq!(fx.server.log.lock().unwrap().len(), before);
 
     // A pinned hash that does not match the served bytes is rejected.
@@ -245,23 +349,48 @@ fn fit_is_measured_only_with_evidence_for_the_profile() {
         os: "macos".into(),
         arch: "aarch64".into(),
         memory_gb: Some(24.0),
-        gpus: vec![Gpu { name: "Apple GPU".into(), vram_gb: None, unified: true, backends: vec!["metal".into()] }],
+        gpus: vec![Gpu {
+            name: "Apple GPU".into(),
+            vram_gb: None,
+            unified: true,
+            backends: vec!["metal".into()],
+        }],
         profile: String::new(),
         source: "override".into(),
     };
-    let hw = Hardware { profile: hw.profile_id(), ..hw };
+    let hw = Hardware {
+        profile: hw.profile_id(),
+        ..hw
+    };
     assert_eq!(hw.profile, "macos-24gb-unified");
-    let small = Requirements { unified_memory_gb: Some(8.0), ..Default::default() };
-    let huge = Requirements { unified_memory_gb: Some(40.0), ..Default::default() };
-    let m: Measurement = serde_json::from_str(r#"{"profile":"macos-24gb","peak_rss_gb":2.3}"#).unwrap();
+    let small = Requirements {
+        unified_memory_gb: Some(8.0),
+        ..Default::default()
+    };
+    let huge = Requirements {
+        unified_memory_gb: Some(40.0),
+        ..Default::default()
+    };
+    let m: Measurement =
+        serde_json::from_str(r#"{"profile":"macos-24gb","peak_rss_gb":2.3}"#).unwrap();
 
     assert_eq!(hw.estimate_fit(&small, &[]).kind, FitKind::Estimated);
     let measured = hw.estimate_fit(&small, std::slice::from_ref(&m));
-    assert_eq!(measured.kind, FitKind::Measured, "recorded macos-24gb applies to macos-24gb-unified");
+    assert_eq!(
+        measured.kind,
+        FitKind::Measured,
+        "recorded macos-24gb applies to macos-24gb-unified"
+    );
     assert_eq!(measured.evidence.unwrap().extra["peak_rss_gb"], 2.3);
     assert_eq!(hw.estimate_fit(&huge, &[]).kind, FitKind::Unsupported);
-    assert_eq!(hw.estimate_fit(&Requirements::default(), &[]).kind, FitKind::Unqualified);
-    assert!(Hardware::probe().memory_gb.is_some_and(|g| g > 0.0), "real probe returns RAM");
+    assert_eq!(
+        hw.estimate_fit(&Requirements::default(), &[]).kind,
+        FitKind::Unqualified
+    );
+    assert!(
+        Hardware::probe().memory_gb.is_some_and(|g| g > 0.0),
+        "real probe returns RAM"
+    );
 }
 
 #[test]
@@ -273,32 +402,62 @@ fn hostile_ids_and_keys_cannot_leave_the_store_root() {
     std::fs::write(victim.join("precious.txt"), b"keep").unwrap();
     let store = Store::new(&root, "test-app");
 
-    for bad in ["../other", "..", ".", "", "a/b", "a\\b", "/abs", "C:", "x.lock", ".hidden", "trail.", "CON", "a\0b"] {
-        assert!(store.uninstall(bad).is_err(), "uninstall({bad:?}) must be rejected");
-        assert!(store.model_dir(bad).is_err(), "model_dir({bad:?}) must be rejected");
+    for bad in [
+        "../other", "..", ".", "", "a/b", "a\\b", "/abs", "C:", "x.lock", ".hidden", "trail.",
+        "CON", "a\0b",
+    ] {
+        assert!(
+            store.uninstall(bad).is_err(),
+            "uninstall({bad:?}) must be rejected"
+        );
+        assert!(
+            store.model_dir(bad).is_err(),
+            "model_dir({bad:?}) must be rejected"
+        );
         assert_eq!(store.state(bad).unwrap_err().code, ErrorCode::InvalidSpec);
     }
     for bad in ["../x", "..", "a/b", "", "UPPER", "a@b@c", "_zz", ".x"] {
-        assert!(store.revision_dir("demo", bad).is_err(), "key {bad:?} must be rejected");
+        assert!(
+            store.revision_dir("demo", bad).is_err(),
+            "key {bad:?} must be rejected"
+        );
         assert!(store.uninstall_revision("demo", bad).is_err());
         assert!(!store.verify("demo", bad, VerifyMode::Presence));
     }
     // A hostile manifest id never reaches the filesystem.
     let mut fx = fixture();
     fx.spec.id = "../other".into();
-    assert_eq!(store.install(&fx.spec, &opts("1"), |_| {}).unwrap_err().code, ErrorCode::InvalidSpec);
+    assert_eq!(
+        store
+            .install(&fx.spec, &opts("1"), |_| {})
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidSpec
+    );
     assert_eq!(std::fs::read(victim.join("precious.txt")).unwrap(), b"keep");
 }
 
 #[test]
 fn revision_keys_are_injective() {
     let key = |r: &str, q: Option<&str>| {
-        RevisionSpec { revision: r.into(), quant: q.map(String::from), files: vec![], requirements: Default::default(), measured: vec![] }.checked_key()
+        RevisionSpec {
+            revision: r.into(),
+            quant: q.map(String::from),
+            files: vec![],
+            requirements: Default::default(),
+            measured: vec![],
+        }
+        .checked_key()
     };
     assert_eq!(key("1", Some("q4")).unwrap().as_str(), "1@q4");
     // The old sanitiser mapped all of these to the same directory.
-    let inputs = ["a/b", "a_b", "a b", "a:b", "A", "a", "a@b", "1.0", "1_0", "..", "é"];
-    let keys: Vec<String> = inputs.iter().map(|r| key(r, None).unwrap().as_str().to_string()).collect();
+    let inputs = [
+        "a/b", "a_b", "a b", "a:b", "A", "a", "a@b", "1.0", "1_0", "..", "é",
+    ];
+    let keys: Vec<String> = inputs
+        .iter()
+        .map(|r| key(r, None).unwrap().as_str().to_string())
+        .collect();
     let unique: std::collections::BTreeSet<_> = keys.iter().collect();
     assert_eq!(unique.len(), inputs.len(), "collision among {keys:?}");
     assert_ne!(key("a", Some("b")).unwrap(), key("a@b", None).unwrap());
@@ -337,7 +496,10 @@ fn uninstall_never_follows_symlinks() {
     .unwrap();
     assert!(store.uninstall_revision("demo", "1@q4").is_err());
     assert!(store.rollback("demo", Some("1@q4")).is_err());
-    assert_eq!(std::fs::read(victim.join("revisions/1@q4/f")).unwrap(), b"keep");
+    assert_eq!(
+        std::fs::read(victim.join("revisions/1@q4/f")).unwrap(),
+        b"keep"
+    );
     assert!(store.active_dir("demo").is_none());
 }
 
@@ -346,7 +508,11 @@ fn uninstall_never_follows_symlinks() {
 /// lock holder must leave the model either fully old or fully new, never missing.
 #[test]
 fn repair_swap_survives_a_kill_at_every_durable_step() {
-    for point in [CrashPoint::AfterAside, CrashPoint::AfterSwap, CrashPoint::AfterState] {
+    for point in [
+        CrashPoint::AfterAside,
+        CrashPoint::AfterSwap,
+        CrashPoint::AfterState,
+    ] {
         let fx = fixture();
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::new(tmp.path(), "test-app");
@@ -373,13 +539,22 @@ fn repair_swap_survives_a_kill_at_every_durable_step() {
         // "Restart": the next operation recovers before anything else.
         let restored = store.recover("demo").unwrap();
         let dir = store.revision_dir("demo", "2@q4").unwrap();
-        assert!(dir.is_dir(), "{point:?}: revision directory must exist after recovery");
-        assert!(!store.model_dir("demo").unwrap().join(".aside").exists(), "{point:?}: aside cleaned up");
+        assert!(
+            dir.is_dir(),
+            "{point:?}: revision directory must exist after recovery"
+        );
+        assert!(
+            !store.model_dir("demo").unwrap().join(".aside").exists(),
+            "{point:?}: aside cleaned up"
+        );
         let body = std::fs::read(dir.join("model.bin")).unwrap();
         match point {
             CrashPoint::AfterAside | CrashPoint::AfterSwap => {
                 assert!(restored, "{point:?}: previous revision restored");
-                assert_eq!(body, bad, "{point:?}: ledger-consistent previous content back in place");
+                assert_eq!(
+                    body, bad,
+                    "{point:?}: ledger-consistent previous content back in place"
+                );
                 assert!(store.active_dir("demo").is_some());
             }
             CrashPoint::AfterState => {

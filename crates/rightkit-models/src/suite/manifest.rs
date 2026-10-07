@@ -364,7 +364,10 @@ pub fn hex_digest(bytes: &[u8]) -> String {
 }
 
 /// Live trusted readiness for managed entries & compatible external copies.
-pub fn readiness_report_at(dir: &Path, spec: &crate::suite::catalog::ModelSpec) -> crate::suite::VerifyReport {
+pub fn readiness_report_at(
+    dir: &Path,
+    spec: &crate::suite::catalog::ModelSpec,
+) -> crate::suite::VerifyReport {
     use crate::suite::manifest::{self, FileCheck, FileState};
     let trusted = spec.expected_manifest();
     let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());

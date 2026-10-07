@@ -18,12 +18,22 @@ pub struct ModelId(String);
 
 impl ModelId {
     pub fn parse(id: &str) -> Result<Self> {
-        let bad = |why: &str| Error::new(ErrorCode::InvalidSpec, format!("invalid model id {id:?}: {why}"));
+        let bad = |why: &str| {
+            Error::new(
+                ErrorCode::InvalidSpec,
+                format!("invalid model id {id:?}: {why}"),
+            )
+        };
         if id.is_empty() || id.len() > MAX_ID {
             return Err(bad("length must be 1..=128"));
         }
-        if !id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')) {
-            return Err(bad("only ASCII letters, digits, '.', '_' and '-' are allowed"));
+        if !id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        {
+            return Err(bad(
+                "only ASCII letters, digits, '.', '_' and '-' are allowed",
+            ));
         }
         if id.starts_with('.') || id.ends_with('.') {
             return Err(bad("must not start or end with '.'"));
@@ -61,7 +71,12 @@ pub struct RevisionKey(String);
 
 impl RevisionKey {
     pub fn parse(key: &str) -> Result<Self> {
-        let bad = |why: &str| Error::new(ErrorCode::InvalidSpec, format!("invalid revision key {key:?}: {why}"));
+        let bad = |why: &str| {
+            Error::new(
+                ErrorCode::InvalidSpec,
+                format!("invalid revision key {key:?}: {why}"),
+            )
+        };
         if key.is_empty() || key.len() > MAX_KEY {
             return Err(bad("length must be 1..=200"));
         }
@@ -84,7 +99,9 @@ impl RevisionKey {
             match b[i] {
                 b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'@' => i += 1,
                 b'_' => {
-                    let ok = b.get(i + 1..i + 3).is_some_and(|h| h.iter().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f')));
+                    let ok = b
+                        .get(i + 1..i + 3)
+                        .is_some_and(|h| h.iter().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f')));
                     if !ok {
                         return Err(bad("'_' must be followed by two lowercase hex digits"));
                     }
@@ -117,7 +134,8 @@ fn encode_part(s: &str) -> String {
     let last = s.len().saturating_sub(1);
     let mut out = String::with_capacity(s.len());
     for (i, b) in s.bytes().enumerate() {
-        let keep = matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-') || (b == b'.' && i != 0 && i != last);
+        let keep =
+            matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-') || (b == b'.' && i != 0 && i != last);
         if keep {
             out.push(b as char);
         } else {
@@ -140,5 +158,7 @@ pub fn encode_revision_key(revision: &str, quant: Option<&str>) -> Result<Revisi
 fn is_reserved_device(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
     matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || ((stem.starts_with("COM") || stem.starts_with("LPT")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit())
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit())
 }

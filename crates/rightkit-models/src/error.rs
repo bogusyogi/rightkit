@@ -26,7 +26,10 @@ pub struct Error {
 
 impl Error {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self {
+            code,
+            message: message.into(),
+        }
     }
     pub fn io(context: impl fmt::Display, err: impl fmt::Display) -> Self {
         Self::new(ErrorCode::Io, format!("{context}: {err}"))

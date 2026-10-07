@@ -64,7 +64,10 @@ pub struct Store {
 
 impl Store {
     pub fn new(root: impl Into<PathBuf>, app: impl Into<String>) -> Self {
-        Self { root: root.into(), app: app.into() }
+        Self {
+            root: root.into(),
+            app: app.into(),
+        }
     }
 
     /// `<root>/<id>`; fails for any id that is not a single safe path component.
@@ -72,21 +75,33 @@ impl Store {
         Ok(self.root.join(ModelId::parse(id)?.as_str()))
     }
     pub fn revision_dir(&self, id: &str, key: &str) -> Result<PathBuf> {
-        Ok(self.model_dir(id)?.join("revisions").join(RevisionKey::parse(key)?.as_str()))
+        Ok(self
+            .model_dir(id)?
+            .join("revisions")
+            .join(RevisionKey::parse(key)?.as_str()))
     }
     pub(crate) fn staging_dir(&self, id: &str, key: &str) -> Result<PathBuf> {
-        Ok(self.model_dir(id)?.join(".staging").join(RevisionKey::parse(key)?.as_str()))
+        Ok(self
+            .model_dir(id)?
+            .join(".staging")
+            .join(RevisionKey::parse(key)?.as_str()))
     }
     /// Where the previous same-key revision waits while a replacement commits.
     pub(crate) fn aside_dir(&self, id: &str, key: &str) -> Result<PathBuf> {
-        Ok(self.model_dir(id)?.join(".aside").join(RevisionKey::parse(key)?.as_str()))
+        Ok(self
+            .model_dir(id)?
+            .join(".aside")
+            .join(RevisionKey::parse(key)?.as_str()))
     }
 
     pub fn state(&self, id: &str) -> Result<State> {
         let path = self.model_dir(id)?.join("state.json");
         match fs::read_to_string(&path) {
             Ok(text) => serde_json::from_str(&text).map_err(|e| Error::io(path.display(), e)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(State { id: id.into(), ..State::default() }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(State {
+                id: id.into(),
+                ..State::default()
+            }),
             Err(e) => Err(Error::io(path.display(), e)),
         }
     }
@@ -127,7 +142,10 @@ impl Store {
             dir.join("state.json"),
         ] {
             if is_link(&p) {
-                return Err(Error::new(ErrorCode::Io, format!("refusing to follow symlink at {}", p.display())));
+                return Err(Error::new(
+                    ErrorCode::Io,
+                    format!("refusing to follow symlink at {}", p.display()),
+                ));
             }
         }
         Ok(())
@@ -171,7 +189,10 @@ impl Store {
         let referenced = crate::suite::refs::referenced_ids_locked(&self.refs_dir())
             .map_err(|e| Error::new(ErrorCode::Io, e))?;
         if referenced.contains(id.as_str()) {
-            return Err(Error::new(ErrorCode::Busy, format!("{id} is referenced by another app")));
+            return Err(Error::new(
+                ErrorCode::Busy,
+                format!("{id} is referenced by another app"),
+            ));
         }
         self.uninstall(id.as_str())
     }
@@ -185,9 +206,15 @@ impl Store {
 
     /// True when every recorded file of `key` passes `mode`.
     pub fn verify(&self, id: &str, key: &str, mode: VerifyMode) -> bool {
-        let Ok(state) = self.state(id) else { return false };
-        let Ok(dir) = self.revision_dir(id, key) else { return false };
-        let Some(rec) = state.revisions.get(key) else { return false };
+        let Ok(state) = self.state(id) else {
+            return false;
+        };
+        let Ok(dir) = self.revision_dir(id, key) else {
+            return false;
+        };
+        let Some(rec) = state.revisions.get(key) else {
+            return false;
+        };
         record_matches(rec, &dir, mode)
     }
 
@@ -197,7 +224,9 @@ impl Store {
         if self.reject_links(id).is_err() {
             return None;
         }
-        self.verify(id, &key, VerifyMode::Size).then(|| self.revision_dir(id, &key).ok()).flatten()
+        self.verify(id, &key, VerifyMode::Size)
+            .then(|| self.revision_dir(id, &key).ok())
+            .flatten()
     }
 
     /// Re-point `active` at an earlier revision (default: the most recent
@@ -218,7 +247,10 @@ impl Store {
                 .ok_or_else(|| Error::new(ErrorCode::NoRollback, "no earlier verified revision"))?,
         };
         if !self.verify(id, &target, VerifyMode::Size) {
-            return Err(Error::new(ErrorCode::NoRollback, format!("revision {target} is not installed or fails verification")));
+            return Err(Error::new(
+                ErrorCode::NoRollback,
+                format!("revision {target} is not installed or fails verification"),
+            ));
         }
         if let Some(c) = current.filter(|c| *c != target) {
             state.history.retain(|k| *k != target);
@@ -238,11 +270,19 @@ impl Store {
         self.reject_links(id)?;
         let mut state = self.state(id)?;
         if state.revisions.remove(key).is_none() {
-            return Err(Error::new(ErrorCode::NotFound, format!("{id} has no revision {key}")));
+            return Err(Error::new(
+                ErrorCode::NotFound,
+                format!("{id} has no revision {key}"),
+            ));
         }
         state.history.retain(|k| k != key);
         if state.active.as_deref() == Some(key) {
-            state.active = state.history.iter().rev().find(|k| self.verify_record(&state, id, k)).cloned();
+            state.active = state
+                .history
+                .iter()
+                .rev()
+                .find(|k| self.verify_record(&state, id, k))
+                .cloned();
             if let Some(a) = &state.active {
                 state.history.retain(|k| k != a);
             }
@@ -254,8 +294,13 @@ impl Store {
     }
 
     fn verify_record(&self, state: &State, id: &str, key: &str) -> bool {
-        let Ok(dir) = self.revision_dir(id, key) else { return false };
-        state.revisions.get(key).is_some_and(|r| record_matches(r, &dir, VerifyMode::Size))
+        let Ok(dir) = self.revision_dir(id, key) else {
+            return false;
+        };
+        state
+            .revisions
+            .get(key)
+            .is_some_and(|r| record_matches(r, &dir, VerifyMode::Size))
     }
 
     /// Remove the whole model: every revision, staging, and state. A symlink at
@@ -277,7 +322,9 @@ impl Store {
     pub(crate) fn recover_locked(&self, id: &str) -> Result<bool> {
         self.reject_links(id)?;
         let aside_root = self.model_dir(id)?.join(".aside");
-        let Ok(entries) = fs::read_dir(&aside_root) else { return Ok(false) };
+        let Ok(entries) = fs::read_dir(&aside_root) else {
+            return Ok(false);
+        };
         let state = self.state(id)?;
         let mut restored = false;
         for entry in entries.flatten() {
@@ -301,7 +348,8 @@ impl Store {
                 if let Some(parent) = dest.parent() {
                     fs::create_dir_all(parent).map_err(|e| Error::io(parent.display(), e))?;
                 }
-                fs::rename(&aside, &dest).map_err(|e| Error::io(format!("restore {}", dest.display()), e))?;
+                fs::rename(&aside, &dest)
+                    .map_err(|e| Error::io(format!("restore {}", dest.display()), e))?;
                 restored = true;
             } else {
                 remove_tree(&aside)?;
@@ -339,23 +387,30 @@ pub(crate) fn remove_tree(path: &Path) -> Result<()> {
 pub(crate) fn record_matches(rec: &RevisionRecord, dir: &Path, mode: VerifyMode) -> bool {
     !rec.files.is_empty()
         && rec.files.iter().all(|f| {
-            let Some(rel) = safe_rel_path(&f.path) else { return false };
+            let Some(rel) = safe_rel_path(&f.path) else {
+                return false;
+            };
             let p = dir.join(rel);
-            let Ok(meta) = fs::metadata(&p) else { return false };
+            let Ok(meta) = fs::metadata(&p) else {
+                return false;
+            };
             if !meta.is_file() || meta.len() == 0 {
                 return false;
             }
             if mode != VerifyMode::Presence && meta.len() != f.bytes {
                 return false;
             }
-            mode != VerifyMode::Full || sha256_file(&p).is_ok_and(|h| h.eq_ignore_ascii_case(&f.sha256))
+            mode != VerifyMode::Full
+                || sha256_file(&p).is_ok_and(|h| h.eq_ignore_ascii_case(&f.sha256))
         })
 }
 
 /// Durable replacement: private temp file + fsync + rename.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
-    let parent = path.parent().ok_or_else(|| Error::new(ErrorCode::Io, "atomic write needs a parent"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::new(ErrorCode::Io, "atomic write needs a parent"))?;
     fs::create_dir_all(parent).map_err(|e| Error::io(parent.display(), e))?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
     let result = (|| {

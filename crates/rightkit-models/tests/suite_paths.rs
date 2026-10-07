@@ -20,7 +20,16 @@ fn suite_root_resolution_order_and_layout() {
     assert_eq!(paths::suite_root(), shared);
     // Without overrides the default is `<data>/Orthic Labs/shared`.
     std::env::remove_var(paths::ORTHIC_SHARED_DIR_ENV);
-    assert!(paths::suite_root().ends_with("Orthic Labs/shared") || paths::suite_root().ends_with("Orthic Labs\\shared"));
-    assert_eq!(paths::model_refs_dir_at(&paths::models_root_at(&suite)), suite.join("models/refs"));
-    assert_eq!(paths::tool_dir_at(&paths::tools_root_at(&suite), "yt-dlp", "1.0"), suite.join("tools/yt-dlp/1.0"));
+    assert!(
+        paths::suite_root().ends_with("Orthic Labs/shared")
+            || paths::suite_root().ends_with("Orthic Labs\\shared")
+    );
+    assert_eq!(
+        paths::model_refs_dir_at(&paths::models_root_at(&suite)),
+        suite.join("models/refs")
+    );
+    assert_eq!(
+        paths::tool_dir_at(&paths::tools_root_at(&suite), "yt-dlp", "1.0"),
+        suite.join("tools/yt-dlp/1.0")
+    );
 }

@@ -154,6 +154,13 @@ impl ModelStore {
         cancelled: &dyn Fn() -> bool,
         progress: impl FnMut(Progress),
     ) -> Result<ModelStatus, String> {
-        ensure_with_grant(&self.models_root, spec, &self.app_id, grant, cancelled, progress)
+        ensure_with_grant(
+            &self.models_root,
+            spec,
+            &self.app_id,
+            grant,
+            cancelled,
+            progress,
+        )
     }
 }

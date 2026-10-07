@@ -12,11 +12,17 @@ pub struct Platform {
 
 impl Platform {
     pub fn current() -> Self {
-        Self { os: std::env::consts::OS.into(), arch: std::env::consts::ARCH.into() }
+        Self {
+            os: std::env::consts::OS.into(),
+            arch: std::env::consts::ARCH.into(),
+        }
     }
 
     pub fn new(os: &str, arch: &str) -> Self {
-        Self { os: os.into(), arch: arch.into() }
+        Self {
+            os: os.into(),
+            arch: arch.into(),
+        }
     }
 
     pub fn matches(&self, filter: &str) -> bool {

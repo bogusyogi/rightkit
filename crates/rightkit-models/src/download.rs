@@ -122,9 +122,12 @@ fn write_response_body_with_progress(
                     "partial length changed before resume: expected {offset}, got {length}"
                 )));
             }
-            let file = OpenOptions::new().append(true).open(part).map_err(|error| {
-                TransferError::Fatal(format!("open partial for append: {error}"))
-            })?;
+            let file = OpenOptions::new()
+                .append(true)
+                .open(part)
+                .map_err(|error| {
+                    TransferError::Fatal(format!("open partial for append: {error}"))
+                })?;
             (file, offset, total)
         }
         ResponsePlan::Replace { total } => {
@@ -150,7 +153,9 @@ fn write_response_body_with_progress(
             Ok(count) => count,
             Err(error) => {
                 let _ = file.sync_data();
-                return Err(TransferError::Transient(format!("read response body: {error}")));
+                return Err(TransferError::Transient(format!(
+                    "read response body: {error}"
+                )));
             }
         };
         file.write_all(&buffer[..count])
@@ -335,8 +340,7 @@ fn download_inner(
             &mut reader,
             &mut progress,
             request.cancelled,
-        )
-        {
+        ) {
             Ok(received) => {
                 let got = sha256_file(request.part_path)?;
                 if let Some(pin) = expected.as_deref() {
@@ -373,13 +377,8 @@ fn commit_part(part: &Path, metadata: &Path, dest: &Path) -> Result<(), String> 
     if dest.exists() {
         fs::remove_file(dest).map_err(|e| format!("replace {}: {e}", dest.display()))?;
     }
-    fs::rename(part, dest).map_err(|e| {
-        format!(
-            "commit {} -> {}: {e}",
-            part.display(),
-            dest.display()
-        )
-    })?;
+    fs::rename(part, dest)
+        .map_err(|e| format!("commit {} -> {}: {e}", part.display(), dest.display()))?;
     let _ = fs::remove_file(metadata);
     Ok(())
 }

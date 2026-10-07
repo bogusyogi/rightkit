@@ -149,7 +149,10 @@ impl Hardware {
 
     pub fn estimate_fit(&self, req: &Requirements, measured: &[Measurement]) -> Fit {
         let profile = self.profile.clone();
-        let evidence = measured.iter().find(|m| profiles_match(&m.profile, &profile)).cloned();
+        let evidence = measured
+            .iter()
+            .find(|m| profiles_match(&m.profile, &profile))
+            .cloned();
         let required = self.required_gb(req);
         let avail = round1(self.available_gb());
         let fit = |kind, reasons: Vec<String>, evidence| Fit {
@@ -161,7 +164,11 @@ impl Hardware {
             reasons,
         };
         if evidence.is_some() {
-            return fit(FitKind::Measured, vec!["measured on this hardware profile".into()], evidence);
+            return fit(
+                FitKind::Measured,
+                vec!["measured on this hardware profile".into()],
+                evidence,
+            );
         }
         match required {
             None => Fit {
@@ -179,7 +186,9 @@ impl Hardware {
             ),
             Some(r) => fit(
                 FitKind::Unsupported,
-                vec![format!("needs ~{r:.0} GB, ~{avail:.0} GB usable here; not a permanent limit")],
+                vec![format!(
+                    "needs ~{r:.0} GB, ~{avail:.0} GB usable here; not a permanent limit"
+                )],
                 None,
             ),
         }
@@ -199,7 +208,10 @@ fn round1(v: f64) -> f64 {
 
 #[cfg(target_os = "macos")]
 fn platform_memory_bytes() -> Option<f64> {
-    let out = std::process::Command::new("sysctl").args(["-n", "hw.memsize"]).output().ok()?;
+    let out = std::process::Command::new("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output()
+        .ok()?;
     String::from_utf8_lossy(&out.stdout).trim().parse().ok()
 }
 
@@ -242,17 +254,29 @@ fn platform_memory_bytes() -> Option<f64> {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn platform_memory_bytes() -> Option<f64> {
     let text = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let kb: f64 = text.lines().find(|l| l.starts_with("MemTotal:"))?.split_whitespace().nth(1)?.parse().ok()?;
+    let kb: f64 = text
+        .lines()
+        .find(|l| l.starts_with("MemTotal:"))?
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()?;
     Some(kb * 1024.0)
 }
 
 #[cfg(target_os = "macos")]
 fn detect_gpus() -> Vec<Gpu> {
     let mut gpus = Vec::new();
-    if let Ok(out) = std::process::Command::new("system_profiler").args(["SPDisplaysDataType", "-json"]).output() {
+    if let Ok(out) = std::process::Command::new("system_profiler")
+        .args(["SPDisplaysDataType", "-json"])
+        .output()
+    {
         if let Ok(v) = serde_json::from_slice::<Value>(&out.stdout) {
             for g in v["SPDisplaysDataType"].as_array().into_iter().flatten() {
-                let vendor = g["sppci_vendor"].as_str().unwrap_or_default().to_ascii_lowercase();
+                let vendor = g["sppci_vendor"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
                 gpus.push(Gpu {
                     name: g["sppci_model"].as_str().unwrap_or("GPU").to_string(),
                     vram_gb: g["spdisplays_vram"]
@@ -266,14 +290,20 @@ fn detect_gpus() -> Vec<Gpu> {
         }
     }
     if gpus.is_empty() && std::env::consts::ARCH == "aarch64" {
-        gpus.push(Gpu { name: "Apple Silicon (unified)".into(), vram_gb: None, unified: true, backends: vec!["metal".into()] });
+        gpus.push(Gpu {
+            name: "Apple Silicon (unified)".into(),
+            vram_gb: None,
+            unified: true,
+            backends: vec!["metal".into()],
+        });
     }
     gpus
 }
 
 #[cfg(target_os = "windows")]
 fn detect_gpus() -> Vec<Gpu> {
-    const CLASS: &str = r"HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
+    const CLASS: &str =
+        r"HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
     let query = |value: &str| {
         use std::os::windows::process::CommandExt;
         std::process::Command::new("reg")
@@ -318,7 +348,11 @@ fn detect_gpus() -> Vec<Gpu> {
                 name,
                 vram_gb: mems.get(i).copied().map(round1),
                 unified: false,
-                backends: if nv { vec!["cuda".into(), "vulkan".into()] } else { vec!["vulkan".into(), "directml".into()] },
+                backends: if nv {
+                    vec!["cuda".into(), "vulkan".into()]
+                } else {
+                    vec!["vulkan".into(), "directml".into()]
+                },
             }
         })
         .collect();
@@ -338,24 +372,34 @@ fn detect_gpus() -> Vec<Gpu> {
 #[cfg(not(target_os = "macos"))]
 fn apply_nvidia_smi(gpus: &mut Vec<Gpu>) {
     let mut nvidia_smi = std::process::Command::new("nvidia-smi");
-    nvidia_smi.args(["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]);
+    nvidia_smi.args([
+        "--query-gpu=name,memory.total",
+        "--format=csv,noheader,nounits",
+    ]);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         nvidia_smi.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
     }
-    let Ok(out) = nvidia_smi
-        .output()
-    else {
+    let Ok(out) = nvidia_smi.output() else {
         return;
     };
     for line in String::from_utf8_lossy(&out.stdout).lines() {
-        let Some((name, mib)) = line.rsplit_once(',') else { continue };
-        let (name, Ok(mib)) = (name.trim().to_string(), mib.trim().parse::<f64>()) else { continue };
+        let Some((name, mib)) = line.rsplit_once(',') else {
+            continue;
+        };
+        let (name, Ok(mib)) = (name.trim().to_string(), mib.trim().parse::<f64>()) else {
+            continue;
+        };
         let vram = round1(mib / 1024.0);
         match gpus.iter_mut().find(|g| g.name.eq_ignore_ascii_case(&name)) {
             Some(g) => g.vram_gb = Some(vram),
-            None => gpus.push(Gpu { name, vram_gb: Some(vram), unified: false, backends: vec!["cuda".into(), "vulkan".into()] }),
+            None => gpus.push(Gpu {
+                name,
+                vram_gb: Some(vram),
+                unified: false,
+                backends: vec!["cuda".into(), "vulkan".into()],
+            }),
         }
     }
 }

@@ -104,9 +104,7 @@ impl<'a> GrantSession<'a> {
 /// app's own data folder (`<data dir>/<app_dir>/model-device-id`, never in the
 /// shared store).
 pub fn device_id_get_or_create(app_dir: &str) -> Result<String, String> {
-    let dir: PathBuf = dirs::data_dir()
-        .ok_or("no app data dir")?
-        .join(app_dir);
+    let dir: PathBuf = dirs::data_dir().ok_or("no app data dir")?.join(app_dir);
     device_id_in(&dir)
 }
 
