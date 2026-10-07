@@ -15,6 +15,11 @@ fn fixture() -> PathBuf {
     } else {
         "engine_fixture"
     };
+    // `--all-targets` also builds a libtest harness named `engine_fixture-<hash>`; the real
+    // example is the exact name, so prefer it and only fall back to a hashed binary.
+    if examples.join(exact).is_file() {
+        return examples.join(exact);
+    }
     std::fs::read_dir(&examples)
         .unwrap()
         .filter_map(Result::ok)
@@ -23,9 +28,7 @@ fn fixture() -> PathBuf {
             let name = name.to_string_lossy();
             let binary =
                 cfg!(windows) && name.ends_with(".exe") || !cfg!(windows) && !name.contains('.');
-            (name == exact || name.starts_with("engine_fixture-"))
-                && binary
-                && entry.path().is_file()
+            name.starts_with("engine_fixture-") && binary && entry.path().is_file()
         })
         .map(|entry| entry.path())
         .unwrap_or_else(|| examples.join(exact))
