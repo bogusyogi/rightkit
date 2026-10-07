@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-vad"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
 rust-version = "1.98.0"
 publish = false
@@ -14,14 +14,17 @@ name = "rightkit_vad"
 path = "src/lib.rs"
 
 [dependencies]
-ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "api-24"] }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "api-24"] }
 
 [dev-dependencies]
 hound = "3.5"
 rightkit-media = { path = "../rightkit-media", version = "=0.1.0" }
-rightkit-ort = { path = "../rightkit-ort", version = "=0.1.0" }
+rightkit-ort = { path = "../rightkit-ort", version = "=0.1.1" }
 
 [features]
 default = ["ort-defaults"]
-ort-defaults = ["ort/default"]
+# ort rc.13's own `default` raises the API floor to 27 (ORT 1.27), which the
+# suite's approved 1.24.4 runtime cannot serve. Keep rc.12's default set with
+# the suite API level instead of `ort/default`.
+ort-defaults = ["ort/std", "ort/ndarray", "ort/tracing", "ort/download-binaries", "ort/tls-native", "ort/copy-dylibs", "ort/api-24"]
 load-dynamic = ["ort/load-dynamic"]

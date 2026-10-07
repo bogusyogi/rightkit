@@ -62,8 +62,8 @@ impl fmt::Display for JobError {
 }
 impl std::error::Error for JobError {}
 
-impl From<rusqlite::Error> for JobError {
-    fn from(e: rusqlite::Error) -> Self {
+impl From<rightkit_db::rusqlite::Error> for JobError {
+    fn from(e: rightkit_db::rusqlite::Error) -> Self {
         Self::new("db", format!("database error: {e}"))
     }
 }

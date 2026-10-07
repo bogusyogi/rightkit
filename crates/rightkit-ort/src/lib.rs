@@ -21,7 +21,7 @@ pub use environment::{
 #[cfg(feature = "session")]
 pub use probe::{probe_providers, ProviderDiagnostic, ProviderKind};
 #[cfg(feature = "session")]
-pub use session::{ExecutionProvider, SessionError, SessionOptions};
+pub use session::{BuiltSession, ExecutionProvider, SessionError, SessionOptions};
 
 use std::fmt;
 use std::path::{Path, PathBuf};

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-embed"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -10,8 +10,8 @@ repository = "https://github.com/bogusyogi/claude"
 include = ["src/**", "tests/**", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "api-24", "load-dynamic"] }
-rightkit-ort = { version = "=0.1.0", path = "../rightkit-ort" }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "api-24", "load-dynamic"] }
+rightkit-ort = { version = "=0.1.1", path = "../rightkit-ort" }
 rusqlite = { version = "0.40.1", default-features = false }
 serde_json = "1.0.150"
 thiserror = "2"

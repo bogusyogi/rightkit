@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ort"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -18,9 +18,16 @@ session = ["dep:ort"]
 [dependencies]
 # SUITE PIN: every Right Suite crate and app uses exactly this ort version.
 # See README.md "Version policy".
-ort = { version = "=2.0.0-rc.12", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic"] }
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic"] }
+
+# Platform accelerators. ort rc.13 compiles an execution provider only when its
+# Cargo feature is on, so each OS enables its own EP on the same pinned dep:
+# CoreML on Apple targets, DirectML on Windows. CPU is always present.
+[target.'cfg(target_vendor = "apple")'.dependencies]
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic", "coreml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic", "directml"] }
 windows-sys = { version = "0.61.2", features = ["Win32_System_SystemInformation"] }
 
 [dev-dependencies]

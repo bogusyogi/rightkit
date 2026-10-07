@@ -18,6 +18,19 @@ pub enum ExecutionProvider {
 }
 
 impl ExecutionProvider {
+    /// The accelerator this OS can host: CoreML on Apple targets, DirectML on
+    /// Windows, CPU elsewhere. Runtime selection for callers that want "the
+    /// platform EP" without naming it.
+    pub fn platform_accelerator() -> Self {
+        if cfg!(target_vendor = "apple") {
+            Self::CoreMl
+        } else if cfg!(target_os = "windows") {
+            Self::DirectMl
+        } else {
+            Self::Cpu
+        }
+    }
+
     pub fn supported_on_this_os(self) -> bool {
         match self {
             Self::Cpu => true,
@@ -61,6 +74,21 @@ pub struct SessionOptions {
     /// returns near-zero output for static-shape conformer encoders). Remove
     /// once a fixed onnxruntime-directml release passes the corpus.
     pub directml_static_shape_workaround: bool,
+    /// When the requested accelerator is unsupported on this OS, fails to
+    /// register, or fails to load the model, build a CPU session instead.
+    /// Off by default: failures are errors. The fallback is never silent;
+    /// [`BuiltSession::fallback`] records why it happened.
+    pub cpu_fallback: bool,
+}
+
+/// A committed session plus the provider that actually serves it.
+#[derive(Debug)]
+pub struct BuiltSession {
+    pub session: ort::session::Session,
+    pub provider: ExecutionProvider,
+    /// `Some(reason)` when [`SessionOptions::cpu_fallback`] replaced the
+    /// requested accelerator with CPU.
+    pub fallback: Option<String>,
 }
 
 impl SessionOptions {
@@ -81,6 +109,11 @@ impl SessionOptions {
         self
     }
 
+    pub fn with_cpu_fallback(mut self, cpu_fallback: bool) -> Self {
+        self.cpu_fallback = cpu_fallback;
+        self
+    }
+
     /// Same options forced to CPU, for dispatch-bound stages (mel, decoder/joint).
     pub fn cpu_for_stage(&self) -> Self {
         Self {
@@ -90,19 +123,55 @@ impl SessionOptions {
     }
 
     pub fn build_from_file(&self, path: &Path) -> Result<ort::session::Session, SessionError> {
-        if !path.is_file() {
-            return Err(SessionError::MissingArtifact(path.to_path_buf()));
-        }
-        self.build(|b| b.commit_from_file(path), &path.display().to_string())
+        self.build_from_file_reported(path).map(|b| b.session)
     }
 
     pub fn build_from_memory(&self, bytes: &[u8]) -> Result<ort::session::Session, SessionError> {
-        self.build(|b| b.commit_from_memory(bytes), "<memory>")
+        self.build_from_memory_reported(bytes).map(|b| b.session)
+    }
+
+    /// Like [`Self::build_from_file`], also reporting the effective provider.
+    pub fn build_from_file_reported(&self, path: &Path) -> Result<BuiltSession, SessionError> {
+        if !path.is_file() {
+            return Err(SessionError::MissingArtifact(path.to_path_buf()));
+        }
+        self.build_with_fallback(|b| b.commit_from_file(path), &path.display().to_string())
+    }
+
+    /// Like [`Self::build_from_memory`], also reporting the effective provider.
+    pub fn build_from_memory_reported(&self, bytes: &[u8]) -> Result<BuiltSession, SessionError> {
+        self.build_with_fallback(|b| b.commit_from_memory(bytes), "<memory>")
+    }
+
+    fn build_with_fallback(
+        &self,
+        commit: impl Fn(
+            &mut ort::session::builder::SessionBuilder,
+        ) -> ort::Result<ort::session::Session>,
+        what: &str,
+    ) -> Result<BuiltSession, SessionError> {
+        match self.build(&commit, what) {
+            Ok(session) => Ok(BuiltSession {
+                session,
+                provider: self.provider,
+                fallback: None,
+            }),
+            Err(SessionError::MissingArtifact(p)) => Err(SessionError::MissingArtifact(p)),
+            Err(error) if self.cpu_fallback && self.provider != ExecutionProvider::Cpu => {
+                let session = self.cpu_for_stage().build(&commit, what)?;
+                Ok(BuiltSession {
+                    session,
+                    provider: ExecutionProvider::Cpu,
+                    fallback: Some(format!("{:?} -> Cpu: {error}", self.provider)),
+                })
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn build(
         &self,
-        commit: impl FnOnce(
+        commit: &impl Fn(
             &mut ort::session::builder::SessionBuilder,
         ) -> ort::Result<ort::session::Session>,
         what: &str,
@@ -137,8 +206,21 @@ impl SessionOptions {
                 .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level1)
                 .map_err(|e| map_ort_error("optimization level", e))?;
         }
-        builder = match self.provider {
-            ExecutionProvider::Cpu => builder,
+        builder = self.register_provider(builder)?;
+        commit(&mut builder).map_err(|e| SessionError::Runtime(format!("load {what}: {e}")))
+    }
+
+    /// Register the requested accelerator. ort rc.13 compiles each EP only
+    /// behind its Cargo feature, which rightkit-ort enables per OS (CoreML on
+    /// Apple, DirectML on Windows); `supported_on_this_os` already rejected
+    /// the other combinations, so the non-hosting arms are unreachable.
+    fn register_provider(
+        &self,
+        builder: ort::session::builder::SessionBuilder,
+    ) -> Result<ort::session::builder::SessionBuilder, SessionError> {
+        match self.provider {
+            ExecutionProvider::Cpu => Ok(builder),
+            #[cfg(target_os = "windows")]
             ExecutionProvider::DirectMl => {
                 let mut ep = ort::ep::DirectML::default();
                 if let Some(id) = self.device_id {
@@ -146,13 +228,15 @@ impl SessionOptions {
                 }
                 builder
                     .with_execution_providers([ep.build().error_on_failure()])
-                    .map_err(|e| map_ort_error("directml", e))?
+                    .map_err(|e| map_ort_error("directml", e))
             }
+            #[cfg(target_vendor = "apple")]
             ExecutionProvider::CoreMl => builder
                 .with_execution_providers([ort::ep::CoreML::default().build().error_on_failure()])
-                .map_err(|e| map_ort_error("coreml", e))?,
-        };
-        commit(&mut builder).map_err(|e| SessionError::Runtime(format!("load {what}: {e}")))
+                .map_err(|e| map_ort_error("coreml", e)),
+            #[allow(unreachable_patterns)]
+            other => Err(SessionError::ProviderUnsupported(other)),
+        }
     }
 }
 
