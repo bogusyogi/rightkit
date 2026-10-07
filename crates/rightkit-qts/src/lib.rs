@@ -4,20 +4,22 @@
 pub const SAMPLE_RATE_HZ: u32 = 24_000;
 
 mod error;
+mod mode;
 mod model;
 pub mod pipeline;
 mod synthesis_profile;
 mod voice_clone_prompt;
 
 pub use error::Qwen3TtsError;
-pub use model::{load_and_validate, GgufFile, ModelPaths};
+pub use mode::{ModeSynthesizeRequest, PresetSpeaker, QtsMode};
+pub use model::{load_and_validate, GgufFile, ModeModelPaths, ModelPaths};
 pub use pipeline::backend::BackendKind;
 pub use pipeline::speaker_encoder::{SpeakerEncoder, SpeakerEncoderConfig};
 pub use pipeline::tokenizer::{TextTokenizer, TokenizerConfig};
 pub use pipeline::tts_transformer::{
-    CodecRollout, CodecRolloutSubTimings, IclPrefillConditioning, PrefillConditioning,
-    PrefillForwardOutputs, PreparedPrefillInputs, SelectedCodecFrame, TtsTransformer,
-    TtsTransformerConfig, VocoderChunk,
+    CodePredictorConfig, CodecRollout, CodecRolloutSubTimings, IclPrefillConditioning,
+    PrefillConditioning, PrefillForwardOutputs, PreparedPrefillInputs, SelectedCodecFrame,
+    TtsTransformer, TtsTransformerConfig, VocoderChunk,
 };
 pub use pipeline::vocoder::{
     Vocoder, VocoderConfig, VocoderExecutionProvider, VocoderGraphTemplate,
@@ -111,14 +113,13 @@ pub struct StreamingSynthesizeResult {
     pub generated_samples: usize,
 }
 
-struct PreparedSynthesis<'a> {
+struct PreparedSynthesis {
     prepared_inputs: PreparedPrefillInputs,
     prompt_frames: Vec<Vec<i32>>,
     prefix_frame_count: usize,
     speaker_encode: std::time::Duration,
     tokenize: std::time::Duration,
     prefill_build: std::time::Duration,
-    _speaker_embedding: SpeakerEmbeddingStorage<'a>,
 }
 
 enum SpeakerEmbeddingStorage<'a> {
@@ -141,6 +142,8 @@ pub struct Qwen3TtsEngine {
     transformer: TtsTransformer,
     vocoder: Vocoder,
     speaker_encoder: SpeakerEncoder,
+    mode: QtsMode,
+    instruction_control: bool,
 }
 
 impl Qwen3TtsEngine {
@@ -158,11 +161,165 @@ impl Qwen3TtsEngine {
             transformer,
             vocoder,
             speaker_encoder,
+            mode: QtsMode::Base,
+            instruction_control: false,
         })
     }
 
     pub fn from_model_dir(dir: impl AsRef<std::path::Path>) -> Result<Self, Qwen3TtsError> {
         Self::load(ModelPaths::from_model_dir(dir))
+    }
+
+    /// Load mode-specific 1.7B artifacts, or explicit bundled QTS exports.
+    pub fn load_mode(paths: ModeModelPaths, mode: QtsMode) -> Result<Self, Qwen3TtsError> {
+        let talker = GgufFile::open(&paths.talker_gguf)?;
+        if let Some(model_mode) = talker.get_str("qwen3-tts.tts_model_type") {
+            if model_mode.replace('_', "").to_ascii_lowercase() != mode.as_str() {
+                return Err(Qwen3TtsError::InvalidInput(
+                    "requested mode does not match GGUF model type".into(),
+                ));
+            }
+        }
+        let predictor = GgufFile::open(&paths.code_predictor_gguf)?;
+        let tokenizer_file = GgufFile::open(&paths.tokenizer_gguf)?;
+        let tokenizer = TextTokenizer::load_from_gguf(&tokenizer_file)?;
+        let transformer = TtsTransformer::load_from_ggufs(&talker, &predictor)?;
+        let instruction_control = talker
+            .get_str("qwen3-tts.tts_model_size")
+            .map_or(transformer.config().hidden_size != 1024, |size| {
+                size != "0.6b" && size != "0.6B"
+            });
+        let vocoder = Vocoder::load_from_onnx(&paths.vocoder_onnx)?;
+        let speaker_encoder = SpeakerEncoder::new(transformer.config().hidden_size as usize)?;
+        Ok(Self {
+            paths: ModelPaths::new(paths.talker_gguf, paths.vocoder_onnx),
+            tokenizer,
+            transformer,
+            vocoder,
+            speaker_encoder,
+            mode,
+            instruction_control,
+        })
+    }
+
+    pub fn from_model_dir_for_mode(
+        dir: impl AsRef<std::path::Path>,
+        mode: QtsMode,
+    ) -> Result<Self, Qwen3TtsError> {
+        Self::load_mode(ModeModelPaths::from_model_dir(dir, mode), mode)
+    }
+
+    pub fn mode(&self) -> QtsMode {
+        self.mode
+    }
+
+    pub fn synthesize_mode(
+        &self,
+        req: &ModeSynthesizeRequest<'_>,
+    ) -> Result<SynthesizeResult, Qwen3TtsError> {
+        let prepared = self.prepare_mode_synthesis(req)?;
+        if req.synthesis.vocoder_chunk_size > 0 {
+            self.synthesize_pipelined(&req.synthesis, &prepared, None)
+        } else {
+            self.synthesize_sequential(&req.synthesis, &prepared, None)
+        }
+    }
+
+    pub fn synthesize_mode_with_profile(
+        &self,
+        req: &ModeSynthesizeRequest<'_>,
+    ) -> Result<(SynthesizeResult, SynthesisStageTimings), Qwen3TtsError> {
+        let prepared = self.prepare_mode_synthesis(req)?;
+        let mut timings = SynthesisStageTimings::default();
+        let result = if req.synthesis.vocoder_chunk_size > 0 {
+            self.synthesize_pipelined(&req.synthesis, &prepared, Some(&mut timings))?
+        } else {
+            self.synthesize_sequential(&req.synthesis, &prepared, Some(&mut timings))?
+        };
+        Ok((result, timings))
+    }
+
+    pub fn synthesize_mode_streaming<S: StreamingSynthesis + Send>(
+        &self,
+        req: &ModeSynthesizeRequest<'_>,
+        sink: &mut S,
+    ) -> Result<StreamingSynthesizeResult, Qwen3TtsError> {
+        let prepared = self.prepare_mode_synthesis(req)?;
+        if req.synthesis.vocoder_chunk_size > 0 {
+            self.synthesize_pipelined_streaming(&req.synthesis, &prepared, sink, None)
+        } else {
+            self.synthesize_sequential_streaming(&req.synthesis, &prepared, sink, None)
+        }
+    }
+
+    fn prepare_mode_synthesis(
+        &self,
+        req: &ModeSynthesizeRequest<'_>,
+    ) -> Result<PreparedSynthesis, Qwen3TtsError> {
+        req.validate()?;
+        if req.mode != self.mode {
+            return Err(Qwen3TtsError::InvalidInput(
+                "request mode does not match loaded checkpoint mode".into(),
+            ));
+        }
+        if let Some(embedding) = req.speaker_embedding {
+            self.validate_speaker_embedding(embedding)?;
+        }
+        if let Some(prompt) = req.voice_clone_prompt {
+            self.validate_speaker_embedding(prompt.speaker_embedding())?;
+            if prompt
+                .ref_code_shape()
+                .is_some_and(|(_, books)| books != self.transformer.config().n_codebooks as usize)
+            {
+                return Err(Qwen3TtsError::InvalidInput(
+                    "voice clone codebook count does not match model".into(),
+                ));
+            }
+            return self.prepare_synthesis(&req.synthesis, req.speaker_embedding, Some(prompt));
+        }
+        let start = Instant::now();
+        let speaker = req
+            .speaker
+            .map(|speaker| {
+                self.transformer
+                    .preset_speaker_embedding(speaker, req.synthesis.thread_count)
+            })
+            .transpose()?;
+        let speaker_encode = start.elapsed();
+        let start = Instant::now();
+        let text_tokens = self.tokenizer.encode_for_tts(&req.synthesis.text);
+        // Upstream ignores CustomVoice instructions on 0.6B.
+        let instruct_tokens = self.tokenizer.encode_optional_instruction_for_tts(
+            req.instruct.as_deref(),
+            self.instruction_control,
+        )?;
+        let tokenize = start.elapsed();
+        let start = Instant::now();
+        let mut prepared_inputs = self.transformer.build_prefill_inputs(
+            PrefillConditioning {
+                text_tokens: &text_tokens,
+                speaker_embd: speaker.as_deref(),
+                ref_codebook_0: &[],
+                language_id: req.speaker.map_or(req.synthesis.language_id, |speaker| {
+                    self.transformer
+                        .preset_language_id(speaker, req.synthesis.language_id)
+                }),
+            },
+            req.synthesis.thread_count,
+        )?;
+        self.transformer.prepend_instruction(
+            &mut prepared_inputs,
+            &instruct_tokens,
+            req.synthesis.thread_count,
+        )?;
+        Ok(PreparedSynthesis {
+            prepared_inputs,
+            prompt_frames: Vec::new(),
+            prefix_frame_count: 0,
+            speaker_encode,
+            tokenize,
+            prefill_build: start.elapsed(),
+        })
     }
 
     pub fn model_paths(&self) -> &ModelPaths {
@@ -337,7 +494,12 @@ impl Qwen3TtsEngine {
         req: &SynthesizeRequest,
         speaker_embedding_override: Option<&'a [f32]>,
         voice_clone_prompt: Option<&'a VoiceClonePromptV2>,
-    ) -> Result<PreparedSynthesis<'a>, Qwen3TtsError> {
+    ) -> Result<PreparedSynthesis, Qwen3TtsError> {
+        if self.mode != QtsMode::Base {
+            return Err(Qwen3TtsError::InvalidInput(
+                "use mode synthesis for CustomVoice or VoiceDesign".into(),
+            ));
+        }
         let speaker_encode = std::time::Duration::ZERO;
         let speaker_embedding = if let Some(speaker_embedding) = speaker_embedding_override {
             SpeakerEmbeddingStorage::Borrowed(speaker_embedding)
@@ -421,14 +583,13 @@ impl Qwen3TtsEngine {
             speaker_encode,
             tokenize,
             prefill_build,
-            _speaker_embedding: speaker_embedding,
         })
     }
 
     fn synthesize_sequential(
         &self,
         req: &SynthesizeRequest,
-        prepared: &PreparedSynthesis<'_>,
+        prepared: &PreparedSynthesis,
         timings: Option<&mut SynthesisStageTimings>,
     ) -> Result<SynthesizeResult, Qwen3TtsError> {
         let t_roll = Instant::now();
@@ -509,7 +670,7 @@ impl Qwen3TtsEngine {
     fn synthesize_sequential_streaming<S>(
         &self,
         req: &SynthesizeRequest,
-        prepared: &PreparedSynthesis<'_>,
+        prepared: &PreparedSynthesis,
         sink: &mut S,
         timings: Option<&mut SynthesisStageTimings>,
     ) -> Result<StreamingSynthesizeResult, Qwen3TtsError>
@@ -540,7 +701,7 @@ impl Qwen3TtsEngine {
     fn synthesize_pipelined(
         &self,
         req: &SynthesizeRequest,
-        prepared: &PreparedSynthesis<'_>,
+        prepared: &PreparedSynthesis,
         timings: Option<&mut SynthesisStageTimings>,
     ) -> Result<SynthesizeResult, Qwen3TtsError> {
         use std::sync::mpsc;
@@ -720,7 +881,7 @@ impl Qwen3TtsEngine {
     fn synthesize_pipelined_streaming<S>(
         &self,
         req: &SynthesizeRequest,
-        prepared: &PreparedSynthesis<'_>,
+        prepared: &PreparedSynthesis,
         sink: &mut S,
         timings: Option<&mut SynthesisStageTimings>,
     ) -> Result<StreamingSynthesizeResult, Qwen3TtsError>

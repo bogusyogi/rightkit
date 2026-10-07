@@ -157,6 +157,42 @@ impl TextTokenizer {
         tokens
     }
 
+    /// Separate instruction turn; project & prepend it before assistant/codec prefill.
+    pub fn encode_instruction_for_tts(&self, instruct: &str) -> Result<Vec<i32>, Qwen3TtsError> {
+        let mut tokens = vec![self.config.bos_token_id];
+        // Normal encoding permits a split `user` token in custom vocabularies.
+        let user = self
+            .vocab
+            .get("user")
+            .copied()
+            .map_or_else(|| self.encode("user"), |id| vec![id]);
+        if self.decode(&user) != "user" {
+            return Err(Qwen3TtsError::MissingTokenizerToken("user".into()));
+        }
+        tokens.extend(user);
+        tokens.push(self.newline_token_id);
+        tokens.extend(self.encode(instruct));
+        tokens.push(self.config.eos_token_id);
+        tokens.push(self.newline_token_id);
+        Ok(tokens)
+    }
+
+    pub(crate) fn encode_optional_instruction_for_tts(
+        &self,
+        instruct: Option<&str>,
+        enabled: bool,
+    ) -> Result<Vec<i32>, Qwen3TtsError> {
+        if enabled {
+            instruct
+                .filter(|text| !text.is_empty())
+                .map(|text| self.encode_instruction_for_tts(text))
+                .transpose()
+                .map(Option::unwrap_or_default)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
     #[must_use]
     pub fn encode_ref_for_tts(&self, text: &str) -> Vec<i32> {
         let mut tokens = Vec::new();
@@ -328,5 +364,127 @@ mod tests {
         assert_eq!(tokens, vec![1, 3, 4, 5, 6, 2, 4, 1, 3, 4]);
 
         let _ = std::fs::remove_file(path);
+    }
+    fn synthetic_tokenizer() -> TextTokenizer {
+        let tokens = [
+            "<pad>",
+            "<|im_start|>",
+            "<|im_end|>",
+            "assistant",
+            "Ċ",
+            "h",
+            "i",
+            "user",
+        ];
+        TextTokenizer {
+            config: TokenizerConfig {
+                vocab_size: 8,
+                pad_token_id: 0,
+                bos_token_id: 1,
+                eos_token_id: 2,
+            },
+            vocab: tokens
+                .iter()
+                .enumerate()
+                .map(|(id, token)| ((*token).into(), id as i32))
+                .collect(),
+            id_to_token: tokens.iter().map(|token| (*token).into()).collect(),
+            bpe_ranks: HashMap::new(),
+            assistant_token_id: 3,
+            newline_token_id: 4,
+        }
+    }
+
+    #[test]
+    fn base_prompt_ids_match_0_1_1() {
+        let tokenizer = synthetic_tokenizer();
+        // Frozen HEAD (0.1.1) sequence: assistant prefix, text, end/newline,
+        // then another assistant prefix. Base adds no instruction turn.
+        assert_eq!(
+            tokenizer.encode_for_tts("hi"),
+            [1, 3, 4, 5, 6, 2, 4, 1, 3, 4],
+        );
+    }
+
+    #[test]
+    fn exact_prompt_token_strings_for_modes() {
+        let tokenizer = synthetic_tokenizer();
+        let assistant = vec![
+            "<|im_start|>",
+            "assistant",
+            "\n",
+            "h",
+            "i",
+            "<|im_end|>",
+            "\n",
+            "<|im_start|>",
+            "assistant",
+            "\n",
+        ];
+        for mode in [
+            crate::QtsMode::Base,
+            crate::QtsMode::CustomVoice,
+            crate::QtsMode::VoiceDesign,
+        ] {
+            let mut tokens = if mode == crate::QtsMode::Base {
+                Vec::new()
+            } else {
+                tokenizer.encode_instruction_for_tts("hi").unwrap()
+            };
+            tokens.extend(tokenizer.encode_for_tts("hi"));
+            let strings = tokens
+                .iter()
+                .map(|id| tokenizer.decode_token(*id))
+                .collect::<Vec<_>>();
+            let mut expected = if mode == crate::QtsMode::Base {
+                Vec::new()
+            } else {
+                vec!["<|im_start|>", "user", "\n", "h", "i", "<|im_end|>", "\n"]
+            };
+            expected.extend(assistant.clone());
+            assert_eq!(strings, expected, "{mode:?}");
+        }
+        assert_eq!(
+            tokenizer.decode(&tokenizer.encode_for_tts("hi")),
+            "<|im_start|>assistant\nhi<|im_end|>\n<|im_start|>assistant\n"
+        );
+        assert_eq!(
+            tokenizer.decode(&tokenizer.encode_instruction_for_tts("hi").unwrap()),
+            "<|im_start|>user\nhi<|im_end|>\n"
+        );
+        // CustomVoice without instruct keeps existing assistant turn unchanged.
+        assert_eq!(
+            tokenizer.encode_for_tts("hi"),
+            vec![1, 3, 4, 5, 6, 2, 4, 1, 3, 4]
+        );
+    }
+
+    #[test]
+    fn instruction_requires_complete_user_role() {
+        let mut tokenizer = synthetic_tokenizer();
+        tokenizer.vocab.remove("user");
+        assert!(tokenizer.encode_instruction_for_tts("hi").is_err());
+    }
+    #[test]
+    fn optional_and_0_6b_instructions_are_omitted() {
+        let tokenizer = synthetic_tokenizer();
+        assert!(tokenizer
+            .encode_optional_instruction_for_tts(Some("hi"), false)
+            .unwrap()
+            .is_empty());
+        assert!(tokenizer
+            .encode_optional_instruction_for_tts(None, true)
+            .unwrap()
+            .is_empty());
+        assert!(tokenizer
+            .encode_optional_instruction_for_tts(Some(""), true)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            tokenizer
+                .encode_optional_instruction_for_tts(Some("hi"), true)
+                .unwrap(),
+            vec![1, 7, 4, 5, 6, 2, 4]
+        );
     }
 }
