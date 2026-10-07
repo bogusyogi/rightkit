@@ -45,7 +45,7 @@ jobs:
               changed=false
               while IFS= read -r changed_path; do
                 case "$changed_path" in
-                  *.rs|Cargo.toml|*/Cargo.toml|Cargo.lock|*/Cargo.lock|build.rs|*/build.rs|rust-toolchain|*/rust-toolchain|rust-toolchain.toml|*/rust-toolchain.toml|.cargo/*|*/.cargo/*|.rightgit.json|.github/workflows/*.yml|.github/workflows/*.yaml|${GATE_PATH})
+                  *.rs|Cargo.toml|*/Cargo.toml|Cargo.lock|*/Cargo.lock|rust-toolchain|*/rust-toolchain|rust-toolchain.toml|*/rust-toolchain.toml|.cargo/*|*/.cargo/*|.rightgit.json|.github/workflows/*.yml|.github/workflows/*.yaml|${GATE_PATH})
                     changed=true
                     break
                     ;;

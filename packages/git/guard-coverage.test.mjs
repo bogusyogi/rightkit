@@ -166,12 +166,11 @@ function isGuarded(jobs, jobName, visiting = new Set()) {
 }
 
 function renderAllLanes() {
-  const context = buildRenderContext(FULL_MANIFEST, "/repos/widgets");
   const rendered = {};
   for (const lane of FULL_MANIFEST.lanes) {
     const templatePath = path.join(templatesDir, LANE_FILENAMES[lane]);
     const templateText = fs.readFileSync(templatePath, "utf8");
-    rendered[lane] = renderTemplate(templateText, context);
+    rendered[lane] = renderTemplate(templateText, buildRenderContext(FULL_MANIFEST, "/repos/widgets", lane));
   }
   return rendered;
 }

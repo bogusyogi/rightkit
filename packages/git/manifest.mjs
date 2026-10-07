@@ -990,15 +990,21 @@ export function deriveProjectName(repoPath) {
  * validated manifest plus the target repo's derived project name.
  */
 /** Every managed public workflow runs ownership scanning; repository metadata cannot opt it out. */
-export function ownershipStep(manifest) {
+export function ownershipStep(manifest, lane = "ci") {
   const { name } = parsePackageManager(manifest.packageManager);
   const command = name === "pnpm" ? "pnpm exec right-release ownership --app ."
     : name === "npm" ? "npm exec -- right-release ownership --app ."
       : "yarn exec right-release ownership --app .";
-  return `\n      - name: RightKit ownership (protected registry roots)\n        shell: bash\n        run: test "$(git rev-parse HEAD)" = "\${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}" && ${command}`;
+  // Only release-candidate dispatches declare source_revision. Referencing
+  // inputs.source_revision from other lanes makes actionlint reject their
+  // generated workflows, even when guarded by an event-name expression.
+  const sourceRevision = lane === "release-candidate"
+    ? "\${{ inputs.source_revision }}"
+    : "\${{ github.sha }}";
+  return `\n      - name: RightKit ownership (protected registry roots)\n        shell: bash\n        run: test "$(git rev-parse HEAD)" = "${sourceRevision}" && ${command}`;
 }
 
-export function buildRenderContext(manifest, repoPath) {
+export function buildRenderContext(manifest, repoPath, lane = "ci") {
   const pm = parsePackageManager(manifest.packageManager);
   const projectName = deriveProjectName(repoPath);
   const artifactPrefix = projectName.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
@@ -1024,7 +1030,7 @@ export function buildRenderContext(manifest, repoPath) {
     WINDOWS_SIGNING_JOB: windowsSigningJob(manifest, pm, artifactPrefix),
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
-    OWNERSHIP_STEP: ownershipStep(manifest),
+    OWNERSHIP_STEP: ownershipStep(manifest, lane),
   };
 
   // Every key below is populated ONLY when its source manifest section is

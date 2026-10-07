@@ -24,12 +24,11 @@ const FULL_MANIFEST = {
 };
 
 function renderAllLanes(manifest, repoPath) {
-  const context = buildRenderContext(manifest, repoPath);
   const rendered = {};
   for (const lane of manifest.lanes) {
     const templatePath = path.join(templatesDir, LANE_FILENAMES[lane]);
     const templateText = fs.readFileSync(templatePath, "utf8");
-    rendered[lane] = renderTemplate(templateText, context);
+    rendered[lane] = renderTemplate(templateText, buildRenderContext(manifest, repoPath, lane));
   }
   return rendered;
 }
@@ -60,6 +59,7 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /changed=true[\s\S]*\^0\{40\}\$[\s\S]*git cat-file -e[\s\S]*git diff --name-only --diff-filter=ACDMRTUXB/);
   assert.match(content, /--diff-filter=ACDMRTUXB/, "deleted Rust inputs must trigger Rust setup");
   assert.match(content, /\*\.rs\|Cargo\.toml[\s\S]*scripts\/gate\.sh/);
+  assert.doesNotMatch(content, /\|build\.rs\||\|\*\/build\.rs\|/);
   assert.match(content, /\.rightgit\.json\|\.github\/workflows\/\*\.yml\|\.github\/workflows\/\*\.yaml/);
   assert.equal((content.match(/if: steps\.rust-changes\.outputs\.required == 'true'/g) ?? []).length, 3);
   assert.match(content, /RIGHT_GIT_RUST_CHANGED: \$\{\{ steps\.rust-changes\.outputs\.changed \}\}/);
@@ -92,6 +92,15 @@ test("ordinary CI templates cancel superseded runs on the same ref", () => {
   const generic = renderAllLanes(FULL_MANIFEST, "/repos/widgets").ci;
   assert.match(generic, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/);
   assert.match(generic, /cancel-in-progress: true/);
+});
+
+test("ownership revision expression matches each lane trigger contract", () => {
+  const rendered = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
+  assert.match(rendered.ci, /git rev-parse HEAD\)" = "\$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(rendered.ci, /inputs\.source_revision/);
+  assert.match(rendered["publish-package-managers"], /git rev-parse HEAD\)" = "\$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(rendered["publish-package-managers"], /inputs\.source_revision/);
+  assert.match(rendered["release-candidate"], /git rev-parse HEAD\)" = "\$\{\{ inputs\.source_revision \}\}/);
 });
 
 test("rust-hybrid ci preserves a declared macOS-only lane", () => {
@@ -195,7 +204,7 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
   };
   const content = renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
-    buildRenderContext(manifest, "/repos/widgets"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
   assert.match(content, /environment: release/);
   // Tag-last contract: signing is gated on the admitted, same-run
@@ -212,7 +221,7 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
   // out the exact admitted revision by SHA, never by resolving HEAD after a
   // ref-triggered checkout.
   assert.match(content, /windows-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
-  assert.match(content, /git rev-parse HEAD.*inputs\.source_revision \|\| github\.sha/);
+  assert.match(content, /git rev-parse HEAD.*inputs\.source_revision/);
   assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(content, /secrets\.|client-secret|private.key/i);
@@ -240,7 +249,7 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
   };
   const content = renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
-    buildRenderContext(manifest, "/repos/widgets"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
   assert.match(content, /macos-sign:/);
   assert.match(content, /macos-sign:\n    needs: \[admission, candidate\]\n    if: \$\{\{ needs\.admission\.outputs\.signed_qualification == 'true' \}\}/);
@@ -251,7 +260,7 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
   assert.match(content, /right-release build --platform mac --skip-checks/);
   assert.match(content, /secrets\.APPLE_API_KEY_BASE64/);
   assert.match(content, /macos-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
-  assert.match(content, /git rev-parse HEAD.*inputs\.source_revision \|\| github\.sha/);
+  assert.match(content, /git rev-parse HEAD.*inputs\.source_revision/);
   assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.match(content, /security delete-keychain/);
@@ -287,7 +296,7 @@ test("rust-hybrid multi-architecture candidates bind every native target to exac
   };
   const content = renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
-    buildRenderContext(manifest, "/repos/widgets"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
   for (const [runner, triple] of [["windows-2025", "x86_64-pc-windows-msvc"], ["windows-11-arm", "aarch64-pc-windows-msvc"], ["macos-15", "aarch64-apple-darwin"], ["macos-15-intel", "x86_64-apple-darwin"]]) {
     assert.match(content, new RegExp(`os: ${JSON.stringify(runner).replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`));
@@ -338,7 +347,7 @@ test("rust-hybrid release chain preserves signed candidate, installed qualificat
   };
   const content = renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
-    buildRenderContext(manifest, "/repos/widgets"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
   assert.match(content, /windows-sign:[\s\S]*pnpm run release:finalize:win/);
   assert.match(content, /macos-sign:[\s\S]*pnpm run release:finalize:mac/);
@@ -372,7 +381,7 @@ test("rust-hybrid release chain preserves signed candidate, installed qualificat
   assert.match(content, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
   // Ownership scan binds to the source revision input before admission emits
   // that same revision for every downstream job.
-  assert.match(content, /git rev-parse HEAD.*inputs\.source_revision \|\| github\.sha/);
+  assert.match(content, /git rev-parse HEAD.*inputs\.source_revision/);
   assert.doesNotMatch(content, /RIGHT_GIT_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   // candidate, windows-sign, macos-sign, installed-qualification and publish all
   // check out the admitted revision with full history; admission checks out
@@ -430,7 +439,7 @@ test("every 'run <script>' in a full release-chain workflow names a script the m
   };
   const content = renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
-    buildRenderContext(manifest, "/repos/widgets"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
   const declaredScripts = new Set([
     manifest.candidate.buildScript,
@@ -491,7 +500,7 @@ test("release chain: installed-qualification has a stage summary and publish dow
   };
   const content = renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
-    buildRenderContext(manifest, "/repos/widgets"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
   const installedQualificationJob = content.slice(
     content.search(/^ {2}installed-qualification:\n {4}needs:/m),
@@ -689,7 +698,7 @@ test("every job checking out an admitted revision fetches full history", () => {
   };
   const content = renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
-    buildRenderContext(manifest, "/repos/widgets"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
   const checkouts = content
     .split(/^ {6}- uses: actions\/checkout@/m)
@@ -732,7 +741,7 @@ test("release-candidate template exposes a dry_run input threaded through admiss
   };
   const content = renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
-    buildRenderContext(manifest, "/repos/widgets"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
   assert.match(content, /^      dry_run:\n        description: .*\n        required: false\n        type: boolean\n        default: false$/m);
   assert.match(content, /dry_run: \$\{\{ steps\.admit\.outputs\.dry_run \}\}/);
@@ -785,7 +794,7 @@ function environmentManifest(environments) {
 function renderRelease(manifest) {
   return renderTemplate(
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
-    buildRenderContext(manifest, "/repos/widgets"),
+    buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
 }
 
