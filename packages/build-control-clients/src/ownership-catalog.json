@@ -48,6 +48,93 @@
           "type": "dependency",
           "ecosystem": "npm",
           "name": "playwright-core"
+        },
+        {
+          "id": "browser.npm.playwright",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "playwright"
+        },
+        {
+          "id": "browser.npm.playwright-test",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@playwright/test"
+        },
+        {
+          "id": "browser.npm.selenium-webdriver",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "selenium-webdriver"
+        },
+        {
+          "id": "browser.cargo.webdriver",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "webdriver"
+        },
+        {
+          "id": "browser.source.chrome-discovery",
+          "type": "source",
+          "pattern": "Google[\\\\/]+Chrome[\\\\/]+Application[\\\\/]+chrome\\.exe|Google Chrome\\.app/Contents/MacOS/Google Chrome"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-control",
+      "capability": "desktop-control",
+      "summary": "Background native input, accessibility reads and WebDriver bridge for driving desktop apps without stealing focus",
+      "fingerprints": [
+        {
+          "id": "control.cargo.enigo",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "enigo"
+        },
+        {
+          "id": "control.cargo.rdev",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "rdev"
+        },
+        {
+          "id": "control.cargo.uiautomation",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "uiautomation"
+        },
+        {
+          "id": "control.cargo.accessibility-sys",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "accessibility-sys"
+        },
+        {
+          "id": "control.npm.nut-js",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@nut-tree/nut-js"
+        },
+        {
+          "id": "control.npm.robotjs",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "robotjs"
+        },
+        {
+          "id": "control.api.cgevent-post",
+          "type": "source",
+          "pattern": "\\bCGEventPost(ToPid)?\\s*\\("
+        },
+        {
+          "id": "control.api.ax-element",
+          "type": "source",
+          "pattern": "\\bAXUIElementCreate(Application|SystemWide)\\s*\\("
+        },
+        {
+          "id": "control.api.sendinput",
+          "type": "source",
+          "pattern": "\\bSendInput\\s*\\("
         }
       ]
     },
@@ -225,6 +312,37 @@
           "id": "process.api.kill-on-job-close",
           "type": "source",
           "pattern": "JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-qa",
+      "capability": "desktop-qa",
+      "summary": "Desktop app QA engine: launch, drive, assert and capture installed apps (with rightkit-control)",
+      "fingerprints": [
+        {
+          "id": "qa.npm.webdriverio",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "webdriverio"
+        },
+        {
+          "id": "qa.npm.wdio-cli",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@wdio/cli"
+        },
+        {
+          "id": "qa.npm.axe-playwright",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@axe-core/playwright"
+        },
+        {
+          "id": "qa.cargo.tauri-driver",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-driver"
         }
       ]
     },
