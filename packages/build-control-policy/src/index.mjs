@@ -166,7 +166,11 @@ export function managedBuildViolation(command) {
   const pathAssignments = [...executableText.matchAll(/(?:^|\s)PATH=([^\s;&|]+)/gi)];
   const rightkitCanResolveSafely = pathAssignments.every((match) => trustedAgentPath(match[1]));
   const withoutSanctionedRightkit = rightkitCanResolveSafely
-    ? executableText.replace(/(^|[\s;&|()$`"'])rightkit(\s+(?:remote\s+(?:windows|mac|macos)\s+)?)(cargo|rustc|rustdoc)\b/gim, '$1rightkit$2__rightkit_managed_tool__')
+    ? executableText
+      .replace(/(^|[\s;&|()$`"'])rightkit(\s+(?:remote\s+(?:windows|mac|macos)\s+)?)(cargo|rustc|rustdoc)\b/gim, '$1rightkit$2__rightkit_managed_tool__')
+      // `right-release publish cargo` names a registry, not a tool; it routes Cargo through the
+      // managed client itself.
+      .replace(/(^|[\s;&|()$`"'])((?:node\s+\S*right-release(?:\.mjs)?|right-release)\s+publish\s+)cargo\b/gim, '$1$2__rightkit_publish_registry__')
     : executableText;
   // The managed shims are reached through PATH, so redirecting PATH shadows
   // them and every later check. packageManagerInvocation already refused such a

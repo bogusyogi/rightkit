@@ -45,9 +45,10 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
     if (!SHA.test(String(evidence.commit ?? ""))) missing.push("evidence commit is not a full 40-character SHA");
     else if (head && evidence.commit !== head) missing.push(`evidence commit ${evidence.commit} != current HEAD ${head}`);
     const runs = Array.isArray(evidence.runs) ? evidence.runs : [];
-    // npm UI packages may ship on macOS evidence first when Adrian decides so; the decision must be
+    // npm packages and crates may ship on macOS evidence first when Adrian decides so; the decision must be
     // recorded in the evidence (hostPolicy "darwin-only" + a non-empty hostPolicyReason).
-    const darwinOnly = kind === "npm" && evidence.hostPolicy === "darwin-only"
+    // Crates may ship Mac-first too (Adrian 2026-10-07): the Windows run follows; the reason is recorded.
+    const darwinOnly = (kind === "npm" || kind === "cargo") && evidence.hostPolicy === "darwin-only"
       && typeof evidence.hostPolicyReason === "string" && evidence.hostPolicyReason.trim() !== "";
     for (const host of darwinOnly ? ["darwin"] : requiredHosts(kind)) {
       const label = host === "darwin" ? "macOS" : "Windows";
