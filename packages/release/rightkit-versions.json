@@ -28,7 +28,7 @@
     "@rightkit/pdf-ui": "0.1.2",
     "@rightkit/platform-ui": "0.1.2",
     "@rightkit/qa": "0.3.0",
-    "@rightkit/qa-chrome": "0.1.2",
+    "@rightkit/qa-chrome": "0.1.3",
     "@rightkit/release": "0.2.124",
     "@rightkit/settings-ui": "0.2.7",
     "@rightkit/shell": "0.1.0",
@@ -202,7 +202,8 @@
     ],
     "@rightkit/qa-chrome": [
       "0.1.0",
-      "0.1.1"
+      "0.1.1",
+      "0.1.2"
     ]
   },
   "cargo": {
@@ -325,7 +326,7 @@
       "@rightkit/pdf-ui": "0.1.2",
       "@rightkit/platform-ui": "0.1.2",
       "@rightkit/qa": "0.3.0",
-      "@rightkit/qa-chrome": "0.1.2",
+      "@rightkit/qa-chrome": "0.1.3",
       "@rightkit/release": "0.2.124",
       "@rightkit/settings-ui": "0.2.7",
       "@rightkit/shell": "0.1.0",
