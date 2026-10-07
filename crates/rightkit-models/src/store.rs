@@ -28,6 +28,28 @@
 //! [`Store::adopt`]) and call [`Store::sync_legacy_alias`]. On unix the link
 //! is replaced atomically (rename over); on Windows it is removed and
 //! recreated, so a reader can briefly see no alias.
+//!
+//! **Per-id alias locations.** [`Store::with_legacy_alias_map`] lets the app
+//! name each id's alias path (`None` falls back to the alias root, if any), so
+//! aliases can sit anywhere an app's runtime expects them: a flat runtime dir
+//! (`<qts dir>/<id>`) or inside the store root (`<root>/<id>/r3`). The same
+//! maintenance and real-path rules apply, plus:
+//! - the path must be absolute-or-relative without `.`/`..` components and lie
+//!   under an allowed root: the store root, the alias root, or a root added
+//!   with [`Store::with_legacy_alias_allowed_root`] (the explicit opt-in);
+//! - inside the store root, an alias must sit in **its own** model directory
+//!   (`<root>/<id>/<name>[/...]`), and `<name>` must not be a store-owned
+//!   entry (`revisions`, `state.json`/`state.*`, or any dot-name such as
+//!   `.staging`, `.aside`, `.adopt`), compared ASCII-case-insensitively; a
+//!   top-level `<root>/<name>` is always refused (it is model or registry
+//!   namespace). A refused path reports [`AliasStatus::Failed`] and nothing is
+//!   written.
+//!
+//! **URL rewrite (test seam).** [`Store::with_url_rewrite`] sends every file
+//! download to a loopback mock server instead of the manifest host. The crate
+//! has no build-mode switch, so this is a documented test/dev seam: it is
+//! explicit (never read from the environment) and refuses any non-loopback
+//! base, so it cannot redirect production downloads to another host.
 
 use crate::error::{Error, ErrorCode, Result};
 use crate::hash::sha256_file;
@@ -37,7 +59,8 @@ use crate::spec::safe_rel_path;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -85,6 +108,21 @@ pub struct Store {
     pub app: String,
     shared_roots: BTreeMap<String, PathBuf>,
     legacy_alias_root: Option<PathBuf>,
+    legacy_alias_map: Option<AliasMap>,
+    alias_allowed_roots: Vec<PathBuf>,
+    url_rewrite: Option<String>,
+}
+
+/// App-supplied `id -> alias path` mapping ([`Store::with_legacy_alias_map`]).
+type AliasFn = dyn Fn(&str) -> Option<PathBuf> + Send + Sync;
+
+#[derive(Clone)]
+struct AliasMap(Arc<AliasFn>);
+
+impl std::fmt::Debug for AliasMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AliasMap(..)")
+    }
 }
 
 /// The active revision of a model, as runtimes should load it.
@@ -138,6 +176,9 @@ impl Store {
             app: app.into(),
             shared_roots: BTreeMap::new(),
             legacy_alias_root: None,
+            legacy_alias_map: None,
+            alias_allowed_roots: Vec::new(),
+            url_rewrite: None,
         }
     }
 
@@ -195,10 +236,150 @@ impl Store {
         Ok(self)
     }
 
-    /// `<alias root>/<id>` when the legacy alias is enabled.
+    /// Per-id alias locations (see the module docs): `map(id)` names where
+    /// `id`'s legacy alias lives; `None` falls back to the alias root (if
+    /// configured), else no alias. Mapped paths are validated on every use.
+    pub fn with_legacy_alias_map(
+        mut self,
+        map: impl Fn(&str) -> Option<PathBuf> + Send + Sync + 'static,
+    ) -> Self {
+        self.legacy_alias_map = Some(AliasMap(Arc::new(map)));
+        self
+    }
+
+    /// [`Store::with_legacy_alias_map`] from a fixed `id -> path` table.
+    pub fn with_legacy_alias_paths(self, paths: BTreeMap<String, PathBuf>) -> Self {
+        self.with_legacy_alias_map(move |id| paths.get(id).cloned())
+    }
+
+    /// Explicitly allow mapped aliases under `dir` (besides the store root and
+    /// the alias root). Repeatable.
+    pub fn with_legacy_alias_allowed_root(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.alias_allowed_roots.push(dir.into());
+        self
+    }
+
+    /// The legacy alias path for `id`, when one is configured: the mapped
+    /// path (validated), else `<alias root>/<id>`. A mapped path that breaks
+    /// the alias rules is an `InvalidSpec` error.
     pub fn legacy_alias_path(&self, id: &str) -> Result<Option<PathBuf>> {
         let id = ModelId::parse(id)?;
+        if let Some(map) = &self.legacy_alias_map {
+            if let Some(p) = (map.0)(id.as_str()) {
+                self.check_alias_path(id.as_str(), &p)?;
+                return Ok(Some(p));
+            }
+        }
         Ok(self.legacy_alias_root.as_ref().map(|r| r.join(id.as_str())))
+    }
+
+    /// Enforce the mapped-alias placement rules (module docs).
+    fn check_alias_path(&self, id: &str, p: &Path) -> Result<()> {
+        let refuse = |why: String| {
+            Err(Error::new(
+                ErrorCode::InvalidSpec,
+                format!("legacy alias {} for {id}: {why}", p.display()),
+            ))
+        };
+        if p.components()
+            .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
+            || p.file_name().is_none()
+        {
+            return refuse("path must name an entry and have no `.`/`..` components".into());
+        }
+        let abs = crate::alias::absolute(p);
+        let root = crate::alias::absolute(&self.root);
+        if let Some(rel) = under(&abs, &root) {
+            return self.check_in_store(id, &rel).or_else(refuse);
+        }
+        let allowed = self
+            .legacy_alias_root
+            .iter()
+            .chain(self.alias_allowed_roots.iter())
+            .map(|r| crate::alias::absolute(r))
+            .any(|r| under(&abs, &r).is_some_and(|rel| rel.components().next().is_some()));
+        if !allowed {
+            return refuse(
+                "outside the store root, the alias root and every allowed root \
+                 (opt in with with_legacy_alias_allowed_root)"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+
+    /// `rel` is the alias path relative to the store root.
+    fn check_in_store(&self, id: &str, rel: &Path) -> std::result::Result<(), String> {
+        let parts: Vec<String> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        if parts.len() < 2 {
+            return Err("a top-level entry of the store root is model/registry namespace".into());
+        }
+        if parts[0] != id {
+            return Err(format!(
+                "inside the store root an alias must sit in its own model directory <root>/{id}/"
+            ));
+        }
+        let name = parts[1].to_ascii_lowercase();
+        if name.starts_with('.')
+            || name == "revisions"
+            || name == "state.json"
+            || name.starts_with("state.")
+            || name == "state"
+        {
+            return Err(format!("{:?} is store-owned revision storage", parts[1]));
+        }
+        Ok(())
+    }
+
+    /// Test/dev seam: rewrite every file URL's scheme + authority to `base`
+    /// (keeping path and query; a path prefix on `base` is prepended), e.g.
+    /// `https://hf.co/org/m/resolve/main/x.onnx` with base
+    /// `http://127.0.0.1:4100` downloads `http://127.0.0.1:4100/org/m/resolve/main/x.onnx`.
+    /// Refuses any base that is not `http://` on a loopback host
+    /// (`127.0.0.0/8`, `localhost`, `[::1]`). Never read from the environment.
+    pub fn with_url_rewrite(mut self, base: &str) -> Result<Self> {
+        let bad = || {
+            Error::new(
+                ErrorCode::InvalidSpec,
+                format!("url rewrite base {base:?} must be http:// on a loopback host"),
+            )
+        };
+        let rest = base.strip_prefix("http://").ok_or_else(bad)?;
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        let host = if let Some(v6) = authority.strip_prefix('[') {
+            v6.split(']').next().unwrap_or("")
+        } else {
+            authority.rsplit_once(':').map_or(authority, |(h, _)| h)
+        };
+        let loopback = host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback());
+        if authority.contains('@') || !loopback || rest[authority.len()..].contains(['?', '#']) {
+            return Err(bad());
+        }
+        self.url_rewrite = Some(base.trim_end_matches('/').to_string());
+        Ok(self)
+    }
+
+    /// The URL a file is actually fetched from (see [`Store::with_url_rewrite`]).
+    pub fn download_url(&self, url: &str) -> String {
+        let Some(base) = &self.url_rewrite else {
+            return url.to_string();
+        };
+        let after_scheme = url.split_once("://").map_or(url, |(_, r)| r);
+        let path = after_scheme
+            .find(['/', '?', '#'])
+            .map_or("/", |i| &after_scheme[i..]);
+        let path = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{path}")
+        };
+        format!("{base}{path}")
     }
 
     /// `<root>/<id>`; fails for any id that is not a single safe path component.
@@ -625,6 +806,22 @@ impl Store {
         let _ = fs::remove_dir(&aside_root);
         Ok(restored)
     }
+}
+
+/// `p` relative to `root` when `p` is lexically under it and, where an
+/// ancestor of `p` exists, its resolved location is under resolved `root`
+/// too (a symlinked parent cannot smuggle an alias elsewhere).
+fn under(p: &Path, root: &Path) -> Option<PathBuf> {
+    let rel = p.strip_prefix(root).ok()?.to_path_buf();
+    let mut anc = p.parent();
+    while let Some(a) = anc.filter(|a| a.starts_with(root)) {
+        if let Ok(real) = fs::canonicalize(a) {
+            let real_root = fs::canonicalize(root).ok()?;
+            return real.starts_with(&real_root).then_some(rel);
+        }
+        anc = a.parent();
+    }
+    Some(rel)
 }
 
 pub(crate) fn is_link(p: &Path) -> bool {
