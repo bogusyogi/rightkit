@@ -2,43 +2,25 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/release",
-  "version": "0.2.112",
-  "commit": "beaeb9950c911c5acef8319862746c1b7b25f4de",
-  "artifactSha256": "1b08ba6856bb5cc5d0abe8033dfd0e1f3f1b26120d9051da5937649372cb5cab",
-  "packagePathTree": "52dd46a796dda71d06ff66f6efd842e213b27cf5",
+  "version": "0.2.113",
+  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+  "artifactSha256": "57a76a1a2b445cda1141aa46def79390eb4075672db9b33e810f0804288c840b",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "beaeb9950c911c5acef8319862746c1b7b25f4de",
-      "command": "RIGHTKIT_BUILD_BROKER_SOCKET=<managed> TMPDIR=$(realpath $TMPDIR) pnpm test:release (tools/rightkit, primary checkout)",
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "pnpm test:release (broker socket set)",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T01:04:50Z",
+      "timestamp": "2026-10-07",
       "passed": 486,
-      "failed": 0,
-      "skipped": 16
-    },
-    {
-      "host": {
-        "os": "win32",
-        "arch": "x64"
-      },
-      "commit": "a55010ff6b0272d0839f72c59240dccdbb595d8b",
-      "command": "pnpm test:release (Windows primary checkout, Windows agent)",
-      "features": [
-        "default"
-      ],
-      "operator": "Windows agent for adrdsouza",
-      "timestamp": "2026-10-07 (see Windows log; reported to lead ~01:00Z)",
-      "passed": 500,
-      "failed": 0,
-      "skipped": 2,
-      "note": "a55010ff..HEAD changes only release-evidence JSON; tools/rightkit/packages/release tree 52dd46a7 is identical at both commits. Log: tasks/handoffs/2026-10-07/rightkit-windows-evidence/test-release-a55010ff.log"
+      "failed": 0
     }
-  ]
+  ],
+  "note": "Mac-only gate by Adrian's decision (2026-10-07: apps validate first, Windows later). Registry shasum verified equal to this tarball."
 }

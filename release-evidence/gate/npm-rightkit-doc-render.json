@@ -2,31 +2,25 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/doc-render",
-  "version": "0.1.0",
-  "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-  "artifactSha256": "14c0a85990e06728eac22631ba0525c32720afd4031af9daf28a3add817a0033",
+  "version": "0.1.1",
+  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+  "artifactSha256": "cbaa9e6d4c7443a7f01225b4337e4e4f9b9dd6217cadb0f26bf6a4e94ff1854c",
   "runs": [
     {
       "host": {
-        "os": "darwin"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm test (packages/doc-render)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:28:16.579Z",
-      "passed": 5,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "win32"
-      },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm test (packages/doc-render, D:\\rk-gate\\3107b240 export)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:28:26.612Z",
-      "passed": 5,
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "pnpm exec vitest run",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07",
+      "passed": 7,
       "failed": 0
     }
-  ]
+  ],
+  "note": "Mac-only gate by Adrian's decision (2026-10-07: apps validate first, Windows later). Registry shasum verified equal to this tarball."
 }

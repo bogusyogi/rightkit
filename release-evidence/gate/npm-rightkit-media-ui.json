@@ -2,39 +2,25 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/media-ui",
-  "version": "0.2.0",
-  "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
-  "artifactSha256": "de2af3a81ddec624aa77c2b52d1a6e9acab2c6e8a4491b25e432135ae0cabb9d",
+  "version": "0.2.1",
+  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+  "artifactSha256": "d373b8f5f74b234a316ae34951043a76c19f5008b8411a9ab0b1010dafc4ae13",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
-      "command": "pnpm exec vitest run && pnpm run test:browser (packages/media-ui, primary checkout)",
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "pnpm exec vitest run && pnpm run test:browser",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T00:34:42Z",
-      "passed": 32,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "win32",
-        "arch": "x64"
-      },
-      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
-      "command": "pnpm --filter @rightkit/media-ui... run build; pnpm exec vitest run && pnpm run test:browser (packages/media-ui, D:\\rk-gate\\bca54d20 git-archive export of bca54d20)",
-      "features": [
-        "default"
-      ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T00:35:41Z",
-      "passed": 32,
+      "timestamp": "2026-10-07",
+      "passed": 44,
       "failed": 0
     }
-  ]
+  ],
+  "note": "Mac-only gate by Adrian's decision (2026-10-07: apps validate first, Windows later). Registry shasum verified equal to this tarball."
 }

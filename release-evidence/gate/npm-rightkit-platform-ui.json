@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/platform-ui",
+  "version": "0.1.2",
+  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+  "artifactSha256": "f9b6e49b081e1c550dbbe295270f70460cbb42d39dc960c005182603a22fee15",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "pnpm exec vitest run",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07",
+      "passed": 19,
+      "failed": 0
+    }
+  ],
+  "note": "Mac-only gate by Adrian's decision (2026-10-07: apps validate first, Windows later). Registry shasum verified equal to this tarball."
+}
