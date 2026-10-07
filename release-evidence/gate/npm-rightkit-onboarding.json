@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/onboarding",
-  "version": "0.2.2",
-  "commit": "8698b036d76cd99c72299ce8467419bfc7422db6",
-  "artifactSha256": "b715f8135787ee0e45e48a6d3cadef0b9140e23e34da382676a5e90782fcb3fa",
+  "version": "0.2.3",
+  "commit": "85eb30369a4eda5310d640b6800d8bc844200629",
+  "artifactSha256": "fb7fe3996f4c9975be3b26ae4371040c992c7102390fa41a597b5abd979ada49",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,13 +13,13 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "8698b036d76cd99c72299ce8467419bfc7422db6",
-      "command": "pnpm exec vitest run (incl. real-Chrome e2e)",
+      "commit": "85eb30369a4eda5310d640b6800d8bc844200629",
+      "command": "pnpm exec vitest run",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T11:13:31Z",
+      "timestamp": "2026-10-07T14:26:05Z",
       "passed": 41,
       "failed": 0
     }

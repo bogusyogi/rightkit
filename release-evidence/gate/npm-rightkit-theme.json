@@ -2,37 +2,24 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/theme",
-  "version": "0.2.0",
-  "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
-  "artifactSha256": "da6bc62e62ad09802b4842a724e59b289977f23a2ce31218f7603a3e02b16955",
+  "version": "0.2.1",
+  "commit": "85eb30369a4eda5310d640b6800d8bc844200629",
+  "artifactSha256": "a117f38d1c5f11045b8ad6377c70a9e536ecb893c28ce32e3512861d89c715f3",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
-      "command": "pnpm exec vitest run (packages/theme, primary checkout)",
+      "commit": "85eb30369a4eda5310d640b6800d8bc844200629",
+      "command": "pnpm exec vitest run",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T00:34:23Z",
-      "passed": 9,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "win32",
-        "arch": "x64"
-      },
-      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
-      "command": "pnpm --filter @rightkit/theme... run build; pnpm exec vitest run (packages/theme, D:\\rk-gate\\bca54d20 git-archive export of bca54d20)",
-      "features": [
-        "default"
-      ],
-      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T00:35:41Z",
+      "timestamp": "2026-10-07T14:26:20Z",
       "passed": 9,
       "failed": 0
     }

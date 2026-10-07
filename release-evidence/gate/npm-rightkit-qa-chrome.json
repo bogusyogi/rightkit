@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/qa-chrome",
+  "version": "0.1.2",
+  "commit": "33023c24786eeecb931ad9e71b40f5afaa18f8f0",
+  "artifactSha256": "742d821deb0f8ccdf2f96387138da298502a949fcfcd1a6034768ab7ff8c55b7",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "33023c24786eeecb931ad9e71b40f5afaa18f8f0",
+      "command": "pnpm exec vitest run",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07T20:11:35Z",
+      "passed": 6,
+      "failed": 0
+    }
+  ]
+}

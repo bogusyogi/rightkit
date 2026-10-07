@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/media-ui",
-  "version": "0.2.5",
-  "commit": "2c56e6a1ed9cd4cd3f90fbc24b1c50a11cda90ec",
-  "artifactSha256": "8108bd47fa952a881177d985b54668473f799bdc313ee55a589bb29238e9a59d",
+  "version": "0.2.6",
+  "commit": "995a4f46495bdbd8bba07b11633db61624bbaeff",
+  "artifactSha256": "eea9c7bdbd4322f93a60d10a7c7bb1becc42bbcaabaa46f9816a4140a0aa72f2",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "2c56e6a1ed9cd4cd3f90fbc24b1c50a11cda90ec",
-      "command": "pnpm exec vitest run && pnpm run test:browser",
+      "commit": "995a4f46495bdbd8bba07b11633db61624bbaeff",
+      "command": "pnpm exec vitest run + test:browser (Chrome for Testing e2e)",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T08:16:29Z",
-      "passed": 57,
+      "timestamp": "2026-10-07T14:45:21Z",
+      "passed": 44,
       "failed": 0
     }
   ]

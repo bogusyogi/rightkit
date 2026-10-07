@@ -2,30 +2,26 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-speech-client",
-  "version": "0.1.0",
-  "commit": "70a0116554417d27265b5691a16ae682634bf9a6",
-  "artifactSha256": "8e033384dc21ea462d80b028c5e28af4e7cca89f7014bc2e4e6edba7563c1b18",
+  "version": "0.3.0",
+  "commit": "995a4f46495bdbd8bba07b11633db61624bbaeff",
+  "artifactSha256": "f162ca5e934a3ef88cba38aa2be07977513277b6038f6550c88e9f1a22688303",
+  "artifactBasis": "git archive HEAD crates/rightkit-speech-client",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
   "runs": [
     {
       "host": {
-        "os": "win32"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "70a0116554417d27265b5691a16ae682634bf9a6",
-      "command": "rightkit cargo test -p rightkit-speech-client --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T10:34:47.103148Z",
-      "passed": 4,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "darwin"
-      },
-      "commit": "70a0116554417d27265b5691a16ae682634bf9a6",
-      "command": "rightkit cargo test -p rightkit-speech-client --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T10:45:45.170202Z",
-      "passed": 19,
+      "commit": "995a4f46495bdbd8bba07b11633db61624bbaeff",
+      "command": "right-release publish cargo --crate rightkit-speech-client --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07T14:44:08Z",
+      "passed": 24,
       "failed": 0
     }
   ]
