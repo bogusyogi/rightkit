@@ -15,6 +15,11 @@ import { safeResourceSnapshot } from './resource-telemetry.mjs';
 function stripBom(text) { return typeof text === 'string' && text.charCodeAt(0) === 0xfeff ? text.slice(1) : text; }
 
 const packageNames = ['build-control-broker', 'build-control-core', 'build-control-clients'];
+/** Ownership scanner bundle: the exact @rightkit/release files the broker runs for build admission,
+ * staged into the immutable runtime so an agent cannot swap the scanner or catalog under a live broker. */
+export const OWNERSHIP_SCANNER_DIR = 'ownership-scanner';
+export const OWNERSHIP_SCANNER_FILES = Object.freeze(['ownership.mjs', 'ownership-approval.mjs', 'background-process.mjs', 'committed-source.mjs', 'ownership-git-inventory.mjs', 'rightkit-ownership.json']);
+const OWNERSHIP_SCANNER_DEPENDENCIES = Object.freeze(['smol-toml']);
 export const WINDOWS_JOB_ADDON_RELATIVE_PATH = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node';
 export const MACOS_RESOURCE_ADDON_RELATIVE_PATH = 'build-control-broker/native/macos-resource/build/Release/rightkit_macos_resource.node';
 const execFile = promisify(nodeExecFile);
@@ -34,6 +39,7 @@ export async function stageManagedRuntime({ externalRoot, sourcePackagesRoot, ve
   try {
     for (const name of packageNames) { const target = join(staging, name); await mkdir(target, { recursive: true }); await Promise.all([cp(join(source, name, 'src'), join(target, 'src'), { recursive: true }), cp(join(source, name, 'package.json'), join(target, 'package.json'))]); }
     await stageRuntimeDependencies(staging, source);
+    await stageOwnershipScanner(staging, source);
     const addon = platform === 'win32' ? await stageWindowsJobAddon(staging, source, windowsJobAddon) : undefined;
     const macAddon = platform === 'darwin' ? await stageMacosResourceAddon(staging, source, macosResourceAddon) : undefined;
     await linkRuntimePackages(staging);
@@ -118,7 +124,7 @@ export async function replaceRuntimeSelection({ root, current, next, platform = 
 }
 
 export async function writeRuntimeManifest(runtime, version, provenance, windowsJobAddon, { platform = process.platform, macosResourceAddon } = {}) {
-  const coreDigest = await digestTree(join(runtime, 'build-control-core')); const clientPackageDigest = await digestTree(join(runtime, 'build-control-clients')); const brokerPackageDigest = await digestTree(join(runtime, 'build-control-broker'));
+  const coreDigest = await digestTree(join(runtime, 'build-control-core')); const clientPackageDigest = await digestTree(join(runtime, 'build-control-clients')); const brokerPackageDigest = hash(`${await digestTree(join(runtime, 'build-control-broker'))}:${await digestTree(join(runtime, OWNERSHIP_SCANNER_DIR))}`);
   const identity = normalizeRuntimeIdentity({ schema: RUNTIME_MANIFEST_SCHEMA, version, clientDigest: hash(`${coreDigest}:${clientPackageDigest}`), brokerDigest: hash(`${coreDigest}:${brokerPackageDigest}`) });
   const manifest = normalizeRuntimeManifest({ ...identity, ...provenance, ...(windowsJobAddon ? { windowsJobAddon } : {}), ...(macosResourceAddon ? { macosResourceAddon } : {}) });
   const path = join(runtime, 'runtime-manifest.json'); const handle = await open(path, 'wx', 0o444);
@@ -203,7 +209,7 @@ async function verifySourceProvenance(sourcePackagesRoot, { sourceRevision, sour
   const scopedPath = normalizeGitScopedPath(filesystemScopedPath);
   // Only these packages are staged. Unrelated RightKit release/app work must
   // not block promotion of a fully committed managed runtime.
-  const runtimePaths = packageNames.map((name) => `${scopedPath}/${name}`);
+  const runtimePaths = [...packageNames.map((name) => `${scopedPath}/${name}`), ...OWNERSHIP_SCANNER_FILES.map((file) => `${scopedPath}/release/${file}`)];
   const status = await gitAt(repository, ['status', '--porcelain=v1', '--untracked-files=all', '--', ...runtimePaths]);
   if (status) throw new Error(`runtime source packages root is dirty or contains untracked files: ${scopedPath}`);
   const actualRevision = await gitAt(repository, ['rev-parse', 'HEAD']); const actualTree = await gitAt(repository, ['rev-parse', `HEAD:${scopedPath}`]);
@@ -313,6 +319,23 @@ const syncDirectory = syncDirectoryForPlatform;
 async function linkRuntimePackages(runtime) {
   for (const consumer of ['build-control-broker', 'build-control-clients']) { const directory = join(runtime, consumer, 'node_modules', '@rightkit'); await mkdir(directory, { recursive: true }); await symlink('../../../build-control-core', join(directory, 'build-control-core')); }
   await symlink('../../../build-control-clients', join(runtime, 'build-control-broker', 'node_modules', '@rightkit', 'build-control-clients'));
+}
+
+async function stageOwnershipScanner(runtime, sourcePackagesRoot) {
+  const releaseRoot = join(sourcePackagesRoot, 'release'); const target = join(runtime, OWNERSHIP_SCANNER_DIR);
+  await mkdir(target, { recursive: true });
+  for (const file of OWNERSHIP_SCANNER_FILES) await cp(join(releaseRoot, file), join(target, file));
+  const release = JSON.parse(stripBom(await readFile(join(releaseRoot, 'package.json'), 'utf8')));
+  const dependencies = Object.fromEntries(OWNERSHIP_SCANNER_DEPENDENCIES.map((name) => {
+    const version = release.dependencies?.[name];
+    if (!version) throw new Error(`ownership scanner dependency ${name} is not declared by @rightkit/release`);
+    return [name, version];
+  }));
+  await writeFile(join(target, 'package.json'), `${JSON.stringify({ name: '@rightkit/ownership-scanner-runtime', private: true, type: 'module', version: release.version, dependencies }, null, 2)}\n`);
+  const sourceRequire = createRequire(join(releaseRoot, 'package.json')); const fallbackRequire = createRequire(import.meta.url); const seen = new Set();
+  for (const [dependency, declaredVersion] of Object.entries(dependencies)) {
+    await stageExternalDependency({ dependency, declaredVersion, targetModules: join(target, 'node_modules'), sourceRequire, fallbackRequire, seen });
+  }
 }
 
 async function stageRuntimeDependencies(runtime, sourcePackagesRoot) {

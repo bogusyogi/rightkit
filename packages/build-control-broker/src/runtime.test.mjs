@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile as nodeExecFile } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, functionalResourceFailure, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, replaceRuntimeSelection, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
+import { OWNERSHIP_SCANNER_DIR, OWNERSHIP_SCANNER_FILES, RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, functionalResourceFailure, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, replaceRuntimeSelection, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -71,6 +72,8 @@ test('native functional health requires a real resource snapshot', () => {
 async function sourceFixture() {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-source-')); const packages = join(root, 'packages'); const healthWorkspace = join(root, 'health');
   for (const name of ['build-control-broker', 'build-control-core', 'build-control-clients']) await cp(join(sourcePackages, name), join(packages, name), { recursive: true });
+  await mkdir(join(packages, 'release'), { recursive: true });
+  for (const file of [...OWNERSHIP_SCANNER_FILES, 'package.json']) await cp(join(sourcePackages, 'release', file), join(packages, 'release', file));
   const addonRelative = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node'; const addonPath = join(packages, addonRelative); const addonBytes = Buffer.from('MZ-fixture-rightkit-job-addon');
   await mkdir(join(packages, 'build-control-broker/native/windows-job/build/Release'), { recursive: true }); await writeFile(addonPath, addonBytes);
   const macAddonPath = join(packages, 'build-control-broker/native/macos-resource/build/Release/rightkit_macos_resource.node'); const macAddonBytes = Buffer.from('fixture-macos-resource-addon');
@@ -186,4 +189,16 @@ test('failed staging removes its unique staging directory', async () => {
     await assert.rejects(stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: join(root, 'missing'), version: 'bad-v1' }));
     assert.deepEqual(await readdir(root), []);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('staged runtime carries a loadable ownership scanner and its catalog, bound into the broker digest', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
+    const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'scanner', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
+    const scannerRoot = join(staged.runtime, OWNERSHIP_SCANNER_DIR);
+    for (const file of OWNERSHIP_SCANNER_FILES) assert.ok(await lstat(join(scannerRoot, file)), `${file} staged`);
+    const scanner = await import(pathToFileURL(join(scannerRoot, 'ownership.mjs')).href);
+    const catalog = JSON.parse(await readFile(join(scannerRoot, 'rightkit-ownership.json'), 'utf8'));
+    assert.equal(typeof scanner.checkApp, 'function');
+    assert.ok(catalog.capabilities.length > 0);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
 });
