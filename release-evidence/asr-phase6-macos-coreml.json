@@ -1,0 +1,37 @@
+{
+  "gate": "rightkit-asr phase 6 parity",
+  "heardright_host": "heardright-engine/0.1.0+parakeet-unified-coreml",
+  "model_bundle": "/Users/adrdsouza/Library/Application Support/HeardRightNext/models/parakeet-tdt-v3",
+  "model_fingerprint": "688b022989b43fc8",
+  "platform": "macos-coreml",
+  "results": [
+    {
+      "fixture": "short_9s.wav",
+      "heardright_text": "Please set a timer for 23 minutes and remind me to check the oven. I bought 6 fresh mangoes, 3 bananas and a bottle of sparkling water.",
+      "max_timing_delta_ms": 0,
+      "rightkit_text": "Please set a timer for twenty-three minutes and remind me to check the oven. I bought six fresh mangoes, three bananas and a bottle of sparkling water.",
+      "text_equal": false,
+      "words": 27,
+      "words_equal": true
+    },
+    {
+      "fixture": "long_38s.wav",
+      "heardright_text": "Both runs remain healthy. Small is epoch 5 step 1 2 9 2 7 5 at 11500000. Best PER 0.0580 m 1 N A N 13. Medium is Epoch 4 step 1 0 6 0 7 5 at 14000000.\nBest PER 0.050 O M 5 Slash NAN 10. Watches are aligned and the OOM counts are still far below the rollback threshold.",
+      "max_timing_delta_ms": 0,
+      "rightkit_text": "Both runs remain healthy. Small is epoch five step one two nine two seven five at eleven point five million. Best PER zero point zero five eight eight oh oh m one N A N thirteen. Medium is Epoch four step one zero six zero seven five at fourteen million. Best PER zero point zero five zero zero O O M five Slash NAN ten. Watches are aligned and the OOM counts are still far below the rollback threshold.",
+      "text_equal": false,
+      "words": 79,
+      "words_equal": true
+    },
+    {
+      "fixture": "filler_retake.wav",
+      "heardright_text": "Hi, I'm testing cut right today, so, the main idea is simple. The main idea is simple, you record a talking head video, and the app turns it into a finished edit automatically.\nIt removes dead space, it removes repeated takes, and it adds captions. Then you can make short clips for social media, thanks for watching, and see you next time",
+      "max_timing_delta_ms": 0,
+      "rightkit_text": "Hi, I'm testing cut right today, so, the main idea is simple. The main idea is simple, you record a talking head video, and the app turns it into a finished edit automatically. It removes dead space, it removes repeated takes, and it adds captions. Then you can make short clips for social media, thanks for watching, and see you next time",
+      "text_equal": true,
+      "words": 62,
+      "words_equal": true
+    }
+  ],
+  "tolerance_ms": 80
+}
