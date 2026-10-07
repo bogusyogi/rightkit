@@ -27,7 +27,8 @@
     "@rightkit/onboarding": "0.2.3",
     "@rightkit/pdf-ui": "0.1.2",
     "@rightkit/platform-ui": "0.1.2",
-    "@rightkit/qa": "0.2.2",
+    "@rightkit/qa": "0.2.3",
+    "@rightkit/qa-chrome": "0.1.0",
     "@rightkit/release": "0.2.121",
     "@rightkit/settings-ui": "0.2.6",
     "@rightkit/shell": "0.1.0",
@@ -147,7 +148,8 @@
     "@rightkit/qa": [
       "0.1.0",
       "0.2.0",
-      "0.2.1"
+      "0.2.1",
+      "0.2.2"
     ],
     "@rightkit/app-shell": [
       "0.1.0",

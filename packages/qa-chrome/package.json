@@ -1,0 +1,42 @@
+{
+  "name": "@rightkit/qa-chrome",
+  "version": "0.1.0",
+  "description": "Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses.",
+  "license": "MIT OR Apache-2.0",
+  "packageManager": "pnpm@11.24.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bogusyogi/claude.git",
+    "directory": "tools/rightkit/packages/qa-chrome"
+  }
+}

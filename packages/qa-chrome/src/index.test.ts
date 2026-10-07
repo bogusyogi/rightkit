@@ -10,7 +10,7 @@ import {
   findChromeForTesting,
   launchChromeForTesting,
   resolveChromeForTesting,
-} from './chrome.js';
+} from './index.js';
 
 const scratch = mkdtempSync(path.join(tmpdir(), 'rk-qa-cft-test-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
