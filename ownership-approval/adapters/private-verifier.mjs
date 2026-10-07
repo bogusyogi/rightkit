@@ -4,7 +4,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "../../packages/release/background-process.mjs";
-import { createOwnershipEvidence } from "../../packages/release/ownership-evidence.mjs";
+import { createCommittedOwnershipEvidence } from "../../packages/release/ownership-evidence.mjs";
 import { canonicalRepositoryIdentity, loadTrustedExternal, sha256 } from "../../packages/release/ownership-approval.mjs";
 import { sourceTreeDigest, RECEIPT_SCHEMA, RECEIPT_TYPE } from "./receipt.mjs";
 import { nativeGitExecutable, protectedChildEnvironment } from "./runtime-environment.mjs";
@@ -25,7 +25,7 @@ export function verifyPrivateRepository(repoRoot, expectedCommit, expectedTree) 
   const origin = git(root, ["remote", "get-url", "origin"]).toString("utf8").trim();
   const repositoryIdentity = canonicalRepositoryIdentity(origin);
   const sourceDigest = sourceTreeDigest(git(root, ["ls-tree", "-rz", "--full-tree", commit]));
-  const checked = createOwnershipEvidence(root, root);
+  const checked = createCommittedOwnershipEvidence(root, root);
   if (checked.evidence.visibility !== "private") throw new Error("registered repository visibility is not private");
   if (!checked.ok) throw new Error(`ownership scan or protected floor failed: ${[...(checked.result.problems ?? []), ...(checked.floor.problems ?? [])].join("; ")}`);
   if (checked.evidence.repositoryIdentity !== repositoryIdentity || checked.evidence.commit !== commit || checked.evidence.tree !== tree) throw new Error("scanner identity differs from independently observed Git source");

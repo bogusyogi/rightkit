@@ -5,20 +5,37 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { main } from "./ownership-command.mjs";
 
 const releaseRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(releaseRoot, "..", "..", "..", "..");
 
-test("production ownership CLI fails closed with typed JSON when protected trust is unavailable", () => {
-  const command = spawnSync(process.execPath, [path.join(releaseRoot, "ownership-command.mjs"), "--app", repositoryRoot, "--json"], { encoding: "utf8", windowsHide: true });
-  assert.equal(command.status, 1);
-  const output = JSON.parse(command.stdout);
-  assert.equal(output.ok, false);
-  assert.equal(output.error.type, "protected-evidence");
-  assert.match(output.error.message, /protected ownership trust location was not verified|protected ownership trust registry is missing/);
+test("ownership CLI reports pending enrollment as a warning while preserving findings", async () => {
+  const printed = [];
+  const result = { rows: [], violations: [{ fingerprint: "pending", file: "source.rs" }], covered: [], problems: ["approval enrollment pending"], coverage: [], metadata: {} };
+  const status = await main(["--app", repositoryRoot, "--json"], {
+    gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
+    evidenceFactory: () => ({ ok: true, enrollmentPending: true, warning: "WARNING: enrollment pending; findings remain backlog diagnostics", result, floor: { ok: false, problems: ["floor unavailable"] } }),
+    print: (line) => printed.push(line),
+  });
+  assert.equal(status, 0);
+  const output = JSON.parse(printed[0]);
+  assert.equal(output.ok, true);
+  assert.equal(output.enrollmentPending, true);
+  assert.match(output.warning, /^WARNING:/);
+  assert.equal(output.violations[0].fingerprint, "pending");
+  assert.equal(output.error, undefined);
+  const human = [];
+  await main(["--app", repositoryRoot], {
+    gitRunner: () => ({ status: 0, stdout: `${repositoryRoot}\n` }),
+    evidenceFactory: () => ({ ok: true, enrollmentPending: true, warning: "WARNING: enrollment pending; findings remain backlog diagnostics", result, floor: { ok: false, problems: [] } }),
+    print: (line) => human.push(line),
+  });
+  assert.ok(human.some((line) => line.startsWith("  DIAGNOSTIC ")));
+  assert.ok(human.at(-1).includes("WARNING:"));
 });
 
-test("published ownership command runs without development sibling packages & emits typed fail-closed JSON", () => {
+test("published ownership command runs without development sibling packages & reports pending trust warning", () => {
   const temp = mkdtempSync(path.join(os.tmpdir(), "right-release-ownership-pack-"));
   try {
     const packageRoot = path.join(temp, "package");
@@ -53,13 +70,14 @@ test("published ownership command runs without development sibling packages & em
     }
 
     const command = spawnSync(process.execPath, [path.join(packageRoot, "ownership-command.mjs"), "--app", app, "--json"], { encoding: "utf8", windowsHide: true });
-    assert.equal(command.status, 1, command.stderr);
+    assert.equal(command.status, 0, command.stderr);
     const output = JSON.parse(command.stdout);
-    assert.equal(output.ok, false);
-    assert.equal(output.error.type, "protected-evidence");
-    assert.equal(output.rows.length, 0);
-    assert.equal(output.violations.length, 0);
-    assert.match(output.error.message, /protected ownership trust location was not verified|protected ownership trust registry is missing|git remote get-url origin failed/);
+    assert.equal(output.ok, true);
+    assert.equal(output.enrollmentPending, true);
+    assert.match(output.warning, /^WARNING:/);
+    assert.equal(output.error, undefined);
+    assert.ok(Array.isArray(output.rows));
+    assert.ok(Array.isArray(output.violations));
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

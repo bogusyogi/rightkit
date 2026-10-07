@@ -30,6 +30,7 @@ const NEUTRAL = "let greeting = 'hello';";
 
 function app(files = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "rk-ownership-"));
+  assert.equal(spawnSync("git", ["-C", root, "init", "-q"], { windowsHide: true }).status, 0);
   for (const [rel, text] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     writeFileSync(path.join(root, rel), text);
@@ -204,7 +205,7 @@ test("nested scans use canonical repository paths and exact provenance stays wit
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("ignored, hidden, vendored, generated & nested-repository source is scanned; metadata is excluded", () => {
+test("only Git-listed tracked/untracked source is scanned; ignored source & metadata are excluded", () => {
   const root = app({
     ".gitignore": "models/\n", "src/tracked.rs": SAMPLES["oauth.endpoint.github"],
     ".hidden/auth.rs": SAMPLES["oauth.endpoint.google"], "vendor/lib.rs": SAMPLES["secrets.api.wincred"],
@@ -215,8 +216,8 @@ test("ignored, hidden, vendored, generated & nested-repository source is scanned
     const git = (...a) => spawnSync("git", ["-C", root, ...a], { windowsHide: true });
     assert.equal(git("init", "-q").status, 0); assert.equal(git("add", ".gitignore", "src/tracked.rs").status, 0);
     const found = scanApp(root, shipped);
-    for (const rel of ["src/tracked.rs", ".hidden/auth.rs", "vendor/lib.rs", "generated/auth.swift", "nested/src/auth.rs", "models/cache.rs"]) assert.ok(found.some((f) => f.file === rel), rel);
-    assert.ok(!found.some((f) => f.file.includes(".git/")));
+    for (const rel of ["src/tracked.rs", ".hidden/auth.rs", "vendor/lib.rs", "generated/auth.swift", "nested/src/auth.rs"]) assert.ok(found.some((f) => f.file === rel), rel);
+    assert.ok(!found.some((f) => f.file.includes(".git/") || f.file === "models/cache.rs"));
     assert.ok(found.metadata.commit === null || found.metadata.commit.length === 40);
     assert.equal(found.metadata.catalogDigest, catalogDigest(shipped));
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -228,7 +229,7 @@ test("symlink escapes and opaque build caches are explicit incomplete coverage",
     const inventory = contentInventory(root);
     assert.equal(inventory.complete, false);
     assert.ok(inventory.coverage.some((x) => x.path === "target" && x.status === "unscanned"));
-    const result = checkApp(root, shipped);
+    const result = checkApp(root, shipped, { trust: { enrolled: true, trust: null } });
     assert.equal(result.ok, false);
     assert.ok(result.rows.some((r) => r.status === "unscanned"));
     assert.ok(result.coverage.some((x) => x.path === "src/oversize.rs" && x.reason === "source-file-over-2MiB"));
@@ -257,18 +258,19 @@ test("unsigned, forged, broad, expired & stale exceptions never cover; valid sig
   result = evaluate(findings, [{ ...record, payload: { ...record.payload, trackingRef: "issue RK-123456" } }], { metadata, trust, today: "2026-10-07" });
   assert.equal(result.covered.length, 0); assert.match(result.problems[0], /tracking must be a verified/);
   result = evaluate(findings, [record], { metadata, trust: undefined, today: "2026-10-07" });
-  assert.equal(result.covered.length, 0); assert.ok(result.problems.some((p) => /enrollment pending/.test(p)));
+  assert.equal(result.covered.length, 0); assert.ok(result.warnings.some((p) => /enrollment pending/.test(p)));
 });
 
-test("CodeRight device-flow endpoint is a finding and untrusted backlog cannot pass", () => {
+test("CodeRight device-flow endpoint remains backlog while enrollment is pending", () => {
   const root = app({ "engine/bins/coderight/src/github_signin.rs": 'let url = "https://github.com/login/device/code";\n' });
   try {
     const findings = scanApp(root, shipped);
     assert.ok(findings.some((f) => f.fingerprint === "oauth.endpoint.github" && f.file.endsWith("github_signin.rs")));
     const result = checkApp(root, shipped);
-    assert.equal(result.ok, false);
+    assert.equal(result.ok, true);
+    assert.equal(result.enrollmentPending, true);
     assert.ok(result.violations.some((f) => f.fingerprint === "oauth.endpoint.github"));
-    assert.ok(result.problems.some((p) => /enrollment pending/.test(p)));
+    assert.ok(result.warnings.some((p) => /enrollment pending/.test(p)));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -282,5 +284,58 @@ test("clean RightKit dependency integration fixture passes with declaration-only
     assert.equal(result.rows.find((r) => r.capability === "oauth-sign-in").status, "declared-dependency");
     assert.ok(Array.isArray(result.metadata.contentDigests));
     assert.ok(result.metadata.contentDigests.some((x) => x.path === "Cargo.toml"));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("blob scan cache preserves findings, rebases paths & invalidates for dirty input or catalog changes", () => {
+  const root = app({ "src/auth.rs": SAMPLES["oauth.endpoint.github"], "other/auth.rs": SAMPLES["oauth.endpoint.github"] });
+  const git = (...args) => spawnSync("git", ["-C", root, ...args], { windowsHide: true });
+  try {
+    assert.equal(git("add", ".").status, 0);
+    const first = scanApp(root, shipped), warm = scanApp(root, shipped);
+    assert.deepEqual(warm, first);
+    assert.deepEqual(first.map((f) => f.file).sort(), ["other/auth.rs", "src/auth.rs"]);
+    assert.ok(warm.metadata.contentDigests.every((entry) => entry.digest.startsWith("git:")));
+    writeFileSync(path.join(root, "src/auth.rs"), SAMPLES["oauth.endpoint.google"]);
+    const dirty = scanApp(root, shipped);
+    assert.ok(dirty.some((f) => f.file === "src/auth.rs" && f.fingerprint === "oauth.endpoint.google"));
+    assert.ok(!dirty.some((f) => f.file === "src/auth.rs" && f.fingerprint === "oauth.endpoint.github"));
+    const changed = structuredClone(shipped);
+    changed.capabilities.flatMap((c) => c.fingerprints).find((f) => f.id === "oauth.endpoint.google").pattern = "NEVER_MATCH_THIS_CATALOG";
+    assert.ok(!scanApp(root, changed).some((f) => f.fingerprint === "oauth.endpoint.google"));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("combined prefilter preserves per-line anchors, flags & backreferences", () => {
+  const manifest = { capabilities: [{ package: "rightkit-test", capability: "test", fingerprints: [
+    { id: "anchored", type: "source", pattern: "^credwritew$", flags: "i" },
+    { id: "backreference", type: "source", pattern: "^(Cred)\\1$" },
+  ] }] };
+  const root = app({ "main.rs": "neutral\nCredWriteW\nCredCred\n//CredWriteW\n" });
+  try {
+    assert.deepEqual(scanApp(root, manifest).map((f) => [f.fingerprint, f.line]), [["anchored", 2], ["backreference", 3]]);
+    manifest.capabilities[0].fingerprints.pop();
+    assert.deepEqual(scanApp(root, manifest).map((f) => [f.fingerprint, f.line]), [["anchored", 2]]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("one-key enrollment warns with backlog; both distinct keys restore blocking", () => {
+  const root = app({ "src/auth.rs": SAMPLES["oauth.endpoint.github"] });
+  try {
+    const { trust } = signedException([], { root: "https://github.com/org/repo" });
+    const pending = structuredClone(trust);
+    delete pending.hosts.macos;
+    const advisory = checkApp(root, shipped, { trust: pending });
+    assert.equal(advisory.ok, true);
+    assert.equal(advisory.enrollmentPending, true);
+    assert.equal(advisory.violations.length, 1);
+    assert.match(advisory.warnings[0], /enrollment pending/);
+    const enforced = checkApp(root, shipped, { trust });
+    assert.equal(enforced.ok, false);
+    assert.equal(enforced.enrollmentPending, false);
+    assert.deepEqual(enforced.warnings, []);
+    const reused = structuredClone(trust);
+    reused.hosts.macos = reused.hosts.windows;
+    assert.equal(checkApp(root, shipped, { trust: reused }).enrollmentPending, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

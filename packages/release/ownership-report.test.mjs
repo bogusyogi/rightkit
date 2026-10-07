@@ -49,9 +49,37 @@ test("raw exception records become pending requests and are never treated as app
   const appRoot = path.join(workspaceRoot, "app"); mkdirSync(path.join(appRoot, ".rightkit"), { recursive: true });
   writeFileSync(path.join(appRoot, ".rightkit", "ownership-exceptions.json"), JSON.stringify({ exceptions: [{ requestId: "RK-ABCDEF", fingerprint: "oauth.endpoint.github", paths: ["src/auth.rs"], reason: "migration", owner: "app" }] }));
   try {
-    const report = buildOwnershipReport({ workspaceRoot, manifest, versions, apps: [{ key: "app", root: "app" }], scanner: () => ({ rows: [], findings: [], violations: [], covered: [], problems: [], coverage: [], metadata: {} }) });
+    const report = buildOwnershipReport({ workspaceRoot, manifest, versions, apps: [{ key: "app", root: "app" }], scanner: () => ({ enrollmentPending: true, rows: [], findings: [], violations: [], covered: [], problems: [], coverage: [], metadata: {} }) });
     assert.equal(report.exceptionRequests.length, 1);
     assert.equal(report.exceptionRequests[0].state, "request-pending-verification");
     assert.deepEqual(report.apps[0].covered, []);
+  } finally { rmSync(workspaceRoot, { recursive: true, force: true }); }
+});
+
+test("pending enrollment report preserves findings as warnings without creating blocks", () => {
+  const workspaceRoot = mkdtempSync(path.join(tmpdir(), "rk-pending-report-"));
+  mkdirSync(path.join(workspaceRoot, "app"));
+  try {
+    const report = buildOwnershipReport({
+      workspaceRoot,
+      manifest,
+      versions,
+      apps: [{ key: "app", root: "app" }],
+      scanner: () => ({
+        ok: true,
+        enrollmentPending: true,
+        warnings: ["approval enrollment pending; findings remain backlog requests"],
+        rows: [{ capability: "oauth-sign-in", owner: "rightkit-oauth", uses: false, status: "blocked", count: 1 }],
+        findings: [{ fingerprint: "oauth.endpoint.github", file: "src/auth.rs" }],
+        violations: [{ fingerprint: "oauth.endpoint.github", file: "src/auth.rs", occurrenceHash: "pending-finding" }],
+        covered: [], problems: [], coverage: [], metadata: { catalogDigest: "catalog" },
+      }),
+    });
+    assert.equal(report.apps[0].status, "warning");
+    assert.equal(report.apps[0].enrollmentPending, true);
+    assert.equal(report.apps[0].rows[0].status, "enrollment-pending");
+    assert.equal(report.blocks.length, 0);
+    assert.equal(report.warnings[0].findings[0].fingerprint, "oauth.endpoint.github");
+    assert.match(renderOwnershipMarkdown(report), /WARNING: approval enrollment pending/);
   } finally { rmSync(workspaceRoot, { recursive: true, force: true }); }
 });

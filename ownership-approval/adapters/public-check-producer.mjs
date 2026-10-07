@@ -150,7 +150,7 @@ async function scanPublicOwnershipSource(repoRoot, expectedCommit) {
   const registration = trusted.verifyRepositoryRegistration(trustState.trust, identity);
   if (!registration.ok || registration.registration.visibility !== "public") throw Object.assign(new Error(registration.problems.join("; ") || "repository is not registered public"), { type: "protected-registration-rejected" });
   const evidenceModule = await import(new URL("../../packages/release/ownership-evidence.mjs", import.meta.url));
-  const scan = evidenceModule.createOwnershipEvidence(repoRoot, repoRoot);
+  const scan = evidenceModule.createCommittedOwnershipEvidence(repoRoot, repoRoot);
   if (!scan.ok) throw Object.assign(new Error("protected ownership scan, coverage, or floor failed"), { type: "protected-scan-failed" });
   const tree = git(repoRoot, ["rev-parse", `${commit}^{tree}`]).toString("utf8").trim();
   if (scan.evidence.commit !== commit || scan.evidence.tree !== tree || scan.evidence.repositoryIdentity !== identity || scan.evidence.visibility !== "public") throw Object.assign(new Error("scanner evidence does not match requested public source identity"), { type: "source-identity-mismatch" });

@@ -118,6 +118,26 @@ test("failures are filtered from warnings so warnings never block a build", () =
   assert.deepEqual(failures.map((check) => check.name), ["b"]);
 });
 
+test("pending ownership enrollment is a warning and keeps scan diagnostics", () => {
+  const checks = collectPreflight({
+    platform: "linux",
+    repoRoot: process.cwd(),
+    ownershipEvidenceFactory: () => ({
+      ok: true,
+      enrollmentPending: true,
+      warning: "WARNING: ownership approval enrollment is pending",
+      result: { problems: ["approval enrollment pending"], violations: [{ fingerprint: "pending", file: "src.rs" }] },
+      floor: { ok: false, problems: ["floor unavailable"] },
+      evidence: { source: "enrollment-pending-advisory", trustEnrolled: false },
+    }),
+  });
+  const ownership = checks.find((check) => check.name === "ownership");
+  assert.equal(ownership.status, "warn");
+  assert.match(ownership.detail, /WARNING:.*2 diagnostic/);
+  assert.equal(ownership.diagnostics.length, 2);
+  assert.deepEqual(preflightFailures([ownership]), []);
+});
+
 test("build PATH prefix is windows-only", () => {
   assert.equal(buildPathPrefix({ platform: "mac" }), null);
 });

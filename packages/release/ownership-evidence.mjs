@@ -27,44 +27,75 @@ function createEvidence(repoRoot, {
   gitRunner = spawnSync,
   committed = false,
   requireCleanCheckout = false,
+  allowPendingAdvisory = false,
 } = {}) {
   const root = path.resolve(repoRoot);
   const manifestBytes = readFileSync(manifestPath);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const trustState = trustLoader();
-  if (trustState.protection?.ok !== true) throw new Error("protected ownership trust location was not verified");
-  if (!trustState.trust) throw new Error("protected ownership trust registry is missing");
-  if (committed && requireCleanCheckout) assertCommittedCheckoutClean(root);
-  const source = committed ? acquireCommittedSource(root, { requiredPaths: (trustState.trust?.provenance ?? []).flatMap((record) => record.paths ?? []) }) : null;
-  if (committed && requireCleanCheckout) assertCommittedCheckoutClean(root, { expectedCommit: source.commit, expectedTree: source.tree });
-  const commit = committed ? source.commit : git(root, ["rev-parse", "HEAD"], gitRunner);
-  const tree = committed ? source.tree : git(root, ["rev-parse", `${commit}^{tree}`], gitRunner);
+  const pendingWithoutTrust = trustState.pending === true && trustState.enrolled === false && trustState.trust === null
+    && trustState.protection?.ok === false && trustState.protection?.reason === "external trust file is absent";
+  if (trustState.protection?.ok !== true && !pendingWithoutTrust) throw new Error("protected ownership trust location was not verified");
+  if (!trustState.trust && !pendingWithoutTrust) throw new Error("protected ownership trust registry is missing");
+  const enrollmentPending = trustState.enrolled !== true;
+  if (committed && enrollmentPending && !allowPendingAdvisory) throw new Error("protected ownership evidence requires both distinct, unrevoked approval keys to be enrolled");
+  // A valid protected registry with incomplete key enrollment can still drive
+  // a useful local backlog scan. It cannot produce a source binding or verify
+  // approval signatures, so this result is deliberately advisory.
+  const useCommittedSource = committed && !enrollmentPending;
+  if (useCommittedSource && requireCleanCheckout) assertCommittedCheckoutClean(root);
+  const source = useCommittedSource ? acquireCommittedSource(root, { requiredPaths: (trustState.trust?.provenance ?? []).flatMap((record) => record.paths ?? []) }) : null;
+  if (useCommittedSource && requireCleanCheckout) assertCommittedCheckoutClean(root, { expectedCommit: source.commit, expectedTree: source.tree });
+  const commit = useCommittedSource ? source.commit : git(root, ["rev-parse", "HEAD"], gitRunner);
+  const tree = useCommittedSource ? source.tree : git(root, ["rev-parse", `${commit}^{tree}`], gitRunner);
   const scannerVersion = SCANNER_VERSION;
   const catalogVersion = manifest.version ?? String(manifest.schema ?? "1");
   const catalogDigest = scanCatalogDigest(manifest);
-  // Enrollment controls exception-signing authority, not the minimum scanner
-  // or catalog accepted by the protected registry. Pending key enrollment
-  // remains a typed state while the protected floors still apply.
-  const floor = validateOwnershipFloor(trustState.trust, { scannerVersion, catalogVersion, catalogDigest });
-  const origin = committed ? source.origin : git(root, ["remote", "get-url", "origin"], gitRunner);
-  const repositoryIdentity = canonicalRepositoryIdentity(origin);
-  const registrationCheck = verifyRepositoryRegistration(trustState.trust, repositoryIdentity);
-  if (!registrationCheck.ok) throw new Error(registrationCheck.problems.join("; "));
-  const registration = registrationCheck.registration;
+  // When a protected registry exists, key enrollment controls signing
+  // authority; scanner and catalog floors still apply during pending enrollment.
+  const floor = trustState.trust
+    ? validateOwnershipFloor(trustState.trust, { scannerVersion, catalogVersion, catalogDigest })
+    : { ok: false, problems: ["protected ownership floor is unavailable until trust registry enrollment"] };
   const requestedRoot = path.relative(root, scanRoot).replaceAll("\\", "/") || ".";
   if (requestedRoot.startsWith("../") || requestedRoot === ".." || path.isAbsolute(requestedRoot)) throw new Error("ownership evidence scan root must be inside repository");
-  if (!registration.roots.some((registered) => rootContains(registered, requestedRoot))) throw new Error(`release app root is outside protected ownership roots: ${requestedRoot}`);
+  const evidenceDiagnostics = [];
+  let repositoryIdentity = null;
+  let registrationCheck = null;
+  if (trustState.trust) {
+    try {
+      const origin = useCommittedSource ? source.origin : git(root, ["remote", "get-url", "origin"], gitRunner);
+      repositoryIdentity = canonicalRepositoryIdentity(origin);
+      registrationCheck = verifyRepositoryRegistration(trustState.trust, repositoryIdentity);
+      if (!registrationCheck.ok) {
+        if (!enrollmentPending) throw new Error(registrationCheck.problems.join("; "));
+        evidenceDiagnostics.push(...registrationCheck.problems);
+      }
+    } catch (error) {
+      if (!enrollmentPending) throw error;
+      evidenceDiagnostics.push(`protected registration unavailable during pending enrollment: ${error.message}`);
+      repositoryIdentity = null;
+      registrationCheck = null;
+    }
+  }
+  const registration = registrationCheck?.registration ?? null;
+  const requestedRootRegistered = registration?.roots.some((registered) => rootContains(registered, requestedRoot)) ?? false;
+  if (registration && !requestedRootRegistered) {
+    if (!enrollmentPending) throw new Error(`release app root is outside protected ownership roots: ${requestedRoot}`);
+    evidenceDiagnostics.push(`requested scan root is outside protected ownership roots during pending enrollment: ${requestedRoot}`);
+  }
 
   // The release app's manifest/config can be nested, but the external registry
   // defines repository coverage. Scan every protected root so a nested release
   // cannot omit sibling packages or engine source by narrowing scanRoot.
-  const scans = registration.roots.map((registered) => {
+  const scanRoots = registration?.roots ? [...registration.roots] : [];
+  if (!requestedRootRegistered && !scanRoots.includes(requestedRoot)) scanRoots.push(requestedRoot);
+  const scans = (scanRoots.length ? scanRoots : [requestedRoot]).map((registered) => {
     const absolute = registered === "." ? root : path.resolve(root, ...registered.split("/"));
-    const scanned = committed
+    const scanned = useCommittedSource
       ? checkCommittedApp(absolute, manifest, { trust: trustState.trust, expectedCommit: commit, expectedTree: tree, source })
-      : scan(absolute, manifest, { trust: trustState.trust, scannerVersion, catalogVersion });
-    if (canonicalRepositoryIdentity(scanned.metadata?.repositoryIdentity) !== repositoryIdentity) throw new Error(`ownership evidence: scanner observed a different repository identity under ${registered}`);
-    if (scanned.metadata?.commit !== commit) throw new Error(`ownership evidence: scanner observed a different source commit under ${registered}`);
+      : scan(absolute, manifest, { trust: { trust: trustState.trust, enrolled: trustState.enrolled, pending: enrollmentPending }, scannerVersion, catalogVersion, ...(enrollmentPending ? { enrollmentPendingAdvisory: true } : {}) });
+    if (repositoryIdentity && canonicalRepositoryIdentity(scanned.metadata?.repositoryIdentity) !== repositoryIdentity) throw new Error(`ownership evidence: scanner observed a different repository identity under ${registered}`);
+    if (useCommittedSource && scanned.metadata?.commit !== commit) throw new Error(`ownership evidence: scanner observed a different source commit under ${registered}`);
     if (scanned.metadata?.catalogDigest !== catalogDigest) throw new Error(`ownership evidence: scanner observed a different catalog under ${registered}`);
     const repositoryPaths = scanned.metadata?.pathBase === "repository";
     const prefix = registered === "." || repositoryPaths ? "" : `${registered}/`;
@@ -75,17 +106,17 @@ function createEvidence(repoRoot, {
   const contentDigests = scans.flatMap(({ scanned, prefix }) => (scanned.metadata?.contentDigests ?? []).map((entry) => ({ ...entry, path: `${prefix}${entry.path}` }))).sort((a, b) => a.path.localeCompare(b.path));
   const contentDigest = sha256(contentDigests);
   const approvals = scans.map(({ root: registered, scanned }) => {
-    if (committed) return { root: registered, digest: scanned.metadata?.exceptionDigest ?? sha256([]) };
+    if (useCommittedSource) return { root: registered, digest: scanned.metadata?.exceptionDigest ?? sha256([]) };
     const exceptionsPath = path.join(root, ...(registered === "." ? [] : registered.split("/")), ".rightkit", "ownership-exceptions.json");
     try { return { root: registered, digest: digestFile(exceptionsPath) }; }
     catch (error) { if (error?.code !== "ENOENT") throw error; return { root: registered, digest: sha256([]) }; }
   });
-  const approvalsDigest = sha256(approvals);
+  const approvalsDigest = enrollmentPending ? null : sha256(approvals);
   const result = {
     ok: scans.every(({ scanned }) => scanned.ok),
     findings: scans.flatMap(({ scanned, prefix }) => (scanned.findings ?? []).map((entry) => rebase(entry, prefix))),
     violations: scans.flatMap(({ scanned, prefix }) => (scanned.violations ?? []).map((entry) => rebase(entry, prefix))),
-    problems: scans.flatMap(({ scanned }) => scanned.problems ?? []),
+    problems: [...scans.flatMap(({ scanned }) => scanned.problems ?? []), ...evidenceDiagnostics, ...(enrollmentPending ? floor.problems : [])],
     rows: scans.flatMap(({ scanned, root: registered }) => (scanned.rows ?? []).map((row) => ({ ...row, root: registered }))),
     covered: scans.flatMap(({ scanned, prefix }) => (scanned.covered ?? []).map((entry) => rebase(entry, prefix))),
     coverage: contentCoverage,
@@ -97,28 +128,28 @@ function createEvidence(repoRoot, {
   };
   const evidence = {
     schema: 1,
-    repositoryIdentity: canonicalRepositoryIdentity(result.metadata?.repositoryIdentity),
-    source: committed ? "committed-git-tree" : "mutable-checkout-test-seam",
-    commit,
-    tree,
+    repositoryIdentity: repositoryIdentity ? canonicalRepositoryIdentity(result.metadata?.repositoryIdentity) : null,
+    source: enrollmentPending ? "enrollment-pending-advisory" : useCommittedSource ? "committed-git-tree" : "mutable-checkout-test-seam",
+    ...(enrollmentPending ? {} : { commit, tree }),
     catalogDigest,
     catalogVersion,
     scannerVersion,
     approvalsDigest,
-    trustEnrolled: trustState.enrolled === true,
+    trustEnrolled: !enrollmentPending,
     floorOk: floor.ok,
-    visibility: registration.visibility,
-    registrationDigest: sha256(registration),
-    registeredRoots: [...registration.roots],
-    contentDigest,
+    visibility: registration?.visibility ?? null,
+    registrationDigest: registration ? sha256(registration) : null,
+    registeredRoots: registration ? [...registration.roots] : [],
+    contentDigest: enrollmentPending ? null : contentDigest,
     checkedAt: new Date().toISOString(),
   };
-  return { ok: result.ok && floor.ok && contentCoverage.length === 0, evidence, result, floor, contentCoverage };
+  const warning = enrollmentPending ? "WARNING: ownership approval enrollment is pending; findings remain backlog diagnostics and no protected evidence or approvals are asserted" : undefined;
+  return { ok: enrollmentPending || (result.ok && floor.ok && contentCoverage.length === 0), ...(enrollmentPending ? { enrollmentPending: true, warning } : {}), evidence, result, floor, contentCoverage };
 }
 
 /** Create scan evidence bound to committed source, catalog, and signed exceptions. */
 export function createOwnershipEvidence(repoRoot, scanRoot = repoRoot) {
-  return createEvidence(repoRoot, { scanRoot, committed: true, requireCleanCheckout: true });
+  return createEvidence(repoRoot, { scanRoot, committed: true, requireCleanCheckout: true, allowPendingAdvisory: true });
 }
 
 /** Alias spelling makes the immutable-source contract explicit at adapter boundaries. */
@@ -138,14 +169,14 @@ export function createCommittedOwnershipEvidenceForTest(repoRoot, options = {}) 
 
 /** Entry point for an OS-protected local hook/adapter on private repositories. */
 export function runProtectedLocalOwnershipCheck(repoRoot, scanRoot = repoRoot) {
-  const checked = createOwnershipEvidence(repoRoot, scanRoot);
+  const checked = createCommittedOwnershipEvidence(repoRoot, scanRoot);
   if (checked.evidence.visibility !== "private") throw new Error("protected local ownership adapter only accepts registered private repositories");
   return checked;
 }
 
 /** Re-scan exact source and compare every sealed binding before release upload. */
 export function verifyOwnershipEvidence(expected, repoRoot, scanRoot = repoRoot) {
-  return verifyEvidence(expected, repoRoot, scanRoot, () => createOwnershipEvidence(repoRoot, scanRoot));
+  return verifyEvidence(expected, repoRoot, scanRoot, () => createCommittedOwnershipEvidence(repoRoot, scanRoot));
 }
 
 export function verifyOwnershipEvidenceForTest(expected, repoRoot, options) {

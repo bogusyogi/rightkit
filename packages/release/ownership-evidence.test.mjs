@@ -9,7 +9,7 @@ import { catalogDigest } from "./ownership.mjs";
 import { createCommittedOwnershipEvidenceForTest, createOwnershipEvidenceForTest, verifyOwnershipEvidenceForTest } from "./ownership-evidence.mjs";
 
 const releaseRoot = path.dirname(fileURLToPath(import.meta.url));
-function trusted(root, { enrolled = true, protection = { ok: true }, roots = ["."] } = {}) {
+function trusted(root, { enrolled = true, protection = { ok: true }, roots = ["."], oneKey = false, minimumScannerVersion = "0.0.0" } = {}) {
   return () => ({
     enrolled,
     pending: !enrolled,
@@ -17,8 +17,9 @@ function trusted(root, { enrolled = true, protection = { ok: true }, roots = [".
     trust: {
       schema: 1,
       revokedKeyIds: [],
+      hosts: oneKey ? { windows: { keyId: "windows-test-key", publicKeyPem: "test-key" } } : {},
       verifiedTrackingEvidence: [],
-      minimumScannerVersion: "0.0.0",
+      minimumScannerVersion,
       minimumCatalogVersion: "0.0.0",
       provenance: [],
       repositories: [{ repositoryIdentity: "https://github.com/test/repo", roots, visibility: "private" }],
@@ -82,7 +83,7 @@ test("protected evidence scans exact committed blobs & binds source tree", () =>
     assert.ok(checked.evidence.tree);
     assert.equal(checked.result.metadata.tree, checked.evidence.tree);
     assert.deepEqual(checked.result.findings.map((finding) => finding.file), ["source.rs"]);
-    assert.equal(checked.evidence.scannerVersion, "2.1.0");
+    assert.equal(checked.evidence.scannerVersion, "2.2.0");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -92,7 +93,7 @@ test("release ownership fails closed when protected enrollment is absent", () =>
   }), /protected ownership trust location was not verified/);
 });
 
-test("pending key enrollment keeps protected floors and registry active without unsigned authority", () => {
+test("one-key enrollment produces clearly advisory evidence and retains backlog findings", () => {
   const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-pending-"));
   try {
     git(root, "init", "-q");
@@ -102,12 +103,108 @@ test("pending key enrollment keeps protected floors and registry active without 
     writeFileSync(path.join(root, "source.rs"), "fn main() {}\\n");
     git(root, "add", ".");
     git(root, "commit", "-qm", "baseline");
-    const options = { manifestPath: path.join(releaseRoot, "rightkit-ownership.json"), trustLoader: trusted(root, { enrolled: false }) };
-    const pending = createOwnershipEvidenceForTest(root, { ...options, scanRoot: root });
+    const options = { manifestPath: path.join(releaseRoot, "rightkit-ownership.json"), trustLoader: trusted(root, { enrolled: false, oneKey: true }) };
+    const pending = createOwnershipEvidenceForTest(root, {
+      ...options,
+      scanRoot: root,
+      scan: (scanRoot, manifest) => ({
+        ok: false, findings: [{ fingerprint: "pending-finding", file: "source.rs" }], violations: [{ fingerprint: "pending-finding", file: "source.rs" }],
+        problems: ["approval enrollment pending; detected findings remain open backlog requests"], rows: [], covered: [], coverage: [],
+        metadata: { repositoryIdentity: "https://github.com/test/repo", commit: git(root, "rev-parse", "HEAD"), catalogDigest: catalogDigest(manifest), contentDigests: [], coverage: [] },
+      }),
+    });
     assert.equal(pending.ok, true);
+    assert.equal(pending.enrollmentPending, true);
+    assert.match(pending.warning, /^WARNING:/);
+    assert.equal(pending.evidence.source, "enrollment-pending-advisory");
     assert.equal(pending.evidence.trustEnrolled, false);
     assert.equal(pending.evidence.floorOk, true);
     assert.equal(pending.evidence.visibility, "private");
+    assert.equal(pending.result.violations[0].fingerprint, "pending-finding");
+    assert.throws(() => createCommittedOwnershipEvidenceForTest(root, { ...options, scanRoot: root }), /requires both distinct/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("absent trust has advisory scan without fabricated registry binding", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-no-trust-"));
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.email", "test@example.invalid");
+    git(root, "config", "user.name", "test");
+    writeFileSync(path.join(root, "source.rs"), "fn main() {}\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "baseline");
+    const pending = createOwnershipEvidenceForTest(root, {
+      scanRoot: root,
+      manifestPath: path.join(releaseRoot, "rightkit-ownership.json"),
+      trustLoader: () => ({ enrolled: false, pending: true, protection: { ok: false, reason: "external trust file is absent" }, trust: null }),
+      scan: (_scanRoot, manifest) => ({ ok: true, findings: [], violations: [], problems: [], rows: [], covered: [], coverage: [], metadata: { catalogDigest: catalogDigest(manifest), contentDigests: [], coverage: [] } }),
+    });
+    assert.equal(pending.ok, true);
+    assert.equal(pending.evidence.source, "enrollment-pending-advisory");
+    assert.equal(pending.evidence.floorOk, false);
+    assert.equal(pending.evidence.registrationDigest, null);
+    assert.deepEqual(pending.evidence.registeredRoots, []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("pending trust registration and floor problems remain diagnostics", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-pending-registration-"));
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.email", "test@example.invalid");
+    git(root, "config", "user.name", "test");
+    git(root, "remote", "add", "origin", "https://github.com/test/repo.git");
+    writeFileSync(path.join(root, "source.rs"), "fn main() {}\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "baseline");
+    let scans = 0;
+    const pending = createOwnershipEvidenceForTest(root, {
+      scanRoot: root,
+      manifestPath: path.join(releaseRoot, "rightkit-ownership.json"),
+      trustLoader: trusted(root, { enrolled: false, roots: ["outside"], minimumScannerVersion: "99.0.0" }),
+      scan: (_scanRoot, manifest) => {
+        scans += 1;
+        return { ok: false, findings: [], violations: [], problems: [], rows: [], covered: [], coverage: [], metadata: { repositoryIdentity: "https://github.com/test/repo", catalogDigest: catalogDigest(manifest), contentDigests: [], coverage: [] } };
+      },
+    });
+    assert.equal(pending.ok, true);
+    assert.equal(scans, 2);
+    assert.ok(pending.result.problems.some((problem) => /outside protected ownership roots/.test(problem)));
+    assert.ok(pending.result.problems.some((problem) => /protected minimum|protected pinned|floor/.test(problem)));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("malformed existing trust remains fail closed", () => {
+  assert.throws(() => createOwnershipEvidenceForTest(".", {
+    trustLoader: () => { throw new Error("ownership trust file schema is unsupported"); },
+  }), /schema is unsupported/);
+});
+
+test("fully enrolled invalid approval stays a hard ownership failure", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-invalid-approval-"));
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.email", "test@example.invalid");
+    git(root, "config", "user.name", "test");
+    git(root, "remote", "add", "origin", "https://github.com/test/repo.git");
+    writeFileSync(path.join(root, "source.rs"), "fn main() {}\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "baseline");
+    const manifestPath = path.join(releaseRoot, "rightkit-ownership.json");
+    const pendingApproval = "approval signature verification failed (invalid signature)";
+    const checked = createOwnershipEvidenceForTest(root, {
+      scanRoot: root,
+      manifestPath,
+      trustLoader: trusted(root),
+      scan: (_scanRoot, manifest) => ({
+        ok: false, findings: [], violations: [], problems: [pendingApproval], rows: [], covered: [], coverage: [],
+        metadata: { repositoryIdentity: "https://github.com/test/repo", commit: git(root, "rev-parse", "HEAD"), catalogDigest: catalogDigest(manifest), contentDigests: [], coverage: [] },
+      }),
+    });
+    assert.equal(checked.enrollmentPending, undefined);
+    assert.equal(checked.ok, false);
+    assert.ok(checked.result.problems.includes(pendingApproval));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -19,7 +19,7 @@ function flag(args, name) {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
-export async function main(args) {
+export async function main(args, { evidenceFactory = createOwnershipEvidence, gitRunner = spawnSync, print = (value) => console.log(value) } = {}) {
   if (args.includes("--write-manifest")) {
     const root = path.resolve(flag(args, "--rightkit") ?? path.join(packageRoot, "..", ".."));
     const manifest = aggregateOwnership(root);
@@ -30,35 +30,35 @@ export async function main(args) {
     return 0;
   }
   const app = path.resolve(flag(args, "--app") ?? process.cwd());
-  const top = spawnSync("git", ["-C", app, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true });
+  const top = gitRunner("git", ["-C", app, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true });
   if (top.status !== 0) return failClosed(args, "repository", "could not resolve --app to a Git repository");
   const repoRoot = path.resolve(String(top.stdout).trim());
   let checked;
-  try { checked = createOwnershipEvidence(repoRoot, app); }
-  catch (error) { return failClosed(args, "protected-evidence", error.message); }
+  try { checked = evidenceFactory(repoRoot, app); }
+  catch (error) { return failClosed(args, "protected-evidence", error.message, print); }
   const result = checked.result;
   if (args.includes("--json")) {
-    const error = !checked.floor.ok
+    const error = checked.enrollmentPending ? undefined : !checked.floor.ok
       ? { type: "ownership-floor", message: checked.floor.problems.join("; ") }
       : result.coverage.length
         ? { type: "ownership-coverage", message: `${result.coverage.length} ownership coverage gap(s)` }
         : undefined;
-    console.log(JSON.stringify({ ok: checked.ok, ...(error ? { error } : {}), rows: result.rows, violations: result.violations, covered: result.covered, problems: [...result.problems, ...checked.floor.problems], coverage: result.coverage, metadata: result.metadata }, null, 2));
+    print(JSON.stringify({ ok: checked.ok, ...(checked.enrollmentPending ? { enrollmentPending: true, warning: checked.warning } : {}), ...(error ? { error } : {}), rows: result.rows, violations: result.violations, covered: result.covered, problems: [...result.problems, ...checked.floor.problems], coverage: result.coverage, metadata: result.metadata }, null, 2));
   } else {
-    console.log(`RightKit ownership: ${path.basename(app)}`);
-    console.log(formatTable(result.rows));
+    print(`RightKit ownership: ${path.basename(app)}`);
+    print(formatTable(result.rows));
     for (const v of result.violations) {
-      console.log(`  OWN COPY ${v.fingerprint} (${v.package}) ${v.file}${v.line ? `:${v.line}` : ""}  ${v.text}`);
+      print(`  OWN COPY ${v.fingerprint} (${v.package}) ${v.file}${v.line ? `:${v.line}` : ""}  ${v.text}`);
     }
-    for (const p of result.problems) console.log(`  EXCEPTION ${p}`);
-    console.log(checked.ok ? "[right-release] ownership passed" : `[right-release] ownership FAILED: ${[...result.problems, ...checked.floor.problems].join("; ") || "move these to RightKit or add a reviewed, dated exception"}`);
+    for (const p of result.problems) print(`  ${checked.enrollmentPending ? "DIAGNOSTIC" : "EXCEPTION"} ${p}`);
+    print(checked.enrollmentPending ? `[right-release] ${checked.warning}` : checked.ok ? "[right-release] ownership passed" : `[right-release] ownership FAILED: ${[...result.problems, ...checked.floor.problems].join("; ") || "move these to RightKit or add a reviewed, dated exception"}`);
   }
   return checked.ok ? 0 : 1;
 }
 
-function failClosed(args, type, message) {
-  if (args.includes("--json")) console.log(JSON.stringify({ ok: false, error: { type, message }, rows: [], violations: [], covered: [], problems: [message], coverage: [], metadata: null }, null, 2));
-  else console.log(`[right-release] ownership FAILED: ${message}`);
+function failClosed(args, type, message, print = (value) => console.log(value)) {
+  if (args.includes("--json")) print(JSON.stringify({ ok: false, error: { type, message }, rows: [], violations: [], covered: [], problems: [message], coverage: [], metadata: null }, null, 2));
+  else print(`[right-release] ownership FAILED: ${message}`);
   return 1;
 }
 
