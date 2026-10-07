@@ -1144,6 +1144,7 @@ private func refreshed(
                     : LicenseController(client: c, messages: messages)
                 await controller.refresh()
                 #expect(controller.message == messages.deviceRemoved, "\(status) lease=\(record.leaseId != nil) housekeeping=\(housekeeping)")
+                if let stored = controller.license { #expect(stored.message == messages.deviceRemoved, "the stored record carries the removed text too") }
                 await controller.refresh(silent: true)
                 #expect(controller.message == messages.deviceRemoved, "silent refresh leaves the message alone")
             }
@@ -1192,4 +1193,24 @@ private func refreshed(
     #expect(controller.license?.leaseId == "lease-1" && controller.license?.signedToken == nil && !controller.isProCandidate)
     let renewed = try await client(server, store: store, publicKey: pubKey(key)).renewLease()
     #expect(renewed?.signedToken == nil && renewed?.status == "active")
+}
+
+
+// Keychain: a concurrent remove() is never undone by load()'s accessibility migration.
+@Test func keychainLoadNeverResurrectsAConcurrentlyRemovedLicense() async throws {
+    let store = KeychainLicenseStore(service: "test.race.\(UUID().uuidString)", account: "activation")
+    do { try await store.save(StoredLicense(status: "active", deviceId: "d")) } catch {
+        return // no usable Keychain in this test host
+    }
+    for _ in 0..<200 {
+        try await store.save(StoredLicense(status: "active", deviceId: "d"))
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = await store.load() }
+            group.addTask { try? await store.remove() }
+            group.addTask { _ = await store.load() }
+        }
+        try await store.remove()
+        #expect(await store.load() == nil)
+    }
+    try? await store.remove()
 }

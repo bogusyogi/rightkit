@@ -119,7 +119,7 @@ edit of the pin, recorded in `rightkit-versions.json`.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.5"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.6"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -134,7 +134,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit-swift.git
-    exactVersion: "0.3.5"
+    exactVersion: "0.3.6"
 ```
 
 A clone of a consuming app resolves this straight from GitHub — no workspace

@@ -271,9 +271,18 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
         self.service = service; self.account = account
     }
 
+    /// Serialises every Keychain operation of every store in the process. The bodies are
+    /// synchronous (no await), so holding the lock never spans a suspension point; this closes the
+    /// read-then-rewrite window in which a concurrent `remove()` could be undone.
+    private static let lock = NSLock()
+
     public func load() async -> StoredLicense? {
-        guard let data = read(service: service, account: account) else { return nil }
-        try? write(data, service: service, account: account) // migrate legacy accessibility
+        let found: Data? = Self.lock.withLock {
+            guard let data = read(service: service, account: account) else { return nil }
+            migrateAccessibility(service: service, account: account)
+            return data
+        }
+        guard let data = found else { return nil }
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try? decoder.decode(StoredLicense.self, from: data)
     }
@@ -281,20 +290,32 @@ public struct KeychainLicenseStore: LicenseStore, Sendable {
     public func save(_ license: StoredLicense) async throws {
         let encoder = JSONEncoder(); encoder.keyEncodingStrategy = .convertToSnakeCase
         guard let data = try? encoder.encode(license) else { throw LicenseStorageError.encoding }
-        try write(data, service: service, account: account)
+        try Self.lock.withLock { try write(data, service: service, account: account) }
     }
 
-    public func remove() async throws { try delete(service: service, account: account) }
+    public func remove() async throws {
+        try Self.lock.withLock { try delete(service: service, account: account) }
+    }
 
     public func deviceID(account: String = "device-id") -> String {
+        Self.lock.withLock { deviceIDLocked(account: account) }
+    }
+
+    private func deviceIDLocked(account: String) -> String {
         if let data = read(service: service, account: account), let value = String(data: data, encoding: .utf8), !value.isEmpty {
-            // Migrate a record written before device-only accessibility was enforced.
-            try? write(data, service: service, account: account)
+            migrateAccessibility(service: service, account: account)
             return value
         }
         let value = UUID().uuidString
         try? write(Data(value.utf8), service: service, account: account)
         return value
+    }
+
+    /// Rewrites only the accessibility attribute of an existing item (update-only, never add), so a
+    /// record deleted in the meantime is never resurrected by the migration.
+    private func migrateAccessibility(service: String, account: String) {
+        let attributes: [String: Any] = [kSecAttrAccessible as String: Self.deviceOnlyAccessibility]
+        _ = SecItemUpdate(identity(service: service, account: account) as CFDictionary, attributes as CFDictionary)
     }
 
     /// Device-only accessibility: the item is excluded from backups and never migrates to another
@@ -946,26 +967,48 @@ public final class LicenseController: ObservableObject {
         defer { if !silent { isBusy = false } }
         guard pendingRemovals != nil else {
             do {
-                let (refreshed, removed) = try await routedRefresh()
+                let (fetched, removed) = try await routedRefresh()
+                let refreshed = await stampDeviceRemoved(fetched, removed: removed)
                 publish(refreshed, silent: silent)
                 if !silent { message = refreshMessage(for: refreshed, deviceRemoved: removed) }
-            } catch { if !silent { message = failureMessage(for: error) } }
+            } catch {
+            if Self.isDeviceRemoved(error), let stamped = await stampDeviceRemoved(license, removed: true) { license = stamped }
+            if !silent { message = failureMessage(for: error) }
+        }
             return
         }
         let generation = mutationGeneration
         do {
-            let (refreshed, removed) = try await routedRefresh()
+            let (fetched, removed) = try await routedRefresh()
             guard mutationGeneration == generation else {
                 // A removal landed while the refresh was in flight: the client already re-saved
                 // the old record, so take it back out; never publish it.
                 if license == nil { try? await client.store.remove() }
                 return
             }
+            let refreshed = await stampDeviceRemoved(fetched, removed: removed)
             publish(refreshed, silent: silent)
             if !silent { message = refreshMessage(for: refreshed, deviceRemoved: removed) }
             // A completed round trip proves connectivity: flush owed removals now.
             await retryPendingRemovals()
-        } catch { if !silent { message = failureMessage(for: error) } }
+        } catch {
+            if Self.isDeviceRemoved(error), let stamped = await stampDeviceRemoved(license, removed: true) { license = stamped }
+            if !silent { message = failureMessage(for: error) }
+        }
+    }
+
+    /// On a 404/410 the stored record's own `message` carries ``LicenseMessages/deviceRemoved`` too,
+    /// so apps that render the record (not only the controller) show the removed-device text.
+    private func stampDeviceRemoved(_ record: StoredLicense?, removed: Bool) async -> StoredLicense? {
+        guard removed, let text = messages.deviceRemoved, var stamped = record, stamped.message != text else { return record }
+        stamped.message = text
+        try? await client.store.save(stamped)
+        return stamped
+    }
+
+    private static func isDeviceRemoved(_ error: Error) -> Bool {
+        if case let .serverStatus(status, _)? = error as? LicenseError { return status == 404 || status == 410 }
+        return false
     }
 
     private func refreshMessage(for record: StoredLicense?, deviceRemoved: Bool) -> String {
