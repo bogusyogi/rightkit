@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 — 2026-10-07
+
+- `adapters.icons` overrides image-viewer glyphs, starting with the sibling pagers (`caretLeft` / `caretRight`); same semantics as MediaPlayer `icons` (`null` hides).
+
 ## 0.2.3
 
 ViewRight parity for image text fonts and the text panel; all additive, defaults unchanged.

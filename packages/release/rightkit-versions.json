@@ -23,12 +23,12 @@
     "@rightkit/legal-ui": "0.1.2",
     "@rightkit/license": "0.1.8",
     "@rightkit/logs": "0.1.4",
-    "@rightkit/media-ui": "0.2.3",
+    "@rightkit/media-ui": "0.2.4",
     "@rightkit/onboarding": "0.2.0",
     "@rightkit/pdf-ui": "0.1.0",
     "@rightkit/platform-ui": "0.1.2",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.115",
+    "@rightkit/release": "0.2.116",
     "@rightkit/settings-ui": "0.2.0",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.1.1",
@@ -135,7 +135,8 @@
       "0.2.111",
       "0.2.112",
       "0.2.113",
-      "0.2.114"
+      "0.2.114",
+      "0.2.115"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -148,7 +149,8 @@
       "0.1.0",
       "0.2.0",
       "0.2.1",
-      "0.2.2"
+      "0.2.2",
+      "0.2.3"
     ],
     "@rightkit/theme": [
       "0.1.0"
@@ -167,9 +169,20 @@
     ]
   },
   "cargo": {
+    "rightkit-audio": "0.1.0",
+    "rightkit-browser": "0.1.0",
+    "rightkit-cache": "0.1.0",
+    "rightkit-crash": "0.1.0",
+    "rightkit-db": "0.1.0",
+    "rightkit-framed-sidecar": "0.1.0",
+    "rightkit-fs": "0.1.0",
     "rightkit-license": "0.1.2",
     "rightkit-logs": "0.1.0",
+    "rightkit-media": "0.1.0",
+    "rightkit-pdf": "0.1.0",
+    "rightkit-playback": "0.1.0",
     "rightkit-process": "0.1.0",
+    "rightkit-search": "0.1.0",
     "rightkit-tauri": "0.1.0"
   },
   "stagedCargo": {
@@ -188,7 +201,7 @@
     "rightkit-models": "0.1.0",
     "rightkit-pdf": "0.1.0",
     "rightkit-playback": "0.1.0",
-    "rightkit-process": "0.2.0",
+    "rightkit-process": "0.2.1",
     "rightkit-qa": "0.1.0",
     "rightkit-sandbox": "0.1.0",
     "rightkit-search": "0.1.0",

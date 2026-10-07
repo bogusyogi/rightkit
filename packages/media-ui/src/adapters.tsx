@@ -45,6 +45,11 @@ export type ResourceHandleResult = (() => void) | ResourceHandle | undefined;
  * `adapters` on each component prop.
  */
 export interface MediaAdapters {
+  /**
+   * Icon overrides for the image viewer (e.g. `caretLeft` / `caretRight` sibling pagers), same semantics as
+   * MediaPlayer's `icons` prop: any ReactNode wins, `null` hides, omitted falls back to the built-in glyph.
+   */
+  icons?: Partial<Record<import("./icons.js").IconName, import("react").ReactNode>>;
   /** Turn a media source (path, url, virtual route) into a playable src. */
   resolveSrc?: (source: string) => string;
   /**

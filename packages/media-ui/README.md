@@ -51,6 +51,7 @@ All optional; defaults preserve prior behaviour.
   `fallbackFontStack` (used only when text has no font at all; default `system-ui, sans-serif`,
   ViewRight passes `'Inter', system-ui, sans-serif`); `systemFontFallbackStack` (appended after a
   named system font X as `"X", <stack>`; default `system-ui, sans-serif`); `bundledFontsLabel` /
+- `adapters.icons` — image-viewer glyph overrides (`caretLeft` / `caretRight` sibling pagers); any ReactNode wins, `null` hides.
   `bundledFontsEmptyOption` (text-panel select title and empty option; defaults "Bundled fonts" /
   "Bundled"; ViewRight passes "ViewRight fonts" / "ViewRight"); `acquireResource` may
   return a release function **or** `{ release, update }`; `update({ dirty,

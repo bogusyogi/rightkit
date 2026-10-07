@@ -6,7 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { CaretLeftIcon, CaretRightIcon } from "../icons.js";
+import { resolveIcon } from "../icons.js";
 import type { MediaAdapters } from "../adapters.js";
 import type { CropRect, ImageEdit, TextLayer } from "./imageEdit.js";
 import type { ImageSize, ImageTransform } from "./imageViewerState.js";
@@ -196,8 +196,8 @@ export function ImageViewerStage({
       )}
       {siblingTotal > 1 && (
         <>
-          <SiblingButton side="left" disabled={!canPrev} onClick={() => onPageSibling(-1)} />
-          <SiblingButton side="right" disabled={!canNext} onClick={() => onPageSibling(1)} />
+          <SiblingButton side="left" disabled={!canPrev} onClick={() => onPageSibling(-1)} icons={adapters.icons} />
+          <SiblingButton side="right" disabled={!canNext} onClick={() => onPageSibling(1)} icons={adapters.icons} />
           {siblingIndex >= 0 && (
             <div className="rk-iv-badge rk-iv-badge-center">
               {siblingIndex + 1} / {siblingTotal}
@@ -214,10 +214,12 @@ function SiblingButton({
   side,
   disabled,
   onClick,
+  icons,
 }: {
   side: "left" | "right";
   disabled: boolean;
   onClick: () => void;
+  icons?: MediaAdapters["icons"];
 }) {
   const isLeft = side === "left";
   return (
@@ -229,7 +231,7 @@ function SiblingButton({
       onPointerDown={(e) => e.stopPropagation()}
       className={`rk-iv-sibling ${isLeft ? "rk-iv-sibling-left" : "rk-iv-sibling-right"}`}
     >
-      {isLeft ? <CaretLeftIcon /> : <CaretRightIcon />}
+      {resolveIcon(isLeft ? "caretLeft" : "caretRight", icons)}
     </button>
   );
 }
