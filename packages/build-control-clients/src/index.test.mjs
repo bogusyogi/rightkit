@@ -437,3 +437,12 @@ test('cargo login sends the token as credentialStdin only; argv tokens are refus
   piped.end('test-token-value\r\nignored\n');
   assert.equal(await line, 'test-token-value');
 });
+
+test('brokerEndpoint prefers the env socket, else the managed root socket on Unix, never on Windows', () => {
+  assert.equal(brokerEndpoint({ RIGHTKIT_BUILD_BROKER_SOCKET: '/x/broker.sock' }), '/x/broker.sock');
+  const seen = [];
+  const exists = (p) => { seen.push(p); return p === '/m/broker.sock'; };
+  assert.equal(brokerEndpoint({ RIGHTKIT_MANAGED_ROOT: '/m' }, { platform: 'darwin', exists }), '/m/broker.sock');
+  assert.throws(() => brokerEndpoint({ RIGHTKIT_MANAGED_ROOT: '/none' }, { platform: 'darwin', exists }), /not configured/);
+  assert.throws(() => brokerEndpoint({ RIGHTKIT_MANAGED_ROOT: '/m' }, { platform: 'win32', exists }), /not configured/);
+});

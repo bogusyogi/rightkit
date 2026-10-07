@@ -1,6 +1,6 @@
 import { BUILD_CONTROL_PROTOCOL, FRONTENDS, SOURCE_RUNTIME_IDENTITY, assertRepositoryExecutionAllowed, captureDelegatedCompilerEnvironment, captureManagedRustEnvironment, normalizeBuildRequest, normalizeManagedAgentRequest, normalizeRuntimeIdentity, validateManagedRustupInvocation } from '@rightkit/build-control-core';
 import net from 'node:net';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, posix, resolve, win32 } from 'node:path';
@@ -139,10 +139,23 @@ function normalizedInvocation(frontend, argv, workspace) {
   return { argv: values, workspace };
 }
 
-export function brokerEndpoint(environment = process.env) {
+/** The managed root that holds this client: <root>/runtime-<digest>/build-control-clients/src. */
+function managedRootOfThisClient() {
+  return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+}
+
+export function brokerEndpoint(environment = process.env, { platform = process.platform, exists = existsSync } = {}) {
   const endpoint = environment.RIGHTKIT_BUILD_BROKER_SOCKET;
-  if (!endpoint || typeof endpoint !== 'string') throw new Error('RightKit broker endpoint is not configured');
-  return endpoint;
+  if (endpoint && typeof endpoint === 'string') return endpoint;
+  // Callers outside a rightkit-wrapped shell (Tauri beforeBuildCommand, sidecar build scripts)
+  // often lack the variable. On Unix the broker socket lives at <managed root>/broker.sock;
+  // use it when it exists. Windows endpoints are named pipes and still require the variable.
+  if (platform !== 'win32') {
+    const root = environment.RIGHTKIT_MANAGED_ROOT || managedRootOfThisClient();
+    const socket = join(root, 'broker.sock');
+    if (exists(socket)) return socket;
+  }
+  throw new Error('RightKit broker endpoint is not configured');
 }
 
 export async function sendManagedAgentRequest(message, { endpoint = brokerEndpoint(), connect = net.createConnection, onEvent = () => {} } = {}) {
