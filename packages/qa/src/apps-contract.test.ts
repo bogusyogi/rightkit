@@ -34,7 +34,7 @@ const apps = [
   },
 ] as const;
 
-describe('core native-QA adopters', () => {
+describe('core app release-backdoor guards', () => {
   for (const app of apps) {
     it(`${app.name} keeps WebDriver debug-only and out of release scripts`, () => {
       const packageJson = JSON.parse(fs.readFileSync(path.join(app.root, 'package.json'), 'utf8')) as {
@@ -50,8 +50,6 @@ describe('core native-QA adopters', () => {
         rustSource,
         packageScripts: packageJson.scripts ?? {},
       })).toEqual([]);
-      expect(fs.existsSync(path.join(app.root, 'right-qa.config.mjs'))).toBe(true);
-      expect(fs.existsSync(path.join(app.root, 'qa', 'native', 'smoke.e2e.mjs'))).toBe(true);
 
       const allDependencies = {
         ...packageJson.dependencies,

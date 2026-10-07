@@ -7,8 +7,8 @@ import { acquireRunOwnership } from './ownership.js';
 describe('QA run ownership', () => {
   it('only lets the owning token release a live lock', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rightkit-owner-'));
-    const lockDir = path.join(root, 'native.lock');
-    const ownership = await acquireRunOwnership(lockDir, 'native-smoke');
+    const lockDir = path.join(root, 'run.lock');
+    const ownership = await acquireRunOwnership(lockDir, 'app-smoke');
     const ownerPath = path.join(lockDir, 'owner.json');
     const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8'));
 
@@ -19,7 +19,7 @@ describe('QA run ownership', () => {
 
   it('reclaims a dead owner without touching a live owner', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rightkit-owner-'));
-    const lockDir = path.join(root, 'native.lock');
+    const lockDir = path.join(root, 'run.lock');
     fs.mkdirSync(lockDir, { recursive: true });
     fs.writeFileSync(
       path.join(lockDir, 'owner.json'),

@@ -241,7 +241,11 @@ try {
   }
   const ownershipEvidence = preflight.find((check) => check.name === "ownership")?.evidence;
   if (!ownershipEvidence) fail("ownership evidence was not produced by release preflight");
-  if (ownershipEvidence.commit !== commit) fail("ownership scan source differs from release commit");
+  // Pending-enrollment advisory evidence asserts no commit (ownership-evidence.mjs); only
+  // committed-tree evidence must match the release commit.
+  if (ownershipEvidence.source !== "enrollment-pending-advisory" && ownershipEvidence.commit !== commit) {
+    fail("ownership scan source differs from release commit");
+  }
   for (const check of preflight) {
     if (check.status !== "ok") console.error(`[right-release] preflight ${check.name}: ${check.detail}`);
   }

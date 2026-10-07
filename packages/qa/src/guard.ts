@@ -1,3 +1,4 @@
+// Guard legacy app-side WebDriver features even though this package no longer drives them.
 export interface NativeQaContractInput {
   cargoToml: string;
   rustSource: string;

@@ -3,7 +3,6 @@ export * from './evidence.js';
 export * from './frames.js';
 export * from './guard.js';
 export * from './loopback.js';
-export * from './native.js';
 export * from './ownership.js';
 export * from './paint.js';
 export * from './panes.js';
