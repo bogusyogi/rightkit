@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "ort.cargo.ort",
+    "paths": [
+      "context/engine/crates/cortex-core/Cargo.toml",
+      "context/engine/crates/membrane-runtime/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "a113a020b53944a9fbf5edb51bbe75057b102e44b765284ce902c6ec6a153ee9",
+      "a113a020b53944a9fbf5edb51bbe75057b102e44b765284ce902c6ec6a153ee9",
+      "a113a020b53944a9fbf5edb51bbe75057b102e44b765284ce902c6ec6a153ee9",
+      "f3e1a6f5150ab170a880e02811b0421ccc3edc447663c0145d9ae59cebbdcb0f",
+      "f3e1a6f5150ab170a880e02811b0421ccc3edc447663c0145d9ae59cebbdcb0f"
+    ],
+    "reason": "CodeRight still owns onnx-runtime; RightKit rightkit-ort is the target",
+    "owner": "Membrane"
+  },
+  "signature": null
+}

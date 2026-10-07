@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "ort.env.dylib",
+    "paths": [
+      "context/engine/crates/membrane-runtime/src/bin/membrane-daemon.rs",
+      "context/engine/crates/membrane-runtime/src/cli.rs",
+      "context/engine/crates/membrane-runtime/src/serve.rs",
+      "context/engine/crates/membrane-runtime/src/service.rs",
+      "context/engine/crates/membrane-runtime/src/store.rs",
+      "context/engine/crates/membrane-runtime/tests/e2e_embedder_swap.rs",
+      "context/engine/crates/membrane-runtime/tests/e2e_embedding_gpu.rs"
+    ],
+    "occurrenceHashes": [
+      "40dafc711e02dc6323467d3ef0c73db5273b4afb37459adbbc52caa8c26c2e60",
+      "4c00b3fcd65e3ac462770f07242d806215ceeb4b6dbc39eb7c122abcf2863b7e",
+      "4c75d110a125ae6efb1a9588395cfb4d43cee6323a9229cbd89a04fb584aa4bd",
+      "5ace2c85400137d0c6821eeb9e9ace218d0f36c53673d41e92e0d1d7498ed498",
+      "70bde59c1b7cc7ae812c1a7ba64b4beed91ac202f74b4aabb4f28c608f48fc30",
+      "81c75f966c09a3042ea5b5d908ac2cfc38ddc729056cf799140ae1ff46b3cd7b",
+      "854b79cf099fc10e5ebd23c800ba6ea910e7eef9fdb8f5b5395da7fe0cbd45e3",
+      "a9dee71914a9c9ad3f0aa2009dde7958987575f5876cb8d093e6a3c187ced371",
+      "bb656b1fc80079293e2934a849f6e90b3e4ae25dceb1e6bc6aaa9503bd2a00ec",
+      "c463d3edef44f3e5c22fb65e6f14703d54de39e1437ba28769d826a2a5747437",
+      "dacbc17dfd50cb75d61b0714fdee5d15c7c153c3cbaf73309f76cce6e62beac7",
+      "dbadb094ec51594b4831836982ed52987746131d00ca24b727c240030987cec8",
+      "ea72d16058294518e58b4f2fe5d5ab20b6d5255c39973cdc9d03e818f8d7d64d",
+      "faba11b468d57ccd11a2bfb0da5680026f30df7d72363b0b420d8f344a4b84c0"
+    ],
+    "reason": "CodeRight still owns onnx-runtime; RightKit rightkit-ort is the target",
+    "owner": "Membrane"
+  },
+  "signature": null
+}

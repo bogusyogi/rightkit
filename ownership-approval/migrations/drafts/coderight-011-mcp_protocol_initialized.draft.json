@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "mcp.protocol.initialized",
+    "paths": [
+      "context/scripts/qualification/run-adversarial.mjs",
+      "context/scripts/qualification/run.mjs",
+      "context/scripts/run-platform-scenarios.mjs"
+    ],
+    "occurrenceHashes": [
+      "622403ecbea4a129e5d41593c88d226e781c0758a16c8b7ff5aad7c81a9fe559",
+      "92279c687de7740e0a9a506d2a8b56c140908e96aa79d0b944d40d55e056db8e",
+      "e40ede02a8c09456af59e3acd646cb9bd3b7f91e1d8988b96611cfc4245c36a9"
+    ],
+    "reason": "CodeRight still owns mcp; RightKit rightkit-mcp is the target",
+    "owner": "Membrane"
+  },
+  "signature": null
+}

@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "browser.cargo.chromiumoxide",
+    "paths": [
+      "engine/crates/tools/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "fd881006645be3ffb5bcc8dfc3d3c1663735c228ab1b22727b078febb970a726"
+    ],
+    "reason": "CodeRight still owns browser-automation; RightKit rightkit-browser is the target",
+    "owner": "CodeRight"
+  },
+  "signature": null
+}

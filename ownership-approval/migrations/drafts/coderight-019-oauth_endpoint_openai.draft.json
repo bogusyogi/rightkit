@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "oauth.endpoint.openai",
+    "paths": [
+      "engine/crates/providers/src/subscription_auth/native_oauth.rs"
+    ],
+    "occurrenceHashes": [
+      "223a0a381bc487715fcc1d13281f81ccee9d9ae2a8e03d7f5f48c389a5a916e1",
+      "9ef185bbabcb1c499f70176826d4687603d0ce95be8644e8032fc38d2156e3b9"
+    ],
+    "reason": "CodeRight still owns oauth-sign-in; RightKit rightkit-oauth is the target",
+    "owner": "CodeRight"
+  },
+  "signature": null
+}

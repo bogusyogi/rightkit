@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "watch.cargo.notify",
+    "paths": [
+      "context/engine/crates/membrane-blueprint/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "2a9100f3c250d55eee1e918632c104f1160eaa1e86cbd76232a57ed9dbd47540"
+    ],
+    "reason": "CodeRight still owns file-watching; RightKit rightkit-watch is the target",
+    "owner": "Membrane"
+  },
+  "signature": null
+}

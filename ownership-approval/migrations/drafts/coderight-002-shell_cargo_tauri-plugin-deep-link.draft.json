@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "shell.cargo.tauri-plugin-deep-link",
+    "paths": [
+      "apps/coderight-tauri/src-tauri/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "1974c0369629202213d46ae4611748c4b7c265a576c197e28294aac55fba995c"
+    ],
+    "reason": "CodeRight still owns desktop-shell; RightKit rightkit-shell is the target",
+    "owner": "CodeRight"
+  },
+  "signature": null
+}

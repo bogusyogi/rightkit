@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "db.cargo.rusqlite",
+    "paths": [
+      "engine/crates/tools/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "690e296cf0c5694b9b7979261cf03359e5dc4424daeddbe60fdea7983153f69d"
+    ],
+    "reason": "CodeRight still owns sqlite-storage; RightKit rightkit-db is the target",
+    "owner": "CodeRight"
+  },
+  "signature": null
+}

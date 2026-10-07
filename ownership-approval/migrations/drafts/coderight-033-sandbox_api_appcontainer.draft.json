@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "sandbox.api.appcontainer",
+    "paths": [
+      "engine/crates/tools/src/managed_pty_windows.rs",
+      "engine/crates/tools/src/sandbox/windows_appcontainer.rs"
+    ],
+    "occurrenceHashes": [
+      "0a34178a66d2a1d585fef968331c4c5c390a9b875febb5de2ce6eafd5c094f88",
+      "499ff133870ffb6588fc27ae09df1bfd36d976a43161d0751cba6ddb0d94dbbf",
+      "5c6ff5f4bd5dac66fe6e00bfbfe0bd8903c4e45568213257a4a578111f5eda86",
+      "982185ec763e34fd4e2d94b4b1db1ef923f9a790cd70fb0a70b062357332080d",
+      "c437061e3aa49f24de6c4310ed7f2ea348ad74f62e5f9ceff70f10e8652d70ae",
+      "cedbba996c5a78fcbacd3086f8a8997bffd3ff704b5e4e311219f3013a1a8d1b",
+      "d5346e93f45ad7c273c37f6be40cffbbde59b1185fb7a915475d057be5001e5e"
+    ],
+    "reason": "CodeRight still owns os-sandbox; RightKit rightkit-sandbox is the target",
+    "owner": "CodeRight"
+  },
+  "signature": null
+}

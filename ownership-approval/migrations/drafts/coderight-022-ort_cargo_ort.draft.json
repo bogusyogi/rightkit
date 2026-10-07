@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "ort.cargo.ort",
+    "paths": [
+      "engine/bins/coderight/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "df98e7733654392795661b47e2c8fe5be89778bd253a3b65a166a74fde3353f2"
+    ],
+    "reason": "CodeRight still owns onnx-runtime; RightKit rightkit-ort is the target",
+    "owner": "CodeRight"
+  },
+  "signature": null
+}

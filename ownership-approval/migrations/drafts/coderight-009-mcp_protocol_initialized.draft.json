@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "mcp.protocol.initialized",
+    "paths": [
+      "context/docs/provenance/foundation/2026-09-17-pull-bounded-qual/installed-capability-qual.mjs"
+    ],
+    "occurrenceHashes": [
+      "3b3b265f25ba35788101708e3a354beaa8084ef88b344843cb3a0a7fc56b435e",
+      "4e42879b4e17ac11aa74a0657db989efbb0d81786102bf54989b9304b37e26a7",
+      "cef0abd3885e525fcb893d67597e0c848b78790148a138264d00ea46e488e8f9",
+      "f14391c5895e4e041e0243332e56b63e72dfede7a9ba62af7fb100b78184925e"
+    ],
+    "reason": "CodeRight still owns mcp; RightKit rightkit-mcp is the target",
+    "owner": "Membrane"
+  },
+  "signature": null
+}

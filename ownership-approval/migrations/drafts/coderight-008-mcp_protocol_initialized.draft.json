@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "mcp.protocol.initialized",
+    "paths": [
+      "context/apps/membrane-hub/scripts/release-check-candidate-windows.mjs"
+    ],
+    "occurrenceHashes": [
+      "17888e687c43b84a36f3181aee953da5b54c73f3cc5df237b91604aef573cf06"
+    ],
+    "reason": "CodeRight still owns mcp; RightKit rightkit-mcp is the target",
+    "owner": "Membrane"
+  },
+  "signature": null
+}

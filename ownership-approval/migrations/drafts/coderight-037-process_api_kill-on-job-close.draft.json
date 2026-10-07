@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "process.api.kill-on-job-close",
+    "paths": [
+      "context/engine/crates/membrane-runtime/src/providers/child_process.rs"
+    ],
+    "occurrenceHashes": [
+      "012a015156f6a60f2fcbf0f2c4177c16aebbf61b5d4682cb7aecbdb5ab47bbc0",
+      "cd327888207b60fdeb971fc473252d630822539acde7e6f8c842e473b4895185"
+    ],
+    "reason": "CodeRight still owns owned-processes; RightKit rightkit-process is the target",
+    "owner": "Membrane"
+  },
+  "signature": null
+}

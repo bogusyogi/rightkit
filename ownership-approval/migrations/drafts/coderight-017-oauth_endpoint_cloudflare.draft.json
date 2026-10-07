@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "oauth.endpoint.cloudflare",
+    "paths": [
+      "apps/coderight-ios/CodeRight/LocalRuntime/CloudflareOAuth.swift"
+    ],
+    "occurrenceHashes": [
+      "4514038f1af618f110c30c40042687d1ec9e4741b9c00d9eb43fd24a4e36b981",
+      "9fb8fe374712fafc7ef3c5750548e496d1eb650c941831465ba73ff194fdddef"
+    ],
+    "reason": "CodeRight still owns oauth-sign-in; RightKit rightkit-oauth is the target",
+    "owner": "CodeRight"
+  },
+  "signature": null
+}

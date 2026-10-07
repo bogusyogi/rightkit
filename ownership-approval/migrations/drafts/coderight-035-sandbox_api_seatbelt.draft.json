@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "sandbox.api.seatbelt",
+    "paths": [
+      "engine/crates/tools/src/sandbox/macos_seatbelt.rs",
+      "engine/crates/tools/src/sandbox/tests.rs",
+      "engine/crates/tools/src/shell/execution_helpers.rs"
+    ],
+    "occurrenceHashes": [
+      "1b206d79e7eb05addcac6e1408ee06eea015e6dff66f8e54da0346a2fcf6e309",
+      "65cf68cb3cdd195457be8767d4cc1508ca0811ffc8c69b3ba5fffae10d53732a",
+      "7ff9f091ab867418bb58d4c0dd7917fbdaca518a17074f46ddb9c55b9bd66f66",
+      "dc72c0f518a816840205cbf84180a238503be4e7ba11058a1590537c1c581bcb",
+      "e1ad56be0f27134f3e3130520761bf19a9b5e7c04f465728e4bb38e395d42fe4",
+      "eda1c9c99bbc1dcbc65137b48abfe971034f0e4cb0fbf2099411c6c98f53bd1f"
+    ],
+    "reason": "CodeRight still owns os-sandbox; RightKit rightkit-sandbox is the target",
+    "owner": "CodeRight"
+  },
+  "signature": null
+}

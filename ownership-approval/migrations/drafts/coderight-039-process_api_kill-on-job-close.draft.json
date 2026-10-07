@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "process.api.kill-on-job-close",
+    "paths": [
+      "engine/bins/coderight/src/daemon/kill_tree.rs"
+    ],
+    "occurrenceHashes": [
+      "2bb7f140f0a892bb3289f90fba22b358cb0b72b6aeb44d723546f191fecf539f",
+      "40a541eae2a368933638a6f122d1d48c32b7fdd9b005b06bc96e883bce6907e4"
+    ],
+    "reason": "CodeRight still owns owned-processes; RightKit rightkit-process is the target",
+    "owner": "CodeRight"
+  },
+  "signature": null
+}

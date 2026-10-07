@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "db.cargo.rusqlite",
+    "paths": [
+      "context/engine/crates/cortex-store/Cargo.toml",
+      "context/engine/crates/cortex/Cargo.toml",
+      "context/engine/crates/membrane-blueprint/Cargo.toml",
+      "context/engine/crates/membrane-runtime/Cargo.toml",
+      "context/engine/crates/membrane-transcript/Cargo.toml",
+      "context/engine/vector-bakeoff/sqlite-alpha/Cargo.toml",
+      "context/engine/vector-bakeoff/sqlite-stable/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "0900cafed7dc62139f9ea86fe896212577fdda6c8572682c0aa4bcb927cc9266",
+      "27676bcc6110d6bb3355edf825c1a7b7256210ba3f4ac195654e3d4a8ebd56c1",
+      "31209e1baaccff734668249e8a890807d6b1229e0929c32ce7a5ab07064bf6ce",
+      "6f2d0d04f084981ad4f9823a61329970adb00f39896872ebf4e9e5b6737525d0",
+      "a75a3465642e8c2e260f955b47ec7cbd271a2d0d70496864f05664749cb72d22",
+      "f99bf9c0159e56861c85ccd6f5bafa3b7e0405a15539f30130d2f38de8c6ec64",
+      "fc82d092eee9ed99a0d820dfe4ca4c7f8ac4e265ef82cf2a436a336494ca9c45"
+    ],
+    "reason": "CodeRight still owns sqlite-storage; RightKit rightkit-db is the target",
+    "owner": "Membrane"
+  },
+  "signature": null
+}

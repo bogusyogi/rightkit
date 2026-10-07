@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/coderight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "embed.cargo.fastembed",
+    "paths": [
+      "context/engine/crates/cortex-core/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "50a47db8238ef23dde9fa4d2db848b524cff9fcaa67705dd8b3edff893ae83ab"
+    ],
+    "reason": "CodeRight still owns embeddings; RightKit rightkit-embed is the target",
+    "owner": "Membrane"
+  },
+  "signature": null
+}
