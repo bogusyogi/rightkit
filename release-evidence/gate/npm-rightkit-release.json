@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/release",
-  "version": "0.2.119",
-  "commit": "8698b036d76cd99c72299ce8467419bfc7422db6",
-  "artifactSha256": "6a3ec27ea041d2d45b5beca01ada5a73d9ad7d92beedb85865e48503f7f4959d",
+  "version": "0.2.121",
+  "commit": "1c6bae2459a217d21ffefd737a70f9c1eb3eda80",
+  "artifactSha256": "3e376f155eb13de348874d55f9f9d104f73509a13ac21cc89562aa906d1a5cca",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "8698b036d76cd99c72299ce8467419bfc7422db6",
-      "command": "pnpm test:release (broker set; 6 failures are an in-progress rightkit-media bump outside packages/release)",
+      "commit": "1c6bae2459a217d21ffefd737a70f9c1eb3eda80",
+      "command": "pnpm test:release (broker set; 5 failures are the 25GB disk floor)",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T11:13:31Z",
-      "passed": 492,
+      "timestamp": "2026-10-07T12:43:07Z",
+      "passed": 493,
       "failed": 0
     }
   ]
