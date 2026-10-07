@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use ort::value::Tensor;
+use rightkit_ort::ort::value::Tensor;
 use rightkit_media::native::{NativeCatalog, NativeLibrary};
 use rightkit_ort::{
     configure_runtime, init_environment, installed_runtime_candidate, probe_providers,
@@ -109,9 +109,26 @@ fn run_add(options: &SessionOptions) -> Vec<f32> {
     let mut session = options.build_from_memory(&add_model()).expect("session");
     let x = Tensor::from_array(([4usize], vec![1.0f32, 2.0, 3.0, 4.0])).unwrap();
     let y = Tensor::from_array(([4usize], vec![10.0f32, 20.0, 30.0, 40.0])).unwrap();
-    let outputs = session.run(ort::inputs!["x" => x, "y" => y]).unwrap();
+    let outputs = session.run(rightkit_ort::ort::inputs!["x" => x, "y" => y]).unwrap();
     let (shape, data) = outputs["z"].try_extract_tensor::<f32>().unwrap();
     assert_eq!(&**shape, &[4i64]);
+    data.to_vec()
+}
+
+/// Builds a session straight through the `rightkit_ort::ort` re-export (no direct `ort`
+/// dependency) with the same hand-encoded model.
+fn run_add_via_reexport() -> Vec<f32> {
+    use rightkit_ort::ort::session::Session;
+    let mut session = Session::builder()
+        .unwrap()
+        .commit_from_memory(&add_model())
+        .expect("session through re-export");
+    let x = Tensor::from_array(([4usize], vec![1.0f32, 2.0, 3.0, 4.0])).unwrap();
+    let y = Tensor::from_array(([4usize], vec![5.0f32, 6.0, 7.0, 8.0])).unwrap();
+    let outputs = session
+        .run(rightkit_ort::ort::inputs!["x" => x, "y" => y])
+        .unwrap();
+    let (_, data) = outputs["z"].try_extract_tensor::<f32>().unwrap();
     data.to_vec()
 }
 
@@ -227,7 +244,7 @@ fn platform_accelerator_is_coreml_and_cpu_fallback_is_reported() {
     let b = Tensor::from_array(([4usize], vec![10.0f32, 20.0, 30.0, 40.0])).unwrap();
     let out = fell_back
         .session
-        .run(ort::inputs!["x" => a, "y" => b])
+        .run(rightkit_ort::ort::inputs!["x" => a, "y" => b])
         .unwrap();
     assert_eq!(
         out["z"].try_extract_tensor::<f32>().unwrap().1,
@@ -243,7 +260,7 @@ fn model_file_path_and_missing_file_are_distinguished() {
     let mut session = SessionOptions::default().build_from_file(&path).unwrap();
     let a = Tensor::from_array(([4usize], vec![0.5f32; 4])).unwrap();
     let b = Tensor::from_array(([4usize], vec![0.25f32; 4])).unwrap();
-    let out = session.run(ort::inputs!["x" => a, "y" => b]).unwrap();
+    let out = session.run(rightkit_ort::ort::inputs!["x" => a, "y" => b]).unwrap();
     assert_eq!(
         out["z"].try_extract_tensor::<f32>().unwrap().1,
         &[0.75f32; 4]
@@ -267,4 +284,10 @@ fn system_runtime_copy_is_rejected_before_any_load() {
         Err(RuntimeError::SystemRuntimeRejected { .. })
     ));
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reexported_ort_builds_and_runs_a_session_without_a_direct_dependency() {
+    setup();
+    assert_eq!(run_add_via_reexport(), vec![6.0, 8.0, 10.0, 12.0]);
 }

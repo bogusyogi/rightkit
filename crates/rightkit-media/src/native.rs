@@ -429,7 +429,7 @@ pub struct NativeCatalog {
 impl NativeCatalog {
     /// The suite catalog: `native-libraries.json` plus the FFmpeg artifact
     /// catalog's decode-variant `ffmpeg` records converted in place. `ffprobe` and
-    /// feature variants (for example `export-lame-ass`) stay in the FFmpeg catalog,
+    /// feature variants (for example `export-ass`) stay in the FFmpeg catalog,
     /// which selects them by tool and variant; here one FFmpeg record per platform
     /// keeps [`NativeCatalog::approved`] unambiguous.
     pub fn embedded() -> Result<Self, NativeCatalogError> {

@@ -14,7 +14,7 @@
 #
 # Variants
 #   decode           The approved catalog build (BUILD-NOTES-macos-*.txt): native codecs only.
-#   export-lame-ass  decode + libmp3lame (MP3 export) + libass (subtitle burn-in) +
+#   export-ass       decode + libass (subtitle burn-in) +
 #                    zlib (PNG) + VideoToolbox/AudioToolbox (h264_videotoolbox).
 #
 # Both variants keep --disable-gpl --disable-nonfree --disable-autodetect. Third-party
@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
-case "$variant" in decode|export-lame-ass) ;; *) echo "--variant decode|export-lame-ass" >&2; exit 2 ;; esac
+case "$variant" in decode|export-ass) ;; *) echo "--variant decode|export-ass" >&2; exit 2 ;; esac
 test -n "$sources" || { echo "--sources <dir> is required" >&2; exit 2; }
 
 field() { python3 -c 'import json,sys; v=json.load(open(sys.argv[1]))["sources"][sys.argv[2]].get(sys.argv[3]); print("" if v is None else v)' "$manifest" "$1" "$2"; }
@@ -95,17 +95,13 @@ if [ "$arch" = x86_64 ]; then
 fi
 
 notices=()
-if [ "$variant" = export-lame-ass ]; then
+if [ "$variant" = export-ass ]; then
   command -v meson >/dev/null || { echo "meson is required for harfbuzz" >&2; exit 1; }
   command -v ninja >/dev/null || { echo "ninja is required for harfbuzz" >&2; exit 1; }
   export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
   unset PKG_CONFIG_PATH
   export CC="$cc" CFLAGS="-O2" CXX="clang++ -arch $arch"
   autotools=(--host="$host" --prefix="$prefix" --disable-shared --enable-static)
-
-  src="$(unpack lame)"
-  (cd "$src" && ./configure "${autotools[@]}" --disable-frontend --disable-decoder && make -j"$jobs" && make install)
-  notices+=("lame:$src/$(field lame noticeFile)")
 
   src="$(unpack freetype)"
   (cd "$src" && ./configure "${autotools[@]}" --without-zlib --without-bzip2 --without-png \
@@ -144,7 +140,7 @@ EOF
   notices+=("libass:$src/$(field libass noticeFile)")
 
   ffmpeg_flags+=(
-    --enable-libmp3lame --enable-libass --enable-zlib --enable-videotoolbox --enable-audiotoolbox
+    --enable-libass --enable-zlib --enable-videotoolbox --enable-audiotoolbox
     --pkg-config-flags=--static
     --extra-cflags="-I$prefix/include" --extra-ldflags="-L$prefix/lib"
   )

@@ -24,7 +24,11 @@ this crate does not download or silently select a different runtime.
 
 ort rc.13 compiles each execution provider only behind its Cargo feature.
 rightkit-ort turns on `coreml` for Apple targets and `directml` for Windows, so
-no consumer feature is needed. Select at runtime with `ExecutionProvider`
+no consumer feature is needed (the explicit `coreml` / `directml` features forward to
+`ort/coreml` / `ort/directml` for consumers that want to name the provider).
+Apps that run their own inference use the `rightkit_ort::ort` re-export
+(`rightkit_ort::ort::{value::Tensor, session::Session, ...}`) instead of declaring
+an `ort` dependency, so the release ownership scanner never sees one. Select at runtime with `ExecutionProvider`
 (`Cpu`, `CoreMl`, `DirectMl`, or `ExecutionProvider::platform_accelerator()`).
 An accelerator that is unsupported, fails registration, or fails model load is
 an error unless `SessionOptions::with_cpu_fallback(true)` is set; then the

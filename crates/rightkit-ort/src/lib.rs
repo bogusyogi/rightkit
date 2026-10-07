@@ -6,6 +6,25 @@
 //! providers, session builder). Product environment variables and data roots
 //! stay in app adapters.
 
+/// The pinned `ort` crate, re-exported so apps that run their own inference reach
+/// `rightkit_ort::ort::{value::Tensor, session::Session, ...}` through this crate.
+/// They never declare a direct `ort` dependency, which keeps the release ownership
+/// scanner from seeing one and keeps the whole suite on a single `ort` pin.
+///
+/// ```no_run
+/// use rightkit_ort::ort::{session::Session, value::Tensor};
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// // Configure the runtime and environment first (see `configure_runtime`).
+/// let mut session = Session::builder()?.commit_from_file("model.onnx")?;
+/// let x = Tensor::from_array(([1usize, 4], vec![0.0f32; 4]))?;
+/// let _outputs = session.run(rightkit_ort::ort::inputs!["x" => x])?;
+/// # Ok(())
+/// # }
+/// ```
+#[cfg(feature = "session")]
+pub use ort;
+
 #[cfg(feature = "session")]
 pub mod environment;
 #[cfg(feature = "session")]

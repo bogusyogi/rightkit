@@ -7,7 +7,7 @@ shell invocation.
 ## Contract
 
 - Select exactly one approved catalog record per tool (`ffmpeg`, `ffprobe`), variant
-  (`decode`, `export-lame-ass`), OS, and architecture. `pending` records (recipe and
+  (`decode`, `export-ass`), OS, and architecture. `pending` records (recipe and
   spec recorded, digest not yet produced) are never resolvable.
 - Validate catalog metadata and SHA-256 before probing or execution.
 - Require the approved version banner (`ffmpeg version` / `ffprobe version`) and the

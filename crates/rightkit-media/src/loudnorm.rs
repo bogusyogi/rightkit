@@ -338,7 +338,7 @@ pub fn converge_gain<E>(
 /// final encode from the kept render.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExportEncoding {
-    /// Arguments after `-i <kept render>`, e.g. `["-codec:a", "libmp3lame", "-q:a", "2"]`.
+    /// Arguments after `-i <kept render>`, e.g. `["-codec:a", "aac", "-b:a", "192k"]`.
     pub args: Vec<String>,
 }
 
@@ -351,16 +351,17 @@ impl ExportEncoding {
         Self::codec(&["-codec:a", "flac"])
     }
 
-    /// LAME VBR quality 2. Needs an FFmpeg with libmp3lame (the `export-lame-ass`
-    /// catalog variant, or an unverified development build).
-    pub fn mp3_lame_vbr2() -> Self {
-        Self::codec(&["-codec:a", "libmp3lame", "-q:a", "2"])
+    /// AAC-LC at 192 kb/s through FFmpeg's built-in `aac` encoder (no external library,
+    /// so every catalog variant can produce it). Deliver as `.m4a`.
+    pub fn aac_192k() -> Self {
+        Self::codec(&["-codec:a", "aac", "-b:a", "192k"])
     }
 
-    /// GenRight's format mapping: `mp3`, `flac`, anything else is 16-bit PCM.
+    /// GenRight's format mapping: `m4a`/`aac` use the built-in AAC encoder, `flac` is
+    /// FLAC, anything else is 16-bit PCM. MP3 is not encoded.
     pub fn for_format(format: &str) -> Self {
         match format {
-            "mp3" => Self::mp3_lame_vbr2(),
+            "m4a" | "aac" => Self::aac_192k(),
             "flac" => Self::flac(),
             _ => Self::pcm_s16le(),
         }
@@ -624,8 +625,12 @@ mod tests {
             "volume=4.24dB,alimiter=limit=0.63:level=false:attack=5:release=50"
         );
         assert_eq!(
+            ExportEncoding::for_format("m4a").args,
+            ["-codec:a", "aac", "-b:a", "192k"]
+        );
+        assert_eq!(
             ExportEncoding::for_format("mp3").args,
-            ["-codec:a", "libmp3lame", "-q:a", "2"]
+            ["-codec:a", "pcm_s16le"]
         );
         assert_eq!(
             ExportEncoding::for_format("flac").args,

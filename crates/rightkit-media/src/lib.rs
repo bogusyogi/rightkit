@@ -47,9 +47,10 @@ pub const APPROVED_CATALOG_JSON: &str = include_str!("../catalog/artifacts.json"
 
 /// The decode-only build every app may ship (native codecs, no external libraries).
 pub const DECODE_VARIANT: &str = "decode";
-/// Decode build plus libmp3lame (MP3 export), libass (subtitle burn-in), zlib (PNG) and
-/// VideoToolbox/AudioToolbox, still `--disable-autodetect`.
-pub const EXPORT_LAME_ASS_VARIANT: &str = "export-lame-ass";
+/// Decode build plus libass (subtitle burn-in), zlib (PNG) and
+/// VideoToolbox/AudioToolbox, still `--disable-autodetect`. Audio export uses FFmpeg's
+/// built-in AAC encoder; there is no MP3 encoder in any catalog variant.
+pub const EXPORT_ASS_VARIANT: &str = "export-ass";
 
 /// Catalog schemas this crate reads. Schema 2 added `tool`, `variant`, `pending`,
 /// `attribution.components`, the `pending` status, and an optional `sha256`.
@@ -1213,8 +1214,8 @@ mod tests {
     fn export_artifact() -> Artifact {
         let mut artifact =
             approved_artifact("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
-        artifact.id = "ffmpeg-7.1.5-export-lame-ass-macos-arm64".into();
-        artifact.variant = EXPORT_LAME_ASS_VARIANT.into();
+        artifact.id = "ffmpeg-7.1.5-export-ass-macos-arm64".into();
+        artifact.variant = EXPORT_ASS_VARIANT.into();
         artifact.status = ArtifactStatus::Pending;
         artifact.sha256 = None;
         artifact.pending = Some(PendingBuild {
@@ -1224,29 +1225,12 @@ mod tests {
             promote: "record sha256".into(),
         });
         artifact.attribution.license_spdx =
-            "LGPL-2.1-or-later AND LGPL-2.0-or-later AND ISC".into();
-        artifact
-            .attribution
-            .notice_files
-            .push("LAME-COPYING.txt".into());
+            "LGPL-2.1-or-later AND ISC".into();
         artifact
             .attribution
             .notice_files
             .push("libass-COPYING.txt".into());
         artifact.attribution.components = vec![
-            Component {
-                name: "lame".into(),
-                version: "3.100".into(),
-                license_spdx: "LGPL-2.0-or-later".into(),
-                source_url:
-                    "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz"
-                        .into(),
-                source_sha256: Some(
-                    "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e".into(),
-                ),
-                enable_flag: Some("--enable-libmp3lame".into()),
-                notice_file: "LAME-COPYING.txt".into(),
-            },
             Component {
                 name: "libass".into(),
                 version: "0.17.3".into(),
@@ -1261,7 +1245,7 @@ mod tests {
         ];
         artifact
             .required_configure_flags
-            .extend(["--enable-libmp3lame".into(), "--enable-libass".into()]);
+            .push("--enable-libass".into());
         artifact
     }
 
@@ -1291,7 +1275,7 @@ mod tests {
             artifacts: vec![pending.clone()],
         };
         assert!(matches!(
-            catalog.approved_for(Tool::Ffmpeg, EXPORT_LAME_ASS_VARIANT, "windows", "x86_64"),
+            catalog.approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "windows", "x86_64"),
             Err(MediaError::ArtifactPending { .. })
         ));
         assert_eq!(catalog.pending().count(), 1);
@@ -1320,14 +1304,14 @@ mod tests {
     fn component_licences_and_enable_flags_are_recorded_and_fail_closed() {
         let base = export_artifact();
         let mut gpl = base.clone();
-        gpl.attribution.components[1].license_spdx = "GPL-2.0-or-later".into();
+        gpl.attribution.components[0].license_spdx = "GPL-2.0-or-later".into();
         assert!(matches!(
             gpl.validate(),
             Err(MediaError::UnapprovedLicense(_))
         ));
 
         let mut unlisted = base.clone();
-        unlisted.attribution.license_spdx = "LGPL-2.1-or-later AND LGPL-2.0-or-later".into();
+        unlisted.attribution.license_spdx = "LGPL-2.1-or-later".into();
         assert!(matches!(
             unlisted.validate(),
             Err(MediaError::MissingAttribution(_))
@@ -1335,7 +1319,7 @@ mod tests {
 
         let mut not_ffmpeg_first = base.clone();
         not_ffmpeg_first.attribution.license_spdx =
-            "ISC AND LGPL-2.1-or-later AND LGPL-2.0-or-later".into();
+            "ISC AND LGPL-2.1-or-later".into();
         assert!(not_ffmpeg_first.validate().is_err());
 
         let mut flag_missing = base.clone();
@@ -1427,7 +1411,7 @@ mod tests {
             assert_eq!(probe.version, "7.1.5");
             assert!(probe.sha256.is_some());
             let export = catalog.by_id(&format!(
-                "ffmpeg-7.1.5-export-lame-ass-macos-{}",
+                "ffmpeg-7.1.5-export-ass-macos-{}",
                 if arch == "aarch64" { "arm64" } else { arch }
             ));
             let export = export.expect("export variant entry");
@@ -1439,7 +1423,6 @@ mod tests {
                 .iter()
                 .any(|c| c.contains("build-ffmpeg-macos.sh build")));
             for flag in [
-                "--enable-libmp3lame",
                 "--enable-libass",
                 "--disable-autodetect",
             ] {
@@ -1448,9 +1431,9 @@ mod tests {
             assert!(export
                 .attribution
                 .license_spdx
-                .starts_with("LGPL-2.1-or-later AND LGPL-2.0-or-later"));
+                .starts_with("LGPL-2.1-or-later AND FTL"));
             assert!(matches!(
-                catalog.approved_for(Tool::Ffmpeg, EXPORT_LAME_ASS_VARIANT, "macos", arch),
+                catalog.approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "macos", arch),
                 Err(MediaError::ArtifactPending { .. })
             ));
         }

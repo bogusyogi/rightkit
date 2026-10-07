@@ -1,7 +1,7 @@
 //! Non-catalog FFmpeg/FFprobe for development builds, labelled and refused in release.
 //!
 //! Apps sometimes need a feature the approved catalog build lacks on a developer
-//! machine (for example MP3 export through libmp3lame before the `export-lame-ass`
+//! machine (for example an encoder the approved builds omit before the `export-ass`
 //! variant is approved). This module resolves such a binary from, in order:
 //!
 //! 1. an explicit configured path ([`UnverifiedRequest::config_override`]),

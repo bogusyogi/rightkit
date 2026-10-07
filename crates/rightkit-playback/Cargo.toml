@@ -16,7 +16,7 @@ default = []
 tauri = ["dep:tauri"]
 
 [dependencies]
-rightkit-media = { path = "../rightkit-media", version = "=0.2.0" }
+rightkit-media = { path = "../rightkit-media", version = "=0.2.1" }
 rightkit-process = { path = "../rightkit-process", version = "=0.2.1" }
 parking_lot = "=0.12.5"
 serde = { version = "1.0.228", features = ["derive"] }

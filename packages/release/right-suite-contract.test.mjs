@@ -551,7 +551,7 @@ test("RightKit exposes one current version manifest", () => {
     "rightkit-fs": "0.1.0",
     "rightkit-jobs": "0.2.0",
     "rightkit-logs": "0.2.0",
-    "rightkit-media": "0.2.0",
+    "rightkit-media": "0.2.1",
     "rightkit-models": "0.1.0",
     "rightkit-pdf": "0.1.0",
     "rightkit-playback": "0.1.0",

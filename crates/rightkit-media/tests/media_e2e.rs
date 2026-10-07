@@ -454,30 +454,30 @@ fn normalize_converges_within_half_an_lu_keeps_a_measured_render_and_is_confirme
 }
 
 #[test]
-fn mp3_export_normalizes_through_an_unverified_development_ffmpeg_with_libmp3lame() {
-    // The approved decode build has no libmp3lame (the pending export-lame-ass variant
-    // will). Development hosts reach MP3 export through the labelled unverified path.
+fn aac_m4a_export_normalizes_through_the_built_in_encoder() {
+    // FFmpeg's built-in `aac` encoder needs no external library, so MP3-free GenRight
+    // export works on any FFmpeg. Resolve the same labelled development path.
     let mut request = UnverifiedRequest::new(Tool::Ffmpeg);
     request.allow_path_lookup = true;
     let Ok(tool) = resolve_unverified(&request, BuildMode::Development) else {
-        eprintln!("SKIP mp3 export: no ffmpeg on PATH");
+        eprintln!("SKIP aac export: no ffmpeg on PATH");
         return;
     };
     let caps = tool.probe_capabilities(T).unwrap();
-    if !caps.has_encoder("libmp3lame") {
-        eprintln!("SKIP mp3 export: {} has no libmp3lame", tool.label());
+    if !caps.has_encoder("aac") {
+        eprintln!("SKIP aac export: {} has no aac encoder", tool.label());
         return;
     }
-    eprintln!("mp3 export via {}", tool.label());
+    eprintln!("aac export via {}", tool.label());
     let bin = tool;
     let dir = tempfile::tempdir().unwrap();
     let peaky = p(dir.path(), "peaky.wav");
     peaky_wav(&bin, &peaky, 20);
-    let mp3 = p(dir.path(), "peaky.mp3");
-    let report = normalize(&bin, &peaky, &mp3, &ExportEncoding::mp3_lame_vbr2()).unwrap();
+    let m4a = p(dir.path(), "peaky.m4a");
+    let report = normalize(&bin, &peaky, &m4a, &ExportEncoding::aac_192k()).unwrap();
     report.ensure_within_tolerance().unwrap();
-    let pr = probe_media(&bin, &mp3, &CancellationToken::new()).unwrap();
-    assert_eq!(pr.first_audio().unwrap().codec, "mp3");
+    let pr = probe_media(&bin, &m4a, &CancellationToken::new()).unwrap();
+    assert_eq!(pr.first_audio().unwrap().codec, "aac");
     // Lossy encoding moves loudness slightly; the kept render is the guarantee.
     assert!(
         (report.delivered.input_i - -16.0).abs() <= 1.0,

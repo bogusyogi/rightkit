@@ -127,37 +127,27 @@
       ]
     },
     {
-      "id": "ffmpeg-7.1.5-export-lame-ass-macos-arm64",
+      "id": "ffmpeg-7.1.5-export-ass-macos-arm64",
       "tool": "ffmpeg",
-      "variant": "export-lame-ass",
+      "variant": "export-ass",
       "os": "macos",
       "arch": "aarch64",
       "version": "7.1.5",
       "status": "pending",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
-        "licenseSpdx": "LGPL-2.1-or-later AND LGPL-2.0-or-later AND FTL AND MIT-Modern-Variant AND ISC",
+        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC",
         "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
-        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-lame-ass-macos.txt",
+        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-macos.txt",
         "noticeFiles": [
           "third-party/LGPL-2.1.txt",
-          "third-party/BUILD-NOTES-ffmpeg-export-lame-ass-macos.txt",
-          "third-party/LAME-COPYING.txt",
+          "third-party/BUILD-NOTES-ffmpeg-export-ass-macos.txt",
           "third-party/FreeType-FTL.txt",
           "third-party/FriBidi-COPYING.txt",
           "third-party/HarfBuzz-COPYING.txt",
           "third-party/libass-COPYING.txt"
         ],
         "components": [
-          {
-            "name": "lame",
-            "version": "3.100",
-            "licenseSpdx": "LGPL-2.0-or-later",
-            "sourceUrl": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
-            "sourceSha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
-            "enableFlag": "--enable-libmp3lame",
-            "noticeFile": "third-party/LAME-COPYING.txt"
-          },
           {
             "name": "freetype",
             "version": "2.13.3",
@@ -193,7 +183,6 @@
         "--disable-gpl",
         "--disable-nonfree",
         "--disable-autodetect",
-        "--enable-libmp3lame",
         "--enable-libass",
         "--enable-zlib",
         "--enable-videotoolbox",
@@ -203,44 +192,34 @@
         "reason": "freetype, fribidi, harfbuzz and libass sources are not on the build host and their sha256 digests are not pinned yet; harfbuzz needs meson, which the host lacks. No binary digest exists.",
         "recipe": "recipes/build-ffmpeg-macos.sh",
         "commands": [
-          "recipes/build-ffmpeg-macos.sh fetch --variant export-lame-ass --sources <src-dir>  # then pin freetype/fribidi/harfbuzz/libass sha256 in recipes/ffmpeg-sources.json after comparing with upstream",
-          "recipes/build-ffmpeg-macos.sh build --variant export-lame-ass --arch arm64 --tool ffmpeg --sources <src-dir> --work <work-dir> --out <out-dir>  # needs meson + ninja on PATH"
+          "recipes/build-ffmpeg-macos.sh fetch --variant export-ass --sources <src-dir>  # then pin freetype/fribidi/harfbuzz/libass sha256 in recipes/ffmpeg-sources.json after comparing with upstream",
+          "recipes/build-ffmpeg-macos.sh build --variant export-ass --arch arm64 --tool ffmpeg --sources <src-dir> --work <work-dir> --out <out-dir>  # needs meson + ninja on PATH"
         ],
-        "promote": "copy <out-dir>/ffmpeg-export-lame-ass-macos-arm64 to vendor/ffmpeg-lgpl/ and <out-dir>/ffmpeg-export-lame-ass-macos-arm64.notices/* to the listed third-party/ notice files; record sha256 from the .evidence.json and every component sourceSha256; set status approved; delete pending"
+        "promote": "copy <out-dir>/ffmpeg-export-ass-macos-arm64 to vendor/ffmpeg-lgpl/ and <out-dir>/ffmpeg-export-ass-macos-arm64.notices/* to the listed third-party/ notice files; record sha256 from the .evidence.json and every component sourceSha256; set status approved; delete pending"
       }
     },
     {
-      "id": "ffmpeg-7.1.5-export-lame-ass-macos-x86_64",
+      "id": "ffmpeg-7.1.5-export-ass-macos-x86_64",
       "tool": "ffmpeg",
-      "variant": "export-lame-ass",
+      "variant": "export-ass",
       "os": "macos",
       "arch": "x86_64",
       "version": "7.1.5",
       "status": "pending",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
-        "licenseSpdx": "LGPL-2.1-or-later AND LGPL-2.0-or-later AND FTL AND MIT-Modern-Variant AND ISC",
+        "licenseSpdx": "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC",
         "sourceUrl": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
-        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-lame-ass-macos.txt",
+        "buildProvenance": "third-party/BUILD-NOTES-ffmpeg-export-ass-macos.txt",
         "noticeFiles": [
           "third-party/LGPL-2.1.txt",
-          "third-party/BUILD-NOTES-ffmpeg-export-lame-ass-macos.txt",
-          "third-party/LAME-COPYING.txt",
+          "third-party/BUILD-NOTES-ffmpeg-export-ass-macos.txt",
           "third-party/FreeType-FTL.txt",
           "third-party/FriBidi-COPYING.txt",
           "third-party/HarfBuzz-COPYING.txt",
           "third-party/libass-COPYING.txt"
         ],
         "components": [
-          {
-            "name": "lame",
-            "version": "3.100",
-            "licenseSpdx": "LGPL-2.0-or-later",
-            "sourceUrl": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
-            "sourceSha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
-            "enableFlag": "--enable-libmp3lame",
-            "noticeFile": "third-party/LAME-COPYING.txt"
-          },
           {
             "name": "freetype",
             "version": "2.13.3",
@@ -276,7 +255,6 @@
         "--disable-gpl",
         "--disable-nonfree",
         "--disable-autodetect",
-        "--enable-libmp3lame",
         "--enable-libass",
         "--enable-zlib",
         "--enable-videotoolbox",
@@ -286,10 +264,10 @@
         "reason": "freetype, fribidi, harfbuzz and libass sources are not on the build host and their sha256 digests are not pinned yet; harfbuzz needs meson, which the host lacks. No binary digest exists.",
         "recipe": "recipes/build-ffmpeg-macos.sh",
         "commands": [
-          "recipes/build-ffmpeg-macos.sh fetch --variant export-lame-ass --sources <src-dir>  # then pin freetype/fribidi/harfbuzz/libass sha256 in recipes/ffmpeg-sources.json after comparing with upstream",
-          "recipes/build-ffmpeg-macos.sh build --variant export-lame-ass --arch x86_64 --tool ffmpeg --sources <src-dir> --work <work-dir> --out <out-dir>  # needs meson + ninja on PATH"
+          "recipes/build-ffmpeg-macos.sh fetch --variant export-ass --sources <src-dir>  # then pin freetype/fribidi/harfbuzz/libass sha256 in recipes/ffmpeg-sources.json after comparing with upstream",
+          "recipes/build-ffmpeg-macos.sh build --variant export-ass --arch x86_64 --tool ffmpeg --sources <src-dir> --work <work-dir> --out <out-dir>  # needs meson + ninja on PATH"
         ],
-        "promote": "copy <out-dir>/ffmpeg-export-lame-ass-macos-x86_64 to vendor/ffmpeg-lgpl/ and <out-dir>/ffmpeg-export-lame-ass-macos-x86_64.notices/* to the listed third-party/ notice files; record sha256 from the .evidence.json and every component sourceSha256; set status approved; delete pending"
+        "promote": "copy <out-dir>/ffmpeg-export-ass-macos-x86_64 to vendor/ffmpeg-lgpl/ and <out-dir>/ffmpeg-export-ass-macos-x86_64.notices/* to the listed third-party/ notice files; record sha256 from the .evidence.json and every component sourceSha256; set status approved; delete pending"
       }
     }
   ]

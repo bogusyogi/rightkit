@@ -18,8 +18,8 @@ ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "
 
 [dev-dependencies]
 hound = "3.5"
-rightkit-media = { path = "../rightkit-media", version = "=0.2.0" }
-rightkit-ort = { path = "../rightkit-ort", version = "=0.1.2" }
+rightkit-media = { path = "../rightkit-media", version = "=0.2.1" }
+rightkit-ort = { path = "../rightkit-ort", version = "=0.1.3" }
 
 [features]
 default = ["ort-defaults"]
