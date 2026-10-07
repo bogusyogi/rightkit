@@ -485,10 +485,22 @@ test('GC breaches recency protection only under disk-floor pressure', async () =
   try {
     await warmWorkspace(item, 'a'); await warmWorkspace(item, 'b');
     const seen = [];
-    const result = await item.state.gc({ capBytes: 1_000_000, evictIdle: evictVia(item, seen), freeBytes: async () => 10, freeFloorBytes: 100 });
+    const result = await item.state.gc({ capBytes: 1_000_000, evictIdle: evictVia(item, seen), freeBytes: async () => 10, freeFloorBytes: 100, graceMs: 0 });
     assert.ok(result.effectiveCapBytes < result.beforeBytes);
     assert.ok(result.evicted.length >= 1);
     assert.ok(seen.every((candidate) => candidate.reason === 'disk-floor-eviction'));
+  } finally { await item.close(); }
+});
+
+test('GC never evicts a just-used generation under disk-floor pressure (grace window)', async () => {
+  const item = await fixture();
+  try {
+    // A build that just finished is still being consumed (right-release dev bundles after cargo exits).
+    await warmWorkspace(item, 'fresh');
+    const seen = [];
+    const result = await item.state.gc({ capBytes: 1_000_000, evictIdle: evictVia(item, seen), freeBytes: async () => 10, freeFloorBytes: 100 });
+    assert.equal(result.evicted.length, 0);
+    assert.equal(seen.length, 0);
   } finally { await item.close(); }
 });
 

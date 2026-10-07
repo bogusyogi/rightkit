@@ -415,7 +415,7 @@ export class ThinState {
    * active-writer & resident generations are never direct deletion candidates. Sizes are
    * cached per current generation and invalidated by the sizeDirty flag so GC
    * does not repeatedly walk warm target trees (v2.8 §10.5). */
-  async gc({ capBytes, evictIdle = null, freeBytes = null, freeFloorBytes = null, recentMs = 72 * 3_600_000, staleMs = 14 * 86_400_000 } = {}) {
+  async gc({ capBytes, evictIdle = null, freeBytes = null, freeFloorBytes = null, recentMs = 72 * 3_600_000, staleMs = 14 * 86_400_000, graceMs = 30 * 60_000 } = {}) {
     if (!Number.isSafeInteger(capBytes) || capBytes < 1) throw new TypeError('gc capBytes must be a positive integer or null');
     if (evictIdle !== null && typeof evictIdle !== 'function') throw new TypeError('evictIdle must be a callback or null');
     if (freeBytes !== null && typeof freeBytes !== 'function') throw new TypeError('freeBytes must be a callback or null');
@@ -524,9 +524,13 @@ export class ThinState {
       };
       // Stale trees are retired regardless of cap; recently used trees are protected unless the disk floor is breached.
       for (const candidate of ordered) if (now - lru(candidate) > staleMs) await evict(candidate, 'stale-idle-eviction');
+      // A generation whose last job ended moments ago is still being consumed outside the broker
+      // (right-release dev bundles the binary after cargo exits). Never evict it inside the grace
+      // window, even under disk-floor pressure: the next tick reclaims it if pressure persists.
+      const lastTouched = (candidate) => Math.max(Date.parse(candidate.lastUsedAt ?? '') || 0, Date.parse(candidate.updatedAt ?? '') || 0, candidate.modifiedMs || 0);
       if (goal !== null) for (const candidate of ordered) {
         if (total <= goal) break;
-        if (candidate.evicted || (!pressure && now - lru(candidate) < recentMs)) continue;
+        if (candidate.evicted || (graceMs > 0 && now - lastTouched(candidate) < graceMs) || (!pressure && now - lru(candidate) < recentMs)) continue;
         await evict(candidate, pressure ? 'disk-floor-eviction' : 'cache-budget-eviction');
       }
     }

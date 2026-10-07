@@ -364,7 +364,7 @@ export class ThinJobService {
     try {
       do {
         this.#gcQueued = false;
-        const gc = await this.#state.gc({ capBytes: this.#config.bounds?.targetCacheCapBytes ?? null, evictIdle: this.#evictIdleGeneration, freeFloorBytes: this.#config.bounds?.gcFreeFloorBytes ?? null, freeBytes: async () => { const stats = await nodeStatfs(this.#state.paths.base); return Number(stats.bavail) * Number(stats.bsize); } });
+        const gc = await this.#state.gc({ capBytes: this.#config.bounds?.targetCacheCapBytes ?? null, evictIdle: this.#evictIdleGeneration, freeFloorBytes: this.#config.bounds?.gcFreeFloorBytes ?? null, graceMs: this.#config.bounds?.gcGraceMs ?? 30 * 60_000, freeBytes: async () => { const stats = await nodeStatfs(this.#state.paths.base); return Number(stats.bavail) * Number(stats.bsize); } });
         if (gc.deleted?.length || gc.evicted?.length || gc.reclaimed?.deadRoots?.length || gc.reclaimed?.orphanLeaves?.length) await this.#log({ type: 'GENERATION_GC', deleted: gc.deleted ?? [], evicted: gc.evicted ?? [], reclaimed: gc.reclaimed ?? null, beforeBytes: gc.beforeBytes ?? null, afterBytes: gc.afterBytes ?? null, capBytes: gc.capBytes ?? null, effectiveCapBytes: gc.effectiveCapBytes ?? null, freeBytes: gc.freeBytes ?? null, freeFloorBytes: gc.freeFloorBytes ?? null });
         if (this.#nativeOpenSsl && this.#state.pinnedNativeKeys) { const native = await this.#nativeOpenSsl.gc({ pinned: await this.#state.pinnedNativeKeys('openssl') }); if (native.evicted.length) await this.#log({ type: 'NATIVE_OPENSSL_GC', ...native }); }
         // Shared job temp root: leaked test temp dirs older than 6 h and older than every running job.
