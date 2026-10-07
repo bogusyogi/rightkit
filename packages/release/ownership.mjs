@@ -1,6 +1,6 @@
 // RightKit ownership scan. Public exports retain the original findings-array API.
 import { spawnSync } from "./background-process.mjs";
-import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, sha256, verifyException } from "./ownership-approval.mjs";
+import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
 import { parse as parseToml } from "smol-toml";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -82,7 +82,7 @@ function parseCargo(parsed, file, out, workspace, root, coverage) {
   addTable(parsed);
 }
 
-function scanFiles(root, visit, coverage) {
+function scanFiles(root, visit, coverage, { includeNodeModules = false } = {}) {
   const rootReal = realpathSync(root); const seen = new Set();
   const walk = (dir, rel) => {
     let entries;
@@ -100,10 +100,10 @@ function scanFiles(root, visit, coverage) {
       } else if (st.isDirectory()) {
         if (ent.name === ".git") continue;
         if (ent.name === "node_modules") {
-          // Directory names and package-manager layout are not provenance. Without an exact
-          // protected exclusion, installed source and linked local wrappers remain unscanned.
+          // Enumeration is needed to inspect exact files and local wrappers. The subtree
+          // remains incomplete until a complete closure is independently established.
           coverage.push({ path: r, status: "unscanned", reason: "node-modules-provenance-not-verified" });
-          continue;
+          if (!includeNodeModules) continue;
         }
         if (OPAQUE_DIRS.has(ent.name)) coverage.push({ path: r, status: "unscanned", reason: "installed-or-build-cache" });
         else walk(abs, r);
@@ -113,19 +113,64 @@ function scanFiles(root, visit, coverage) {
   walk(rootReal, "");
 }
 
-export function directDependencies(appRoot) {
+function fileInventory(appRoot, trust, pathPrefix = "") {
+  const files = [], coverage = [];
+  const protectedPaths = new Set((trust?.provenance ?? []).flatMap((record) => (record.paths ?? []).map((p) => pathPrefix && p.startsWith(pathPrefix) ? p.slice(pathPrefix.length) : p)));
+  scanFiles(appRoot, (rel, abs, size) => {
+    const relevant = protectedPaths.has(rel) || ["Cargo.toml", "package.json", "Package.swift"].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase());
+    let bytes;
+    if (relevant) {
+      const limit = CODE_EXT.has(path.posix.extname(rel).toLowerCase()) || protectedPaths.has(rel) ? 2 * 1024 * 1024 : 64 * 1024 * 1024;
+      if (size > limit) { coverage.push({ path: rel, status: "unscanned", reason: protectedPaths.has(rel) ? "protected-provenance-file-over-2MiB" : "source-file-over-2MiB" }); }
+      else try { bytes = readFileSync(abs); }
+      catch { coverage.push({ path: rel, status: "unscanned", reason: "file-read-failed" }); }
+    }
+    files.push({ rel, abs, size, bytes, inNodeModules: rel.split("/").includes("node_modules") });
+  }, coverage, { includeNodeModules: true });
+  return { files, coverage };
+}
+
+function dependenciesFromInventory(appRoot, inventory) {
   const deps = [], coverage = [], contentDigests = [];
   // Workspace inheritance is loaded before member manifests.
-  const files = [];
-  scanFiles(appRoot, (rel, abs, size) => { if (["Cargo.toml", "package.json", "Package.swift"].includes(path.posix.basename(rel))) files.push({ rel, abs, size }); }, coverage);
+  const manifestNames = new Set(["Cargo.toml", "package.json", "Package.swift"]);
+  const manifests = inventory.files.filter((x) => manifestNames.has(path.posix.basename(x.rel)));
+  const primaryFiles = manifests.filter((x) => !x.inNodeModules);
+  // Follow only explicitly declared local package roots into installed layouts. Their own
+  // manifests are first-party inputs; unrelated installed transitive manifests stay opaque.
+  const selected = new Set(primaryFiles.map((x) => x.rel));
+  const visitedRoots = new Set();
+  const queue = primaryFiles.filter((x) => path.posix.basename(x.rel) === "package.json");
+  while (queue.length) {
+    const manifest = queue.shift();
+    try {
+      const pkg = JSON.parse(manifest.bytes.toString("utf8"));
+      for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) for (const spec of Object.values(pkg[field] ?? {})) {
+        if (typeof spec !== "string") continue;
+        const local = spec.match(/^(?:file:|link:)(.+)$/)?.[1];
+        if (!local) continue;
+        const target = path.resolve(appRoot, path.posix.dirname(manifest.rel), local);
+        const relative = path.relative(appRoot, target).split(path.sep).join("/").replace(/\/$/, "");
+        if (visitedRoots.has(relative)) continue;
+        visitedRoots.add(relative);
+        for (const x of manifests) if (x.rel === `${relative}/package.json` || x.rel.startsWith(`${relative}/`) && manifestNames.has(path.posix.basename(x.rel))) {
+          if (!selected.has(x.rel)) selected.add(x.rel);
+          if (path.posix.basename(x.rel) === "package.json") queue.push(x);
+        }
+      }
+    } catch { /* malformed manifests are reported in the normal parsing pass */ }
+  }
+  const files = manifests.filter((x) => selected.has(x.rel));
   const cargoFiles = files.filter((x) => path.posix.basename(x.rel) === "Cargo.toml");
   const workspaces = [];
   for (const x of cargoFiles) {
-    try { const parsed = parseToml(readFileSync(x.abs, "utf8")); const deps = cargoWorkspace(parsed); if (Object.keys(deps).length) workspaces.push({ dir: path.posix.dirname(x.rel), deps }); }
+    try { const parsed = parseToml(x.bytes.toString("utf8")); const deps = cargoWorkspace(parsed); if (Object.keys(deps).length) workspaces.push({ dir: path.posix.dirname(x.rel), deps }); }
     catch { coverage.push({ path: x.rel, status: "unscanned", reason: "invalid-cargo-toml" }); }
   }
-  for (const { rel, abs } of files) {
-    const base = path.posix.basename(rel), bytes = readFileSync(abs), text = bytes.toString("utf8");
+  for (const x of files) {
+    const { rel, bytes } = x;
+    if (!bytes) continue;
+    const base = path.posix.basename(rel), text = bytes.toString("utf8");
     contentDigests.push({ path: rel, digest: byteDigest(bytes) });
     if (base === "Cargo.toml") {
       const dir = path.posix.dirname(rel);
@@ -165,6 +210,13 @@ export function directDependencies(appRoot) {
   return deps;
 }
 
+export function directDependencies(appRoot) {
+  const inventory = fileInventory(appRoot);
+  const deps = dependenciesFromInventory(appRoot, inventory);
+  deps.coverage.push(...inventory.coverage);
+  return deps;
+}
+
 /** Content inventory for cache keys; unsupported trees remain visible as incomplete coverage. */
 export function contentInventory(appRoot) {
   const files = [], coverage = [];
@@ -178,41 +230,124 @@ export function contentInventory(appRoot) {
 }
 
 function commentOnly(line) { const t = line.trim(); return t.startsWith("//") || t.startsWith("#") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("--"); }
-function scanInternal(appRoot, manifest) {
-  const findings = [], coverage = [], deps = directDependencies(appRoot), contentDigests = [...(deps.contentDigests ?? [])]; coverage.push(...(deps.coverage ?? []));
+function repositoryIdentityFor(root) {
+  const origin = spawnSync("git", ["-C", root, "config", "--get", "remote.origin.url"], { encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
+  if (origin.status !== 0) return null;
+  try { return canonicalRepositoryIdentity(origin.stdout.trim()); } catch { return null; }
+}
+
+function scanRepositoryRoot(appRoot) {
+  const result = spawnSync("git", ["-C", appRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
+  if (result.status !== 0) return { root: path.resolve(appRoot), prefix: "", pathBase: "scan-root" };
+  const root = path.resolve(result.stdout.trim()), app = path.resolve(appRoot);
+  const relative = path.relative(root, app);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { root: app, prefix: "", pathBase: "scan-root" };
+  return { root, prefix: relative ? `${relative.split(path.sep).join("/")}/` : "", pathBase: "repository" };
+}
+
+function trustedProvenance(appRoot, inventory, trust, repositoryIdentity, coverage, repositoryRoot, pathPrefix) {
+  const excluded = new Map(), classifications = [];
+  if (!trust || !repositoryIdentity) return { excluded, classifications };
+  const scannedFiles = new Map(inventory.files.map((file) => [file.rel, file]));
+  for (const record of trust.provenance ?? []) {
+    if (record.repositoryIdentity !== repositoryIdentity) continue;
+    if (!(record.paths ?? []).some((rel) => !pathPrefix || rel.startsWith(pathPrefix))) continue;
+    const files = [];
+    let safe = true;
+    for (const rel of record.paths ?? []) {
+      const filePath = path.resolve(repositoryRoot, ...rel.split("/"));
+      const rootReal = realpathSync(repositoryRoot);
+      if (!filePath.startsWith(rootReal + path.sep)) { safe = false; break; }
+      try {
+        let current = repositoryRoot, st;
+        for (const part of rel.split("/")) {
+          current = path.join(current, part);
+          st = lstatSync(current);
+          if (st.isSymbolicLink()) { safe = false; break; }
+        }
+        if (!safe || !st?.isFile()) { safe = false; break; }
+        let content;
+        if (!pathPrefix || rel.startsWith(pathPrefix)) {
+          const inventoried = scannedFiles.get(pathPrefix ? rel.slice(pathPrefix.length) : rel);
+          if (!inventoried?.bytes || inventoried.size > 2 * 1024 * 1024) { safe = false; break; }
+          content = inventoried.bytes;
+        } else {
+          // Multi-root records may include repository siblings; read them only to verify the full signed record.
+          if (st.size > 2 * 1024 * 1024) { safe = false; break; }
+          content = readFileSync(current);
+        }
+        files.push({ path: rel, content });
+      } catch { safe = false; break; }
+    }
+    const verified = safe && verifyProtectedProvenance(trust, { repositoryIdentity, paths: record.paths, files, kind: record.kind, requestId: record.requestId });
+    if (!verified?.ok) {
+      for (const rel of record.paths ?? []) if (!pathPrefix || rel.startsWith(pathPrefix)) coverage.push({ path: pathPrefix ? rel.slice(pathPrefix.length) : rel, status: "unscanned", reason: "protected-provenance-stale-or-unreadable" });
+      continue;
+    }
+    const classification = { kind: record.kind, requestId: record.requestId, contentDigest: record.contentDigest };
+    classifications.push({ ...classification, paths: [...record.paths].sort() });
+    for (const rel of record.paths) if (!pathPrefix || rel.startsWith(pathPrefix)) excluded.set(pathPrefix ? rel.slice(pathPrefix.length) : rel, classification);
+  }
+  return { excluded, classifications };
+}
+
+function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), trust, repositoryIdentity, repositoryRoot = appRoot, pathPrefix = "" } = {}) {
+  const findings = [], coverage = [...inventory.coverage], deps = dependenciesFromInventory(appRoot, inventory), contentDigests = [...(deps.contentDigests ?? [])];
+  coverage.push(...(deps.coverage ?? []));
+  const provenance = trustedProvenance(appRoot, inventory, trust, repositoryIdentity, coverage, repositoryRoot, pathPrefix);
   for (const c of manifest.capabilities) for (const f of c.fingerprints.filter((x) => x.type === "dependency")) for (const d of deps) {
     if (d.ecosystem === f.ecosystem && (d.name === f.name || d.alias === f.name)) {
       findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, file: d.file, line: 0, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, local: d.local, provenance: d.source });
     }
   }
   const sources = manifest.capabilities.flatMap((c) => c.fingerprints.filter((f) => f.type === "source").map((f) => ({ c, f, re: new RegExp(f.pattern, f.flags ?? "") })));
-  scanFiles(appRoot, (rel, abs, size) => {
-    if (!CODE_EXT.has(path.posix.extname(rel).toLowerCase())) return;
-    if (size > 2 * 1024 * 1024) { coverage.push({ path: rel, status: "unscanned", reason: "source-file-over-2MiB" }); return; }
-    let bytes, text; try { bytes = readFileSync(abs); text = bytes.toString("utf8"); } catch { coverage.push({ path: rel, status: "unscanned", reason: "file-read-failed" }); return; }
+  for (const { rel, size, bytes } of inventory.files) {
+    if (!CODE_EXT.has(path.posix.extname(rel).toLowerCase())) continue;
+    if (!bytes) continue;
+    if (provenance.excluded.has(rel)) {
+      const classification = provenance.excluded.get(rel);
+      contentDigests.push({ path: rel, digest: byteDigest(bytes), provenance: classification });
+      continue;
+    }
+    if (size > 2 * 1024 * 1024) { coverage.push({ path: rel, status: "unscanned", reason: "source-file-over-2MiB" }); continue; }
+    const text = bytes.toString("utf8");
     contentDigests.push({ path: rel, digest: byteDigest(bytes) });
     for (const [i, line] of text.split(/\r?\n/).entries()) if (!commentOnly(line)) for (const { c, f, re } of sources) {
       re.lastIndex = 0; if (re.test(line)) findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, file: rel, line: i + 1, text: line.trim().slice(0, 160) });
     }
-  }, coverage);
+  }
+  if (pathPrefix) {
+    const prefix = (p) => p === "." ? pathPrefix.slice(0, -1) : `${pathPrefix}${p}`;
+    for (const f of findings) f.file = prefix(f.file);
+    for (const c of coverage) c.path = prefix(c.path);
+    for (const d of deps) d.file = prefix(d.file);
+    for (const d of contentDigests) d.path = prefix(d.path);
+  }
   for (const f of findings) f.occurrenceHash = occurrenceHash(f);
   contentDigests.sort((a, b) => a.path.localeCompare(b.path));
-  return { findings, coverage, deps, contentDigests };
+  return { findings, coverage, deps, contentDigests, provenance: provenance.classifications };
 }
 
-export function scanApp(appRoot, manifest) {
-  const result = scanInternal(appRoot, manifest);
+function trustForScan(options = {}) {
+  if (options.trust !== undefined) return options.trust?.trust ?? options.trust;
+  try { return loadTrustedExternal().trust; } catch { return null; }
+}
+
+export function scanApp(appRoot, manifest, options = {}) {
+  const trust = trustForScan(options), repositoryIdentity = repositoryIdentityFor(appRoot), location = scanRepositoryRoot(appRoot);
+  const result = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
   Object.defineProperty(result.findings, "coverage", { value: result.coverage, enumerable: false });
-  Object.defineProperty(result.findings, "metadata", { value: scanMetadata(appRoot, manifest, result.coverage, result.contentDigests), enumerable: false });
+  Object.defineProperty(result.findings, "metadata", { value: { ...scanMetadata(appRoot, manifest, result.coverage, result.contentDigests, repositoryIdentity), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: result.provenance }, enumerable: false });
   return result.findings;
 }
 
-function scanMetadata(root, manifest, coverage = [], contentDigests = []) {
+function scanMetadata(root, manifest, coverage = [], contentDigests = [], knownIdentity) {
   const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
-  const commit = git("rev-parse", "HEAD"); const origin = git("config", "--get", "remote.origin.url");
+  const commit = git("rev-parse", "HEAD");
   const fullCoverage = [...coverage];
   let repositoryIdentity = null;
-  if (origin.status === 0) { try { repositoryIdentity = canonicalRepositoryIdentity(origin.stdout.trim()); } catch {} }
+  if (knownIdentity !== undefined) repositoryIdentity = knownIdentity;
+  else repositoryIdentity = repositoryIdentityFor(root);
   return { repositoryIdentity, commit: commit.status === 0 ? commit.stdout.trim() : null, host: `${os.hostname()}/${process.platform}`, scannedAt: new Date().toISOString(), catalogDigest: catalogDigest(manifest), catalogVersion: manifest.version ?? String(manifest.schema ?? "1"), scannerVersion: SCANNER_VERSION, contentDigests, coverage: fullCoverage };
 }
 
@@ -259,13 +394,15 @@ export function capabilityTable(manifest, deps, result) {
 export function formatTable(rows) { return ["capability  owner  status", ...rows.map((x) => `${x.capability}  ${x.owner}  ${x.status}`)].join("\n"); }
 
 export function checkApp(appRoot, manifest, options = {}) {
-  const scanned = scanInternal(appRoot, manifest), metadata = scanMetadata(appRoot, manifest, scanned.coverage, scanned.contentDigests);
   let trustState = options.trust;
   if (!trustState) {
     try { trustState = loadTrustedExternal(); }
     catch (error) { trustState = { enrolled: false, pending: true, trust: null, error: error.message }; }
   }
   const trust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
+  const repositoryIdentity = repositoryIdentityFor(appRoot), location = scanRepositoryRoot(appRoot);
+  const scanned = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
+  const metadata = { ...scanMetadata(appRoot, manifest, scanned.coverage, scanned.contentDigests, repositoryIdentity), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance };
   const result = evaluate(scanned.findings, loadExceptions(appRoot), { ...options, trust, trustEnrollment: trustState?.pending !== undefined ? trustState : undefined, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });

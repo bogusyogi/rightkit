@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalJson, canonicalRepositoryIdentity, createDraft, keyIdForPublicKey, sha256 } from "./ownership-approval.mjs";
+import { canonicalJson, canonicalRepositoryIdentity, createDraft, keyIdForPublicKey, provenanceContentDigest, sha256 } from "./ownership-approval.mjs";
 import { aggregateOwnership, catalogDigest, checkApp, contentInventory, directDependencies, evaluate, MANIFEST_FILE, scanApp } from "./ownership.mjs";
 
 const rightkitRoot = path.resolve(import.meta.dirname, "../..");
@@ -102,7 +102,7 @@ test("workspace-inherited Cargo path resolves from workspace root; local boundar
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("node_modules layout cannot spoof provenance; skipped installed source remains unscanned", () => {
+test("node_modules layout cannot spoof provenance; untrusted installed source remains a finding", () => {
   const root = app({
     "node_modules/.pnpm/fake/src/auth.rs": SAMPLES["oauth.endpoint.github"],
     "node_modules/local-wrapper/src/auth.rs": SAMPLES["oauth.endpoint.google"],
@@ -111,10 +111,63 @@ test("node_modules layout cannot spoof provenance; skipped installed source rema
   try {
     const result = checkApp(root, shipped, { trust: { enrolled: true, trust: null } });
     assert.equal(result.ok, false);
-    assert.ok(!result.findings.some((f) => f.file.includes("node_modules")));
+    assert.ok(result.findings.some((f) => f.file === "node_modules/local-wrapper/src/auth.rs"), "installed source without provenance is scanned as a finding");
     assert.ok(result.coverage.some((x) => x.path === "node_modules" && x.reason === "node-modules-provenance-not-verified"));
     const inventory = contentInventory(root);
     assert.equal(inventory.complete, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+function repositoryTrust(root, relPaths, kind = "third-party") {
+  const identity = "https://github.com/org/repo";
+  const files = relPaths.filter((rel) => { try { readFileSync(path.join(root, ...rel.split("/"))); return true; } catch { return false; } })
+    .map((rel) => ({ path: rel, content: readFileSync(path.join(root, ...rel.split("/"))) }));
+  const { trust } = signedException([], { root: identity });
+  const requestId = "RK-PROVENANCE-001";
+  trust.provenance = [{ repositoryIdentity: identity, paths: relPaths, contentDigest: provenanceContentDigest(files), kind, requestId }];
+  return trust;
+}
+
+function setOrigin(root) {
+  const git = (...a) => spawnSync("git", ["-C", root, ...a], { encoding: "utf8", windowsHide: true });
+  assert.equal(git("init", "-q").status, 0);
+  assert.equal(git("remote", "add", "origin", "git@github.com:Org/Repo.git").status, 0);
+}
+
+test("exact protected provenance classifies only matching bytes and records their digest", () => {
+  const root = app({ "vendor/lib.rs": SAMPLES["oauth.endpoint.github"], "src/auth.rs": SAMPLES["oauth.endpoint.google"] });
+  try {
+    setOrigin(root);
+    const trust = repositoryTrust(root, ["vendor/lib.rs"]);
+    const result = checkApp(root, shipped, { trust });
+    assert.ok(!result.findings.some((f) => f.file === "vendor/lib.rs"));
+    assert.ok(result.findings.some((f) => f.file === "src/auth.rs"));
+    assert.deepEqual(result.metadata.provenance, [{ kind: "third-party", requestId: "RK-PROVENANCE-001", contentDigest: trust.provenance[0].contentDigest, paths: ["vendor/lib.rs"] }]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("changed and missing protected provenance paths stay scanned or explicitly unscanned", () => {
+  const root = app({ "vendor/lib.rs": SAMPLES["oauth.endpoint.github"] });
+  try {
+    setOrigin(root);
+    const trust = repositoryTrust(root, ["vendor/lib.rs", "vendor/absent.rs"]);
+    writeFileSync(path.join(root, "vendor/lib.rs"), SAMPLES["oauth.endpoint.google"]);
+    const result = checkApp(root, shipped, { trust });
+    assert.ok(result.findings.some((f) => f.file === "vendor/lib.rs"));
+    assert.ok(result.coverage.some((x) => x.path === "vendor/lib.rs" && x.reason === "protected-provenance-stale-or-unreadable"));
+    assert.ok(result.coverage.some((x) => x.path === "vendor/absent.rs" && x.reason === "protected-provenance-stale-or-unreadable"));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("node_modules local wrapper source and manifest are scanned while unrelated transitives stay opaque", () => {
+  const root = app({ "package.json": JSON.stringify({ dependencies: { wrapper: "file:node_modules/local-wrapper" } }), "node_modules/local-wrapper/package.json": JSON.stringify({ dependencies: { puppeteer: "22" } }), "node_modules/local-wrapper/src/auth.rs": SAMPLES["oauth.endpoint.github"], "node_modules/transitive/package.json": JSON.stringify({ dependencies: { puppeteer: "22" } }) });
+  try {
+    const result = checkApp(root, shipped, { trust: { enrolled: true, trust: null } });
+    assert.ok(result.findings.some((f) => f.file === "node_modules/local-wrapper/src/auth.rs"));
+    assert.ok(result.findings.some((f) => f.fingerprint === "browser.npm.puppeteer" && f.file === "node_modules/local-wrapper/package.json"));
+    assert.ok(result.coverage.some((x) => x.path === "node_modules" && x.reason === "node-modules-provenance-not-verified"));
+    assert.ok(directDependencies(root).some((d) => d.name === "puppeteer" && d.file === "node_modules/local-wrapper/package.json"));
+    assert.ok(!directDependencies(root).some((d) => d.name === "puppeteer" && d.file === "node_modules/transitive/package.json"), "unrelated installed transitive manifests stay opaque");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -127,6 +180,27 @@ test("metadata repository identity uses approval canonicalization", () => {
     const found = scanApp(root, shipped);
     assert.equal(found.metadata.repositoryIdentity, canonicalRepositoryIdentity("git@github.com:Org/Repo.git"));
     assert.equal(found.metadata.repositoryIdentity, "https://github.com/org/repo");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("nested scans use canonical repository paths and exact provenance stays within its prefix", () => {
+  const root = app({ "engine/src/auth.rs": SAMPLES["oauth.endpoint.github"], "apps/src/auth.rs": SAMPLES["oauth.endpoint.google"] });
+  try {
+    setOrigin(root);
+    const trust = repositoryTrust(root, ["engine/src/auth.rs"]);
+    const nested = path.join(root, "engine"), other = path.join(root, "apps");
+    const findings = scanApp(nested, shipped, { trust: { enrolled: true, trust: null } });
+    assert.ok(findings.some((x) => x.file === "engine/src/auth.rs"));
+    assert.equal(findings.metadata.pathBase, "repository");
+    assert.equal(findings.metadata.pathPrefix, "engine/");
+    assert.ok(findings.metadata.contentDigests.every((x) => x.path.startsWith("engine/")));
+    const approved = checkApp(nested, shipped, { trust });
+    assert.ok(!approved.findings.some((x) => x.file === "engine/src/auth.rs"));
+    assert.ok(checkApp(other, shipped, { trust }).findings.some((x) => x.file === "apps/src/auth.rs"));
+    const stale = repositoryTrust(root, ["engine/src/auth.rs", "engine/missing.rs"]);
+    const staleResult = checkApp(nested, shipped, { trust: stale });
+    assert.ok(staleResult.coverage.some((x) => x.path === "engine/src/auth.rs" && x.reason === "protected-provenance-stale-or-unreadable"));
+    assert.ok(!staleResult.coverage.some((x) => x.path.startsWith("engine/engine/")));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
