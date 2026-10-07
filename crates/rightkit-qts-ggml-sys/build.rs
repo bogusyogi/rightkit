@@ -29,7 +29,10 @@ fn main() {
     // GenRight: managed builds cannot inject env vars (RightKit), so discover
     // host tools here instead of relying on CMAKE_GENERATOR / VULKAN_SDK / LIBCLANG_PATH.
     genright_discover_host_tools();
-    println!("cargo:warning=GRDEBUG env keys: {:?}", env::vars().map(|(k, _)| k).collect::<Vec<_>>());
+    println!(
+        "cargo:warning=GRDEBUG env keys: {:?}",
+        env::vars().map(|(k, _)| k).collect::<Vec<_>>()
+    );
 
     let mut cfg = cmake::Config::new(&ggml_root);
     cfg.profile("Release");
@@ -236,7 +239,10 @@ fn generate_bindings(include: &Path, out_dir: &Path) {
         .join(format!("bindings-{target}.rs"));
     if pregen.is_file() {
         std::fs::copy(&pregen, out_dir.join("bindings.rs")).expect("copy pregenerated bindings.rs");
-        println!("cargo:warning=ggml-sys: using pregenerated {}", pregen.display());
+        println!(
+            "cargo:warning=ggml-sys: using pregenerated {}",
+            pregen.display()
+        );
         return;
     }
     let bindings = bindgen::Builder::default()
@@ -297,7 +303,10 @@ fn genright_discover_host_tools() {
                 let pyroot = PathBuf::from(&local).join("Programs\\Python");
                 if let Ok(rd) = std::fs::read_dir(&pyroot) {
                     for e in rd.flatten() {
-                        candidates.push(e.path().join("Lib\\site-packages\\cmake\\data\\bin\\cmake.exe"));
+                        candidates.push(
+                            e.path()
+                                .join("Lib\\site-packages\\cmake\\data\\bin\\cmake.exe"),
+                        );
                     }
                 }
             }
@@ -313,7 +322,11 @@ fn genright_discover_host_tools() {
     // Latest Vulkan SDK under C:\VulkanSDK (loader import lib + glslc).
     if env::var_os("VULKAN_SDK").is_none() {
         if let Ok(rd) = std::fs::read_dir("C:\\VulkanSDK") {
-            let mut sdks: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.join("Lib").join("vulkan-1.lib").exists()).collect();
+            let mut sdks: Vec<PathBuf> = rd
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.join("Lib").join("vulkan-1.lib").exists())
+                .collect();
             sdks.sort();
             if let Some(sdk) = sdks.pop() {
                 set_if_unset("VULKAN_SDK", &sdk);
@@ -335,7 +348,11 @@ fn genright_discover_host_tools() {
         let mut dirs: Vec<PathBuf> = vec![PathBuf::from("C:\\Program Files\\LLVM\\bin")];
         for var in ["APPDATA", "LOCALAPPDATA"] {
             if let Some(base) = env::var_os(var) {
-                let python = PathBuf::from(base).join(if var == "APPDATA" { "Python" } else { "Programs\\Python" });
+                let python = PathBuf::from(base).join(if var == "APPDATA" {
+                    "Python"
+                } else {
+                    "Programs\\Python"
+                });
                 if let Ok(rd) = std::fs::read_dir(&python) {
                     for e in rd.flatten() {
                         dirs.push(e.path().join("site-packages").join("clang").join("native"));
