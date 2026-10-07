@@ -1,10 +1,12 @@
 //! FFmpeg resolution for development hosts and end-to-end tests.
 //!
-//! Tries the approved catalog first (explicit path or `RIGHTKIT_FFMPEG`, digest +
-//! LGPL build probe via [`crate::verify_ffmpeg`]). When the host's FFmpeg is not the
-//! approved artifact (an engineer's Homebrew build, CutRight's editing build) it
-//! returns a clearly-labelled [`DevFfmpeg`] instead. Production code must never call
-//! this: it resolves through [`crate::resolve_ffmpeg`] with bundled paths only.
+//! Every candidate (explicit `RIGHTKIT_FFMPEG`, the workspace's vendored catalog
+//! artifact, Homebrew/system paths, CutRight's editing build) is checked against the
+//! approved catalog (digest + LGPL build probe via [`crate::verify_ffmpeg`]); the first
+//! one that verifies wins. When none is the approved artifact it returns the first
+//! existing candidate as a clearly-labelled [`DevFfmpeg`]. Tests only: production code
+//! resolves through [`crate::resolve_ffmpeg`] with bundled paths, or through
+//! [`crate::unverified`] for an explicit, release-refused development fallback.
 
 use std::{
     env,
@@ -51,6 +53,24 @@ pub fn development_candidates() -> Vec<PathBuf> {
     let mut v = Vec::new();
     if let Ok(p) = env::var("RIGHTKIT_FFMPEG") {
         v.push(PathBuf::from(p));
+    }
+    // The vendored approved artifact for this host, when the workspace is present.
+    let vendored = match (env::consts::OS, env::consts::ARCH) {
+        ("macos", "aarch64") => Some("vendor/ffmpeg-lgpl/ffmpeg-macos-arm64"),
+        ("macos", "x86_64") => Some("vendor/ffmpeg-lgpl/ffmpeg-macos-x86_64"),
+        ("windows", "x86_64") => Some("vendor/ffmpeg-lgpl/ffmpeg-win-x64.exe"),
+        _ => None,
+    };
+    if let Some(rel) = vendored {
+        let roots = env::var("RIGHTKIT_WORKSPACE_ROOT")
+            .ok()
+            .map(PathBuf::from)
+            .into_iter()
+            .chain([
+                PathBuf::from("/Volumes/D/claude"),
+                PathBuf::from("D:/Claude"),
+            ]);
+        v.extend(roots.map(|root| root.join(rel)));
     }
     for p in [
         "/opt/homebrew/bin/ffmpeg",
@@ -102,25 +122,32 @@ pub fn resolve_for_development() -> Option<(DevResolved, ResolutionKind)> {
         .and_then(|c| c.approved(os, arch).cloned())
     {
         Ok(artifact) => {
-            let request = ResolutionRequest {
-                override_path: None,
-                bundled_paths: candidates.clone(),
-                development_path: None,
-                allow_development_path: false,
-            };
-            // `resolve_ffmpeg` checks each existing candidate's digest; the first that
-            // exists decides, so mismatches surface as DigestMismatch below.
-            let attempt = crate::resolve_ffmpeg(&artifact, &request)
-                .and_then(|r| verify_ffmpeg(r, Duration::from_secs(10)));
-            match attempt {
-                Ok(verified) => {
-                    let id = verified.artifact_id().to_string();
-                    return Some((
-                        DevResolved::Verified(verified),
-                        ResolutionKind::CatalogVerified { artifact_id: id },
-                    ));
+            let mut first_error = None;
+            for candidate in &candidates {
+                let request = ResolutionRequest {
+                    override_path: None,
+                    bundled_paths: vec![candidate.clone()],
+                    development_path: None,
+                    allow_development_path: false,
+                };
+                match crate::resolve_ffmpeg(&artifact, &request)
+                    .and_then(|r| verify_ffmpeg(r, Duration::from_secs(10)))
+                {
+                    Ok(verified) => {
+                        let id = verified.artifact_id().to_string();
+                        return Some((
+                            DevResolved::Verified(verified),
+                            ResolutionKind::CatalogVerified { artifact_id: id },
+                        ));
+                    }
+                    Err(e) => {
+                        first_error.get_or_insert(e);
+                    }
                 }
-                Err(e) => format!("not the approved catalog artifact: {e}"),
+            }
+            match first_error {
+                Some(e) => format!("not the approved catalog artifact: {e}"),
+                None => "no candidate".to_owned(),
             }
         }
         Err(e) => format!("no approved catalog artifact for this host: {e}"),

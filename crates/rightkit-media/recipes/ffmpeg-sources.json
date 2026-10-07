@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "note": "Pinned upstream sources for recipes/build-ffmpeg-macos.sh. A null sha256 means the digest has not been observed yet: run `build-ffmpeg-macos.sh fetch` to download and print it, compare it with the upstream release announcement, then pin it here. The build refuses any source whose sha256 is null or mismatched.",
+  "sources": {
+    "ffmpeg": {
+      "version": "7.1.5",
+      "url": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+      "file": "ffmpeg-7.1.5.tar.xz",
+      "sha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "licenseSpdx": "LGPL-2.1-or-later",
+      "variants": ["decode", "export-lame-ass"]
+    },
+    "lame": {
+      "version": "3.100",
+      "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+      "file": "lame-3.100.tar.gz",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "sha256Evidence": "observed 2026-10-07 on a local copy of lame-3.100.tar.gz; confirm against the upstream download on first fetch",
+      "licenseSpdx": "LGPL-2.0-or-later",
+      "noticeFile": "COPYING",
+      "variants": ["export-lame-ass"]
+    },
+    "freetype": {
+      "version": "2.13.3",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz",
+      "file": "freetype-2.13.3.tar.xz",
+      "sha256": null,
+      "licenseSpdx": "FTL",
+      "licenseNote": "FreeType is dual-licensed FTL OR GPL-2.0-or-later; the FTL option is taken, so the GPL option is never relied on.",
+      "noticeFile": "docs/FTL.TXT",
+      "variants": ["export-lame-ass"]
+    },
+    "fribidi": {
+      "version": "1.0.16",
+      "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz",
+      "file": "fribidi-1.0.16.tar.xz",
+      "sha256": null,
+      "licenseSpdx": "LGPL-2.1-or-later",
+      "noticeFile": "COPYING",
+      "variants": ["export-lame-ass"]
+    },
+    "harfbuzz": {
+      "version": "10.1.0",
+      "url": "https://github.com/harfbuzz/harfbuzz/releases/download/10.1.0/harfbuzz-10.1.0.tar.xz",
+      "file": "harfbuzz-10.1.0.tar.xz",
+      "sha256": null,
+      "licenseSpdx": "MIT-Modern-Variant",
+      "licenseNote": "Confirm the SPDX identifier against COPYING in the fetched tarball before approval.",
+      "noticeFile": "COPYING",
+      "variants": ["export-lame-ass"]
+    },
+    "libass": {
+      "version": "0.17.3",
+      "url": "https://github.com/libass/libass/releases/download/0.17.3/libass-0.17.3.tar.xz",
+      "file": "libass-0.17.3.tar.xz",
+      "sha256": null,
+      "licenseSpdx": "ISC",
+      "noticeFile": "COPYING",
+      "variants": ["export-lame-ass"]
+    }
+  }
+}

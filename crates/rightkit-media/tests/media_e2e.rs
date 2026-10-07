@@ -14,10 +14,14 @@ use std::{
 
 use rightkit_media::{
     dev_resolve::{resolve_for_development, DevResolved, ResolutionKind},
-    loudnorm::{measure_loudness, normalize_file, LoudnessTarget},
+    loudnorm::{
+        measure_loudness, normalize_file, ConvergeOptions, ExportEncoding, LoudnessError,
+        LoudnessTarget,
+    },
     probe::probe_media,
-    quickprobe, run_checked, run_with_progress, transcode_audio_command, AudioTranscode,
-    CancellationToken, FfmpegBinary, FfmpegCommand, RunError, RunOptions,
+    quickprobe, resolve_unverified, run_checked, run_with_progress, transcode_audio_command,
+    AudioTranscode, BuildMode, CancellationToken, FfmpegBinary, FfmpegCommand, RunError,
+    RunOptions, Tool, UnverifiedRequest,
 };
 
 const T: Duration = Duration::from_secs(120);
@@ -292,47 +296,131 @@ fn ebur128_integrated(bin: &dyn FfmpegBinary, file: &Path) -> f64 {
         .expect("ebur128 summary")
 }
 
-#[test]
-fn loudnorm_two_pass_lands_within_one_lu_of_target_confirmed_by_ebur128() {
-    let bin = ffmpeg();
-    let dir = tempfile::tempdir().unwrap();
-    let quiet = p(dir.path(), "quiet.wav");
-    noise_wav(&bin, &quiet, 20, "0.02");
-    let target = LoudnessTarget {
-        integrated_lufs: -16.0,
-        true_peak_db: -1.5,
-        lra: 20.0,
-    };
-    let before = measure_loudness(&bin, &quiet, &target, T, &CancellationToken::new()).unwrap();
-    assert!(
-        before.input_i < -25.0,
-        "fixture must start quiet: {}",
-        before.input_i
+/// Speech-like bursts: high crest factor, so the limiter removes several dB and a
+/// one-shot gain undershoots (the case GenRight's iteration exists for).
+fn peaky_wav(bin: &dyn FfmpegBinary, path: &Path, seconds: u32) {
+    run(
+        bin,
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            &format!(
+                "aevalsrc=0.3*sin(2*PI*220*t)*pow(sin(PI*1.7*t)\\,200)+0.01*sin(2*PI*90*t):s=48000:d={seconds}"
+            ),
+            "-ac",
+            "1",
+            "-c:a",
+            "pcm_s16le",
+            path.to_str().unwrap(),
+        ],
     );
+}
 
-    let out = p(dir.path(), "norm.wav");
-    let (report, run) = normalize_file(
-        &bin,
-        &quiet,
-        &out,
-        &target,
-        "pcm_s16le",
-        48_000,
+fn normalize(
+    bin: &dyn FfmpegBinary,
+    input: &Path,
+    output: &Path,
+    encoding: &ExportEncoding,
+) -> Result<rightkit_media::loudnorm::LoudnessReport, LoudnessError> {
+    normalize_file(
+        bin,
+        input,
+        output,
+        &LoudnessTarget::SPEECH_EXPORT,
+        encoding,
+        &ConvergeOptions::default(),
         T,
         &CancellationToken::new(),
         None,
     )
-    .unwrap();
-    assert!(report.within_tolerance, "{report:?}");
-    assert!(run.out_time_ms > 19_000);
-    let independent = ebur128_integrated(&bin, &out);
-    assert!(
-        (independent - -16.0).abs() <= 1.0,
-        "ebur128 says {independent} LUFS"
-    );
-    // Rate/channels preserved after loudnorm's internal 192 kHz stage.
-    let pr = probe_media(&bin, &out, &CancellationToken::new()).unwrap();
-    assert_eq!(pr.first_audio().unwrap().sample_rate, 48_000);
+    .map(|(report, _)| report)
+}
+
+#[test]
+fn normalize_converges_within_half_an_lu_keeps_a_measured_render_and_is_confirmed_by_ebur128() {
+    let bin = ffmpeg();
+    let dir = tempfile::tempdir().unwrap();
+    let target = LoudnessTarget::SPEECH_EXPORT;
+
+    let quiet = p(dir.path(), "quiet.wav");
+    noise_wav(&bin, &quiet, 20, "0.02");
+    let peaky = p(dir.path(), "peaky.wav");
+    peaky_wav(&bin, &peaky, 20);
+
+    for (name, input) in [("quiet", &quiet), ("peaky", &peaky)] {
+        let before = measure_loudness(&bin, input, &target, T, &CancellationToken::new()).unwrap();
+        assert!(
+            before.input_i < -25.0,
+            "{name} fixture must start quiet: {}",
+            before.input_i
+        );
+        let out = p(dir.path(), &format!("{name}-norm.wav"));
+        let mut events = 0;
+        let mut on_progress = |_: &rightkit_media::ProgressEvent| events += 1;
+        let (report, run) = normalize_file(
+            &bin,
+            input,
+            &out,
+            &target,
+            &ExportEncoding::pcm_s16le(),
+            &ConvergeOptions::default(),
+            T,
+            &CancellationToken::new(),
+            Some(&mut on_progress),
+        )
+        .unwrap();
+        eprintln!(
+            "{name}: source {:.2} LUFS, renders {:?}, delivered {:.2}",
+            report.source.input_i,
+            report
+                .convergence
+                .attempts
+                .iter()
+                .map(|a| (
+                    format!("{:.2}dB", a.gain_db),
+                    format!("{:.2}", a.measured_i)
+                ))
+                .collect::<Vec<_>>(),
+            report.delivered.input_i
+        );
+        report.ensure_within_tolerance().unwrap();
+        assert!(report.convergence.attempts.len() <= 5);
+        assert!((report.kept_measured_i() - -16.0).abs() <= 0.5);
+        // PCM delivery is the kept render's samples, so its measurement matches.
+        assert!((report.delivered.input_i - report.kept_measured_i()).abs() <= 0.05);
+        assert!(run.out_time_ms > 19_000);
+        assert!(events >= 1);
+        let independent = ebur128_integrated(&bin, &out);
+        assert!(
+            (independent - -16.0).abs() <= 0.6,
+            "{name}: ebur128 says {independent} LUFS"
+        );
+        let pr = probe_media(&bin, &out, &CancellationToken::new()).unwrap();
+        assert_eq!(pr.first_audio().unwrap().sample_rate, 48_000);
+        // Temporary renders are cleaned up.
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().contains(".norm-"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+        if name == "peaky" {
+            // The limiter compresses this fixture: the first render misses and the
+            // secant correction is what lands it.
+            let first = report.convergence.attempts[0];
+            assert!(
+                (first.measured_i - -16.0).abs() > 0.5,
+                "peaky fixture should need iteration: {first:?}"
+            );
+        }
+    }
+
+    // FLAC delivery keeps the measured loudness (lossless).
+    let flac = p(dir.path(), "peaky.flac");
+    let report = normalize(&bin, &peaky, &flac, &ExportEncoding::flac()).unwrap();
+    report.ensure_within_tolerance().unwrap();
+    assert!((report.delivered.input_i - -16.0).abs() <= 0.55);
 
     // Silence is refused rather than normalised.
     let silent = p(dir.path(), "silent.wav");
@@ -354,16 +442,45 @@ fn loudnorm_two_pass_lands_within_one_lu_of_target_confirmed_by_ebur128() {
         &CancellationToken::new(),
     )
     .unwrap();
-    assert!(normalize_file(
-        &bin,
-        &silent,
-        &p(dir.path(), "s_out.wav"),
-        &target,
-        "pcm_s16le",
-        48_000,
-        T,
-        &CancellationToken::new(),
-        None,
-    )
-    .is_err());
+    assert!(matches!(
+        normalize(
+            &bin,
+            &silent,
+            &p(dir.path(), "s_out.wav"),
+            &ExportEncoding::pcm_s16le()
+        ),
+        Err(LoudnessError::Silent)
+    ));
+}
+
+#[test]
+fn mp3_export_normalizes_through_an_unverified_development_ffmpeg_with_libmp3lame() {
+    // The approved decode build has no libmp3lame (the pending export-lame-ass variant
+    // will). Development hosts reach MP3 export through the labelled unverified path.
+    let mut request = UnverifiedRequest::new(Tool::Ffmpeg);
+    request.allow_path_lookup = true;
+    let Ok(tool) = resolve_unverified(&request, BuildMode::Development) else {
+        eprintln!("SKIP mp3 export: no ffmpeg on PATH");
+        return;
+    };
+    let caps = tool.probe_capabilities(T).unwrap();
+    if !caps.has_encoder("libmp3lame") {
+        eprintln!("SKIP mp3 export: {} has no libmp3lame", tool.label());
+        return;
+    }
+    eprintln!("mp3 export via {}", tool.label());
+    let bin = tool;
+    let dir = tempfile::tempdir().unwrap();
+    let peaky = p(dir.path(), "peaky.wav");
+    peaky_wav(&bin, &peaky, 20);
+    let mp3 = p(dir.path(), "peaky.mp3");
+    let report = normalize(&bin, &peaky, &mp3, &ExportEncoding::mp3_lame_vbr2()).unwrap();
+    report.ensure_within_tolerance().unwrap();
+    let pr = probe_media(&bin, &mp3, &CancellationToken::new()).unwrap();
+    assert_eq!(pr.first_audio().unwrap().codec, "mp3");
+    // Lossy encoding moves loudness slightly; the kept render is the guarantee.
+    assert!(
+        (report.delivered.input_i - -16.0).abs() <= 1.0,
+        "{report:?}"
+    );
 }

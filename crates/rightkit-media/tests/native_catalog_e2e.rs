@@ -39,15 +39,26 @@ fn embedded_catalog_pins_one_version_per_library_and_covers_all_eight_libraries(
     // FFmpeg is derived from the legacy catalog: same ids and digests.
     let legacy =
         rightkit_media::ArtifactCatalog::parse(rightkit_media::APPROVED_CATALOG_JSON).unwrap();
-    for a in &legacy.artifacts {
+    // Only decode-variant ffmpeg records are derived; ffprobe and feature variants are
+    // selected through the FFmpeg catalog by tool and variant.
+    for a in legacy.artifacts.iter().filter(|a| {
+        a.tool == rightkit_media::Tool::Ffmpeg && a.variant == rightkit_media::DECODE_VARIANT
+    }) {
         let r = catalog
             .approved(NativeLibrary::Ffmpeg, &a.os, &a.arch)
             .unwrap();
         assert_eq!(
             (r.id.as_str(), r.sha256.as_deref()),
-            (a.id.as_str(), Some(a.sha256.as_str()))
+            (a.id.as_str(), a.sha256.as_deref())
         );
     }
+    assert!(legacy
+        .artifacts
+        .iter()
+        .any(|a| a.tool == rightkit_media::Tool::Ffprobe));
+    assert!(catalog
+        .records(NativeLibrary::Ffmpeg)
+        .all(|r| !r.id.starts_with("ffprobe") && !r.id.contains("export")));
 }
 
 #[test]

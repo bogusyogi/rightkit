@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-media"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines."
@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/claude"
 keywords = ["ffmpeg", "audio", "media", "process"]
 categories = ["multimedia::audio"]
-include = ["src/**", "tests/**", "catalog/**", "third-party/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "catalog/**", "recipes/**", "third-party/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 rightkit-process = { path = "../rightkit-process", version = "=0.2.1" }

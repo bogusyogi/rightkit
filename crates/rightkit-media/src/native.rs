@@ -15,7 +15,8 @@ use std::{collections::BTreeSet, fmt, io, path::Path};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    sha256_file, Artifact, ArtifactCatalog, ArtifactStatus, MediaError, APPROVED_CATALOG_JSON,
+    sha256_file, Artifact, ArtifactCatalog, ArtifactStatus, MediaError, Tool,
+    APPROVED_CATALOG_JSON, DECODE_VARIANT,
 };
 
 pub const NATIVE_CATALOG_JSON: &str = include_str!("../catalog/native-libraries.json");
@@ -426,14 +427,21 @@ pub struct NativeCatalog {
 }
 
 impl NativeCatalog {
-    /// The suite catalog: `native-libraries.json` plus the legacy FFmpeg
-    /// catalog converted in place.
+    /// The suite catalog: `native-libraries.json` plus the FFmpeg artifact
+    /// catalog's decode-variant `ffmpeg` records converted in place. `ffprobe` and
+    /// feature variants (for example `export-lame-ass`) stay in the FFmpeg catalog,
+    /// which selects them by tool and variant; here one FFmpeg record per platform
+    /// keeps [`NativeCatalog::approved`] unambiguous.
     pub fn embedded() -> Result<Self, NativeCatalogError> {
         let mut catalog = Self::parse_native_only(NATIVE_CATALOG_JSON)?;
         let ffmpeg = ArtifactCatalog::parse(APPROVED_CATALOG_JSON)?;
-        catalog
-            .libraries
-            .extend(ffmpeg.artifacts.iter().map(ffmpeg_record));
+        catalog.libraries.extend(
+            ffmpeg
+                .artifacts
+                .iter()
+                .filter(|a| a.tool == Tool::Ffmpeg && a.variant == DECODE_VARIANT)
+                .map(ffmpeg_record),
+        );
         catalog.validate()?;
         Ok(catalog)
     }
@@ -522,6 +530,7 @@ fn ffmpeg_record(a: &Artifact) -> NativeRecord {
         arch: a.arch.clone(),
         status: match a.status {
             ArtifactStatus::Approved => NativeStatus::Approved,
+            ArtifactStatus::Pending => NativeStatus::Planned,
             ArtifactStatus::StaleUnverified => NativeStatus::StaleUnverified,
         },
         linkage: Linkage::Executable,
@@ -533,7 +542,7 @@ fn ffmpeg_record(a: &Artifact) -> NativeRecord {
             }
             .to_owned(),
         ),
-        sha256: Some(a.sha256.clone()),
+        sha256: a.sha256.clone(),
         archive: None,
         cargo: None,
         source_url: a.attribution.source_url.clone(),

@@ -43,8 +43,8 @@ objc2-core-ml = "0.3"
 objc2-foundation = "0.3"
 
 [dev-dependencies]
-rightkit-media = { path = "../rightkit-media", version = "=0.1.0" }
-rightkit-ort = { path = "../rightkit-ort", version = "=0.1.1" }
+rightkit-media = { path = "../rightkit-media", version = "=0.2.0" }
+rightkit-ort = { path = "../rightkit-ort", version = "=0.1.2" }
 
 [features]
 default = ["cpu", "ort-defaults"]

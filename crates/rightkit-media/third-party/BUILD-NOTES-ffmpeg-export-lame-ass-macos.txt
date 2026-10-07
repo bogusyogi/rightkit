@@ -1,0 +1,48 @@
+FFmpeg 7.1.5 — "export-lame-ass" LGPL static build for macOS arm64 + x86_64
+STATUS: PENDING. No binary has been built and no binary digest is recorded.
+
+Purpose: GenRight-class export pipelines — MP3 export (libmp3lame), subtitle burn-in
+(libass `subtitles`/`ass` filters), PNG decode (zlib) and h264_videotoolbox encode —
+while keeping the catalog's LGPL-only, no-autodetect posture.
+
+Recipe: crates/rightkit-media/recipes/build-ffmpeg-macos.sh (pinned sources in
+        recipes/ffmpeg-sources.json; the build refuses unpinned or mismatched sources).
+FFmpeg configure (both arches):
+  --disable-gpl --disable-nonfree --disable-autodetect --enable-static --disable-shared
+  --disable-doc --disable-debug --disable-ffplay --enable-small
+  --enable-libmp3lame --enable-libass --enable-zlib --enable-videotoolbox --enable-audiotoolbox
+  --pkg-config-flags=--static  (+ --arch/--cc as the decode build; x86_64 also
+  --enable-cross-compile --target-os=darwin)
+pkg-config is confined to the private dependency prefix (PKG_CONFIG_LIBDIR), so no
+Homebrew/host library can be linked; the recipe fails unless otool -L lists only
+/usr/lib and /System/Library imports. zlib, iconv, CoreText, VideoToolbox and
+AudioToolbox are Apple system components.
+
+Statically linked components (licence -> notice file shipped with the binary):
+  LAME 3.100          LGPL-2.0-or-later   third-party/LAME-COPYING.txt (present)
+  FreeType 2.13.3     FTL (FTL option of FTL OR GPL-2.0-or-later)
+                                          third-party/FreeType-FTL.txt (from docs/FTL.TXT)
+  FriBidi 1.0.16      LGPL-2.1-or-later   third-party/FriBidi-COPYING.txt
+  HarfBuzz 10.1.0     MIT-Modern-Variant  third-party/HarfBuzz-COPYING.txt
+                      (confirm identifier against COPYING when fetched)
+  libass 0.17.3       ISC                 third-party/libass-COPYING.txt
+Binary SPDX: LGPL-2.1-or-later AND LGPL-2.0-or-later AND FTL AND MIT-Modern-Variant AND ISC
+LGPL obligations: FFmpeg, LAME and FriBidi are statically linked into one executable;
+ship the notices plus a written source offer covering their complete sources and this
+recipe so a recipient can rebuild/relink. FreeType's FTL requires the credit line in
+product documentation.
+
+To produce and promote (run on the macOS build host from tools/rightkit/crates/rightkit-media):
+  1. recipes/build-ffmpeg-macos.sh fetch --variant export-lame-ass --sources <src-dir>
+     Compare the printed digests with each upstream release, then pin freetype, fribidi,
+     harfbuzz and libass sha256 in recipes/ffmpeg-sources.json (ffmpeg and lame are pinned).
+  2. Ensure meson and ninja are on PATH (harfbuzz uses meson; this host has no meson).
+  3. recipes/build-ffmpeg-macos.sh build --variant export-lame-ass --arch arm64 --tool ffmpeg \
+       --sources <src-dir> --work <work-dir> --out <out-dir>
+     recipes/build-ffmpeg-macos.sh build --variant export-lame-ass --arch x86_64 --tool ffmpeg \
+       --sources <src-dir> --work <work-dir> --out <out-dir>
+  4. Copy <out-dir>/ffmpeg-export-lame-ass-macos-<arch> to vendor/ffmpeg-lgpl/, copy the
+     upstream notices from <out-dir>/ffmpeg-export-lame-ass-macos-<arch>.notices/ to the
+     third-party/ names above, then in catalog/artifacts.json record each binary sha256
+     (from <out-dir>/*.evidence.json) and every component sourceSha256, set status
+     "approved" and delete "pending". The crate tests then require the notices to exist.
