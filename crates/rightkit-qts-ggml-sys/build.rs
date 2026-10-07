@@ -29,10 +29,6 @@ fn main() {
     // GenRight: managed builds cannot inject env vars (RightKit), so discover
     // host tools here instead of relying on CMAKE_GENERATOR / VULKAN_SDK / LIBCLANG_PATH.
     genright_discover_host_tools();
-    println!(
-        "cargo:warning=GRDEBUG env keys: {:?}",
-        env::vars().map(|(k, _)| k).collect::<Vec<_>>()
-    );
 
     let mut cfg = cmake::Config::new(&ggml_root);
     cfg.profile("Release");
