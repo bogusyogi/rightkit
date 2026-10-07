@@ -1,0 +1,16 @@
+{
+  "package": "RightKitSwift",
+  "capabilities": [
+    {
+      "capability": "os-credential-store",
+      "summary": "Native Apple scoped credential storage and sync migration",
+      "fingerprints": [
+        {
+          "id": "secrets.swift.scoped-migration",
+          "type": "source",
+          "pattern": "\\bfunc\\s+copySyncedToDeviceOnly\\s*\\("
+        }
+      ]
+    }
+  ]
+}

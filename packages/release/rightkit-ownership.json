@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "version": "1",
   "capabilities": [
     {
       "package": "rightkit-browser",
@@ -356,6 +357,18 @@
           "type": "dependency",
           "ecosystem": "npm",
           "name": "chokidar"
+        }
+      ]
+    },
+    {
+      "package": "RightKitSwift",
+      "capability": "os-credential-store",
+      "summary": "Native Apple scoped credential storage and sync migration",
+      "fingerprints": [
+        {
+          "id": "secrets.swift.scoped-migration",
+          "type": "source",
+          "pattern": "\\bfunc\\s+copySyncedToDeviceOnly\\s*\\("
         }
       ]
     }
