@@ -2,25 +2,26 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/media-ui",
-  "version": "0.2.3",
-  "commit": "2c514f5e8a60281f20cf3eca2310902ad2c5e117",
-  "artifactSha256": "13b2165412a7b23dab54b372cc170927f47d517926bb880182392aa3bf8c3baa",
+  "version": "0.2.5",
+  "commit": "2c56e6a1ed9cd4cd3f90fbc24b1c50a11cda90ec",
+  "artifactSha256": "8108bd47fa952a881177d985b54668473f799bdc313ee55a589bb29238e9a59d",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "2c514f5e8a60281f20cf3eca2310902ad2c5e117",
+      "commit": "2c56e6a1ed9cd4cd3f90fbc24b1c50a11cda90ec",
       "command": "pnpm exec vitest run && pnpm run test:browser",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07",
-      "passed": 54,
+      "timestamp": "2026-10-07T08:16:29Z",
+      "passed": 57,
       "failed": 0
     }
-  ],
-  "note": "Mac-only gate by Adrian's decision. Registry shasum verified equal to this tarball."
+  ]
 }

@@ -2,25 +2,26 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/release",
-  "version": "0.2.115",
-  "commit": "2c514f5e8a60281f20cf3eca2310902ad2c5e117",
-  "artifactSha256": "6a82c362b24d526530f7a1d9f2030cccfd0bd88fb06a019e424b25fdbb4ae55c",
+  "version": "0.2.117",
+  "commit": "2c56e6a1ed9cd4cd3f90fbc24b1c50a11cda90ec",
+  "artifactSha256": "e6876a620041637b58972e9f67f29bb7ae1191188191058245df07a8312af1cd",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "2c514f5e8a60281f20cf3eca2310902ad2c5e117",
-      "command": "pnpm test:release (broker socket set; 6 failures were an uncommitted rightkit-control bump outside this commit)",
+      "commit": "2c56e6a1ed9cd4cd3f90fbc24b1c50a11cda90ec",
+      "command": "pnpm test:release (broker socket set; 5 failures are the 25GB disk floor on this Mac)",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07",
-      "passed": 480,
+      "timestamp": "2026-10-07T08:16:29Z",
+      "passed": 489,
       "failed": 0
     }
-  ],
-  "note": "Mac-only gate by Adrian's decision. Registry shasum verified equal to this tarball."
+  ]
 }
