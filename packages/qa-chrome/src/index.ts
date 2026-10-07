@@ -299,6 +299,16 @@ async function waitGone(child: ChildProcess, timeoutMs: number): Promise<boolean
   return true;
 }
 
+/** SIGKILL the tree, re-issuing the kill every 2 s until it is gone or `timeoutMs` passes. */
+async function forceTreeGone(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    signalTree(child, 'SIGKILL');
+    if (await waitGone(child, Math.min(2_000, Math.max(0, deadline - Date.now())))) return true;
+    if (Date.now() >= deadline) return false;
+  }
+}
+
 function signalTree(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
   const pid = child.pid;
   if (!pid) return;
@@ -376,9 +386,12 @@ export async function closeChromeGracefully(options: {
   wsEndpoint?: string;
   profileDir?: string;
   graceMs?: number;
+  /** Upper bound for the forced-kill phase (re-issued until the tree is gone). Default 15 s. */
+  killTimeoutMs?: number;
 }): Promise<ChromeCloseReport> {
   const started = Date.now();
   const grace = options.graceMs ?? 5_000;
+  const killBound = options.killTimeoutMs ?? 15_000;
   let step: ChromeCloseStep = 'already-exited';
   let exited = !treeAlive(options.child);
   if (!exited && options.wsEndpoint) {
@@ -395,17 +408,19 @@ export async function closeChromeGracefully(options: {
   }
   if (!exited) {
     step = 'sigkill';
-    signalTree(options.child, 'SIGKILL');
-    exited = await waitGone(options.child, 2_000);
+    exited = await forceTreeGone(options.child, killBound);
   }
   // Windows: Chrome's children outlive a dead launcher and `taskkill /T` can no longer find
   // them, but they still hold the profile directory. Give them a short grace, then force them.
   if (process.platform === 'win32' && options.profileDir) {
     let left = await waitProfileProcessesGone(options.profileDir, 1_500);
-    if (left.length > 0) {
+    // Keep forcing until the profile's processes are gone: under load a single
+    // `taskkill /F` round can leave a hung renderer behind for several seconds.
+    const deadline = Date.now() + killBound;
+    while (left.length > 0 && Date.now() < deadline) {
       for (const pid of left) spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
       if (step !== 'sigkill') step = 'sigkill';
-      left = await waitProfileProcessesGone(options.profileDir, 2_000);
+      left = await waitProfileProcessesGone(options.profileDir, Math.min(2_000, Math.max(0, deadline - Date.now())));
     }
     exited = exited && left.length === 0;
   }

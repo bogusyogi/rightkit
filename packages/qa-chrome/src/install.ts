@@ -110,7 +110,7 @@ export async function installChromeForTesting(options: InstallChromeForTestingOp
     mkdirSync(out);
     // macOS: ditto keeps the app bundle's symlinks and signature intact (Info-ZIP unzip does not).
     const unzip = platform === 'win32'
-      ? spawnSync('tar', ['-xf', zip, '-C', out], { stdio: 'inherit', windowsHide: true })
+      ? spawnSync(windowsTar(), ['-xf', zip, '-C', out], { stdio: 'inherit', windowsHide: true })
       : platform === 'darwin'
         ? spawnSync('ditto', ['-x', '-k', zip, out], { stdio: 'inherit' })
         : spawnSync('unzip', ['-q', zip, '-d', out], { stdio: 'inherit' });
@@ -143,4 +143,9 @@ export function managedVersions(options: ManagedRootOptions = {}): string[] {
   } catch {
     return [];
   }
+}
+
+/** System bsdtar: a bare `tar` under Git Bash resolves to GNU tar, which reads `C:\…` as a remote host. */
+function windowsTar(): string {
+  return path.join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'tar.exe');
 }

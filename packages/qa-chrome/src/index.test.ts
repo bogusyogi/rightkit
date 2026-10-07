@@ -85,7 +85,10 @@ describe.skipIf(!installed.path)('launchChromeForTesting + graceful close (real 
     expect(existsSync(browser.profileDir)).toBe(true);
 
     const report = await browser.close();
-    expect(report).toMatchObject({ step: 'cdp', exited: true, profileRemoved: true });
+    expect(report).toMatchObject({ exited: true, profileRemoved: true });
+    // Windows: under load Chrome's children can outlive CDP close past the short profile grace,
+    // and the forced sweep then reports `sigkill`; the tree and profile are still gone.
+    expect(process.platform === 'win32' ? ['cdp', 'sigkill'] : ['cdp']).toContain(report.step);
     expect(existsSync(browser.profileDir)).toBe(false);
     if (process.platform !== 'win32') {
       expect(() => process.kill(-browser.pid, 0)).toThrow();
