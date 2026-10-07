@@ -58,7 +58,19 @@ pub fn mouse<R: Runtime>(
     x: f64,
     y: f64,
     clicks: i64,
+    flags: u64,
 ) -> Result<(), String> {
+    // CDP modifiers: Alt=1, Ctrl=2, Meta=4, Shift=8.
+    let modifiers = [
+        (crate::keys::FLAG_ALT, 1),
+        (crate::keys::FLAG_CTRL, 2),
+        (crate::keys::FLAG_CMD, 4),
+        (crate::keys::FLAG_SHIFT, 8),
+    ]
+    .iter()
+    .filter(|(f, _)| flags & f != 0)
+    .map(|(_, m)| m)
+    .sum::<u32>();
     let (b, mask) = match button {
         Button::Left => ("left", 1),
         Button::Right => ("right", 2),
@@ -69,7 +81,7 @@ pub fn mouse<R: Runtime>(
         Mouse::Move => ("mouseMoved", "none", 0),
         Mouse::Drag => ("mouseMoved", b, mask),
     };
-    cdp(win, "Input.dispatchMouseEvent", format!(r#"{{"type":"{ty}","x":{x},"y":{y},"button":"{button}","buttons":{buttons},"clickCount":{clicks}}}"#)).map(|_| ())
+    cdp(win, "Input.dispatchMouseEvent", format!(r#"{{"type":"{ty}","x":{x},"y":{y},"button":"{button}","buttons":{buttons},"clickCount":{clicks},"modifiers":{modifiers}}}"#)).map(|_| ())
 }
 
 pub fn wheel<R: Runtime>(

@@ -68,6 +68,7 @@ mod native {
         _: f64,
         _: f64,
         _: i64,
+        _: u64,
     ) -> Result<(), String> {
         Err(NO.into())
     }
@@ -555,7 +556,7 @@ fn route<R: Runtime>(
     let n = |k: &str| num_field(b, k).ok_or_else(|| format!("missing number '{k}'"));
     match method {
         "move" => {
-            mouse(win, Mouse::Move, Button::Left, n("x")?, n("y")?, 0)?;
+            mouse(win, Mouse::Move, Button::Left, n("x")?, n("y")?, 0, 0)?;
             ok()
         }
         "click" => {
@@ -566,12 +567,29 @@ fn route<R: Runtime>(
                 Button::Left
             };
             let count = num_field(b, "count").unwrap_or(1.0).max(1.0) as i64;
-            mouse(win, Mouse::Move, Button::Left, x, y, 0)?;
+            // Optional held modifiers, e.g. {"modifiers":["shift"]}: carried on every
+            // native mouse event, so the page sees e.shiftKey/metaKey/altKey/ctrlKey.
+            let mut flags = 0u64;
+            for m in params
+                .get("modifiers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                flags |= match m.as_str().unwrap_or("").to_ascii_lowercase().as_str() {
+                    "shift" => keys::FLAG_SHIFT,
+                    "cmd" | "command" | "meta" => keys::FLAG_CMD,
+                    "alt" | "option" => keys::FLAG_ALT,
+                    "ctrl" | "control" => keys::FLAG_CTRL,
+                    other => return Err(format!("unknown modifier '{other}'")),
+                };
+            }
+            mouse(win, Mouse::Move, Button::Left, x, y, 0, flags)?;
             pause(50);
             for c in 1..=count {
-                mouse(win, Mouse::Down, btn, x, y, c)?;
+                mouse(win, Mouse::Down, btn, x, y, c, flags)?;
                 pause(40);
-                mouse(win, Mouse::Up, btn, x, y, c)?;
+                mouse(win, Mouse::Up, btn, x, y, c, flags)?;
                 pause(40);
             }
             ok()
@@ -579,9 +597,9 @@ fn route<R: Runtime>(
         "drag" => {
             let (x1, y1, x2, y2) = (n("x1")?, n("y1")?, n("x2")?, n("y2")?);
             let steps = num_field(b, "steps").unwrap_or(12.0).clamp(1.0, 200.0) as u32;
-            mouse(win, Mouse::Move, Button::Left, x1, y1, 0)?;
+            mouse(win, Mouse::Move, Button::Left, x1, y1, 0, 0)?;
             pause(50);
-            mouse(win, Mouse::Down, Button::Left, x1, y1, 1)?;
+            mouse(win, Mouse::Down, Button::Left, x1, y1, 1, 0)?;
             pause(50);
             for i in 1..=steps {
                 let t = i as f64 / steps as f64;
@@ -592,10 +610,11 @@ fn route<R: Runtime>(
                     x1 + (x2 - x1) * t,
                     y1 + (y2 - y1) * t,
                     1,
+                    0,
                 )?;
                 pause(16);
             }
-            mouse(win, Mouse::Up, Button::Left, x2, y2, 1)?;
+            mouse(win, Mouse::Up, Button::Left, x2, y2, 1, 0)?;
             ok()
         }
         "wheel" => {
