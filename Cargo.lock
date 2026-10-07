@@ -4712,7 +4712,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chromiumoxide",
  "futures",
@@ -5006,7 +5006,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "png 0.18.1",
  "rightkit-browser",
@@ -5131,7 +5131,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-speech-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rightkit-framed-sidecar",
  "rightkit-service",

@@ -4,6 +4,7 @@
 //! client is tested against the wire format and not against itself.
 //!
 //! `hr_fake_host <suite-root> <role> <protocol-minor> <state-dir> [--wait-free]`
+//! (minor >= 2 also advertises `file_transcription_verbatim`)
 //!
 //! Behaviour is selected by the requested file name:
 //!   `*handoff*`   first request per state-dir gets `speech_service_host_handoff`
@@ -187,6 +188,10 @@ mod host {
                             let mut p = json!({"kind":"capabilities","capabilities":["file_transcription"]});
                             if cfg.minor >= 1 {
                                 p["engines"] = engines();
+                            }
+                            if cfg.minor >= 2 {
+                                p["capabilities"] =
+                                    json!(["file_transcription", "file_transcription_verbatim"]);
                             }
                             frame("engine_capabilities", &rid, p, Value::Null)
                         }

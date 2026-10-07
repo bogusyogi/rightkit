@@ -879,3 +879,46 @@ fn rightkit_service_host_ignores_lower_and_unknown_roles_but_yields_to_an_outran
     write_tk("heard_right_shell");
     assert!(hosted.wait_released(Duration::from_secs(10)));
 }
+
+#[test]
+fn verbatim_is_sent_only_to_a_host_that_advertises_it() {
+    let p = Path::new("/x/a.wav");
+    let opts = || TranscribeOptions::new(Duration::from_secs(5));
+
+    // A minor-1 host strips fillers: verbatim is refused, never silently cleaned.
+    let e = env();
+    let h = Host::start(&e.root, "heard_right_shell", 1, &e.state);
+    let mut c = connect(&e.root).unwrap();
+    assert!(!c
+        .capabilities(Duration::from_secs(5))
+        .unwrap()
+        .supports_verbatim());
+    match c.transcribe(p, &mut opts().verbatim()) {
+        Err(ClientError::Unsupported(m)) => assert!(m.contains("verbatim"), "{m}"),
+        other => panic!("expected Unsupported, got {other:?}"),
+    }
+    assert!(
+        !e.state.join("last_request.json").exists(),
+        "nothing reached the host"
+    );
+    drop((c, h));
+
+    // A minor-2 host advertises it and receives `verbatim: true`; a default request stays byte-identical.
+    let e = env();
+    let _h = Host::start(&e.root, "heard_right_shell", 2, &e.state);
+    let mut c = connect(&e.root).unwrap();
+    assert!(c
+        .capabilities(Duration::from_secs(5))
+        .unwrap()
+        .supports_verbatim());
+    c.transcribe(p, &mut opts().verbatim()).unwrap();
+    assert_eq!(
+        last_request(&e),
+        json!({"kind": "file_transcription_request", "path": "/x/a.wav", "verbatim": true})
+    );
+    c.transcribe(p, &mut opts()).unwrap();
+    assert_eq!(
+        last_request(&e),
+        json!({"kind": "file_transcription_request", "path": "/x/a.wav"})
+    );
+}

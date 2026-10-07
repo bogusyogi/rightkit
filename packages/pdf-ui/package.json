@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/pdf-ui",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -31,9 +31,10 @@
     "pdfjs-dist": "^6.3.289"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1",
+    "@rightkit/qa": "workspace:*",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.28.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.0",
@@ -43,7 +44,7 @@
     "build": "tsc -p tsconfig.json && cp src/styles.css styles.css && mkdir -p dist && cp src/styles.css dist/styles.css",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:browser": "node test/browser-e2e.mjs"
+    "test:browser": "pnpm --filter @rightkit/qa run build && node test/browser-e2e.mjs"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

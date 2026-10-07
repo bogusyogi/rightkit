@@ -29,9 +29,10 @@ pub use protocol::{
     takeover_request_path, Capabilities, EngineInfo, EngineSelector, FileOptions, FileTranscript,
     FileTranscriptResult, HostProgress, HostRole, InstalledEngine, ProgressState, ServiceEnvelope,
     ServiceErrorPayload, ServiceRecord, ServiceRequest, TakeoverRequest, TimedWord,
-    ENGINE_PARAKEET, ENGINE_WHISPER, ERROR_ENGINE_UNAVAILABLE, ERROR_HOST_HANDOFF,
-    ERROR_NOT_ALLOWED, SCHEMA_PROGRESS, SERVICE_ALLOWED_SCHEMAS, SERVICE_NAME,
-    SERVICE_PROTOCOL_MAJOR, SERVICE_PROTOCOL_MINOR, SERVICE_PROTOCOL_MINOR_ENGINES, SPEECH_FAMILY,
+    CAPABILITY_FILE_TRANSCRIPTION, CAPABILITY_VERBATIM, ENGINE_PARAKEET, ENGINE_WHISPER,
+    ERROR_ENGINE_UNAVAILABLE, ERROR_HOST_HANDOFF, ERROR_NOT_ALLOWED, SCHEMA_PROGRESS,
+    SERVICE_ALLOWED_SCHEMAS, SERVICE_NAME, SERVICE_PROTOCOL_MAJOR, SERVICE_PROTOCOL_MINOR,
+    SERVICE_PROTOCOL_MINOR_ENGINES, SERVICE_PROTOCOL_MINOR_VERBATIM, SPEECH_FAMILY,
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -312,6 +313,9 @@ pub struct TranscribeOptions {
     pub stall_timeout: Duration,
     pub cancel: Option<CancelToken>,
     pub on_progress: Option<ProgressFn>,
+    /// Require raw words with no filler removal (editing apps). Refused with
+    /// [`ClientError::Unsupported`] unless the host advertises verbatim.
+    pub verbatim: bool,
 }
 
 impl TranscribeOptions {
@@ -322,7 +326,12 @@ impl TranscribeOptions {
             stall_timeout,
             cancel: None,
             on_progress: None,
+            verbatim: false,
         }
+    }
+    pub fn verbatim(mut self) -> Self {
+        self.verbatim = true;
+        self
     }
     pub fn engine(mut self, engine: EngineSelector) -> Self {
         self.engine = Some(engine);
@@ -558,7 +567,16 @@ impl SpeechClient {
         path: &Path,
         opts: &mut TranscribeOptions,
     ) -> Result<FileTranscriptResult, ClientError> {
-        let wire = self.wire_options(opts)?;
+        let mut wire = self.wire_options(opts)?;
+        if opts.verbatim {
+            if !self.capabilities(opts.stall_timeout)?.supports_verbatim() {
+                return Err(ClientError::Unsupported(
+                    "host does not advertise verbatim file transcription; it would strip fillers"
+                        .into(),
+                ));
+            }
+            wire.verbatim = true;
+        }
         let frame = ServiceEnvelope::file_request_with(
             &next_request_id(),
             TRACE_ID,
@@ -584,6 +602,7 @@ impl SpeechClient {
             return Ok(FileOptions {
                 engine: opts.engine.clone(),
                 language: opts.language.clone(),
+                verbatim: false,
             });
         }
         match &opts.engine {

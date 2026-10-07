@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/media-ui",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Brand-neutral media player and image viewer/editor for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -42,6 +42,7 @@
     "react-image-crop": "^11.1.2"
   },
   "devDependencies": {
+    "@rightkit/qa": "workspace:*",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
@@ -58,7 +59,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:browser": "node test/browser-e2e.mjs"
+    "test:browser": "pnpm --filter @rightkit/qa run build && node test/browser-e2e.mjs"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

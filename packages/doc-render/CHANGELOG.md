@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 — 2026-10-07
+
+- Test-only: the real-browser e2e harness launches Chrome for Testing through `@rightkit/qa/chrome` (`RIGHTKIT_CHROME_FOR_TESTING` overrides; skips with install instructions when missing, never regular Chrome) and closes gracefully (CDP `Browser.close`, SIGTERM, SIGKILL last) with its temp profile removed. No runtime change.
+
 ## 0.1.2 — 2026-10-07
 
 - Every relative import in `dist` carries its `.js` extension (compiled with NodeNext), so the package loads under plain Node ESM (e.g. Vitest without inlining).

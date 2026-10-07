@@ -19,8 +19,8 @@ mcp = ["dep:rightkit-mcp"]
 [dependencies]
 rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
 rightkit-automation = { version = "=0.1.0", path = "../rightkit-automation", optional = true }
-rightkit-browser = { version = "=0.1.1", path = "../rightkit-browser", optional = true }
-rightkit-speech-client = { version = "=0.1.0", path = "../rightkit-speech-client", optional = true }
+rightkit-browser = { version = "=0.2.0", path = "../rightkit-browser", optional = true }
+rightkit-speech-client = { version = "=0.2.0", path = "../rightkit-speech-client", optional = true }
 rightkit-mcp = { version = "=0.1.1", path = "../rightkit-mcp", optional = true }
 serde.workspace = true
 serde_json.workspace = true

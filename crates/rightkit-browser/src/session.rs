@@ -1,5 +1,5 @@
 use crate::config::{
-    find_chrome, reject_real_browser_profile, validate_extra_args, validate_profile_name,
+    reject_real_browser_profile, resolve_executable, validate_extra_args, validate_profile_name,
     LaunchOptions, ProfileSpec,
 };
 use crate::error::{cdp, BrowserError, Result};
@@ -23,6 +23,9 @@ use tokio::task::JoinHandle;
 
 static SESSION_SEQ: AtomicU64 = AtomicU64::new(0);
 
+/// Per-step wait before escalating a close (CDP -> SIGTERM -> SIGKILL).
+const GRACE: Duration = Duration::from_secs(5);
+
 enum ProfileGuard {
     Temp(#[allow(dead_code)] tempfile::TempDir),
     Named { _lock: std::fs::File },
@@ -37,7 +40,8 @@ pub struct BrowserSession {
     page_seq: AtomicU64,
     handler: StdMutex<Option<JoinHandle<()>>>,
     watcher: StdMutex<Option<JoinHandle<()>>>,
-    _profile: ProfileGuard,
+    /// Released (temporary profile deleted) once Chrome has exited, on shutdown or drop.
+    profile_guard: StdMutex<Option<ProfileGuard>>,
     profile_dir: PathBuf,
     download_dir: PathBuf,
     upload_root: Option<PathBuf>,
@@ -56,11 +60,7 @@ impl BrowserSession {
         #[cfg_attr(not(windows), allow(unused_mut))] mut opts: LaunchOptions,
     ) -> Result<Self> {
         validate_extra_args(&opts.extra_args)?;
-        let exe = opts
-            .chrome_path
-            .clone()
-            .or_else(find_chrome)
-            .ok_or(BrowserError::ChromeNotFound)?;
+        let exe = resolve_executable(&opts)?;
         let (profile_guard, profile_dir, default_dl) = match &opts.profile {
             ProfileSpec::Temporary => {
                 let t = tempfile::tempdir()?;
@@ -252,7 +252,7 @@ impl BrowserSession {
             page_seq: AtomicU64::new(0),
             handler: StdMutex::new(Some(pump)),
             watcher: StdMutex::new(Some(watcher)),
-            _profile: profile_guard,
+            profile_guard: StdMutex::new(Some(profile_guard)),
             profile_dir,
             download_dir,
             upload_root: opts.upload_root,
@@ -431,8 +431,9 @@ impl BrowserSession {
         Ok(())
     }
 
-    /// Close Chrome gracefully, killing it if it does not exit within 5 seconds.
-    /// Safe to call twice. Temporary profiles are deleted on drop.
+    /// Close Chrome gracefully: CDP `Browser.close` and up to 5 s for exit, then SIGTERM to
+    /// the process group and up to 5 s more, then SIGKILL (job termination on Windows).
+    /// Safe to call twice. A temporary profile is deleted once Chrome has exited.
     pub async fn shutdown(&self) {
         self.stop(false).await;
     }
@@ -448,7 +449,7 @@ impl BrowserSession {
         if !hard {
             let graceful = async {
                 let _ = self.browser.lock().await.close().await;
-                let end = Instant::now() + Duration::from_secs(5);
+                let end = Instant::now() + GRACE;
                 loop {
                     let done = match self.proc.lock().unwrap().as_mut() {
                         Some(p) => matches!(p.child.try_wait(), Ok(Some(_)) | Err(_)),
@@ -462,14 +463,14 @@ impl BrowserSession {
             };
             let _ = tokio::time::timeout(Duration::from_secs(6), graceful).await;
         }
-        // Whatever is left (or everything, on cancel) dies now: process group on
-        // Unix, job object on Windows. Dropping `ChromeProc` also stops the watchdog.
-        if let Some(mut p) = self.proc.lock().unwrap().take() {
-            let _ = p.child.terminate_tree();
-            if let Some(w) = p._watchdog.as_mut() {
-                let _ = w.terminate_tree();
-            }
+        // Whatever is left: SIGTERM the process group with a bounded wait, SIGKILL last
+        // (cancel kills at once). Windows: the job object takes the whole tree.
+        let taken = self.proc.lock().unwrap().take();
+        if let Some(mut p) = taken {
+            let grace = if hard { Duration::ZERO } else { GRACE };
+            let _ = tokio::task::spawn_blocking(move || p.terminate_gracefully(grace)).await;
         }
+        drop(self.profile_guard.lock().unwrap().take());
         for p in self.pages.lock().unwrap().drain(..) {
             p.abort_pumps();
         }
@@ -530,11 +531,13 @@ impl Drop for BrowserSession {
         if let Some(w) = self.watcher.lock().unwrap().take() {
             w.abort();
         }
-        // Dropping `ChromeProc` terminates Chrome's process tree, so an abandoned
-        // session (cancelled caller, panic, early return) never leaves Chrome running.
+        // An abandoned session (cancelled caller, panic, early return) still closes
+        // gracefully: SIGTERM to Chrome's process group, a bounded wait, SIGKILL last.
         if let Some(mut p) = self.proc.lock().unwrap().take() {
-            let _ = p.child.terminate_tree();
+            p.terminate_gracefully(GRACE);
         }
+        // Chrome has exited: now the temporary profile can go.
+        drop(self.profile_guard.lock().unwrap().take());
         self.emit_stopped("dropped");
     }
 }

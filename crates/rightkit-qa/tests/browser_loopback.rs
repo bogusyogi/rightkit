@@ -92,8 +92,8 @@ fn policy_allows_exactly_the_given_origin() {
 
 #[test]
 fn chrome_reaches_its_own_dev_server_and_nothing_else_on_loopback() {
-    if rightkit_browser::find_chrome().is_none() {
-        println!("[qa] SKIP live browser loopback: no Chrome found");
+    if let Err(e) = rightkit_browser::chrome_for_testing_path(None) {
+        println!("[qa] SKIP live browser loopback: {e}");
         return;
     }
     let page = |title: &'static str| {

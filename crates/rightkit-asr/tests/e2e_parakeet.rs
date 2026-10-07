@@ -536,6 +536,36 @@ mod coreml {
             (self.result, self.stats)
         }
     }
+
+    /// One loaded engine, identical audio: the per-call policy alone decides
+    /// whether `uh`/`um` survive (dictation strips, verbatim keeps), and every
+    /// other word keeps the model's own timing in both modes.
+    #[test]
+    fn per_request_verbatim_keeps_fillers_and_the_model_timings() {
+        use rightkit_asr::parakeet_core::DetokPolicy;
+        let audio = wav("filler_retake.wav");
+        let (clean, raw) = engine!(|e| {
+            let mut verbatim = DetokPolicy::canonical_rust();
+            verbatim.strip_fillers = false;
+            let clean = e.transcribe_long_with(&audio, DetokPolicy::canonical_rust(), None, &|_| {}).unwrap().result;
+            let raw = e.transcribe_long_with(&audio, verbatim, None, &|_| {}).unwrap().result;
+            (clean, raw)
+        });
+        eprintln!("clean: {}\nverbatim: {}", clean.text, raw.text);
+        let filler = |w: &String| w == "um" || w == "uh";
+        let (cw, rw) = (words(&clean.text), words(&raw.text));
+        assert!(!cw.iter().any(filler), "dictation policy must strip fillers: {}", clean.text);
+        assert!(rw.iter().any(filler), "verbatim must keep the recorded filler: {}", raw.text);
+        assert_eq!(rw.iter().filter(|w| !filler(w)).cloned().collect::<Vec<_>>(), cw, "only fillers differ");
+        let timed = |r: &rightkit_asr::parakeet_core::TranscriptionResult| {
+            longform::timed_pieces_to_words(&r.tokens)
+                .into_iter()
+                .filter(|w| !matches!(w.text.trim().trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase().as_str(), "um" | "uh"))
+                .map(|w| (w.start * 1000.0).round() as i64)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(timed(&raw), timed(&clean), "non-filler word starts are the model's in both modes");
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,15 @@ pub const SERVICE_PROTOCOL_MINOR: u32 = 0;
 /// `file_transcription_progress` frames. A client sends the new fields only to a
 /// host whose `service.json` says `protocol_minor >= 1`.
 pub const SERVICE_PROTOCOL_MINOR_ENGINES: u32 = 1;
+/// Minor 2 (additive): optional `verbatim: true` on file requests — raw ASR
+/// words with the model's own timings: no filler (`uh`/`um`) removal and no
+/// cleanup that drops, merges or reorders words. A host that honours it lists
+/// [`CAPABILITY_VERBATIM`] in its capabilities; clients send `verbatim` only to
+/// such a host and refuse otherwise, so editing apps never get a cleaned
+/// transcript silently.
+pub const SERVICE_PROTOCOL_MINOR_VERBATIM: u32 = 2;
+pub const CAPABILITY_FILE_TRANSCRIPTION: &str = "file_transcription";
+pub const CAPABILITY_VERBATIM: &str = "file_transcription_verbatim";
 pub const ERROR_HOST_HANDOFF: &str = "speech_service_host_handoff";
 pub const ERROR_NOT_ALLOWED: &str = "speech_service_request_not_allowed";
 /// Minor 1: the requested engine is unknown, not installed, or not ready. Not retryable.
@@ -265,7 +274,13 @@ pub struct Capabilities {
 
 impl Capabilities {
     pub fn supports_file_transcription(&self) -> bool {
-        self.capabilities.iter().any(|c| c == "file_transcription")
+        self.capabilities
+            .iter()
+            .any(|c| c == CAPABILITY_FILE_TRANSCRIPTION)
+    }
+    /// The host honours `verbatim` file requests (minor 2).
+    pub fn supports_verbatim(&self) -> bool {
+        self.capabilities.iter().any(|c| c == CAPABILITY_VERBATIM)
     }
     pub fn engines_or_default(&self) -> Vec<EngineInfo> {
         if self.engines.is_empty() && self.supports_file_transcription() {
@@ -375,6 +390,8 @@ pub enum ServiceRequest {
 pub struct FileOptions {
     pub engine: Option<EngineSelector>,
     pub language: Option<String>,
+    /// Minor 2: raw words, no disfluency removal (see [`SERVICE_PROTOCOL_MINOR_VERBATIM`]).
+    pub verbatim: bool,
 }
 
 impl ServiceEnvelope {
@@ -422,13 +439,25 @@ impl ServiceEnvelope {
         trace_id: &str,
         engines: &[EngineInfo],
     ) -> Self {
+        Self::capabilities_full(request_id, trace_id, engines, false)
+    }
+    /// Capabilities response; `verbatim` advertises [`CAPABILITY_VERBATIM`] (minor 2).
+    /// Only set it when the host really skips filler removal for `verbatim` requests.
+    pub fn capabilities_full(
+        request_id: &str,
+        trace_id: &str,
+        engines: &[EngineInfo],
+        verbatim: bool,
+    ) -> Self {
+        let mut capabilities = vec![CAPABILITY_FILE_TRANSCRIPTION];
+        if verbatim {
+            capabilities.push(CAPABILITY_VERBATIM);
+        }
         Self::base(
             "engine_capabilities",
             request_id,
             trace_id,
-            Some(
-                json!({"kind":"capabilities","capabilities":["file_transcription"],"engines":engines}),
-            ),
+            Some(json!({"kind":"capabilities","capabilities":capabilities,"engines":engines})),
             None,
         )
     }
@@ -466,6 +495,9 @@ impl ServiceEnvelope {
         }
         if let Some(l) = &opts.language {
             payload["language"] = json!(l);
+        }
+        if opts.verbatim {
+            payload["verbatim"] = json!(true);
         }
         Self::base(
             "file_transcription_request",
@@ -597,6 +629,10 @@ impl ServiceEnvelope {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .filter(|s| !s.is_empty()),
+            verbatim: p
+                .and_then(|v| v.get("verbatim"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         }
     }
     pub fn health_status(&self) -> Option<&str> {
