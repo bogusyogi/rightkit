@@ -527,7 +527,7 @@ function ModelsBody({ o }: { o: ModelsOptions }) {
           <SettingRow
             key={m.id}
             id={`models.${m.id}`}
-            label={<>{m.label}{m.active ? <> <Badge tone="accent">In use</Badge></> : null}</>}
+            label={<>{m.label}{m.active ? <> <Badge tone="accent">In use</Badge></> : null}{m.shared ? <> <Badge>Shared</Badge></> : null}</>}
             description={
               <>
                 {[m.description, m.sizeBytes ? formatBytes(m.sizeBytes) : null].filter(Boolean).join(" · ")}
@@ -538,7 +538,7 @@ function ModelsBody({ o }: { o: ModelsOptions }) {
             }
           >
             {m.state === "installed" ? (
-              <ConfirmButton label="Remove" confirmLabel="Confirm remove" onConfirm={() => void act(() => o.models.remove(m.id))} />
+              m.shared || m.removable === false ? null : <ConfirmButton label="Remove" confirmLabel="Confirm remove" onConfirm={() => void act(() => o.models.remove(m.id))} />
             ) : working ? (
               <Button size="sm" variant="ghost" onClick={() => void act(() => o.models.cancel(m.id))}>Cancel</Button>
             ) : (

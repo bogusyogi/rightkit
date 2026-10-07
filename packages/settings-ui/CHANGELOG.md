@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 — 2026-10-07
+
+- `ModelEntry.removable` (false hides Remove) and `ModelEntry.shared` (shared Orthic store model: "Shared" badge, never removable).
+
 ## 0.2.0
 
 ### Fixed

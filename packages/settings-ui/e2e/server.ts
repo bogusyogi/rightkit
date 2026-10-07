@@ -49,6 +49,7 @@ export async function startHost(staticDir: string, settingsFile: string): Promis
   };
   const models: ModelRow[] = [
     { id: "asr-small", label: "Speech model (small)", description: "Fast, English", sizeBytes: 482_000_000, state: "installed", active: true, fit: { kind: "measured" } },
+    { id: "asr-shared", label: "Parakeet (shared)", description: "Orthic store", sizeBytes: 640_000_000, state: "installed", shared: true, fit: { kind: "measured" } },
     { id: "asr-large", label: "Speech model (large)", description: "Most accurate", sizeBytes: 3_100_000_000, state: "missing", fit: { kind: "estimated" } },
     { id: "llm-huge", label: "Cleanup model (huge)", description: "Needs 48 GB", sizeBytes: 41_000_000_000, state: "missing", fit: { kind: "unsupported" } },
   ];

@@ -33,6 +33,10 @@ export interface ModelEntry {
   fit?: { kind: "measured" | "estimated" | "unsupported" | "unqualified"; reasons?: string[] };
   /** `ErrorCode` from `rightkit-models` plus a human message. */
   error?: { code: string; message: string };
+  /** False hides Remove (e.g. a model this app may not delete). Default true. */
+  removable?: boolean;
+  /** Owned by the shared Orthic model store and used by other apps: shows a "Shared" badge and never offers Remove. */
+  shared?: boolean;
 }
 
 /** Local-model port over the `rightkit-models` store and installer. */
