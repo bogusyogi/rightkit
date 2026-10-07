@@ -4673,6 +4673,7 @@ dependencies = [
  "realfft",
  "rightkit-media",
  "rightkit-ort",
+ "rightkit-speech-client",
  "rightkit-vad",
  "serde",
  "serde_json",

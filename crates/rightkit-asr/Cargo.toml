@@ -45,6 +45,7 @@ objc2-foundation = "0.3"
 [dev-dependencies]
 rightkit-media = { path = "../rightkit-media", version = "=0.2.2" }
 rightkit-ort = { path = "../rightkit-ort", version = "=0.1.4" }
+rightkit-speech-client = { path = "../rightkit-speech-client", version = "=0.3.0" }
 
 [features]
 default = ["cpu", "ort-defaults"]

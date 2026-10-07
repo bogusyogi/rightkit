@@ -78,6 +78,7 @@ mod vocab;
 pub mod whisper;
 pub mod routing;
 pub mod chunked;
+pub mod conditioning;
 pub mod parakeet_core;
 pub mod longform;
 #[cfg(target_os = "macos")]
