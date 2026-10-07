@@ -168,13 +168,12 @@ function runDoctor(config, ...args) {
   });
 }
 
-// Until ownership trust enrollment completes, the doctor reports ownership as a
-// pending-enrollment WARN (ebeb6154), not a blocking FAIL.
-function assertDoctorBlockedOnlyByMissingOwnershipTrust(result) {
+function assertDoctorWarnsPendingOwnershipEnrollment(result) {
   const output = `${result.stdout}\n${result.stderr}`;
   assert.equal(result.status, 0, output);
   assert.match(output, /\[WARN\] ownership: WARNING: ownership approval enrollment is pending/);
-  assert.deepEqual(output.match(/^\s+\[FAIL\].*$/gm) ?? [], [], output);
+  assert.match(output, /diagnostic finding\/problem\(s\) retained/);
+  assert.doesNotMatch(output, /^\s+\[(?:FAIL|ERROR)\] ownership\b/gm);
 }
 
 test("accepts a tier-neutral internal build", () => {
@@ -678,7 +677,7 @@ test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", 
     cargoConfig: `[net]\nretry = 2\n[registries.private]\nindex = "https://example.test/index"`,
   });
   const result = runDoctor(config);
-  assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
+  assertDoctorWarnsPendingOwnershipEnrollment(result);
   assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /forbidden RightKit Cargo override/);
 });
 
@@ -692,7 +691,7 @@ test("doctor rejects a selected target with missing or empty buildInputs.include
 
 test("doctor passes a clean selected target", () => {
   const result = runDoctor(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }));
-  assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
+  assertDoctorWarnsPendingOwnershipEnrollment(result);
   assert.match(result.stdout, /\[ok\s+\] target-bridge:/);
   // Derived from the version manifest, not hardcoded: a literal here has to be
   // hand-edited on every bump and fails the suite when someone forgets.
@@ -706,11 +705,12 @@ test("doctor handles a real src-tauri target according to host Cargo ownership",
   const result = runDoctor(config);
   const output = `${result.stdout}\n${result.stderr}`;
   if (brokerManagedHost(process.env)) {
-    assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
+    assertDoctorWarnsPendingOwnershipEnrollment(result);
     assert.doesNotMatch(output, /cache migrate/i);
     assert.match(output, /target-bridge[\s\S]*broker-managed host, left untouched/i);
   } else {
-    assert.match(output, /\[WARN\] ownership: WARNING: ownership approval enrollment is pending/);
+    assert.notEqual(result.status, 0);
+    assert.match(output, /\[FAIL\] ownership: ownership evidence failed: protected ownership trust location was not verified/);
     assert.match(output, /target-bridge[\s\S]*real directory[\s\S]*cache migrate/i);
   }
 });
@@ -721,7 +721,7 @@ test("doctor permits unrelated dirt", () => {
   mkdirSync(path.join(root, "notes"));
   writeFileSync(path.join(root, "notes", "scratch.md"), "unrelated\n");
   const result = runDoctor(config);
-  assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
+  assertDoctorWarnsPendingOwnershipEnrollment(result);
   assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /dirty files can change the packaged app/);
 });
 
@@ -781,7 +781,7 @@ test("doctor scopes Cargo inspection to the configured app inside a monorepo", (
     siblingCargoManifest: `[package]\nname = "archived-copy"\nversion = "0.0.0"\n[dependencies]\nrightkit-license = { path = "../../rightkit-license" }`,
   });
   const result = runDoctor(config);
-  assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
+  assertDoctorWarnsPendingOwnershipEnrollment(result);
   assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /forbidden RightKit Cargo override|archived-workspace/);
 });
 

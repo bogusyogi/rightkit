@@ -20,6 +20,10 @@ function flag(args, name) {
 }
 
 export async function main(args, { evidenceFactory = createOwnershipEvidence, gitRunner = spawnSync, print = (value) => console.log(value) } = {}) {
+  if (["enroll", "approve-key", "revoke-key"].includes(args[0])) {
+    const { main: keyMain } = await import("./ownership-key-command.mjs");
+    return keyMain(args, { runner: gitRunner, print });
+  }
   if (args.includes("--write-manifest")) {
     const root = path.resolve(flag(args, "--rightkit") ?? path.join(packageRoot, "..", ".."));
     const manifest = aggregateOwnership(root);

@@ -96,3 +96,50 @@ test("nested app roots keep listing & dirty paths app-relative", () => {
     assert.match(result.files[0].digest, /^[0-9a-f]{64}$/);
   } finally { f.close(); clearGitListedInventoryCacheForTests(); }
 });
+
+test("clean irrelevant regular files retain Git-listed path records without loaded bytes", () => {
+  clearGitListedInventoryCacheForTests();
+  const f = fixture();
+  try {
+    writeFileSync(path.join(f.root, "asset.bin"), "opaque asset\n");
+    writeFileSync(path.join(f.root, "source.js"), "const source = true;\n");
+    f.git("add", "."); f.git("commit", "-qm", "seed");
+    const result = gitListedInventory(f.root, { relevant: (rel) => rel.endsWith(".js") });
+    const asset = result.files.find((item) => item.rel === "asset.bin");
+    assert.ok(asset, "irrelevant paths must remain available for listed coverage");
+    assert.equal(asset.bytes, undefined);
+    assert.match(asset.oid, /^[0-9a-f]{40,64}$/);
+    assert.equal(asset.digest, `git:${asset.oid}`);
+  } finally { f.close(); clearGitListedInventoryCacheForTests(); }
+});
+
+test("dirty irrelevant deletions and type changes still produce coverage", () => {
+  clearGitListedInventoryCacheForTests();
+  const f = fixture();
+  try {
+    writeFileSync(path.join(f.root, "removed.bin"), "remove me\n");
+    writeFileSync(path.join(f.root, "directory.bin"), "replace with directory\n");
+    f.git("add", "."); f.git("commit", "-qm", "seed");
+    unlinkSync(path.join(f.root, "removed.bin"));
+    unlinkSync(path.join(f.root, "directory.bin"));
+    mkdirSync(path.join(f.root, "directory.bin"));
+    const result = gitListedInventory(f.root, { relevant: () => false });
+    assert.ok(result.coverage.some((item) => item.path === "removed.bin" && item.reason === "deleted"));
+    assert.ok(result.coverage.some((item) => item.path === "directory.bin" && item.reason === "not-regular-file"));
+  } finally { f.close(); clearGitListedInventoryCacheForTests(); }
+});
+
+test("protected paths remain relevant even when the caller relevance filter rejects them", () => {
+  clearGitListedInventoryCacheForTests();
+  const f = fixture();
+  try {
+    writeFileSync(path.join(f.root, "protected.bin"), "protected bytes\n");
+    f.git("add", "protected.bin"); f.git("commit", "-qm", "seed");
+    const result = gitListedInventory(f.root, { relevant: () => false, protectedPaths: ["protected.bin"] });
+    const protectedFile = result.files.find((item) => item.rel === "protected.bin");
+    assert.ok(protectedFile);
+    assert.equal(protectedFile.bytes.toString("utf8"), "protected bytes\n");
+    assert.equal(protectedFile.size, protectedFile.bytes.length);
+    assert.equal(protectedFile.digest, `git:${protectedFile.oid}`);
+  } finally { f.close(); clearGitListedInventoryCacheForTests(); }
+});

@@ -11,7 +11,7 @@ Enforcement hosts launch fixed runtime & entry paths with `NODE_*`, `GIT_*`, `LD
 | Windows | `C:\Program Files\Orthic Labs\RightKit` | `runtime\node.exe` | `ownership\adapters\private-local.mjs` |
 | macOS | `/Library/Application Support/Orthic Labs/RightKit` | `runtime/bin/node` | `ownership/adapters/private-local.mjs` |
 
-The installer-owned tree includes Node, adapter files, imported `tools/rightkit/packages/release` source/catalog, & runtime dependencies. Its content inventory excludes exactly `ownership/trust.json`, `ownership/public-check.json`, `ownership/public-check-app.pem`, & `ownership/installer/`; these administrator-managed policy/installer paths remain subject to full owner/ACL/link audits & their separate validators. Enrollment can update trust without changing scanner code inventory. Build a staging tree, then create its content-hash inventory with the packaged Node runtime:
+The installer-owned tree includes Node, adapter files, imported `tools/rightkit/packages/release` source/catalog, & runtime dependencies. Its content inventory excludes exactly `ownership/trust.json`, `ownership/public-check.json`, `ownership/public-check-app.pem`, `ownership/checkpoints/`, & `ownership/installer/`; these policy/runtime-state/installer paths remain subject to full owner/ACL/link audits & their separate validators. Enrollment can update trust without changing scanner code inventory. Build a staging tree, then create its content-hash inventory with the packaged Node runtime:
 
 ```powershell
 & 'D:\staging\RightKit\runtime\node.exe' 'D:\staging\RightKit\ownership\adapters\package-manifest.mjs' --root 'D:\staging\RightKit' --out 'D:\staging\RightKit\ownership\adapters\adapter-files.json'
@@ -43,6 +43,23 @@ Provisioned JSON shape (values are administrator-owned):
   }
 }
 ```
+
+For signed-key-log repositories, protected App config pins the historical root & initial checkpoint:
+
+```json
+{
+  "rootFingerprint": "<64 lowercase hex characters>",
+  "keyCheckpoint": { "sequence": 0, "head": "<64 lowercase hex characters>" },
+  "keyAuthority": {
+    "repositoryIdentity": "https://github.com/<owner>/<workspace-repository>",
+    "checkoutPath": "<absolute protected workspace checkout>"
+  }
+}
+```
+
+When `keyAuthority` is present, both adapters read the signed log from that exact repository's committed `HEAD`; products need no per-repository copy. Keep this checkout & Git metadata protected and read-only to verifier service. Its canonical origin identity, exact commit & tree are independently checked and scanner evidence/receipts bind those values. Omitting `keyAuthority` retains legacy per-product committed-log mode.
+
+Pre-create `ownership/checkpoints/` as an administrator-owned directory. Grant the isolated service identity write/create/delete rights only inside this exact subtree; deny agent identities. Keep installer code, App config, App key, & `ownership/` parent administrator-owned and service-read-only. The producer reads `.rightkit/ownership-keys.json` from exact authority Git `HEAD` when `keyAuthority` is configured (otherwise product `HEAD`), checks it against immutable config pin/floor & serialized `<rootFingerprint>.json` state, then flushes & atomically replaces state after valid fast-forward. Invalid, shorter, or forked logs leave config & state untouched. An existing per-root `.lock` fails closed; administrator recovery may remove only that exact lock after confirming no verifier holds it. Private receipts bind log digest, root fingerprint, sequence, head, & shared authority identity/commit/tree when configured; private trust supplies matching `keyAuthority`, `rootFingerprint`, & `keyCheckpoint`.
 
 The external worker invokes fixed runtime & entry paths:
 

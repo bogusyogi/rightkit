@@ -4,8 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { catalogDigest as scanCatalogDigest, checkApp, checkCommittedApp, MANIFEST_FILE, SCANNER_VERSION } from "./ownership.mjs";
-import { acquireCommittedSource, assertCommittedCheckoutClean } from "./committed-source.mjs";
-import { canonicalRepositoryIdentity, loadTrustedExternal, sha256, validateOwnershipFloor, verifyRepositoryRegistration } from "./ownership-approval.mjs";
+import { acquireCommittedSource, assertCommittedCheckoutClean, committedSourceDataForInternalUse } from "./committed-source.mjs";
+import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
+import { canonicalRepositoryIdentity, loadTrustedExternal, resolveKeyLogTrust, sha256, validateOwnershipFloor, verifyRepositoryRegistration } from "./ownership-approval.mjs";
 
 const digestFile = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
@@ -32,19 +33,39 @@ function createEvidence(repoRoot, {
   const root = path.resolve(repoRoot);
   const manifestBytes = readFileSync(manifestPath);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
-  const trustState = trustLoader();
+  let trustState = trustLoader();
   const pendingWithoutTrust = trustState.pending === true && trustState.enrolled === false && trustState.trust === null
     && trustState.protection?.ok === false && trustState.protection?.reason === "external trust file is absent";
   if (trustState.protection?.ok !== true && !pendingWithoutTrust) throw new Error("protected ownership trust location was not verified");
   if (!trustState.trust && !pendingWithoutTrust) throw new Error("protected ownership trust registry is missing");
-  const enrollmentPending = trustState.enrolled !== true;
-  if (committed && enrollmentPending && !allowPendingAdvisory) throw new Error("protected ownership evidence requires both distinct, unrevoked approval keys to be enrolled");
+  let enrollmentPending = trustState.enrolled !== true;
+  if (committed && enrollmentPending && !allowPendingAdvisory && !trustState.trust?.rootFingerprint) throw new Error("protected ownership evidence requires both distinct, unrevoked approval keys to be enrolled");
   // A valid protected registry with incomplete key enrollment can still drive
   // a useful local backlog scan. It cannot produce a source binding or verify
   // approval signatures, so this result is deliberately advisory.
-  const useCommittedSource = committed && !enrollmentPending;
+  const useCommittedSource = committed && (!enrollmentPending || Boolean(trustState.trust?.rootFingerprint));
   if (useCommittedSource && requireCleanCheckout) assertCommittedCheckoutClean(root);
-  const source = useCommittedSource ? acquireCommittedSource(root, { requiredPaths: (trustState.trust?.provenance ?? []).flatMap((record) => record.paths ?? []) }) : null;
+  const source = useCommittedSource ? acquireCommittedSource(root, { requiredPaths: [...(trustState.trust?.provenance ?? []).flatMap((record) => record.paths ?? []), ...(trustState.trust?.rootFingerprint && !trustState.trust?.keyAuthority ? [".rightkit/ownership-keys.json"] : [])] }) : null;
+  let keyLogEvidence = null;
+  if (trustState.trust?.keyAuthority) {
+    const resolved = readCommittedKeyAuthority(trustState.trust);
+    if (!resolved.ok) throw new Error(`protected ownership key authority failed: ${resolved.problems.join("; ")}`);
+    trustState = { ...trustState, trust: resolved.resolvedTrust, enrolled: resolved.resolvedTrust.enrollmentComplete, pending: !resolved.resolvedTrust.enrollmentComplete };
+    enrollmentPending = trustState.pending;
+    keyLogEvidence = { keyLogDigest: resolved.digest, keyCheckpoint: resolved.keyCheckpoint, rootFingerprint: resolved.rootFingerprint, keyAuthority: resolved.authority };
+    if (!resolved.resolvedTrust.ownershipKeys.length) throw new Error("protected ownership key authority has no active approval keys");
+  } else if (trustState.trust?.rootFingerprint) {
+    const keySource = source ?? acquireCommittedSource(root, { requiredPaths: [".rightkit/ownership-keys.json"] });
+    const sourceData = committedSourceDataForInternalUse(keySource);
+    if (!sourceData) throw new Error("protected ownership key log requires authenticated committed source");
+    const entry = sourceData.entries.find((item) => item.rel === ".rightkit/ownership-keys.json");
+    const resolved = resolveKeyLogTrust(trustState.trust, entry?.bytes);
+    if (!resolved.ok) throw new Error(`protected ownership key log failed: ${resolved.problems.join("; ")}`);
+    trustState = { ...trustState, trust: resolved.trust, enrolled: resolved.trust.enrollmentComplete, pending: !resolved.trust.enrollmentComplete };
+    enrollmentPending = trustState.pending;
+    keyLogEvidence = { keyLogDigest: resolved.keyLogDigest, keyCheckpoint: resolved.checkpoint, rootFingerprint: resolved.trust.rootFingerprint };
+    if (!resolved.trust.ownershipKeys.length) throw new Error("protected ownership key authority has no active approval keys");
+  }
   if (useCommittedSource && requireCleanCheckout) assertCommittedCheckoutClean(root, { expectedCommit: source.commit, expectedTree: source.tree });
   const commit = useCommittedSource ? source.commit : git(root, ["rev-parse", "HEAD"], gitRunner);
   const tree = useCommittedSource ? source.tree : git(root, ["rev-parse", `${commit}^{tree}`], gitRunner);
@@ -99,6 +120,7 @@ function createEvidence(repoRoot, {
     if (repositoryIdentity && canonicalRepositoryIdentity(scanned.metadata?.repositoryIdentity) !== repositoryIdentity) throw new Error(`ownership evidence: scanner observed a different repository identity under ${registered}`);
     if (useCommittedSource && scanned.metadata?.commit !== commit) throw new Error(`ownership evidence: scanner observed a different source commit under ${registered}`);
     if (scanned.metadata?.catalogDigest !== catalogDigest) throw new Error(`ownership evidence: scanner observed a different catalog under ${registered}`);
+    if (keyLogEvidence?.keyAuthority && JSON.stringify(scanned.metadata?.keyAuthority) !== JSON.stringify(keyLogEvidence.keyAuthority)) throw new Error(`ownership evidence: scanner observed a different shared key authority under ${registered}`);
     const repositoryPaths = scanned.metadata?.pathBase === "repository";
     const prefix = registered === "." || repositoryPaths ? "" : `${registered}/`;
     return { root: registered, scanned, prefix };
@@ -138,6 +160,7 @@ function createEvidence(repoRoot, {
     scannerVersion,
     approvalsDigest,
     trustEnrolled: !enrollmentPending,
+    ...(keyLogEvidence ?? {}),
     floorOk: floor.ok,
     visibility: registration?.visibility ?? null,
     registrationDigest: registration ? sha256(registration) : null,
@@ -190,8 +213,8 @@ function verifyEvidence(expected, repoRoot, _scanRoot, createCurrent) {
   let current;
   try { current = createCurrent(); }
   catch (error) { return { ok: false, reason: error.message }; }
-  for (const key of ["repositoryIdentity", "source", "commit", "tree", "catalogDigest", "catalogVersion", "scannerVersion", "approvalsDigest", "visibility", "registrationDigest", "registeredRoots", "contentDigest"]) {
-    const unchanged = key === "registeredRoots"
+  for (const key of ["repositoryIdentity", "source", "commit", "tree", "catalogDigest", "catalogVersion", "scannerVersion", "approvalsDigest", "keyLogDigest", "keyCheckpoint", "rootFingerprint", "keyAuthority", "visibility", "registrationDigest", "registeredRoots", "contentDigest"]) {
+    const unchanged = key === "registeredRoots" || key === "keyCheckpoint" || key === "keyAuthority"
       ? JSON.stringify(expected[key]) === JSON.stringify(current.evidence[key])
       : expected[key] === current.evidence[key];
     if (!unchanged) return { ok: false, reason: `ownership evidence ${key} changed after build` };

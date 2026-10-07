@@ -7,9 +7,12 @@ import Foundation
 import LocalAuthentication
 import Security
 import UniformTypeIdentifiers
+import Darwin
 
 private let keychainService = "com.orthiclabs.rightkit.ownership"
 private let keychainAccount = "approval-key"
+private let publicKeychainService = "com.orthiclabs.rightkit.ownership.public"
+private let publicKeychainAccount = "approval-public-key"
 private let payloadKeys = [
   "repositoryIdentity", "catalogDigest", "fingerprint", "paths",
   "occurrenceHashes", "reason", "owner", "expires", "requestId", "trackingRef"
@@ -18,6 +21,7 @@ private let payloadKeys = [
 private enum ApprovalError: LocalizedError {
   case usage, unsupported, malformed(String), alreadyEnrolled, notEnrolled
   case declined, keychain(OSStatus)
+  case invalidOutput, outputExists, io(String), invalidKeyLog(String)
 
   var errorDescription: String? {
     switch self {
@@ -28,8 +32,166 @@ private enum ApprovalError: LocalizedError {
     case .notEnrolled: return "No approval key is enrolled on this Mac."
     case .declined: return "The operation was cancelled."
     case .keychain(let status): return "Keychain operation failed (OSStatus \(status))."
+    case .invalidOutput: return "Output path must be absolute."
+    case .outputExists: return "Output already exists; refusing to replace it."
+    case .io(let detail): return "File operation failed: \(detail)"
+    case .invalidKeyLog(let detail): return "The key-log draft is invalid: \(detail)"
     }
   }
+}
+
+private func hex<S: Sequence>(_ data: S) -> String where S.Element == UInt8 { data.map { String(format: "%02x", $0) }.joined() }
+
+// Same-directory exclusive temp + exclusive rename prevents both partial output
+// and replacement of a file another process created concurrently.
+private func writeExclusiveAtomic(_ data: Data, to url: URL) throws {
+  guard url.isFileURL, url.path.hasPrefix("/") else { throw ApprovalError.invalidOutput }
+  let temp = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+  let fd = open(temp.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+  guard fd >= 0 else { throw ApprovalError.io(String(cString: strerror(errno))) }
+  var ok = true
+  data.withUnsafeBytes { raw in
+    var offset = 0
+    while offset < raw.count {
+      let n = Darwin.write(fd, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+      if n <= 0 { ok = false; break }
+      offset += n
+    }
+  }
+  if ok && fsync(fd) != 0 { ok = false }
+  _ = close(fd)
+  guard ok else { _ = unlink(temp.path); throw ApprovalError.io(String(cString: strerror(errno))) }
+  // renamex_np(RENAME_EXCL) is atomic and fails if destination exists.
+  if renamex_np(temp.path, url.path, UInt32(RENAME_EXCL)) != 0 {
+    let code = errno; _ = unlink(temp.path)
+    if code == EEXIST { throw ApprovalError.outputExists }
+    throw ApprovalError.io(String(cString: strerror(code)))
+  }
+}
+
+private func localKeyRecord(_ key: P256.Signing.PublicKey, deviceName: String) -> [String: Any] {
+  ["keyId": hex(SHA256.hash(data: key.derRepresentation)), "publicKeyPem": publicPEM(key), "platform": "macos", "deviceName": deviceName]
+}
+
+private func validDeviceName(_ name: String) -> Bool {
+  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name.utf16.count <= 128
+    && !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+}
+
+private func derTLV(_ bytes: inout [UInt8], tag: UInt8) throws -> [UInt8] {
+  guard bytes.count >= 2, bytes.removeFirst() == tag else { throw ApprovalError.invalidKeyLog("invalid RSA SubjectPublicKeyInfo DER") }
+  let first = bytes.removeFirst()
+  let length: Int
+  if first & 0x80 == 0 { length = Int(first) }
+  else {
+    let width = Int(first & 0x7f)
+    guard width > 0, width <= 4, bytes.count >= width, bytes[0] != 0 else { throw ApprovalError.invalidKeyLog("invalid DER length") }
+    var value = 0
+    for _ in 0..<width { value = (value << 8) | Int(bytes.removeFirst()) }
+    guard value >= 128 else { throw ApprovalError.invalidKeyLog("noncanonical DER length") }
+    length = value
+  }
+  guard length <= bytes.count else { throw ApprovalError.invalidKeyLog("truncated DER") }
+  let value = Array(bytes.prefix(length)); bytes.removeFirst(length)
+  return value
+}
+
+private func derLength(_ length: Int) -> [UInt8] {
+  if length < 128 { return [UInt8(length)] }
+  var bytes: [UInt8] = []; var value = length
+  while value > 0 { bytes.insert(UInt8(value & 0xff), at: 0); value >>= 8 }
+  return [0x80 | UInt8(bytes.count)] + bytes
+}
+
+private func derWrap(_ tag: UInt8, _ bytes: [UInt8]) -> [UInt8] { [tag] + derLength(bytes.count) + bytes }
+
+private func publicDER(_ pem: String) -> Data? {
+  let header = "-----BEGIN PUBLIC KEY-----", footer = "-----END PUBLIC KEY-----"
+  guard pem.hasPrefix(header), let end = pem.range(of: footer, options: .backwards),
+        end.upperBound == pem.endIndex || ["\n", "\r\n"].contains(String(pem[end.upperBound...])),
+        end.lowerBound >= pem.index(pem.startIndex, offsetBy: header.count) else { return nil }
+  let bodyRange = pem.index(pem.startIndex, offsetBy: header.count)..<end.lowerBound
+  var body = String(pem[bodyRange])
+  if body.hasPrefix("\r\n") { body.removeFirst(2) } else if body.hasPrefix("\n") { body.removeFirst() } else { return nil }
+  body = body.replacingOccurrences(of: "\r\n", with: "").replacingOccurrences(of: "\n", with: "")
+  guard !body.isEmpty, body.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 43 || $0 == 47 || $0 == 61 }) else { return nil }
+  return Data(base64Encoded: body)
+}
+
+private func isRSA2048Exponent65537SPKI(_ der: Data) -> Bool {
+  var outerBytes = Array(der)
+  guard let outer = try? derTLV(&outerBytes, tag: 0x30), outerBytes.isEmpty else { return false }
+  var fields = outer
+  let algorithm = try? derTLV(&fields, tag: 0x30)
+  let expectedAlgorithm: [UInt8] = [0x30,0x0d,0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x01,0x01,0x05,0x00]
+  guard algorithm == Array(expectedAlgorithm.dropFirst(2)), let bits = try? derTLV(&fields, tag: 0x03), fields.isEmpty,
+        bits.first == 0 else { return false }
+  let rsaDER = Array(bits.dropFirst())
+  var rsaBytes = rsaDER
+  guard let rsa = try? derTLV(&rsaBytes, tag: 0x30), rsaBytes.isEmpty else { return false }
+  var ints = rsa
+  guard var modulus = try? derTLV(&ints, tag: 0x02), let exponent = try? derTLV(&ints, tag: 0x02), ints.isEmpty,
+        !modulus.isEmpty, !exponent.isEmpty else { return false }
+  guard modulus[0] == 0, modulus.count > 1, modulus[1] & 0x80 != 0 else { return false }
+  modulus.removeFirst()
+  guard modulus.count == 256, modulus[0] & 0x80 != 0, exponent == [0x01,0x00,0x01],
+        let key = SecKeyCreateWithData(Data(rsaDER) as CFData,
+          [kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeyClass: kSecAttrKeyClassPublic, kSecAttrKeySizeInBits: 2048] as CFDictionary, nil),
+        let attrs = SecKeyCopyAttributes(key) as? [String: Any], (attrs[kSecAttrKeySizeInBits as String] as? NSNumber)?.intValue == 2048 else { return false }
+  return true
+}
+
+private func validateKeyRecord(_ value: Any) throws -> [String: Any] {
+  guard let record = value as? [String: Any], Set(record.keys) == Set(["keyId", "publicKeyPem", "platform", "deviceName"]),
+        let keyId = record["keyId"] as? String, keyId.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+        let pem = record["publicKeyPem"] as? String, pem.utf8.count <= 4096, pem.hasPrefix("-----BEGIN PUBLIC KEY-----"),
+        let platform = record["platform"] as? String, ["macos", "windows"].contains(platform),
+        let device = record["deviceName"] as? String, validDeviceName(device),
+        let der = publicDER(pem),
+        hex(SHA256.hash(data: der)) == keyId else {
+    throw ApprovalError.invalidKeyLog("invalid key record or SPKI fingerprint")
+  }
+  let p256 = (try? P256.Signing.PublicKey(derRepresentation: der)) != nil
+  guard p256 || (platform == "windows" && isRSA2048Exponent65537SPKI(der)) else {
+    throw ApprovalError.invalidKeyLog("only P-256 or Windows RSA-2048/e=65537 SPKI keys are accepted")
+  }
+  return record
+}
+
+private func keyLogPayload(_ value: Any, expectedSigner: String) throws -> [String: Any] {
+  guard let p = value as? [String: Any], Set(p.keys) == Set(["domain", "rootFingerprint", "sequence", "previousHash", "operation", "subject", "signerKeyId"]),
+        p["domain"] as? String == "rightkit.ownership-key-log.v1",
+        let root = p["rootFingerprint"] as? String, root.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+        let seq = p["sequence"] as? NSNumber, CFGetTypeID(seq) != CFBooleanGetTypeID(), seq.doubleValue >= 0, seq.doubleValue <= 9007199254740991, seq.doubleValue.rounded(.towardZero) == seq.doubleValue,
+        let op = p["operation"] as? String, ["root", "add", "revoke"].contains(op),
+        let signer = p["signerKeyId"] as? String, signer == expectedSigner else { throw ApprovalError.invalidKeyLog("invalid fields, domain, or signerKeyId") }
+  if op == "root" {
+    guard seq.intValue == 0, p["previousHash"] is NSNull,
+          let s = try? validateKeyRecord(p["subject"] as Any),
+          root == signer, s["platform"] as? String == "macos", s["keyId"] as? String == signer else { throw ApprovalError.invalidKeyLog("invalid root genesis") }
+  } else {
+    guard seq.int64Value > 0, let prev = p["previousHash"] as? String, prev.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+          let s = p["subject"] as? [String: Any] else { throw ApprovalError.invalidKeyLog("invalid chained event") }
+    if op == "add" {
+      guard (try? validateKeyRecord(s)) != nil else { throw ApprovalError.invalidKeyLog("invalid added key record") }
+    } else if Set(s.keys) != Set(["keyId"]) || (s["keyId"] as? String)?.range(of: "^[a-f0-9]{64}$", options: .regularExpression) == nil { throw ApprovalError.invalidKeyLog("invalid revoked key subject") }
+  }
+  return p
+}
+
+private func signedKeyLog(_ payload: [String: Any], with key: SecureEnclave.P256.Signing.PrivateKey) throws -> [String: Any] {
+  let signer = hex(SHA256.hash(data: key.publicKey.derRepresentation))
+  guard payload["signerKeyId"] as? String == signer else { throw ApprovalError.invalidKeyLog("signer does not match the Mac key") }
+  let signature = try key.signature(for: signingInput(payload, allowSafeIntegers: true).digest)
+  return ["schema": 1, "payload": payload,
+    "signature": ["keyId": signer, "host": "macos", "value": signature.derRepresentation.base64EncodedString()]]
+}
+
+private func requireEnrollmentPresence(_ key: SecureEnclave.P256.Signing.PrivateKey) throws {
+  // Signing fixed non-exported proof bytes forces the one native presence check
+  // before a newly-created public key is stored/exported.
+  let proof = Data("rightkit.ownership-key-enrollment-presence.v1".utf8)
+  _ = try key.signature(for: SHA256.hash(data: proof))
 }
 
 // This deliberately supports only the v1 verifier's value types. Its output
@@ -58,28 +220,30 @@ private func jsKeyLess(_ left: String, _ right: String) -> Bool {
   left.utf16.lexicographicallyPrecedes(right.utf16)
 }
 
-private func canonicalPayload(_ value: Any) throws -> String {
+private func canonicalPayload(_ value: Any, allowSafeIntegers: Bool = false) throws -> String {
   if let string = value as? String { return try jsQuote(string) }
   if let number = value as? NSNumber {
     if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue ? "true" : "false" }
+    if allowSafeIntegers, number.doubleValue.isFinite, number.doubleValue.rounded(.towardZero) == number.doubleValue,
+       abs(number.doubleValue) <= 9007199254740991 { return String(number.int64Value) }
     throw ApprovalError.malformed("numbers are not permitted in approval payload v1")
   }
   if value is NSNull { return "null" }
   if let values = value as? [Any] {
-    return "[" + (try values.map(canonicalPayload)).joined(separator: ",") + "]"
+    return "[" + (try values.map { try canonicalPayload($0, allowSafeIntegers: allowSafeIntegers) }).joined(separator: ",") + "]"
   }
   if let object = value as? [String: Any] {
     let keys = object.keys.sorted(by: jsKeyLess)
     let entries = try keys.map { key in
-      "\(try jsQuote(key)):\(try canonicalPayload(object[key]!))"
+      "\(try jsQuote(key)):\(try canonicalPayload(object[key]!, allowSafeIntegers: allowSafeIntegers))"
     }
     return "{" + entries.joined(separator: ",") + "}"
   }
   throw ApprovalError.malformed("unsupported JSON value")
 }
 
-private func signingInput(_ payload: Any) throws -> (canonical: String, bytes: Data, digest: SHA256.Digest) {
-  let canonical = try canonicalPayload(payload)
+private func signingInput(_ payload: Any, allowSafeIntegers: Bool = false) throws -> (canonical: String, bytes: Data, digest: SHA256.Digest) {
+  let canonical = try canonicalPayload(payload, allowSafeIntegers: allowSafeIntegers)
   let bytes = Data(canonical.utf8)
   return (canonical, bytes, SHA256.hash(data: bytes))
 }
@@ -104,6 +268,52 @@ private func cryptoSelfTest() throws {
   ]
   let data = try JSONSerialization.data(withJSONObject: output, options: [.sortedKeys, .withoutEscapingSlashes])
   FileHandle.standardOutput.write(data)
+  FileHandle.standardOutput.write(Data([10]))
+}
+
+private func keyLogSelfTest() throws {
+  // Test-only software keys. No Secure Enclave, Keychain, LAContext, or trust path.
+  let macKey = P256.Signing.PrivateKey()
+  let macSigner = hex(SHA256.hash(data: macKey.publicKey.derRepresentation))
+  let rootSubject = localKeyRecord(macKey.publicKey, deviceName: "test-mac")
+  let root: [String: Any] = ["domain": "rightkit.ownership-key-log.v1", "rootFingerprint": macSigner,
+    "sequence": 0, "previousHash": NSNull(), "operation": "root", "subject": rootSubject, "signerKeyId": macSigner]
+  _ = try keyLogPayload(root, expectedSigner: macSigner)
+  let rootInput = try signingInput(root, allowSafeIntegers: true)
+  let rootSignature = try macKey.signature(for: rootInput.digest)
+  let rootEvent: [String: Any] = ["schema": 1, "payload": root,
+    "signature": ["keyId": macSigner, "host": "macos", "value": rootSignature.derRepresentation.base64EncodedString()]]
+
+  let rsaAttrs: [String: Any] = [kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+    kSecAttrKeySizeInBits as String: 2048, kSecAttrIsPermanent as String: false]
+  var rsaError: Unmanaged<CFError>?
+  guard let rsaPrivate = SecKeyCreateRandomKey(rsaAttrs as CFDictionary, &rsaError),
+        let rsaPublic = SecKeyCopyPublicKey(rsaPrivate),
+        let rsaData = SecKeyCopyExternalRepresentation(rsaPublic, &rsaError) as Data? else {
+    if let rsaError { throw rsaError.takeRetainedValue() }
+    throw ApprovalError.invalidKeyLog("could not make ephemeral RSA test key")
+  }
+  let algorithm: [UInt8] = [0x30,0x0d,0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x01,0x01,0x05,0x00]
+  let bitString = derWrap(0x03, [0] + Array(rsaData))
+  let spki = Data(derWrap(0x30, algorithm + bitString))
+  let pemBody = spki.base64EncodedString(options: [.lineLength64Characters])
+  let rsaRecord: [String: Any] = ["keyId": hex(SHA256.hash(data: spki)),
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\n\(pemBody)\n-----END PUBLIC KEY-----\n",
+    "platform": "windows", "deviceName": "test-windows"]
+  let previousHash = hex(SHA256.hash(data: rootInput.bytes))
+  let add: [String: Any] = ["domain": "rightkit.ownership-key-log.v1", "rootFingerprint": macSigner,
+    "sequence": 1, "previousHash": previousHash, "operation": "add", "subject": rsaRecord, "signerKeyId": macSigner]
+  let accepted = try keyLogPayload(add, expectedSigner: macSigner)
+  let input = try signingInput(accepted, allowSafeIntegers: true)
+  let signature = try macKey.signature(for: input.digest)
+  let signed: [String: Any] = ["schema": 1, "payload": accepted,
+    "signature": ["keyId": macSigner, "host": "macos", "value": signature.derRepresentation.base64EncodedString()]]
+  let result: [String: Any] = ["signedEventLog": ["schema": 1, "events": [rootEvent, signed]],
+    "signerPublicKeySpkiBase64": macKey.publicKey.derRepresentation.base64EncodedString(),
+    "rootNullGenesisAccepted": true, "windowsRsa2048AddAccepted": true,
+    "rootFingerprint": macSigner, "rootCanonicalSha256": previousHash,
+    "addCanonicalUtf8Base64": input.bytes.base64EncodedString(), "rootCanonicalUtf8Base64": rootInput.bytes.base64EncodedString()]
+  FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .withoutEscapingSlashes]))
   FileHandle.standardOutput.write(Data([10]))
 }
 
@@ -203,26 +413,77 @@ private func keychainQuery(returnData: Bool = false, context: LAContext? = nil) 
   return query
 }
 
+private func publicKeyExport(_ key: P256.Signing.PublicKey) throws -> Data {
+  let export: [String: Any] = ["host": "macos", "keyId": keyIdentifier(key), "publicKeyPem": publicPEM(key)]
+  return try JSONSerialization.data(withJSONObject: export, options: [.sortedKeys, .withoutEscapingSlashes])
+}
+
+private func persistPublicKey(_ key: P256.Signing.PublicKey) throws {
+  let item: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: publicKeychainService, kSecAttrAccount as String: publicKeychainAccount,
+    kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+    kSecValueData as String: try publicKeyExport(key)]
+  let result = SecItemAdd(item as CFDictionary, nil)
+  guard result == errSecSuccess else { throw ApprovalError.keychain(result) }
+}
+
+private func loadExistingPublicKey() throws -> (Data, P256.Signing.PublicKey) {
+  let context = LAContext()
+  context.interactionNotAllowed = true
+  var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: publicKeychainService, kSecAttrAccount as String: publicKeychainAccount,
+    kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
+    kSecUseAuthenticationContext as String: context]
+  query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+  var result: CFTypeRef?
+  let status = SecItemCopyMatching(query as CFDictionary, &result)
+  guard status == errSecSuccess, let bytes = result as? Data else {
+    if status == errSecItemNotFound { throw ApprovalError.notEnrolled }
+    throw ApprovalError.keychain(status)
+  }
+  guard let json = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+        Set(json.keys) == Set(["host", "keyId", "publicKeyPem"]), json["host"] as? String == "macos",
+        let keyId = json["keyId"] as? String, keyId.range(of: "^mac-[a-f0-9]{64}$", options: .regularExpression) != nil,
+        let pem = json["publicKeyPem"] as? String,
+        let der = publicDER(pem),
+        let key = try? P256.Signing.PublicKey(derRepresentation: der), keyIdentifier(key) == keyId else {
+    throw ApprovalError.invalidKeyLog("public key metadata is malformed")
+  }
+  return (bytes, key)
+}
+
+private func exportExistingPublicKey(to output: URL) throws {
+  let (bytes, _) = try loadExistingPublicKey()
+  try writeExclusiveAtomic(bytes, to: output)
+}
+
 @MainActor
 private final class ApprovalWindow: NSObject, NSApplicationDelegate {
   private let mode: String
   private let draftURL: URL?
+  private let outputURL: URL?
+  private let deviceName: String?
   private var window: NSWindow!
   private var content = NSTextView()
   private var actionButton: NSButton!
   private var status = NSTextField(wrappingLabelWithString: "")
   private var loaded: [String: Any]?
+  private var completed = false
 
-  init(mode: String, draftURL: URL?) { self.mode = mode; self.draftURL = draftURL }
+  init(mode: String, draftURL: URL?, outputURL: URL? = nil, deviceName: String? = nil) { self.mode = mode; self.draftURL = draftURL; self.outputURL = outputURL; self.deviceName = deviceName }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.regular)
     makeWindow()
     NSApp.activate(ignoringOtherApps: true)
-    if mode == "--review", let draftURL { loadDraft(draftURL) }
+    if (mode == "--review" || mode == "--key-operation"), let draftURL { loadDraft(draftURL) }
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    if !completed { exit(1) }
+    return .terminateNow
+  }
 
   private func makeWindow() {
     window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 620),
@@ -234,11 +495,11 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
     root.autoresizingMask = [.width, .height]
     window.contentView = root
 
-    let heading = NSTextField(labelWithString: mode == "--enroll" ? "Enroll this Mac's approval key" : "Review ownership exception")
+    let heading = NSTextField(labelWithString: mode == "--enroll" || mode == "--enroll-root" ? "Enroll this Mac's approval key" : mode == "--key-operation" ? "Review ownership key-log operation" : "Review ownership exception")
     heading.font = .boldSystemFont(ofSize: 18)
     heading.frame = NSRect(x: 24, y: 574, width: 730, height: 26)
     root.addSubview(heading)
-    let instruction = NSTextField(wrappingLabelWithString: mode == "--enroll"
+    let instruction = NSTextField(wrappingLabelWithString: mode == "--enroll" || mode == "--enroll-root"
       ? "Creates one non-exportable Secure Enclave P-256 key. Touch ID or your Mac password is required. This button is the only action that begins enrollment."
       : "Review the complete record below. Loading a file never authenticates or signs. Signing begins only after you press the button, then confirm at the macOS authentication prompt.")
     instruction.frame = NSRect(x: 24, y: 526, width: 730, height: 42)
@@ -259,21 +520,22 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
     status.lineBreakMode = .byTruncatingMiddle
     root.addSubview(status)
 
-    actionButton = NSButton(title: mode == "--enroll" ? "Enroll approval key…" : "Choose draft…",
+    actionButton = NSButton(title: mode == "--enroll" || mode == "--enroll-root" ? "Enroll approval key…" : "Choose draft…",
                             target: self, action: #selector(performPrimaryAction))
     actionButton.bezelStyle = .rounded
     actionButton.keyEquivalent = "\r"
     actionButton.frame = NSRect(x: 24, y: 18, width: 190, height: 32)
     root.addSubview(actionButton)
-    if mode == "--review" { actionButton.isEnabled = false }
+    if mode == "--review" || mode == "--key-operation" { actionButton.isEnabled = false }
     window.makeKeyAndOrderFront(nil)
-    content.string = mode == "--enroll"
+    content.string = mode == "--enroll" || mode == "--enroll-root"
       ? "Enrollment has not started. Press “Enroll approval key…” to create the host key."
       : "No draft loaded. Choose a file to display its full unsigned record."
   }
 
   @objc private func performPrimaryAction() {
     if mode == "--enroll" { enroll() }
+    else if mode == "--enroll-root" { enrollRoot() }
     else if loaded == nil { chooseDraft() }
     else { signLoadedDraft() }
   }
@@ -285,12 +547,22 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
     panel.canChooseFiles = true
     panel.allowsMultipleSelection = false
     panel.message = "Choose an unsigned schema-1 ownership exception draft."
-    guard panel.runModal() == .OK, let url = panel.url else { return }
+    guard panel.runModal() == .OK, let url = panel.url else { exit(1) }
     loadDraft(url)
   }
 
   private func loadDraft(_ url: URL) {
     do {
+      if mode == "--key-operation" {
+        let p = try loadKeyOperation(url)
+        let display = try JSONSerialization.data(withJSONObject: p, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        let input = try signingInput(p, allowSafeIntegers: true)
+        loaded = p
+        content.string = "DRAFT: \(url.path)\n\nFULL KEY-LOG OPERATION:\n\(String(decoding: display, as: UTF8.self))\n\nROOT FINGERPRINT: \(p["rootFingerprint"] as? String ?? "")\nCANONICAL PAYLOAD SHA-256: \(hex(Data(input.digest)))\n\nThe signature covers canonical payload UTF-8 bytes."
+        status.stringValue = "Validated operation. No authentication or signature has occurred."
+        actionButton.title = "Sign displayed operation…"; actionButton.isEnabled = true
+        return
+      }
       let (_, payload) = try validateDraft(Data(contentsOf: url))
       let input = try signingInput(payload)
       let digest = input.digest.map { String(format: "%02x", $0) }.joined()
@@ -303,6 +575,58 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
     } catch { showError(error) }
   }
 
+  private func loadKeyOperation(_ url: URL) throws -> [String: Any] {
+    let bytes = try Data(contentsOf: url)
+    guard let outer = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+          Set(outer.keys) == Set(["schema", "payload", "signature"]),
+          let schema = outer["schema"] as? NSNumber, schema.intValue == 1, CFGetTypeID(schema) != CFBooleanGetTypeID(),
+          outer["signature"] is NSNull else { throw ApprovalError.invalidKeyLog("expected unsigned schema-1 envelope") }
+    guard let p = outer["payload"] as? [String: Any], let signer = p["signerKeyId"] as? String,
+          signer.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else { throw ApprovalError.invalidKeyLog("invalid signerKeyId") }
+    return try keyLogPayload(p, expectedSigner: signer)
+  }
+
+  private func signKeyLog(_ payload: [String: Any], context: LAContext) throws -> [String: Any] {
+    let (_, publicKey) = try loadExistingPublicKey()
+    let expectedSigner = hex(SHA256.hash(data: publicKey.derRepresentation))
+    guard payload["signerKeyId"] as? String == expectedSigner else { throw ApprovalError.invalidKeyLog("signer does not match the enrolled Mac key") }
+    var result: CFTypeRef?
+    let code = SecItemCopyMatching(keychainQuery(returnData: true, context: context) as CFDictionary, &result)
+    guard code == errSecSuccess, let data = result as? Data else {
+      if code == errSecItemNotFound { throw ApprovalError.notEnrolled }; throw ApprovalError.keychain(code)
+    }
+    let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data, authenticationContext: context)
+    let signer = hex(SHA256.hash(data: key.publicKey.derRepresentation))
+    guard signer == expectedSigner else { throw ApprovalError.invalidKeyLog("private key does not match the stored public key") }
+    return try signedKeyLog(payload, with: key)
+  }
+
+  private func exportKey(_ key: SecureEnclave.P256.Signing.PrivateKey, out: URL) throws {
+    let bytes = try publicKeyExport(key.publicKey) + Data([10])
+    try writeExclusiveAtomic(bytes, to: out)
+  }
+
+  private func enrollRoot() {
+    do {
+      guard SecureEnclave.isAvailable, let out = outputURL, let name = deviceName else { throw ApprovalError.unsupported }
+      let context = authContext(reason: "Create and sign the RightKit ownership key-log root")
+      let key = try SecureEnclave.P256.Signing.PrivateKey(compactRepresentable: false, accessControl: try accessControl(privateKey: true), authenticationContext: context)
+      let record = localKeyRecord(key.publicKey, deviceName: name)
+      let signer = record["keyId"] as! String
+      let payload: [String: Any] = ["domain": "rightkit.ownership-key-log.v1", "rootFingerprint": signer, "sequence": 0, "previousHash": NSNull(), "operation": "root", "subject": record, "signerKeyId": signer]
+      // The genesis signature is the sole authenticated operation for this new key.
+      let signed = try signedKeyLog(payload, with: key)
+      let add: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: keychainService, kSecAttrAccount as String: keychainAccount, kSecValueData as String: key.dataRepresentation, kSecAttrAccessControl as String: try accessControl(privateKey: false)]
+      let added = SecItemAdd(add as CFDictionary, nil)
+      if added == errSecDuplicateItem { throw ApprovalError.alreadyEnrolled }
+      guard added == errSecSuccess else { throw ApprovalError.keychain(added) }
+      try persistPublicKey(key.publicKey)
+      let bytes = try JSONSerialization.data(withJSONObject: signed, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) + Data([10])
+      try writeExclusiveAtomic(bytes, to: out)
+      completed = true; exit(0)
+    } catch { showError(error) }
+  }
+
   private func enroll() {
     do {
       guard SecureEnclave.isAvailable else { throw ApprovalError.unsupported }
@@ -310,6 +634,7 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
       let privateKey = try SecureEnclave.P256.Signing.PrivateKey(
         compactRepresentable: false, accessControl: try accessControl(privateKey: true), authenticationContext: context
       )
+      try requireEnrollmentPresence(privateKey)
       let add: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: keychainService,
@@ -320,6 +645,11 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
       let result = SecItemAdd(add as CFDictionary, nil)
       if result == errSecDuplicateItem { throw ApprovalError.alreadyEnrolled }
       guard result == errSecSuccess else { throw ApprovalError.keychain(result) }
+      try persistPublicKey(privateKey.publicKey)
+      if let out = outputURL {
+        try exportKey(privateKey, out: out)
+        completed = true; exit(0)
+      }
       let keyId = keyIdentifier(privateKey.publicKey)
       let panel = NSSavePanel()
       panel.nameFieldStringValue = "rightkit-ownership-macos-public.json"
@@ -347,7 +677,17 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
     confirm.informativeText = "The full payload and its SHA-256 digest are visible in the review window. Press Sign only if you approve this repository, paths, baseline, reason, owner, expiry, request id, and tracking reference."
     confirm.addButton(withTitle: "Continue to macOS authentication")
     confirm.addButton(withTitle: "Cancel")
-    guard confirm.runModal() == .alertFirstButtonReturn else { return }
+      guard confirm.runModal() == .alertFirstButtonReturn else { exit(1) }
+      if mode == "--key-operation" {
+        do {
+          guard let out = outputURL else { throw ApprovalError.invalidOutput }
+          let signed = try signKeyLog(loaded, context: authContext(reason: "Sign the reviewed RightKit ownership key-log operation"))
+          let bytes = try JSONSerialization.data(withJSONObject: signed, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) + Data([10])
+          try writeExclusiveAtomic(bytes, to: out)
+          completed = true; exit(0)
+        } catch { showError(error) }
+        return
+      }
     do {
       guard SecureEnclave.isAvailable else { throw ApprovalError.unsupported }
       let context = authContext(reason: "Sign the reviewed RightKit ownership exception")
@@ -369,11 +709,12 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
       panel.nameFieldStringValue = "ownership-exception.signed.json"
       panel.message = "Save the signed exception record. The signature is ECDSA P-256 DER over SHA-256(canonical payload UTF-8)."
       panel.allowedContentTypes = [.json]
-      guard panel.runModal() == .OK, let url = panel.url else { status.stringValue = "Signature created, but output was not saved; nothing was exported."; return }
+      guard panel.runModal() == .OK, let url = panel.url else { exit(1) }
       let bytes = try JSONSerialization.data(withJSONObject: signed, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) + Data([10])
       try bytes.write(to: url, options: [.atomic, .withoutOverwriting])
       content.string += "\n\nSIGNED RECORD SAVED:\n\(url.path)"
       status.stringValue = "Signed record saved. It still requires independent external trust verification."
+      completed = true
       actionButton.isEnabled = false
     } catch { showError(error) }
   }
@@ -382,6 +723,7 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
     status.stringValue = error.localizedDescription
     let alert = NSAlert(error: error)
     alert.runModal()
+    exit(1)
   }
 }
 
@@ -395,23 +737,49 @@ private struct OwnershipApproval {
       }
       return
     }
-    guard SecureEnclave.isAvailable else {
-      fputs("RightKit ownership approval: Secure Enclave is unavailable on this Mac.\n", stderr)
-      exit(1)
+    if CommandLine.arguments.count == 2, CommandLine.arguments[1] == "--key-log-self-test" {
+      do { try keyLogSelfTest() } catch {
+        fputs("RightKit ownership key-log self-test: \(error.localizedDescription)\n", stderr)
+        exit(1)
+      }
+      return
     }
     let arguments = CommandLine.arguments
     let mode: String
     let draft: URL?
-    if arguments.count == 2, arguments[1] == "--enroll" {
-      mode = "--enroll"; draft = nil
-    } else if arguments.count == 3, arguments[1] == "--review" {
-      mode = "--review"; draft = URL(fileURLWithPath: arguments[2]).standardizedFileURL
-    } else {
-      fputs("Usage: ownership-approval --enroll | --review <unsigned-record.json> | --crypto-self-test\n", stderr)
+    var output: URL?
+    var name: String?
+    if arguments.count == 4, arguments[1] == "--public-key", arguments[2] == "--out" {
+      let output = URL(fileURLWithPath: arguments[3])
+      guard output.path.hasPrefix("/"), !FileManager.default.fileExists(atPath: output.path),
+            FileManager.default.fileExists(atPath: output.deletingLastPathComponent().path) else {
+        fputs("Output must be an absolute path in an existing directory and must not exist.\n", stderr); exit(2)
+      }
+      do { try exportExistingPublicKey(to: output); exit(0) }
+      catch { fputs("RightKit public key export: \(error.localizedDescription)\n", stderr); exit(1) }
+    }
+    if arguments.count == 2, arguments[1] == "--enroll" { mode = "--enroll"; draft = nil }
+    else if arguments.count == 4, arguments[1] == "--enroll", arguments[2] == "--out" {
+      mode = "--enroll"; draft = nil; output = URL(fileURLWithPath: arguments[3])
+    } else if arguments.count == 6, arguments[1] == "--enroll-root", arguments[2] == "--name", arguments[4] == "--out" {
+      mode = "--enroll-root"; draft = nil; name = arguments[3]; output = URL(fileURLWithPath: arguments[5])
+    } else if arguments.count == 5, arguments[1] == "--key-operation", arguments[3] == "--out" {
+      mode = "--key-operation"; draft = URL(fileURLWithPath: arguments[2]).standardizedFileURL; output = URL(fileURLWithPath: arguments[4])
+    } else if arguments.count == 3, arguments[1] == "--review" { mode = "--review"; draft = URL(fileURLWithPath: arguments[2]).standardizedFileURL }
+    else {
+      fputs("Usage: ownership-approval --enroll [--out <absolute-public.json>] | --public-key --out <absolute-public.json> | --enroll-root --name <name> --out <absolute-event.json> | --key-operation <draft.json> --out <signed.json> | --review <unsigned-record.json> | --crypto-self-test | --key-log-self-test\n", stderr)
       exit(2)
     }
+    if let output, !output.path.hasPrefix("/") { fputs("Output path must be absolute.\n", stderr); exit(2) }
+    if let output, FileManager.default.fileExists(atPath: output.path) { fputs("Output already exists; refusing to replace it.\n", stderr); exit(2) }
+    if let output, !FileManager.default.fileExists(atPath: output.deletingLastPathComponent().path) { fputs("Output directory does not exist.\n", stderr); exit(2) }
+    if mode == "--enroll-root", !(name.map(validDeviceName) ?? false) { fputs("Device name must be nonempty, at most 128 UTF-16 units, and contain no control characters.\n", stderr); exit(2) }
+    guard SecureEnclave.isAvailable else {
+      fputs("RightKit ownership approval: Secure Enclave is unavailable on this Mac.\n", stderr)
+      exit(1)
+    }
     let app = NSApplication.shared
-    let delegate = ApprovalWindow(mode: mode, draftURL: draft)
+    let delegate = ApprovalWindow(mode: mode, draftURL: draft, outputURL: output, deviceName: name)
     app.delegate = delegate
     app.run()
   }

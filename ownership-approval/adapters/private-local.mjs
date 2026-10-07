@@ -6,9 +6,11 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { catalogDigest, sourceTreeDigest, validateProtectedReceipt } from "./receipt.mjs";
+import { catalogDigest, committedKeyLog, sourceTreeDigest, validateProtectedReceipt } from "./receipt.mjs";
+import { loadTrustedExternal } from "../../packages/release/ownership-approval.mjs";
 import { verifyProtectedFileManifest } from "./package-manifest.mjs";
 import { nativeGitExecutable, protectedChildEnvironment } from "./runtime-environment.mjs";
+import { readCommittedKeyAuthority } from "../../packages/release/ownership-key-authority.mjs";
 import { evaluateWindowsAcl } from "../trust-schema.mjs";
 import { SCANNER_VERSION } from "../../packages/release/ownership.mjs";
 
@@ -91,10 +93,12 @@ function auditProtectedInstallImpl({ platform = process.platform, root = INSTALL
     const ownershipRoot = path.join(root, "ownership");
     result = runner("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_AUDIT], { encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: { ...protectedChildEnvironment(), RK_OWNERSHIP_ROOT: root, ...(isPublic ? { RK_OWNERSHIP_PUBLIC_CONFIG: path.join(ownershipRoot, "public-check.json"), RK_OWNERSHIP_PUBLIC_KEY: path.join(ownershipRoot, "public-check-app.pem"), RK_OWNERSHIP_CHECKOUT: path.resolve(repoRoot) } : {}) } });
   } else if (platform === "darwin") {
+    const macServiceName = isPublic ? os.userInfo().username : "";
+    if (isPublic && !/^[A-Za-z0-9_-]+$/.test(macServiceName)) problems.push("public macOS service short name must use only letters, numbers, underscores, or hyphens");
     const script = `set -eu
-check_one(){ p="$1"; test ! -L "$p" || return 21; owner="$(stat -f %u "$p")"; mode="$(stat -f %Lp "$p")"; if [ "$p" = "$RK_OWNERSHIP_PUBLIC_KEY" ]; then test "$owner" = "$RK_SERVICE_UID" || test "$owner" = 0 || return 22; test $(( mode & 077 )) -eq 0 || return 23; /bin/ls -lde "$p" | /usr/bin/awk -v svc="$RK_SERVICE_NAME" 'NR>1 && /allow/ && !($0 ~ /^[[:space:]]*[0-9]+: user:root allow/ || $0 ~ "^[[:space:]]*[0-9]+: user:" svc " allow") {bad=1} NR>1 && /allow/ && /(write|delete|append|writeattr|writeextattr|chown|delete_child|add_file|add_subdirectory)/ && !($0 ~ /^[[:space:]]*[0-9]+: user:root allow/) {bad=1} END {exit bad}' || return 26; else test "$owner" = 0 || return 22; test $(( mode & 022 )) -eq 0 || return 23; /bin/ls -lde "$p" | /usr/bin/awk 'NR>1 && /allow/ && /(write|delete|append|writeattr|writeextattr|chown|delete_child|add_file|add_subdirectory)/ && !($0 ~ /^[[:space:]]*[0-9]+: user:root allow/) {bad=1} END {exit bad}' || return 26; fi; }
+check_one(){ p="$1"; test ! -L "$p" || return 21; owner="$(stat -f %u "$p")"; mode="$(stat -f %Lp "$p")"; if [ "$p" = "$RK_OWNERSHIP_PUBLIC_KEY" ]; then test "$owner" = "$RK_SERVICE_UID" || test "$owner" = 0 || return 22; test $(( mode & 077 )) -eq 0 || return 23; /bin/ls -lde "$p" | /usr/bin/awk -v svc="$RK_SERVICE_NAME" 'NR>1 && /allow/ && !($0 ~ /^[[:space:]]*[0-9]+: user:root allow/ || $0 ~ "^[[:space:]]*[0-9]+: user:" svc " allow") {bad=1} NR>1 && /allow/ && /(write|delete|append|writeattr|writeextattr|chown|delete_child|add_file|add_subdirectory)/ && !($0 ~ /^[[:space:]]*[0-9]+: user:root allow/) {bad=1} END {exit bad}' || return 26; elif [ "$p" = "$RK_CHECKPOINTS_DIR" ] || case "$p" in "$RK_CHECKPOINTS_DIR"/*) true;; *) false;; esac; then case "$p" in "$RK_CHECKPOINTS_DIR") test "$owner" = 0 || return 22;; *) test "$owner" = 0 || test "$owner" = "$RK_SERVICE_UID" || return 22;; esac; test $(( mode & 022 )) -eq 0 || return 23; /bin/ls -lde "$p" | /usr/bin/awk -v svc="$RK_SERVICE_NAME" 'NR>1 && /allow/ && !($0 ~ /^[[:space:]]*[0-9]+: user:root allow/ || $0 ~ "^[[:space:]]*[0-9]+: user:" svc " allow") {bad=1} NR>1 && /allow/ && /(write|delete|append|writeattr|writeextattr|chown|delete_child|add_file|add_subdirectory)/ && !($0 ~ /^[[:space:]]*[0-9]+: user:root allow/ || $0 ~ "^[[:space:]]*[0-9]+: user:" svc " allow") {bad=1} END {exit bad}' || return 26; /bin/ls -lde "$p" | /usr/bin/awk -v svc="$RK_SERVICE_NAME" 'NR>1 && $0 ~ "^[[:space:]]*[0-9]+: user:" svc " allow" && /(write|add_file)/ {ok=1} END {exit !ok}' || return 27; if [ "$p" = "$RK_CHECKPOINTS_DIR" ]; then /bin/ls -lde "$p" | /usr/bin/awk -v svc="$RK_SERVICE_NAME" 'NR>1 && $0 ~ "^[[:space:]]*[0-9]+: user:" svc " allow" && /add_file/ {a=1} NR>1 && $0 ~ "^[[:space:]]*[0-9]+: user:" svc " allow" && /delete_child/ {d=1} END {exit !(a && d)}' || return 41; fi; else test "$owner" = 0 || return 22; test $(( mode & 022 )) -eq 0 || return 23; /bin/ls -lde "$p" | /usr/bin/awk 'NR>1 && /allow/ && /(write|delete|append|writeattr|writeextattr|chown|delete_child|add_file|add_subdirectory)/ && !($0 ~ /^[[:space:]]*[0-9]+: user:root allow/) {bad=1} END {exit bad}' || return 26; fi; }
 root="$RK_OWNERSHIP_ROOT"
-if [ "$RK_PUBLIC_MODE" = 1 ]; then test "$(id -u)" = "$RK_SERVICE_UID" || exit 27; case ",$RK_AGENT_UIDS," in *",$(id -u),"*) exit 28;; esac; case " $(id -Gn) " in *" admin "*) exit 29;; esac; fi
+if [ "$RK_PUBLIC_MODE" = 1 ]; then test "$(id -u)" = "$RK_SERVICE_UID" || exit 27; case ",$RK_AGENT_UIDS," in *",$(id -u),"*) exit 28;; esac; case " $(id -Gn) " in *" admin "*) exit 29;; esac; if [ "$RK_SIGNED_KEYLOG" = 1 ]; then test -d "$RK_CHECKPOINTS_DIR" || exit 40; fi; fi
 find "$root" -print0 | while IFS= read -r -d '' p; do check_one "$p"; done
 if [ "$RK_PUBLIC_MODE" = 1 ]; then
   checkout="$RK_OWNERSHIP_CHECKOUT"; test -d "$checkout" || exit 30
@@ -106,7 +110,8 @@ p="$root"
 while :; do check_one "$p"; test "$p" = / && break; p="$(dirname "$p")"; done
 test "$(id -u)" != 0`;
     const keyPath = path.join(root, "ownership", "public-check-app.pem");
-    result = runner("/bin/bash", ["-c", script], { encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: { ...protectedChildEnvironment(), RK_OWNERSHIP_ROOT: root, RK_PUBLIC_MODE: isPublic ? "1" : "0", RK_OWNERSHIP_PUBLIC_KEY: keyPath, RK_OWNERSHIP_CHECKOUT: isPublic ? path.resolve(repoRoot) : "", RK_CHECKOUT_BASE: String(publicConfig?.service?.macosCheckoutRoot ?? ""), RK_SERVICE_UID: String(publicConfig?.service?.macosUid ?? ""), RK_AGENT_UIDS: (publicConfig?.service?.agentMacosUids ?? []).join(","), RK_SERVICE_NAME: isPublic ? os.userInfo().username : "" } });
+    if (problems.length) return { ok: false, problems };
+    result = runner("/bin/bash", ["-c", script], { encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: { ...protectedChildEnvironment(), RK_OWNERSHIP_ROOT: root, RK_PUBLIC_MODE: isPublic ? "1" : "0", RK_SIGNED_KEYLOG: publicConfig?.rootFingerprint ? "1" : "0", RK_OWNERSHIP_PUBLIC_KEY: keyPath, RK_CHECKPOINTS_DIR: path.join(root, "ownership", "checkpoints"), RK_OWNERSHIP_CHECKOUT: isPublic ? path.resolve(repoRoot) : "", RK_CHECKOUT_BASE: String(publicConfig?.service?.macosCheckoutRoot ?? ""), RK_SERVICE_UID: String(publicConfig?.service?.macosUid ?? ""), RK_AGENT_UIDS: (publicConfig?.service?.agentMacosUids ?? []).join(","), RK_SERVICE_NAME: macServiceName } });
   } else return { ok: false, problems: [...problems, `protected verifier install is unsupported on ${platform}`] };
   if (result?.status !== 0) problems.push("protected install ownership, permissions, link, or process-token audit failed");
   else if (platform === "win32") {
@@ -137,6 +142,7 @@ function auditWindowsNative(native, { problems, isPublic, root, repoRoot }) {
   if (isPublic && (!key || path.resolve(key.path ?? "") !== path.resolve(expectedKey) || key.directory || /ReparsePoint/i.test(key.attributes ?? "") || !Array.isArray(key.access))) problems.push("protected public App key file is missing, linked, or malformed");
   for (const item of native.items) {
     if (isPublic && path.resolve(item.path ?? "") === path.resolve(expectedKey)) continue;
+    if (isPublic && isCheckpointStatePath(item.path, root)) continue;
     if (item.elevated !== native.elevated) item.elevated = native.elevated;
     problems.push(...evaluateWindowsAcl(item, { target: item.path }).problems);
   }
@@ -144,6 +150,7 @@ function auditWindowsNative(native, { problems, isPublic, root, repoRoot }) {
   if (!isPublic) return;
   if (serviceSid !== native.identitySID || agentSids.includes(native.identitySID) || native.groupSIDs.some((sid) => agentSids.includes(sid) || WINDOWS_SYSTEM_SIDS.has(sid))) problems.push("public verifier is not running under its exact isolated service identity");
   if (WINDOWS_SYSTEM_SIDS.has(serviceSid)) problems.push("public service identity cannot be SYSTEM, Administrators, or TrustedInstaller");
+  auditWindowsCheckpointState(native.items, root, serviceSid, agentSids, problems, config?.rootFingerprint !== undefined);
   if (!key || !Array.isArray(key.access)) return;
   if (![serviceSid, ...WINDOWS_SYSTEM_SIDS].includes(key.ownerSID)) problems.push("public App key owner is outside the service/admin principals");
   for (const ace of key.access) {
@@ -190,6 +197,50 @@ function auditWindowsNative(native, { problems, isPublic, root, repoRoot }) {
   }
 }
 
+function isCheckpointStatePath(itemPath, root) {
+  const base = path.resolve(root, "ownership", "checkpoints").toLowerCase();
+  const candidate = path.resolve(itemPath ?? "").toLowerCase();
+  return candidate === base || candidate.startsWith(`${base}${path.sep}`);
+}
+
+function auditWindowsCheckpointState(items, root, serviceSid, agentSids = [], problems = [], required = true) {
+  const directory = path.resolve(root, "ownership", "checkpoints");
+  const directoryKey = directory.toLowerCase();
+  const prefix = `${directoryKey}${path.sep}`;
+  const state = items.filter((item) => {
+    const itemPath = path.resolve(item.path ?? "").toLowerCase();
+    return itemPath === directoryKey || itemPath.startsWith(prefix);
+  });
+  const rootItem = state.find((item) => path.resolve(item.path ?? "").toLowerCase() === directoryKey);
+  if (!rootItem && !required) return problems;
+  const adminSids = [...WINDOWS_SYSTEM_SIDS];
+  const nonServiceWriteMask = (~0x001200a9) >>> 0;
+  if (!rootItem || !rootItem.directory || /ReparsePoint/i.test(rootItem.attributes ?? "")) problems.push("protected checkpoint state directory is missing or linked");
+  for (const item of state) {
+    const itemPath = path.resolve(item.path ?? "");
+    const isRoot = itemPath.toLowerCase() === directoryKey;
+    const name = path.basename(itemPath);
+    if (!isRoot && (!/^(?:[a-f0-9]{64}\.json|[a-f0-9]{64}\.lock|\.[a-f0-9]{64}\.\d+\.\d+\.tmp)$/.test(name) || item.directory)) problems.push("protected checkpoint subtree contains an unexpected path or directory");
+    if (/ReparsePoint/i.test(item.attributes ?? "") || !Array.isArray(item.access)) problems.push("protected checkpoint subtree contains a link or incomplete ACL record");
+    if (isRoot ? !adminSids.includes(item.ownerSID) : ![serviceSid, ...adminSids].includes(item.ownerSID)) problems.push("protected checkpoint owner is outside service/admin principals");
+    let serviceCanCreate = false;
+    let serviceCanWriteFile = false;
+    for (const ace of item.access ?? []) {
+      if (ace?.type !== "Allow" || (ace.propagationFlags & 2) !== 0) continue;
+      const sid = ace.identitySID;
+      const mask = (ace.mask ?? 0) >>> 0;
+      if (agentSids.includes(sid)) problems.push(`protected checkpoint ACL includes configured agent principal ${sid}`);
+      if (sid === serviceSid && isRoot && (mask & 0x00000042) === 0x00000042) serviceCanCreate = true;
+      if (sid === serviceSid && !isRoot && (mask & (0x00000002 | 0x40000000)) !== 0) serviceCanWriteFile = true;
+      if (![serviceSid, ...adminSids].includes(sid) && (mask & nonServiceWriteMask) !== 0) problems.push(`protected checkpoint grants write authority to non-service principal ${sid}`);
+      if (sid === serviceSid && (mask & (0x00040000 | 0x00080000 | 0x10000000)) !== 0) problems.push("protected checkpoint service ACL grants DACL or ownership changes");
+    }
+    if (isRoot && !serviceCanCreate) problems.push("protected checkpoint directory does not grant bounded state-file creation to service identity");
+    if (!isRoot && !serviceCanWriteFile) problems.push("protected checkpoint file does not grant state updates to service identity");
+  }
+  return problems;
+}
+
 function git(root, args, runner = spawnSync) {
   const result = runner(nativeGitExecutable(), ["-c", "core.fsmonitor=false", "-C", root, ...args], { encoding: "buffer", windowsHide: true, timeout: 15_000, env: protectedChildEnvironment() });
   if (result?.status !== 0) throw new Error(`git ${args.join(" ")} failed`);
@@ -204,9 +255,18 @@ function expectedSource(root, runner, catalogPath) {
   const status = git(root, ["status", "--porcelain=v1", "--untracked-files=all"], runner).toString("utf8");
   if (status.trim()) throw new Error("working tree must be clean before protected ownership verification");
   const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+  const protectedTrust = loadTrustedExternal().trust;
+  const hasKeyLog = git(root, ["ls-tree", "-r", "--name-only", commit, "--", ".rightkit/ownership-keys.json"], runner).toString("utf8").trim() !== "";
+  let keyLog = null;
+  if (protectedTrust?.keyAuthority) {
+    const authority = readCommittedKeyAuthority(protectedTrust);
+    if (!authority.ok) throw new Error(`protected key authority rejected: ${authority.problems.join("; ")}`);
+    keyLog = authority;
+  } else if (hasKeyLog) keyLog = committedKeyLog(root, commit, (repo, args) => git(repo, args, runner), protectedTrust?.rootFingerprint, protectedTrust?.keyCheckpoint);
   return {
     commit, tree, origin, repositoryIdentity: canonicalIdentity(origin), sourceDigest: sourceTreeDigest(listing),
     scannerVersion: SCANNER_VERSION, catalogVersion: String(catalog.version ?? catalog.schema ?? "1"), catalogDigest: catalogDigest(catalog),
+    ...(keyLog ? { keyLog } : {}),
   };
 }
 
@@ -254,8 +314,9 @@ export function runPrivateLocalOwnershipAdapterForTest(repoRoot, options) {
 }
 
 export function evaluateWindowsNativeAclForTest(native, options) { return auditWindowsNative(native, options); }
+export function evaluateWindowsCheckpointStateForTest(items, root, serviceSid, agentSids, problems) { return auditWindowsCheckpointState(items, root, serviceSid, agentSids, problems); }
 
-export const __testOnly = Object.freeze({ expectedSourceForTest: expectedSource, VERIFIER_PATHS, PUBLIC_PRODUCER_PATHS, RUNTIME_PATHS, INSTALL_ROOTS, WINDOWS_AUDIT, evaluateWindowsNativeAclForTest });
+export const __testOnly = Object.freeze({ expectedSourceForTest: expectedSource, VERIFIER_PATHS, PUBLIC_PRODUCER_PATHS, RUNTIME_PATHS, INSTALL_ROOTS, WINDOWS_AUDIT, evaluateWindowsNativeAclForTest, evaluateWindowsCheckpointStateForTest });
 
 function main(args) {
   const index = args.indexOf("--repo-root");

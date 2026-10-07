@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { constants, generateKeyPairSync, sign } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { __testOnly, canonicalJson, canonicalRepositoryIdentity, createDraft, evaluateWindowsAcl, keyIdForPublicKey, provenanceContentDigest, sha256, validateOwnershipFloor, verifyException, verifyProtectedProvenance, verifyRepositoryRegistration } from "./ownership-approval.mjs";
+import { __testOnly, canonicalJson, canonicalRepositoryIdentity, createDraft, evaluateWindowsAcl, keyIdForPublicKey, provenanceContentDigest, resolveKeyLogTrust, sha256, validateOwnershipFloor, verifyException, verifyProtectedProvenance, verifyRepositoryRegistration } from "./ownership-approval.mjs";
+import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
 
 const finding = { fingerprint: "oauth.device", file: "src/auth.rs", line: 12, text: "device grant endpoint" };
 const context = { repositoryIdentity: "https://github.com/orthic-labs/example", catalogDigest: "a".repeat(64), findings: [finding], today: "2026-10-07", scannerVersion: "2", catalogVersion: "4" };
@@ -32,6 +33,47 @@ test("unsigned, malformed, and payload-tampered records fail", () => {
   assert.match(verifyException(draft, { ...context, trust }).problems.join(" "), /unsigned/);
   const changed = signed(); changed.payload.reason = "broadened";
   assert.match(verifyException(changed, { ...context, trust }).problems.join(" "), /invalid signature/);
+});
+test("pinned key log resolves N-device keys and rejects forks and root substitution", () => {
+  const rootPair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const rootPem = rootPair.publicKey.export({ type: "spki", format: "pem" });
+  const root = { keyId: keyFingerprint(rootPem), publicKeyPem: rootPem, platform: "windows", deviceName: "root" };
+  const devicePair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const devicePem = devicePair.publicKey.export({ type: "spki", format: "pem" });
+  const device = { keyId: keyFingerprint(devicePem), publicKeyPem: devicePem, platform: "macos", deviceName: "laptop" };
+  const first = createKeyEvent({ schema: 1, events: [] }, { operation: "root", subject: root, signerKeyId: root.keyId });
+  first.signature = { keyId: root.keyId, host: "windows", value: sign("sha256", Buffer.from(canonicalJson(first.payload)), rootPair.privateKey).toString("base64") };
+  const log = { schema: 1, events: [first] };
+  const genesisTrust = { ...trust, rootFingerprint: root.keyId, keyCheckpoint: { sequence: 0, head: eventHash(first) } };
+  assert.equal(resolveKeyLogTrust(genesisTrust, Buffer.from(JSON.stringify(log))).trust.enrollmentComplete, false);
+  const add = createKeyEvent(log, { operation: "add", subject: device, signerKeyId: root.keyId });
+  add.signature = { keyId: root.keyId, host: "windows", value: sign("sha256", Buffer.from(canonicalJson(add.payload)), rootPair.privateKey).toString("base64") };
+  log.events.push(add);
+  const trustPinned = { ...trust, rootFingerprint: root.keyId, keyCheckpoint: { sequence: 0, head: eventHash(first) } };
+  const resolved = resolveKeyLogTrust(trustPinned, Buffer.from(JSON.stringify(log)));
+  assert.equal(resolved.ok, true);
+  assert.deepEqual(resolved.trust.ownershipKeys.map((key) => key.keyId), [root.keyId, device.keyId]);
+  assert.equal(resolved.trust.enrollmentComplete, true);
+  assert.equal(resolved.checkpoint.sequence, 1);
+  const revoke = createKeyEvent(log, { operation: "revoke", subject: { keyId: device.keyId }, signerKeyId: root.keyId });
+  revoke.signature = { keyId: root.keyId, host: "windows", value: sign("sha256", Buffer.from(canonicalJson(revoke.payload)), rootPair.privateKey).toString("base64") };
+  const revokedHistory = { schema: 1, events: [...log.events, revoke] };
+  assert.equal(resolveKeyLogTrust(trustPinned, Buffer.from(JSON.stringify(revokedHistory))).trust.enrollmentComplete, true);
+  assert.equal(resolveKeyLogTrust(trustPinned, Buffer.from(JSON.stringify(log)),).ok, true);
+  assert.equal(resolveKeyLogTrust({ ...trustPinned, rootFingerprint: "f".repeat(64) }, Buffer.from(JSON.stringify(log))).ok, false);
+  assert.equal(resolveKeyLogTrust({ ...trustPinned, keyCheckpoint: { sequence: 1, head: "e".repeat(64) } }, Buffer.from(JSON.stringify(log))).ok, false);
+});
+test("pinned Windows RSA approval accepts PSS & PKCS1 signatures", () => {
+  const pair = generateKeyPairSync("rsa", { modulusLength: 2048, publicExponent: 65537 });
+  const publicKeyPem = pair.publicKey.export({ type: "spki", format: "pem" });
+  const keyId = keyFingerprint(publicKeyPem);
+  const trustPinned = { ...trust, rootFingerprint: keyId, keyCheckpoint: { sequence: 0, head: "a".repeat(64) }, ownershipKeys: [{ keyId, publicKeyPem, platform: "windows", deviceName: "Windows host" }] };
+  for (const padding of [constants.RSA_PKCS1_PSS_PADDING, constants.RSA_PKCS1_PADDING]) {
+    const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, catalogDigest: context.catalogDigest, fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "bounded migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true } });
+    const signature = sign("sha256", Buffer.from(canonicalJson(draft.payload)), { key: pair.privateKey, padding, ...(padding === constants.RSA_PKCS1_PSS_PADDING ? { saltLength: 32 } : {}) });
+    const record = { ...draft, signature: { keyId: `win-${keyId}`, host: "windows", value: signature.toString("base64") } };
+    assert.equal(verifyException(record, { ...context, trust: trustPinned }).ok, true);
+  }
 });
 test("changed identity, catalog, path occurrence, expiry, or revoked key fail", () => {
   const record = signed();

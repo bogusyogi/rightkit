@@ -46,6 +46,14 @@ test("protected receipt binds exact commit, tree, repository, bytes, floors, and
     const listing = spawnSync("git", ["-C", root, "ls-tree", "-rz", "--full-tree", receipt.commit], { encoding: "buffer" }).stdout;
     const expected = { commit: receipt.commit, tree: receipt.tree, repositoryIdentity: receipt.repositoryIdentity, sourceDigest: sourceTreeDigest(listing), scannerVersion: receipt.scannerVersion, catalogVersion: receipt.catalogVersion, catalogDigest: receipt.catalogDigest };
     assert.deepEqual(validateProtectedReceipt(receipt, expected), { ok: true, problems: [] });
+    const keyLogBinding = { digest: "d".repeat(64), rootFingerprint: "e".repeat(64), keyCheckpoint: { sequence: 3, head: "f".repeat(64) } };
+    const boundReceipt = { ...receipt, keyLogDigest: keyLogBinding.digest, rootFingerprint: keyLogBinding.rootFingerprint, keyCheckpoint: keyLogBinding.keyCheckpoint };
+    assert.deepEqual(validateProtectedReceipt(boundReceipt, { ...expected, keyLog: keyLogBinding }), { ok: true, problems: [] });
+    assert.equal(validateProtectedReceipt({ ...boundReceipt, keyCheckpoint: { sequence: 2, head: keyLogBinding.keyCheckpoint.head } }, { ...expected, keyLog: keyLogBinding }).ok, false);
+    const authorityBinding = { ...keyLogBinding, authority: { repositoryIdentity: "https://github.com/test/authority", commit: "a".repeat(40), tree: "b".repeat(40) } };
+    const authorityReceipt = { ...boundReceipt, keyAuthority: authorityBinding.authority };
+    assert.equal(validateProtectedReceipt(authorityReceipt, { ...expected, keyLog: authorityBinding }).ok, true);
+    assert.equal(validateProtectedReceipt({ ...authorityReceipt, keyAuthority: { ...authorityBinding.authority, commit: "c".repeat(40) } }, { ...expected, keyLog: authorityBinding }).ok, false);
     for (const [key, value] of [["commit", "f".repeat(40)], ["repositoryIdentity", "https://evil.invalid/repo"], ["sourceDigest", "d".repeat(64)], ["catalogDigest", "e".repeat(64)]]) {
       const changed = { ...receipt, [key]: value };
       assert.equal(validateProtectedReceipt(changed, expected).ok, false, `${key} tampering must fail`);

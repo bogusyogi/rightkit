@@ -150,19 +150,22 @@ export function gitListedInventory(appRoot, { relevant = () => true, protectedPa
     if (indexed?.mode === "160000") { coverage.push({ path: rel, status: "unscanned", reason: "gitlink" }); continue; }
     const mode = indexed?.mode;
     if (mode === "120000") { coverage.push({ path: rel, status: "unscanned", reason: "symlink" }); continue; }
-    let stat = entry.stat;
-    try { stat ??= lstatSync(abs); }
-    catch (error) {
-      if (error.code === "ENOENT") coverage.push({ path: rel, status: "unscanned", reason: "deleted" });
-      else coverage.push({ path: rel, status: "unscanned", reason: `stat-failed:${error.code ?? "error"}` });
-      continue;
-    }
-    if (stat.isSymbolicLink()) { coverage.push({ path: rel, status: "unscanned", reason: "symlink" }); continue; }
-    if (!stat.isFile()) { coverage.push({ path: rel, status: "unscanned", reason: "not-regular-file" }); continue; }
-    const inNodeModules = rel.split("/").includes("node_modules");
     const isRelevant = entry.relevant ?? false;
-    let bytes, oid = indexed?.oid, digest, cacheKey;
     const isDirty = !indexed || dirty.has(rel);
+    const cleanIrrelevantRegular = !isRelevant && !isDirty && indexed?.oid && ["100644", "100755"].includes(mode);
+    let stat = entry.stat;
+    if (!cleanIrrelevantRegular) {
+      try { stat ??= lstatSync(abs); }
+      catch (error) {
+        if (error.code === "ENOENT") coverage.push({ path: rel, status: "unscanned", reason: "deleted" });
+        else coverage.push({ path: rel, status: "unscanned", reason: `stat-failed:${error.code ?? "error"}` });
+        continue;
+      }
+      if (stat.isSymbolicLink()) { coverage.push({ path: rel, status: "unscanned", reason: "symlink" }); continue; }
+      if (!stat.isFile()) { coverage.push({ path: rel, status: "unscanned", reason: "not-regular-file" }); continue; }
+    }
+    const inNodeModules = rel.split("/").includes("node_modules");
+    let bytes, oid = indexed?.oid, digest, cacheKey;
     if (isRelevant && entry.overLimit) {
       // Size-limit coverage was already recorded before any blob or file read.
     } else if (isRelevant) {
@@ -184,7 +187,7 @@ export function gitListedInventory(appRoot, { relevant = () => true, protectedPa
       if (bytes && isDirty) { digest = sha256(bytes); cacheKey = `sha256:${digest}`; }
       else if (bytes) { digest = `git:${oid}`; cacheKey = `gitblob:${oid}`; }
     } else if (!isDirty && oid) { digest = `git:${oid}`; cacheKey = `gitblob:${oid}`; }
-    files.push({ rel, abs, size: bytes?.length ?? entry.cleanBlobSize ?? stat.size, bytes, oid, digest, cacheKey, inNodeModules });
+    files.push({ rel, abs, size: bytes?.length ?? entry.cleanBlobSize ?? stat?.size, bytes, oid, digest, cacheKey, inNodeModules });
   }
   return { files, coverage };
 }

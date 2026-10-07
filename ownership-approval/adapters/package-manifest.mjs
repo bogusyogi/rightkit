@@ -9,6 +9,12 @@ const POLICY_FILES = new Set(["ownership/trust.json", "ownership/public-check.js
 function policyPath(relative) {
   return POLICY_FILES.has(relative) || relative === "ownership/installer" || relative.startsWith("ownership/installer/");
 }
+function checkpointStatePath(relative) { return relative === "ownership/checkpoints" || relative.startsWith("ownership/checkpoints/"); }
+function validCheckpointStateEntry(relative, stat) {
+  if (relative === "ownership/checkpoints") return stat.isDirectory();
+  const name = relative.slice("ownership/checkpoints/".length);
+  return stat.isFile() && /^(?:[a-f0-9]{64}\.json|[a-f0-9]{64}\.lock|\.[a-f0-9]{64}\.\d+\.\d+\.tmp)$/.test(name);
+}
 function digest(file) { return createHash("sha256").update(readFileSync(file)).digest("hex"); }
 
 export function createProtectedFileManifest(root, { manifestRelative = DEFAULT_MANIFEST_RELATIVE } = {}) {
@@ -24,6 +30,11 @@ export function createProtectedFileManifest(root, { manifestRelative = DEFAULT_M
       // without replacing the installed scanner's code inventory.
       if (policyPath(relative)) {
         if (relative === "ownership/installer" ? !stat.isDirectory() : !stat.isFile()) throw new Error(`protected policy path has an invalid file type: ${relative}`);
+        continue;
+      }
+      if (checkpointStatePath(relative)) {
+        if (!validCheckpointStateEntry(relative, stat)) throw new Error(`protected checkpoint state has an invalid path or file type: ${relative}`);
+        if (stat.isDirectory()) walk(file);
         continue;
       }
       if (entry.isDirectory()) { files.push({ path: relative, type: "directory", sha256: null }); walk(file); }

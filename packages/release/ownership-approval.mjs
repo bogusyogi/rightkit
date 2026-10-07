@@ -3,6 +3,7 @@ import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto
 import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { verifyKeyLog, verifyOwnershipSignature } from "./ownership-key-log.mjs";
 
 export const APPROVAL_SCHEMA = 1;
 export const REQUIRED_HOSTS = Object.freeze(["windows", "macos"]);
@@ -11,6 +12,7 @@ export const DEFAULT_TRUST_PATH = Object.freeze({
   darwin: "/Library/Application Support/Orthic Labs/RightKit/ownership/trust.json",
 });
 const HEX = /^[a-f0-9]{64}$/;
+const keyLogCache = new Map();
 const WINDOWS_TRUSTED_SIDS = new Set(["S-1-5-18", "S-1-5-32-544"]);
 const WINDOWS_READ_MASK = 0x001200a9;
 const WINDOWS_ANCESTOR_CREATE_MASK = 0x00000116;
@@ -125,6 +127,16 @@ export function validateTrustRegistry(trust) {
   if (!Array.isArray(trust?.revokedKeyIds) || !Array.isArray(trust?.verifiedTrackingEvidence) || trust.verifiedTrackingEvidence.some((x) => !HEX.test(x))) problems.push("trust revocation or tracking evidence lists are malformed");
   if (!/^\d+(?:\.\d+)*$/.test(trust?.minimumScannerVersion ?? "") || !/^\d+(?:\.\d+)*$/.test(trust?.minimumCatalogVersion ?? "")) problems.push("scanner/catalog floors are missing or malformed");
   if (trust?.minimumCatalogDigest !== undefined && !HEX.test(trust.minimumCatalogDigest)) problems.push("minimum catalog digest is malformed");
+  if (trust?.rootFingerprint !== undefined || trust?.keyCheckpoint !== undefined) {
+    if (!HEX.test(trust.rootFingerprint ?? "") || !trust.keyCheckpoint || !Number.isSafeInteger(trust.keyCheckpoint.sequence) || trust.keyCheckpoint.sequence < 0 || !HEX.test(trust.keyCheckpoint.head ?? "")) problems.push("protected key-log root pin or checkpoint is malformed");
+  }
+  if (trust?.keyAuthority !== undefined) {
+    const authority = trust.keyAuthority;
+    if (!authority || typeof authority !== "object" || Array.isArray(authority) || Object.keys(authority).sort().join("\0") !== ["checkoutPath", "repositoryIdentity"].sort().join("\0")
+      || typeof authority.checkoutPath !== "string" || !path.isAbsolute(authority.checkoutPath)) problems.push("protected key authority is malformed");
+    try { if (canonicalRepositoryIdentity(authority.repositoryIdentity) !== authority.repositoryIdentity) problems.push("protected key authority identity is noncanonical"); }
+    catch { problems.push("protected key authority identity is invalid"); }
+  }
   if (!Array.isArray(trust?.repositories)) return { ok: false, problems: ["protected repository registry missing"] };
   const seen = new Set();
   for (const entry of trust.repositories) {
@@ -141,6 +153,27 @@ export function validateTrustRegistry(trust) {
     try { if (canonicalRepositoryIdentity(record.repositoryIdentity) !== record.repositoryIdentity) problems.push("provenance repository identity is noncanonical"); } catch { problems.push("provenance repository identity is invalid"); }
   }
   return { ok: problems.length === 0, problems };
+}
+
+/** Resolve protected N-device keys against the supplied immutable log bytes. */
+export function resolveKeyLogTrust(trust, logBytes) {
+  if (!trust?.rootFingerprint) return { ok: false, problems: ["protected key-log root pin is missing"], trust };
+  if (!HEX.test(trust.rootFingerprint) || !trust.keyCheckpoint || !Number.isSafeInteger(trust.keyCheckpoint.sequence) || trust.keyCheckpoint.sequence < 0 || !HEX.test(trust.keyCheckpoint.head ?? "")) return { ok: false, problems: ["protected key-log root pin or checkpoint is malformed"], trust };
+  let log;
+  try { log = JSON.parse(Buffer.isBuffer(logBytes) ? logBytes.toString("utf8") : String(logBytes)); }
+  catch { return { ok: false, problems: ["committed ownership key log is missing or invalid JSON"], trust }; }
+  const logDigest = sha256(logBytes);
+  const cacheKey = `${logDigest}:${trust.rootFingerprint}:${trust.keyCheckpoint.sequence}:${trust.keyCheckpoint.head}`;
+  let verified = keyLogCache.get(cacheKey);
+  if (!verified) {
+    verified = verifyKeyLog(log, { rootFingerprint: trust.rootFingerprint, checkpoint: trust.keyCheckpoint });
+    keyLogCache.set(cacheKey, verified);
+    if (keyLogCache.size > 64) keyLogCache.delete(keyLogCache.keys().next().value);
+  }
+  if (!verified.ok) return { ok: false, problems: verified.problems, trust };
+  const completedPlatforms = new Set(verified.allKeys.map((key) => key.platform));
+  const enrollmentComplete = REQUIRED_HOSTS.every((platform) => completedPlatforms.has(platform));
+  return { ok: true, trust: { ...trust, ownershipKeys: verified.keys, ownershipAllKeys: verified.allKeys, enrollmentComplete, revokedKeyIds: [...new Set([...(trust.revokedKeyIds ?? []), ...verified.revokedKeyIds])] }, keyLogDigest: logDigest, checkpoint: verified.checkpoint };
 }
 export function verifyRepositoryRegistration(trust, repositoryIdentity, { files = [] } = {}) {
   const validation = validateTrustRegistry(trust);
@@ -266,8 +299,10 @@ export function loadTrustedExternal() {
   }
   const protectionResult = { ok: true, mechanism: platform === "win32" ? "PowerShell ACL owner/ACE audit" : "owner/mode/ACL audit" };
   const hostKeys = REQUIRED_HOSTS.map((host) => trust.hosts?.[host]);
-  const enrolled = hostKeys.every((host) => host?.keyId && host.publicKeyPem && !trust.revokedKeyIds?.includes(host.keyId))
-    && hostKeys[0]?.keyId !== hostKeys[1]?.keyId && hostKeys[0]?.publicKeyPem !== hostKeys[1]?.publicKeyPem;
+  const enrolled = trust.rootFingerprint
+    ? Boolean(HEX.test(trust.rootFingerprint) && trust.keyCheckpoint && Number.isSafeInteger(trust.keyCheckpoint.sequence) && trust.keyCheckpoint.sequence >= 0 && HEX.test(trust.keyCheckpoint.head ?? "")) // Provisional; scan paths replace this from verified log history.
+    : hostKeys.every((host) => host?.keyId && host.publicKeyPem && !trust.revokedKeyIds?.includes(host.keyId))
+      && hostKeys[0]?.keyId !== hostKeys[1]?.keyId && hostKeys[0]?.publicKeyPem !== hostKeys[1]?.publicKeyPem;
   return { enrolled, pending: !enrolled, protection: protectionResult, trust, path: file };
 }
 
@@ -278,6 +313,15 @@ function signatureProblems(record, trust) {
   const s = record.signature;
   if (!REQUIRED_HOSTS.includes(s.host)) return ["unknown signing host"];
   if (trust.revokedKeyIds?.includes(s.keyId)) return ["signing key is revoked"];
+  if (trust.rootFingerprint) {
+    const normalizedId = String(s.keyId).replace(/^(?:win-|mac-)/, "");
+    const key = trust.ownershipKeys?.find((candidate) => candidate.keyId === normalizedId && candidate.platform === s.host);
+    if (!key) return ["signing key is not active in protected ownership key log"];
+    try {
+      const valid = verifyOwnershipSignature(key.publicKeyPem, Buffer.from(canonicalJson(approvalPayload(record))), Buffer.from(s.value, "base64"));
+      return valid ? [] : ["invalid signature"];
+    } catch { return ["malformed signature or public key"]; }
+  }
   const host = trust.hosts?.[s.host];
   if (!host || host.keyId !== s.keyId || !host.publicKeyPem) return ["signing key is not enrolled for host"];
   const keys = REQUIRED_HOSTS.map((name) => trust.hosts?.[name]);

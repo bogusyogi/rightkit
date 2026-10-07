@@ -2,12 +2,14 @@
 // Run only from an externally managed, OS-protected runner. Repository
 // workflows have no path to this App key or protected configuration.
 import { createPrivateKey, sign as cryptoSign } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { auditPublicProtectedInstall, auditProtectedInstallForTest } from "./private-local.mjs";
-import { sourceTreeDigest } from "./receipt.mjs";
+import { committedKeyLog, sourceTreeDigest } from "./receipt.mjs";
+import { verifyKeyLog } from "../../packages/release/ownership-key-log.mjs";
+import { readCommittedKeyAuthority } from "../../packages/release/ownership-key-authority.mjs";
 import { nativeGitExecutable, protectedChildEnvironment } from "./runtime-environment.mjs";
 
 const INSTALL_ROOTS = Object.freeze({
@@ -67,8 +69,92 @@ function validateAppConfig(value) {
     || !Number.isSafeInteger(service.macosUid) || service.macosUid <= 0 || !Array.isArray(service.agentMacosUids) || !service.agentMacosUids.length || service.agentMacosUids.some((uid) => !Number.isSafeInteger(uid) || uid <= 0) || service.agentMacosUids.includes(service.macosUid)) {
     throw new Error("protected GitHub App check configuration is malformed or lacks distinct service/agent identities");
   }
+  const signedKeyLog = value.rootFingerprint !== undefined || value.keyCheckpoint !== undefined || value.keyAuthority !== undefined;
+  if (signedKeyLog && (!/^[a-f0-9]{64}$/.test(value.rootFingerprint ?? "") || !value.keyCheckpoint
+    || Object.keys(value.keyCheckpoint).sort().join("\0") !== "head\0sequence"
+    || !Number.isSafeInteger(value.keyCheckpoint.sequence) || value.keyCheckpoint.sequence < 0 || !/^[a-f0-9]{64}$/.test(value.keyCheckpoint.head ?? ""))) {
+    throw new Error("protected GitHub App key-log root pin or checkpoint is malformed");
+  }
+  if (value.keyAuthority !== undefined && (!value.keyAuthority || typeof value.keyAuthority !== "object" || Array.isArray(value.keyAuthority)
+    || Object.keys(value.keyAuthority).sort().join("\0") !== "checkoutPath\0repositoryIdentity"
+    || typeof value.keyAuthority.checkoutPath !== "string" || !path.isAbsolute(value.keyAuthority.checkoutPath)
+    || typeof value.keyAuthority.repositoryIdentity !== "string")) throw new Error("protected GitHub App key authority pin is malformed");
   return value;
 }
+function syncDirectory(directory) {
+  let fd;
+  try { fd = openSync(directory, "r"); fsyncSync(fd); }
+  catch (error) { if (process.platform !== "win32" || !["EISDIR", "EPERM"].includes(error.code)) throw error; }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
+function acquireCheckpointLock(lockPath) {
+  try { return openSync(lockPath, "wx", 0o600); }
+  catch (error) {
+    if (error.code !== "EEXIST") throw new Error(`cannot lock protected checkpoint state: ${error.message}`);
+    const stat = lstatSync(lockPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("protected checkpoint lock is linked or not a regular file");
+    throw new Error(`protected checkpoint state lock already exists; service/admin recovery is required: ${lockPath}`);
+  }
+}
+function persistProtectedCheckpoint({ directory, config, logBytes, keyLog }) {
+  if (!keyLog) return null;
+  const directoryStat = lstatSync(directory);
+  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) throw new Error("protected checkpoint state directory is missing or linked");
+  const statePath = path.join(directory, `${keyLog.rootFingerprint}.json`);
+  const lockPath = path.join(directory, `${keyLog.rootFingerprint}.lock`);
+  const lockFd = acquireCheckpointLock(lockPath);
+  try {
+    writeFileSync(lockFd, `${process.pid}\n`);
+    fsyncSync(lockFd);
+    syncDirectory(directory);
+    let checkpoint = config.keyCheckpoint;
+    try {
+      const stateStat = lstatSync(statePath);
+      if (!stateStat.isFile() || stateStat.isSymbolicLink()) throw new Error("protected checkpoint state is linked or not a regular file");
+      const current = JSON.parse(readFileSync(statePath, "utf8"));
+      if (!current || Object.keys(current).sort().join("\0") !== "keyCheckpoint\0rootFingerprint\0schema" || current.schema !== 1 || current.rootFingerprint !== keyLog.rootFingerprint || !current.keyCheckpoint
+        || Object.keys(current.keyCheckpoint).sort().join("\0") !== "head\0sequence"
+        || !Number.isSafeInteger(current.keyCheckpoint.sequence) || current.keyCheckpoint.sequence < config.keyCheckpoint.sequence
+        || !/^[a-f0-9]{64}$/.test(current.keyCheckpoint.head ?? "")) throw new Error("protected checkpoint state is malformed or behind provisioned floor");
+      const stateCheck = verifyKeyLog(JSON.parse(logBytes.toString("utf8")), { rootFingerprint: keyLog.rootFingerprint, checkpoint: current.keyCheckpoint });
+      if (!stateCheck.ok) throw new Error(`committed key log does not extend protected state: ${stateCheck.problems.join("; ")}`);
+      checkpoint = current.keyCheckpoint;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    if (keyLog.keyCheckpoint.sequence <= checkpoint.sequence) return { ...keyLog, keyCheckpoint: checkpoint };
+    const state = { schema: 1, rootFingerprint: keyLog.rootFingerprint, keyCheckpoint: keyLog.keyCheckpoint };
+    const temp = path.join(directory, `.${keyLog.rootFingerprint}.${process.pid}.${Date.now()}.tmp`);
+    let fd;
+    try {
+      fd = openSync(temp, "wx", 0o600);
+      writeFileSync(fd, `${JSON.stringify(state, null, 2)}\n`);
+      fsyncSync(fd);
+      closeSync(fd);
+      fd = undefined;
+      renameSync(temp, statePath);
+      syncDirectory(directory);
+      const persistedStat = lstatSync(statePath);
+      if (!persistedStat.isFile() || persistedStat.isSymbolicLink()) throw new Error("persisted checkpoint became linked or nonregular");
+      const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+      if (!persisted || Object.keys(persisted).sort().join("\0") !== "keyCheckpoint\0rootFingerprint\0schema" || persisted.schema !== 1
+        || persisted.rootFingerprint !== keyLog.rootFingerprint || Object.keys(persisted.keyCheckpoint ?? {}).sort().join("\0") !== "head\0sequence"
+        || persisted.keyCheckpoint.sequence !== keyLog.keyCheckpoint.sequence || persisted.keyCheckpoint.head !== keyLog.keyCheckpoint.head) throw new Error("persisted checkpoint readback differs from verified state");
+      const readback = verifyKeyLog(JSON.parse(logBytes.toString("utf8")), { rootFingerprint: keyLog.rootFingerprint, checkpoint: persisted.keyCheckpoint });
+      if (!readback.ok) throw new Error(`persisted checkpoint failed readback: ${readback.problems.join("; ")}`);
+    } catch (error) {
+      if (fd !== undefined) closeSync(fd);
+      try { unlinkSync(temp); } catch {}
+      throw error;
+    }
+    return keyLog;
+  } finally {
+    closeSync(lockFd);
+    try { unlinkSync(lockPath); } catch {}
+    syncDirectory(directory);
+  }
+}
+
 async function api(url, token, options = {}) {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(20_000),
@@ -91,7 +177,19 @@ async function publishPublicOwnershipCheckImpl({ repoRoot, expectedCommit, platf
   const identity = canonicalIdentity(git(root, ["remote", "get-url", "origin"]).toString("utf8").trim());
   const repo = decodeRepo(identity);
   const sourceDigest = sourceTreeDigest(git(root, ["ls-tree", "-rz", "--full-tree", commit]));
-  const config = validateAppConfig(JSON.parse(readFileSync(configPath, "utf8")));
+  const configBytes = readFileSync(configPath);
+  let config;
+  try { config = validateAppConfig(JSON.parse(configBytes.toString("utf8"))); }
+  catch (error) { throw Object.assign(error, { type: "protected-app-config-invalid" }); }
+  let keyLog = config.keyAuthority
+    ? (() => { const result = readCommittedKeyAuthority(config); if (!result.ok) throw new Error(result.problems.join("; ")); return result; })()
+    : committedKeyLog(root, commit, git, config.rootFingerprint, config.keyCheckpoint);
+  if (config.rootFingerprint !== undefined && !keyLog) throw Object.assign(new Error("protected key-log mode requires a committed signed key log"), { type: "protected-key-log-rejected" });
+  if (keyLog) {
+    keyLog = persistProtectedCheckpoint({ directory: path.join(path.dirname(configPath), "checkpoints"), config, logBytes: keyLog.bytes, keyLog });
+    const checkpointAudit = audit();
+    if (checkpointAudit?.ok !== true) throw Object.assign(new Error((checkpointAudit?.problems ?? ["checkpoint state ACL audit failed"]).join("; ")), { type: "protected-checkpoint-invalid" });
+  }
   const privatePem = readFileSync(keyPath, "utf8");
   const trusted = trustModule ?? await import(new URL("../../packages/release/ownership-approval.mjs", import.meta.url));
   const trustState = trusted.loadTrustedExternal();
@@ -107,6 +205,10 @@ async function publishPublicOwnershipCheckImpl({ repoRoot, expectedCommit, platf
     else scan = runProtectedScan(root, expectedCommit, scanRunner);
     if (!scan.ok) throw Object.assign(new Error(scan.error?.message ?? "protected ownership scan, coverage, or floor failed"), { type: scan.error?.type ?? "protected-scan-failed" });
     if (scan.evidence.commit !== commit || scan.evidence.tree !== tree || scan.evidence.repositoryIdentity !== identity || scan.evidence.visibility !== "public") throw new Error("scanner evidence does not match requested public source identity");
+    if (keyLog && (scan.evidence.keyLogDigest !== keyLog.digest || scan.evidence.rootFingerprint !== keyLog.rootFingerprint
+      || scan.evidence.keyCheckpoint?.sequence !== keyLog.keyCheckpoint.sequence || scan.evidence.keyCheckpoint?.head !== keyLog.keyCheckpoint.head)) throw new Error("scanner evidence does not match independently verified committed key log");
+    if (keyLog?.authority && (scan.evidence.keyAuthority?.repositoryIdentity !== keyLog.authority.repositoryIdentity
+      || scan.evidence.keyAuthority?.commit !== keyLog.authority.commit || scan.evidence.keyAuthority?.tree !== keyLog.authority.tree)) throw new Error("scanner evidence does not match protected committed key authority");
     summary = `Protected ownership scan passed for ${identity} at ${commit}. Catalog ${scan.evidence.catalogDigest}; source tree ${sourceDigest}; roots ${scan.evidence.registeredRoots.join(", ")}.`;
   } catch (error) {
     conclusion = "failure";
@@ -188,4 +290,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
 export function runProtectedScanForTest(repoRoot, expectedCommit, scanRunner) { return runProtectedScan(repoRoot, expectedCommit, scanRunner); }
 
-export const __testOnly = Object.freeze({ validateAppConfig, appJwt, CHECK_NAME, APP_CONFIG_PATHS, APP_KEY_PATHS });
+export const __testOnly = Object.freeze({ validateAppConfig, persistProtectedCheckpoint, appJwt, CHECK_NAME, APP_CONFIG_PATHS, APP_KEY_PATHS });

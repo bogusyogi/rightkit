@@ -1,7 +1,5 @@
 // RightKit ownership approval Windows host helper.
-// Signing is available only from this interactive Windows Forms application.
-// The private key stays in the Microsoft Platform Crypto Provider; no CLI or
-// environment-variable path can invoke it.
+// All key operations are explicit, visible Windows Forms commands.
 using System;
 using System.Globalization;
 using System.IO;
@@ -12,19 +10,50 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
+using Windows.Security.Credentials;
+using Windows.Security.Cryptography;
+using Windows.Security.Cryptography.Core;
+using Windows.Storage.Streams;
 using Windows.Security.Credentials.UI;
 
 internal static class OwnershipApproval
 {
     private const string KeyName = "RightKit Ownership Approval (Adrian)";
+    private const string KeyLogCredentialName = "rightkit.ownership.keylog.v1";
     private const string Host = "windows";
     private static readonly CngProvider Provider = CngProvider.MicrosoftPlatformCryptoProvider;
 
     [STAThread]
-    private static void Main()
+    private static int Main(string[] args)
     {
+        NativeCommand? command = null;
+        try { command = NativeCommand.Parse(args); }
+        catch (Exception e)
+        {
+            MessageBox.Show(e.Message, "Invalid native command", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return 2;
+        }
         ApplicationConfiguration.Initialize();
-        Application.Run(new ApprovalForm());
+        Application.Run(new ApprovalForm(command));
+        return Environment.ExitCode;
+    }
+
+    private sealed record NativeCommand(string Mode, string OutputPath, string? InputPath = null, string? Name = null)
+    {
+        public static NativeCommand? Parse(string[] args)
+        {
+            if (args.Length == 0) return null;
+            string mode; string output; string? input = null; string? name = null;
+            if (args.Length == 3 && args[0] == "--enroll" && args[1] == "--out") { mode = "enroll"; output = args[2]; }
+            else if (args.Length == 3 && args[0] == "--public-key" && args[1] == "--out") { mode = "public"; output = args[2]; }
+            else if (args.Length == 4 && args[0] == "--key-operation" && args[2] == "--out") { mode = "operation"; input = args[1]; output = args[3]; }
+            else if (args.Length == 5 && args[0] == "--enroll-root" && args[1] == "--name" && args[3] == "--out") { mode = "root"; name = args[2]; output = args[4]; }
+            else throw new ArgumentException("Usage: --enroll --out <absolute-public.json> | --public-key --out <absolute-public.json> | --key-operation <absolute-draft.json> --out <absolute-signed.json> | --enroll-root --name <name> --out <absolute-event.json>");
+            if (!Path.IsPathFullyQualified(output) || !output.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("Output path must be absolute and end in .json.");
+            if (input is not null && (!Path.IsPathFullyQualified(input) || !input.EndsWith(".json", StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Draft path must be absolute and end in .json.");
+            if (name is not null && (string.IsNullOrWhiteSpace(name) || name.Length > 128)) throw new ArgumentException("Root name must contain 1 to 128 characters.");
+            return new NativeCommand(mode, Path.GetFullPath(output), input is null ? null : Path.GetFullPath(input), name);
+        }
     }
 
     private sealed class ApprovalForm : Form
@@ -46,9 +75,16 @@ internal static class OwnershipApproval
         private JsonNode? _draft;
         private string? _draftPath;
         private string? _keyId;
+        private KeyCredential? _helloCredential;
+        private readonly NativeCommand? _command;
+        private bool _commandStarted;
+        private JsonObject? _keyLogCommandPayload;
+        private string? _keyLogCommandOutput;
+        private string? _keyLogCommandDraft;
 
-        public ApprovalForm()
+        public ApprovalForm(NativeCommand? command)
         {
+            _command = command;
             Text = "RightKit ownership approval — Windows";
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new System.Drawing.Size(760, 540);
@@ -73,9 +109,23 @@ internal static class OwnershipApproval
 
             _load.Click += (_, _) => LoadDraft();
             _enroll.Click += async (_, _) => await EnrollAsync();
-            _export.Click += (_, _) => ExportPublicKey();
-            _sign.Click += async (_, _) => await SignAsync();
-            Shown += (_, _) => RefreshKeyState();
+            _export.Click += async (_, _) => await ExportPublicKeyAsync();
+            _sign.Click += async (_, _) =>
+            {
+                if (_keyLogCommandPayload is not null)
+                {
+                    try { await SignKeyLogCommandAsync(); }
+                    catch (Exception e) { ShowError("Key-log signing did not complete", e.Message); Environment.ExitCode = 1; Close(); }
+                }
+                else await SignAsync();
+            };
+            Shown += async (_, _) =>
+            {
+                await RefreshKeyStateAsync();
+                if (_command is null || _commandStarted) return;
+                _commandStarted = true;
+                await RunCommandAsync(_command);
+            };
         }
 
         private void RefreshKeyState()
@@ -97,6 +147,35 @@ internal static class OwnershipApproval
                 _status.Text = "No usable enrolled key: " + e.Message;
             }
             UpdateSignAvailability();
+        }
+
+        private async System.Threading.Tasks.Task RefreshKeyStateAsync()
+        {
+            try
+            {
+                var result = await KeyCredentialManager.OpenAsync(KeyLogCredentialName);
+                _helloCredential = result.Status == KeyCredentialStatus.Success ? result.Credential : null;
+                if (_helloCredential is not null)
+                {
+                    _keyId = "win-" + PublicKeyFingerprint(PublicKeyPem(_helloCredential));
+                    _enroll.Enabled = false;
+                    _export.Enabled = true;
+                    _status.Text = "Windows Hello key credential available: " + _keyId + ".";
+                    UpdateSignAvailability();
+                    return;
+                }
+                if (result.Status == KeyCredentialStatus.NotFound) { RefreshKeyState(); return; }
+                throw new InvalidOperationException("Windows Hello key lookup failed: " + result.Status + ".");
+            }
+            catch (Exception e)
+            {
+                _helloCredential = null;
+                _keyId = null;
+                _enroll.Enabled = false;
+                _export.Enabled = false;
+                _status.Text = "Windows Hello key lookup failed: " + e.Message;
+                UpdateSignAvailability();
+            }
         }
 
         private void LoadDraft()
@@ -133,22 +212,286 @@ internal static class OwnershipApproval
 
         private async System.Threading.Tasks.Task EnrollAsync()
         {
-            if (!await VerifyCurrentUserAsync("Enroll this Windows host's RightKit approval key.")) return;
-            using var key = CreateApprovalKey();
-            using var ecdsa = new ECDsaCng(key);
-            RequireApprovedKey(key);
-            var keyId = KeyId(ecdsa);
-            _keyId = keyId;
-            RefreshKeyState();
-            ExportPublicKey();
+            using var save = new SaveFileDialog { Title = "Export public key for protected Windows verifier enrollment", Filter = "Public key enrollment data (*.public.json)|*.public.json", FileName = "windows.public.json", OverwritePrompt = true };
+            if (save.ShowDialog(this) != DialogResult.OK) return;
+            await EnrollToPathAsync(Path.GetFullPath(save.FileName));
         }
 
-        private void ExportPublicKey()
+        private async System.Threading.Tasks.Task RunCommandAsync(NativeCommand command)
         {
-            using var key = OpenApprovalKey();
-            using var ecdsa = new ECDsaCng(key);
-            var keyId = KeyId(ecdsa);
-            var pem = ecdsa.ExportSubjectPublicKeyInfoPem();
+            try
+            {
+                if (command.Mode is "operation" or "root") Environment.ExitCode = 1;
+                EnsureExclusiveOutput(command.OutputPath);
+                EnsureOutputDirectory(command.OutputPath);
+                switch (command.Mode)
+                {
+                    case "enroll": await EnrollKeyCredentialAsync(command.OutputPath); break;
+                    case "public": await ExportPublicKeyToPathAsync(command.OutputPath); break;
+                    case "operation": await StageKeyOperationAsync(command.InputPath!, command.OutputPath); break;
+                    case "root": await EnrollRootAsync(command.Name!, command.OutputPath); break;
+                }
+            }
+            catch (Exception e)
+            {
+                ShowError("Native key command failed", e.Message);
+                Environment.ExitCode = 1;
+                Close();
+            }
+        }
+
+        private async System.Threading.Tasks.Task EnrollToPathAsync(string outputPath)
+        {
+            try
+            {
+                EnsureExclusiveOutput(outputPath);
+                if (CngKey.Exists(KeyName, Provider)) throw new InvalidOperationException("A Windows host key already exists; enrollment will not replace it.");
+                if (!await VerifyCurrentUserAsync("Enroll this Windows host's RightKit approval key."))
+                    throw new OperationCanceledException("Windows Hello/user verification was canceled or did not succeed.");
+                using var key = CreateApprovalKey();
+                using var ecdsa = new ECDsaCng(key);
+                RequireApprovedKey(key);
+                var keyId = KeyId(ecdsa);
+                var enrollment = new JsonObject { ["host"] = Host, ["keyId"] = keyId, ["publicKeyPem"] = ecdsa.ExportSubjectPublicKeyInfoPem() };
+                var json = JsonSerializer.Serialize(enrollment, PrettyJson) + Environment.NewLine;
+                AtomicWriteExclusive(outputPath, json);
+                using var checkKey = OpenApprovalKey(); using var checkEcdsa = new ECDsaCng(checkKey);
+                var parsed = JsonNode.Parse(File.ReadAllText(outputPath, new UTF8Encoding(false, true)))!.AsObject();
+                if (parsed["host"]?.GetValue<string>() != Host || parsed["keyId"]?.GetValue<string>() != KeyId(checkEcdsa) || parsed["publicKeyPem"]?.GetValue<string>() != checkEcdsa.ExportSubjectPublicKeyInfoPem())
+                    throw new InvalidDataException("Written public enrollment record did not match the persistent host key.");
+                _keyId = keyId;
+                _status.Text = "Public enrollment key written: " + outputPath;
+                if (_command is not null) { Environment.ExitCode = 0; Close(); }
+                else
+                    MessageBox.Show(this, "Public key enrollment record saved. Protected verifier trust still requires separate administrator provisioning.", "Enrollment complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (OperationCanceledException e)
+            {
+                _status.Text = e.Message;
+                if (_command is not null) { Environment.ExitCode = 1; Close(); }
+            }
+            catch (Exception e)
+            {
+                ShowError("Enrollment did not complete", e.Message);
+                if (_command is not null) { Environment.ExitCode = 1; Close(); }
+            }
+        }
+
+        private async System.Threading.Tasks.Task EnrollRootAsync(string name, string outputPath)
+        {
+            await EnsureKeyCredentialNotPresentAsync();
+            var result = await KeyCredentialManager.RequestCreateAsync(KeyLogCredentialName, KeyCredentialCreationOption.FailIfExists);
+            var credential = RequireCredential(result, "Root key creation");
+            var record = KeyRecord(credential, name);
+            var keyId = record["keyId"]!.GetValue<string>();
+            var payload = new JsonObject
+            {
+                ["domain"] = "rightkit.ownership-key-log.v1", ["rootFingerprint"] = keyId,
+                ["sequence"] = 0, ["previousHash"] = null, ["operation"] = "root",
+                ["subject"] = record,
+                ["signerKeyId"] = keyId
+            };
+            ValidateKeyLogPayload(payload, true);
+            var genesis = new JsonObject { ["schema"] = 1, ["payload"] = payload, ["signature"] = null };
+            AtomicWriteExclusive(outputPath, JsonSerializer.Serialize(genesis, PrettyJson) + Environment.NewLine);
+            Environment.ExitCode = 0;
+            _record.Text = "Unsigned Windows ownership root genesis event:\r\n" + JsonSerializer.Serialize(genesis, PrettyJson);
+            _status.Text = "Root key created with Windows Hello; genesis event saved unsigned for administrator root pinning: " + outputPath;
+            Close();
+        }
+
+        private async System.Threading.Tasks.Task EnrollKeyCredentialAsync(string outputPath)
+        {
+            await EnsureKeyCredentialNotPresentAsync();
+            var result = await KeyCredentialManager.RequestCreateAsync(KeyLogCredentialName, KeyCredentialCreationOption.FailIfExists);
+            var credential = RequireCredential(result, "Windows Hello key enrollment");
+            var pem = PublicKeyPem(credential);
+            var legacyId = "win-" + PublicKeyFingerprint(pem);
+            var enrollment = new JsonObject { ["host"] = Host, ["keyId"] = legacyId, ["publicKeyPem"] = pem };
+            AtomicWriteExclusive(outputPath, JsonSerializer.Serialize(enrollment, PrettyJson) + Environment.NewLine);
+            Environment.ExitCode = 0;
+            _record.Text = JsonSerializer.Serialize(enrollment, PrettyJson);
+            _status.Text = "Windows Hello public enrollment record saved: " + outputPath;
+            Close();
+        }
+
+        private async System.Threading.Tasks.Task ExportPublicKeyToPathAsync(string outputPath)
+        {
+            var opened = await KeyCredentialManager.OpenAsync(KeyLogCredentialName);
+            var credential = RequireCredential(opened, "Open existing Windows Hello key");
+            var pem = PublicKeyPem(credential);
+            var enrollment = new JsonObject { ["host"] = Host, ["keyId"] = "win-" + PublicKeyFingerprint(pem), ["publicKeyPem"] = pem };
+            AtomicWriteExclusive(outputPath, JsonSerializer.Serialize(enrollment, PrettyJson) + Environment.NewLine);
+            Environment.ExitCode = 0;
+            Close();
+        }
+
+        private static KeyCredential RequireCredential(KeyCredentialRetrievalResult result, string action)
+        {
+            if (result.Status == KeyCredentialStatus.Success && result.Credential is not null) return result.Credential;
+            if (result.Status == KeyCredentialStatus.UserCanceled) throw new OperationCanceledException(action + " was canceled in Windows Hello.");
+            throw new InvalidOperationException(action + " failed: " + result.Status + ".");
+        }
+
+        private static async System.Threading.Tasks.Task EnsureKeyCredentialNotPresentAsync()
+        {
+            var existing = await KeyCredentialManager.OpenAsync(KeyLogCredentialName);
+            if (existing.Status == KeyCredentialStatus.Success) throw new InvalidOperationException("A Windows Hello key-log credential already exists; enrollment will not replace it.");
+            if (existing.Status != KeyCredentialStatus.NotFound) throw new InvalidOperationException("Could not verify Windows Hello key state: " + existing.Status + ".");
+        }
+
+        private static string PublicKeyPem(KeyCredential credential)
+        {
+            var der = BufferBytes(credential.RetrievePublicKey(CryptographicPublicKeyBlobType.X509SubjectPublicKeyInfo));
+            using var rsa = RSA.Create();
+            rsa.ImportSubjectPublicKeyInfo(der, out var consumed);
+            if (consumed != der.Length || rsa.KeySize != 2048) throw new CryptographicException("Windows Hello key must be RSA-2048 SubjectPublicKeyInfo.");
+            return rsa.ExportSubjectPublicKeyInfoPem();
+        }
+
+        private static JsonObject KeyRecord(KeyCredential credential, string deviceName) => new()
+        {
+            ["keyId"] = PublicKeyFingerprint(PublicKeyPem(credential)),
+            ["publicKeyPem"] = PublicKeyPem(credential),
+            ["platform"] = Host,
+            ["deviceName"] = deviceName
+        };
+
+        private static byte[] BufferBytes(IBuffer buffer) => Convert.FromBase64String(CryptographicBuffer.EncodeToBase64String(buffer));
+
+        private static string PublicKeyFingerprint(string pem)
+        {
+            using var rsa = RSA.Create(); rsa.ImportFromPem(pem);
+            if (rsa.KeySize != 2048) throw new CryptographicException("Windows Hello key must be RSA-2048.");
+            return Convert.ToHexString(SHA256.HashData(rsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+        }
+
+        private async System.Threading.Tasks.Task StageKeyOperationAsync(string draftPath, string outputPath)
+        {
+            var draft = JsonNode.Parse(File.ReadAllText(draftPath, new UTF8Encoding(false, true))) ?? throw new InvalidDataException("Key-log draft is empty.");
+            var draftObj = draft.AsObject();
+            if (!draftObj.Select(p => p.Key).ToHashSet(StringComparer.Ordinal).SetEquals(new[] { "schema", "payload", "signature" }) || draftObj["schema"]?.GetValue<int>() != 1 || draftObj["signature"] is not null || draftObj["payload"] is not JsonObject payload)
+                throw new InvalidDataException("Key-operation draft must be an unsigned schema-1 envelope with exactly schema, payload, and signature:null.");
+            ValidateKeyLogPayload(payload, false);
+            using (var key = OpenApprovalKey()) using (var ecdsa = new ECDsaCng(key))
+                if (payload["signerKeyId"]?.GetValue<string>() != SpkiFingerprint(ecdsa)) throw new InvalidDataException("Draft signerKeyId does not match this host's local key fingerprint.");
+            StageKeyLog(payload, outputPath, draftPath);
+        }
+
+        private void StageKeyLog(JsonObject payload, string outputPath, string? draftPath)
+        {
+            EnsureExclusiveOutput(outputPath);
+            var canonical = CanonicalJson(payload);
+            var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+            _record.Text = "Key-log event to sign:\r\n" + JsonSerializer.Serialize(payload, PrettyJson) + "\r\nCanonical payload SHA-256: " + digest;
+            _keyLogCommandPayload = (JsonObject)payload.DeepClone();
+            _keyLogCommandOutput = outputPath;
+            _keyLogCommandDraft = draftPath;
+            _sign.Text = "Sign reviewed key-log event";
+            _sign.Enabled = true;
+            _status.Text = $"Review the complete {payload["operation"]} event & digest, then sign explicitly. Output: {outputPath}";
+        }
+
+        private async System.Threading.Tasks.Task SignKeyLogCommandAsync()
+        {
+            var payload = _keyLogCommandPayload ?? throw new InvalidOperationException("No key-log event is staged.");
+            var outputPath = _keyLogCommandOutput ?? throw new InvalidOperationException("No key-log output path is staged.");
+            EnsureExclusiveOutput(outputPath);
+            if (_keyLogCommandDraft is not null)
+            {
+                var latest = JsonNode.Parse(File.ReadAllText(_keyLogCommandDraft, new UTF8Encoding(false, true)))?.AsObject() ?? throw new InvalidDataException("Key-log draft is empty.");
+                if (!latest.Select(p => p.Key).ToHashSet(StringComparer.Ordinal).SetEquals(new[] { "schema", "payload", "signature" }) ||
+                    latest["schema"]?.GetValue<int>() != 1 || latest["signature"] is not null || latest["payload"] is not JsonObject latestPayload)
+                    throw new InvalidDataException("Key-log draft changed or is no longer an unsigned schema-1 envelope.");
+                ValidateKeyLogPayload(latestPayload, false);
+                if (CanonicalJson(latestPayload) != CanonicalJson(payload)) throw new InvalidDataException("Key-log draft changed after review; load command again.");
+            }
+            var canonical = CanonicalJson(payload);
+            var open = await KeyCredentialManager.OpenAsync(KeyLogCredentialName);
+            var credential = RequireCredential(open, "Open Windows Hello key");
+            var publicPem = PublicKeyPem(credential);
+            var localFingerprint = PublicKeyFingerprint(publicPem);
+            if (!StringComparer.Ordinal.Equals(payload["signerKeyId"]!.GetValue<string>(), localFingerprint)) throw new InvalidDataException("Draft signerKeyId does not match this host's local Windows Hello key fingerprint.");
+            using var writer = new DataWriter();
+            writer.WriteBytes(Encoding.UTF8.GetBytes(canonical));
+            var signed = await credential.RequestSignAsync(writer.DetachBuffer());
+            if (signed.Status != KeyCredentialStatus.Success) throw new OperationCanceledException("Windows Hello signing did not succeed (" + signed.Status + ").");
+            var signature = BufferBytes(signed.Result);
+            using var rsa = RSA.Create(); rsa.ImportFromPem(publicPem);
+            var signedBytes = Encoding.UTF8.GetBytes(canonical);
+            if (!rsa.VerifyData(signedBytes, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1) &&
+                !rsa.VerifyData(signedBytes, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pss)) throw new CryptographicException("Windows Hello signature failed local RSA/SHA-256 verification.");
+            var result = new JsonObject { ["schema"] = 1, ["payload"] = payload.DeepClone(), ["signature"] = new JsonObject
+                { ["keyId"] = localFingerprint, ["host"] = Host, ["value"] = Convert.ToBase64String(signature) } };
+            AtomicWriteExclusive(outputPath, JsonSerializer.Serialize(result, PrettyJson) + Environment.NewLine);
+            Environment.ExitCode = 0;
+            Close();
+        }
+
+        private static void ValidateKeyLogPayload(JsonObject payload, bool genesis)
+        {
+            var keys = new[] { "domain", "rootFingerprint", "sequence", "previousHash", "operation", "subject", "signerKeyId" };
+            if (!payload.Select(p => p.Key).ToHashSet(StringComparer.Ordinal).SetEquals(keys)) throw new InvalidDataException("Key-log payload has unexpected or missing fields.");
+            if (payload["domain"]?.GetValue<string>() != "rightkit.ownership-key-log.v1") throw new InvalidDataException("Unsupported key-log domain.");
+            RequireHex(payload, "rootFingerprint"); RequireHex(payload, "signerKeyId");
+            var seq = payload["sequence"]?.GetValue<int>() ?? throw new InvalidDataException("Sequence must be an integer.");
+            if (seq < 0 || (genesis ? seq != 0 : seq == 0)) throw new InvalidDataException("Sequence is invalid for this event.");
+            if (genesis ? payload["previousHash"] is not null : payload["previousHash"] is not JsonValue prev || !prev.TryGetValue<string>(out var hash) || !Regex.IsMatch(hash, "^[a-f0-9]{64}$")) throw new InvalidDataException("previousHash must be null for root or a lowercase SHA-256 value for later events.");
+            var operation = payload["operation"]?.GetValue<string>();
+            if (operation != (genesis ? "root" : operation) || (!genesis && operation is not ("add" or "revoke"))) throw new InvalidDataException("Operation must be root, add, or revoke as appropriate.");
+            if (payload["subject"] is not JsonObject subject) throw new InvalidDataException("Subject must be an object.");
+            if (operation == "root" || operation == "add")
+            {
+                if (!subject.Select(p => p.Key).ToHashSet(StringComparer.Ordinal).SetEquals(new[] { "keyId", "publicKeyPem", "platform", "deviceName" })) throw new InvalidDataException("Key subject has unexpected or missing fields.");
+                RequireHex(subject, "keyId"); RequireText(subject, "publicKeyPem", 4096); RequireText(subject, "deviceName", 128);
+                if (subject["platform"]?.GetValue<string>() is not ("windows" or "macos")) throw new InvalidDataException("Key platform must be windows or macos.");
+                if (PublicKeyFingerprintAny(subject["publicKeyPem"]!.GetValue<string>()) != subject["keyId"]!.GetValue<string>()) throw new InvalidDataException("Subject public key fingerprint does not match keyId.");
+            }
+            else
+            {
+                if (!subject.Select(p => p.Key).ToHashSet(StringComparer.Ordinal).SetEquals(new[] { "keyId" })) throw new InvalidDataException("Revoke subject must contain exactly keyId.");
+                RequireHex(subject, "keyId");
+            }
+            if (operation == "root" && (payload["rootFingerprint"]?.GetValue<string>() != subject["keyId"]?.GetValue<string>() || subject["platform"]?.GetValue<string>() != Host)) throw new InvalidDataException("Root fingerprint and platform must match this Windows genesis key.");
+        }
+
+        private static void EnsureExclusiveOutput(string path)
+        {
+            if (File.Exists(path) || Directory.Exists(path)) throw new IOException("Output already exists; operation refuses to replace it.");
+        }
+
+        private static void EnsureOutputDirectory(string path)
+        {
+            var directory = Path.GetDirectoryName(path);
+            if (directory is null || !Directory.Exists(directory)) throw new DirectoryNotFoundException("Output directory must already exist.");
+        }
+
+        private static void AtomicWriteExclusive(string path, string contents)
+        {
+            EnsureExclusiveOutput(path);
+            var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try { File.WriteAllText(temp, contents, new UTF8Encoding(false)); File.Move(temp, path); }
+            finally { if (File.Exists(temp)) File.Delete(temp); }
+        }
+
+        private async System.Threading.Tasks.Task ExportPublicKeyAsync()
+        {
+            var opened = await KeyCredentialManager.OpenAsync(KeyLogCredentialName);
+            var keyId = string.Empty;
+            string pem;
+            if (opened.Status == KeyCredentialStatus.Success && opened.Credential is not null)
+            {
+                pem = PublicKeyPem(opened.Credential);
+                keyId = "win-" + PublicKeyFingerprint(pem);
+            }
+            else if (opened.Status == KeyCredentialStatus.NotFound)
+            {
+                using var key = OpenApprovalKey();
+                using var ecdsa = new ECDsaCng(key);
+                keyId = KeyId(ecdsa);
+                pem = ecdsa.ExportSubjectPublicKeyInfoPem();
+            }
+            else throw new InvalidOperationException("Windows Hello key lookup failed: " + opened.Status + ".");
             using var save = new SaveFileDialog
             {
                 Title = "Export public key for protected Windows verifier enrollment",
@@ -209,21 +552,43 @@ internal static class OwnershipApproval
                 var verificationMessage = "Sign this RightKit approval only if it matches the review window.\n\n" +
                                           "Canonical payload SHA-256: " + digestText + "\n\n" +
                                           "Signed payload fields:\n" + JsonSerializer.Serialize(current["payload"], PrettyJson);
-                if (!await VerifyCurrentUserAsync(verificationMessage)) return;
-
-                using var key = OpenApprovalKey();
-                RequireApprovedKey(key);
-                using var ecdsa = new ECDsaCng(key);
-                var signature = ecdsa.SignHash(Convert.FromHexString(digestText), DSASignatureFormat.Rfc3279DerSequence);
+                byte[] signature;
+                string signatureKeyId;
+                var hello = await KeyCredentialManager.OpenAsync(KeyLogCredentialName);
+                if (hello.Status == KeyCredentialStatus.Success && hello.Credential is not null)
+                {
+                    var credential = hello.Credential;
+                    var pem = PublicKeyPem(credential);
+                    using var writer = new DataWriter();
+                    writer.WriteBytes(Encoding.UTF8.GetBytes(currentCanonical));
+                    var result = await credential.RequestSignAsync(writer.DetachBuffer());
+                    if (result.Status != KeyCredentialStatus.Success) throw new OperationCanceledException("Windows Hello signing did not succeed (" + result.Status + ").");
+                    signature = BufferBytes(result.Result);
+                    using var rsa = RSA.Create(); rsa.ImportFromPem(pem);
+                    var data = Encoding.UTF8.GetBytes(currentCanonical);
+                    if (!rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1) &&
+                        !rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pss)) throw new CryptographicException("Windows Hello signature failed local RSA/SHA-256 verification.");
+                    signatureKeyId = "win-" + PublicKeyFingerprint(pem);
+                }
+                else if (hello.Status == KeyCredentialStatus.NotFound)
+                {
+                    if (!await VerifyCurrentUserAsync(verificationMessage)) return;
+                    using var key = OpenApprovalKey();
+                    RequireApprovedKey(key);
+                    using var ecdsa = new ECDsaCng(key);
+                    signature = ecdsa.SignHash(Convert.FromHexString(digestText), DSASignatureFormat.Rfc3279DerSequence);
+                    signatureKeyId = KeyId(ecdsa);
+                }
+                else throw new InvalidOperationException("Windows Hello key lookup failed: " + hello.Status + ".");
                 var signed = current.DeepClone().AsObject();
                 signed["signature"] = new JsonObject
                 {
-                    ["keyId"] = KeyId(ecdsa),
+                    ["keyId"] = signatureKeyId,
                     ["host"] = Host,
                     ["value"] = Convert.ToBase64String(signature)
                 };
                 File.WriteAllText(save.FileName, JsonSerializer.Serialize(signed, PrettyJson) + Environment.NewLine, new UTF8Encoding(false));
-                _status.Text = "Signed record saved after native key-provider authorization: " + save.FileName;
+                _status.Text = "Signed record saved after native key authorization: " + save.FileName;
                 MessageBox.Show(this, "Signed approval saved. Protected trust enrollment remains separate.",
                     "Approval signed", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
@@ -259,8 +624,7 @@ internal static class OwnershipApproval
 
     private static CngKey CreateApprovalKey()
     {
-        if (CngKey.Exists(KeyName, Provider))
-            throw new InvalidOperationException("A host key with this name already exists. This workflow will not replace or rotate it.");
+        if (CngKey.Exists(KeyName, Provider)) throw new InvalidOperationException("A host key with this name already exists.");
         var parameters = new CngKeyCreationParameters
         {
             Provider = Provider,
@@ -350,14 +714,30 @@ internal static class OwnershipApproval
             throw new InvalidDataException($"{key} must be a lowercase SHA-256 value.");
     }
 
+    private static string SpkiFingerprint(ECDsa ecdsa) => Convert.ToHexString(SHA256.HashData(ecdsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+
+    private static string PublicKeyFingerprintAny(string pem)
+    {
+        try
+        {
+            using var rsa = RSA.Create(); rsa.ImportFromPem(pem);
+            if (rsa.KeySize == 2048) return Convert.ToHexString(SHA256.HashData(rsa.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+        }
+        catch (CryptographicException) { }
+        using var ecdsa = ECDsa.Create(); ecdsa.ImportFromPem(pem);
+        if (ecdsa.KeySize != 256) throw new CryptographicException("Subject key must be RSA-2048 or ECDSA P-256.");
+        return SpkiFingerprint(ecdsa);
+    }
+
     // Match JSON.stringify for the scalar types in approval records: preserve JS-compatible
     // UTF-8 and escape only quotes, backslashes, and control characters.
-    private static string CanonicalJson(JsonNode node)
+    private static string CanonicalJson(JsonNode? node)
     {
+        if (node is null) return "null";
         if (node is JsonObject obj)
             return "{" + string.Join(",", obj.Select(p => p.Key).OrderBy(k => k, StringComparer.Ordinal)
-                .Select(k => Quote(k) + ":" + CanonicalJson(obj[k]!))) + "}";
-        if (node is JsonArray array) return "[" + string.Join(",", array.Select(x => CanonicalJson(x!))) + "]";
+                .Select(k => Quote(k) + ":" + CanonicalJson(obj[k]))) + "}";
+        if (node is JsonArray array) return "[" + string.Join(",", array.Select(CanonicalJson)) + "]";
         if (node is JsonValue value)
         {
             if (value.TryGetValue<string>(out var text)) return Quote(text);

@@ -173,6 +173,10 @@ Commands:
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories
   ownership [--app <dir>] [--json]                   Fail on app copies of RightKit-owned capabilities
+  ownership enroll [--root] [--name <device>] [--root-fingerprint <sha256>] [--app <dir>]
+                                                      Enroll one native key or create a signed-device request
+  ownership approve-key <fingerprint|request.json>    Approve one pending device key from an active host
+  ownership revoke-key <fingerprint>                  Revoke one active device key
   ownership-approval --draft <input.json> [--out <draft.json>]
                                                       Draft an exception for native owner approval
   ownership-approval --verify <signed.json> --context <scan.json>

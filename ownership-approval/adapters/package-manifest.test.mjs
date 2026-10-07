@@ -47,3 +47,19 @@ test("enrollment and fixed policy paths can change without exempting code or arb
     assert.match(verifyProtectedFileManifest(root).problems.join(";"), /invalid file type/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("checkpoint state excludes only fixed bounded runtime files", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "rightkit-checkpoint-state-"));
+  try {
+    mkdirSync(path.join(root, "ownership", "adapters"), { recursive: true });
+    mkdirSync(path.join(root, "ownership", "checkpoints"), { recursive: true });
+    writeFileSync(path.join(root, "ownership", "adapters", "private-local.mjs"), "fixed launcher\n");
+    const checkpointPath = path.join(root, "ownership", "checkpoints", `${"a".repeat(64)}.json`);
+    writeFileSync(checkpointPath, "runtime checkpoint\n");
+    const manifestPath = path.join(root, ...DEFAULT_MANIFEST_RELATIVE.split("/"));
+    writeFileSync(manifestPath, JSON.stringify(createProtectedFileManifest(root)), { flag: "wx" });
+    assert.equal(verifyProtectedFileManifest(root).ok, true);
+    writeFileSync(path.join(root, "ownership", "checkpoints", "payload.mjs"), "must stay protected code\n");
+    assert.match(verifyProtectedFileManifest(root).problems.join(";"), /invalid path or file type|unexpected protected file/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

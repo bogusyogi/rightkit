@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateWindowsAcl } from "../trust-schema.mjs";
-import { evaluateWindowsNativeAclForTest } from "./private-local.mjs";
+import { evaluateWindowsNativeAclForTest, evaluateWindowsCheckpointStateForTest } from "./private-local.mjs";
 
 const ADMIN = "S-1-5-32-544";
 const TRUSTED_INSTALLER = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
@@ -40,7 +40,9 @@ test("public native audit requires service SID & denies agent App-key read", () 
     { path: "D:\\runner\\repo", ownerSID: SERVICE, attributes: "Directory", access: [ace(USERS, 0x001200a9)] },
     { path: "D:\\runner", ownerSID: SERVICE, ownerName: "RightKit public service", attributes: "Directory", directory: true, nonempty: true, elevated: false, ancestor: true, access: [ace(SERVICE, 0x001f01ff), ace(USERS, 0x001200a9)] },
   ];
-  const native = { items: [item(root, [ace(USERS, 0x001200a9)])], identitySID: SERVICE, groupSIDs: [], elevated: false, public: { config, key, checkout } };
+  const checkpoints = `${root}\\ownership\\checkpoints`;
+  const checkpointDir = { ...item(checkpoints, [ace(ADMIN, 0x001f01ff), ace(SERVICE, 0x42)]), ownerSID: ADMIN, directory: true };
+  const native = { items: [item(root, [ace(USERS, 0x001200a9)]), checkpointDir], identitySID: SERVICE, groupSIDs: [], elevated: false, public: { config, key, checkout } };
   const problems = [];
   evaluateWindowsNativeAclForTest(native, { problems, isPublic: true, root, repoRoot: "D:\\runner\\repo" });
   assert.deepEqual(problems, []);
@@ -64,4 +66,20 @@ test("public native audit requires service SID & denies agent App-key read", () 
   const checkoutProblems = [];
   evaluateWindowsNativeAclForTest(writableCheckout, { problems: checkoutProblems, isPublic: true, root, repoRoot: "D:\\runner\\repo" });
   assert.match(checkoutProblems.join(";"), /checkout grants write authority/);
+});
+
+test("checkpoint state permits service-only writes in fixed subtree and rejects agent or broad temp-file writes", () => {
+  const root = "C:\\Program Files\\Orthic Labs\\RightKit";
+  const checkpoints = `${root}\\ownership\\checkpoints`;
+  const stateName = `${"a".repeat(64)}.json`;
+  const entries = [
+    { ...item(checkpoints, [ace(ADMIN, 0x001f01ff), ace(SERVICE, 0x42)]), ownerSID: ADMIN, directory: true },
+    { ...item(`${checkpoints}\\${stateName}`, [ace(ADMIN, 0x001f01ff), ace(SERVICE, 2)]), ownerSID: SERVICE, directory: false, attributes: "Archive" },
+  ];
+  assert.deepEqual(evaluateWindowsCheckpointStateForTest(entries, root, SERVICE, [AGENT], []), []);
+  const agentWrite = structuredClone(entries);
+  agentWrite[0].access.push(ace(AGENT, 2));
+  assert.match(evaluateWindowsCheckpointStateForTest(agentWrite, root, SERVICE, [AGENT], []).join(";"), /agent principal/);
+  const broadTempWrite = [...entries, { ...item(`${checkpoints}\\.${"a".repeat(64)}.42.99.tmp`, [ace(ADMIN, 0x001f01ff), ace(USERS, 0x40000000)]), ownerSID: SERVICE, directory: false, attributes: "Archive" }];
+  assert.match(evaluateWindowsCheckpointStateForTest(broadTempWrite, root, SERVICE, [AGENT], []).join(";"), /non-service principal/);
 });

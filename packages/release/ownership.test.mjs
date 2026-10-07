@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalJson, canonicalRepositoryIdentity, createDraft, keyIdForPublicKey, provenanceContentDigest, sha256 } from "./ownership-approval.mjs";
-import { aggregateOwnership, catalogDigest, checkApp, contentInventory, directDependencies, evaluate, MANIFEST_FILE, scanApp } from "./ownership.mjs";
+import { aggregateOwnership, catalogDigest, checkApp, checkCommittedAppForTest, contentInventory, directDependencies, evaluate, MANIFEST_FILE, scanApp } from "./ownership.mjs";
+import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
 
 const rightkitRoot = path.resolve(import.meta.dirname, "../..");
 const shipped = JSON.parse(readFileSync(path.join(import.meta.dirname, MANIFEST_FILE), "utf8"));
@@ -320,6 +321,48 @@ test("combined prefilter preserves per-line anchors, flags & backreferences", ()
     assert.deepEqual(scanApp(root, manifest).map((f) => [f.fingerprint, f.line]), [["anchored", 2], ["backreference", 3]]);
     manifest.capabilities[0].fingerprints.pop();
     assert.deepEqual(scanApp(root, manifest).map((f) => [f.fingerprint, f.line]), [["anchored", 2]]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("committed scanner verifies pinned key log from Git blobs & ignores forged worktree log", () => {
+  const root = app({ "source.rs": "fn main() {}\n" });
+  const runGit = (...args) => {
+    const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8", windowsHide: true });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  try {
+    runGit("config", "user.email", "test@example.invalid");
+    runGit("config", "user.name", "test");
+    runGit("remote", "add", "origin", "https://github.com/test/repo.git");
+    const pair = generateKeyPairSync("rsa", { modulusLength: 2048, publicExponent: 65537 });
+    const publicKeyPem = pair.publicKey.export({ type: "spki", format: "pem" });
+    const key = { keyId: keyFingerprint(publicKeyPem), publicKeyPem, platform: "windows", deviceName: "root" };
+    const draft = createKeyEvent({ schema: 1, events: [] }, { operation: "root", subject: key, signerKeyId: key.keyId });
+    const log = { schema: 1, events: [draft] };
+    mkdirSync(path.join(root, ".rightkit"), { recursive: true });
+    writeFileSync(path.join(root, ".rightkit", "ownership-keys.json"), `${JSON.stringify(log)}\n`);
+    runGit("add", ".");
+    runGit("commit", "-qm", "pinned key log");
+    const trust = { schema: 1, rootFingerprint: key.keyId, keyCheckpoint: { sequence: 0, head: eventHash(draft) }, revokedKeyIds: [], hosts: {}, verifiedTrackingEvidence: [], minimumScannerVersion: "0.0.0", minimumCatalogVersion: "0.0.0", repositories: [{ repositoryIdentity: "https://github.com/test/repo", roots: ["."], visibility: "private" }], provenance: [] };
+    const committedBytes = Buffer.from(`${JSON.stringify(log)}\n`);
+    const manifest = { schema: 1, version: "1", capabilities: [] };
+    assert.equal(checkApp(root, manifest, { trust }).enrollmentPending, true);
+    assert.equal(scanApp(root, manifest, { trust }).metadata.keyLogDigest, sha256(committedBytes));
+    writeFileSync(path.join(root, ".rightkit", "ownership-keys.json"), '{"schema":1,"events":[]}\n');
+    const scanned = checkCommittedAppForTest(root, manifest, { trust });
+    assert.equal(scanned.enrollmentPending, true);
+    assert.equal(scanned.metadata.rootFingerprint, key.keyId);
+    assert.equal(scanned.metadata.keyCheckpoint.head, eventHash(draft));
+    assert.equal(scanned.metadata.keyLogDigest, sha256(committedBytes));
+    const forgedDoctor = checkApp(root, manifest, { trust });
+    assert.equal(forgedDoctor.enrollmentPending, true);
+    assert.equal(forgedDoctor.metadata.keyLogDigest, sha256(committedBytes));
+    rmSync(path.join(root, ".rightkit", "ownership-keys.json"));
+    const deletedDoctor = checkApp(root, manifest, { trust });
+    assert.equal(deletedDoctor.enrollmentPending, true);
+    assert.equal(deletedDoctor.metadata.keyLogDigest, sha256(committedBytes));
+    assert.throws(() => checkCommittedAppForTest(root, manifest, { trust: { ...trust, rootFingerprint: "f".repeat(64) } }), /key log failed/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

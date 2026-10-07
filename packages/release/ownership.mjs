@@ -1,10 +1,11 @@
 // RightKit ownership scan. Public exports retain the original findings-array API.
 import { spawnSync } from "./background-process.mjs";
-import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
+import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, resolveKeyLogTrust, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
 import { parse as parseToml } from "smol-toml";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { acquireCommittedSource, committedSourceDataForInternalUse } from "./committed-source.mjs";
+import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
 import { gitListedInventory } from "./ownership-git-inventory.mjs";
 import os from "node:os";
 import path from "node:path";
@@ -292,15 +293,15 @@ function repositoryIdentityFor(root) {
 }
 
 function scanRepositoryRoot(appRoot) {
-  const result = spawnSync("git", ["-C", appRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
-  if (result.status !== 0) return { root: path.resolve(appRoot), prefix: "", pathBase: "scan-root" };
-  // Git prints the resolved root (macOS /private/var/...); resolve the app root the same way so a
-  // symlinked spelling (/var, /tmp) is not mistaken for a path outside the repository.
-  const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
-  const root = real(result.stdout.trim()), app = real(appRoot);
+  const result = spawnSync("git", ["-C", appRoot, "rev-parse", "--show-toplevel", "HEAD"], { encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
+  const [rootPath, head] = String(result.stdout ?? "").trimEnd().split(/\r?\n/);
+  const commit = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(head ?? "") ? head : null;
+  // Unborn repositories still print their root before HEAD resolution fails.
+  if (!rootPath || !path.isAbsolute(rootPath)) return { root: path.resolve(appRoot), prefix: "", pathBase: "scan-root", commit };
+  const root = path.resolve(rootPath), app = path.resolve(appRoot);
   const relative = path.relative(root, app);
-  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { root: app, prefix: "", pathBase: "scan-root" };
-  return { root, prefix: relative ? `${relative.split(path.sep).join("/")}/` : "", pathBase: "repository" };
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { root: app, prefix: "", pathBase: "scan-root", commit };
+  return { root, prefix: relative ? `${relative.split(path.sep).join("/")}/` : "", pathBase: "repository", commit };
 }
 
 function trustedProvenance(appRoot, inventory, trust, repositoryIdentity, coverage, repositoryRoot, pathPrefix) {
@@ -319,8 +320,8 @@ function trustedProvenance(appRoot, inventory, trust, repositoryIdentity, covera
         files.push({ path: rel, content: snapshotFile.bytes });
         continue;
       }
+      const filePath = path.resolve(repositoryRoot, ...rel.split("/"));
       const rootReal = realpathSync(repositoryRoot);
-      const filePath = path.resolve(rootReal, ...rel.split("/"));
       if (!filePath.startsWith(rootReal + path.sep)) { safe = false; break; }
       try {
         let current = repositoryRoot, st;
@@ -393,22 +394,39 @@ function trustForScan(options = {}) {
   try { return loadTrustedExternal().trust; } catch { return null; }
 }
 
+function resolveSharedAuthority(trust) {
+  if (!trust?.keyAuthority) return { trust };
+  const authority = readCommittedKeyAuthority(trust);
+  if (!authority.ok) throw new Error(`protected ownership key authority failed: ${authority.problems.join("; ")}`);
+  if (!authority.resolvedTrust.ownershipKeys.length) throw new Error("protected ownership key authority has no active approval keys");
+  return { trust: authority.resolvedTrust, keyLogDigest: authority.digest, keyCheckpoint: authority.keyCheckpoint, rootFingerprint: authority.rootFingerprint, keyAuthority: authority.authority };
+}
+
+function resolveRepositoryKeyLog(trust, repositoryRoot, repositoryIdentity) {
+  if (!trust?.rootFingerprint || trust.keyAuthority) return { trust };
+  const authority = readCommittedKeyAuthority({ ...trust, keyAuthority: { repositoryIdentity, checkoutPath: repositoryRoot } });
+  if (!authority.ok) throw new Error(`protected ownership key log failed: ${authority.problems.join("; ")}`);
+  if (!authority.resolvedTrust.ownershipKeys.length) throw new Error("protected ownership key log has no active approval keys");
+  return { trust: authority.resolvedTrust, keyLogDigest: authority.digest, keyCheckpoint: authority.keyCheckpoint, rootFingerprint: authority.rootFingerprint };
+}
+
 export function scanApp(appRoot, manifest, options = {}) {
-  const trust = trustForScan(options), repositoryIdentity = repositoryIdentityFor(appRoot), location = scanRepositoryRoot(appRoot);
+  const initialTrust = trustForScan(options), location = scanRepositoryRoot(appRoot);
+  const repositoryIdentity = repositoryIdentityFor(appRoot);
+  const authority = initialTrust?.keyAuthority ? resolveSharedAuthority(initialTrust) : resolveRepositoryKeyLog(initialTrust, location.root, repositoryIdentity);
+  const trust = authority.trust;
   const result = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix, location.root), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
   Object.defineProperty(result.findings, "coverage", { value: result.coverage, enumerable: false });
-  Object.defineProperty(result.findings, "metadata", { value: { ...scanMetadata(appRoot, manifest, result.coverage, result.contentDigests, repositoryIdentity), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: result.provenance }, enumerable: false });
+  Object.defineProperty(result.findings, "metadata", { value: { ...scanMetadata(appRoot, manifest, result.coverage, result.contentDigests, repositoryIdentity, location.commit), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: result.provenance, ...Object.fromEntries(Object.entries(authority).filter(([key]) => key !== "trust")) }, enumerable: false });
   return result.findings;
 }
 
-function scanMetadata(root, manifest, coverage = [], contentDigests = [], knownIdentity) {
-  const git = (...args) => spawnSync("git", ["-C", root, ...args], { encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
-  const commit = git("rev-parse", "HEAD");
+function scanMetadata(root, manifest, coverage = [], contentDigests = [], knownIdentity, commit = null) {
   const fullCoverage = [...coverage];
   let repositoryIdentity = null;
   if (knownIdentity !== undefined) repositoryIdentity = knownIdentity;
   else repositoryIdentity = repositoryIdentityFor(root);
-  return { repositoryIdentity, commit: commit.status === 0 ? commit.stdout.trim() : null, host: `${os.hostname()}/${process.platform}`, scannedAt: new Date().toISOString(), catalogDigest: catalogDigest(manifest), catalogVersion: manifest.version ?? String(manifest.schema ?? "1"), scannerVersion: SCANNER_VERSION, contentDigests, coverage: fullCoverage };
+  return { repositoryIdentity, commit, host: `${os.hostname()}/${process.platform}`, scannedAt: new Date().toISOString(), catalogDigest: catalogDigest(manifest), catalogVersion: manifest.version ?? String(manifest.schema ?? "1"), scannerVersion: SCANNER_VERSION, contentDigests, coverage: fullCoverage };
 }
 
 function globToRegExp(glob) {
@@ -420,6 +438,7 @@ export function loadExceptions(root) { const file = path.join(root, EXCEPTIONS_F
 function enrollmentPending(trust, state) {
   if (state?.pending !== undefined) return state.pending;
   if (state?.enrolled !== undefined) return !state.enrolled;
+  if (trust?.rootFingerprint) return !Array.isArray(trust.ownershipKeys) || trust.ownershipKeys.length === 0;
   const keys = [trust?.hosts?.windows, trust?.hosts?.macos];
   return !keys.every((key) => key?.keyId && key.publicKeyPem && !trust.revokedKeyIds?.includes(key.keyId)) || keys[0]?.keyId === keys[1]?.keyId || keys[0]?.publicKeyPem === keys[1]?.publicKeyPem;
 }
@@ -464,11 +483,19 @@ export function formatTable(rows) { return ["capability  owner  status", ...rows
 export function checkApp(appRoot, manifest, options = {}) {
   let trustState = options.trust;
   if (!trustState) trustState = loadTrustedExternal();
-  const trust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
-  const repositoryIdentity = repositoryIdentityFor(appRoot), location = scanRepositoryRoot(appRoot);
+  const initialTrust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
+  const repositoryLocation = scanRepositoryRoot(appRoot);
+  const repositoryIdentity = repositoryIdentityFor(appRoot);
+  const resolved = initialTrust?.keyAuthority ? resolveSharedAuthority(initialTrust) : resolveRepositoryKeyLog(initialTrust, repositoryLocation.root, repositoryIdentity);
+  const trust = resolved.trust;
+  const location = repositoryLocation;
   const scanned = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix, location.root), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
-  const metadata = { ...scanMetadata(appRoot, manifest, scanned.coverage, scanned.contentDigests, repositoryIdentity), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance };
-  const result = evaluate(scanned.findings, loadExceptions(appRoot), { ...options, trust, trustEnrollment: trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata });
+  const metadata = { ...scanMetadata(appRoot, manifest, scanned.coverage, scanned.contentDigests, repositoryIdentity, location.commit), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance, ...Object.fromEntries(Object.entries(resolved).filter(([key]) => key !== "trust")) };
+  if (trust?.rootFingerprint && Array.isArray(trust.ownershipKeys) && !trust.ownershipKeys.length) throw new Error("protected ownership key log has no active approval keys");
+  const enrollment = trust?.rootFingerprint
+    ? { enrolled: trust.enrollmentComplete === true, pending: trust.enrollmentComplete !== true }
+    : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined;
+  const result = evaluate(scanned.findings, loadExceptions(appRoot), { ...options, trust, trustEnrollment: enrollment, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
   return { ok: result.enrollmentPending || (!result.violations.length && !result.problems.length && !coverage.length), rows, ...result, findings: scanned.findings, coverage, metadata };
@@ -477,8 +504,8 @@ export function checkApp(appRoot, manifest, options = {}) {
 function checkCommitted(appRoot, manifest, options, acquire) {
   let trustState = options.trust;
   if (!trustState) trustState = loadTrustedExternal();
-  const trust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
-  const requiredPaths = (trust?.provenance ?? []).flatMap((record) => record.paths ?? []);
+  let trust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
+  const requiredPaths = [...(trust?.provenance ?? []).flatMap((record) => record.paths ?? []), ...(trust?.rootFingerprint && !trust?.keyAuthority ? [".rightkit/ownership-keys.json"] : [])];
   const sourceHandle = options.source ?? acquire(appRoot, { expectedCommit: options.expectedCommit, expectedTree: options.expectedTree, requiredPaths });
   const committed = committedSourceDataForInternalUse(sourceHandle);
   if (!committed) throw new Error("committed ownership: supplied source handle was not acquired by trusted Git reader");
@@ -491,6 +518,24 @@ function checkCommitted(appRoot, manifest, options, acquire) {
   const pathPrefix = relativeRoot ? `${relativeRoot.split(path.sep).join("/")}/` : "";
   const repositoryIdentity = committed.origin ? canonicalRepositoryIdentity(committed.origin) : null;
   if (!repositoryIdentity) throw new Error("committed ownership: repository origin is missing or invalid");
+  let keyLogDigest, keyCheckpoint, keyAuthorityBinding;
+  if (trust?.keyAuthority) {
+    const authority = readCommittedKeyAuthority(trust);
+    if (!authority.ok) throw new Error(`committed ownership key authority failed: ${authority.problems.join("; ")}`);
+    trust = authority.resolvedTrust;
+    if (!trust.ownershipKeys.length) throw new Error("protected ownership key authority has no active approval keys");
+    keyLogDigest = authority.digest;
+    keyCheckpoint = authority.keyCheckpoint;
+    keyAuthorityBinding = authority.authority;
+  } else if (trust?.rootFingerprint) {
+    const keyLog = committed.entries.find((entry) => entry.rel === ".rightkit/ownership-keys.json");
+    const resolved = resolveKeyLogTrust(trust, keyLog?.bytes);
+    if (!resolved.ok) throw new Error(`committed ownership key log failed: ${resolved.problems.join("; ")}`);
+    trust = resolved.trust;
+    if (!trust.ownershipKeys.length) throw new Error("protected ownership key log has no active approval keys");
+    keyLogDigest = resolved.keyLogDigest;
+    keyCheckpoint = resolved.checkpoint;
+  }
   const location = { root: committed.repositoryRoot, prefix: pathPrefix, pathBase: "repository" };
   const inventory = committedFileInventory(appRoot, trust, location.prefix, committed);
   if (location.prefix && !committed.entries.some((entry) => entry.rel.startsWith(location.prefix))) {
@@ -511,9 +556,11 @@ function checkCommitted(appRoot, manifest, options, acquire) {
     scannedAt: new Date().toISOString(), catalogDigest: catalogDigest(manifest), catalogVersion: manifest.version ?? String(manifest.schema ?? "1"),
     scannerVersion: SCANNER_VERSION, contentDigests: scanned.contentDigests, coverage: scanned.coverage,
     pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance, exceptionDigest,
-    source: "committed-git-tree",
+    source: "committed-git-tree", ...(keyLogDigest ? { keyLogDigest, keyCheckpoint, rootFingerprint: trust.rootFingerprint, ...(keyAuthorityBinding ? { keyAuthority: keyAuthorityBinding } : {}) } : {}),
   };
-  const result = evaluate(scanned.findings, exceptions, { ...options, trust, trustEnrollment: trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata });
+  const result = evaluate(scanned.findings, exceptions, { ...options, trust, trustEnrollment: trust?.rootFingerprint
+    ? { enrolled: trust.enrollmentComplete === true, pending: trust.enrollmentComplete !== true }
+    : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
   return { ok: !result.enrollmentPending && !result.violations.length && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
