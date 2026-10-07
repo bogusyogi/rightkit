@@ -93,6 +93,25 @@ impl GgufFile {
     }
 
     #[must_use]
+    pub fn get_str(&self, key: &str) -> Option<String> {
+        let idx = self.key_index(key)?;
+        if unsafe { sys::gguf_get_kv_type(self.ctx.as_ptr(), idx) }
+            != sys::gguf_type_GGUF_TYPE_STRING
+        {
+            return None;
+        }
+        let value = unsafe { sys::gguf_get_val_str(self.ctx.as_ptr(), idx) };
+        if value.is_null() {
+            return None;
+        }
+        Some(
+            unsafe { CStr::from_ptr(value) }
+                .to_string_lossy()
+                .into_owned(),
+        )
+    }
+
+    #[must_use]
     pub fn get_arr_str(&self, key: &str) -> Option<Vec<String>> {
         let idx = self.key_index(key)?;
         let n = unsafe { sys::gguf_get_arr_n(self.ctx.as_ptr(), idx) };

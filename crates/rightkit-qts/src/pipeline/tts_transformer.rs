@@ -12,7 +12,7 @@ use super::backend::{
     slice_as_bytes_mut, BackendKind, BackendSet, OwnedBuffer, TensorDownload, TensorUpload,
 };
 use crate::model::GgufFile;
-use crate::{Qwen3TtsError, TalkerKvMode};
+use crate::{PresetSpeaker, Qwen3TtsError, TalkerKvMode};
 
 #[derive(Debug, Clone)]
 pub struct TtsTransformerConfig {
@@ -75,10 +75,28 @@ impl Default for TtsTransformerConfig {
     }
 }
 
+/// Independent code-predictor decoder geometry. Codec embeddings remain talker-wide.
+#[derive(Debug, Clone)]
+pub struct CodePredictorConfig {
+    pub hidden_size: i32,
+    pub n_layers: i32,
+    pub n_attention_heads: i32,
+    pub n_key_value_heads: i32,
+    pub intermediate_size: i32,
+    pub head_dim: i32,
+    pub rms_norm_eps: f32,
+    pub rope_theta: f32,
+    pub vocab_size: i32,
+}
+
 pub struct TtsTransformer {
     config: TtsTransformerConfig,
     talker: TalkerWeights,
     code_pred: CodePredWeights,
+    code_pred_config: CodePredictorConfig,
+    speakers: std::collections::HashMap<String, i32>,
+    speaker_languages: std::collections::HashMap<String, i32>,
+    chinese_language_id: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -191,6 +209,11 @@ impl TtsTransformer {
     }
 
     pub fn load_from_gguf(file: &GgufFile) -> Result<Self, Qwen3TtsError> {
+        Self::load_from_ggufs(file, file)
+    }
+
+    /// Load talker & predictor from bundled or separate QTS GGUFs.
+    pub fn load_from_ggufs(file: &GgufFile, predictor: &GgufFile) -> Result<Self, Qwen3TtsError> {
         let mut cfg = TtsTransformerConfig::default();
         cfg.text_vocab_size = get_u32_any(
             file,
@@ -206,9 +229,13 @@ impl TtsTransformer {
             file,
             &[
                 "qwen3-tts.talker.embedding_length",
+                "qwen3-tts.talker.hidden_size",
                 "qwen3-tts.embedding_length",
             ],
-            cfg.hidden_size,
+            file.tensor_info("talker.output_norm.weight")
+                .ok()
+                .and_then(|info| info.dims.first().copied())
+                .unwrap_or(cfg.hidden_size as usize) as i32,
         );
         cfg.n_layers = get_u32_any(
             file,
@@ -362,21 +389,82 @@ impl TtsTransformer {
             cfg.english_language_id,
         );
 
+        let code_pred_config = predictor_config(predictor, &cfg)?;
+        cfg.code_pred_layers = code_pred_config.n_layers;
+        cfg.code_pred_vocab_size = code_pred_config.vocab_size;
+        let speakers = load_speaker_table(file, cfg.codec_vocab_size)?;
+        let speaker_languages = load_speaker_languages(file)?;
+        let chinese_language_id =
+            get_u32_any(file, &["qwen3-tts.talker.codec_language_id.chinese"], 2055);
         let talker_backends = BackendSet::new()?;
         let code_pred_backends = BackendSet::new()?;
         let talker = TalkerWeights::load(file, &cfg, talker_backends)?;
-        let code_pred = CodePredWeights::load(file, &cfg, code_pred_backends)?;
+        let code_pred =
+            CodePredWeights::load(predictor, file, &cfg, &code_pred_config, code_pred_backends)?;
 
         Ok(Self {
             config: cfg,
             talker,
             code_pred,
+            code_pred_config,
+            speakers,
+            speaker_languages,
+            chinese_language_id,
         })
     }
 
     #[must_use]
     pub fn config(&self) -> &TtsTransformerConfig {
         &self.config
+    }
+
+    /// Predictor geometry; legacy `config()` remains talker geometry.
+    #[must_use]
+    pub fn code_predictor_config(&self) -> &CodePredictorConfig {
+        &self.code_pred_config
+    }
+
+    pub fn preset_speaker_id(&self, speaker: PresetSpeaker) -> Result<i32, Qwen3TtsError> {
+        self.speakers.get(speaker.as_str()).copied().ok_or_else(|| {
+            Qwen3TtsError::InvalidInput(format!(
+                "preset speaker '{}' missing from GGUF speaker table",
+                speaker.as_str()
+            ))
+        })
+    }
+
+    pub fn preset_speaker_embedding(
+        &self,
+        speaker: PresetSpeaker,
+        thread_count: usize,
+    ) -> Result<Vec<f32>, Qwen3TtsError> {
+        self.lookup_codec_embedding_rows(&[self.preset_speaker_id(speaker)?], thread_count)
+    }
+
+    pub(crate) fn preset_language_id(&self, speaker: PresetSpeaker, language_id: i32) -> i32 {
+        if language_id < 0 || language_id == self.chinese_language_id {
+            self.speaker_languages
+                .get(speaker.as_str())
+                .copied()
+                .unwrap_or(language_id)
+        } else {
+            language_id
+        }
+    }
+
+    /// Prepend projected instruction tokens without disturbing assistant/codec alignment.
+    pub fn prepend_instruction(
+        &self,
+        inputs: &mut PreparedPrefillInputs,
+        tokens: &[i32],
+        thread_count: usize,
+    ) -> Result<(), Qwen3TtsError> {
+        if !tokens.is_empty() {
+            let mut prefix = self.project_text_tokens(tokens, thread_count)?;
+            prefix.extend_from_slice(&inputs.prefill_embd);
+            inputs.prefill_embd = prefix;
+        }
+        Ok(())
     }
 
     #[must_use]
@@ -1048,7 +1136,7 @@ impl TtsTransformer {
         top_p: f32,
     ) -> Result<Vec<i32>, Qwen3TtsError> {
         let cache = CodePredKvCache::new(
-            &self.config,
+            &self.code_pred_config,
             self.config.n_codebooks as usize,
             self.code_pred._backends.clone(),
         )?;
@@ -1373,7 +1461,7 @@ impl TtsTransformer {
             talker_kv_mode,
         )?;
         let code_pred_cache = CodePredKvCache::new(
-            &self.config,
+            &self.code_pred_config,
             self.config.n_codebooks as usize,
             self.code_pred._backends.clone(),
         )?;
@@ -1596,7 +1684,7 @@ impl TtsTransformer {
             talker_kv_mode,
         )?;
         let code_pred_cache = CodePredKvCache::new(
-            &self.config,
+            &self.code_pred_config,
             self.config.n_codebooks as usize,
             self.code_pred._backends.clone(),
         )?;
@@ -1804,7 +1892,7 @@ impl TtsTransformer {
             let vocab_size = if idx == 0 {
                 self.config.codec_vocab_size
             } else {
-                self.config.code_pred_vocab_size
+                self.code_pred_config.vocab_size
             };
             if token < 0 || token >= vocab_size {
                 return Err(Qwen3TtsError::InvalidInput(format!(
@@ -2068,12 +2156,16 @@ impl TtsTransformer {
         })?;
         let positions = (0..n_tokens as i32).collect::<Vec<_>>();
 
-        let mut inp_l = inp_embd.as_ptr();
-        let kq_scale = 1.0f32 / (self.config.head_dim as f32).sqrt();
+        let mut inp_l = self
+            .code_pred
+            .project_input(ctx.as_ptr(), inp_embd.as_ptr());
+        let hidden_size = self.code_pred_config.hidden_size as usize;
+        let kq_scale = 1.0f32 / (self.code_pred_config.head_dim as f32).sqrt();
         let mut attn_softmax_mask: Option<(*mut sys::ggml_tensor, Vec<f32>)> = None;
         for layer in &self.code_pred.layers {
-            let mut cur =
-                unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.config.rms_norm_eps) };
+            let mut cur = unsafe {
+                sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.code_pred_config.rms_norm_eps)
+            };
             cur = unsafe { sys::ggml_mul(ctx.as_ptr(), cur, layer.attn_norm.as_ptr()) };
 
             let mut q_cur = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.attn_q.as_ptr(), cur) };
@@ -2084,8 +2176,8 @@ impl TtsTransformer {
                 sys::ggml_reshape_3d(
                     ctx.as_ptr(),
                     q_cur,
-                    self.config.head_dim as i64,
-                    self.config.n_attention_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_attention_heads as i64,
                     n_tokens as i64,
                 )
             };
@@ -2093,8 +2185,8 @@ impl TtsTransformer {
                 sys::ggml_reshape_3d(
                     ctx.as_ptr(),
                     k_cur,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     n_tokens as i64,
                 )
             };
@@ -2102,20 +2194,22 @@ impl TtsTransformer {
                 sys::ggml_reshape_3d(
                     ctx.as_ptr(),
                     v_cur,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     n_tokens as i64,
                 )
             };
 
             if let Some(attn_q_norm) = layer.attn_q_norm {
-                q_cur =
-                    unsafe { sys::ggml_rms_norm(ctx.as_ptr(), q_cur, self.config.rms_norm_eps) };
+                q_cur = unsafe {
+                    sys::ggml_rms_norm(ctx.as_ptr(), q_cur, self.code_pred_config.rms_norm_eps)
+                };
                 q_cur = unsafe { sys::ggml_mul(ctx.as_ptr(), q_cur, attn_q_norm.as_ptr()) };
             }
             if let Some(attn_k_norm) = layer.attn_k_norm {
-                k_cur =
-                    unsafe { sys::ggml_rms_norm(ctx.as_ptr(), k_cur, self.config.rms_norm_eps) };
+                k_cur = unsafe {
+                    sys::ggml_rms_norm(ctx.as_ptr(), k_cur, self.code_pred_config.rms_norm_eps)
+                };
                 k_cur = unsafe { sys::ggml_mul(ctx.as_ptr(), k_cur, attn_k_norm.as_ptr()) };
             }
 
@@ -2125,10 +2219,10 @@ impl TtsTransformer {
                     q_cur,
                     inp_pos.as_ptr(),
                     std::ptr::null_mut(),
-                    self.config.head_dim,
+                    self.code_pred_config.head_dim,
                     sys::GGML_ROPE_TYPE_NEOX as i32,
                     0,
-                    self.config.rope_theta,
+                    self.code_pred_config.rope_theta,
                     1.0,
                     0.0,
                     1.0,
@@ -2142,10 +2236,10 @@ impl TtsTransformer {
                     k_cur,
                     inp_pos.as_ptr(),
                     std::ptr::null_mut(),
-                    self.config.head_dim,
+                    self.code_pred_config.head_dim,
                     sys::GGML_ROPE_TYPE_NEOX as i32,
                     0,
-                    self.config.rope_theta,
+                    self.code_pred_config.rope_theta,
                     1.0,
                     0.0,
                     1.0,
@@ -2172,7 +2266,8 @@ impl TtsTransformer {
                 sys::ggml_cont_2d(
                     ctx.as_ptr(),
                     kqv,
-                    (self.config.n_attention_heads * self.config.head_dim) as i64,
+                    (self.code_pred_config.n_attention_heads * self.code_pred_config.head_dim)
+                        as i64,
                     n_tokens as i64,
                 )
             };
@@ -2181,7 +2276,9 @@ impl TtsTransformer {
             cur = unsafe { sys::ggml_add(ctx.as_ptr(), cur, inp_l) };
             let inp_ff = cur;
 
-            cur = unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_ff, self.config.rms_norm_eps) };
+            cur = unsafe {
+                sys::ggml_rms_norm(ctx.as_ptr(), inp_ff, self.code_pred_config.rms_norm_eps)
+            };
             cur = unsafe { sys::ggml_mul(ctx.as_ptr(), cur, layer.ffn_norm.as_ptr()) };
             let mut gate = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.ffn_gate.as_ptr(), cur) };
             let up = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.ffn_up.as_ptr(), cur) };
@@ -2202,7 +2299,8 @@ impl TtsTransformer {
             inp_l = unsafe { sys::ggml_add(ctx.as_ptr(), cur, inp_ff) };
         }
 
-        let mut cur = unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.config.rms_norm_eps) };
+        let mut cur =
+            unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.code_pred_config.rms_norm_eps) };
         cur = unsafe { sys::ggml_mul(ctx.as_ptr(), cur, self.code_pred.output_norm.as_ptr()) };
         let last_hidden = unsafe {
             sys::ggml_view_2d(
@@ -2224,7 +2322,7 @@ impl TtsTransformer {
         unsafe {
             sys::ggml_build_forward_expand(graph.as_ptr(), logits);
         }
-        let vocab = self.config.code_pred_vocab_size as usize;
+        let vocab = self.code_pred_config.vocab_size as usize;
         let mut logits_data = vec![0.0f32; vocab];
         let mut uploads = vec![
             TensorUpload {
@@ -2262,10 +2360,10 @@ impl TtsTransformer {
         token_id: i32,
         thread_count: usize,
     ) -> Result<Vec<f32>, Qwen3TtsError> {
-        if token_id < 0 || token_id >= self.config.code_pred_vocab_size {
+        if token_id < 0 || token_id >= self.code_pred_config.vocab_size {
             return Err(Qwen3TtsError::InvalidInput(format!(
                 "code predictor token {token_id} out of range 0..{} for codebook {}",
-                self.config.code_pred_vocab_size - 1,
+                self.code_pred_config.vocab_size - 1,
                 cb_idx + 1
             )));
         }
@@ -2370,12 +2468,14 @@ impl TtsTransformer {
         };
         let mut inp_l =
             unsafe { sys::ggml_concat(ctx.as_ptr(), hidden_2d, inp_cb0_embd.as_ptr(), 1) };
-        let kq_scale = 1.0f32 / (self.config.head_dim as f32).sqrt();
+        inp_l = self.code_pred.project_input(ctx.as_ptr(), inp_l);
+        let kq_scale = 1.0f32 / (self.code_pred_config.head_dim as f32).sqrt();
         let mut attn_softmax_mask: Option<(*mut sys::ggml_tensor, Vec<f32>)> = None;
 
         for (layer_idx, layer) in self.code_pred.layers.iter().enumerate() {
-            let mut cur =
-                unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.config.rms_norm_eps) };
+            let mut cur = unsafe {
+                sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.code_pred_config.rms_norm_eps)
+            };
             cur = unsafe { sys::ggml_mul(ctx.as_ptr(), cur, layer.attn_norm.as_ptr()) };
             let mut q_cur = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.attn_q.as_ptr(), cur) };
             let mut k_cur = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.attn_k.as_ptr(), cur) };
@@ -2384,8 +2484,8 @@ impl TtsTransformer {
                 sys::ggml_reshape_3d(
                     ctx.as_ptr(),
                     q_cur,
-                    self.config.head_dim as i64,
-                    self.config.n_attention_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_attention_heads as i64,
                     2,
                 )
             };
@@ -2393,8 +2493,8 @@ impl TtsTransformer {
                 sys::ggml_reshape_3d(
                     ctx.as_ptr(),
                     k_cur,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     2,
                 )
             };
@@ -2402,20 +2502,22 @@ impl TtsTransformer {
                 sys::ggml_reshape_3d(
                     ctx.as_ptr(),
                     v_cur,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     2,
                 )
             };
 
             if let Some(attn_q_norm) = layer.attn_q_norm {
-                q_cur =
-                    unsafe { sys::ggml_rms_norm(ctx.as_ptr(), q_cur, self.config.rms_norm_eps) };
+                q_cur = unsafe {
+                    sys::ggml_rms_norm(ctx.as_ptr(), q_cur, self.code_pred_config.rms_norm_eps)
+                };
                 q_cur = unsafe { sys::ggml_mul(ctx.as_ptr(), q_cur, attn_q_norm.as_ptr()) };
             }
             if let Some(attn_k_norm) = layer.attn_k_norm {
-                k_cur =
-                    unsafe { sys::ggml_rms_norm(ctx.as_ptr(), k_cur, self.config.rms_norm_eps) };
+                k_cur = unsafe {
+                    sys::ggml_rms_norm(ctx.as_ptr(), k_cur, self.code_pred_config.rms_norm_eps)
+                };
                 k_cur = unsafe { sys::ggml_mul(ctx.as_ptr(), k_cur, attn_k_norm.as_ptr()) };
             }
 
@@ -2425,10 +2527,10 @@ impl TtsTransformer {
                     q_cur,
                     inp_pos.as_ptr(),
                     std::ptr::null_mut(),
-                    self.config.head_dim,
+                    self.code_pred_config.head_dim,
                     sys::GGML_ROPE_TYPE_NEOX as i32,
                     0,
-                    self.config.rope_theta,
+                    self.code_pred_config.rope_theta,
                     1.0,
                     0.0,
                     1.0,
@@ -2442,10 +2544,10 @@ impl TtsTransformer {
                     k_cur,
                     inp_pos.as_ptr(),
                     std::ptr::null_mut(),
-                    self.config.head_dim,
+                    self.code_pred_config.head_dim,
                     sys::GGML_ROPE_TYPE_NEOX as i32,
                     0,
-                    self.config.rope_theta,
+                    self.code_pred_config.rope_theta,
                     1.0,
                     0.0,
                     1.0,
@@ -2460,8 +2562,8 @@ impl TtsTransformer {
                 sys::ggml_view_3d(
                     ctx.as_ptr(),
                     k_cache,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     2,
                     (*k_cache).nb[1],
                     (*k_cache).nb[2],
@@ -2472,8 +2574,8 @@ impl TtsTransformer {
                 sys::ggml_view_3d(
                     ctx.as_ptr(),
                     v_cache,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     2,
                     (*v_cache).nb[1],
                     (*v_cache).nb[2],
@@ -2506,14 +2608,17 @@ impl TtsTransformer {
                 sys::ggml_cont_2d(
                     ctx.as_ptr(),
                     kqv,
-                    (self.config.n_attention_heads * self.config.head_dim) as i64,
+                    (self.code_pred_config.n_attention_heads * self.code_pred_config.head_dim)
+                        as i64,
                     2,
                 )
             };
             cur = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.attn_output.as_ptr(), cur) };
             cur = unsafe { sys::ggml_add(ctx.as_ptr(), cur, inp_l) };
             let inp_ff = cur;
-            cur = unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_ff, self.config.rms_norm_eps) };
+            cur = unsafe {
+                sys::ggml_rms_norm(ctx.as_ptr(), inp_ff, self.code_pred_config.rms_norm_eps)
+            };
             cur = unsafe { sys::ggml_mul(ctx.as_ptr(), cur, layer.ffn_norm.as_ptr()) };
             let mut gate = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.ffn_gate.as_ptr(), cur) };
             let up = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.ffn_up.as_ptr(), cur) };
@@ -2533,16 +2638,17 @@ impl TtsTransformer {
             inp_l = unsafe { sys::ggml_add(ctx.as_ptr(), cur, inp_ff) };
         }
 
-        let mut cur = unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.config.rms_norm_eps) };
+        let mut cur =
+            unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.code_pred_config.rms_norm_eps) };
         cur = unsafe { sys::ggml_mul(ctx.as_ptr(), cur, self.code_pred.output_norm.as_ptr()) };
         let last_hidden = unsafe {
             sys::ggml_view_2d(
                 ctx.as_ptr(),
                 cur,
-                hidden_size as i64,
+                self.code_pred_config.hidden_size as i64,
                 1,
                 (*cur).nb[1],
-                hidden_size * std::mem::size_of::<f32>(),
+                (*cur).nb[1],
             )
         };
         let mut logits = unsafe {
@@ -2553,7 +2659,7 @@ impl TtsTransformer {
             sys::ggml_build_forward_expand(graph.as_ptr(), logits);
         }
 
-        let mut logits_data = vec![0.0f32; self.config.code_pred_vocab_size as usize];
+        let mut logits_data = vec![0.0f32; self.code_pred_config.vocab_size as usize];
         let cb0_embd = self.lookup_codec_embedding_rows(&[codebook_0_token], thread_count)?;
         let mut uploads = vec![
             TensorUpload {
@@ -2641,12 +2747,14 @@ impl TtsTransformer {
         let mut inp_l =
             unsafe { sys::ggml_get_rows(ctx.as_ptr(), weight.as_ptr(), inp_code.as_ptr()) };
         inp_l = unsafe { sys::ggml_reshape_2d(ctx.as_ptr(), inp_l, hidden_size as i64, 1) };
-        let kq_scale = 1.0f32 / (self.config.head_dim as f32).sqrt();
+        inp_l = self.code_pred.project_input(ctx.as_ptr(), inp_l);
+        let kq_scale = 1.0f32 / (self.code_pred_config.head_dim as f32).sqrt();
         let mut attn_softmax_mask: Option<(*mut sys::ggml_tensor, Vec<f32>)> = None;
 
         for (layer_idx, layer) in self.code_pred.layers.iter().enumerate() {
-            let mut cur =
-                unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.config.rms_norm_eps) };
+            let mut cur = unsafe {
+                sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.code_pred_config.rms_norm_eps)
+            };
             cur = unsafe { sys::ggml_mul(ctx.as_ptr(), cur, layer.attn_norm.as_ptr()) };
             let mut q_cur = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.attn_q.as_ptr(), cur) };
             let mut k_cur = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.attn_k.as_ptr(), cur) };
@@ -2655,8 +2763,8 @@ impl TtsTransformer {
                 sys::ggml_reshape_3d(
                     ctx.as_ptr(),
                     q_cur,
-                    self.config.head_dim as i64,
-                    self.config.n_attention_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_attention_heads as i64,
                     1,
                 )
             };
@@ -2664,8 +2772,8 @@ impl TtsTransformer {
                 sys::ggml_reshape_3d(
                     ctx.as_ptr(),
                     k_cur,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     1,
                 )
             };
@@ -2673,20 +2781,22 @@ impl TtsTransformer {
                 sys::ggml_reshape_3d(
                     ctx.as_ptr(),
                     v_cur,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     1,
                 )
             };
 
             if let Some(attn_q_norm) = layer.attn_q_norm {
-                q_cur =
-                    unsafe { sys::ggml_rms_norm(ctx.as_ptr(), q_cur, self.config.rms_norm_eps) };
+                q_cur = unsafe {
+                    sys::ggml_rms_norm(ctx.as_ptr(), q_cur, self.code_pred_config.rms_norm_eps)
+                };
                 q_cur = unsafe { sys::ggml_mul(ctx.as_ptr(), q_cur, attn_q_norm.as_ptr()) };
             }
             if let Some(attn_k_norm) = layer.attn_k_norm {
-                k_cur =
-                    unsafe { sys::ggml_rms_norm(ctx.as_ptr(), k_cur, self.config.rms_norm_eps) };
+                k_cur = unsafe {
+                    sys::ggml_rms_norm(ctx.as_ptr(), k_cur, self.code_pred_config.rms_norm_eps)
+                };
                 k_cur = unsafe { sys::ggml_mul(ctx.as_ptr(), k_cur, attn_k_norm.as_ptr()) };
             }
 
@@ -2696,10 +2806,10 @@ impl TtsTransformer {
                     q_cur,
                     inp_pos.as_ptr(),
                     std::ptr::null_mut(),
-                    self.config.head_dim,
+                    self.code_pred_config.head_dim,
                     sys::GGML_ROPE_TYPE_NEOX as i32,
                     0,
-                    self.config.rope_theta,
+                    self.code_pred_config.rope_theta,
                     1.0,
                     0.0,
                     1.0,
@@ -2713,10 +2823,10 @@ impl TtsTransformer {
                     k_cur,
                     inp_pos.as_ptr(),
                     std::ptr::null_mut(),
-                    self.config.head_dim,
+                    self.code_pred_config.head_dim,
                     sys::GGML_ROPE_TYPE_NEOX as i32,
                     0,
-                    self.config.rope_theta,
+                    self.code_pred_config.rope_theta,
                     1.0,
                     0.0,
                     1.0,
@@ -2731,8 +2841,8 @@ impl TtsTransformer {
                 sys::ggml_view_3d(
                     ctx.as_ptr(),
                     k_cache,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     1,
                     (*k_cache).nb[1],
                     (*k_cache).nb[2],
@@ -2743,8 +2853,8 @@ impl TtsTransformer {
                 sys::ggml_view_3d(
                     ctx.as_ptr(),
                     v_cache,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     1,
                     (*v_cache).nb[1],
                     (*v_cache).nb[2],
@@ -2767,8 +2877,8 @@ impl TtsTransformer {
                 sys::ggml_view_3d(
                     ctx.as_ptr(),
                     k_cache,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     n_kv as i64,
                     (*k_cache).nb[1],
                     (*k_cache).nb[2],
@@ -2779,8 +2889,8 @@ impl TtsTransformer {
                 sys::ggml_view_3d(
                     ctx.as_ptr(),
                     v_cache,
-                    self.config.head_dim as i64,
-                    self.config.n_key_value_heads as i64,
+                    self.code_pred_config.head_dim as i64,
+                    self.code_pred_config.n_key_value_heads as i64,
                     n_kv as i64,
                     (*v_cache).nb[1],
                     (*v_cache).nb[2],
@@ -2807,14 +2917,17 @@ impl TtsTransformer {
                 sys::ggml_cont_2d(
                     ctx.as_ptr(),
                     kqv,
-                    (self.config.n_attention_heads * self.config.head_dim) as i64,
+                    (self.code_pred_config.n_attention_heads * self.code_pred_config.head_dim)
+                        as i64,
                     1,
                 )
             };
             cur = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.attn_output.as_ptr(), cur) };
             cur = unsafe { sys::ggml_add(ctx.as_ptr(), cur, inp_l) };
             let inp_ff = cur;
-            cur = unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_ff, self.config.rms_norm_eps) };
+            cur = unsafe {
+                sys::ggml_rms_norm(ctx.as_ptr(), inp_ff, self.code_pred_config.rms_norm_eps)
+            };
             cur = unsafe { sys::ggml_mul(ctx.as_ptr(), cur, layer.ffn_norm.as_ptr()) };
             let mut gate = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.ffn_gate.as_ptr(), cur) };
             let up = unsafe { sys::ggml_mul_mat(ctx.as_ptr(), layer.ffn_up.as_ptr(), cur) };
@@ -2834,7 +2947,8 @@ impl TtsTransformer {
             inp_l = unsafe { sys::ggml_add(ctx.as_ptr(), cur, inp_ff) };
         }
 
-        let mut cur = unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.config.rms_norm_eps) };
+        let mut cur =
+            unsafe { sys::ggml_rms_norm(ctx.as_ptr(), inp_l, self.code_pred_config.rms_norm_eps) };
         cur = unsafe { sys::ggml_mul(ctx.as_ptr(), cur, self.code_pred.output_norm.as_ptr()) };
         let mut logits = unsafe {
             sys::ggml_mul_mat(
@@ -2848,7 +2962,7 @@ impl TtsTransformer {
             sys::ggml_build_forward_expand(graph.as_ptr(), logits);
         }
 
-        let mut logits_data = vec![0.0f32; self.config.code_pred_vocab_size as usize];
+        let mut logits_data = vec![0.0f32; self.code_pred_config.vocab_size as usize];
         let mut uploads = vec![
             TensorUpload {
                 tensor: inp_code.as_ptr(),
@@ -3769,6 +3883,195 @@ impl TtsTransformer {
 /// Pre-built, pre-allocated step graph whose tensor shapes are independent of `n_past`.
 ///
 /// Attention reads `K_cache[0..n_kv_max-1]` (the cache slots filled so far **plus** garbage
+// Predictor metadata is independent; tensor widths also support older exports.
+fn predictor_config(
+    file: &GgufFile,
+    talker: &TtsTransformerConfig,
+) -> Result<CodePredictorConfig, Qwen3TtsError> {
+    let mut cfg = CodePredictorConfig {
+        hidden_size: talker.hidden_size,
+        n_layers: talker.code_pred_layers,
+        n_attention_heads: talker.n_attention_heads,
+        n_key_value_heads: talker.n_key_value_heads,
+        intermediate_size: talker.intermediate_size,
+        head_dim: talker.head_dim,
+        rms_norm_eps: talker.rms_norm_eps,
+        rope_theta: talker.rope_theta,
+        vocab_size: talker.code_pred_vocab_size,
+    };
+    let tensor_width = file
+        .tensor_info("code_pred.output_norm.weight")
+        .ok()
+        .and_then(|info| info.dims.first().copied())
+        .unwrap_or(talker.hidden_size as usize) as i32;
+    let integer = |suffix: &str, default| {
+        get_u32_any(
+            file,
+            &[
+                &format!("qwen3-tts.code_pred.{suffix}"),
+                &format!("qwen3-tts.code_predictor.{suffix}"),
+            ],
+            default,
+        )
+    };
+    cfg.hidden_size = integer("embedding_length", integer("hidden_size", tensor_width));
+    // The legacy 0.6B Base graph used talker geometry for the predictor.
+    // Keep that exact configuration when no width projection is present;
+    // independently inferred head layouts or norm/RoPE values change its graph.
+    if talker.hidden_size == 1024
+        && cfg.hidden_size == talker.hidden_size
+        && tensor_width == talker.hidden_size
+        && projection_source(file, file, talker.hidden_size, cfg.hidden_size)?.is_none()
+    {
+        return Ok(cfg);
+    }
+    cfg.head_dim = integer("attention.key_length", talker.head_dim);
+    if cfg.hidden_size <= 0 || cfg.head_dim <= 0 {
+        return Err(Qwen3TtsError::InvalidInput(
+            "predictor dimensions must be positive".into(),
+        ));
+    }
+    let tensor_heads = |name: &str, default| {
+        file.tensor_info(name)
+            .ok()
+            .and_then(|info| info.dims.get(1).copied())
+            .map_or(default, |width| width as i32 / cfg.head_dim)
+    };
+    cfg.n_attention_heads = integer(
+        "attention.head_count",
+        tensor_heads("code_pred.blk.0.attn_q.weight", talker.n_attention_heads),
+    );
+    cfg.n_key_value_heads = integer(
+        "attention.head_count_kv",
+        tensor_heads("code_pred.blk.0.attn_k.weight", talker.n_key_value_heads),
+    );
+    cfg.intermediate_size = integer(
+        "feed_forward_length",
+        file.tensor_info("code_pred.blk.0.ffn_gate.weight")
+            .ok()
+            .and_then(|info| info.dims.get(1).copied())
+            .unwrap_or(talker.intermediate_size as usize) as i32,
+    );
+    cfg.n_layers = integer(
+        "layer_count",
+        integer("block_count", talker.code_pred_layers),
+    );
+    cfg.vocab_size = integer("vocab_size", talker.code_pred_vocab_size);
+    cfg.rms_norm_eps = get_f32_any(
+        file,
+        &[
+            "qwen3-tts.code_pred.attention.layer_norm_rms_epsilon",
+            "qwen3-tts.code_predictor.attention.layer_norm_rms_epsilon",
+        ],
+        talker.rms_norm_eps,
+    );
+    cfg.rope_theta = get_f32_any(
+        file,
+        &[
+            "qwen3-tts.code_pred.rope.freq_base",
+            "qwen3-tts.code_predictor.rope.freq_base",
+        ],
+        talker.rope_theta,
+    );
+    if cfg.n_attention_heads <= 0
+        || cfg.n_key_value_heads <= 0
+        || cfg.n_attention_heads % cfg.n_key_value_heads != 0
+        || cfg.intermediate_size <= 0
+        || cfg.n_layers < 0
+        || cfg.vocab_size <= 0
+    {
+        return Err(Qwen3TtsError::InvalidInput(
+            "invalid predictor configuration".into(),
+        ));
+    }
+    Ok(cfg)
+}
+
+fn validate_projection_shapes(
+    input: i32,
+    output: i32,
+    weight: Option<&[usize]>,
+    bias: Option<&[usize]>,
+) -> Result<(), Qwen3TtsError> {
+    match (weight, bias) {
+        (None, None) if input == output => Ok(()),
+        (Some(weight), Some(bias)) if weight == [input as usize, output as usize] && bias == [output as usize] => Ok(()),
+        _ => Err(Qwen3TtsError::InvalidInput(format!("small_to_mtp_projection requires weight [{input}, {output}] & bias [{output}] when widths differ"))),
+    }
+}
+
+fn projection_source<'a>(
+    predictor: &'a GgufFile,
+    talker: &'a GgufFile,
+    input: i32,
+    output: i32,
+) -> Result<Option<(&'a GgufFile, String, String)>, Qwen3TtsError> {
+    for file in [predictor, talker] {
+        for prefix in [
+            "code_pred.small_to_mtp_projection",
+            "talker.code_predictor.small_to_mtp_projection",
+            "small_to_mtp_projection",
+        ] {
+            let weight = format!("{prefix}.weight");
+            let bias = format!("{prefix}.bias");
+            let w = file.tensor_info(&weight).ok();
+            let b = file.tensor_info(&bias).ok();
+            if w.is_some() || b.is_some() {
+                validate_projection_shapes(
+                    input,
+                    output,
+                    w.as_ref().map(|i| i.dims.as_slice()),
+                    b.as_ref().map(|i| i.dims.as_slice()),
+                )?;
+                return Ok(Some((file, weight, bias)));
+            }
+        }
+    }
+    validate_projection_shapes(input, output, None, None)?;
+    Ok(None)
+}
+
+fn load_speaker_table(
+    file: &GgufFile,
+    vocab_size: i32,
+) -> Result<std::collections::HashMap<String, i32>, Qwen3TtsError> {
+    let mut table = std::collections::HashMap::new();
+    for speaker in PresetSpeaker::ALL {
+        let key = format!("qwen3-tts.talker.spk_id.{}", speaker.as_str());
+        if file.key_index(&key).is_some() {
+            let id = file.get_u32(&key, 0) as i32;
+            if id < 0 || id >= vocab_size {
+                return Err(Qwen3TtsError::InvalidInput(format!(
+                    "speaker id out of codec vocabulary: {key}"
+                )));
+            }
+            table.insert(speaker.as_str().to_owned(), id);
+        }
+    }
+    Ok(table)
+}
+
+fn load_speaker_languages(
+    file: &GgufFile,
+) -> Result<std::collections::HashMap<String, i32>, Qwen3TtsError> {
+    let mut languages = std::collections::HashMap::new();
+    for speaker in PresetSpeaker::ALL {
+        if let Some(dialect) = file.get_str(&format!(
+            "qwen3-tts.talker.spk_is_dialect.{}",
+            speaker.as_str()
+        )) {
+            let key = format!("qwen3-tts.talker.codec_language_id.{dialect}");
+            if file.key_index(&key).is_none() {
+                return Err(Qwen3TtsError::InvalidInput(format!(
+                    "missing dialect language id: {key}"
+                )));
+            }
+            languages.insert(speaker.as_str().to_owned(), file.get_u32(&key, 0) as i32);
+        }
+    }
+    Ok(languages)
+}
+
 fn get_u32_any(file: &GgufFile, keys: &[&str], default: i32) -> i32 {
     for key in keys {
         if file.key_index(key).is_some() {
@@ -3993,6 +4296,7 @@ struct CodePredWeights {
     _backends: BackendSet,
     _buffer: OwnedBuffer,
     embeddings: Vec<NonNull<sys::ggml_tensor>>,
+    projection: Option<(NonNull<sys::ggml_tensor>, NonNull<sys::ggml_tensor>)>,
     /// Per codebook row-major `[code_pred_vocab_size * hidden_size]`, only when all tables are F16/F32 in GGUF.
     codec_embd_cpu: Option<Vec<Vec<f32>>>,
     output_norm: NonNull<sys::ggml_tensor>,
@@ -4216,17 +4520,17 @@ fn quantized_tensor_write_rows(
 
 impl CodePredKvCache {
     fn new(
-        cfg: &TtsTransformerConfig,
+        cfg: &CodePredictorConfig,
         n_ctx: usize,
         backends: BackendSet,
     ) -> Result<Self, Qwen3TtsError> {
         unsafe {
             sys::ggml_cpu_init();
         }
-        let ctx = OwnedContext::new_for_tensor_metadata(cfg.code_pred_layers as usize * 2)?;
-        let mut k_cache = Vec::with_capacity(cfg.code_pred_layers as usize);
-        let mut v_cache = Vec::with_capacity(cfg.code_pred_layers as usize);
-        for _ in 0..cfg.code_pred_layers {
+        let ctx = OwnedContext::new_for_tensor_metadata(cfg.n_layers as usize * 2)?;
+        let mut k_cache = Vec::with_capacity(cfg.n_layers as usize);
+        let mut v_cache = Vec::with_capacity(cfg.n_layers as usize);
+        for _ in 0..cfg.n_layers {
             let k = unsafe {
                 sys::ggml_new_tensor_3d(
                     ctx.as_ptr(),
@@ -4265,18 +4569,84 @@ impl CodePredKvCache {
 }
 
 impl CodePredWeights {
+    fn project_input(
+        &self,
+        ctx: *mut sys::ggml_context,
+        input: *mut sys::ggml_tensor,
+    ) -> *mut sys::ggml_tensor {
+        match self.projection {
+            Some((weight, bias)) => unsafe {
+                let projected = sys::ggml_mul_mat(ctx, weight.as_ptr(), input);
+                sys::ggml_add(ctx, projected, bias.as_ptr())
+            },
+            None => input,
+        }
+    }
+
     fn load(
         file: &GgufFile,
-        cfg: &TtsTransformerConfig,
+        talker_file: &GgufFile,
+        talker_cfg: &TtsTransformerConfig,
+        cfg: &CodePredictorConfig,
         backends: BackendSet,
     ) -> Result<Self, Qwen3TtsError> {
+        let check = |name: &str, expected: &[usize]| -> Result<(), Qwen3TtsError> {
+            if file.tensor_info(name)?.dims != expected {
+                return Err(Qwen3TtsError::InvalidTensor(name.into()));
+            }
+            Ok(())
+        };
+        check("code_pred.output_norm.weight", &[cfg.hidden_size as usize])?;
+        for layer in 0..cfg.n_layers {
+            let prefix = format!("code_pred.blk.{layer}");
+            let hidden = cfg.hidden_size as usize;
+            let query = (cfg.n_attention_heads * cfg.head_dim) as usize;
+            let kv = (cfg.n_key_value_heads * cfg.head_dim) as usize;
+            let intermediate = cfg.intermediate_size as usize;
+            for (suffix, shape) in [
+                ("attn_norm.weight", vec![hidden]),
+                ("ffn_norm.weight", vec![hidden]),
+                ("attn_q.weight", vec![hidden, query]),
+                ("attn_k.weight", vec![hidden, kv]),
+                ("attn_v.weight", vec![hidden, kv]),
+                ("attn_output.weight", vec![query, hidden]),
+                ("ffn_gate.weight", vec![hidden, intermediate]),
+                ("ffn_up.weight", vec![hidden, intermediate]),
+                ("ffn_down.weight", vec![intermediate, hidden]),
+            ] {
+                check(&format!("{prefix}.{suffix}"), &shape)?;
+            }
+        }
+        for cb_idx in 0..talker_cfg.n_codebooks - 1 {
+            check(
+                &format!("code_pred.codec_embd.{cb_idx}.weight"),
+                &[talker_cfg.hidden_size as usize, cfg.vocab_size as usize],
+            )?;
+            check(
+                &format!("code_pred.lm_head.{cb_idx}.weight"),
+                &[cfg.hidden_size as usize, cfg.vocab_size as usize],
+            )?;
+        }
         unsafe {
             sys::ggml_cpu_init();
         }
-        let per_codebook = (cfg.n_codebooks - 1) as usize;
-        let tensor_count = 1 + per_codebook * 2 + cfg.code_pred_layers as usize * 12;
+        let per_codebook = (talker_cfg.n_codebooks - 1) as usize;
+        let projection_source =
+            projection_source(file, talker_file, talker_cfg.hidden_size, cfg.hidden_size)?;
+        let tensor_count = 1
+            + usize::from(projection_source.is_some()) * 2
+            + per_codebook * 2
+            + cfg.n_layers as usize * 12;
         let ctx = OwnedContext::new_for_tensor_metadata(tensor_count)?;
 
+        let projection = if let Some((source, weight, bias)) = &projection_source {
+            Some((
+                load_tensor_into_context(source, ctx.as_ptr(), weight)?,
+                load_tensor_into_context(source, ctx.as_ptr(), bias)?,
+            ))
+        } else {
+            None
+        };
         let mut embeddings = Vec::with_capacity(per_codebook);
         let mut heads = Vec::with_capacity(per_codebook);
         for cb_idx in 0..per_codebook {
@@ -4291,8 +4661,8 @@ impl CodePredWeights {
                 &format!("code_pred.lm_head.{cb_idx}.weight"),
             )?);
         }
-        let hidden_u = cfg.hidden_size as usize;
-        let pred_vocab_u = cfg.code_pred_vocab_size as usize;
+        let hidden_u = talker_cfg.hidden_size as usize;
+        let pred_vocab_u = cfg.vocab_size as usize;
         let mut codec_embd_cpu: Option<Vec<Vec<f32>>> = Some(Vec::with_capacity(per_codebook));
         for (cb_idx, embedding) in embeddings.iter().enumerate().take(per_codebook) {
             let name = format!("code_pred.codec_embd.{cb_idx}.weight");
@@ -4311,8 +4681,8 @@ impl CodePredWeights {
         }
         let output_norm =
             load_tensor_into_context(file, ctx.as_ptr(), "code_pred.output_norm.weight")?;
-        let mut layers = Vec::with_capacity(cfg.code_pred_layers as usize);
-        for layer_idx in 0..cfg.code_pred_layers {
+        let mut layers = Vec::with_capacity(cfg.n_layers as usize);
+        for layer_idx in 0..cfg.n_layers {
             let prefix = format!("code_pred.blk.{layer_idx}.");
             let ffn_down_name = prefix.clone() + "ffn_down.weight";
             layers.push(TalkerLayerWeights {
@@ -4372,6 +4742,21 @@ impl CodePredWeights {
         }
 
         let buffer = OwnedBuffer::alloc(ctx.as_ptr(), backends.primary_ptr())?;
+        if let (Some((source, weight_name, bias_name)), Some((weight, bias))) =
+            (&projection_source, projection)
+        {
+            for (name, tensor) in [(weight_name, weight), (bias_name, bias)] {
+                let (_, raw) = source.read_tensor_bytes(name)?;
+                unsafe {
+                    sys::ggml_backend_tensor_set(
+                        tensor.as_ptr(),
+                        raw.as_ptr().cast(),
+                        0,
+                        raw.len(),
+                    );
+                }
+            }
+        }
         for cb_idx in 0..per_codebook {
             for name in [
                 format!("code_pred.codec_embd.{cb_idx}.weight"),
@@ -4443,6 +4828,7 @@ impl CodePredWeights {
             _backends: backends,
             _buffer: buffer,
             embeddings,
+            projection,
             codec_embd_cpu,
             output_norm,
             heads,
@@ -4619,7 +5005,9 @@ fn select_token(
         }
     }
 
-    if temperature <= 0.0 {
+    // A top-one request is greedy even when multiple logits share the maximum.
+    // Threshold filtering below retains ties, which otherwise reach the RNG.
+    if temperature <= 0.0 || top_k == 1 {
         let (best_idx, best_value) = adjusted
             .iter()
             .copied()
@@ -4748,7 +5136,8 @@ fn select_token(
 
 #[cfg(test)]
 mod tests {
-    use super::select_token;
+    use super::*;
+    use crate::model::test_fixture::TestGguf;
 
     #[test]
     fn select_token_prefers_best_logit() {
@@ -4760,5 +5149,458 @@ mod tests {
     fn select_token_applies_repetition_penalty() {
         let token = select_token(&[5.0, 4.0], 2.0, 0.0, 0, 1.0, &[0]).unwrap();
         assert_eq!(token, 1);
+    }
+
+    #[test]
+    fn top_one_uses_greedy_tie_break_after_repetition_penalty() {
+        let logits = [4.0, 2.0, f32::NEG_INFINITY];
+        let expected = select_token(&logits, 2.0, 0.0, 0, 1.0, &[0]).unwrap();
+        assert_eq!(expected, 1);
+        for _ in 0..64 {
+            assert_eq!(
+                select_token(&logits, 2.0, 1.0, 1, 1.0, &[0]).unwrap(),
+                expected,
+            );
+        }
+    }
+
+    #[test]
+    fn top_one_rejects_non_finite_maximum() {
+        assert!(select_token(&[f32::NAN, 1.0], 1.0, 1.0, 1, 1.0, &[]).is_err());
+        assert!(select_token(&[f32::INFINITY, 1.0], 1.0, 1.0, 1, 1.0, &[]).is_err());
+    }
+    fn tiny_model(predictor_width: usize, projection: bool) -> TestGguf {
+        let mut tensors = vec![
+            (
+                "talker.text_embd.weight".to_owned(),
+                vec![4, 12],
+                vec![0.25; 48],
+            ),
+            (
+                "talker.text_proj.fc1.weight".into(),
+                vec![4, 4],
+                vec![0.1; 16],
+            ),
+            ("talker.text_proj.fc1.bias".into(), vec![4], vec![0.0; 4]),
+            (
+                "talker.text_proj.fc2.weight".into(),
+                vec![4, 4],
+                vec![0.1; 16],
+            ),
+            ("talker.text_proj.fc2.bias".into(), vec![4], vec![0.0; 4]),
+            (
+                "talker.codec_embd.weight".into(),
+                vec![4, 6],
+                (0..24).map(|i| i as f32 / 10.0).collect(),
+            ),
+            ("talker.output_norm.weight".into(), vec![4], vec![1.0; 4]),
+            ("talker.codec_head.weight".into(), vec![4, 6], vec![0.1; 24]),
+            (
+                "code_pred.output_norm.weight".into(),
+                vec![predictor_width as i64],
+                vec![1.0; predictor_width],
+            ),
+        ];
+        for cb in 0..2 {
+            tensors.push((
+                format!("code_pred.codec_embd.{cb}.weight"),
+                vec![4, 3],
+                (0..12).map(|i| (i + cb) as f32 / 10.0).collect(),
+            ));
+            tensors.push((
+                format!("code_pred.lm_head.{cb}.weight"),
+                vec![predictor_width as i64, 3],
+                (0..predictor_width * 3)
+                    .map(|i| (i + 1) as f32 / 10.0)
+                    .collect(),
+            ));
+        }
+        for suffix in ["attn_norm.weight", "ffn_norm.weight"] {
+            tensors.push((
+                format!("code_pred.blk.0.{suffix}"),
+                vec![predictor_width as i64],
+                vec![1.0; predictor_width],
+            ));
+        }
+        for suffix in [
+            "attn_q.weight",
+            "attn_k.weight",
+            "attn_v.weight",
+            "attn_output.weight",
+        ] {
+            tensors.push((
+                format!("code_pred.blk.0.{suffix}"),
+                vec![predictor_width as i64, predictor_width as i64],
+                (0..predictor_width * predictor_width)
+                    .map(|i| {
+                        if i / predictor_width == i % predictor_width {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect(),
+            ));
+        }
+        for suffix in ["ffn_gate.weight", "ffn_up.weight"] {
+            tensors.push((
+                format!("code_pred.blk.0.{suffix}"),
+                vec![predictor_width as i64, 3],
+                vec![0.1; predictor_width * 3],
+            ));
+        }
+        tensors.push((
+            "code_pred.blk.0.ffn_down.weight".into(),
+            vec![3, predictor_width as i64],
+            vec![0.1; predictor_width * 3],
+        ));
+        if projection {
+            tensors.push((
+                "code_pred.small_to_mtp_projection.weight".into(),
+                vec![4, 2],
+                vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            ));
+            tensors.push((
+                "code_pred.small_to_mtp_projection.bias".into(),
+                vec![2],
+                vec![10.0, 20.0],
+            ));
+        }
+        let specs = tensors
+            .iter()
+            .map(|(name, dims, values)| (name.as_str(), dims.as_slice(), values.as_slice()))
+            .collect::<Vec<_>>();
+        TestGguf::write(
+            &[
+                ("qwen3-tts.talker.embedding_length", 4),
+                ("qwen3-tts.talker.block_count", 0),
+                ("qwen3-tts.talker.attention.head_count", 2),
+                ("qwen3-tts.talker.attention.head_count_kv", 2),
+                ("qwen3-tts.talker.attention.key_length", 2),
+                ("qwen3-tts.talker.codec_vocab_size", 6),
+                ("qwen3-tts.text.vocab_size", 12),
+                ("qwen3-tts.text.embedding_dim", 4),
+                ("qwen3-tts.talker.num_codebooks", 3),
+                ("qwen3-tts.code_pred.layer_count", 1),
+                (
+                    "qwen3-tts.code_pred.embedding_length",
+                    predictor_width as u32,
+                ),
+                (
+                    "qwen3-tts.code_pred.attention.key_length",
+                    predictor_width as u32,
+                ),
+                ("qwen3-tts.code_pred.attention.head_count", 1),
+                ("qwen3-tts.code_pred.attention.head_count_kv", 1),
+                ("qwen3-tts.code_pred.vocab_size", 3),
+                ("qwen3-tts.code_pred.feed_forward_length", 3),
+                ("qwen3-tts.tts_bos_token_id", 0),
+                ("qwen3-tts.tts_eos_token_id", 1),
+                ("qwen3-tts.tts_pad_token_id", 2),
+                ("qwen3-tts.codec.pad_id", 0),
+                ("qwen3-tts.codec.bos_id", 1),
+                ("qwen3-tts.codec.think_id", 2),
+                ("qwen3-tts.codec.think_bos_id", 3),
+                ("qwen3-tts.codec.think_eos_id", 4),
+                ("qwen3-tts.talker.spk_id.vivian", 4),
+                ("qwen3-tts.talker.spk_id.ryan", 5),
+                ("qwen3-tts.talker.codec_language_id.chinese", 2),
+                ("qwen3-tts.talker.codec_language_id.cantonese", 3),
+            ],
+            &[("qwen3-tts.talker.spk_is_dialect.ryan", "cantonese")],
+            &specs,
+        )
+    }
+
+    #[test]
+    fn no_projection_is_exact_identity_without_tensor_or_graph_op() {
+        let fixture = tiny_model(4, false);
+        let file = GgufFile::open(&fixture.0).unwrap();
+        let model = TtsTransformer::load_from_gguf(&file).unwrap();
+        assert!(model.code_pred.projection.is_none());
+        let ctx = ComputeContext::new_graph(32).unwrap();
+        let graph =
+            NonNull::new(unsafe { sys::ggml_new_graph_custom(ctx.as_ptr(), 32, false) }).unwrap();
+        let input =
+            unsafe { sys::ggml_new_tensor_2d(ctx.as_ptr(), sys::ggml_type_GGML_TYPE_F32, 4, 2) };
+        assert!(!input.is_null());
+        let used_before = unsafe { sys::ggml_used_mem(ctx.as_ptr()) };
+        let output = model.code_pred.project_input(ctx.as_ptr(), input);
+        assert_eq!(output, input);
+        assert_eq!(unsafe { sys::ggml_used_mem(ctx.as_ptr()) }, used_before);
+        unsafe { sys::ggml_build_forward_expand(graph.as_ptr(), output) };
+        assert_eq!(unsafe { sys::ggml_graph_n_nodes(graph.as_ptr()) }, 0);
+    }
+
+    #[test]
+    fn split_width_projection_preserves_talker_embeddings() {
+        let fixture = tiny_model(2, true);
+        let file = GgufFile::open(&fixture.0).unwrap();
+        let model = TtsTransformer::load_from_gguf(&file).unwrap();
+        assert_eq!(model.config().hidden_size, 4);
+        assert_eq!(model.code_predictor_config().hidden_size, 2);
+        assert_eq!(model.code_predictor_config().head_dim, 2);
+        assert_eq!(model.code_predictor_config().n_attention_heads, 1);
+        assert_eq!(model.code_predictor_config().intermediate_size, 3);
+        assert_eq!(
+            model.lookup_code_pred_embedding_row(0, 1, 1).unwrap().len(),
+            4
+        );
+        assert_eq!(
+            model
+                .sum_codec_frame_embeddings(&[1, 1, 1], 1)
+                .unwrap()
+                .len(),
+            4
+        );
+        let ctx = ComputeContext::new_graph(32).unwrap();
+        let graph =
+            NonNull::new(unsafe { sys::ggml_new_graph_custom(ctx.as_ptr(), 32, false) }).unwrap();
+        let input =
+            unsafe { sys::ggml_new_tensor_2d(ctx.as_ptr(), sys::ggml_type_GGML_TYPE_F32, 4, 2) };
+        let output = model.code_pred.project_input(ctx.as_ptr(), input);
+        unsafe {
+            sys::ggml_build_forward_expand(graph.as_ptr(), output);
+        }
+        let values = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let mut result = [0.0f32; 4];
+        execute_graph(
+            &model.code_pred._backends,
+            graph,
+            &[TensorUpload {
+                tensor: input,
+                bytes: slice_as_bytes(&values),
+            }],
+            &mut [TensorDownload {
+                tensor: output,
+                bytes: slice_as_bytes_mut(&mut result),
+            }],
+            1,
+            "synthetic projection",
+        )
+        .unwrap();
+        assert_eq!(result, [11.0, 22.0, 15.0, 26.0]);
+    }
+
+    #[test]
+    fn predictor_cached_and_recompute_match_with_split_or_equal_widths() {
+        for (width, projection) in [(2, true), (4, false)] {
+            let fixture = tiny_model(width, projection);
+            let file = GgufFile::open(&fixture.0).unwrap();
+            let model = TtsTransformer::load_from_gguf(&file).unwrap();
+            assert_eq!(model.code_pred.projection.is_some(), projection);
+            let cache = CodePredKvCache::new(
+                &model.code_pred_config,
+                3,
+                model.code_pred._backends.clone(),
+            )
+            .unwrap();
+            let hidden = [0.2, 0.3, 0.4, 0.5];
+            let recompute = model
+                .forward_code_pred_sequence_recompute(&hidden, 1, &[], 1)
+                .unwrap();
+            let cached = model
+                .forward_code_pred_prefill_cached(&hidden, 1, 1, &cache)
+                .unwrap()
+                .logits;
+            assert_eq!(cached.len(), 3);
+            for (a, b) in recompute.iter().zip(cached) {
+                assert!((a - b).abs() < 0.01);
+            }
+            let recompute = model
+                .forward_code_pred_sequence_recompute(&hidden, 1, &[1], 1)
+                .unwrap();
+            let cached = model
+                .forward_code_pred_step_cached(1, 2, 1, 1, &cache)
+                .unwrap()
+                .logits;
+            for (a, b) in recompute.iter().zip(cached) {
+                assert!((a - b).abs() < 0.01);
+            }
+        }
+    }
+
+    #[test]
+    fn projection_shape_errors_fail_before_graph_construction() {
+        assert!(validate_projection_shapes(4, 4, None, None).is_ok());
+        assert!(validate_projection_shapes(4, 2, Some(&[4, 2]), Some(&[2])).is_ok());
+        for (weight, bias) in [
+            (None, None),
+            (Some(&[2, 4][..]), Some(&[2][..])),
+            (Some(&[4, 2][..]), None),
+            (None, Some(&[2][..])),
+            (Some(&[4, 2][..]), Some(&[4][..])),
+        ] {
+            assert!(validate_projection_shapes(4, 2, weight, bias).is_err());
+        }
+        let fixture = tiny_model(2, false);
+        let file = GgufFile::open(&fixture.0).unwrap();
+        assert!(TtsTransformer::load_from_gguf(&file).is_err());
+    }
+
+    #[test]
+    fn predictor_tensor_fallback_reads_independent_geometry() {
+        let fixture = TestGguf::write(
+            &[],
+            &[],
+            &[
+                ("code_pred.output_norm.weight", &[2], &[1.0; 2]),
+                ("code_pred.blk.0.attn_q.weight", &[2, 4], &[0.0; 8]),
+                ("code_pred.blk.0.attn_k.weight", &[2, 2], &[0.0; 4]),
+                ("code_pred.blk.0.ffn_gate.weight", &[2, 3], &[0.0; 6]),
+            ],
+        );
+        let file = GgufFile::open(&fixture.0).unwrap();
+        let cfg = predictor_config(
+            &file,
+            &TtsTransformerConfig {
+                hidden_size: 4,
+                head_dim: 2,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                cfg.hidden_size,
+                cfg.n_attention_heads,
+                cfg.n_key_value_heads,
+                cfg.intermediate_size
+            ),
+            (2, 2, 1, 3)
+        );
+    }
+
+    #[test]
+    fn legacy_base_predictor_keeps_0_1_1_geometry_without_projection() {
+        let fixture = TestGguf::write(
+            &[
+                ("qwen3-tts.code_pred.embedding_length", 1024),
+                ("qwen3-tts.code_pred.attention.key_length", 256),
+                ("qwen3-tts.code_pred.attention.head_count", 8),
+                ("qwen3-tts.code_pred.attention.head_count_kv", 4),
+                ("qwen3-tts.code_pred.feed_forward_length", 4096),
+                ("qwen3-tts.code_pred.block_count", 3),
+            ],
+            &[],
+            &[("code_pred.output_norm.weight", &[1024], &[1.0; 1024])],
+        );
+        let file = GgufFile::open(&fixture.0).unwrap();
+        let talker = TtsTransformerConfig::default();
+        let cfg = predictor_config(&file, &talker).unwrap();
+        assert_eq!(cfg.hidden_size, talker.hidden_size);
+        assert_eq!(cfg.n_layers, talker.code_pred_layers);
+        assert_eq!(cfg.n_attention_heads, talker.n_attention_heads);
+        assert_eq!(cfg.n_key_value_heads, talker.n_key_value_heads);
+        assert_eq!(cfg.intermediate_size, talker.intermediate_size);
+        assert_eq!(cfg.head_dim, talker.head_dim);
+        assert_eq!(cfg.rms_norm_eps.to_bits(), talker.rms_norm_eps.to_bits());
+        assert_eq!(cfg.rope_theta.to_bits(), talker.rope_theta.to_bits());
+        assert_eq!(cfg.vocab_size, talker.code_pred_vocab_size);
+    }
+
+    #[test]
+    fn presets_use_metadata_ids_and_dialect_language() {
+        let fixture = tiny_model(2, true);
+        let file = GgufFile::open(&fixture.0).unwrap();
+        let model = TtsTransformer::load_from_gguf(&file).unwrap();
+        assert_eq!(model.preset_speaker_id(PresetSpeaker::Vivian).unwrap(), 4);
+        assert_eq!(model.preset_speaker_id(PresetSpeaker::Ryan).unwrap(), 5);
+        assert!(model.preset_speaker_id(PresetSpeaker::Sohee).is_err());
+        assert_eq!(
+            model
+                .preset_speaker_embedding(PresetSpeaker::Ryan, 1)
+                .unwrap(),
+            vec![2.0, 2.1, 2.2, 2.3]
+        );
+        assert_eq!(model.preset_language_id(PresetSpeaker::Ryan, -1), 3);
+        assert_eq!(model.preset_language_id(PresetSpeaker::Ryan, 2), 3);
+        assert_eq!(model.preset_language_id(PresetSpeaker::Ryan, 1), 1);
+    }
+
+    #[test]
+    fn instruction_prefill_precedes_assistant_and_design_omits_speaker() {
+        let fixture = tiny_model(2, true);
+        let file = GgufFile::open(&fixture.0).unwrap();
+        let model = TtsTransformer::load_from_gguf(&file).unwrap();
+        let text_tokens = [1, 3, 4, 5, 6, 2, 4, 1, 3, 4];
+        let speaker = model
+            .preset_speaker_embedding(PresetSpeaker::Vivian, 1)
+            .unwrap();
+        let build = |speaker_embd| {
+            model
+                .build_prefill_inputs(
+                    PrefillConditioning {
+                        text_tokens: &text_tokens,
+                        speaker_embd,
+                        ref_codebook_0: &[],
+                        language_id: 1,
+                    },
+                    1,
+                )
+                .unwrap()
+        };
+        let mut design = build(None);
+        let custom = build(Some(speaker.as_slice()));
+        assert_eq!(custom.prefill_embd.len(), design.prefill_embd.len() + 4);
+        let original = design.clone();
+        let instruction = [1, 7, 4, 5, 6, 2, 4];
+        let expected_prefix = model.project_text_tokens(&instruction, 1).unwrap();
+        model
+            .prepend_instruction(&mut design, &instruction, 1)
+            .unwrap();
+        assert_eq!(&design.prefill_embd[..28], expected_prefix);
+        assert_eq!(&design.prefill_embd[28..], original.prefill_embd);
+        assert_eq!(design.trailing_text_hidden, original.trailing_text_hidden);
+        assert_eq!(design.tts_pad_embed, original.tts_pad_embed);
+    }
+    #[test]
+    fn one_seven_b_predictor_metadata_is_not_talker_geometry() {
+        let fixture = TestGguf::write(
+            &[
+                ("qwen3-tts.code_predictor.embedding_length", 1024),
+                ("qwen3-tts.code_predictor.attention.head_count", 16),
+                ("qwen3-tts.code_predictor.attention.head_count_kv", 8),
+                ("qwen3-tts.code_predictor.attention.key_length", 128),
+                ("qwen3-tts.code_predictor.feed_forward_length", 3072),
+            ],
+            &[],
+            &[],
+        );
+        let file = GgufFile::open(&fixture.0).unwrap();
+        let talker = TtsTransformerConfig {
+            hidden_size: 2048,
+            intermediate_size: 6144,
+            ..Default::default()
+        };
+        let cfg = predictor_config(&file, &talker).unwrap();
+        assert_eq!((talker.hidden_size, cfg.hidden_size), (2048, 1024));
+        assert_eq!(
+            (talker.intermediate_size, cfg.intermediate_size),
+            (6144, 3072)
+        );
+        assert!(validate_projection_shapes(2048, 1024, Some(&[2048, 1024]), Some(&[1024])).is_ok());
+    }
+
+    #[test]
+    fn separate_ggufs_read_predictor_config_and_projection_from_either_file() {
+        for projection_in_talker in [false, true] {
+            let talker_fixture = tiny_model(
+                if projection_in_talker { 2 } else { 4 },
+                projection_in_talker,
+            );
+            let predictor_fixture = tiny_model(2, !projection_in_talker);
+            let talker = GgufFile::open(&talker_fixture.0).unwrap();
+            let predictor = GgufFile::open(&predictor_fixture.0).unwrap();
+            let model = TtsTransformer::load_from_ggufs(&talker, &predictor).unwrap();
+            assert_eq!(
+                (
+                    model.config().hidden_size,
+                    model.code_predictor_config().hidden_size
+                ),
+                (4, 2)
+            );
+            assert!(model.code_pred.projection.is_some());
+        }
     }
 }

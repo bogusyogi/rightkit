@@ -27,7 +27,7 @@ sha2 = "0.10"
 thiserror = "2"
 rightkit-process = { version = "=0.2.1", path = "../rightkit-process" }
 rightkit-transcript = { version = "=0.0.0", path = "../rightkit-transcript" }
-qts = { package = "rightkit-qts", version = "0.1.0", path = "../rightkit-qts", optional = true }
+qts = { package = "rightkit-qts", version = "0.2.0", path = "../rightkit-qts", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

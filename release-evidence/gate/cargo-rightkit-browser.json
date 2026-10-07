@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-browser",
-  "version": "0.2.0",
-  "commit": "85eb30369a4eda5310d640b6800d8bc844200629",
-  "artifactSha256": "c6af455aacfa4313e32fdab0dc677072e7f50c66b45dacef9963436ba394f05f",
+  "version": "0.2.1",
+  "commit": "afffaf24423da7774ea4f458378bfcfc81a757c3",
+  "artifactSha256": "0bdb217fe924a39682fbef3432befc1f4361df97088e3fb9670a72cfb98bd018",
   "artifactBasis": "git archive HEAD crates/rightkit-browser",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
@@ -14,14 +14,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "85eb30369a4eda5310d640b6800d8bc844200629",
+      "commit": "afffaf24423da7774ea4f458378bfcfc81a757c3",
       "command": "right-release publish cargo --crate rightkit-browser --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T14:23:04Z",
-      "passed": 27,
+      "timestamp": "2026-10-07T22:42:32Z",
+      "passed": 36,
       "failed": 0
     }
   ]

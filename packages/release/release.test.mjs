@@ -341,17 +341,20 @@ test("accepts the current @rightkit/git 0.2.21 release-chain consumer", () => {
 });
 
 test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
+  // One patch past the staged version, so the test never goes stale when git publishes.
+  const [major, minor, patch] = versions.stagedNpm["@rightkit/git"].split(".").map(Number);
+  const future = `${major}.${minor}.${patch + 1}`;
   const result = run(fixture({
     packageJson: {
       name: "fixture",
       packageManager: versions.packageManager,
       scripts: { "release:patch:win": "right-release --platform win --tier patch" },
-      dependencies: { "@rightkit/git": "0.2.26" },
+      dependencies: { "@rightkit/git": future },
       devDependencies: { "@rightkit/release": versions.stagedNpm["@rightkit/release"] },
     },
   }));
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.2\.26/i);
+  assert.match(result.stderr, new RegExp(`@rightkit/git must be one of[\\s\\S]*got ${future.replaceAll(".", "\\.")}`, "i"));
 });
 
 test("rejects hosted workflow files before release work starts", () => {
