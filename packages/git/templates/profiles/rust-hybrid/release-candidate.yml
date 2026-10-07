@@ -78,6 +78,7 @@ jobs:
           package-manager-cache: false
 ${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
+${OWNERSHIP_STEP}
       - name: Admit exact main revision & version
         id: admit
         run: ${PM_RUN} ${RELEASE_ADMISSION_SCRIPT}

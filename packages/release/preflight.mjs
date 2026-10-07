@@ -20,10 +20,9 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
-import { checkApp, MANIFEST_FILE } from "./ownership.mjs";
+import { createOwnershipEvidence } from "./ownership-evidence.mjs";
 
 export const PREFLIGHT_OK = "ok";
 export const PREFLIGHT_WARN = "warn";
@@ -293,30 +292,29 @@ export function collectPreflight({
   if (repoRoot && ownership) {
     // An app living inside the RightKit workspace repository is scoped to its own directory.
     const workspace = existsSync(path.join(repoRoot, "tools", "rightkit", "packages", "release"));
-    checks.push(ownershipCheck(workspace && appRoot ? appRoot : repoRoot));
+    checks.push(ownershipCheck(repoRoot, { scanRoot: workspace && appRoot ? appRoot : repoRoot }));
   }
 
   return checks;
 }
 
 /** Release-blocking: the app keeps no unexcepted copy of a RightKit-owned capability. */
-export function ownershipCheck(repoRoot, manifestPath = path.join(path.dirname(fileURLToPath(import.meta.url)), MANIFEST_FILE)) {
-  let manifest;
-  try {
-    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  } catch (error) {
-    return fail("ownership", `RightKit ownership manifest unreadable: ${error.message}`, "reinstall @rightkit/release");
-  }
-  const result = checkApp(repoRoot, manifest);
-  if (result.ok) {
+export function ownershipCheck(repoRoot, options = {}) {
+  let checked;
+  try { checked = createOwnershipEvidence(repoRoot, options.scanRoot ?? repoRoot); }
+  catch (error) { return fail("ownership", `ownership evidence failed: ${error.message}`, "restore protected RightKit ownership trust and catalog"); }
+  const { result, evidence, floor } = checked;
+  if (checked.ok) {
     const excepted = result.covered.length;
-    return ok("ownership", excepted ? `no unexcepted copies (${excepted} findings under dated exceptions)` : "no copies of RightKit-owned capabilities");
+    return { ...ok("ownership", excepted ? `no unapproved copies (${excepted} signed findings)` : "no copies of RightKit-owned capabilities"), evidence };
   }
   const first = result.violations[0];
-  const detail = first
-    ? `${result.violations.length} own cop${result.violations.length === 1 ? "y" : "ies"} of RightKit capabilities, e.g. ${first.fingerprint} at ${first.file}${first.line ? `:${first.line}` : ""}`
-    : result.problems[0];
-  return fail("ownership", detail, "run: right-release ownership (move to RightKit, or add a reviewed, dated exception)");
+  const detail = !floor.ok
+    ? floor.problems.join("; ")
+    : first
+      ? `${result.violations.length} own cop${result.violations.length === 1 ? "y" : "ies"} of RightKit capabilities, e.g. ${first.fingerprint} at ${first.file}${first.line ? `:${first.line}` : ""}`
+      : result.problems[0] ?? result.coverage[0]?.reason ?? "ownership scan incomplete";
+  return { ...fail("ownership", detail, "run: right-release ownership (move to RightKit, or request a signed, dated exception)"), evidence };
 }
 
 export function formatPreflight(checks) {

@@ -34,4 +34,5 @@ jobs:
           package-manager-cache: false
 ${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
+${OWNERSHIP_STEP}
       - run: node scripts/test-package.mjs

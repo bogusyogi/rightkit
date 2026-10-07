@@ -54,3 +54,30 @@ validated signed records may produce `excepted` status.
 The local scan describes the checkout on the host that produced it. It does
 not establish coverage on another host; run the report on each required host
 and retain both outputs to demonstrate cross-host coverage.
+
+## Deployment requirements
+
+Source checks are implemented; installed enforcement is not active. Neither
+host has enrolled approval keys or a protected ownership registry. Native
+approval helpers require user-initiated enrollment and prompt validation;
+Windows also needs its workspace-provisioned .NET SDK before native compilation.
+Private repository enforcement requires an OS-protected adapter using
+`runProtectedLocalOwnershipCheck`, plus exact repository roots in external trust.
+Write feedback and session context must load from an installer-owned stable
+RightKit root before host hook registration; development paths are not installed
+enforcement.
+
+Generated public CI templates call the protected ownership command
+unconditionally. Hosted runners currently have no protected trust delivery, and
+the verifier supports fixed Windows/macOS paths only. These checks fail closed
+until protected CI deployment exists. A repository-supplied trust file, workflow
+override, or unprotected runner copy cannot supply authority. Public required
+ownership checks need an external protected verifier bound to the exact commit,
+catalog, source bytes and registered roots, with protected scanner/catalog floors.
+
+Broker admission remains the design in `../OWNERSHIP-BROKER-DESIGN.md`.
+The Claude session “RightKit build infrastructure recovery” owns both-host
+implementation/cutover coordination and must let running jobs finish first.
+No broker bootstrap, activation, cancellation or forced restart belongs to this
+source change. Crate and `@rightkit/release` publication requires two-host gate
+evidence at the exact publication commit.

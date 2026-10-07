@@ -40,6 +40,7 @@ jobs:
           package-manager-cache: false
 ${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
+${OWNERSHIP_STEP}
       - run: node scripts/release/build-candidate.mjs --version "${{ github.event.release.tag_name }}" --platform current --out "release/candidates/publish"
       - run: node scripts/release/check-release.mjs release/candidates/publish
       - id: tarball

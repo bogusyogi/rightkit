@@ -64,6 +64,8 @@ jobs:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
 ${PACKAGE_MANAGER_SETUP}
+      - run: ${INSTALL_COMMAND}
+${OWNERSHIP_STEP}
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         if: steps.rust-changes.outputs.required == 'true'
         with:

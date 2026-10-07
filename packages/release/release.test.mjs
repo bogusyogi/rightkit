@@ -168,6 +168,16 @@ function runDoctor(config, ...args) {
   });
 }
 
+function assertDoctorBlockedOnlyByMissingOwnershipTrust(result) {
+  const output = `${result.stdout}\n${result.stderr}`;
+  assert.notEqual(result.status, 0, output);
+  assert.match(output, /\[FAIL\] ownership: ownership evidence failed: protected ownership trust location was not verified/);
+  assert.match(result.stderr, /preflight found 1 blocking problem/);
+  const failures = output.match(/^\s+\[FAIL\].*$/gm) ?? [];
+  assert.equal(failures.length, 1, output);
+  assert.match(failures[0], /ownership/);
+}
+
 test("accepts a tier-neutral internal build", () => {
   const result = run(fixture());
   assert.equal(result.status, 0, result.stderr);
@@ -669,8 +679,8 @@ test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", 
     cargoConfig: `[net]\nretry = 2\n[registries.private]\nindex = "https://example.test/index"`,
   });
   const result = runDoctor(config);
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /right-release/);
+  assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /forbidden RightKit Cargo override/);
 });
 
 test("doctor rejects a selected target with missing or empty buildInputs.include", () => {
@@ -683,7 +693,8 @@ test("doctor rejects a selected target with missing or empty buildInputs.include
 
 test("doctor passes a clean selected target", () => {
   const result = runDoctor(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }));
-  assert.equal(result.status, 0, result.stderr);
+  assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
+  assert.match(result.stdout, /\[ok\s+\] target-bridge:/);
   // Derived from the version manifest, not hardcoded: a literal here has to be
   // hand-edited on every bump and fails the suite when someone forgets.
   const expected = versions.stagedNpm?.["@rightkit/release"] ?? versions.npm["@rightkit/release"];
@@ -696,11 +707,12 @@ test("doctor handles a real src-tauri target according to host Cargo ownership",
   const result = runDoctor(config);
   const output = `${result.stdout}\n${result.stderr}`;
   if (brokerManagedHost(process.env)) {
-    assert.equal(result.status, 0, result.stderr);
+    assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
     assert.doesNotMatch(output, /cache migrate/i);
     assert.match(output, /target-bridge[\s\S]*broker-managed host, left untouched/i);
   } else {
     assert.notEqual(result.status, 0);
+    assert.match(output, /\[FAIL\] ownership: ownership evidence failed: protected ownership trust location was not verified/);
     assert.match(output, /target-bridge[\s\S]*real directory[\s\S]*cache migrate/i);
   }
 });
@@ -711,7 +723,8 @@ test("doctor permits unrelated dirt", () => {
   mkdirSync(path.join(root, "notes"));
   writeFileSync(path.join(root, "notes", "scratch.md"), "unrelated\n");
   const result = runDoctor(config);
-  assert.equal(result.status, 0, result.stderr);
+  assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /dirty files can change the packaged app/);
 });
 
 test("doctor rejects tracked dirt inside declared buildInputs with the exact path", () => {
@@ -770,7 +783,8 @@ test("doctor scopes Cargo inspection to the configured app inside a monorepo", (
     siblingCargoManifest: `[package]\nname = "archived-copy"\nversion = "0.0.0"\n[dependencies]\nrightkit-license = { path = "../../rightkit-license" }`,
   });
   const result = runDoctor(config);
-  assert.equal(result.status, 0, result.stderr);
+  assertDoctorBlockedOnlyByMissingOwnershipTrust(result);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /forbidden RightKit Cargo override|archived-workspace/);
 });
 
 test("doctor rejects a repo-local RightKit Cargo override", () => {

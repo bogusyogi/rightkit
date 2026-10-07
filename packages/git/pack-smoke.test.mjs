@@ -3,11 +3,11 @@
 // publish and runs the extracted bin with `node` — `node --test` run from
 // the source tree never notices a missing directory because the source
 // tree has every file regardless of what `files` declares. This test packs
-// for real (npm pack), extracts to a temp dir, and executes the built bin's
+// for real (pnpm pack), extracts to a temp dir, and executes the built bin's
 // --help and --version from inside that extracted tree only.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,17 +24,17 @@ function run(command, args, options) {
 test("packaged tarball: right-git --help and --version run clean from the published files only", () => {
   const workDir = mkdtempSync(path.join(os.tmpdir(), "rightkit-git-pack-"));
   try {
-    // shell:true — on Windows "npm" only resolves (to npm.cmd) through the
-    // shell; args here are fixed literals we construct, never user input.
-    const packResult = run("npm", ["pack", "--json", "--pack-destination", workDir], { cwd: packageRoot, shell: true });
-    assert.equal(packResult.status, 0, `npm pack failed: ${packResult.stderr}`);
-    const [packInfo] = JSON.parse(packResult.stdout);
+    // shell:true resolves pnpm.cmd on Windows; args are fixed literals.
+    const packResult = run("pnpm", ["pack", "--pack-destination", workDir], { cwd: packageRoot, shell: true });
+    assert.equal(packResult.status, 0, `pnpm pack failed: ${packResult.stderr}`);
+    const archive = readdirSync(workDir).find((name) => name.endsWith(".tgz"));
+    assert.ok(archive, `pnpm pack did not create a tarball: ${packResult.stdout}`);
 
     // Run tar FROM the temp dir on the bare filename so no absolute "C:\..."
     // path reaches tar — that colon is the only reason GNU tar's --force-local
     // was ever needed, and avoiding it keeps this portable to bsdtar (the
     // Windows built-in) and any CI host, not just a GNU-tar toolchain.
-    const extractResult = run("tar", ["-xzf", packInfo.filename], { cwd: workDir });
+    const extractResult = run("tar", ["-xzf", archive], { cwd: workDir });
     assert.equal(extractResult.status, 0, `tar extract failed: ${extractResult.stderr}`);
     // npm tarballs always nest content under a top-level "package/" directory.
     const extractedPackageDir = path.join(workDir, "package");

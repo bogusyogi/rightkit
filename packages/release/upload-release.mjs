@@ -7,6 +7,7 @@ import { prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
+import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
 
 const args = process.argv.slice(2);
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
@@ -46,6 +47,8 @@ if (sealed.manifest.commit !== candidateCommit) fail("sealed release was built f
 const configPath = path.resolve(configName);
 if (!existsSync(configPath)) fail(`release config is required: ${configName}`);
 const releaseConfig = (await import(`${pathToFileURL(configPath).href}?upload=${Date.now()}`)).default;
+const ownership = verifyOwnershipEvidence(sealed.manifest.ownershipEvidence, repoRoot, path.dirname(configPath));
+if (!ownership.ok) fail(`sealed ownership evidence rejected: ${ownership.reason}`);
 if (releaseConfig?.distribution?.provider !== "github-releases") {
   fail("release config distribution.provider must be github-releases");
 }

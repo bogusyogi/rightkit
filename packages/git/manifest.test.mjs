@@ -22,6 +22,13 @@ test("accepts a minimal valid manifest", () => {
   assert.deepEqual(errors, []);
 });
 
+test("ownership scan registration is explicit and supports nested package roots", () => {
+  assert.equal(validateManifest({ ...VALID_MINIMAL, ownership: { roots: ["engine", "apps/client"] } }).valid, true);
+  for (const roots of [[], ["../outside"], ["src\\escape"], [""], ["engine", "engine"]]) {
+    assert.equal(validateManifest({ ...VALID_MINIMAL, ownership: { roots } }).valid, false, JSON.stringify(roots));
+  }
+});
+
 test("rust-hybrid supports ci plus a configured unsigned release-candidate lane", () => {
   const valid = { ...VALID_MINIMAL, profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
   assert.equal(validateManifest(valid).valid, true);

@@ -73,6 +73,21 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.doesNotMatch(content, /ubuntu-latest|macos-latest/);
 });
 
+test("every generated workflow profile runs ownership scanning independent of optional repository roots", () => {
+  const roots = ["engine", "apps/client"];
+  const manifest = { ...FULL_MANIFEST, ownership: { roots } };
+  const rendered = renderAllLanes(manifest, "C:/repos/coderight");
+  for (const [lane, content] of Object.entries(rendered)) {
+    assert.match(content, /right-release ownership --app \./, lane);
+    assert.match(content, /protected registry roots/, lane);
+  }
+  const rust = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8"), buildRenderContext({ ...manifest, profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } }, "C:/repos/coderight"));
+  assert.match(rust, /RightKit ownership \(protected registry roots\)/);
+  assert.match(rust, /pnpm exec right-release ownership --app \./);
+  const withoutRoots = renderAllLanes(FULL_MANIFEST, "C:/repos/widgets");
+  for (const [lane, content] of Object.entries(withoutRoots)) assert.match(content, /right-release ownership --app \./, lane);
+});
+
 test("ordinary CI templates cancel superseded runs on the same ref", () => {
   const generic = renderAllLanes(FULL_MANIFEST, "/repos/widgets").ci;
   assert.match(generic, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}/);
@@ -197,7 +212,7 @@ test("rust-hybrid release candidate can opt into OIDC Windows signing without lo
   // out the exact admitted revision by SHA, never by resolving HEAD after a
   // ref-triggered checkout.
   assert.match(content, /windows-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
-  assert.doesNotMatch(content, /git rev-parse HEAD/);
+  assert.match(content, /git rev-parse HEAD.*inputs\.source_revision \|\| github\.sha/);
   assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(content, /secrets\.|client-secret|private.key/i);
@@ -236,7 +251,7 @@ test("rust-hybrid release candidate can opt into protected macOS signing & notar
   assert.match(content, /right-release build --platform mac --skip-checks/);
   assert.match(content, /secrets\.APPLE_API_KEY_BASE64/);
   assert.match(content, /macos-sign:[\s\S]*?ref: \$\{\{ needs\.admission\.outputs\.source_revision \}\}\n\s+fetch-depth: 0\n\s+persist-credentials: false/);
-  assert.doesNotMatch(content, /git rev-parse HEAD/);
+  assert.match(content, /git rev-parse HEAD.*inputs\.source_revision \|\| github\.sha/);
   assert.ok(content.includes("LEGION_SOURCE_REVISION: ${{ env.RIGHT_GIT_SOURCE_REVISION }}"));
   assert.doesNotMatch(content, /LEGION_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   assert.match(content, /security delete-keychain/);
@@ -355,10 +370,9 @@ test("rust-hybrid release chain preserves signed candidate, installed qualificat
   assert.match(content, /Verify aggregated release evidence[\s\S]*?pnpm run release:verify-evidence/);
   assert.match(content, /pnpm run release:publish:qualified/);
   assert.match(content, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
-  // The old ref-triggered "resolve HEAD after checkout" trick is gone
-  // entirely for the releaseChain path — every job instead checks out the
-  // exact admitted SHA from the admission job's own output.
-  assert.doesNotMatch(content, /git rev-parse HEAD/);
+  // Ownership scan binds to the source revision input before admission emits
+  // that same revision for every downstream job.
+  assert.match(content, /git rev-parse HEAD.*inputs\.source_revision \|\| github\.sha/);
   assert.doesNotMatch(content, /RIGHT_GIT_SOURCE_REVISION: \$\{\{ github\.sha \}\}/);
   // candidate, windows-sign, macos-sign, installed-qualification and publish all
   // check out the admitted revision with full history; admission checks out
@@ -798,16 +812,11 @@ test("an unsafe or unknown release environment is rejected", () => {
   assert.equal(validateManifest(environmentManifest({ promotion: "x" })).valid, false);
 });
 
-test("ci.yml runs the RightKit ownership check only in repos that consume @rightkit/release", () => {
-  const manifest = structuredClone(FULL_MANIFEST);
+test("ci.yml ownership check cannot be removed by deleting optional repo metadata", () => {
+  const manifest = { ...structuredClone(FULL_MANIFEST), ownership: { roots: [".", "engine"] } };
   const template = fs.readFileSync(path.join(templatesDir, "ci.yml"), "utf8");
-  const consumer = fs.mkdtempSync(path.join(packageRoot, ".tmp-ownership-"));
-  try {
-    fs.writeFileSync(path.join(consumer, "package.json"), JSON.stringify({ name: "app", devDependencies: { "@rightkit/release": "0.2.117" } }));
-    const withStep = renderTemplate(template, buildRenderContext(manifest, consumer));
-    assert.match(withStep, /check-network-boundary\.mjs\n      - run: node node_modules\/@rightkit\/release\/cli\/right-release\.mjs ownership\n/);
-    const without = renderTemplate(template, buildRenderContext(manifest, "/repos/widgets"));
-    assert.doesNotMatch(without, /right-release\.mjs ownership/);
-    assert.match(without, /check-network-boundary\.mjs\n/);
-  } finally { fs.rmSync(consumer, { recursive: true, force: true }); }
+  const withStep = renderTemplate(template, buildRenderContext(manifest, "/repos/coderight"));
+  assert.match(withStep, /RightKit ownership \(protected registry roots\)/);
+  const without = renderTemplate(template, buildRenderContext(structuredClone(FULL_MANIFEST), "/repos/widgets"));
+  assert.match(without, /RightKit ownership \(protected registry roots\)/);
 });

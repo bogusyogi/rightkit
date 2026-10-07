@@ -79,6 +79,7 @@ jobs:
           package-manager-cache: false
 ${PACKAGE_MANAGER_SETUP}
       - run: ${INSTALL_COMMAND}
+${OWNERSHIP_STEP}
       - run: ruby -c release/homebrew/${HOMEBREW_FORMULA_NAME}.rb
       - name: Checkout Homebrew tap
         uses: actions/checkout@v5

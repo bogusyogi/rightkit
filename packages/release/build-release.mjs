@@ -239,6 +239,9 @@ try {
   if (preflightBlockers.length > 0) {
     fail(`preflight found ${preflightBlockers.length} blocking problem(s):\n${formatPreflight(preflightBlockers)}`);
   }
+  const ownershipEvidence = preflight.find((check) => check.name === "ownership")?.evidence;
+  if (!ownershipEvidence) fail("ownership evidence was not produced by release preflight");
+  if (ownershipEvidence.commit !== commit) fail("ownership scan source differs from release commit");
   for (const check of preflight) {
     if (check.status !== "ok") console.error(`[right-release] preflight ${check.name}: ${check.detail}`);
   }
@@ -379,7 +382,7 @@ try {
         });
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -419,7 +422,7 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity }) {
+function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence }) {
   // Every app's right-release.config.mjs names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
@@ -482,6 +485,7 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     app: config.app,
     version: config.version,
     commit,
+    ownershipEvidence,
     platform,
     cacheKey,
     // Portable contracts sign only raw executables — installer/embedding

@@ -60,6 +60,7 @@ const TOP_LEVEL_KEYS = new Set([
   "gate",
   "rustCache",
   "candidate",
+  "ownership",
 ]);
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const RUST_WORKSPACE_PATH_RE = /^(?:\.|(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
@@ -310,6 +311,18 @@ export function validateManifest(manifest) {
   }
   if (profile === "rust-hybrid" && lanes.includes("release-candidate") && candidate === undefined) {
     errors.push("rust-hybrid release-candidate lane requires candidate { buildScript, checkScript, artifactRoot }");
+  }
+
+  if (manifest.ownership !== undefined) {
+    if (!manifest.ownership || typeof manifest.ownership !== "object" || Array.isArray(manifest.ownership)
+      || Object.keys(manifest.ownership).some((key) => key !== "roots")) {
+      errors.push("ownership must be an object containing only roots");
+    } else if (!Array.isArray(manifest.ownership.roots) || manifest.ownership.roots.length === 0
+      || manifest.ownership.roots.some((root) => typeof root !== "string" || (root !== "." && !/^(?!.*\.\.)(?!.*\\)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(root)) || root.startsWith("/"))) {
+      errors.push("ownership.roots must contain safe, non-empty repository-relative paths");
+    } else if (new Set(manifest.ownership.roots).size !== manifest.ownership.roots.length) {
+      errors.push("ownership.roots must not contain duplicates");
+    }
   }
   if (profile !== "rust-hybrid" && candidate !== undefined) {
     errors.push("candidate is only valid for profile 'rust-hybrid'");
@@ -976,20 +989,13 @@ export function deriveProjectName(repoPath) {
  * Build the flat placeholder -> value map used by render.mjs, from a
  * validated manifest plus the target repo's derived project name.
  */
-/**
- * CI step that fails on an app's own copy of a RightKit-owned capability, for repos that consume
- * @rightkit/release (the same check `right-release doctor` and build preflight run). Empty for
- * every other repo, so their rendered workflow is unchanged.
- */
-export function ownershipStep(repoPath) {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(repoPath, "package.json"), "utf8"));
-    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-    if (!deps["@rightkit/release"]) return "";
-  } catch {
-    return "";
-  }
-  return "\n      - run: node node_modules/@rightkit/release/cli/right-release.mjs ownership";
+/** Every managed public workflow runs ownership scanning; repository metadata cannot opt it out. */
+export function ownershipStep(manifest) {
+  const { name } = parsePackageManager(manifest.packageManager);
+  const command = name === "pnpm" ? "pnpm exec right-release ownership --app ."
+    : name === "npm" ? "npm exec -- right-release ownership --app ."
+      : "yarn exec right-release ownership --app .";
+  return `\n      - name: RightKit ownership (protected registry roots)\n        shell: bash\n        run: test "$(git rev-parse HEAD)" = "\${{ github.event_name == 'workflow_dispatch' && inputs.source_revision || github.sha }}" && ${command}`;
 }
 
 export function buildRenderContext(manifest, repoPath) {
@@ -1018,7 +1024,7 @@ export function buildRenderContext(manifest, repoPath) {
     WINDOWS_SIGNING_JOB: windowsSigningJob(manifest, pm, artifactPrefix),
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
-    OWNERSHIP_STEP: ownershipStep(repoPath),
+    OWNERSHIP_STEP: ownershipStep(manifest),
   };
 
   // Every key below is populated ONLY when its source manifest section is
