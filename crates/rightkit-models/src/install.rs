@@ -13,7 +13,8 @@
 //!   their shared-runtime location with matching pins need no space; `.part`
 //!   files are credited by their length.
 //! - **Adoption.** [`Store::adopt`] records an existing install (verified
-//!   against the pins) without downloading.
+//!   against the pins) without downloading. [`Store::adopt_then_install`]
+//!   adopts whatever verifies and downloads only the rest, in one swap.
 
 use crate::archive;
 use crate::disk;
@@ -171,6 +172,9 @@ pub struct InstallOutcome {
     pub previous: Option<String>,
 }
 
+/// Where an existing install keeps a manifest file's payload (adoption).
+type ExistingFn<'a> = dyn Fn(&FileSpec) -> Option<PathBuf> + 'a;
+
 /// sha256 of files hashed during one locked operation, so preflight credit
 /// and the fetch pass never hash the same multi-GB file twice.
 #[derive(Default)]
@@ -290,6 +294,47 @@ impl Store {
         &self,
         spec: &ModelSpec,
         opts: &InstallOptions,
+        sink: impl FnMut(Event),
+    ) -> Result<InstallOutcome> {
+        self.install_inner(spec, opts, None, sink)
+    }
+
+    /// Partial adoption: one locked install that first adopts every existing
+    /// file whose pins match (hard link into staging, falling back to a
+    /// copy), then downloads only the missing or mismatching ones, then does
+    /// the one atomic swap + activation of [`Store::install`].
+    ///
+    /// - `existing` maps a manifest file to where its installed payload lives
+    ///   today (`Extract::Member`: the extracted member). Returning `None`, a
+    ///   missing path, or a file that fails its size/sha256 pins means
+    ///   "download it"; a mismatching file is never linked or copied.
+    /// - Fails closed like [`Store::adopt`]: every file must be hash- and
+    ///   size-pinned (`require_pinned` is forced), and the revision is
+    ///   recorded only after every file is verified. Adopted files wait in the
+    ///   ordinary resumable staging dir, so a crash or pause at any point
+    ///   leaves nothing recorded; the next call re-verifies and resumes.
+    /// - Preflight counts only bytes still needed: hard-linked files need no
+    ///   space, copies count their installed size, downloads their artifact.
+    /// - `TarGz` trees are always downloaded (they have no per-file pins).
+    ///
+    /// Emits [`Event::Adopted`] per adopted file before the download events.
+    pub fn adopt_then_install(
+        &self,
+        spec: &ModelSpec,
+        opts: &InstallOptions,
+        existing: impl Fn(&FileSpec) -> Option<PathBuf>,
+        sink: impl FnMut(Event),
+    ) -> Result<InstallOutcome> {
+        let mut pinned = opts.clone();
+        pinned.require_pinned = true;
+        self.install_inner(spec, &pinned, Some(&existing), sink)
+    }
+
+    fn install_inner(
+        &self,
+        spec: &ModelSpec,
+        opts: &InstallOptions,
+        existing: Option<&ExistingFn>,
         mut sink: impl FnMut(Event),
     ) -> Result<InstallOutcome> {
         let (rev, files) = self.select_files(spec, opts, opts.require_pinned)?;
@@ -320,9 +365,46 @@ impl Store {
         fs::create_dir_all(staging.join(".dl")).map_err(|e| Error::io(staging.display(), e))?;
         let mut cache = HashCache::default();
         self.seed_from_installed(id, &key, &files, &staging, &mut cache);
+        // Partial adoption: link verified existing files into staging now;
+        // files that cannot be hard-linked are copied after preflight.
+        let mut to_copy: Vec<(&FileSpec, PathBuf)> = Vec::new();
+        if let Some(existing) = existing {
+            for f in &files {
+                let (fb, fsha) = final_pins(f);
+                let shared_ready = f.shared.as_ref().is_some_and(|k| {
+                    self.shared_path(k, &f.path)
+                        .is_ok_and(|p| pins_match(&p, fb, fsha, &mut cache))
+                });
+                if shared_ready {
+                    continue;
+                }
+                if let Some(src) = adoptable(f, &staging, existing, &mut cache) {
+                    let dest = stage_dest(&staging, f);
+                    match try_hard_link(&src, &dest) {
+                        Ok(true) => {
+                            if let Ok(h) = cache.sha(&src) {
+                                cache.0.insert(dest, h);
+                            }
+                            sink(Event::Adopted {
+                                path: f.path.clone(),
+                                linked: true,
+                            });
+                        }
+                        _ => to_copy.push((f, src)),
+                    }
+                }
+            }
+        }
 
-        // Disk preflight: what is still missing + 10% headroom.
-        let (needed, credited) = self.preflight(&files, &staging, &mut cache);
+        // Disk preflight: what is still missing + 10% headroom. A pending
+        // copy needs its installed size, not its download.
+        // (`adoptable` cleared their `.part`/archive, so preflight counted
+        // the full download + unpack for each.)
+        let (mut needed, credited) = self.preflight(&files, &staging, &mut cache);
+        for (f, _) in &to_copy {
+            let counted = f.bytes.unwrap_or(0) + f.installed_bytes.unwrap_or(0);
+            needed = needed.saturating_sub(counted) + final_pins(f).0.unwrap_or(0);
+        }
         let free = opts
             .free_bytes_override
             .or_else(|| disk::free_bytes(&self.root));
@@ -348,6 +430,27 @@ impl Store {
 
         let cancel = || opts.cancel.load(Ordering::Relaxed);
         let stop = || cancel() || opts.pause.load(Ordering::Relaxed);
+        for (f, src) in to_copy {
+            if stop() {
+                return Err(self.interrupted(rev, &key, &staging, cancel(), &mut sink));
+            }
+            let dest = stage_dest(&staging, f);
+            let (bytes, sha) = final_pins(f);
+            let _ = fs::remove_file(&dest);
+            // Best effort: a failed or mismatching copy is simply downloaded.
+            if link_or_copy(&src, &dest).is_ok() {
+                cache.forget(&dest);
+                if pins_match(&dest, bytes, sha, &mut cache) {
+                    sink(Event::Adopted {
+                        path: f.path.clone(),
+                        linked: false,
+                    });
+                } else {
+                    let _ = fs::remove_file(&dest);
+                    cache.forget(&dest);
+                }
+            }
+        }
         let agent = http_agent();
         let overall_total: u64 = files.iter().filter_map(|f| f.bytes).sum();
         let mut overall_base = 0u64;
@@ -850,6 +953,7 @@ impl Store {
             }
         }
         let dest = stage_dest(staging, f);
+        let url = self.download_url(&f.url);
         let download = |dest_path: &Path,
                         part: &Path,
                         progress: &mut dyn FnMut(u64, u64),
@@ -858,7 +962,7 @@ impl Store {
             let res = download_resumable(
                 agent,
                 DownloadRequest {
-                    url: &f.url,
+                    url: &url,
                     part_path: part,
                     dest_path,
                     expected_sha256: f.sha256.as_deref(),
@@ -987,6 +1091,47 @@ fn partial_path(staging: &Path, f: &FileSpec) -> PathBuf {
         Some(_) => archive_path(staging, f),
     };
     crate::download::part_path_for(&dest)
+}
+
+/// Partial adoption candidate: the existing file for `f` when it is a
+/// regular file matching `f`'s final size + sha256 pins and the staged copy
+/// does not already verify. A stale staged file (or `.part`) is cleared so the
+/// verified source replaces it.
+fn adoptable(
+    f: &FileSpec,
+    staging: &Path,
+    existing: &ExistingFn,
+    cache: &mut HashCache,
+) -> Option<PathBuf> {
+    if matches!(f.extract, Some(Extract::TarGz)) {
+        return None;
+    }
+    let (bytes, sha) = final_pins(f);
+    let (bytes, sha) = (bytes?, sha?);
+    let dest = stage_dest(staging, f);
+    if pins_match(&dest, Some(bytes), Some(sha), cache) {
+        return None;
+    }
+    let src = fs::canonicalize(existing(f)?).ok()?;
+    if !src.is_file() || !pins_match(&src, Some(bytes), Some(sha), cache) {
+        return None;
+    }
+    let _ = fs::remove_file(&dest);
+    cache.forget(&dest);
+    crate::download::discard_partial(&partial_path(staging, f));
+    if f.extract.is_some() {
+        let _ = fs::remove_file(archive_path(staging, f));
+    }
+    Some(src)
+}
+
+/// Hard-link `src` to `dest` (creating parents); `Ok(false)` when the volume
+/// does not allow it.
+fn try_hard_link(src: &Path, dest: &Path) -> Result<bool> {
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| Error::io(parent.display(), e))?;
+    }
+    Ok(fs::hard_link(src, dest).is_ok())
 }
 
 /// Place `src` at `dest` (which must not exist): hard link when the volume

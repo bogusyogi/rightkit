@@ -1338,7 +1338,11 @@ fn dir_size(dir: &Path) -> u64 {
             .flatten()
             .map(|e| {
                 let p = e.path();
-                if p.is_dir() {
+                // Never follow links (a legacy alias inside an entry would
+                // double-count the revision it points at).
+                if e.file_type().is_ok_and(|t| t.is_symlink()) {
+                    0
+                } else if p.is_dir() {
                     walk(&p)
                 } else {
                     e.metadata().map(|m| m.len()).unwrap_or(0)

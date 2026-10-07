@@ -7,6 +7,15 @@
 //!   returning a [`Reply`] with any status, content type, headers and binary body. Use it for
 //!   stateful flows (poll until done, fail the Nth call) and generated media (PNG/MP3/MP4).
 //!
+//! * [`MockServer::start_static`]: static routes answered with full [`Reply`]s (binary files).
+//!
+//! **HTTP `Range`.** A `200` reply to a `GET`/`HEAD` honours a single byte range
+//! (`bytes=a-b`, `bytes=a-`, suffix `bytes=-n`): `206` with `Content-Range`, or `416` with
+//! `Content-Range: bytes */<len>` when unsatisfiable. A missing, malformed or multi-range
+//! `Range`, or an `If-Range` that does not match the reply's `ETag`/`Last-Modified`, gets the
+//! full `200` body. [`Reply::ignore_range`] always sends the full body (a server without
+//! resume); [`Reply::cut_after`] drops the connection after N body bytes (a dropped download).
+//!
 //! Every connection is served on its own thread, so a slow handler or a client holding a
 //! connection open never blocks the next request. Every request is recorded ([`MockServer::seen`]).
 use crate::util::Result;
@@ -144,6 +153,90 @@ impl Reply {
         self.headers.push((name.into(), value.into()));
         self
     }
+    /// Answer every request with the full body, ignoring any `Range` (a server
+    /// that cannot resume). Recorded as the reserved [`IGNORE_RANGE_HEADER`],
+    /// which the mock consumes and never sends.
+    pub fn ignore_range(self) -> Self {
+        self.with_header(IGNORE_RANGE_HEADER, "1")
+    }
+    /// Send the response head (with the full `Content-Length`), then only the first
+    /// `bytes` body bytes, then close the connection: a download dropped mid-transfer.
+    /// Applies after any `Range` slicing. Recorded as the reserved [`CUT_AFTER_HEADER`],
+    /// which the mock consumes and never sends.
+    pub fn cut_after(self, bytes: u64) -> Self {
+        self.with_header(CUT_AFTER_HEADER, &bytes.to_string())
+    }
+}
+
+/// Reserved reply header behind [`Reply::ignore_range`]; consumed, never sent.
+pub const IGNORE_RANGE_HEADER: &str = "X-RightKit-Mock-Ignore-Range";
+/// Reserved reply header behind [`Reply::cut_after`]; consumed, never sent.
+pub const CUT_AFTER_HEADER: &str = "X-RightKit-Mock-Cut-After";
+
+/// How a reply's body is sent for one request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BodyPlan {
+    Full,
+    /// Inclusive byte range of the body.
+    Partial(u64, u64),
+    Unsatisfiable,
+}
+
+/// Parse a single `bytes=` range against a body of `len` bytes. `None` means
+/// "ignore the header" (absent, malformed or multi-range: serve the full body).
+fn plan_range(range: Option<&str>, len: u64) -> Option<BodyPlan> {
+    let spec = range?.trim().strip_prefix("bytes=")?.trim();
+    if spec.contains(',') {
+        return None;
+    }
+    let (a, b) = spec.split_once('-')?;
+    let (a, b) = (a.trim(), b.trim());
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
+    if a.is_empty() {
+        if !digits(b) {
+            return None;
+        }
+        let n: u64 = b.parse().ok()?;
+        if n == 0 || len == 0 {
+            return Some(BodyPlan::Unsatisfiable);
+        }
+        return Some(BodyPlan::Partial(len.saturating_sub(n), len - 1));
+    }
+    if !digits(a) || !(b.is_empty() || digits(b)) {
+        return None;
+    }
+    let start: u64 = a.parse().ok()?;
+    let end = if b.is_empty() {
+        None
+    } else {
+        Some(b.parse::<u64>().ok()?)
+    };
+    if end.is_some_and(|e| e < start) {
+        return None;
+    }
+    if start >= len {
+        return Some(BodyPlan::Unsatisfiable);
+    }
+    Some(BodyPlan::Partial(
+        start,
+        end.map_or(len - 1, |e| e.min(len - 1)),
+    ))
+}
+
+/// `If-Range` holds when it equals the reply's strong `ETag` or its `Last-Modified`.
+fn if_range_holds(if_range: &str, headers: &[(String, String)]) -> bool {
+    let v = if_range.trim();
+    let get = |n: &str| {
+        headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(n))
+            .map(|(_, v)| v.trim())
+    };
+    if v.starts_with('"') || v.starts_with("W/") {
+        !v.starts_with("W/") && get("etag").is_some_and(|e| e == v && !e.starts_with("W/"))
+    } else {
+        get("last-modified").is_some_and(|m| m == v)
+    }
 }
 
 /// `None` from a handler means "not mocked" (404).
@@ -184,6 +277,22 @@ impl MockServer {
                     headers: vec![],
                     body: r.body.to_string().into_bytes(),
                 })
+        })
+    }
+
+    /// Static routes answered with full [`Reply`]s (binary bodies, extra headers such as a
+    /// strong `ETag`, [`Reply::ignore_range`], [`Reply::cut_after`]): `(method, path, reply)`,
+    /// first match wins, `None` method matches any, query ignored; unmatched requests get 404.
+    pub fn start_static(routes: Vec<(Option<String>, String, Reply)>) -> Result<Self> {
+        Self::start_with(move |req: &Request, _base: &str| {
+            routes
+                .iter()
+                .find(|(m, p, _)| {
+                    *p == req.route()
+                        && m.as_deref()
+                            .is_none_or(|m| m.eq_ignore_ascii_case(&req.method))
+                })
+                .map(|(_, _, r)| r.clone())
         })
     }
 
@@ -298,19 +407,70 @@ fn serve(
     seen.lock().unwrap().push(req.clone());
     let reply = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(&req, base)))
         .unwrap_or_else(|_| Reply::status(500, json!({"error": "mock handler panicked"})));
+    write_reply(&mut s, &req, reply)
+}
+
+fn write_reply(s: &mut TcpStream, req: &Request, mut reply: Reply) -> std::io::Result<()> {
+    let take = |reply: &mut Reply, name: &str| -> Option<String> {
+        let i = reply
+            .headers
+            .iter()
+            .position(|(k, _)| k.eq_ignore_ascii_case(name))?;
+        Some(reply.headers.remove(i).1)
+    };
+    let ignore_range = take(&mut reply, IGNORE_RANGE_HEADER).is_some();
+    let cut_after = take(&mut reply, CUT_AFTER_HEADER).and_then(|v| v.trim().parse::<u64>().ok());
+    let len = reply.body.len() as u64;
+    let ranged_method =
+        req.method.eq_ignore_ascii_case("GET") || req.method.eq_ignore_ascii_case("HEAD");
+    let plan = if reply.status == 200 && ranged_method && !ignore_range {
+        let honoured = req
+            .header("if-range")
+            .is_none_or(|v| if_range_holds(v, &reply.headers));
+        honoured
+            .then(|| plan_range(req.header("range"), len))
+            .flatten()
+            .unwrap_or(BodyPlan::Full)
+    } else {
+        BodyPlan::Full
+    };
+    let (status, reason, body, extra): (u16, &str, &[u8], Option<String>) = match plan {
+        BodyPlan::Full => (reply.status, "X", &reply.body[..], None),
+        BodyPlan::Partial(a, b) => (
+            206,
+            "Partial Content",
+            &reply.body[a as usize..=b as usize],
+            Some(format!(
+                "Content-Range: bytes {a}-{b}/{len}\r\nAccept-Ranges: bytes\r\n"
+            )),
+        ),
+        BodyPlan::Unsatisfiable => (
+            416,
+            "Range Not Satisfiable",
+            &[][..],
+            Some(format!(
+                "Content-Range: bytes */{len}\r\nAccept-Ranges: bytes\r\n"
+            )),
+        ),
+    };
     let mut head = format!(
-        "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
-        reply.status,
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
         reply.content_type,
-        reply.body.len()
+        body.len()
     );
+    head.push_str(extra.as_deref().unwrap_or(""));
     for (k, v) in &reply.headers {
         head.push_str(&format!("{k}: {v}\r\n"));
     }
     head.push_str("\r\n");
     s.write_all(head.as_bytes())?;
-    if req.method != "HEAD" {
-        s.write_all(&reply.body)?;
+    if !req.method.eq_ignore_ascii_case("HEAD") {
+        let n = cut_after.map_or(body.len(), |c| (c as usize).min(body.len()));
+        s.write_all(&body[..n])?;
+        if n < body.len() {
+            s.flush()?;
+            return s.shutdown(std::net::Shutdown::Both);
+        }
     }
     s.flush()
 }
@@ -414,5 +574,174 @@ mod tests {
         let r = get(&m, "GET", "/", None);
         assert_eq!(r.text(), "ok");
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    /// Raw GET with extra headers: (status, lowercase headers, body, eof_reached_cleanly).
+    fn raw(
+        m: &MockServer,
+        method: &str,
+        path: &str,
+        extra: &[(&str, &str)],
+    ) -> (u16, Vec<(String, String)>, Vec<u8>) {
+        let mut s = TcpStream::connect(m.addr).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut head = format!("{method} {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n");
+        for (k, v) in extra {
+            head.push_str(&format!("{k}: {v}\r\n"));
+        }
+        head.push_str("\r\n");
+        s.write_all(head.as_bytes()).unwrap();
+        let mut buf = Vec::new();
+        let _ = s.read_to_end(&mut buf);
+        let split = buf.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let text = String::from_utf8_lossy(&buf[..split]).to_string();
+        let mut lines = text.lines();
+        let status = lines
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .parse()
+            .unwrap();
+        let headers = lines
+            .filter_map(|l| l.split_once(':'))
+            .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
+            .collect();
+        (status, headers, buf[split + 4..].to_vec())
+    }
+
+    fn hdr<'a>(h: &'a [(String, String)], name: &str) -> Option<&'a str> {
+        h.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+    }
+
+    fn data() -> Vec<u8> {
+        (0..1000u32).map(|i| (i * 7 % 251) as u8).collect()
+    }
+
+    #[test]
+    fn static_and_dynamic_binary_replies_serve_byte_ranges() {
+        let body = data();
+        let file =
+            Reply::bytes("application/octet-stream", body.clone()).with_header("ETag", "\"abc\"");
+        let st = MockServer::start_static(vec![
+            (Some("GET".into()), "/f.bin".into(), file.clone()),
+            (Some("HEAD".into()), "/f.bin".into(), file.clone()),
+        ])
+        .unwrap();
+        let f2 = file.clone();
+        let dy = MockServer::start_with(move |_: &Request, _: &str| f2.clone()).unwrap();
+        for m in [&st, &dy] {
+            let (s, h, b) = raw(m, "GET", "/f.bin", &[]);
+            assert_eq!((s, b.as_slice()), (200, &body[..]), "no Range: full 200");
+            assert_eq!(hdr(&h, "content-range"), None);
+
+            let (s, h, b) = raw(m, "GET", "/f.bin", &[("Range", "bytes=10-19")]);
+            assert_eq!(s, 206);
+            assert_eq!(b, &body[10..20]);
+            assert_eq!(hdr(&h, "content-range"), Some("bytes 10-19/1000"));
+            assert_eq!(hdr(&h, "content-length"), Some("10"));
+            assert_eq!(hdr(&h, "etag"), Some("\"abc\""));
+
+            let (s, h, b) = raw(m, "GET", "/f.bin", &[("Range", "bytes=990-")]);
+            assert_eq!((s, b.as_slice()), (206, &body[990..]));
+            assert_eq!(hdr(&h, "content-range"), Some("bytes 990-999/1000"));
+
+            let (s, h, b) = raw(m, "GET", "/f.bin", &[("Range", "bytes=-5")]);
+            assert_eq!((s, b.as_slice()), (206, &body[995..]));
+            assert_eq!(hdr(&h, "content-range"), Some("bytes 995-999/1000"));
+
+            let (s, h, b) = raw(m, "GET", "/f.bin", &[("Range", "bytes=-5000")]);
+            assert_eq!(
+                (s, b.as_slice()),
+                (206, &body[..]),
+                "suffix longer than the body"
+            );
+            assert_eq!(hdr(&h, "content-range"), Some("bytes 0-999/1000"));
+
+            let (s, h, b) = raw(m, "GET", "/f.bin", &[("Range", "bytes=995-5000")]);
+            assert_eq!((s, b.as_slice()), (206, &body[995..]), "end clamped");
+            assert_eq!(hdr(&h, "content-range"), Some("bytes 995-999/1000"));
+
+            for unsat in ["bytes=1000-", "bytes=5000-6000", "bytes=-0"] {
+                let (s, h, b) = raw(m, "GET", "/f.bin", &[("Range", unsat)]);
+                assert_eq!(s, 416, "{unsat}");
+                assert!(b.is_empty());
+                assert_eq!(hdr(&h, "content-range"), Some("bytes */1000"));
+            }
+            for ignored in ["bytes=5-1", "bytes=0-1,5-6", "items=0-1", "bytes=x-"] {
+                let (s, _, b) = raw(m, "GET", "/f.bin", &[("Range", ignored)]);
+                assert_eq!((s, b.as_slice()), (200, &body[..]), "{ignored}");
+            }
+            // If-Range: matching ETag resumes, anything else gets the full body.
+            let (s, _, b) = raw(
+                m,
+                "GET",
+                "/f.bin",
+                &[("Range", "bytes=10-"), ("If-Range", "\"abc\"")],
+            );
+            assert_eq!((s, b.as_slice()), (206, &body[10..]));
+            let (s, _, b) = raw(
+                m,
+                "GET",
+                "/f.bin",
+                &[("Range", "bytes=10-"), ("If-Range", "\"old\"")],
+            );
+            assert_eq!((s, b.as_slice()), (200, &body[..]));
+            // HEAD: the range head, no body.
+            let (s, h, b) = raw(m, "HEAD", "/f.bin", &[("Range", "bytes=0-9")]);
+            assert_eq!(s, 206);
+            assert!(b.is_empty());
+            assert_eq!(hdr(&h, "content-length"), Some("10"));
+        }
+        assert_eq!(raw(&st, "POST", "/f.bin", &[]).0, 404, "method filter");
+        // Non-200 replies are never sliced.
+        let err =
+            MockServer::start_with(|_: &Request, _: &str| Reply::text("nope").with_status(500))
+                .unwrap();
+        let (s, _, b) = raw(&err, "GET", "/", &[("Range", "bytes=0-1")]);
+        assert_eq!((s, b.as_slice()), (500, &b"nope"[..]));
+    }
+
+    #[test]
+    fn ignore_range_and_cut_after_simulate_no_resume_and_dropped_connections() {
+        let body = data();
+        let b2 = body.clone();
+        let m = MockServer::start_with(move |req: &Request, _: &str| {
+            let r = Reply::bytes("application/octet-stream", b2.clone());
+            match req.route() {
+                "/norange" => r.ignore_range(),
+                "/drop" => r.cut_after(100),
+                _ => r,
+            }
+        })
+        .unwrap();
+        let (s, h, b) = raw(&m, "GET", "/norange", &[("Range", "bytes=10-")]);
+        assert_eq!((s, b.as_slice()), (200, &body[..]));
+        assert_eq!(hdr(&h, "content-range"), None);
+        assert!(
+            h.iter().all(|(k, _)| !k.starts_with("x-rightkit-mock")),
+            "reserved headers are never sent: {h:?}"
+        );
+
+        let (s, h, b) = raw(&m, "GET", "/drop", &[]);
+        assert_eq!(s, 200);
+        assert_eq!(
+            hdr(&h, "content-length"),
+            Some("1000"),
+            "head promises the full body"
+        );
+        assert_eq!(b, &body[..100], "then the connection drops");
+        let (s, h, b) = raw(&m, "GET", "/drop", &[("Range", "bytes=500-")]);
+        assert_eq!(s, 206);
+        assert_eq!(hdr(&h, "content-length"), Some("500"));
+        assert_eq!(b, &body[500..600], "cut applies after range slicing");
+        // The reserved headers are consumed even on static replies.
+        let st =
+            MockServer::start_static(vec![(None, "/x".into(), Reply::text("hello").cut_after(2))])
+                .unwrap();
+        let (_, h, b) = raw(&st, "GET", "/x", &[]);
+        assert_eq!(b, b"he");
+        assert!(h.iter().all(|(k, _)| !k.starts_with("x-rightkit-mock")));
     }
 }

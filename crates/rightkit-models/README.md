@@ -25,5 +25,20 @@ Also (0.2.0):
   `FitKind::{RentalOnly, Api}`, `Hardware::probe_with(HardwareOverride)`
   (app-supplied path or JSON, lenient shape), `ProfileAlias`.
 
-See `tests/install.rs` and `tests/adoption.rs` for end-to-end usage against a
-local HTTP server.
+Also (0.2.1):
+
+- `Store::adopt_then_install`: partial adoption in one locked install: adopt
+  every present, pin-matching file (hard link, else copy), download only the
+  missing or mismatching ones, one atomic swap. Pins are required; nothing is
+  recorded until every file verifies; preflight counts only bytes still needed.
+- `Store::with_legacy_alias_map` / `with_legacy_alias_paths`: per-id alias
+  locations, including inside the store root (`<root>/<id>/rN`, never a
+  store-owned name) or a flat runtime dir allowed with
+  `Store::with_legacy_alias_allowed_root`. Real paths are never replaced.
+- `Store::with_url_rewrite(base)`: test/dev seam that sends downloads to a
+  loopback mock (`http://` on `127.0.0.0/8`, `localhost` or `[::1]` only;
+  never read from the environment). `Store::download_url` shows the result.
+
+See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`
+and `tests/e2e_resume.rs` (rightkit-qa `MockServer`: Range, dropped
+connections, servers without resume) for end-to-end usage.
