@@ -543,7 +543,7 @@ test("RightKit exposes one current version manifest", () => {
       "rightkit-audio": "0.1.0",
     "rightkit-browser": "0.1.0",
     "rightkit-cache": "0.1.0",
-    "rightkit-control": "0.1.0",
+    "rightkit-control": "0.1.1",
     "rightkit-crash": "0.1.0",
     "rightkit-db": "0.1.0",
     "rightkit-framed-sidecar": "0.1.0",

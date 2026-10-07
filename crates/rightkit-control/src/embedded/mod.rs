@@ -23,9 +23,22 @@
 //!   owner-only; password/one-time-code/data-rk-secret elements and `mask` selectors are
 //!   hidden during capture so secrets never reach the file)
 //!   command{name,args}  typed app commands registered with `Control::command`
+//!   lease_acquire{reconcile?:"delivered"|"lost"}  lease_release{leaseEpoch}
+//!   lease_reconcile{leaseEpoch,decision}  lease_status
+//!
+//! EFF-001: every effectful method (input, eval, screenshot, command) passes
+//! the plugin's [`EffectGate`] (`Control::gate`; default allow-all) before any
+//! side effect and is settled with lifecycle events. PTY-002: when
+//! `Control::input_lease` is set, input methods additionally require
+//! `leaseEpoch` + `inputSequence` and are fenced/sequenced by the lease before
+//! they reach the admission hook.
 
+use crate::admission::{
+    CancelToken, EffectGate, EffectKind, EffectRequest, ExecError, SettleOutcome,
+};
 use crate::json::esc;
 use crate::keys;
+use crate::lease::{InputError, InputLease, InputOutcome, UnacknowledgedInputDecision};
 use rightkit_service::{
     host, Allowlist, CallContext, Emit, Handler, ServiceConfig, ServiceError, Suite,
 };
@@ -154,7 +167,22 @@ pub const METHODS: &[&str] = &[
     "ax",
     "screenshot",
     "command",
+    "lease_acquire",
+    "lease_release",
+    "lease_reconcile",
+    "lease_status",
 ];
+
+/// Effect kind of a control method; `None` for reads and lease management.
+pub fn effect_kind(method: &str) -> Option<EffectKind> {
+    match method {
+        "click" | "move" | "drag" | "wheel" | "key" | "type" => Some(EffectKind::Input),
+        "eval" => Some(EffectKind::Script),
+        "screenshot" => Some(EffectKind::Capture),
+        "command" => Some(EffectKind::Command),
+        _ => None,
+    }
+}
 
 /// Builder for the control plugin. `command` registers typed app verbs that
 /// agents call through the `command` method (the closure gets the raw JSON
@@ -163,6 +191,8 @@ pub struct Control<R: Runtime> {
     label: String,
     commands: HashMap<String, CommandFn<R>>,
     allow: Allowlist,
+    gate: Arc<EffectGate>,
+    lease: Option<Arc<InputLease>>,
 }
 
 impl<R: Runtime> Default for Control<R> {
@@ -182,7 +212,20 @@ impl<R: Runtime> Control<R> {
             label: "main".into(),
             commands: HashMap::new(),
             allow,
+            gate: Arc::new(EffectGate::allow_all()),
+            lease: None,
         }
+    }
+    /// EFF-001 admission authority for every effectful method (default
+    /// [`EffectGate::allow_all`]). Install hook and event sink on the gate.
+    pub fn gate(mut self, gate: Arc<EffectGate>) -> Self {
+        self.gate = gate;
+        self
+    }
+    /// PTY-002: require `leaseEpoch`/`inputSequence` on input methods.
+    pub fn input_lease(mut self, lease: Arc<InputLease>) -> Self {
+        self.lease = Some(lease);
+        self
     }
     pub fn window(mut self, label: &str) -> Self {
         self.label = label.into();
@@ -218,6 +261,8 @@ impl<R: Runtime> Control<R> {
             label,
             commands,
             allow,
+            gate,
+            lease,
         } = self;
         let commands = Arc::new(commands);
         tauri::plugin::Builder::new("rightkit-control")
@@ -229,6 +274,10 @@ impl<R: Runtime> Control<R> {
                         service,
                         commands.clone(),
                         allow.clone(),
+                        Guards {
+                            gate: gate.clone(),
+                            lease: lease.clone(),
+                        },
                     )?;
                 }
                 Ok(())
@@ -249,6 +298,13 @@ struct ControlHandler<R: Runtime> {
     commands: Arc<HashMap<String, CommandFn<R>>>,
     shots: std::path::PathBuf,
     shot_seq: AtomicU64,
+    guards: Guards,
+}
+
+#[derive(Clone)]
+struct Guards {
+    gate: Arc<EffectGate>,
+    lease: Option<Arc<InputLease>>,
 }
 
 fn serve<R: Runtime>(
@@ -257,6 +313,7 @@ fn serve<R: Runtime>(
     service: String,
     commands: Arc<HashMap<String, CommandFn<R>>>,
     allow: Allowlist,
+    guards: Guards,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Fail closed: no absolute suite root means no server, never a cwd-relative one.
     let suite = Suite::resolve()?;
@@ -274,6 +331,7 @@ fn serve<R: Runtime>(
         commands,
         shots,
         shot_seq: AtomicU64::new(0),
+        guards,
     });
     let hosted = host(&suite, cfg, handler)?;
     // Hosted releases on drop; the plugin keeps it for the life of the process.
@@ -292,6 +350,161 @@ impl<R: Runtime> Handler for ControlHandler<R> {
         if method == "health" {
             return Ok(json!({"ok": true, "service": "rightkit-control"}));
         }
+        if let Some(r) = self.lease_method(method, params) {
+            return r;
+        }
+        // Precondition (no side effect), kept retryable as before the gate.
+        if self.app.get_webview_window(&self.label).is_none() {
+            return Err(ServiceError::retryable(
+                "window_not_found",
+                "webview window not created yet",
+            ));
+        }
+        let Some(kind) = effect_kind(method) else {
+            return self.execute(method, params);
+        };
+        let request = EffectRequest::new(kind, method, &self.label).with_params(params.to_string());
+        let cancel = CancelToken::new();
+        let exec = |_: &CancelToken| {
+            self.execute(method, params).map_err(|e| {
+                ExecError::Failed(if e.code == "control_error" {
+                    e.message
+                } else {
+                    format!("{}: {}", e.code, e.message)
+                })
+            })
+        };
+        if let (EffectKind::Input, Some(lease)) = (kind, &self.guards.lease) {
+            let epoch = u64_param(params, "leaseEpoch")?;
+            let seq = u64_param(params, "inputSequence")?;
+            let session =
+                crate::lease::ControlSession::new(lease.clone(), self.guards.gate.clone());
+            return match session.input(epoch, seq, request, &cancel, exec) {
+                Ok(InputOutcome::Applied { ack, value }) => {
+                    Ok(with_ack(value, ack.epoch, ack.sequence, false))
+                }
+                Ok(InputOutcome::Duplicate { ack }) => {
+                    Ok(with_ack(json!({"ok": true}), ack.epoch, ack.sequence, true))
+                }
+                Err(InputError::Lease(e)) => Err(ServiceError::new(
+                    format!("lease_{}", e.label()),
+                    e.to_string(),
+                )),
+                Err(InputError::NotDelivered { reason }) => Err(ServiceError::new(
+                    if reason.starts_with("denied") {
+                        "denied"
+                    } else {
+                        "not_delivered"
+                    },
+                    reason,
+                )),
+                Err(e @ InputError::Ambiguous { .. }) => {
+                    Err(ServiceError::new("input_unacknowledged", e.to_string()))
+                }
+            };
+        }
+        let effect = self.guards.gate.admit(request, &cancel, exec);
+        let st = &effect.settlement;
+        match st.outcome {
+            SettleOutcome::Ok => Ok(effect.value.unwrap_or(Value::Null)),
+            SettleOutcome::Denied => Err(ServiceError::new(
+                "denied",
+                st.reason.clone().unwrap_or_default(),
+            )),
+            SettleOutcome::Cancelled => Err(ServiceError::new(
+                "cancelled",
+                st.reason.clone().unwrap_or_default(),
+            )),
+            SettleOutcome::Failed => Err(ServiceError::new(
+                "control_error",
+                st.reason.clone().unwrap_or_default(),
+            )),
+        }
+    }
+}
+
+fn u64_param(params: &Value, key: &str) -> Result<u64, ServiceError> {
+    params.get(key).and_then(Value::as_u64).ok_or_else(|| {
+        ServiceError::new("lease_required", format!("input requires integer '{key}'"))
+    })
+}
+
+fn with_ack(mut value: Value, epoch: u64, sequence: u64, duplicate: bool) -> Value {
+    if let Value::Object(map) = &mut value {
+        map.insert("leaseEpoch".into(), json!(epoch));
+        map.insert("ackedInputSequence".into(), json!(sequence));
+        map.insert("duplicate".into(), json!(duplicate));
+    }
+    value
+}
+
+fn snapshot_json(s: crate::lease::LeaseSnapshot) -> Value {
+    json!({
+        "ok": true,
+        "leaseEpoch": s.epoch,
+        "attached": s.attached,
+        "nextInputSequence": s.next_input_sequence,
+        "ackedInputSequence": s.acked_input_sequence,
+        "unacknowledgedInput": s.unacknowledged_input.map(|(a, b)| json!([a, b])),
+    })
+}
+
+impl<R: Runtime> ControlHandler<R> {
+    /// `lease_*` methods; `None` when `method` is not one of them.
+    fn lease_method(&self, method: &str, params: &Value) -> Option<Result<Value, ServiceError>> {
+        if !method.starts_with("lease_") {
+            return None;
+        }
+        let Some(lease) = &self.guards.lease else {
+            return Some(Err(ServiceError::new(
+                "lease_disabled",
+                "no input lease configured",
+            )));
+        };
+        let decision = |k: &str| match params.get(k).and_then(Value::as_str) {
+            Some("delivered") => Ok(Some(UnacknowledgedInputDecision::ReconcileAsDelivered)),
+            Some("lost") => Ok(Some(UnacknowledgedInputDecision::ReconcileAsLost)),
+            None => Ok(None),
+            Some(other) => Err(ServiceError::new(
+                "bad_request",
+                format!("unknown decision '{other}'"),
+            )),
+        };
+        let lease_err = |e: crate::lease::LeaseError| {
+            ServiceError::new(format!("lease_{}", e.label()), e.to_string())
+        };
+        Some((|| match method {
+            "lease_status" => Ok(snapshot_json(lease.snapshot())),
+            "lease_acquire" => {
+                let grant = match decision("reconcile")? {
+                    Some(d) => lease.acquire_reconciling(d),
+                    None => lease.acquire().map_err(lease_err)?,
+                };
+                Ok(
+                    json!({"ok": true, "leaseEpoch": grant.epoch, "nextInputSequence": grant.next_input_sequence, "fencedEpoch": grant.fenced_epoch}),
+                )
+            }
+            "lease_release" => lease
+                .release(u64_param(params, "leaseEpoch")?)
+                .map(snapshot_json)
+                .map_err(lease_err),
+            "lease_reconcile" => {
+                let d = decision("decision")?
+                    .ok_or_else(|| ServiceError::new("bad_request", "missing 'decision'"))?;
+                lease
+                    .reconcile(u64_param(params, "leaseEpoch")?, d)
+                    .map(snapshot_json)
+                    .map_err(lease_err)
+            }
+            _ => Err(ServiceError::new(
+                "bad_request",
+                format!("unknown method {method}"),
+            )),
+        })())
+    }
+
+    /// Execute stage: the only place control side effects happen.
+    fn execute(&self, method: &str, params: &Value) -> Result<Value, ServiceError> {
         let Some(win) = self.app.get_webview_window(&self.label) else {
             return Err(ServiceError::retryable(
                 "window_not_found",
@@ -509,5 +722,17 @@ mod tests {
     fn key_char_names() {
         assert_eq!(key_char("Enter"), "\r");
         assert!(METHODS.contains(&"screenshot"));
+    }
+    #[test]
+    fn effectful_methods_are_classified() {
+        for m in ["click", "move", "drag", "wheel", "key", "type"] {
+            assert_eq!(effect_kind(m), Some(EffectKind::Input), "{m}");
+        }
+        assert_eq!(effect_kind("eval"), Some(EffectKind::Script));
+        assert_eq!(effect_kind("screenshot"), Some(EffectKind::Capture));
+        assert_eq!(effect_kind("command"), Some(EffectKind::Command));
+        for m in ["health", "dom", "ax", "lease_status", "lease_acquire"] {
+            assert_eq!(effect_kind(m), None, "{m}");
+        }
     }
 }

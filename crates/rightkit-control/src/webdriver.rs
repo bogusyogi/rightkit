@@ -5,10 +5,12 @@
 //! Accessibility and acts with background per-pid input. A proxy backend that
 //! forwards to an in-app embedded WebDriver (tauri-plugin-wdio) and only
 //! overrides input is specified in the design doc.
+use crate::admission::{CancelToken, EffectGate, EffectKind, EffectRequest, ExecError};
 use crate::json::{esc, str_field};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub const ELEMENT_KEY: &str = "element-6066-11e4-a52e-4f735466cecf";
@@ -25,6 +27,7 @@ pub struct Server<B: Backend> {
     pub backend: B,
     sessions: HashMap<String, ()>,
     next: u32,
+    gate: Arc<EffectGate>,
 }
 
 pub fn b64(data: &[u8]) -> String {
@@ -64,6 +67,41 @@ impl<B: Backend> Server<B> {
             backend,
             sessions: HashMap::new(),
             next: 1,
+            gate: Arc::new(EffectGate::allow_all()),
+        }
+    }
+
+    /// Route every effectful command (element click / send keys) through
+    /// `gate` (EFF-001). Default is [`EffectGate::allow_all`].
+    pub fn with_gate(mut self, gate: Arc<EffectGate>) -> Self {
+        self.gate = gate;
+        self
+    }
+
+    pub fn gate(&self) -> &Arc<EffectGate> {
+        &self.gate
+    }
+
+    fn effect(
+        &mut self,
+        kind: EffectKind,
+        method: &str,
+        element: &str,
+        params: &str,
+        run: impl FnOnce(&mut B) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let gate = self.gate.clone();
+        let backend = &mut self.backend;
+        let req = EffectRequest::new(kind, method, element).with_params(params);
+        let effect = gate.admit(req, &CancelToken::new(), |_| {
+            run(backend).map_err(ExecError::from)
+        });
+        match effect.settlement.outcome {
+            // Executor errors keep their pre-gate text; only gate refusals are prefixed.
+            crate::admission::SettleOutcome::Failed if !effect.settlement.crashed => {
+                Err(effect.settlement.reason.unwrap_or_default())
+            }
+            _ => effect.into_result(),
         }
     }
 
@@ -95,13 +133,17 @@ impl<B: Backend> Server<B> {
                     Err(m) => err(404, "no such element", &m),
                 }
             }
-            ("POST", ["session", _, "element", e, "click"]) => match self.backend.click(e) {
-                Ok(()) => ok("null"),
-                Err(m) => err(400, "element click intercepted", &m),
-            },
+            ("POST", ["session", _, "element", e, "click"]) => {
+                match self.effect(EffectKind::Input, "click", e, body, |b| b.click(e)) {
+                    Ok(()) => ok("null"),
+                    Err(m) => err(400, "element click intercepted", &m),
+                }
+            }
             ("POST", ["session", _, "element", e, "value"]) => {
                 let text = str_field(body, "text").unwrap_or_default();
-                match self.backend.send_keys(e, &text) {
+                match self.effect(EffectKind::Input, "send_keys", e, body, |b| {
+                    b.send_keys(e, &text)
+                }) {
                     Ok(()) => ok("null"),
                     Err(m) => err(400, "element not interactable", &m),
                 }
@@ -364,5 +406,36 @@ mod tests {
         assert_eq!(s.handle("POST", "/session/zzz/element", "{}").0, 404);
         assert_eq!(s.backend.0, ["find link text Go", "click e1"]);
         assert_eq!(b64(b"abcd"), "YWJjZA==");
+    }
+
+    #[test]
+    fn denied_click_never_reaches_backend() {
+        use crate::admission::{AdmissionDecision, SettleOutcome};
+        let gate = Arc::new(EffectGate::new(|r: &EffectRequest| {
+            if r.method == "click" {
+                AdmissionDecision::deny("clicks blocked")
+            } else {
+                AdmissionDecision::Allow
+            }
+        }));
+        let mut s = Server::new(Fake(vec![])).with_gate(gate.clone());
+        s.handle("POST", "/session", "{}");
+        s.handle(
+            "POST",
+            "/session/rkc-1/element",
+            r#"{"using":"css","value":"x"}"#,
+        );
+        let (c, r) = s.handle("POST", "/session/rkc-1/element/e1/click", "{}");
+        assert_eq!(c, 400);
+        assert!(r.contains("denied"), "{r}");
+        let (c, _) = s.handle(
+            "POST",
+            "/session/rkc-1/element/e1/value",
+            r#"{"text":"hi"}"#,
+        );
+        assert_eq!(c, 200);
+        assert_eq!(s.backend.0, ["find css x", "keys hi"]);
+        let outcomes: Vec<_> = gate.settlements().iter().map(|x| x.outcome).collect();
+        assert_eq!(outcomes, [SettleOutcome::Denied, SettleOutcome::Ok]);
     }
 }
