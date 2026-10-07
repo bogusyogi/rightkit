@@ -49,7 +49,7 @@ import {
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 const PRIORITIES = new Set(['BATCH', 'INTERACTIVE', 'INSTALLER']);
 const DEFAULT_OUTPUT_BYTES = 8 * 1024 * 1024;
-const CANCELLATION_SOURCES = new Set(['USER_CANCEL', 'OPERATOR_CANCEL', 'CLIENT_SIGNAL', 'PARENT_CANCEL', 'BROKER_SHUTDOWN', 'DEADLINE', 'STORAGE_FLOOR', 'CONTAINMENT_FAILURE', 'RELEASE_PRIORITY_CANCEL', 'UNKNOWN']);
+const CANCELLATION_SOURCES = new Set(['USER_CANCEL', 'OPERATOR_CANCEL', 'CLIENT_SIGNAL', 'PARENT_CANCEL', 'BROKER_SHUTDOWN', 'DEADLINE', 'STORAGE_FLOOR', 'STALL_WATCHDOG', 'CONTAINMENT_FAILURE', 'RELEASE_PRIORITY_CANCEL', 'UNKNOWN']);
 const execFile = promisify(nodeExecFile);
 
 /** Cache profile for a broker job: 'release' (shipping; CARGO_INCREMENTAL=0 so every crate is
@@ -102,6 +102,7 @@ const BROKER_ENDPOINT_ENVIRONMENT_KEY = 'RIGHTKIT_BUILD_BROKER_SOCKET';
 // and even cancel hang forever (CodeRight, 2026-10-06). After the root process exits, wait a bounded
 // time for output to drain, then release the pipes and settle on the exit status.
 export const STDIO_DRAIN_MS = 10_000;
+const STALL_SAMPLE_MS = 10_000;
 
 /** A registry token travels only as credentialStdin, and only to a capability that pipes it (cargo login). */
 export function validateCredentialStdin(capability, credential) {
@@ -686,6 +687,8 @@ export class ThinJobService {
   async #finish(job, status, details) {
     if (job.terminal) return job.terminal;
     if (job.deadline) clearTimeout(job.deadline);
+    if (job.sampleTimer) clearInterval(job.sampleTimer);
+    job.stallProbe = null;
     // Rotation is only for uncertain writers (an unreaped process may still be
     // writing into the tree). A cleanly-reaped job cancelled for
     // sccache-unavailable leaves a trustworthy target: Cargo persists a crate's
@@ -839,9 +842,11 @@ export class ThinJobService {
   }
 
   #startSampling(job) {
-    const interval = integer(this.#config.bounds?.heartbeatIntervalMs, 5_000, 100);
+    const heartbeat = integer(this.#config.bounds?.heartbeatIntervalMs, 5_000, 100);
+    const interval = !job.parentId && integer(this.#config.bounds?.stallQuietMs, 900_000) > 0 ? Math.min(heartbeat, STALL_SAMPLE_MS) : heartbeat;
     job.sampleTimer = setInterval(() => {
       const measured = this.#sampleResourceState(job);
+      this.#checkStall(job);
       const sample = { resources: measured, type: 'RUNNING', id: job.id, elapsedMs: this.#now() - job.startedAt, outputBytes: job.outputBytes, lastOutputAt: job.lastOutputAt ? new Date(job.lastOutputAt).toISOString() : null };
       Promise.resolve(this.#statfs(this.#config.broker.externalRoot.path)).then((value) => {
         sample.freeDiskBytes = Number(value.bavail) * Number(value.bsize);
@@ -850,8 +855,61 @@ export class ThinJobService {
     }, interval); job.sampleTimer.unref?.();
   }
 
+  #quietMs(job, now = this.#now()) {
+    return Math.max(0, now - (job.lastOutputAt ?? job.startedAt));
+  }
+
+  #stallEvent(job, type, quietMs, cpuDeltaMs, reason = null) {
+    const message = type === 'JOB_STALLED'
+      ? `no output for ${(quietMs / 60_000).toFixed(1)} min and no CPU${cpuDeltaMs === null ? ' (process resources unavailable)' : ''}`
+      : `stall cleared: ${reason === 'output' ? 'output resumed' : 'CPU advanced'}`;
+    const event = Object.freeze({ type, id: job.id, command: job.command, workspace: job.workspaceRoot, quietMs, cpuDeltaMs, processResources: job.processResources, ...(reason ? { reason } : {}), message });
+    this.#publish(job, { type: 'JOB_EVENT', id: job.id, event });
+    // Existing rightkit callers render STDERR only. Broker diagnostics must not
+    // pass through #output: they are not evidence of process output/progress.
+    this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: `rightkit: job ${job.id} ${message}\n` } });
+    void this.#log(event);
+  }
+
+  #clearStall(job, reason, cpuDeltaMs = null) {
+    job.stallProbe = null;
+    if (job.stalledAt == null) return;
+    job.stalledAt = null;
+    this.#stallEvent(job, 'JOB_STALL_CLEARED', this.#quietMs(job), cpuDeltaMs, reason);
+  }
+
+  #checkStall(job) {
+    const quietLimit = integer(this.#config.bounds?.stallQuietMs, 900_000);
+    if (!quietLimit || job.parentId || job.state !== 'RUNNING' || job.terminal || job.cancelReason || job.teardownStartedAt != null) return;
+    const now = this.#now(); const quietMs = this.#quietMs(job, now);
+    const cpuTotalMs = job.processResources?.status === 'OK' ? job.processResources.cpuTotalMs : null;
+    const previousCpu = job.stallLastCpuMs;
+    if (cpuTotalMs !== null) job.stallLastCpuMs = cpuTotalMs;
+    if (job.stalledAt != null && cpuTotalMs !== null && previousCpu != null && cpuTotalMs > previousCpu) {
+      this.#clearStall(job, 'cpu', cpuTotalMs - previousCpu);
+      // Require another full observation window before declaring a new stall.
+      if (quietMs >= quietLimit) job.stallProbe = { at: now, cpuTotalMs };
+      return;
+    }
+    if (quietMs < quietLimit) { job.stallProbe = null; return; }
+    if (!job.stallProbe) { job.stallProbe = { at: now, cpuTotalMs }; return; }
+    if (now - job.stallProbe.at >= STALL_SAMPLE_MS) {
+      const cpuDeltaMs = cpuTotalMs !== null && job.stallProbe.cpuTotalMs !== null ? cpuTotalMs - job.stallProbe.cpuTotalMs : null;
+      job.stallProbe = { at: now, cpuTotalMs };
+      if (cpuDeltaMs > 0) return;
+      if (job.stalledAt == null) {
+        job.stalledAt = now;
+        this.#stallEvent(job, 'JOB_STALLED', quietMs, cpuDeltaMs);
+      }
+    }
+    const killLimit = integer(this.#config.bounds?.stallKillMs, 2_700_000);
+    if (job.stalledAt != null && killLimit > 0 && quietMs >= killLimit) this.#requestCancel(job, 'stalled');
+  }
+
   #output(job, type, chunk) {
+    if (!chunk.length) return;
     const data = Buffer.from(chunk); if (type === 'STDOUT') job.freshnessTracker?.feed(data); job.outputBytes += data.length; job.outputDigest.update(data); job.lastOutputAt = this.#now();
+    this.#clearStall(job, 'output');
     const headLimit = integer(this.#config.bounds?.outputHeadBytes, 16 * 1024); const tailLimit = integer(this.#config.bounds?.outputTailBytes, 16 * 1024);
     if (job.outputHead.length < headLimit) job.outputHead = Buffer.concat([job.outputHead, data.subarray(0, headLimit - job.outputHead.length)]);
     job.outputTail = appendTail(job.outputTail, data, tailLimit);
@@ -897,6 +955,7 @@ export class ThinJobService {
       queueMs: Number.isSafeInteger(receipt?.queueMs) ? receipt.queueMs : job.startedAt ? Math.max(0, job.startedAt - job.submittedAt) : typeof job.submittedAt === 'number' ? Math.max(0, now - job.submittedAt) : null,
       outputBytes: job.outputBytes ?? 0,
       lastOutputAt: job.lastOutputAt ? new Date(job.lastOutputAt).toISOString() : null,
+      ...(job.state === 'RUNNING' ? { stalledAt: job.stalledAt == null ? null : new Date(job.stalledAt).toISOString(), quietMs: this.#quietMs(job, now) } : {}),
       attachedClients: job.watchers?.size ?? 0
     });
   }
@@ -948,7 +1007,7 @@ export class ThinJobService {
   #cancel(message, emit) {
     const job = this.#jobs.get(message.id); if (!job) throw Object.assign(new Error('job not found'), { code: 'RK_JOB_NOT_FOUND' });
     const source = message.source ?? 'USER_CANCEL';
-    if (!CANCELLATION_SOURCES.has(source) || ['PARENT_CANCEL', 'BROKER_SHUTDOWN', 'DEADLINE', 'STORAGE_FLOOR', 'CONTAINMENT_FAILURE', 'UNKNOWN'].includes(source)) throw new TypeError('CANCEL source must be USER_CANCEL, OPERATOR_CANCEL, CLIENT_SIGNAL, or RELEASE_PRIORITY_CANCEL');
+    if (!CANCELLATION_SOURCES.has(source) || ['PARENT_CANCEL', 'BROKER_SHUTDOWN', 'DEADLINE', 'STORAGE_FLOOR', 'STALL_WATCHDOG', 'CONTAINMENT_FAILURE', 'UNKNOWN'].includes(source)) throw new TypeError('CANCEL source must be USER_CANCEL, OPERATOR_CANCEL, CLIENT_SIGNAL, or RELEASE_PRIORITY_CANCEL');
     const accepted = this.#requestCancel(job, 'explicit-cancel', source); return this.#emit(emit, { type: 'CANCEL_REQUESTED', id: message.id, accepted, state: job.state });
   }
 
@@ -957,6 +1016,7 @@ export class ThinJobService {
     'broker-shutdown': 'BROKER_SHUTDOWN',
     'deadline': 'DEADLINE',
     'storage-floor': 'STORAGE_FLOOR',
+    'stalled': 'STALL_WATCHDOG',
     'parent-user-cancel': 'PARENT_CANCEL',
     'containment-failure': 'CONTAINMENT_FAILURE'
   });
