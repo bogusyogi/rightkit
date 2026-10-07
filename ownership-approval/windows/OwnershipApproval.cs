@@ -290,7 +290,7 @@ internal static class OwnershipApproval
 
     private static void RequireApprovedKey(CngKey key)
     {
-        if (key.Provider.Provider != Provider.Provider)
+        if (key.Provider?.Provider != Provider.Provider)
             throw new CryptographicException("The signing key is not held by the Microsoft Platform Crypto Provider.");
         if (key.ExportPolicy != CngExportPolicies.None)
             throw new CryptographicException("The signing key permits export; refusing to use it.");

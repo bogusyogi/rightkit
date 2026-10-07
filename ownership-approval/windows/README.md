@@ -42,22 +42,27 @@ SHA-256 of DER SubjectPublicKeyInfo, base64 DER signature).
 
 ## Build and package
 
-Build on the native Windows host after workspace setup provisions a .NET 10 SDK.
-This host currently has no suitable SDK or targeting packs; source conformance
-passed, but native compilation has not run. This project
-targets Windows build 22000 or later so the desktop user-verification API is
-available, and publishes a self-contained x64 single-file GUI executable:
+Build on the native Windows host with the workspace-provisioned .NET 10 SDK at
+`C:\Users\adrds\.dotnet\dotnet.exe`. This project targets Windows build 22000
+or later so the desktop user-verification API is available, and publishes a
+self-contained x64 single-file GUI executable. Keep build artifacts and
+published output outside the repository:
 
 ```powershell
-dotnet publish tools/rightkit/ownership-approval/windows/OwnershipApproval.csproj -c Release -r win-x64 -o <protected-output-directory>
+$artifacts = Join-Path $env:TEMP 'rightkit-ownership-approval-artifacts'
+$output = Join-Path $env:TEMP 'rightkit-ownership-approval-win-x64'
+& 'C:\Users\adrds\.dotnet\dotnet.exe' publish tools/rightkit/ownership-approval/windows/OwnershipApproval.csproj -c Release -r win-x64 --artifacts-path $artifacts -o $output
 ```
 
 The output directory must be outside app repositories. Keep this project and
 its packaging source under RightKit; do not copy it into a product checkout.
 This source package does not install files, modify protected OS paths, or
-provision verifier trust. Build/signing setup and user-presence testing require
-the native Windows host and Adrian; the OS verification and CNG provider
-prompts have not been exercised in this session.
+provision verifier trust. Native Windows compilation/linking succeeded with
+.NET SDK 10.0.300. An isolated test invoked the compiled helper's canonical
+JSON, digest, and key-ID functions, then verified an ephemeral software P-256
+RFC 3279 DER signature with Node. It created no persistent key or approval
+record. The OS verification and Microsoft Platform Crypto Provider prompts
+have not been exercised; user-presence testing requires Adrian.
 
 Run source conformance checks without compiling:
 

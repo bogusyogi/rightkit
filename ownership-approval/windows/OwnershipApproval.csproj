@@ -4,6 +4,7 @@
     <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>RightKit.OwnershipApproval.Windows</AssemblyName>
     <RootNamespace>RightKit.OwnershipApproval.Windows</RootNamespace>
