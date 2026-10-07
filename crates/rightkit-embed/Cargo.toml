@@ -4,7 +4,6 @@ version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
-publish = false
 description = "Product-neutral local text embeddings and persistent cosine vector store."
 readme = "README.md"
 repository = "https://github.com/bogusyogi/claude"
