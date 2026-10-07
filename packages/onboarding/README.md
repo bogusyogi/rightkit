@@ -24,6 +24,8 @@ import "@rightkit/onboarding/onboarding.css";
 | `beforeLegalGate()` | Awaited before the gate shows (e.g. size or reveal the window). The package does no window sizing itself. |
 | `requireModel` | Continue/Finish on the models step wait for an installed model. |
 | `autoStartDownload` | Start the first missing model download when the models step opens. |
+| `shouldAutoStart(entry, models)` | Choose which missing model auto-starts when the models step first opens (first `missing` entry returning true). Replaces `autoStartDownload`'s rule, including its "a model is already installed" guard. Once per mount, across re-renders and Back/Next. |
+| `onModelsStepEnter(ctx)` | Full control, called once when the step opens and the list has loaded: `ctx.models`, `ctx.start(id)`, `ctx.refresh()`. Replaces `shouldAutoStart` and `autoStartDownload`; a throw is shown in the step. |
 | `modelsIntro` | App copy shown at the top of the models step. |
 | `allowSkip` | Show "Set up later" (default `true`). |
 | `titlebar` | Node rendered in a strip along the top. |

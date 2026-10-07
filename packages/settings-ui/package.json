@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/settings-ui",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Settings panel frame and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-settings.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

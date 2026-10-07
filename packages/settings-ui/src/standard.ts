@@ -1,9 +1,9 @@
-import { aboutSection, apiKeysSection, appearanceSection, diagnosticsSection, legalSection, licenseSection, modelsSection, updatesSection } from "./sections.js";
-import type { AboutOptions, ApiKeysOptions, AppearanceOptions, DiagnosticsOptions, LegalOptions, LicenseOptions, ModelsOptions, UpdatesOptions } from "./sections.js";
+import { aboutSection, apiKeysSection, appearanceSection, diagnosticsSection, doctorSection, legalSection, licenseSection, modelsSection, updatesSection } from "./sections.js";
+import type { AboutOptions, ApiKeysOptions, AppearanceOptions, DiagnosticsOptions, DoctorOptions, LegalOptions, LicenseOptions, ModelsOptions, UpdatesOptions } from "./sections.js";
 import type { SettingsSection } from "./types.js";
 
 /** Ids of the built-in sections, as used by `include`, `omit` and `override`. */
-export type StandardSectionId = "appearance" | "updates" | "models" | "license" | "legal" | "api-keys" | "diagnostics" | "about";
+export type StandardSectionId = "appearance" | "updates" | "models" | "license" | "legal" | "api-keys" | "diagnostics" | "doctor" | "about";
 
 export interface StandardSectionsConfig {
   /** Omit (or `false`) to leave the About section out. */
@@ -13,6 +13,8 @@ export interface StandardSectionsConfig {
   license?: LicenseOptions | false;
   legal?: LegalOptions | false;
   diagnostics?: DiagnosticsOptions | false;
+  /** Engine doctor: app-supplied checks (see `doctorSection`). */
+  doctor?: DoctorOptions | false;
   models?: ModelsOptions | false;
   apiKeys?: ApiKeysOptions | false;
   /** Keep only these built-in ids (after the per-section config above is applied). */
@@ -37,6 +39,7 @@ export function standardSections(config: StandardSectionsConfig = {}): SettingsS
   if (config.legal) out.push(legalSection(config.legal));
   if (config.apiKeys) out.push(apiKeysSection(config.apiKeys));
   if (config.diagnostics) out.push(diagnosticsSection(config.diagnostics));
+  if (config.doctor) out.push(doctorSection(config.doctor));
   if (config.about) out.push(aboutSection(config.about));
   const include = config.include ? new Set<string>(config.include) : null;
   const omit = new Set<string>(config.omit ?? []);

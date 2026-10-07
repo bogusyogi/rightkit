@@ -29,8 +29,9 @@ const sections = mergeSections(
 ## 0.2.0 props
 
 - `SettingsSection`: `badge` (nav pill), `heading` (page heading; defaults to `label`), `icon`.
-- `standardSections`: `about` optional; `include` / `omit` (built-in ids: `appearance`, `updates`, `models`, `license`, `legal`, `api-keys`, `diagnostics`, `about`); `override` (shallow-merge fields over a built-in by id).
+- `standardSections`: `about` optional; `include` / `omit` (built-in ids: `appearance`, `updates`, `models`, `license`, `legal`, `api-keys`, `diagnostics`, `doctor`, `about`); `override` (shallow-merge fields over a built-in by id).
 - `updates`: `supportsAutoInstall` (default false; the auto-install toggle is hidden otherwise), `labels` (`Partial<UpdatesLabels>`).
-- `license`: `planSlot` (rendered above the licence rows).
+- `license`: `planSlot` (rendered above the licence rows); `labels` (every visible string, e.g. `activeStatusLabel: "Pro active"`, `deactivate: "Deactivate this device"`); `confirmDeactivate: false` for one-click deactivate; `ids: { section, licenseKey, form, activate, deactivate, status }` for stable element ids (e.g. `#settings-pro`, `#settings-license-key`).
+- `doctor` (`doctorSection`): `checks: [{ id, label, run(): Promise<{ ok, detail?, fix? }> }]`, run-all and per-check re-run with status badges; `autoRun`, `onResult`, `labels`, `ids`. The app supplies the checks; the package runs nothing itself.
 - `about`: `extra` (inside the card), `panels` (outside the card).
 - `sectionIcons`: the built-in nav icons, reusable in app sections.

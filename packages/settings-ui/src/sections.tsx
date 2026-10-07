@@ -11,7 +11,7 @@ import type { ModelEntry, ModelsBackend, SecretPresence, SecretRef, SecretsBacke
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Two-step button: first click arms, second confirms; avoids a modal for destructive row actions. */
-function ConfirmButton({ label, confirmLabel = "Confirm", onConfirm, disabled }: { label: string; confirmLabel?: string; onConfirm: () => void; disabled?: boolean }) {
+function ConfirmButton({ id, label, confirmLabel = "Confirm", onConfirm, disabled }: { id?: string; label: string; confirmLabel?: string; onConfirm: () => void; disabled?: boolean }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (!armed) return;
@@ -20,6 +20,7 @@ function ConfirmButton({ label, confirmLabel = "Confirm", onConfirm, disabled }:
   }, [armed]);
   return (
     <Button
+      id={id}
       size="sm"
       variant={armed ? "danger" : "ghost"}
       disabled={disabled}
@@ -373,10 +374,73 @@ export interface LicenseClientLike {
   load?(): Promise<StoredLicense | null>;
 }
 
+/** Every user-visible licence string. Unset keys keep the defaults shown; the `{...}` forms are functions so the app can reword or localise. */
+export interface LicenseLabels {
+  /** Nav label and page heading. Default "Licence". */
+  sectionLabel?: string;
+  /** Status row title. Default "Licence". */
+  statusLabel?: string;
+  /** Status row title while a licence is active (e.g. "Pro active"). Default: `statusLabel`. */
+  activeStatusLabel?: string;
+  /** Search entry labels. Defaults "Licence status" / "Activate licence key". */
+  searchStatus?: string;
+  searchActivate?: string;
+  /** Status badge texts. Defaults "Free", "Not activated", "Invalid", "Expired". */
+  free?: string;
+  notActivated?: string;
+  invalid?: string;
+  expired?: string;
+  /** Licence kind names. Defaults "Trial", "Subscription", "Lifetime". */
+  trial?: string;
+  subscription?: string;
+  lifetime?: string;
+  /** Status detail lines. `until` is a localised date or null. */
+  freeDetail?: string;
+  rejectedDetail?: string;
+  activeDetail?: (kind: string, until: string | null) => string;
+  expiredDetail?: (kind: string, until: string | null) => string;
+  /** Deactivate row. Defaults "Deactivate this device", "Frees the seat so you can activate another device.", "Deactivate", "Confirm deactivate". */
+  deactivateTitle?: string;
+  deactivateHint?: string;
+  deactivate?: string;
+  confirmDeactivate?: string;
+  /** Activate row. Defaults "Licence key", "Paste the key from your purchase email.", "Licence key" (aria), "XXXX-XXXX-XXXX-XXXX", "Activate". */
+  keyTitle?: string;
+  keyHint?: string;
+  keyAria?: string;
+  keyPlaceholder?: string;
+  activate?: string;
+  /** Button text while the activation call is in flight. Unset keeps `activate`. */
+  activating?: string;
+  /** Shown when the client returns a non-active licence without a message. Default "The key was not accepted." */
+  notAccepted?: string;
+  /** Purchase row. Defaults "Need a licence?", "Get a licence". */
+  purchaseTitle?: string;
+  purchase?: string;
+}
+
+/** Stable DOM ids the app can set (e.g. to keep QA selectors such as `#settings-pro`). Nothing is rendered unless set. */
+export interface LicenseIds {
+  /** Wraps the whole section body (plan slot included) in `<div id>`. */
+  section?: string;
+  /** The licence key input. */
+  licenseKey?: string;
+  /** The activate `<form>`. */
+  form?: string;
+  /** The Activate button. */
+  activate?: string;
+  /** The Deactivate button. */
+  deactivate?: string;
+  /** The status row's description (the `role="status"` span). */
+  status?: string;
+}
+
 export interface LicenseOptions {
   client: LicenseClientLike;
   /** Awaited before `client.deactivate()` (e.g. suppress a bridge that would react to the licence going away). A throw aborts the deactivation and is shown. */
   beforeDeactivate?: () => Promise<void> | void;
+  /** Ask for a second click before deactivating. Default true; false deactivates on the first click. */
+  confirmDeactivate?: boolean;
   graceDays?: number;
   purchaseUrl?: string;
   openExternal?: (url: string) => void | Promise<void>;
@@ -386,23 +450,30 @@ export interface LicenseOptions {
   planSlot?: ReactNode;
   /** Fired after activate/deactivate so the app can refresh its entitlements. */
   onChange?: (lic: StoredLicense | null) => void;
+  /** Reword every visible string. */
+  labels?: LicenseLabels;
+  /** Stable element ids. */
+  ids?: LicenseIds;
 }
 
-function describeLicense(lic: StoredLicense | null, grace: number): { tone: "ok" | "warn" | "bad" | "neutral"; label: string; detail: string } {
-  if (!lic || lic.status === "none") return { tone: "neutral", label: "Free", detail: "No licence key is active on this device." };
-  if (lic.status === "invalid" || lic.status === "failed") return { tone: "bad", label: lic.status === "failed" ? "Not activated" : "Invalid", detail: lic.message ?? "The licence key was not accepted." };
+function describeLicense(lic: StoredLicense | null, grace: number, L: LicenseLabels): { tone: "ok" | "warn" | "bad" | "neutral"; label: string; detail: string } {
+  if (!lic || lic.status === "none") return { tone: "neutral", label: L.free ?? "Free", detail: L.freeDetail ?? "No licence key is active on this device." };
+  if (lic.status === "invalid" || lic.status === "failed") return { tone: "bad", label: lic.status === "failed" ? (L.notActivated ?? "Not activated") : (L.invalid ?? "Invalid"), detail: lic.message ?? L.rejectedDetail ?? "The licence key was not accepted." };
   const valid = isLicensed(lic, grace);
   const until = lic.validUntil ? new Date(lic.validUntil).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : null;
-  const kind = lic.licenseKind === "trial" ? "Trial" : lic.licenseKind === "term" ? "Subscription" : "Lifetime";
-  if (!valid) return { tone: "warn", label: "Expired", detail: until ? `This ${kind.toLowerCase()} ended on ${until}.` : "This licence is no longer valid." };
-  return { tone: "ok", label: kind, detail: until ? `${kind} valid until ${until}.` : `${kind} licence is active.` };
+  const kind = lic.licenseKind === "trial" ? (L.trial ?? "Trial") : lic.licenseKind === "term" ? (L.subscription ?? "Subscription") : (L.lifetime ?? "Lifetime");
+  if (!valid) return { tone: "warn", label: L.expired ?? "Expired", detail: L.expiredDetail ? L.expiredDetail(kind, until) : until ? `This ${kind.toLowerCase()} ended on ${until}.` : "This licence is no longer valid." };
+  return { tone: "ok", label: kind, detail: L.activeDetail ? L.activeDetail(kind, until) : until ? `${kind} valid until ${until}.` : `${kind} licence is active.` };
 }
 
 function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
   void ctx;
+  const L = o.labels ?? {};
+  const ids = o.ids ?? {};
   const [lic, setLic] = useState<StoredLicense | null>(null);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
+  const [activating, setActivating] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const grace = o.graceDays ?? 7;
   useEffect(() => {
@@ -417,71 +488,74 @@ function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
     setLic(l);
     o.onChange?.(l);
   };
-  const info = describeLicense(lic, grace);
+  const info = describeLicense(lic, grace, L);
   const t = licenseTier(lic);
   const active = lic?.status === "active";
+  const doDeactivate = () => {
+    setBusy(true);
+    setNote(null);
+    void Promise.resolve()
+      .then(() => o.beforeDeactivate?.())
+      .then(() => o.client.deactivate())
+      .then(() => apply(null))
+      .catch((e) => setNote(errText(e)))
+      .finally(() => setBusy(false));
+  };
   return (
     <SettingsGroup>
-      <SettingRow id="license.status" label="Licence" description={<span role="status">{info.detail}</span>}>
+      <SettingRow id="license.status" label={active ? (L.activeStatusLabel ?? L.statusLabel ?? "Licence") : (L.statusLabel ?? "Licence")} description={<span role="status" id={ids.status}>{info.detail}</span>}>
         <div className="rk-sr__buttons">
           {t ? <Badge tone="accent">{o.tierLabels?.[t] ?? t}</Badge> : null}
           <Badge tone={info.tone}>{info.label}</Badge>
         </div>
       </SettingRow>
       {active ? (
-        <SettingRow id="license.deactivate" label="Deactivate this device" description={note ? <span role="alert">{note}</span> : "Frees the seat so you can activate another device."}>
-          <ConfirmButton
-            label="Deactivate"
-            confirmLabel="Confirm deactivate"
-            disabled={busy}
-            onConfirm={() => {
-              setBusy(true);
-              setNote(null);
-              void Promise.resolve()
-                .then(() => o.beforeDeactivate?.())
-                .then(() => o.client.deactivate())
-                .then(() => apply(null))
-                .catch((e) => setNote(errText(e)))
-                .finally(() => setBusy(false));
-            }}
-          />
+        <SettingRow id="license.deactivate" label={L.deactivateTitle ?? "Deactivate this device"} description={note ? <span role="alert">{note}</span> : (L.deactivateHint ?? "Frees the seat so you can activate another device.")}>
+          {o.confirmDeactivate === false ? (
+            <Button id={ids.deactivate} size="sm" variant="ghost" disabled={busy} onClick={doDeactivate}>{L.deactivate ?? "Deactivate"}</Button>
+          ) : (
+            <ConfirmButton id={ids.deactivate} label={L.deactivate ?? "Deactivate"} confirmLabel={L.confirmDeactivate ?? "Confirm deactivate"} disabled={busy} onConfirm={doDeactivate} />
+          )}
         </SettingRow>
       ) : (
-        <SettingRow id="license.activate" label="Licence key" description={note ?? "Paste the key from your purchase email."} stacked>
+        <SettingRow id="license.activate" label={L.keyTitle ?? "Licence key"} description={note ?? L.keyHint ?? "Paste the key from your purchase email."} stacked>
           <form
+            id={ids.form}
             className="rk-sr__inline"
             onSubmit={(e) => {
               e.preventDefault();
               if (!key.trim()) return;
               setBusy(true);
+              setActivating(true);
               setNote(null);
               void o.client
                 .activate(key)
                 .then((l) => {
                   apply(l);
                   setKey("");
-                  if (l.status !== "active") setNote(l.message ?? "The key was not accepted.");
+                  if (l.status !== "active") setNote(l.message ?? L.notAccepted ?? "The key was not accepted.");
                 })
                 .catch((err) => setNote(errText(err)))
-                .finally(() => setBusy(false));
+                .finally(() => (setBusy(false), setActivating(false)));
             }}
           >
             <Input
-              aria-label="Licence key"
-              placeholder="XXXX-XXXX-XXXX-XXXX"
+              id={ids.licenseKey}
+              aria-label={L.keyAria ?? "Licence key"}
+              placeholder={L.keyPlaceholder ?? "XXXX-XXXX-XXXX-XXXX"}
               value={key}
               autoComplete="off"
               spellCheck={false}
               onChange={(e) => setKey(e.target.value)}
               aria-invalid={lic?.status === "invalid" || lic?.status === "failed" ? true : undefined}
             />
-            <Button type="submit" variant="primary" size="sm" disabled={busy || !key.trim()}>Activate</Button>
+            <Button id={ids.activate} type="submit" variant="primary" size="sm" disabled={busy || !key.trim()}>{activating && L.activating ? L.activating : (L.activate ?? "Activate")}</Button>
           </form>
         </SettingRow>
       )}
       {o.purchaseUrl && !active ? (
-        <SettingRow label="Need a licence?">
-          <Button size="sm" variant="ghost" onClick={() => void o.openExternal?.(o.purchaseUrl!)}>Get a licence</Button>
+        <SettingRow label={L.purchaseTitle ?? "Need a licence?"}>
+          <Button size="sm" variant="ghost" onClick={() => void o.openExternal?.(o.purchaseUrl!)}>{L.purchase ?? "Get a licence"}</Button>
         </SettingRow>
       ) : null}
     </SettingsGroup>
@@ -489,23 +563,27 @@ function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
 }
 
 export function licenseSection(options: LicenseOptions): SettingsSection {
+  const L = options.labels ?? {};
   return {
     id: "license",
     icon: sectionIcons.license,
-    label: "Licence",
+    label: L.sectionLabel ?? "Licence",
     group: "Account",
     order: 100,
     keywords: ["pro", "trial", "activate", "key", "purchase"],
     entries: [
-      { id: "license.status", label: "Licence status", keywords: ["pro", "trial", "tier"] },
-      { id: "license.activate", label: "Activate licence key", keywords: ["key"] },
+      { id: "license.status", label: L.searchStatus ?? "Licence status", keywords: ["pro", "trial", "tier"] },
+      { id: "license.activate", label: L.searchActivate ?? "Activate licence key", keywords: ["key"] },
     ],
-    render: (ctx) => (
-      <>
-        {options.planSlot}
-        <LicenseBody ctx={ctx} o={options} />
-      </>
-    ),
+    render: (ctx) => {
+      const inner = (
+        <>
+          {options.planSlot}
+          <LicenseBody ctx={ctx} o={options} />
+        </>
+      );
+      return options.ids?.section ? <div id={options.ids.section}>{inner}</div> : inner;
+    },
   };
 }
 
@@ -617,6 +695,184 @@ export function diagnosticsSection(options: DiagnosticsOptions): SettingsSection
       { id: "diagnostics.clear", label: "Clear logs" },
     ],
     render: (ctx) => <DiagnosticsBody ctx={ctx} o={options} />,
+  };
+}
+
+/* ---- Engine doctor (app-supplied checks) ---------------------------------------------------- */
+
+export interface DoctorResult {
+  ok: boolean;
+  /** Short explanation shown next to the check (why it failed, or what was found). */
+  detail?: string;
+  /** What to do about a failure. Shown only when `ok` is false. */
+  fix?: string;
+}
+
+export interface DoctorCheck {
+  /** Stable id; becomes `data-check-id` and feeds `ids.check`. */
+  id: string;
+  label: string;
+  /** Secondary text under the label before the check has run. */
+  description?: string;
+  /** A throw or rejection is a failed check whose `detail` is the error message. */
+  run(): Promise<DoctorResult> | DoctorResult;
+}
+
+export interface DoctorLabels {
+  /** Nav label. Default "Engine check". */
+  sectionLabel?: string;
+  /** Page heading. Default: `sectionLabel`. */
+  heading?: string;
+  /** Group title above the rows. Unset renders none. */
+  groupTitle?: string;
+  /** Summary row title. Default "System check". */
+  summaryTitle?: string;
+  /** Summary before any run. Default "Run the checks to see the engine status." */
+  idle?: string;
+  /** Summary while any check runs. Default "Running diagnostics…" */
+  running?: string;
+  /** Summary after a run. Default `Last run: ${passed} of ${total} passed.` */
+  summary?: (passed: number, total: number) => string;
+  /** Run-all button text, idle and busy. Defaults "Run all", "Checking…". */
+  runAll?: string;
+  runAllBusy?: string;
+  /** Per-check button text, idle and busy. Defaults "Re-run", "Checking…"; the button's aria-label is `${rerunAria ?? "Re-run"} ${label}`. */
+  rerun?: string;
+  rerunBusy?: string;
+  rerunAria?: string;
+  /** Status badge texts. Defaults "ok", "needs attention", "checking", "not run". */
+  ok?: string;
+  fail?: string;
+  checking?: string;
+  notRun?: string;
+  /** Prefix for a failed check's `fix`. Default "Fix: ". */
+  fixPrefix?: string;
+  /** Wrap the check list in a `<details>` with this summary text. Unset lists the checks directly. */
+  detailsLabel?: string;
+  /** Search entry label. Default "Run engine checks". */
+  searchLabel?: string;
+}
+
+/** Stable DOM ids the app can set. Nothing is rendered unless set. */
+export interface DoctorIds {
+  /** Wraps the whole section body. */
+  section?: string;
+  /** The summary text. */
+  summary?: string;
+  /** The run-all button. */
+  runAll?: string;
+  /** The check list (`<ul>`). */
+  list?: string;
+  /** Per-check `<li>` id. */
+  check?: (checkId: string) => string;
+  /** Per-check re-run button id. */
+  rerun?: (checkId: string) => string;
+}
+
+export interface DoctorOptions {
+  checks: ReadonlyArray<DoctorCheck>;
+  /** Run every check once when the section first renders. Default false. */
+  autoRun?: boolean;
+  /** Called after each check finishes. */
+  onResult?: (check: DoctorCheck, result: DoctorResult) => void;
+  labels?: DoctorLabels;
+  ids?: DoctorIds;
+}
+
+type DoctorStatus = { state: "idle" } | { state: "running" } | { state: "done"; result: DoctorResult };
+
+function DoctorBody({ o }: { o: DoctorOptions }) {
+  const L = o.labels ?? {};
+  const ids = o.ids ?? {};
+  const [status, setStatus] = useState<Record<string, DoctorStatus>>({});
+  const runs = useRef<Record<string, number>>({});
+  const live = useRef(true);
+  const checksRef = useRef(o.checks);
+  checksRef.current = o.checks;
+  const onResult = useRef(o.onResult);
+  onResult.current = o.onResult;
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+  const runOne = useCallback(async (check: DoctorCheck) => {
+    const token = (runs.current[check.id] = (runs.current[check.id] ?? 0) + 1);
+    setStatus((m) => ({ ...m, [check.id]: { state: "running" } }));
+    let result: DoctorResult;
+    try {
+      result = await check.run();
+    } catch (e) {
+      result = { ok: false, detail: errText(e) };
+    }
+    if (!live.current || runs.current[check.id] !== token) return;
+    setStatus((m) => ({ ...m, [check.id]: { state: "done", result } }));
+    onResult.current?.(check, result);
+  }, []);
+  const runAll = useCallback(() => Promise.all(checksRef.current.map(runOne)).then(() => undefined), [runOne]);
+  useEffect(() => {
+    if (o.autoRun) void runAll();
+    // Once on mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const state = (id: string): DoctorStatus => status[id] ?? { state: "idle" };
+  const anyRunning = o.checks.some((c) => state(c.id).state === "running");
+  const done = o.checks.flatMap((c) => { const st = state(c.id); return st.state === "done" ? [st.result] : []; });
+  const passed = done.filter((r) => r.ok).length;
+  const summary = anyRunning ? (L.running ?? "Running diagnostics…") : done.length === 0 ? (L.idle ?? "Run the checks to see the engine status.") : L.summary ? L.summary(passed, o.checks.length) : `Last run: ${passed} of ${o.checks.length} passed.`;
+  const list = (
+    <ul className="rk-doctor__checks" id={ids.list}>
+      {o.checks.map((c) => {
+        const st = state(c.id);
+        const result = st.state === "done" ? st.result : null;
+        const tone = st.state === "running" ? "neutral" : result ? (result.ok ? "ok" : "bad") : "neutral";
+        const text = st.state === "running" ? (L.checking ?? "checking") : result ? (result.ok ? (L.ok ?? "ok") : (L.fail ?? "needs attention")) : (L.notRun ?? "not run");
+        const busy = st.state === "running";
+        return (
+          <li key={c.id} id={ids.check?.(c.id)} className="rk-doctor__check" data-check-id={c.id} data-status={busy ? "running" : result ? (result.ok ? "ok" : "fail") : "idle"}>
+            <div className="rk-doctor__text">
+              <span className="rk-doctor__label">{c.label}</span>
+              {result?.detail || (!result && c.description) ? <span className="rk-doctor__detail">{result?.detail ?? c.description}</span> : null}
+              {result && !result.ok && result.fix ? <span className="rk-doctor__fix">{(L.fixPrefix ?? "Fix: ") + result.fix}</span> : null}
+            </div>
+            <div className="rk-sr__buttons">
+              <Badge tone={tone}>{text}</Badge>
+              <Button id={ids.rerun?.(c.id)} size="sm" variant="ghost" aria-label={`${L.rerunAria ?? "Re-run"} ${c.label}`} disabled={busy} onClick={() => void runOne(c)}>{busy ? (L.rerunBusy ?? "Checking…") : (L.rerun ?? "Re-run")}</Button>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+  const body = (
+    <SettingsGroup title={L.groupTitle}>
+      <SettingRow id="doctor.run" label={L.summaryTitle ?? "System check"} description={<span role="status" id={ids.summary}>{summary}</span>}>
+        <Button id={ids.runAll} size="sm" variant="secondary" disabled={anyRunning || o.checks.length === 0} onClick={() => void runAll()}>{anyRunning ? (L.runAllBusy ?? "Checking…") : (L.runAll ?? "Run all")}</Button>
+      </SettingRow>
+      {L.detailsLabel ? <details className="rk-doctor__details"><summary>{L.detailsLabel}</summary>{list}</details> : list}
+    </SettingsGroup>
+  );
+  return ids.section ? <div id={ids.section}>{body}</div> : body;
+}
+
+/**
+ * Engine doctor: app-supplied checks with run-all, per-check re-run, status badges, labels and stable ids. The package
+ * runs nothing itself; `run()` is yours (an IPC call, a sidecar probe). Add to `standardSections` as `doctor`.
+ */
+export function doctorSection(options: DoctorOptions): SettingsSection {
+  const L = options.labels ?? {};
+  const label = L.sectionLabel ?? "Engine check";
+  return {
+    id: "doctor",
+    icon: sectionIcons.diagnostics,
+    label,
+    heading: L.heading ?? label,
+    group: "Support",
+    order: 150,
+    keywords: ["doctor", "check", "health", "engine", "diagnose"],
+    entries: [{ id: "doctor.run", label: L.searchLabel ?? "Run engine checks", keywords: ["doctor", "health"] }],
+    render: () => <DoctorBody o={options} />,
   };
 }
 

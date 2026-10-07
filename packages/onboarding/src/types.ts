@@ -151,8 +151,12 @@ export interface OnboardingProps {
   beforeLegalGate?: () => void | Promise<void>;
   /** Require at least one downloaded model before Continue/Finish on the models step. Default false. */
   requireModel?: boolean;
-  /** Start downloading the first missing model when the models step opens. Default false. */
+  /** Start downloading the first missing model when the models step opens (skipped when any model is installed or downloading). Default false. */
   autoStartDownload?: boolean;
+  /** Choose which missing model starts when the models step first opens: the first `state === "missing"` entry for which this returns true. Replaces the `autoStartDownload` rule (no "something is installed" guard; the app decides). Fires at most once per `Onboarding` mount, across re-renders and Back/Next. */
+  shouldAutoStart?: (entry: ModelEntry, models: readonly ModelEntry[]) => boolean;
+  /** Full control: called once, when the models step first opens and the list has loaded. Replaces `shouldAutoStart` and `autoStartDownload`. Start models through `ctx.start`. Fires at most once per `Onboarding` mount; a throw is shown in the step. */
+  onModelsStepEnter?: (ctx: ModelsStepEnterContext) => void | Promise<void>;
   /** App copy shown at the top of the models step. */
   modelsIntro?: ReactNode;
   /** Show "Set up later". Default true. */
@@ -168,3 +172,20 @@ export interface OnboardingProps {
 }
 
 export type { LegalGateDocument, LegalGateTheme };
+
+/** Context handed to `onModelsStepEnter`. */
+export interface ModelsStepEnterContext {
+  /** The model list as loaded when the step opened. */
+  models: readonly ModelEntry[];
+  /** Start installing one model, then refresh the list. */
+  start(id: string): Promise<void>;
+  /** Re-read the list from the backend (and update the step). */
+  refresh(): Promise<ModelEntry[]>;
+}
+
+/** The auto-start options shared by `Onboarding` and `modelsStep`. */
+export interface ModelsAutoStart {
+  autoStartDownload?: boolean;
+  shouldAutoStart?: (entry: ModelEntry, models: readonly ModelEntry[]) => boolean;
+  onModelsStepEnter?: (ctx: ModelsStepEnterContext) => void | Promise<void>;
+}
