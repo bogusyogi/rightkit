@@ -31,8 +31,8 @@ function releaseChainDependencyError(repoPath, manifest) {
 
 /** Render every lane declared in the manifest. Returns { lane, filename, content }[]. */
 export function renderLanes(manifest, repoPath) {
-  const context = buildRenderContext(manifest, repoPath);
   return manifest.lanes.map((lane) => {
+    const context = buildRenderContext(manifest, repoPath, lane);
     const filename = LANE_FILENAMES[lane];
     const templatePath = manifest.profile === "rust-hybrid"
       ? path.join(TEMPLATES_DIR, "profiles", "rust-hybrid", filename)
