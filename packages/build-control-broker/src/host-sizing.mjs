@@ -12,9 +12,9 @@ export const BUILD_ALLOCATABLE_MEMORY_FRACTION = 0.8;
 /** Target-cache GC keeps at least this share of the managed volume free. */
 export const DISK_FREE_FLOOR_FRACTION = 0.1;
 /** sccache may use at most this share of the managed volume. */
-export const COMPILER_CACHE_VOLUME_FRACTION = 0.1;
+export const COMPILER_CACHE_VOLUME_FRACTION = 0.17;
 /** Build outputs may use at most this share of the managed volume. */
-export const TARGET_CACHE_VOLUME_FRACTION = 0.15;
+export const TARGET_CACHE_VOLUME_FRACTION = 0.45;
 /** Absolute ceilings: build storage is a fixed budget, never "the rest of the disk". GC evicts
  * idle generations past the cap before admitting builds. Measure from receipts before raising. */
 export const TARGET_CACHE_MAX_BYTES = 400 * GiB;

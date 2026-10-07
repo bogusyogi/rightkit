@@ -21,8 +21,8 @@ test('Mac (12 CPUs, 24 GiB) gets the same rule: all CPUs, one full-width build f
   assert.equal(sizing.compileBudgetUnits, 19);
   assert.equal(sizing.buildCostUnits, 12);
   assert.equal(sizing.buildConcurrency, 1);
-  assert.equal(sizing.compilerCacheMaxBytes, Math.floor(927 * GiB * 0.1));
-  assert.equal(sizing.targetCacheCapBytes, Math.floor(927 * GiB * 0.15));
+  assert.equal(sizing.compilerCacheMaxBytes, 150 * GiB);
+  assert.equal(sizing.targetCacheCapBytes, 400 * GiB);
 });
 
 test('an explicit job override still prices the build by its jobs', () => {
