@@ -2,25 +2,26 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/doc-render",
-  "version": "0.1.1",
-  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-  "artifactSha256": "cbaa9e6d4c7443a7f01225b4337e4e4f9b9dd6217cadb0f26bf6a4e94ff1854c",
+  "version": "0.1.2",
+  "commit": "9d729625d4da2fc588c88c2fb25c269767ded38e",
+  "artifactSha256": "45f284187237c1aa0d5e7f990bd18702be3d94c6bed9a9f61987bd6918066c69",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-      "command": "pnpm exec vitest run",
+      "commit": "9d729625d4da2fc588c88c2fb25c269767ded38e",
+      "command": "pnpm exec vitest run + node ESM import of dist",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07",
-      "passed": 7,
+      "timestamp": "2026-10-07T08:38:27Z",
+      "passed": 8,
       "failed": 0
     }
-  ],
-  "note": "Mac-only gate by Adrian's decision (2026-10-07: apps validate first, Windows later). Registry shasum verified equal to this tarball."
+  ]
 }
