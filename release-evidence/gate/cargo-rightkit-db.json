@@ -2,18 +2,18 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-db",
-  "version": "0.2.0",
-  "commit": "25585a7cf21546fd755c70cea33c91387b8a998d",
-  "artifactSha256": "07ccaad60429edd44280ccf29ced39dd96781bfac55feb392c9f19fbe550397b",
+  "version": "0.2.1",
+  "commit": "ca64bb26b892e68b37e8edcdcc7d8fb9021c91e1",
+  "artifactSha256": "a2fbcf652099f53fe254fbae6efb0d679f1656f92a852dba30466f30ca7ddc87",
   "runs": [
     {
       "host": {
         "os": "win32"
       },
-      "commit": "25585a7cf21546fd755c70cea33c91387b8a998d",
+      "commit": "ca64bb26b892e68b37e8edcdcc7d8fb9021c91e1",
       "command": "rightkit cargo test -p rightkit-db --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
       "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T08:48:02.074080Z",
+      "timestamp": "2026-10-07T10:18:04.090780Z",
       "passed": 17,
       "failed": 0
     },
@@ -21,10 +21,10 @@
       "host": {
         "os": "darwin"
       },
-      "commit": "25585a7cf21546fd755c70cea33c91387b8a998d",
+      "commit": "ca64bb26b892e68b37e8edcdcc7d8fb9021c91e1",
       "command": "rightkit cargo test -p rightkit-db --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
       "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T08:49:37.948315Z",
+      "timestamp": "2026-10-07T10:21:04.304160Z",
       "passed": 17,
       "failed": 0
     }

@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-speech-client",
+  "version": "0.1.0",
+  "commit": "70a0116554417d27265b5691a16ae682634bf9a6",
+  "artifactSha256": "8e033384dc21ea462d80b028c5e28af4e7cca89f7014bc2e4e6edba7563c1b18",
+  "runs": [
+    {
+      "host": {
+        "os": "win32"
+      },
+      "commit": "70a0116554417d27265b5691a16ae682634bf9a6",
+      "command": "rightkit cargo test -p rightkit-speech-client --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T10:34:47.103148Z",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "70a0116554417d27265b5691a16ae682634bf9a6",
+      "command": "rightkit cargo test -p rightkit-speech-client --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T10:45:45.170202Z",
+      "passed": 19,
+      "failed": 0
+    }
+  ]
+}
