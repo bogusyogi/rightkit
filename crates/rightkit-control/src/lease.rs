@@ -35,11 +35,30 @@
 //! Submissions are serialized: the lease lock is held across the executor, so
 //! an acquisition that fences a holder waits for its in-flight input to
 //! settle. Executors must not call back into the same lease.
+//!
+//! Execution state: every lease carries an [`ExecutionIdentity`] and an
+//! [`ExecutionState`]; new input is accepted only while the execution is
+//! `Running` (in-memory leases start `Running`, so behaviour is unchanged).
+//!
+//! Durability (optional, [`InputLease::open`]): every state change is saved
+//! to a [`LeaseStore`] before it takes effect. An epoch is only granted after
+//! it is durable, and an input sequence is reserved durably before its
+//! executor runs, so a crash at any point leaves either the old state or an
+//! honest unacknowledged range. Recovery semantics are in
+//! [`crate::lease_store`]. If saving the post-execute acknowledgement fails,
+//! the live lease keeps the acknowledgement and the durable record stays
+//! conservative (that input recovers as `Unknown`);
+//! [`InputLease::store_degraded`] reports it until the next successful save.
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::admission::{lock, CancelToken, EffectGate, EffectRequest, ExecError, SettleOutcome};
 use crate::events::{emit, ControlEvent, EventSink};
+pub use crate::lease_store::{
+    ExecutionIdentity, ExecutionState, FileLeaseStore, LeaseRecord, LeaseStore, MemoryLeaseStore,
+    StoreError,
+};
 
 /// Point-in-time lease state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,10 +128,53 @@ impl<T> InputOutcome<T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LeaseError {
     NotAttached,
-    StaleEpoch { presented: u64, current: u64 },
-    FutureEpoch { presented: u64, current: u64 },
-    UnacknowledgedInput { from: u64, to: u64 },
-    OutOfOrder { expected: u64, got: u64 },
+    StaleEpoch {
+        presented: u64,
+        current: u64,
+    },
+    FutureEpoch {
+        presented: u64,
+        current: u64,
+    },
+    UnacknowledgedInput {
+        from: u64,
+        to: u64,
+    },
+    OutOfOrder {
+        expected: u64,
+        got: u64,
+    },
+    /// New input while the execution is not `Running`.
+    ExecutionNotRunning {
+        state: ExecutionState,
+    },
+    /// `acknowledge_input` named a sequence that was never sent.
+    UnsentSequence {
+        sequence: u64,
+        next: u64,
+    },
+    /// `acknowledge_input` went backwards past an acknowledged sequence.
+    NonMonotonicAck {
+        sequence: u64,
+        acked: u64,
+    },
+    /// `set_execution_state` attempted a transition out of `Exited`.
+    InvalidExecutionTransition {
+        from: ExecutionState,
+        to: ExecutionState,
+    },
+    /// The durable store refused the change; nothing changed.
+    Store {
+        reason: String,
+    },
+}
+
+impl From<StoreError> for LeaseError {
+    fn from(e: StoreError) -> Self {
+        Self::Store {
+            reason: e.to_string(),
+        }
+    }
 }
 
 impl LeaseError {
@@ -123,6 +185,11 @@ impl LeaseError {
             Self::FutureEpoch { .. } => "future_epoch",
             Self::UnacknowledgedInput { .. } => "unacknowledged_input",
             Self::OutOfOrder { .. } => "out_of_order",
+            Self::ExecutionNotRunning { .. } => "execution_not_running",
+            Self::UnsentSequence { .. } => "unsent_sequence",
+            Self::NonMonotonicAck { .. } => "non_monotonic_ack",
+            Self::InvalidExecutionTransition { .. } => "invalid_execution_transition",
+            Self::Store { .. } => "store",
         }
     }
 }
@@ -144,6 +211,24 @@ impl std::fmt::Display for LeaseError {
             Self::OutOfOrder { expected, got } => {
                 write!(f, "input sequence must be {expected}, got {got}")
             }
+            Self::ExecutionNotRunning { state } => {
+                write!(f, "execution is {}; input requires running", state.label())
+            }
+            Self::UnsentSequence { sequence, next } => write!(
+                f,
+                "cannot acknowledge unsent input sequence {sequence} (next {next})"
+            ),
+            Self::NonMonotonicAck { sequence, acked } => write!(
+                f,
+                "input acknowledgement must be monotonic: {sequence} is below acknowledged {acked}"
+            ),
+            Self::InvalidExecutionTransition { from, to } => write!(
+                f,
+                "execution state cannot change from {} to {}",
+                from.label(),
+                to.label()
+            ),
+            Self::Store { reason } => write!(f, "{reason}"),
         }
     }
 }
@@ -197,15 +282,90 @@ impl From<LeaseError> for InputError {
     }
 }
 
-#[derive(Debug, Default)]
+/// Delivery status of one input sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputStatus {
+    Acknowledged,
+    /// Delivery ambiguous in this host run; reconcile explicitly.
+    Unacknowledged,
+    /// Was unacknowledged when the host crashed/restarted; resolve explicitly.
+    Unknown,
+    /// Never sent (at or beyond `next_input_sequence`).
+    Unsent,
+}
+
+#[derive(Debug, Clone)]
 struct State {
     epoch: u64,
     attached: bool,
     next: u64,
     acked: u64,
+    exec_id: ExecutionIdentity,
+    exec_state: ExecutionState,
+    /// The unacknowledged range was inherited from a crash/restart.
+    unknown: bool,
 }
 
 impl State {
+    fn fresh(exec_id: ExecutionIdentity) -> Self {
+        Self {
+            epoch: 0,
+            attached: false,
+            next: 0,
+            acked: 0,
+            exec_id,
+            exec_state: ExecutionState::Running,
+            unknown: false,
+        }
+    }
+    fn recovered(r: LeaseRecord) -> Self {
+        let exec_state = match r.execution_state {
+            ExecutionState::Running => ExecutionState::Unknown,
+            other => other,
+        };
+        Self {
+            // Recovery fence: every pre-restart holder is now stale.
+            epoch: r.epoch.saturating_add(1),
+            attached: false,
+            next: r.next_input_sequence,
+            acked: r.acked_input_sequence,
+            exec_id: r.execution_id,
+            exec_state,
+            unknown: r.next_input_sequence > r.acked_input_sequence,
+        }
+    }
+    fn normalize(&mut self) {
+        if self.unacked().is_none() {
+            self.unknown = false;
+        }
+    }
+    fn record(&self, name: &str) -> LeaseRecord {
+        LeaseRecord {
+            name: name.to_string(),
+            execution_id: self.exec_id.clone(),
+            execution_state: self.exec_state,
+            epoch: self.epoch,
+            holder_epoch: self.attached.then_some(self.epoch),
+            next_input_sequence: self.next,
+            acked_input_sequence: self.acked,
+            unknown_input: self.unacked().filter(|_| self.unknown),
+        }
+    }
+    fn check_epoch(&self, epoch: u64) -> Result<(), LeaseError> {
+        if epoch < self.epoch {
+            return Err(LeaseError::StaleEpoch {
+                presented: epoch,
+                current: self.epoch,
+            });
+        }
+        if epoch > self.epoch {
+            return Err(LeaseError::FutureEpoch {
+                presented: epoch,
+                current: self.epoch,
+            });
+        }
+        Ok(())
+    }
     fn unacked(&self) -> Option<(u64, u64)> {
         (self.next > self.acked).then_some((self.acked, self.next))
     }
@@ -222,19 +382,7 @@ impl State {
         if !self.attached {
             return Err(LeaseError::NotAttached);
         }
-        if epoch < self.epoch {
-            return Err(LeaseError::StaleEpoch {
-                presented: epoch,
-                current: self.epoch,
-            });
-        }
-        if epoch > self.epoch {
-            return Err(LeaseError::FutureEpoch {
-                presented: epoch,
-                current: self.epoch,
-            });
-        }
-        Ok(())
+        self.check_epoch(epoch)
     }
 }
 
@@ -243,6 +391,8 @@ pub struct InputLease {
     name: String,
     state: Mutex<State>,
     events: Option<EventSink>,
+    store: Option<Arc<dyn LeaseStore>>,
+    degraded: AtomicBool,
 }
 
 impl std::fmt::Debug for InputLease {
@@ -250,18 +400,80 @@ impl std::fmt::Debug for InputLease {
         f.debug_struct("InputLease")
             .field("name", &self.name)
             .field("state", &self.snapshot())
+            .field("durable", &self.store.is_some())
             .finish()
     }
 }
 
 impl InputLease {
+    /// In-memory lease (the default): nothing survives the process.
     pub fn new(name: impl Into<String>) -> Self {
+        Self::from_state(
+            name.into(),
+            State::fresh(ExecutionIdentity::generate()),
+            None,
+        )
+    }
+
+    /// Durable lease backed by `store`. A first open creates a fresh record
+    /// (new [`ExecutionIdentity`], `Running`, epoch 0); a later open recovers
+    /// it (see [`crate::lease_store`]): epoch fenced forward, detached,
+    /// `Running` becomes `Unknown`, unacknowledged input becomes `Unknown`
+    /// input. Fails closed on an unreadable/corrupt record, a record for a
+    /// different lease name, or a failed save.
+    pub fn open(name: impl Into<String>, store: Arc<dyn LeaseStore>) -> Result<Self, LeaseError> {
+        Self::open_inner(name.into(), store, None)
+    }
+
+    /// As [`Self::open`], using `identity` when no record exists yet. An
+    /// existing record keeps its own identity; a different one is refused.
+    pub fn open_with_identity(
+        name: impl Into<String>,
+        store: Arc<dyn LeaseStore>,
+        identity: ExecutionIdentity,
+    ) -> Result<Self, LeaseError> {
+        Self::open_inner(name.into(), store, Some(identity))
+    }
+
+    fn open_inner(
+        name: String,
+        store: Arc<dyn LeaseStore>,
+        identity: Option<ExecutionIdentity>,
+    ) -> Result<Self, LeaseError> {
+        let state = match store.load()? {
+            None => State::fresh(identity.unwrap_or_else(ExecutionIdentity::generate)),
+            Some(r) => {
+                if r.name != name {
+                    return Err(StoreError::Invalid(format!(
+                        "record belongs to lease {:?}, not {name:?}",
+                        r.name
+                    ))
+                    .into());
+                }
+                if let Some(id) = identity.filter(|id| *id != r.execution_id) {
+                    return Err(StoreError::Invalid(format!(
+                        "record holds execution {}, not {id}",
+                        r.execution_id
+                    ))
+                    .into());
+                }
+                State::recovered(r)
+            }
+        };
+        store.save(&state.record(&name))?;
+        Ok(Self::from_state(name, state, Some(store)))
+    }
+
+    fn from_state(name: String, state: State, store: Option<Arc<dyn LeaseStore>>) -> Self {
         Self {
-            name: name.into(),
-            state: Mutex::new(State::default()),
+            name,
+            state: Mutex::new(state),
             events: None,
+            store,
+            degraded: AtomicBool::new(false),
         }
     }
+
     pub fn with_events(mut self, sink: EventSink) -> Self {
         self.events = Some(sink);
         self
@@ -272,37 +484,140 @@ impl InputLease {
     pub fn snapshot(&self) -> LeaseSnapshot {
         lock(&self.state).snapshot()
     }
+    /// True when backed by a [`LeaseStore`].
+    pub fn is_durable(&self) -> bool {
+        self.store.is_some()
+    }
+    /// True when the last best-effort save (after an executor ran) failed;
+    /// cleared by the next successful save.
+    pub fn store_degraded(&self) -> bool {
+        self.degraded.load(Ordering::SeqCst)
+    }
+    /// The durable projection (identity, execution state, epoch, holder,
+    /// sequences, unknown input), whether or not a store backs this lease.
+    pub fn record(&self) -> LeaseRecord {
+        lock(&self.state).record(&self.name)
+    }
+    pub fn execution_identity(&self) -> ExecutionIdentity {
+        lock(&self.state).exec_id.clone()
+    }
+    pub fn execution_state(&self) -> ExecutionState {
+        lock(&self.state).exec_state
+    }
+    /// `[from, to)` inherited unacknowledged from a crash/restart, if any.
+    pub fn unknown_input(&self) -> Option<(u64, u64)> {
+        let s = lock(&self.state);
+        s.unacked().filter(|_| s.unknown)
+    }
+    pub fn input_status(&self, sequence: u64) -> InputStatus {
+        let s = lock(&self.state);
+        if sequence < s.acked {
+            InputStatus::Acknowledged
+        } else if sequence >= s.next {
+            InputStatus::Unsent
+        } else if s.unknown {
+            InputStatus::Unknown
+        } else {
+            InputStatus::Unacknowledged
+        }
+    }
+
+    /// Host-side, explicit execution-state resolution (e.g. after a restart
+    /// the host verified the target is alive → `Running`, or observed it
+    /// ended → `Exited`). `Exited` is terminal.
+    pub fn set_execution_state(&self, state: ExecutionState) -> Result<LeaseSnapshot, LeaseError> {
+        self.mutate(|s| {
+            if s.exec_state == ExecutionState::Exited && state != ExecutionState::Exited {
+                return Err(LeaseError::InvalidExecutionTransition {
+                    from: s.exec_state,
+                    to: state,
+                });
+            }
+            s.exec_state = state;
+            Ok(s.snapshot())
+        })
+    }
+
+    /// Apply `f` to a copy of the state, save it, then commit. A failed `f`
+    /// or save leaves the lease unchanged.
+    fn mutate<R>(
+        &self,
+        f: impl FnOnce(&mut State) -> Result<R, LeaseError>,
+    ) -> Result<R, LeaseError> {
+        let mut guard = lock(&self.state);
+        let mut next = guard.clone();
+        let out = f(&mut next)?;
+        next.normalize();
+        self.persist(&next)?;
+        *guard = next;
+        Ok(out)
+    }
+
+    fn persist(&self, s: &State) -> Result<(), LeaseError> {
+        if let Some(store) = &self.store {
+            store.save(&s.record(&self.name))?;
+            self.degraded.store(false, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+
+    fn persist_best_effort(&self, s: &State) {
+        if self.persist(s).is_err() {
+            self.degraded.store(true, Ordering::SeqCst);
+        }
+    }
 
     /// Take the lease: bump the epoch (fencing any attached holder). Rejected
     /// while unacknowledged input is outstanding; use
-    /// [`Self::acquire_reconciling`].
+    /// [`Self::acquire_reconciling`]. On a durable lease the new epoch is
+    /// saved before it is granted.
     pub fn acquire(&self) -> Result<LeaseGrant, LeaseError> {
-        let mut s = lock(&self.state);
-        if let Some((from, to)) = s.unacked() {
-            return Err(LeaseError::UnacknowledgedInput { from, to });
-        }
-        Ok(self.take(&mut s))
+        let (grant, fenced) = self.mutate(|s| {
+            if let Some((from, to)) = s.unacked() {
+                return Err(LeaseError::UnacknowledgedInput { from, to });
+            }
+            Ok(take(s))
+        })?;
+        self.announce(grant, fenced);
+        Ok(grant)
     }
 
-    /// Resolve any unacknowledged range with an explicit decision, then take
-    /// the lease (bumping the epoch).
+    /// Resolve any unacknowledged (or crash-`Unknown`) range with an explicit
+    /// decision, then take the lease (bumping the epoch).
+    ///
+    /// # Panics
+    /// On a durable lease whose store refuses the save (an epoch that is not
+    /// durable is never granted). Durable callers should use
+    /// [`Self::try_acquire_reconciling`]; an in-memory lease never panics.
     pub fn acquire_reconciling(&self, decision: UnacknowledgedInputDecision) -> LeaseGrant {
-        let mut s = lock(&self.state);
-        reconcile_state(&mut s, decision);
-        self.take(&mut s)
+        match self.try_acquire_reconciling(decision) {
+            Ok(g) => g,
+            Err(e) => panic!("input lease {:?}: {e}", self.name),
+        }
     }
 
-    fn take(&self, s: &mut State) -> LeaseGrant {
-        let fenced = s.attached.then_some(s.epoch);
-        s.epoch = s.epoch.saturating_add(1);
-        s.attached = true;
+    /// Fallible [`Self::acquire_reconciling`]: errs only when the store
+    /// refuses the save, in which case nothing changed.
+    pub fn try_acquire_reconciling(
+        &self,
+        decision: UnacknowledgedInputDecision,
+    ) -> Result<LeaseGrant, LeaseError> {
+        let (grant, fenced) = self.mutate(|s| {
+            reconcile_state(s, decision);
+            Ok(take(s))
+        })?;
+        self.announce(grant, fenced);
+        Ok(grant)
+    }
+
+    fn announce(&self, grant: LeaseGrant, fenced: Option<u64>) {
         if let Some(old) = fenced {
             emit(
                 &self.events,
                 ControlEvent::LeaseFenced {
                     lease: self.name.clone(),
                     old_epoch: old,
-                    new_epoch: s.epoch,
+                    new_epoch: grant.epoch,
                 },
             );
         }
@@ -310,14 +625,9 @@ impl InputLease {
             &self.events,
             ControlEvent::LeaseAcquired {
                 lease: self.name.clone(),
-                epoch: s.epoch,
+                epoch: grant.epoch,
             },
         );
-        LeaseGrant {
-            epoch: s.epoch,
-            next_input_sequence: s.next,
-            fenced_epoch: fenced,
-        }
     }
 
     /// The current holder resolves its own unacknowledged range in place.
@@ -326,17 +636,51 @@ impl InputLease {
         epoch: u64,
         decision: UnacknowledgedInputDecision,
     ) -> Result<LeaseSnapshot, LeaseError> {
-        let mut s = lock(&self.state);
-        s.check_holder(epoch)?;
-        reconcile_state(&mut s, decision);
-        Ok(s.snapshot())
+        self.mutate(|s| {
+            s.check_holder(epoch)?;
+            reconcile_state(s, decision);
+            Ok(s.snapshot())
+        })
+    }
+
+    /// Explicitly acknowledge delivery of every sequence up to and including
+    /// `sequence` (CodeRight `acknowledge_input`). This is how a client that
+    /// observed the effect resolves unacknowledged or crash-`Unknown` input
+    /// one prefix at a time. `epoch` must be the current epoch; the lease
+    /// need not be attached (after a restart it is detached at the recovery
+    /// epoch, which only the host can read). Re-acknowledging the highest
+    /// acknowledged sequence is idempotent.
+    pub fn acknowledge_input(
+        &self,
+        epoch: u64,
+        sequence: u64,
+    ) -> Result<LeaseSnapshot, LeaseError> {
+        self.mutate(|s| {
+            s.check_epoch(epoch)?;
+            if sequence >= s.next {
+                return Err(LeaseError::UnsentSequence {
+                    sequence,
+                    next: s.next,
+                });
+            }
+            if sequence.saturating_add(1) < s.acked {
+                return Err(LeaseError::NonMonotonicAck {
+                    sequence,
+                    acked: s.acked,
+                });
+            }
+            s.acked = s.acked.max(sequence + 1);
+            Ok(s.snapshot())
+        })
     }
 
     /// Release by the current holder only; a fenced holder cannot release.
     pub fn release(&self, epoch: u64) -> Result<LeaseSnapshot, LeaseError> {
-        let mut s = lock(&self.state);
-        s.check_holder(epoch)?;
-        s.attached = false;
+        let snap = self.mutate(|s| {
+            s.check_holder(epoch)?;
+            s.attached = false;
+            Ok(s.snapshot())
+        })?;
         emit(
             &self.events,
             ControlEvent::LeaseReleased {
@@ -344,7 +688,7 @@ impl InputLease {
                 epoch,
             },
         );
-        Ok(s.snapshot())
+        Ok(snap)
     }
 
     /// Check fencing and sequencing without executing. Returns `Ok(true)` for
@@ -355,7 +699,9 @@ impl InputLease {
     }
 
     /// Submit input `(epoch, sequence)`. `execute` runs at most once, only for
-    /// new in-order input from the current holder.
+    /// new in-order input from the current holder while the execution is
+    /// `Running`. On a durable lease the sequence is reserved durably before
+    /// `execute` runs; if that save fails nothing runs (`NotDelivered`).
     pub fn submit<T>(
         &self,
         epoch: u64,
@@ -386,7 +732,13 @@ impl InputLease {
         // Reserve the sequence before the side effect: if we crash mid-way the
         // range is visibly unacknowledged, never silently reusable.
         s.next = sequence.saturating_add(1);
-        match catch_unwind(AssertUnwindSafe(execute)) {
+        if let Err(e) = self.persist(&s) {
+            s.next = sequence;
+            return Err(InputError::NotDelivered {
+                reason: e.to_string(),
+            });
+        }
+        let result = match catch_unwind(AssertUnwindSafe(execute)) {
             Ok(Ok(value)) => {
                 s.acked = s.next;
                 Ok(InputOutcome::Applied {
@@ -406,8 +758,25 @@ impl InputLease {
                 reason: "input executor panicked".into(),
                 unacknowledged: (s.acked, s.next),
             }),
-        }
+        };
+        s.normalize();
+        self.persist_best_effort(&s);
+        result
     }
+}
+
+fn take(s: &mut State) -> (LeaseGrant, Option<u64>) {
+    let fenced = s.attached.then_some(s.epoch);
+    s.epoch = s.epoch.saturating_add(1);
+    s.attached = true;
+    (
+        LeaseGrant {
+            epoch: s.epoch,
+            next_input_sequence: s.next,
+            fenced_epoch: fenced,
+        },
+        fenced,
+    )
 }
 
 #[derive(PartialEq, Eq)]
@@ -420,6 +789,11 @@ fn classify(s: &State, epoch: u64, sequence: u64) -> Result<Class, LeaseError> {
     s.check_holder(epoch)?;
     if sequence < s.acked {
         return Ok(Class::Duplicate);
+    }
+    if s.exec_state != ExecutionState::Running {
+        return Err(LeaseError::ExecutionNotRunning {
+            state: s.exec_state,
+        });
     }
     if let Some((from, to)) = s.unacked() {
         return Err(LeaseError::UnacknowledgedInput { from, to });
@@ -440,6 +814,7 @@ fn reconcile_state(s: &mut State, decision: UnacknowledgedInputDecision) {
             UnacknowledgedInputDecision::ReconcileAsLost => s.next = s.acked,
         }
     }
+    s.normalize();
 }
 
 /// A lease-fenced, admission-gated control session: input must first pass

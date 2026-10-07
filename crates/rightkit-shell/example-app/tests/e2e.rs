@@ -463,10 +463,10 @@ fn native_menu_bar_matches_the_spec_through_accessibility() {
     println!("AX native menu bar verified");
     // Native menu item: open the Demo menu and press Ping through the OS, then read the event back.
     let demo = rightkit_control::mac::ax_find(pid as i32, "Demo", true).expect("Demo menu bar item");
-    assert!(rightkit_control::mac::ax_press(&demo));
+    assert!(rightkit_control::mac::unsafe_ungated::ax_press(&demo));
     std::thread::sleep(Duration::from_millis(600));
     let ping = rightkit_control::mac::ax_find(pid as i32, "Ping", true).expect("Ping menu item");
-    assert!(rightkit_control::mac::ax_press(&ping));
+    assert!(rightkit_control::mac::unsafe_ungated::ax_press(&ping));
     wait_for("native menu click event in the webview", 10, || run.c.eval("return window.__events.some(function(e){return e.kind==='menu'&&e.p==='demo.ping';});").unwrap() == json!(true));
     // Regression: Tauri hands every menu event to a tray's handler; the shell must not re-emit an
     // app-menu click as a tray action.

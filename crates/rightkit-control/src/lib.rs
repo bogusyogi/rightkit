@@ -13,15 +13,22 @@
 //!   explicitly reconciled. [`lease::ControlSession`] composes both.
 //! - [`events::ControlEvent`]: content-free lifecycle events for the journal.
 //!
-//! The raw `mac` primitives are ungated building blocks; host-facing surfaces
-//! (`webdriver::Server`, the `tauri-plugin` server) route through the gate.
+//! - [`lease_store`]: optional durable lease state (store trait plus an
+//!   atomic file store), execution identity and `Running | Exited | Unknown`.
+//!
+//! Every effectful entry point routes through the gate: `webdriver::Server`,
+//! the `tauri-plugin` server, `mac::Gated` and the `rightkit-control` CLI
+//! ([`cli`]). The raw macOS primitives are reachable only through the
+//! explicitly named `mac::unsafe_ungated` opt-in.
 pub mod admission;
+pub mod cli;
 #[cfg(feature = "tauri-plugin")]
 pub mod embedded;
 pub mod events;
 pub mod json;
 pub mod keys;
 pub mod lease;
+pub mod lease_store;
 #[cfg(target_os = "macos")]
 pub mod mac;
 pub mod webdriver;

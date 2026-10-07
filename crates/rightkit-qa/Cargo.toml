@@ -15,7 +15,7 @@ default = []
 browser = ["dep:rightkit-browser", "dep:tokio"]
 
 [dependencies]
-rightkit-control = { version = "=0.1.1", path = "../rightkit-control" }
+rightkit-control = { version = "=0.1.2", path = "../rightkit-control" }
 rightkit-framed-sidecar = { version = "=0.1.0", path = "../rightkit-framed-sidecar" }
 rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
 rightkit-process = { version = "=0.2.1", path = "../rightkit-process" }

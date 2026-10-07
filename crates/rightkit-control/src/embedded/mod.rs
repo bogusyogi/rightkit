@@ -477,7 +477,7 @@ impl<R: Runtime> ControlHandler<R> {
             "lease_status" => Ok(snapshot_json(lease.snapshot())),
             "lease_acquire" => {
                 let grant = match decision("reconcile")? {
-                    Some(d) => lease.acquire_reconciling(d),
+                    Some(d) => lease.try_acquire_reconciling(d).map_err(lease_err)?,
                     None => lease.acquire().map_err(lease_err)?,
                 };
                 Ok(

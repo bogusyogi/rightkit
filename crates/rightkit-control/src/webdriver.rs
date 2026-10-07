@@ -71,7 +71,7 @@ impl<B: Backend> Server<B> {
         }
     }
 
-    /// Route every effectful command (element click / send keys) through
+    /// Route every effectful command (element click / send keys / screenshot) through
     /// `gate` (EFF-001). Default is [`EffectGate::allow_all`].
     pub fn with_gate(mut self, gate: Arc<EffectGate>) -> Self {
         self.gate = gate;
@@ -82,14 +82,14 @@ impl<B: Backend> Server<B> {
         &self.gate
     }
 
-    fn effect(
+    fn effect<T>(
         &mut self,
         kind: EffectKind,
         method: &str,
         element: &str,
         params: &str,
-        run: impl FnOnce(&mut B) -> Result<(), String>,
-    ) -> Result<(), String> {
+        run: impl FnOnce(&mut B) -> Result<T, String>,
+    ) -> Result<T, String> {
         let gate = self.gate.clone();
         let backend = &mut self.backend;
         let req = EffectRequest::new(kind, method, element).with_params(params);
@@ -152,10 +152,14 @@ impl<B: Backend> Server<B> {
                 Ok(t) => ok(&format!("\"{}\"", esc(&t))),
                 Err(m) => err(404, "stale element reference", &m),
             },
-            ("GET", ["session", _, "screenshot"]) => match self.backend.screenshot_png_b64() {
-                Ok(b) => ok(&format!("\"{b}\"")),
-                Err(m) => err(500, "unknown error", &m),
-            },
+            ("GET", ["session", _, "screenshot"]) => {
+                match self.effect(EffectKind::Capture, "screenshot", "window", "", |b| {
+                    b.screenshot_png_b64()
+                }) {
+                    Ok(b) => ok(&format!("\"{b}\"")),
+                    Err(m) => err(500, "unknown error", &m),
+                }
+            }
             _ => err(404, "unknown command", &format!("{method} {path}")),
         }
     }
@@ -303,6 +307,10 @@ pub mod macos {
     use std::collections::HashMap;
 
     /// Accessibility-resolved elements, background real-input actions.
+    ///
+    /// This is an adapter: its [`Backend`] methods act directly. Drive it
+    /// through a gated [`super::Server`] (`Server::new(AxBackend::new(pid))
+    /// .with_gate(gate)`), which admits click / send keys / screenshot.
     pub struct AxBackend {
         pub pid: i32,
         els: HashMap<String, Node>,
