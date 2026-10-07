@@ -108,15 +108,33 @@ public actor CloudKitSyncTransport: SyncTransport {
                 }
             }
             let deleted = changes.deletions.map(\.recordID.recordName)
+            var deletedTypes: [String: String] = [:]
+            for deletion in changes.deletions { deletedTypes[deletion.recordID.recordName] = deletion.recordType }
             for name in deleted { cache[name] = nil }
             let archived = try NSKeyedArchiver.archivedData(withRootObject: changes.changeToken, requiringSecureCoding: true)
             return SyncChangePage(
                 records: records, deletedRecordNames: deleted,
                 token: SyncChangeToken(data: archived), moreComing: changes.moreComing,
                 failedRecordNames: failed.sorted(), failedRecordRetryAfter: retryAfter,
-                undecodableRecordNames: undecodable.sorted()
+                undecodableRecordNames: undecodable.sorted(), deletedRecordTypes: deletedTypes
             )
         } catch { throw SyncTransportError(error) }
+    }
+
+    /// Live server copy of one record (`CKDatabase.record(for:)`), or nil for `.unknownItem`.
+    /// The fetched record also refreshes the change-tag cache used by later saves.
+    public func fetchRecord(named recordName: String) async throws -> SyncRecord? {
+        let id = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+        let record: CKRecord
+        do {
+            record = try await database.record(for: id)
+        } catch let error as CKError where error.code == .unknownItem {
+            cache[recordName] = nil
+            return nil
+        } catch { throw SyncTransportError(error) }
+        let decoded = try CloudKitRecordCoding.decode(record)
+        cache[recordName] = record
+        return decoded
     }
 
     public func save(_ writes: [SyncRecordWrite]) async throws -> [String: SyncSaveOutcome] {

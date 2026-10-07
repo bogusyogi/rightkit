@@ -58,6 +58,8 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
 
     private struct Fetch {
         var entries: [RemoteEntry]
+        /// Upserts of `directRecordTypes` records: applied as-is, never reconciled or versioned.
+        var direct: [(recordName: String, item: Adapter.Item)]
         var token: SyncChangeToken?
         var unresolved: Int
         /// Record names the server listed but could not deliver (transient; the pass aborts).
@@ -78,7 +80,9 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
 
     private var state: CloudSyncState
     private var stateLoadError: Error?
-    private var retryGate = SyncRetryGate()
+    /// Server-guided retry gate shared by sync passes and app-side writes (`noteFailure`,
+    /// `writeDirect`, `fetchRecord`). The coordinator reads it through `retryDelayRemaining()`.
+    public private(set) var retryGate = SyncRetryGate()
     private var generation: UInt64 = 0
     private var zonePrepared = false
     private var subscriptionPrepared = false
@@ -128,6 +132,81 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
     }
 
     public func retryDelayRemaining() -> TimeInterval? { retryGate.remaining(now: config.clock()) }
+
+    // MARK: - App-side writes share the retry gate
+
+    /// An app-side CloudKit call failed: back off with the engine. Honours the error's server
+    /// guidance (`SyncTransportError.retryDelay`); non-retryable and non-transport errors leave the
+    /// gate unchanged. Never lowers the gate.
+    public func noteFailure(_ error: Error) {
+        noteRetry(error)
+    }
+
+    /// Raise (never lower) the retry gate to at least `seconds` from now.
+    public func raiseRetryGate(toAtLeast seconds: TimeInterval) {
+        retryGate.raise(toAtLeast: seconds, now: config.clock())
+    }
+
+    /// Save records the app writes directly (normally `directRecordTypes`) through the engine's
+    /// transport: prepares the zone if needed and feeds every failure, whole-request or
+    /// per-record, into the retry gate. Throws `CancellationError` when sync is off (nothing
+    /// leaves the device) and the classified error when the whole request failed.
+    @discardableResult
+    public func writeDirect(_ writes: [SyncRecordWrite]) async throws -> [String: SyncSaveOutcome] {
+        guard isEnabled else { throw CancellationError() }
+        guard !writes.isEmpty else { return [:] }
+        let gen = generation
+        do {
+            try await prepareZoneIfNeeded()
+            try fence(gen)
+            let outcomes = try await transport.save(writes)
+            for case let .failed(error) in outcomes.values { retryGate.note(error, now: config.clock()) }
+            return outcomes
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            zonePrepared = false
+            noteRetry(error)
+            events.record("sync_direct_write_failed", fields: ["error": String(error.localizedDescription.prefix(200))])
+            throw error
+        }
+    }
+
+    /// Live server copy of one record (or nil when absent) through the engine's transport.
+    /// Failures feed the retry gate. Throws `CancellationError` when sync is off.
+    public func fetchRecord(named recordName: String) async throws -> SyncRecord? {
+        guard isEnabled else { throw CancellationError() }
+        do {
+            return try await transport.fetchRecord(named: recordName)
+        } catch {
+            noteRetry(error)
+            throw error
+        }
+    }
+
+    // MARK: - Legacy ledger adoption
+
+    /// Replace the ledger with one migrated from an app's pre-RightKit sync state, keeping its
+    /// change token, record versions, aliases, tombstones and pending deletions. No network call:
+    /// when `ledger.accountID` is nil the ledger is marked `pendingLegacyAdoption` and the first
+    /// pass binds it to the signed-in account without discarding the imported cursor (the
+    /// imported data is trusted to belong to that account). Call before the first sync; any
+    /// in-flight pass is fenced off.
+    public func adoptLegacyLedger(_ ledger: CloudSyncState) throws {
+        var adopted = ledger
+        adopted.pendingLegacyAdoption = adopted.accountID == nil
+        try stateStore.save(adopted)
+        state = adopted
+        stateLoadError = nil
+        generation &+= 1
+        zonePrepared = false
+        retryGate.clear()
+        resetSubscription()
+        events.record("sync_legacy_ledger_imported", fields: [
+            "bound": adopted.accountID == nil ? "false" : "true",
+            "has_cursor": adopted.changeToken == nil ? "false" : "true",
+        ])
+    }
 
     /// Record a local delete. The tombstone blocks re-upload and is written to the server on the
     /// next pass. The app removes its own local copy.
@@ -233,6 +312,9 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
                     upserts.append(item)
                 }
             }
+            // Direct-type records (written by the app or another device, never uploaded from the
+            // local ledger) are handed over as observed: no conflict resolution, no tombstones.
+            upserts += fetched.direct.map(\.item)
             // Blocked ids still present locally (older build, race) are removed too.
             for item in local where state.tombstones[adapter.itemID(of: item)] != nil {
                 deletedLocally.insert(adapter.itemID(of: item))
@@ -256,6 +338,7 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
             // Only permanent decode failures are quarantined (the cursor moves past them); a record
             // that arrives later leaves quarantine.
             for entry in fetched.entries { state.quarantined[entry.recordName] = nil }
+            for entry in fetched.direct { state.quarantined[entry.recordName] = nil }
             for name in fetched.undecodable where state.quarantined[name] == nil {
                 state.quarantined[name] = config.clock()
                 events.record("sync_record_quarantined", fields: ["record_name": name])
@@ -345,14 +428,33 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
             if singleNew && blockedNew { continue }
             try fence(gen)
             // A delete may land while earlier batches were in flight.
-            let live = batch.filter { state.tombstones[$0.id] == nil }
+            var encoded: [(candidate: Candidate, fields: [String: SyncValue])] = []
+            for candidate in batch where state.tombstones[candidate.id] == nil {
+                do {
+                    encoded.append((candidate, try await adapter.encodeForUpload(candidate.item)))
+                } catch {
+                    // A lazy payload that cannot be produced fails this item only; it is retried
+                    // on a later pass and never uploaded with missing content.
+                    out.failed += 1
+                    if singleNew { blockedNew = true }
+                    events.record("sync_record_encode_failed", fields: [
+                        "record_name": candidate.recordName, "error": String(error.localizedDescription.prefix(200)),
+                    ])
+                }
+            }
+            try fence(gen)
+            // Encoding can suspend: re-check tombstones that landed meanwhile.
+            let live = encoded.filter { state.tombstones[$0.candidate.id] == nil }
             guard !live.isEmpty else { continue }
             let writes = live.map {
-                SyncRecordWrite(recordName: $0.recordName, recordType: adapter.recordType, fields: adapter.encode($0.item))
+                SyncRecordWrite(
+                    recordName: $0.candidate.recordName, recordType: adapter.recordType(of: $0.candidate.item),
+                    fields: $0.fields
+                )
             }
             let outcomes = try await transport.save(writes)
             try fence(gen)
-            for candidate in live {
+            for candidate in live.map(\.candidate) {
                 switch outcomes[candidate.recordName] ?? .failed(.other(code: -1, message: "no result")) {
                 case .saved:
                     out.uploaded += 1
@@ -388,7 +490,7 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
             let chunk = Array(writes[start..<min(start + config.deletionBatchSize, writes.count)])
             let outcomes = try await transport.save(chunk.map {
                 SyncRecordWrite(
-                    recordName: $0.name, recordType: adapter.recordType,
+                    recordName: $0.name, recordType: adapter.recordType(forItemID: $0.id),
                     fields: adapter.tombstoneFields(itemID: $0.id, deletedAt: $0.deletedAt)
                 )
             })
@@ -421,6 +523,7 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
         var failedNames = Set<String>()
         var undecodable = Set<String>()
         var failedRetryAfter: TimeInterval?
+        var deletedTypes: [String: String] = [:]
         do {
             var more = true
             while more {
@@ -428,6 +531,7 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
                 try fence(gen)
                 records += page.records
                 deleted += page.deletedRecordNames
+                deletedTypes.merge(page.deletedRecordTypes) { _, latest in latest }
                 failedNames.formUnion(page.failedRecordNames)
                 undecodable.formUnion(page.undecodableRecordNames)
                 if let hint = page.failedRecordRetryAfter { failedRetryAfter = max(failedRetryAfter ?? 0, hint) }
@@ -451,9 +555,16 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
             return try await fetchRemote(gen: gen, didResetToken: didResetToken, didRecreateZone: true)
         }
         var entries: [RemoteEntry] = []
+        var direct: [(recordName: String, item: Adapter.Item)] = []
         var unresolved = 0
+        let directTypes = adapter.directRecordTypes
         for record in records {
             do {
+                if directTypes.contains(record.recordType) {
+                    // Direct records never become tombstones or ledger entries.
+                    if case let .upsert(item) = try adapter.decode(record) { direct.append((record.recordName, item)) }
+                    continue
+                }
                 switch try adapter.decode(record) {
                 case let .upsert(item):
                     entries.append(RemoteEntry(
@@ -471,6 +582,8 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
             }
         }
         for name in deleted {
+            // A hard-deleted direct record is not an item deletion.
+            if let type = deletedTypes[name], directTypes.contains(type) { continue }
             // Hard deletes carry no fields: resolve through aliases seen on earlier syncs.
             let id = state.aliases.first { $0.value.contains(name) }?.key ?? adapter.itemID(forDeletedRecordName: name)
             guard let id else {
@@ -482,8 +595,9 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
         // A record that failed on one page may have been delivered on a later one.
         failedNames.subtract(records.map(\.recordName))
         undecodable.subtract(entries.map(\.recordName))
+        undecodable.subtract(direct.map(\.recordName))
         return Fetch(
-            entries: entries, token: token, unresolved: unresolved, failedNames: failedNames,
+            entries: entries, direct: direct, token: token, unresolved: unresolved, failedNames: failedNames,
             failedRetryAfter: failedRetryAfter, undecodable: undecodable, isFullReplay: isFullReplay
         )
     }
@@ -512,6 +626,14 @@ public actor CloudSyncEngine<Adapter: CloudSyncAdapter>: CloudSyncRunning {
     private func bindAccount() async throws -> Bool {
         guard let identity = try await transport.accountIdentity() else { return false }
         guard let bound = state.accountID else {
+            if state.pendingLegacyAdoption {
+                // Imported through `adoptLegacyLedger`: bind it and keep its cursor and versions.
+                state.accountID = identity
+                state.pendingLegacyAdoption = false
+                try persist()
+                events.record("sync_legacy_ledger_adopted", fields: [:])
+                return false
+            }
             // Ledger from before account binding has no known owner. Its tombstones keep
             // suppressing local copies, but its cursor, versions, aliases and queued deletions are
             // never imported into this account (they would upload another account's deletions).

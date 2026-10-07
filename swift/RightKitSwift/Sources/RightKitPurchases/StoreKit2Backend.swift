@@ -31,7 +31,7 @@ public actor StoreKit2Backend: PurchaseBackend {
             return .purchased(Self.convert(transaction, jws: verification.jwsRepresentation))
         case .pending: return .pending
         case .userCancelled: return .cancelled
-        @unknown default: return .pending
+        @unknown default: return .unknown
         }
     }
 

@@ -22,8 +22,15 @@ public enum SyncResolution: Sendable {
     case keepBoth
 }
 
-/// The app's whole contribution: record mapping plus local persistence. One adapter per synced
-/// record type. Everything else (zone, subscription, tokens, tombstones, retries, triggers) is generic.
+/// The app's whole contribution: record mapping plus local persistence. Everything else (zone,
+/// subscription, tokens, tombstones, retries, triggers) is generic.
+///
+/// Record types: a single-type adapter only declares `recordType`. An adapter that owns several
+/// ledger types returns the type per item from `recordType(of:)` / `recordType(forItemID:)`.
+/// Types the app writes directly (through `CloudSyncEngine.writeDirect` or its own transport
+/// calls) and never uploads from `loadLocal` go in `directRecordTypes`: the engine decodes them
+/// from the feed and hands every changed upsert to `apply`, but keeps them out of conflict
+/// resolution, the version cache, aliases and tombstones.
 ///
 /// Tombstones always win over live copies and permanently block re-upload and re-download of that
 /// item id (the rule shared by the iOS and desktop sync implementations).
@@ -31,7 +38,16 @@ public protocol CloudSyncAdapter: Sendable {
     associatedtype Item: Sendable
 
     // MARK: Mapping
+    /// The default record type: used for every upload and tombstone unless the per-item hooks
+    /// below say otherwise.
     var recordType: String { get }
+    /// Record type an item is uploaded as. Defaults to `recordType`.
+    func recordType(of item: Item) -> String
+    /// Record type a tombstone for `id` is written as. Defaults to `recordType`.
+    func recordType(forItemID id: String) -> String
+    /// Record types read from the zone but never uploaded from `loadLocal` and never tombstoned
+    /// (e.g. request-queue or device records written directly). Defaults to empty.
+    var directRecordTypes: Set<String> { get }
     var conflictPolicy: SyncConflictPolicy { get }
 
     func itemID(of item: Item) -> String
@@ -45,6 +61,12 @@ public protocol CloudSyncAdapter: Sendable {
     func itemID(forDeletedRecordName name: String) -> String?
 
     func encode(_ item: Item) -> [String: SyncValue]
+    /// Fields for an upload, produced at upload time. Defaults to `encode(_:)`. Implement it when
+    /// `loadLocal` returns items whose payload is lazy (a file URL, a closure, `SyncLazyPayload`):
+    /// it is called once per uploaded item, batch by batch, so a pass that uploads nothing never
+    /// reads payloads. Throwing fails only that item (counted as a failed upload and retried);
+    /// it is never uploaded with missing content.
+    func encodeForUpload(_ item: Item) async throws -> [String: SyncValue]
     /// Throw for malformed records: they are quarantined (counted, never fatal) and retried when
     /// the server modifies them again.
     func decode(_ record: SyncRecord) throws -> SyncRemoteChange<Item>
@@ -71,6 +93,10 @@ public protocol CloudSyncAdapter: Sendable {
 }
 
 public extension CloudSyncAdapter {
+    func recordType(of item: Item) -> String { recordType }
+    func recordType(forItemID id: String) -> String { recordType }
+    var directRecordTypes: Set<String> { [] }
+    func encodeForUpload(_ item: Item) async throws -> [String: SyncValue] { encode(item) }
     var conflictPolicy: SyncConflictPolicy { .lastWriterWins }
     func recordName(forItemID id: String) -> String { id }
     func itemID(forDeletedRecordName name: String) -> String? { name }
@@ -106,5 +132,53 @@ public enum SyncTombstone {
         ]
         for key in contentKeys { fields[key] = SyncValue.null }
         return fields
+    }
+}
+
+/// A payload produced on demand, for items whose content is too large to hold for every local
+/// item on every pass. `loadLocal` returns items carrying one; `encodeForUpload` resolves it.
+public struct SyncLazyPayload: Sendable {
+    private let produce: @Sendable () async throws -> [String: SyncValue]
+
+    public init(_ produce: @escaping @Sendable () async throws -> [String: SyncValue]) {
+        self.produce = produce
+    }
+
+    /// Already-materialised fields (whole-item loading).
+    public static func fields(_ fields: [String: SyncValue]) -> SyncLazyPayload {
+        SyncLazyPayload { fields }
+    }
+
+    public enum FileEncoding: Sendable {
+        /// UTF-8 text as `.string`.
+        case utf8String
+        /// Raw bytes as `.data`.
+        case data
+        /// Raw bytes as a CloudKit asset (`.asset`).
+        case asset
+    }
+
+    /// One field read from `url` at encode time. An unreadable file throws, so the item is not
+    /// uploaded with empty content.
+    public static func file(_ url: URL, field: String, as encoding: FileEncoding) -> SyncLazyPayload {
+        SyncLazyPayload {
+            let bytes = try Data(contentsOf: url)
+            switch encoding {
+            case .utf8String:
+                guard let text = String(data: bytes, encoding: .utf8) else {
+                    throw CloudSyncError.malformedRecord("payload at \(url.lastPathComponent) is not UTF-8")
+                }
+                return [field: .string(text)]
+            case .data: return [field: .data(bytes)]
+            case .asset: return [field: .asset(bytes)]
+            }
+        }
+    }
+
+    public func resolve() async throws -> [String: SyncValue] { try await produce() }
+
+    /// `base` fields overlaid with this payload's fields (payload wins on a key collision).
+    public func merged(over base: [String: SyncValue]) async throws -> [String: SyncValue] {
+        base.merging(try await resolve()) { _, payload in payload }
     }
 }

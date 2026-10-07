@@ -92,11 +92,14 @@ public struct SyncChangePage: Sendable {
     /// PERMANENT per-record failures: the record was fetched but can never be decoded (corrupt
     /// payload, unreadable asset). Quarantined at once; the cursor moves on.
     public var undecodableRecordNames: [String]
+    /// Record type of each hard-deleted record name, when the transport knows it (CloudKit reports
+    /// it). Lets the engine ignore hard deletes of direct record types; may be empty.
+    public var deletedRecordTypes: [String: String]
 
     public init(
         records: [SyncRecord], deletedRecordNames: [String], token: SyncChangeToken, moreComing: Bool,
         failedRecordNames: [String] = [], failedRecordRetryAfter: TimeInterval? = nil,
-        undecodableRecordNames: [String] = []
+        undecodableRecordNames: [String] = [], deletedRecordTypes: [String: String] = [:]
     ) {
         self.records = records
         self.deletedRecordNames = deletedRecordNames
@@ -105,6 +108,7 @@ public struct SyncChangePage: Sendable {
         self.failedRecordNames = failedRecordNames
         self.failedRecordRetryAfter = failedRecordRetryAfter
         self.undecodableRecordNames = undecodableRecordNames
+        self.deletedRecordTypes = deletedRecordTypes
     }
 }
 
@@ -181,6 +185,9 @@ public struct SyncResult: Equatable, Sendable {
 
 public enum SyncTrigger: String, Sendable {
     case launch, foreground, localMutation, remotePush, networkRestored, accountChanged, enabled, retry
+    /// The user submitted work that travels through the zone (e.g. a request another device
+    /// executes). Runs like `localMutation`: one coalesced pass, retry gate honoured.
+    case submit
 }
 
 /// Diagnostics seam. Bridge to `RightKitDiagnostics` (or `os.Logger`) in the app; never put user

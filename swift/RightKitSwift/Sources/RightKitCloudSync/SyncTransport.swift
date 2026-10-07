@@ -17,10 +17,25 @@ public protocol SyncTransport: Sendable {
     /// Stable opaque identity of the signed-in account, or nil when the transport has none. The
     /// engine binds its ledger to this value and resets it when it changes.
     func accountIdentity() async throws -> String?
+    /// Read one record by name straight from the zone (not the change feed): the live server
+    /// copy, or nil when no such record exists. Throws classified errors otherwise (a missing
+    /// zone is `.zoneNotFound`).
+    func fetchRecord(named recordName: String) async throws -> SyncRecord?
 }
 
 public extension SyncTransport {
     func accountIdentity() async throws -> String? { nil }
+
+    /// Default for transports written before 0.3.3: reading one record is unsupported and throws
+    /// `SyncTransportError.other(code: -3, ...)` rather than pretending the record is absent.
+    func fetchRecord(named recordName: String) async throws -> SyncRecord? {
+        throw SyncTransportError.other(code: SyncTransportError.unsupportedOperationCode, message: "fetchRecord is not supported by this transport")
+    }
+}
+
+public extension SyncTransportError {
+    /// `.other` code used when a transport does not implement an optional operation.
+    static let unsupportedOperationCode = -3
 }
 
 /// In-process zone with change-token, pagination, expiry and zone-deletion semantics.
@@ -32,6 +47,7 @@ public actor InMemorySyncTransport: SyncTransport {
     private var seq = 0
     private var epoch = 0
     private var zoneExists = false
+    private var deletedTypes: [String: String] = [:]
     public private(set) var subscriptionCount = 0
     public private(set) var fetchCount = 0
     public private(set) var saveCallCount = 0
@@ -43,6 +59,9 @@ public actor InMemorySyncTransport: SyncTransport {
     public var failNextFetch: SyncTransportError?
     public var failNextSave: SyncTransportError?
     public var failNextSubscription: SyncTransportError?
+    /// One-shot failure for the next `fetchRecord(named:)`.
+    public var failNextRecordFetch: SyncTransportError?
+    public private(set) var recordFetchCount = 0
     /// Record name -> number of fetch passes in which that record is reported as a TRANSIENT
     /// failure (the page still succeeds and its token advances, like a CloudKit per-record error).
     public var failingFetches: [String: Int] = [:]
@@ -69,6 +88,7 @@ public actor InMemorySyncTransport: SyncTransport {
     public func setAccountID(_ id: String?) { accountID = id }
     public func accountIdentity() async throws -> String? { accountID }
     public func setFailNextSubscription(_ error: SyncTransportError?) { failNextSubscription = error }
+    public func setFailNextRecordFetch(_ error: SyncTransportError?) { failNextRecordFetch = error }
 
     // MARK: Test controls
     public func allRecords() -> [String: SyncRecord] { records }
@@ -81,6 +101,7 @@ public actor InMemorySyncTransport: SyncTransport {
     }
 
     public func hardDelete(_ name: String) {
+        if let type = records[name]?.recordType { deletedTypes[name] = type }
         records[name] = nil
         seq += 1
         log.append((seq, name, true))
@@ -92,6 +113,7 @@ public actor InMemorySyncTransport: SyncTransport {
     public func deleteZone() {
         records = [:]
         log = []
+        deletedTypes = [:]
         zoneExists = false
         epoch += 1
     }
@@ -131,9 +153,11 @@ public actor InMemorySyncTransport: SyncTransport {
         var deleted: [String] = []
         var failed: [String] = []
         var undecodable: [String] = []
+        var deletedTypesOut: [String: String] = [:]
         for (name, event) in page {
             if event.deleted {
                 deleted.append(name)
+                if let type = deletedTypes[name] { deletedTypesOut[name] = type }
             } else if undecodableRecords.contains(name) {
                 undecodable.append(name)
             } else if let remaining = failingFetches[name], remaining > 0 {
@@ -146,7 +170,14 @@ public actor InMemorySyncTransport: SyncTransport {
         let data = try JSONEncoder().encode(Token(epoch: epoch, seq: cursor))
         return SyncChangePage(records: out, deletedRecordNames: deleted, token: SyncChangeToken(data: data), moreComing: more,
                               failedRecordNames: failed, failedRecordRetryAfter: failingFetchRetryAfter,
-                              undecodableRecordNames: undecodable)
+                              undecodableRecordNames: undecodable, deletedRecordTypes: deletedTypesOut)
+    }
+
+    public func fetchRecord(named recordName: String) async throws -> SyncRecord? {
+        recordFetchCount += 1
+        if let e = failNextRecordFetch { failNextRecordFetch = nil; throw e }
+        guard zoneExists else { throw SyncTransportError.zoneNotFound }
+        return records[recordName]
     }
 
     public func save(_ writes: [SyncRecordWrite]) async throws -> [String: SyncSaveOutcome] {

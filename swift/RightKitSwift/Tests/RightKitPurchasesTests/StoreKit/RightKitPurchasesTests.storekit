@@ -1,0 +1,35 @@
+{
+  "identifier" : "6E0C4F3A",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "6A1B2C3D",
+      "localizations" : [
+        {
+          "description" : "RightKit test non-consumable.",
+          "displayName" : "RightKit Test Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "org.rightkit.test.pro",
+      "referenceName" : "RightKit Test Pro",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA"
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

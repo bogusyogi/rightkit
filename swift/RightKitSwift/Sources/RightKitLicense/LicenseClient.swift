@@ -326,6 +326,13 @@ public struct LicenseActivationClient: Sendable {
         try await store.remove()
     }
 
+    /// Deactivates a legacy activation by its original token, for a durable pending-removal queue.
+    /// Never loads or touches the stored license. Returns only after the server accepted the
+    /// call; any failure throws, so the caller acknowledges its queue entry on success alone.
+    public func deactivate(activationToken: String) async throws {
+        _ = try await post(path: "deactivate", payload: ["app": configuration.app, "activationToken": activationToken]) as LicenseServerResponse
+    }
+
     public func activateLease(key: String, deviceLabel: String? = nil) async throws -> StoredLicense {
         let deviceHash = Self.deviceIDHash(configuration.deviceID())
         var payload = ["appKey": configuration.app, "licenseKey": key.trimmingCharacters(in: .whitespacesAndNewlines), "deviceIdHash": deviceHash, "platform": Self.platform()]
@@ -546,10 +553,81 @@ public final class LicenseController: ObservableObject {
     @Published public private(set) var message = ""
 
     public let client: LicenseActivationClient
+    /// Durable server-removal queue; nil for controllers built with `init(client:)`.
+    public let pendingRemovals: PendingLicenseRemovalQueue?
+    /// Bridge re-consumption gate; nil for controllers built with `init(client:)`.
+    public let bridgeConsumption: BridgeConsumptionGate?
+    /// Invalidates an in-flight refresh so it cannot publish (or re-store) a license after a
+    /// removal, activation or persist that happened meanwhile.
+    private var mutationGeneration: UInt64 = 0
 
     public init(client: LicenseActivationClient) {
         self.client = client
+        self.pendingRemovals = nil
+        self.bridgeConsumption = nil
         Task { [weak self] in self?.license = await client.load() }
+    }
+
+    /// Controller with device-side removal housekeeping: `remove()` suppresses bridge consumption
+    /// and queues the server removal durably before any network call, and queued removals are
+    /// retried at init, after each successful refresh, and on `retryPendingRemovals()`.
+    /// - Parameters:
+    ///   - deviceState: device-only storage (never synced).
+    ///   - namespace: key prefix; defaults to the client's app id.
+    public init(client: LicenseActivationClient, deviceState: any LicenseDeviceStateStoring, namespace: String? = nil) {
+        let scope = namespace ?? client.configuration.app
+        self.client = client
+        self.pendingRemovals = PendingLicenseRemovalQueue(storage: deviceState, namespace: scope)
+        self.bridgeConsumption = BridgeConsumptionGate(storage: deviceState, namespace: scope)
+        Task { [weak self] in
+            let generation = self?.mutationGeneration
+            let loaded = await client.load()
+            guard let self else { return }
+            if self.mutationGeneration == generation { self.license = loaded }
+            await self.retryPendingRemovals()
+        }
+    }
+
+    /// See `BridgeConsumptionGate`. Always false for controllers built with `init(client:)`.
+    public var isBridgeConsumptionSuppressed: Bool { bridgeConsumption?.isSuppressed ?? false }
+
+    /// This device holds a record that is not Pro and has no activation token to recover with;
+    /// only an explicit re-activation repairs it. See `StoredLicense.needsReconnect`.
+    public var needsReconnect: Bool {
+        guard let license else { return false }
+        guard let key = client.configuration.publicKeyBase64url else {
+            // Without a verification key nothing can be proven Pro: a token-less record is stuck.
+            return license.activationToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        }
+        return license.needsReconnect(publicKeyBase64url: key, app: client.configuration.app, deviceId: client.configuration.deviceID())
+    }
+
+    /// Delivers queued server removals. No-op for controllers built with `init(client:)`.
+    @discardableResult
+    public func retryPendingRemovals() async -> [PendingLicenseRemoval] {
+        guard let pendingRemovals else { return [] }
+        return await pendingRemovals.retry(using: client)
+    }
+
+    /// Activation through the renewable device-lease endpoint. Clears bridge suppression on
+    /// success: an explicit activation is the user's way back after a removal.
+    public func activateLease(_ key: String, deviceLabel: String? = nil) async {
+        mutationGeneration &+= 1
+        isBusy = true; defer { isBusy = false }
+        do {
+            license = try await client.activateLease(key: key, deviceLabel: deviceLabel)
+            bridgeConsumption?.allow()
+            message = license?.message ?? "License activated."
+        } catch { message = error.localizedDescription }
+    }
+
+    /// Store an already-verified license obtained elsewhere (e.g. a continuity-bridge exchange
+    /// the app performed) through the same device-only store as an activation. Does not clear
+    /// bridge suppression.
+    public func persist(_ verified: StoredLicense) async throws {
+        mutationGeneration &+= 1
+        try await client.store.save(verified)
+        license = verified
     }
 
     public var isProCandidate: Bool {
@@ -560,20 +638,59 @@ public final class LicenseController: ObservableObject {
     }
 
     public func activate(_ key: String) async {
+        mutationGeneration &+= 1
         isBusy = true; defer { isBusy = false }
-        do { license = try await client.activate(key: key); message = license?.message ?? "License activated." }
+        do {
+            license = try await client.activate(key: key)
+            bridgeConsumption?.allow()
+            message = license?.message ?? "License activated."
+        }
         catch { message = error.localizedDescription }
     }
 
     public func refresh() async {
+        guard pendingRemovals != nil else {
+            isBusy = true; defer { isBusy = false }
+            do { license = try await client.refresh(); message = license?.message ?? "License refreshed." }
+            catch { message = error.localizedDescription }
+            return
+        }
+        let generation = mutationGeneration
         isBusy = true; defer { isBusy = false }
-        do { license = try await client.refresh(); message = license?.message ?? "License refreshed." }
-        catch { message = error.localizedDescription }
+        do {
+            let refreshed = try await client.refresh()
+            guard mutationGeneration == generation else {
+                // A removal landed while the refresh was in flight: the client already re-saved
+                // the old record, so take it back out; never publish it.
+                if license == nil { try? await client.store.remove() }
+                return
+            }
+            license = refreshed
+            message = refreshed?.message ?? "License refreshed."
+            // A completed round trip proves connectivity: flush owed removals now.
+            await retryPendingRemovals()
+        } catch { message = error.localizedDescription }
     }
 
+    /// Removes the license from this device. With `init(client:)` this is the original
+    /// best-effort deactivate. With device state configured, the order is: suppress bridge
+    /// consumption, queue the owed server removal durably, delete the local record (Pro ends
+    /// immediately, even offline), then attempt delivery; an undelivered removal stays queued.
     public func remove() async {
+        guard let pendingRemovals else {
+            isBusy = true; defer { isBusy = false }
+            try? await client.deactivate(); license = nil; message = "License removed."
+            return
+        }
+        mutationGeneration &+= 1
         isBusy = true; defer { isBusy = false }
-        try? await client.deactivate(); license = nil; message = "License removed."
+        bridgeConsumption?.suppress()
+        let current = await client.load()
+        if let current, let owed = PendingLicenseRemoval.owed(by: current) { await pendingRemovals.enqueue(owed) }
+        try? await client.store.remove()
+        license = nil
+        message = "License removed."
+        await retryPendingRemovals()
     }
 }
 #endif

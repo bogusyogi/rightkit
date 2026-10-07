@@ -321,3 +321,190 @@ private let currentActivation = StoredLicense(
     ])
     #expect(await store.load() == nil)
 }
+
+// MARK: - 0.3.3 device-side removal housekeeping
+
+private final class DeliveryLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [PendingLicenseRemoval] = []
+    private var failing: Set<PendingLicenseRemoval> = []
+    var delivered: [PendingLicenseRemoval] { lock.withLock { entries } }
+    func fail(_ set: Set<PendingLicenseRemoval>) { lock.withLock { failing = set } }
+    func deliver(_ removal: PendingLicenseRemoval) throws {
+        try lock.withLock {
+            if failing.contains(removal) { throw LicenseError.transport("offline") }
+            entries.append(removal)
+        }
+    }
+}
+
+@Test func pendingRemovalQueuePersistsDedupesAndDropsOnlyAcknowledgedEntries() async throws {
+    let storage = InMemoryLicenseDeviceState()
+    let lease = PendingLicenseRemoval.lease(deviceIdHash: "h1", leaseId: "l1")
+    let activation = PendingLicenseRemoval.activation(activationToken: "act-1")
+    let queue = PendingLicenseRemovalQueue(storage: storage, namespace: "app")
+    await queue.enqueue(lease)
+    await queue.enqueue(lease)
+    await queue.enqueue(activation)
+    #expect(await queue.pending == [lease, activation])
+
+    // Survives a relaunch (new queue over the same storage).
+    let relaunched = PendingLicenseRemovalQueue(storage: storage, namespace: "app")
+    #expect(await relaunched.pending == [lease, activation])
+    #expect(await PendingLicenseRemovalQueue(storage: storage, namespace: "other").pending.isEmpty)
+
+    let log = DeliveryLog()
+    log.fail([activation])
+    let first = await relaunched.retry { try log.deliver($0) }
+    #expect(first == [lease])
+    #expect(await relaunched.pending == [activation], "an unacknowledged removal stays queued")
+
+    log.fail([])
+    let second = await relaunched.retry { try log.deliver($0) }
+    #expect(second == [activation])
+    #expect(await relaunched.pending.isEmpty)
+    #expect(storage.data(forKey: "app.license.pendingRemovals") == nil)
+}
+
+@Test func pendingRemovalQueueKeepsEntriesQueuedDuringARetry() async throws {
+    let queue = PendingLicenseRemovalQueue(storage: InMemoryLicenseDeviceState(), namespace: "app")
+    let old = PendingLicenseRemoval.lease(deviceIdHash: "h-old", leaseId: "l-old")
+    let late = PendingLicenseRemoval.lease(deviceIdHash: "h-new", leaseId: "l-new")
+    await queue.enqueue(old)
+    let delivered = await queue.retry { _ in await queue.enqueue(late) }
+    #expect(delivered == [old])
+    #expect(await queue.pending == [late])
+}
+
+@Test func owedRemovalPrefersLeaseThenActivationToken() {
+    let leased = StoredLicense(status: "active", deviceId: "dev", activationToken: "act", leaseId: "lease-1")
+    #expect(PendingLicenseRemoval.owed(by: leased) == .lease(deviceIdHash: LicenseActivationClient.deviceIDHash("dev"), leaseId: "lease-1"))
+    let legacy = StoredLicense(status: "active", deviceId: "dev", activationToken: "act")
+    #expect(PendingLicenseRemoval.owed(by: legacy) == .activation(activationToken: "act"))
+    #expect(PendingLicenseRemoval.owed(by: StoredLicense(status: "active", deviceId: "dev", activationToken: "  ")) == nil)
+}
+
+@Test func deactivateByTokenSendsExactlyThatTokenAndThrowsOnFailure() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    let store = InMemoryLicenseStore()
+    try await store.save(currentActivation)
+    let client = leaseClient(server: server, store: store, probe: DeviceIDProbe())
+
+    try await client.deactivate(activationToken: "queued-token")
+    #expect(server.lastPath.hasSuffix("/deactivate"))
+    #expect(server.lastBody == ["app": "heardright", "activationToken": "queued-token"])
+    #expect(await store.load() == currentActivation, "never touches the stored license")
+
+    server.status = 503
+    await #expect(throws: LicenseError.self) { try await client.deactivate(activationToken: "queued-token") }
+}
+
+@Test func queueRetryDeliversThroughTheClientEndpoints() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    let client = leaseClient(server: server, store: InMemoryLicenseStore(), probe: DeviceIDProbe())
+    let queue = PendingLicenseRemovalQueue(storage: InMemoryLicenseDeviceState(), namespace: "heardright")
+    await queue.enqueue(.lease(deviceIdHash: "orig-hash", leaseId: "lease-9"))
+
+    server.status = 503
+    #expect(await queue.retry(using: client).isEmpty)
+    #expect(await queue.pending.count == 1)
+
+    server.status = 200
+    #expect(await queue.retry(using: client).count == 1)
+    #expect(server.lastBody == ["appKey": "heardright", "deviceIdHash": "orig-hash", "leaseId": "lease-9"])
+    #expect(await queue.pending.isEmpty)
+}
+
+@Test func bridgeConsumptionGateIsNamespacedAndPersisted() {
+    let storage = InMemoryLicenseDeviceState()
+    let gate = BridgeConsumptionGate(storage: storage, namespace: "app")
+    #expect(!gate.isSuppressed)
+    gate.suppress()
+    #expect(BridgeConsumptionGate(storage: storage, namespace: "app").isSuppressed)
+    #expect(!BridgeConsumptionGate(storage: storage, namespace: "other").isSuppressed)
+    gate.allow()
+    #expect(!gate.isSuppressed)
+}
+
+@Test func needsReconnectOnlyForNonProRecordsWithoutAnActivationToken() {
+    let key = Curve25519.Signing.PrivateKey()
+    let pub = key.publicKey.rawRepresentation.base64URLEncodedString()
+    let now = 1_800_000_000
+    let pro = StoredLicense(status: "active", deviceId: "dev", signedToken: signedToken(key))
+    #expect(!pro.needsReconnect(publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
+    let expiredNoToken = StoredLicense(status: "active", deviceId: "dev", signedToken: signedToken(key, exp: 1_700_000_001))
+    #expect(expiredNoToken.needsReconnect(publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
+    var refreshable = expiredNoToken; refreshable.activationToken = "act"
+    #expect(!refreshable.needsReconnect(publicKeyBase64url: pub, app: "coderight", deviceId: "dev", now: now))
+}
+
+@MainActor
+@Test func queuedControllerRemovalSuppressesBridgeQueuesAndDeliversLater() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    server.status = 503
+    let store = InMemoryLicenseStore()
+    try await store.save(currentActivation)
+    let state = InMemoryLicenseDeviceState()
+    let client = leaseClient(server: server, store: store, probe: DeviceIDProbe())
+    let controller = LicenseController(client: client, deviceState: state)
+
+    await controller.remove()
+    #expect(controller.license == nil)
+    #expect(await store.load() == nil, "local Pro ends immediately, even offline")
+    #expect(controller.isBridgeConsumptionSuppressed)
+    let owed = PendingLicenseRemoval.lease(
+        deviceIdHash: LicenseActivationClient.deviceIDHash(currentActivation.deviceId), leaseId: "current-lease"
+    )
+    #expect(await controller.pendingRemovals?.pending == [owed])
+
+    // Relaunch: a fresh controller over the same device state still owes the removal.
+    server.status = 200
+    let relaunched = LicenseController(client: client, deviceState: state)
+    // The init-time retry may already be in flight (a concurrent retry returns []): settle both.
+    var attempts = 0
+    while await relaunched.pendingRemovals?.pending.isEmpty != true, attempts < 100 {
+        _ = await relaunched.retryPendingRemovals()
+        attempts += 1
+        try await Task.sleep(nanoseconds: 5_000_000)
+    }
+    #expect(await relaunched.pendingRemovals?.pending.isEmpty == true)
+    #expect(server.lastBody["leaseId"] == "current-lease")
+    #expect(relaunched.isBridgeConsumptionSuppressed, "only an explicit activation clears suppression")
+
+    await relaunched.activate("RK-AGAIN")
+    #expect(!relaunched.isBridgeConsumptionSuppressed)
+}
+
+@MainActor
+@Test func legacyControllerRemovalIsUnchanged() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    let store = InMemoryLicenseStore()
+    try await store.save(StoredLicense(status: "active", deviceId: "dev", activationToken: "act-legacy"))
+    let controller = LicenseController(client: leaseClient(server: server, store: store, probe: DeviceIDProbe()))
+    await controller.remove()
+    #expect(controller.pendingRemovals == nil && controller.bridgeConsumption == nil)
+    #expect(!controller.isBridgeConsumptionSuppressed)
+    #expect(server.lastBody == ["app": "heardright", "activationToken": "act-legacy"])
+    #expect(await store.load() == nil)
+}
+
+@MainActor
+@Test func controllerNeedsReconnectReflectsTheStoredRecord() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let pub = key.publicKey.rawRepresentation.base64URLEncodedString()
+    let store = InMemoryLicenseStore()
+    let client = LicenseActivationClient(
+        configuration: LicenseClientConfiguration(app: "coderight", baseURL: URL(string: "http://127.0.0.1:9")!, deviceID: { "dev" }, publicKeyBase64url: pub),
+        store: store
+    )
+    let controller = LicenseController(client: client, deviceState: InMemoryLicenseDeviceState())
+    #expect(!controller.needsReconnect, "no record is plain free, not reconnect")
+    try await controller.persist(StoredLicense(status: "active", deviceId: "dev", signedToken: signedToken(key, deviceID: "dev", exp: 1_000)))
+    #expect(controller.needsReconnect)
+    try await controller.persist(StoredLicense(status: "active", deviceId: "dev", signedToken: signedToken(key, deviceID: "dev")))
+    #expect(!controller.needsReconnect)
+}

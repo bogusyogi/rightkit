@@ -37,7 +37,11 @@ let package = Package(
         ),
         // StoreKit 2 purchases, entitlement ledger, and the bridge into RightKitLicense access.
         .target(name: "RightKitPurchases", dependencies: ["RightKitLicense"]),
-        .testTarget(name: "RightKitPurchasesTests", dependencies: ["RightKitPurchases", "RightKitLicense"]),
+        .testTarget(
+            name: "RightKitPurchasesTests",
+            dependencies: ["RightKitPurchases", "RightKitLicense"],
+            resources: [.copy("StoreKit/RightKitPurchasesTests.storekit")],
+        ),
         // Generic CloudKit record sync; Foundation/CloudKit/Network only.
         .target(name: "RightKitCloudSync"),
         .testTarget(name: "RightKitCloudSyncTests", dependencies: ["RightKitCloudSync"]),

@@ -63,6 +63,10 @@ public enum PurchaseOutcome: Equatable, Sendable {
     case cancelled
     /// The store returned a transaction that failed signature verification. Grant nothing.
     case unverified
+    /// The store returned a result this SDK version does not know (StoreKit's `@unknown default`).
+    /// Grant nothing; show `PurchaseMessages.unknownOutcome`. Entitlements still arrive through
+    /// `updates()` if the store later completes the purchase.
+    case unknown
 }
 
 public enum RefundOutcome: Equatable, Sendable {

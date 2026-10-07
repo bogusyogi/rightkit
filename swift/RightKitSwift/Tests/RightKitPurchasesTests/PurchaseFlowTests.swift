@@ -159,7 +159,7 @@ private func controller(
     let backend = FakeBackend()
     let purchases = controller(backend)
     await purchases.configure()
-    for outcome in [PurchaseOutcome.pending, .cancelled, .unverified] {
+    for outcome in [PurchaseOutcome.pending, .cancelled, .unverified, .unknown] {
         backend.setOutcome(outcome)
         await purchases.purchase(productID: P.full)
         #expect(!purchases.hasAccess)
@@ -175,6 +175,27 @@ private func controller(
     clock.value = Date(timeIntervalSince1970: 6_001)
     await sub.refreshEntitlements()
     #expect(!sub.hasAccess)
+}
+
+@Test @MainActor func everyPurchaseOutcomeMapsToItsOwnMessage() async {
+    let backend = FakeBackend()
+    let purchases = controller(backend)
+    await purchases.configure()
+    let messages = PurchaseMessages()
+    let expected: [(PurchaseOutcome, String)] = [
+        (.pending, messages.pending), (.cancelled, messages.cancelled),
+        (.unverified, messages.unverified), (.unknown, messages.unknownOutcome),
+        (.purchased(tx(42, P.full)), messages.purchased),
+    ]
+    for (outcome, message) in expected {
+        backend.setOutcome(outcome)
+        await purchases.purchase(productID: P.full)
+        #expect(purchases.message == message, "\(outcome)")
+    }
+    // `.unknown` is distinct from `.pending`: StoreKit's `@unknown default` no longer reads as
+    // "awaiting approval".
+    #expect(messages.unknownOutcome != messages.pending)
+    #expect(PurchaseOutcome.unknown != .pending)
 }
 
 private final class ClockBox: @unchecked Sendable {

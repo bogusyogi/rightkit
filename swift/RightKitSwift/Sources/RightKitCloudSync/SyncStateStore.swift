@@ -31,6 +31,11 @@ public struct CloudSyncState: Codable, Equatable, Sendable {
     /// quarantined. Transient fetch failures are never recorded here. A scheduled full replay
     /// retries them.
     public var quarantined: [String: Date] = [:]
+    /// Set by `CloudSyncEngine.adoptLegacyLedger`: this ledger was imported without an account
+    /// binding. The first pass that reads the account identity binds it and KEEPS the imported
+    /// token, versions, aliases and pending deletions (an unbound ledger without this flag has
+    /// them dropped instead).
+    public var pendingLegacyAdoption: Bool = false
 
     public init() {}
 
@@ -45,6 +50,7 @@ public struct CloudSyncState: Codable, Equatable, Sendable {
         markers = try c.decodeIfPresent(Set<String>.self, forKey: .markers) ?? []
         accountID = try c.decodeIfPresent(String.self, forKey: .accountID)
         quarantined = try c.decodeIfPresent([String: Date].self, forKey: .quarantined) ?? [:]
+        pendingLegacyAdoption = try c.decodeIfPresent(Bool.self, forKey: .pendingLegacyAdoption) ?? false
     }
 }
 

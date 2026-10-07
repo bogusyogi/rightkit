@@ -154,6 +154,7 @@ public final class PurchaseController: ObservableObject {
             case .unverified: message = config.messages.unverified
             case .pending: message = config.messages.pending
             case .cancelled: message = config.messages.cancelled
+            case .unknown: message = config.messages.unknownOutcome
             }
         } catch {
             fail(error.localizedDescription)
