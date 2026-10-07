@@ -2,29 +2,37 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/theme",
-  "version": "0.1.0",
-  "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-  "artifactSha256": "cfb01f16f0d2a8d346ee28a0cea15f85486f58afb0e5981a5e5361d26b43ce95",
+  "version": "0.2.0",
+  "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
+  "artifactSha256": "da6bc62e62ad09802b4842a724e59b289977f23a2ce31218f7603a3e02b16955",
   "runs": [
     {
       "host": {
-        "os": "darwin"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm test (packages/theme)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:28:12.671Z",
+      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
+      "command": "pnpm exec vitest run (packages/theme, primary checkout)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07T00:34:23Z",
       "passed": 9,
       "failed": 0
     },
     {
       "host": {
-        "os": "win32"
+        "os": "win32",
+        "arch": "x64"
       },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm test (packages/theme, D:\\rk-gate\\3107b240 export)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:28:22.698Z",
+      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
+      "command": "pnpm --filter @rightkit/theme... run build; pnpm exec vitest run (packages/theme, D:\\rk-gate\\bca54d20 git-archive export of bca54d20)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07T00:35:41Z",
       "passed": 9,
       "failed": 0
     }

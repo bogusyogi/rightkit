@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/legal-ui",
+  "version": "0.1.2",
+  "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
+  "artifactSha256": "f1a0fe99b80aa12b27d5f102b769373c877a5c5eff47a550213f0c153d26a14e",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
+      "command": "pnpm exec vitest run (packages/legal-ui, primary checkout)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07T00:34:31Z",
+      "passed": 20,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64"
+      },
+      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
+      "command": "pnpm --filter @rightkit/legal-ui... run build; pnpm exec vitest run (packages/legal-ui, D:\\rk-gate\\bca54d20 git-archive export of bca54d20)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07T00:35:41Z",
+      "passed": 20,
+      "failed": 0
+    }
+  ]
+}

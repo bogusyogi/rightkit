@@ -2,30 +2,38 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/onboarding",
-  "version": "0.1.0",
-  "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-  "artifactSha256": "e42d664c7a148af3d9091bcb0adce82c16443c526007bba056473df8943614a0",
+  "version": "0.2.0",
+  "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
+  "artifactSha256": "730bf9a6e2562f9feba976fa24c7906374e8593edc6f66a9c933f1629c49f213",
   "runs": [
     {
       "host": {
-        "os": "darwin"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm test (packages/onboarding)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:28:43.284Z",
-      "passed": 5,
+      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
+      "command": "pnpm exec vitest run (packages/onboarding, primary checkout)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07T00:34:41Z",
+      "passed": 24,
       "failed": 0
     },
     {
       "host": {
-        "os": "win32"
+        "os": "win32",
+        "arch": "x64"
       },
-      "commit": "3107b2401ea4852a3316fa039b523424bcacc9f0",
-      "command": "pnpm test (packages/onboarding, D:\\rk-gate\\3107b240 export)",
-      "operator": "claude-opus-5.5 (GenRight lead) for adrdsouza",
-      "timestamp": "2026-10-06T22:29:04.335Z",
-      "passed": 5,
+      "commit": "bca54d2053e4fea2c20c7d2a3ae6da1300ff9b5e",
+      "command": "pnpm --filter @rightkit/onboarding... run build; pnpm exec vitest run (packages/onboarding, D:\\rk-gate\\bca54d20 git-archive export of bca54d20)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-07T00:35:41Z",
+      "passed": 24,
       "failed": 0
     }
   ]
