@@ -217,10 +217,10 @@ export function TextPanel({
             value={bundledFontValue}
             disabled={!selected}
             onChange={(e) => e.target.value && onPatch({ fontFamily: e.target.value })}
-            className="rk-iv-input"
-            title="Bundled fonts"
+            className="rk-iv-input rk-iv-font-bundled"
+            title={adapters.bundledFontsLabel ?? "Bundled fonts"}
           >
-            <option value="">Bundled</option>
+            <option value="">{adapters.bundledFontsEmptyOption ?? "Bundled"}</option>
             {bundledFonts.map((font) => (
               <option key={font.id} value={font.id} style={{ fontFamily: font.stack }}>
                 {font.name}
@@ -246,6 +246,7 @@ export function TextPanel({
               style={{ fontFamily: cssFontFamilyForImageText(bundledFonts, font, {
                 defaultFontId: adapters.defaultFontId,
                 fallbackStack: adapters.fallbackFontStack,
+                systemFallbackStack: adapters.systemFontFallbackStack,
               }) }}
             >
               {font}
@@ -254,12 +255,13 @@ export function TextPanel({
         </select>
       </label>
       <label className="rk-iv-field rk-iv-color" title="Text color">
-        <span className="rk-iv-dim">color</span>
+        <span className="rk-iv-dim" aria-hidden="true">color</span>
         <span
           className="rk-iv-swatch"
           style={{ backgroundColor: selected?.color ?? "#ffffff" }}
           aria-hidden="true"
         >
+          <span className="rk-iv-swatch-slash" />
           <input
             type="color"
             value={selected?.color ?? "#ffffff"}

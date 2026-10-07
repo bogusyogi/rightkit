@@ -116,10 +116,14 @@ export function ImageViewer(props: ImageViewerProps) {
   const displaySrc = displaySrcProp || src;
   const exportSrc = src || displaySrc;
   const fonts = adapters.bundledFonts ?? [];
-  const { defaultFontId, fallbackFontStack } = adapters;
+  const { defaultFontId, fallbackFontStack, systemFontFallbackStack } = adapters;
   const fontOptions = useMemo(
-    () => ({ defaultFontId, fallbackStack: fallbackFontStack }),
-    [defaultFontId, fallbackFontStack],
+    () => ({
+      defaultFontId,
+      fallbackStack: fallbackFontStack,
+      systemFallbackStack: systemFontFallbackStack,
+    }),
+    [defaultFontId, fallbackFontStack, systemFontFallbackStack],
   );
   const [shownSrc, setShownSrc] = useState(displaySrc);
   const frameRef = useRef<HTMLDivElement>(null);

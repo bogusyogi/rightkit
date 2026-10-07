@@ -222,6 +222,7 @@
 .rk-iv-num-sm { width: 64px; }
 .rk-iv-text { width: 224px; }
 .rk-iv-font { width: 160px; }
+.rk-iv-font-bundled { width: var(--rk-iv-font-bundled-width, 144px); }
 .rk-iv-zoom { width: 76px; text-align: center; font-family: ui-monospace, monospace; }
 .rk-iv-panel {
   display: flex;
@@ -236,6 +237,10 @@
 .rk-iv-field { display: flex; align-items: center; gap: 4px; }
 .rk-iv-color { height: 28px; border: 1px solid var(--_rkiv-line); background: var(--_rkiv-bg); padding: 0 8px; border-radius: 6px; }
 .rk-iv-swatch { position: relative; display: inline-block; height: 16px; width: 24px; overflow: hidden; border: 1px solid var(--_rkiv-line); }
+.rk-iv-swatch-slash {
+  position: absolute; inset: 0; opacity: 0.6;
+  background: linear-gradient(135deg, transparent 0 48%, rgba(0,0,0,.35) 48% 52%, transparent 52%);
+}
 .rk-iv-swatch input[type="color"] {
   position: absolute; left: -4px; top: -4px; height: 28px; width: 32px;
   border: 0; padding: 0; background: transparent; cursor: pointer;

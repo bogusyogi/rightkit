@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Canvas, Textbox, type FabricObject } from "fabric";
 import type { TextLayer } from "./imageEdit.js";
 import type { ImageSize } from "./imageViewerState.js";
-import { cssFontFamilyForImageText } from "./imageFonts.js";
+import { cssFontFamilyForImageText, type ImageFontOptions } from "./imageFonts.js";
 import { acquireResource, type MediaAdapters } from "../adapters.js";
 
 interface Props {
@@ -36,6 +36,7 @@ export function FabricTextOverlay({
   const fontOptions = {
     defaultFontId: adapters.defaultFontId,
     fallbackStack: adapters.fallbackFontStack,
+    systemFallbackStack: adapters.systemFontFallbackStack,
   };
   const accent = adapters.accentColor ?? "#d9803f";
 
@@ -135,7 +136,7 @@ export function FabricTextOverlay({
     syncing.current = false;
     canvas.requestRenderAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageSize, interactive, text, adapters.defaultFontId, adapters.fallbackFontStack]);
+  }, [imageSize, interactive, text, adapters.defaultFontId, adapters.fallbackFontStack, adapters.systemFontFallbackStack]);
 
   useEffect(() => {
     const canvas = fabricCanvas.current;
@@ -184,7 +185,7 @@ function layerToObject(
   interactive: boolean,
   fonts: MediaFontOptionLike[],
   accent: string,
-  fontOptions: { defaultFontId?: string; fallbackStack?: string },
+  fontOptions: ImageFontOptions,
 ) {
   return {
     left: layer.x * image.width,

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.3
+
+ViewRight parity for image text fonts and the text panel; all additive, defaults unchanged.
+
+- Font fallback split. `fallbackFontStack` / `ImageFontOptions.fallbackStack` now applies only
+  when there is no font at all (empty family resolving to no bundled font). New
+  `systemFontFallbackStack` / `ImageFontOptions.systemFallbackStack` (default
+  `system-ui, sans-serif`) follows a named system font: `"X", system-ui, sans-serif`. Used by
+  the display overlay, text-panel preview, export and print. With
+  `fallbackFontStack: "'Inter', system-ui, sans-serif"` output equals ViewRight's
+  `cssFontFamilyForImageText`.
+- New adapters `bundledFontsLabel` (select title, default "Bundled fonts") and
+  `bundledFontsEmptyOption` (empty option, default "Bundled").
+- Text color control: "color" text span is `aria-hidden`; the swatch gains the diagonal-slash
+  overlay (`.rk-iv-swatch-slash`) as in ViewRight.
+- Bundled-font select has class `rk-iv-font-bundled`, width token
+  `--rk-iv-font-bundled-width` (default 144px).
+
 ## 0.2.2
 
 Image viewer defaults now match ViewRight; behaviours 0.2.1 added beyond it are opt-in.

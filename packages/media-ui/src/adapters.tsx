@@ -91,10 +91,20 @@ export interface MediaAdapters {
    */
   defaultFontId?: string;
   /**
-   * Final CSS fallback stack for image text (on-screen, export and print).
-   * Default "system-ui, sans-serif".
+   * CSS stack used only when image text has no font at all (empty family that
+   * resolves to no bundled font); on-screen, export and print. Default
+   * "system-ui, sans-serif". ViewRight passes "'Inter', system-ui, sans-serif".
    */
   fallbackFontStack?: string;
+  /**
+   * CSS stack appended after a named system font X, giving `"X", <stack>`
+   * (on-screen, export and print). Default "system-ui, sans-serif".
+   */
+  systemFontFallbackStack?: string;
+  /** Title of the bundled-fonts select in the text panel. Default "Bundled fonts". */
+  bundledFontsLabel?: string;
+  /** Empty option of the bundled-fonts select. Default "Bundled". */
+  bundledFontsEmptyOption?: string;
   /** Accent colour for interactive handles (default "#d9803f"). */
   accentColor?: string;
 }

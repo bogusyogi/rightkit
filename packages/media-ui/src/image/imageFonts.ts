@@ -14,8 +14,14 @@ export function isBundledImageFontId(
 export interface ImageFontOptions {
   /** Bundled font id used when a layer has no font family. Default "default". */
   defaultFontId?: string;
-  /** Final CSS fallback stack. Default "system-ui, sans-serif". */
+  /**
+   * Stack used ONLY when there is no font at all (empty family that resolves to no
+   * bundled font). Default "system-ui, sans-serif"; ViewRight passes
+   * "'Inter', system-ui, sans-serif".
+   */
   fallbackStack?: string;
+  /** Appended after a named system font X: `"X", <stack>`. Default "system-ui, sans-serif". */
+  systemFallbackStack?: string;
 }
 
 export function cssFontFamilyForImageText(
@@ -24,12 +30,13 @@ export function cssFontFamilyForImageText(
   options: ImageFontOptions = {},
 ): string {
   const fallback = options.fallbackStack ?? FALLBACK_STACK;
+  const systemFallback = options.systemFallbackStack ?? FALLBACK_STACK;
   const bundled = fonts.find(
     (font) => font.id === (fontFamily || options.defaultFontId || DEFAULT_IMAGE_FONT_ID),
   );
   if (bundled) return bundled.stack;
   const system = sanitizeFontFamily(fontFamily || "");
-  return system ? `${JSON.stringify(system)}, ${fallback}` : fallback;
+  return system ? `${JSON.stringify(system)}, ${systemFallback}` : fallback;
 }
 
 export function fontCssForImageText(

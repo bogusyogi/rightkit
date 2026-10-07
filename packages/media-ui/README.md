@@ -48,7 +48,11 @@ All optional; defaults preserve prior behaviour.
   `blockExportDuringSwap` (default off) unregisters save and ignores print while a sibling
   image is still decoding.
 - Adapters: `defaultFontId` (font for new text layers and for layers with no font);
-  `fallbackFontStack` (final CSS fallback for image text, default `system-ui, sans-serif`); `acquireResource` may
+  `fallbackFontStack` (used only when text has no font at all; default `system-ui, sans-serif`,
+  ViewRight passes `'Inter', system-ui, sans-serif`); `systemFontFallbackStack` (appended after a
+  named system font X as `"X", <stack>`; default `system-ui, sans-serif`); `bundledFontsLabel` /
+  `bundledFontsEmptyOption` (text-panel select title and empty option; defaults "Bundled fonts" /
+  "Bundled"; ViewRight passes "ViewRight fonts" / "ViewRight"); `acquireResource` may
   return a release function **or** `{ release, update }`; `update({ dirty,
   stateExternalized })` is called when the edit state changes, instead of re-acquiring.
 - `MediaPlayer`: `showArtwork`, `showOpenOriginal`, `icons` (map by `IconName`),
@@ -86,7 +90,7 @@ These class names are public. Renames or removals happen only in a major version
 
 `rk-iv`, `rk-iv-empty`, `rk-iv-toolbar`, `rk-iv-panels`, `rk-iv-bar`, `rk-iv-capsule`,
 `rk-iv-btn`, `rk-iv-btn-round`, `rk-iv-sep`, `rk-iv-dim`, `rk-iv-input`, `rk-iv-num`,
-`rk-iv-num-sm`, `rk-iv-text`, `rk-iv-font`, `rk-iv-zoom`, `rk-iv-panel`, `rk-iv-panel-wrap`,
+`rk-iv-num-sm`, `rk-iv-text`, `rk-iv-font`, `rk-iv-font-bundled`, `rk-iv-zoom`, `rk-iv-panel`, `rk-iv-panel-wrap`,
 `rk-iv-field`, `rk-iv-color`, `rk-iv-swatch`, `rk-iv-slider`, `rk-iv-slider-label`,
 `rk-iv-slider-value`, `rk-iv-range`, `rk-iv-stage`, `rk-iv-canvas-pos`, `rk-iv-canvas-box`,
 `rk-iv-canvas-inner`, `rk-iv-img`, `rk-iv-overlay`, `rk-iv-crop`, `rk-iv-badge`,
@@ -101,7 +105,8 @@ Public tokens (custom properties; defaults equal 0.2.0 rendering):
 `--rk-iv-input-height` (28px), `--rk-iv-input-bg`, `--rk-iv-input-focus` (accent; also the
 keyboard focus ring on buttons);
 `--rk-iv-badge-font-family`, `--rk-iv-badge-bg`, `--rk-iv-badge-shadow`;
-`--rk-iv-sibling-size` (40px), `--rk-iv-sibling-bg`. Plus the existing `--rk-iv-accent`,
+`--rk-iv-sibling-size` (40px), `--rk-iv-sibling-bg`, `--rk-iv-font-bundled-width` (144px,
+the bundled-font select). Plus the existing `--rk-iv-accent`,
 `-bg`, `-panel`, `-line`, `-fg`, `-fg-dim`, `-active-bg`, `-active-fg`.
 
 ## Status

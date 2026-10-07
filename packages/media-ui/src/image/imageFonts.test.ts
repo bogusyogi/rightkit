@@ -29,8 +29,32 @@ describe("image font resolution", () => {
     expect(cssFontFamilyForImageText([], "Helvetica")).toBe('"Helvetica", system-ui, sans-serif');
     expect(cssFontFamilyForImageText([], "", { fallbackStack: INTER })).toBe(INTER);
     expect(cssFontFamilyForImageText([], "Helvetica", { fallbackStack: INTER })).toBe(
-      `"Helvetica", ${INTER}`,
+      '"Helvetica", system-ui, sans-serif',
     );
+  });
+
+  it("matches ViewRight's cssFontFamilyForImageText exactly with the Inter stack", () => {
+    const vr = [{ id: "default", name: "Inter", stack: INTER }];
+    const o = { fallbackStack: INTER };
+    expect(cssFontFamilyForImageText(vr, "", o)).toBe("'Inter', system-ui, sans-serif");
+    expect(cssFontFamilyForImageText(vr, null, o)).toBe("'Inter', system-ui, sans-serif");
+    expect(cssFontFamilyForImageText([], "", o)).toBe("'Inter', system-ui, sans-serif");
+    expect(cssFontFamilyForImageText([], "  ", o)).toBe("'Inter', system-ui, sans-serif");
+    expect(cssFontFamilyForImageText(vr, "Helvetica", o)).toBe('"Helvetica", system-ui, sans-serif');
+    expect(cssFontFamilyForImageText(vr, 'Bad"Fam\\i\nly', o)).toBe(
+      '"BadFami ly", system-ui, sans-serif',
+    );
+    expect(cssFontFamilyForImageText(vr, "default", o)).toBe(INTER);
+  });
+
+  it("systemFallbackStack applies only after a named system font", () => {
+    const o = { fallbackStack: INTER, systemFallbackStack: "serif" };
+    expect(cssFontFamilyForImageText([], "Helvetica", o)).toBe('"Helvetica", serif');
+    expect(cssFontFamilyForImageText([], "", o)).toBe(INTER);
+    expect(cssFontFamilyForImageText([], "Helvetica", { fallbackStack: INTER })).toBe(
+      '"Helvetica", system-ui, sans-serif',
+    );
+    expect(fontCssForImageText([], "Helvetica", 20, false, o)).toBe('20px "Helvetica", serif');
   });
 
   it("fontCssForImageText threads the options (export/print share the same stack)", () => {
