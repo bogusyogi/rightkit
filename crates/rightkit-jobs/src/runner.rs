@@ -7,12 +7,24 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use crate::config::Ext;
 use crate::error::{JobError, JobResult, HOST_HANDOFF};
 use crate::sched::{Gate, Priority};
-use crate::store::{Artifact, Event, Job, JobStore, CANCELLED};
+use crate::store::{Artifact, Event, Job, JobRecord, JobStore, Submission, Transition, CANCELLED};
 
 /// Attempts allowed before a job is failed with `max_attempts`.
 pub const DEFAULT_MAX_ATTEMPTS: i64 = 3;
+
+/// Who counts attempts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum AttemptPolicy {
+    /// Every run counts one attempt (0.1 behaviour); `max_attempts` bounds runs.
+    #[default]
+    PerRun,
+    /// Runs are free (polling, resuming); the handler counts attempts through
+    /// [`JobControl::begin_submission`], bounded by `max_attempts`.
+    ByHandler,
+}
 
 /// Receives every stored progress event (e.g. stderr NDJSON or a stdio event frame).
 pub type EventSink = Arc<dyn Fn(&Event) + Send + Sync>;
@@ -72,6 +84,7 @@ pub struct JobControl {
     sink: Option<EventSink>,
     gate: Arc<Gate>,
     priority: Priority,
+    max_attempts: i64,
     /// Set by the stall watchdog: this attempt was abandoned and must stop.
     abandoned: AtomicBool,
     started: Instant,
@@ -85,6 +98,44 @@ impl JobControl {
     }
     pub fn priority(&self) -> Priority {
         self.priority
+    }
+    pub fn store(&self) -> &Arc<JobStore> {
+        &self.store
+    }
+    pub fn max_attempts(&self) -> i64 {
+        self.max_attempts
+    }
+    /// Current job row with extension columns.
+    pub fn record(&self) -> JobResult<JobRecord> {
+        self.store.record(&self.job_id)
+    }
+    pub fn ext(&self) -> JobResult<Ext> {
+        self.store.ext(&self.job_id)
+    }
+    pub fn set_ext(&self, ext: &Ext) -> JobResult<JobRecord> {
+        self.store.set_ext(&self.job_id, ext)
+    }
+    /// Validated status move (see [`JobStore::transition`]).
+    pub fn transition(&self, t: &Transition) -> JobResult<Option<JobRecord>> {
+        self.store.transition(&self.job_id, t)
+    }
+    /// See [`JobStore::begin_submission`]; bounded by the runner's `max_attempts`.
+    /// `Ok(None)` when the job went terminal.
+    pub fn begin_submission(&self) -> JobResult<Option<Submission>> {
+        self.heartbeat();
+        self.store.begin_submission(&self.job_id, self.max_attempts)
+    }
+    pub fn accept_submission(
+        &self,
+        external_id: &str,
+        to: Option<&str>,
+    ) -> JobResult<Option<JobRecord>> {
+        self.heartbeat();
+        self.store.accept_submission(&self.job_id, external_id, to)
+    }
+    pub fn fail_submission(&self, e: &JobError, to: Option<&str>) -> JobResult<Option<JobRecord>> {
+        self.heartbeat();
+        self.store.fail_submission(&self.job_id, e, to)
     }
     /// Store and publish a progress event. Best-effort: never fails the job.
     /// Counts as a sign of life for the stall watchdog.
@@ -176,6 +227,12 @@ pub enum RunOutcome {
 }
 
 impl RunOutcome {
+    pub fn job(&self) -> Option<&Job> {
+        match self {
+            RunOutcome::Finished(j) | RunOutcome::Paused(j) => Some(j),
+            RunOutcome::LockedElsewhere(_) => None,
+        }
+    }
     pub fn to_value(&self) -> Value {
         match self {
             RunOutcome::Finished(j) => j.to_value(),
@@ -197,6 +254,7 @@ pub struct Runner {
     max_attempts: i64,
     gate: Arc<Gate>,
     stall_timeout: Option<Duration>,
+    attempts: AttemptPolicy,
 }
 
 impl Runner {
@@ -209,6 +267,7 @@ impl Runner {
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             gate: Gate::new(),
             stall_timeout: None,
+            attempts: AttemptPolicy::PerRun,
         }
     }
     pub fn with_sink(mut self, sink: EventSink) -> Self {
@@ -232,6 +291,16 @@ impl Runner {
         self.stall_timeout = Some(d);
         self
     }
+    pub fn with_attempt_policy(mut self, p: AttemptPolicy) -> Self {
+        self.attempts = p;
+        self
+    }
+    pub fn attempt_policy(&self) -> AttemptPolicy {
+        self.attempts
+    }
+    pub fn max_attempts(&self) -> i64 {
+        self.max_attempts
+    }
     pub fn gate(&self) -> &Arc<Gate> {
         &self.gate
     }
@@ -249,6 +318,7 @@ impl Runner {
             sink,
             gate: self.gate.clone(),
             priority,
+            max_attempts: self.max_attempts,
             abandoned: AtomicBool::new(false),
             started: Instant::now(),
             beat_ms: AtomicU64::new(0),
@@ -280,7 +350,8 @@ impl Runner {
         if job.is_terminal() {
             return Ok(RunOutcome::Finished(job));
         }
-        if job.attempts >= self.max_attempts {
+        let per_run = self.attempts == AttemptPolicy::PerRun;
+        if per_run && job.attempts >= self.max_attempts {
             let e = JobError::new("max_attempts", "job used every allowed attempt");
             self.store.fail(job_id, &e)?;
             self.control(job_id, sink, Priority::of(&job)).progress(
@@ -290,8 +361,27 @@ impl Runner {
             );
             return Ok(RunOutcome::Finished(self.store.get(job_id)?));
         }
-        let Some(job) = self.store.begin_attempt(job_id)? else {
-            return Ok(RunOutcome::Finished(self.store.get(job_id)?));
+        let job = match self.store.begin_run(job_id, per_run) {
+            Ok(Some(r)) => r.job,
+            Ok(None) => return Ok(RunOutcome::Finished(self.store.get(job_id)?)),
+            // A store hook (e.g. a spend cap) refused the attempt; nothing was counted.
+            Err(e) if e.code == "db" => return Err(e),
+            Err(e) => {
+                let ctl = self.control(job_id, sink, Priority::of(&job));
+                if e.retryable {
+                    self.store.record_error(job_id, &e)?;
+                    ctl.progress(
+                        "paused",
+                        None,
+                        Some(&format!("paused, will resume: {}", e.message)),
+                    );
+                    return Ok(RunOutcome::Paused(self.store.get(job_id)?));
+                }
+                if self.store.fail(job_id, &e)? {
+                    ctl.progress("failed", None, Some(&e.message));
+                }
+                return Ok(RunOutcome::Finished(self.store.get(job_id)?));
+            }
         };
         let priority = Priority::of(&job);
         // Interactive work holds the gate for the whole run so batch jobs yield at their boundaries.
@@ -310,7 +400,7 @@ impl Runner {
                 Ok(RunOutcome::Finished(self.store.get(job_id)?))
             }
             Err(e) if e.retryable => {
-                if e.code == HOST_HANDOFF {
+                if e.code == HOST_HANDOFF && per_run {
                     self.store.refund_attempt(job_id)?;
                 }
                 self.store.record_error(job_id, &e)?;

@@ -23,9 +23,10 @@ use std::time::{Duration, Instant};
 use rightkit_framed_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
 
+use crate::config::Ext;
 use crate::error::{JobError, JobResult};
 use crate::runner::{EventSink, RunOutcome, Runner};
-use crate::store::{ListFilter, NewJob};
+use crate::store::{JobStore, ListFilter, NewJob};
 
 /// Bumped on breaking changes to frames, built-ins, or `job.*` commands.
 pub const CONTRACT_VERSION: u32 = 1;
@@ -61,11 +62,17 @@ pub trait CommandSet: Send + Sync {
     fn shutdown(&self) {}
 }
 
+/// Replaces the built-in `doctor` payload. Gets `dry_run` and the method list.
+pub type DoctorFn = Arc<dyn Fn(bool, &[String]) -> Value + Send + Sync>;
+
 pub struct Dispatcher {
     engine: String,
     version: String,
     sets: Vec<Arc<dyn CommandSet>>,
     frame_limit: usize,
+    builtins: Vec<&'static str>,
+    doctor: Option<DoctorFn>,
+    cli_targets: Vec<(String, String)>,
 }
 
 pub struct Outcome {
@@ -83,6 +90,16 @@ fn err_job(id: u64, e: &JobError) -> Value {
     json!({"type": "response", "id": id, "ok": false, "error": {"code": e.code, "message": e.message, "retryable": e.retryable}})
 }
 
+/// `internal` error for a panic while serving `method`.
+fn panic_error(method: &str, p: &(dyn std::any::Any + Send)) -> JobError {
+    let msg = p
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "panic".into());
+    JobError::new("internal", format!("{method} panicked: {msg}"))
+}
+
 const BUILTINS: [&str; 3] = ["ping", "doctor", "shutdown"];
 
 impl Dispatcher {
@@ -92,7 +109,30 @@ impl Dispatcher {
             version: version.into(),
             sets: vec![],
             frame_limit: DEFAULT_FRAME_LIMIT,
+            builtins: BUILTINS.to_vec(),
+            doctor: None,
+            cli_targets: vec![],
         }
+    }
+    /// Drop a built-in (`ping`, `doctor`, `shutdown`) so an app command set
+    /// can own that method name, or so it is not served at all.
+    pub fn without_builtin(mut self, name: &str) -> Self {
+        self.builtins.retain(|b| *b != name);
+        self
+    }
+    /// Serve the app's own `doctor` payload from the built-in.
+    pub fn with_doctor(mut self, f: DoctorFn) -> Self {
+        self.doctor = Some(f);
+        self
+    }
+    /// CLI: the positional word after a method whose first segment is
+    /// `prefix` fills `key` (defaults: `job` -> `job_id`, `artifact` -> `artifact_id`).
+    pub fn with_cli_target(mut self, prefix: impl Into<String>, key: impl Into<String>) -> Self {
+        self.cli_targets.push((prefix.into(), key.into()));
+        self
+    }
+    fn has_builtin(&self, m: &str) -> bool {
+        self.builtins.contains(&m)
     }
     pub fn with(mut self, set: Arc<dyn CommandSet>) -> Self {
         self.sets.push(set);
@@ -106,8 +146,15 @@ impl Dispatcher {
         json!({"type": "hello", "engine": self.engine, "version": self.version,
                "contract_version": CONTRACT_VERSION})
     }
+    /// Served method names. A built-in that a command set also registers is
+    /// listed once and served by the command set.
     pub fn methods(&self) -> Vec<String> {
-        let mut m: Vec<String> = BUILTINS.iter().map(|s| s.to_string()).collect();
+        let mut m: Vec<String> = Vec::new();
+        for b in &self.builtins {
+            if self.set_for(b).is_none() {
+                m.push(b.to_string());
+            }
+        }
         for s in &self.sets {
             m.extend(s.methods());
         }
@@ -147,6 +194,12 @@ impl Dispatcher {
     }
 
     /// Run one method on behalf of connection `conn`.
+    ///
+    /// A command set that registers a built-in name (`doctor`, `ping`,
+    /// `shutdown`) takes precedence over the built-in; the built-in answers
+    /// only when no set provides the method. A panic in a command set (or a
+    /// `with_doctor` callback) is caught and returned as an `internal` error,
+    /// so every request still gets exactly one response.
     pub fn call_conn(
         &self,
         conn: u64,
@@ -155,18 +208,35 @@ impl Dispatcher {
         dry_run: bool,
         emit: &Sink,
     ) -> JobResult<Value> {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.call_inner(conn, method, params, dry_run, emit)
+        }))
+        .unwrap_or_else(|p| Err(panic_error(method, p.as_ref())))
+    }
+
+    fn call_inner(
+        &self,
+        conn: u64,
+        method: &str,
+        params: &Value,
+        dry_run: bool,
+        emit: &Sink,
+    ) -> JobResult<Value> {
+        if let Some(s) = self.set_for(method) {
+            return s.call_conn(conn, method, params, dry_run, emit);
+        }
         match method {
-            "ping" => Ok(json!({"pong": true})),
-            "shutdown" => Ok(json!({})),
-            "doctor" => Ok(json!({"engine": self.engine, "version": self.version,
-                "contract_version": CONTRACT_VERSION, "methods": self.methods(), "dry_run": dry_run})),
-            m => match self.set_for(m) {
-                Some(s) => s.call_conn(conn, m, params, dry_run, emit),
-                None => Err(JobError::new(
-                    "unknown_method",
-                    format!("unknown method: {m}"),
-                )),
-            },
+            "ping" if self.has_builtin("ping") => Ok(json!({"pong": true})),
+            "shutdown" if self.has_builtin("shutdown") => Ok(json!({})),
+            "doctor" if self.has_builtin("doctor") => Ok(match &self.doctor {
+                Some(f) => f(dry_run, &self.methods()),
+                None => json!({"engine": self.engine, "version": self.version,
+                "contract_version": CONTRACT_VERSION, "methods": self.methods(), "dry_run": dry_run}),
+            }),
+            m => Err(JobError::new(
+                "unknown_method",
+                format!("unknown method: {m}"),
+            )),
         }
     }
 
@@ -202,7 +272,7 @@ impl Dispatcher {
         };
         Outcome {
             response,
-            shutdown: method == "shutdown",
+            shutdown: method == "shutdown" && self.has_builtin("shutdown"),
         }
     }
 }
@@ -244,7 +314,15 @@ where
                 if long {
                     let (d, emit) = (Arc::clone(&d), Arc::clone(&emit));
                     threads.push(std::thread::spawn(move || {
-                        emit(d.handle_request_value(&req, dry_run, &emit).response)
+                        // call_conn already converts handler panics; this also
+                        // covers anything else on the thread so the request is answered.
+                        let id = req["id"].as_u64().unwrap_or(0);
+                        let method = req["method"].as_str().unwrap_or("").to_string();
+                        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            d.handle_request_value(&req, dry_run, &emit).response
+                        }))
+                        .unwrap_or_else(|p| err_job(id, &panic_error(&method, p.as_ref())));
+                        emit(r)
                     }));
                     continue;
                 }
@@ -388,11 +466,17 @@ pub fn run_cli(
         return 2;
     }
     if let Some(target) = rest.first() {
-        let key = match method.split('.').next() {
-            Some("job") => "job_id",
-            Some("artifact") => "artifact_id",
-            _ => "target",
-        };
+        let prefix = method.split('.').next().unwrap_or("");
+        let key = d
+            .cli_targets
+            .iter()
+            .find(|(p, _)| p == prefix)
+            .map(|(_, k)| k.as_str())
+            .unwrap_or(match prefix {
+                "job" => "job_id",
+                "artifact" => "artifact_id",
+                _ => "target",
+            });
         input[key] = json!(target);
     }
     if f.wait {
@@ -448,7 +532,47 @@ pub fn run_cli(
 
 // ------------------------------------------------------- job.* commands ----
 
+/// Maps the shared `job.*` payloads to an app's own wire contract. `method`
+/// is always the canonical name (`job.submit`, `artifact.resolve`, ...), even
+/// when [`JobCommands::with_name`] serves it under another name.
+pub trait PayloadMapper: Send + Sync {
+    /// Rewrite request params before the canonical command reads them.
+    fn input(&self, _method: &str, params: Value) -> JobResult<Value> {
+        Ok(params)
+    }
+    /// Rewrite the canonical result before it is returned.
+    fn output(&self, _method: &str, result: Value) -> JobResult<Value> {
+        Ok(result)
+    }
+    /// Rewrite each streamed progress event.
+    fn event(&self, event: Value) -> Value {
+        event
+    }
+    /// Rewrite an error (e.g. a different `code`).
+    fn error(&self, _method: &str, e: JobError) -> JobError {
+        e
+    }
+}
+
+/// Canonical `job.*` method names served by [`JobCommands`].
+pub const JOB_METHODS: [&str; 12] = [
+    "job.submit",
+    "job.status",
+    "job.result",
+    "job.list",
+    "job.events",
+    "job.cancel",
+    "job.ack",
+    "job.run",
+    "job.recover",
+    "job.recoverable",
+    "job.wait",
+    "artifact.resolve",
+];
+
 /// The shared `job.*` / `artifact.resolve` command surface over a [`Runner`].
+/// Optional: an app that keeps its own contract either omits it from the
+/// [`Dispatcher`] or renames/disables methods and maps payloads.
 ///
 /// Passive: `job.status|list|events|result|recoverable|wait` and
 /// `artifact.resolve` never run work. Explicit: `job.run`, `job.recover`,
@@ -457,6 +581,10 @@ pub struct JobCommands {
     runner: Arc<Runner>,
     /// Jobs whose request set `cancel_on_disconnect`, by client connection.
     watched: Mutex<std::collections::HashMap<u64, Vec<String>>>,
+    /// canonical -> wire name.
+    names: std::collections::HashMap<String, String>,
+    disabled: std::collections::HashSet<String>,
+    mapper: Option<Arc<dyn PayloadMapper>>,
 }
 
 impl JobCommands {
@@ -464,7 +592,57 @@ impl JobCommands {
         Self {
             runner,
             watched: Mutex::new(Default::default()),
+            names: Default::default(),
+            disabled: Default::default(),
+            mapper: None,
         }
+    }
+    /// Serve canonical `method` (one of [`JOB_METHODS`]) as `wire`, e.g.
+    /// `artifact.resolve` as `asset.resolve`.
+    pub fn with_name(mut self, method: &str, wire: impl Into<String>) -> Self {
+        self.names.insert(method.to_string(), wire.into());
+        self
+    }
+    /// Do not serve canonical `method`.
+    pub fn without(mut self, method: &str) -> Self {
+        self.disabled.insert(method.to_string());
+        self
+    }
+    pub fn with_mapper(mut self, m: Arc<dyn PayloadMapper>) -> Self {
+        self.mapper = Some(m);
+        self
+    }
+    fn wire<'a>(&'a self, canonical: &'a str) -> &'a str {
+        self.names.get(canonical).map_or(canonical, String::as_str)
+    }
+    /// Canonical name for a served wire method.
+    pub fn canonical(&self, wire: &str) -> Option<&'static str> {
+        JOB_METHODS
+            .iter()
+            .copied()
+            .find(|c| !self.disabled.contains(*c) && self.wire(c) == wire)
+    }
+    fn map_event(&self, ev: Value) -> Value {
+        match &self.mapper {
+            Some(m) => m.event(ev),
+            None => ev,
+        }
+    }
+    fn store(&self) -> &JobStore {
+        self.runner.store()
+    }
+    fn record_value(&self, job_id: &str) -> JobResult<Value> {
+        Ok(self.store().record(job_id)?.to_value())
+    }
+    fn outcome_value(&self, o: &RunOutcome) -> JobResult<Value> {
+        let Some(j) = o.job() else {
+            return Ok(o.to_value());
+        };
+        let mut v = self.record_value(&j.job_id)?;
+        if matches!(o, RunOutcome::Paused(_)) {
+            v["recoverable"] = json!(true);
+        }
+        Ok(v)
     }
 
     fn target(&self, p: &Value) -> JobResult<crate::store::Job> {
@@ -484,7 +662,14 @@ impl JobCommands {
         cancel_on_disconnect: bool,
     ) -> JobResult<Value> {
         let emit = Arc::clone(emit);
-        let sink: EventSink = Arc::new(move |ev| emit(ev.to_value()));
+        let mapper = self.mapper.clone();
+        let sink: EventSink = Arc::new(move |ev| {
+            let v = ev.to_value();
+            emit(match &mapper {
+                Some(m) => m.event(v),
+                None => v,
+            })
+        });
         if cancel_on_disconnect {
             self.watched
                 .lock()
@@ -513,33 +698,35 @@ impl JobCommands {
             {
                 Err(JobError::handoff())
             }
-            o => Ok(o.to_value()),
+            o => self.outcome_value(&o),
         }
     }
 }
 
 impl CommandSet for JobCommands {
     fn methods(&self) -> Vec<String> {
-        [
-            "job.submit",
-            "job.status",
-            "job.result",
-            "job.list",
-            "job.events",
-            "job.cancel",
-            "job.ack",
-            "job.run",
-            "job.recover",
-            "job.recoverable",
-            "job.wait",
-            "artifact.resolve",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+        JOB_METHODS
+            .iter()
+            .filter(|c| !self.disabled.contains(**c))
+            .map(|c| self.wire(c).to_string())
+            .collect()
     }
 
     fn is_long(&self, method: &str, p: &Value) -> bool {
+        let Some(method) = self.canonical(method) else {
+            return false;
+        };
+        let mapped;
+        let p = match &self.mapper {
+            Some(m) => match m.input(method, p.clone()) {
+                Ok(v) => {
+                    mapped = v;
+                    &mapped
+                }
+                Err(_) => p,
+            },
+            None => p,
+        };
         match method {
             "job.run" | "job.recover" | "job.wait" => true,
             "job.submit" => p["run"] == true || p["wait"] == true,
@@ -580,6 +767,33 @@ impl CommandSet for JobCommands {
         dry_run: bool,
         emit: &Sink,
     ) -> JobResult<Value> {
+        let Some(canonical) = self.canonical(method) else {
+            return Err(JobError::new(
+                "unknown_method",
+                format!("unknown method: {method}"),
+            ));
+        };
+        let Some(m) = self.mapper.clone() else {
+            return self.call_canonical(conn, canonical, p, dry_run, emit);
+        };
+        let p = m
+            .input(canonical, p.clone())
+            .map_err(|e| m.error(canonical, e))?;
+        self.call_canonical(conn, canonical, &p, dry_run, emit)
+            .and_then(|v| m.output(canonical, v))
+            .map_err(|e| m.error(canonical, e))
+    }
+}
+
+impl JobCommands {
+    fn call_canonical(
+        &self,
+        conn: u64,
+        method: &str,
+        p: &Value,
+        dry_run: bool,
+        emit: &Sink,
+    ) -> JobResult<Value> {
         let store = self.runner.store();
         let cod = p["cancel_on_disconnect"] == true;
         match method {
@@ -593,21 +807,26 @@ impl CommandSet for JobCommands {
                     kind: kind.into(),
                     request: p.get("request").cloned().unwrap_or_else(|| json!({})),
                 };
+                let ext: Ext = match p.get("ext") {
+                    None | Some(Value::Null) => Ext::new(),
+                    Some(Value::Object(o)) => o.clone(),
+                    Some(_) => return Err(JobError::bad_input("ext must be an object")),
+                };
                 if dry_run {
                     return Ok(
                         json!({"dry_run": true, "kind": new.kind, "request_id": new.request_id}),
                     );
                 }
-                let (job, dedup) = store.submit(&new)?;
+                let (rec, dedup) = store.submit_ext(&new, &ext)?;
                 let mut v = if p["run"] == true || p["wait"] == true {
-                    self.run(&job.job_id, emit, conn, cod)?
+                    self.run(&rec.job.job_id, emit, conn, cod)?
                 } else {
-                    job.to_value()
+                    rec.to_value()
                 };
                 v["deduplicated"] = json!(dedup);
                 Ok(v)
             }
-            "job.status" => Ok(self.target(p)?.to_value()),
+            "job.status" => self.record_value(&self.target(p)?.job_id),
             "job.result" => {
                 let j = self.target(p)?;
                 if j.status != crate::store::COMPLETE {
@@ -620,7 +839,7 @@ impl CommandSet for JobCommands {
                     .artifacts(&j.job_id)?
                     .iter()
                     .map(|a| -> JobResult<Value> {
-                        let mut v = a.to_value();
+                        let mut v = store.artifact_value(a);
                         v["verified"] = json!(store.verify_artifact(a)?);
                         Ok(v)
                     })
@@ -628,7 +847,7 @@ impl CommandSet for JobCommands {
                 Ok(json!({"job_id": j.job_id, "result": j.result, "artifacts": arts}))
             }
             "job.list" => {
-                let (jobs, truncated) = store.list(&ListFilter {
+                let (jobs, truncated) = store.list_records(&ListFilter {
                     limit: p["limit"].as_i64(),
                     status: p["status"].as_str().map(Into::into),
                     request_id: p["request_id"].as_str().map(Into::into),
@@ -641,22 +860,36 @@ impl CommandSet for JobCommands {
                 let j = self.target(p)?;
                 let evs = store.events_after(&j.job_id, p["after"].as_i64().unwrap_or(0))?;
                 Ok(
-                    json!({"job_id": j.job_id, "events": evs.iter().map(|e| e.to_value()).collect::<Vec<_>>()}),
+                    json!({"job_id": j.job_id, "events": evs.iter().map(|e| self.map_event(e.to_value())).collect::<Vec<_>>()}),
                 )
             }
-            "job.cancel" => Ok(store.cancel(self.target(p)?.job_id.as_str())?.to_value()),
+            "job.cancel" => {
+                let id = self.target(p)?.job_id;
+                store.cancel(&id)?;
+                self.record_value(&id)
+            }
             "job.ack" => {
                 let who = p["consumer"].as_str().unwrap_or("cli");
-                Ok(store.ack(&self.target(p)?.job_id, who)?.to_value())
+                let id = self.target(p)?.job_id;
+                store.ack(&id, who)?;
+                self.record_value(&id)
             }
             "job.run" => self.run(&self.target(p)?.job_id, emit, conn, cod),
             "job.recoverable" => Ok(json!({"job_ids": self.runner.recoverable_ids()?})),
             "job.recover" => {
                 let emit2 = Arc::clone(emit);
-                let sink: EventSink = Arc::new(move |ev| emit2(ev.to_value()));
+                let mapper = self.mapper.clone();
+                let sink: EventSink = Arc::new(move |ev| {
+                    let v = ev.to_value();
+                    emit2(match &mapper {
+                        Some(m) => m.event(v),
+                        None => v,
+                    })
+                });
                 let mut out = Vec::new();
                 for id in self.runner.recoverable_ids()? {
-                    out.push(self.runner.run_with(&id, Some(sink.clone()))?.to_value());
+                    let o = self.runner.run_with(&id, Some(sink.clone()))?;
+                    out.push(self.outcome_value(&o)?);
                 }
                 Ok(json!({"jobs": out}))
             }
@@ -673,16 +906,18 @@ impl CommandSet for JobCommands {
                     std::thread::sleep(Duration::from_millis(50));
                     j = store.get(&j.job_id)?;
                 }
-                let mut v = j.to_value();
+                let mut v = self.record_value(&j.job_id)?;
                 v["timed_out"] = json!(!j.is_terminal());
                 Ok(v)
             }
             "artifact.resolve" => {
-                let id = p["artifact_id"]
+                let wire = store.config().artifact_names().wire_id.clone();
+                let id = p[wire.as_str()]
                     .as_str()
-                    .ok_or_else(|| JobError::bad_input("artifact_id required"))?;
+                    .or_else(|| p["artifact_id"].as_str())
+                    .ok_or_else(|| JobError::bad_input(format!("{wire} required")))?;
                 let a = store.get_artifact(id)?;
-                let mut v = a.to_value();
+                let mut v = store.artifact_value(&a);
                 v["verified"] = json!(store.verify_artifact(&a)?);
                 Ok(v)
             }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-jobs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Persistent job store, runner, and stdio/CLI command contract for Right Suite engines."
@@ -16,7 +16,6 @@ rightkit-db = { version = "=0.2.1", path = "../rightkit-db" }
 rightkit-framed-sidecar = { version = "=0.1.0", path = "../rightkit-framed-sidecar" }
 rightkit-process = { version = "=0.2.1", path = "../rightkit-process" }
 rightkit-service = { version = "=0.1.0", path = "../rightkit-service" }
-rusqlite = { version = "0.40.1", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 sha2 = "0.10"

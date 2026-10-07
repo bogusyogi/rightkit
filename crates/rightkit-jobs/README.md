@@ -41,3 +41,31 @@ Scheduling and handoff (modelled on HeardRight's speech service; see `sched.rs`,
   the job as retryable `stalled`. A long job that keeps making progress is never cut off.
 - **Over the service convention.** `DispatcherHandler` serves a `Dispatcher` on
   `rightkit-service` (service.json, user-only socket/pipe, per-app allowlist, ranking).
+
+## Extension points (0.2)
+
+`JobStore::open` keeps the 0.1 store. `JobStore::open_configured(path, StoreConfig)`
+adapts it to an app, including an existing database (adopted in place, additive only):
+
+- **Extension columns** — `StoreConfig::column(ExtColumn::text("provider").not_null())`
+  declares app columns on `jobs` (TEXT/INTEGER/REAL/JSON, NOT NULL, defaults). Missing
+  ones are added with `ALTER TABLE`; an undeclared NOT NULL column without a default is
+  refused with `schema` before anything is touched. Values travel as `Ext`
+  (`submit_ext`, `set_ext`, `JobRecord::ext`) and appear as top-level wire fields.
+- **Status vocabulary** — `StatusModel::new("submitted", ["submitted", "running"])
+  .allow(..)`; `transition` enforces it (`illegal_transition`). Terminal statuses stay
+  `complete`/`failed`/`cancelled`.
+- **External submissions** — `StoreConfig::external_id("provider_job_id")` plus
+  `begin_submission` / `accept_submission` / `fail_submission`: a stored external id
+  resumes (poll, never resubmit); a counted-but-unrecorded attempt replays with the
+  same idempotency key and without repeating its hook; resubmission is bounded.
+  `Runner::with_attempt_policy(AttemptPolicy::ByHandler)` lets the handler own attempts.
+- **Transactional hook** — `StoreHook::{on_create, on_attempt, on_transition}` run in the
+  same write transaction as the change; an error rolls it back (e.g. a spend cap).
+  `app_schema`, `write`, and `read` serve app-owned tables on the same connection.
+- **Artifacts** — `ArtifactNames::new("assets", "asset_id", "asset_id")`;
+  `add_artifact_with_id` / `record_artifact` take app-chosen ids idempotently.
+- **Wire contract** — `JobCommands` is optional; `with_name`, `without`, and a
+  `PayloadMapper` (input/output/event/error) map it onto an app's own `job.*` contract.
+  `Dispatcher::without_builtin`, `with_doctor`, and `with_cli_target` adjust built-ins
+  and CLI targets.
