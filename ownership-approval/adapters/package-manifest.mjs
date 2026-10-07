@@ -5,6 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const DEFAULT_MANIFEST_RELATIVE = "ownership/adapters/adapter-files.json";
+const POLICY_FILES = new Set(["ownership/trust.json", "ownership/public-check.json", "ownership/public-check-app.pem"]);
+function policyPath(relative) {
+  return POLICY_FILES.has(relative) || relative === "ownership/installer" || relative.startsWith("ownership/installer/");
+}
 function digest(file) { return createHash("sha256").update(readFileSync(file)).digest("hex"); }
 
 export function createProtectedFileManifest(root, { manifestRelative = DEFAULT_MANIFEST_RELATIVE } = {}) {
@@ -16,6 +20,12 @@ export function createProtectedFileManifest(root, { manifestRelative = DEFAULT_M
       const relative = path.relative(base, file).replaceAll("\\", "/");
       const stat = lstatSync(file);
       if (stat.isSymbolicLink()) throw new Error(`protected package may not contain symlinks: ${relative}`);
+      // Policy is independently protected & validated. Enrollment may update it
+      // without replacing the installed scanner's code inventory.
+      if (policyPath(relative)) {
+        if (relative === "ownership/installer" ? !stat.isDirectory() : !stat.isFile()) throw new Error(`protected policy path has an invalid file type: ${relative}`);
+        continue;
+      }
       if (entry.isDirectory()) { files.push({ path: relative, type: "directory", sha256: null }); walk(file); }
       else if (entry.isFile() && relative !== manifestRelative) files.push({ path: relative, type: "file", sha256: digest(file) });
       else if (!entry.isFile()) throw new Error(`protected package contains a special file: ${relative}`);
