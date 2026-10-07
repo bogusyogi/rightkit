@@ -146,6 +146,7 @@ pub fn mouse<R: Runtime>(
     x: f64,
     y: f64,
     clicks: i64,
+    flags: u64,
 ) -> Result<(), String> {
     let viewport = css_viewport(win);
     on_view(win, move |wk| unsafe {
@@ -171,7 +172,7 @@ pub fn mouse<R: Runtime>(
         };
         let ev = msg!(Id; class("NSEvent"),
             "mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:",
-            u64 = ty, NSPoint = wp, u64 = 0, f64 = uptime(), i64 = msg!(i64; window, "windowNumber"),
+            u64 = ty, NSPoint = wp, u64 = flags, f64 = uptime(), i64 = msg!(i64; window, "windowNumber"),
             Id = std::ptr::null_mut(), i64 = 0, i64 = clicks, f32 = pressure);
         if ev.is_null() {
             return Err("NSEvent creation failed".to_string());

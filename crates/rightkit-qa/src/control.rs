@@ -714,6 +714,22 @@ impl Control {
         )
         .map(|_| ())
     }
+    /// [`click`](Self::click) holding modifiers (`"shift"`, `"cmd"`, `"alt"`, `"ctrl"`). They
+    /// travel on the native mouse events, so the page sees `e.shiftKey` etc. as real input.
+    pub fn click_with(
+        &self,
+        x: f64,
+        y: f64,
+        button: &str,
+        count: u32,
+        modifiers: &[&str],
+    ) -> Result<()> {
+        self.json(
+            "click",
+            json!({"x": x, "y": y, "button": button, "count": count, "modifiers": modifiers}),
+        )
+        .map(|_| ())
+    }
     pub fn move_to(&self, x: f64, y: f64) -> Result<()> {
         self.json("move", json!({"x": x, "y": y})).map(|_| ())
     }

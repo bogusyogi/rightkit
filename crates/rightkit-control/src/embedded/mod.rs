@@ -68,6 +68,7 @@ mod native {
         _: f64,
         _: f64,
         _: i64,
+        _: u64,
     ) -> Result<(), String> {
         Err(NO.into())
     }
@@ -555,7 +556,7 @@ fn route<R: Runtime>(
     let n = |k: &str| num_field(b, k).ok_or_else(|| format!("missing number '{k}'"));
     match method {
         "move" => {
-            mouse(win, Mouse::Move, Button::Left, n("x")?, n("y")?, 0)?;
+            mouse(win, Mouse::Move, Button::Left, n("x")?, n("y")?, 0, 0)?;
             ok()
         }
         "click" => {
@@ -566,12 +567,29 @@ fn route<R: Runtime>(
                 Button::Left
             };
             let count = num_field(b, "count").unwrap_or(1.0).max(1.0) as i64;
-            mouse(win, Mouse::Move, Button::Left, x, y, 0)?;
+            // Optional held modifiers, e.g. {"modifiers":["shift"]}: carried on every
+            // native mouse event, so the page sees e.shiftKey/metaKey/altKey/ctrlKey.
+            let mut flags = 0u64;
+            for m in params
+                .get("modifiers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                flags |= match m.as_str().unwrap_or("").to_ascii_lowercase().as_str() {
+                    "shift" => keys::FLAG_SHIFT,
+                    "cmd" | "command" | "meta" => keys::FLAG_CMD,
+                    "alt" | "option" => keys::FLAG_ALT,
+                    "ctrl" | "control" => keys::FLAG_CTRL,
+                    other => return Err(format!("unknown modifier '{other}'")),
+                };
+            }
+            mouse(win, Mouse::Move, Button::Left, x, y, 0, flags)?;
             pause(50);
             for c in 1..=count {
-                mouse(win, Mouse::Down, btn, x, y, c)?;
+                mouse(win, Mouse::Down, btn, x, y, c, flags)?;
                 pause(40);
-                mouse(win, Mouse::Up, btn, x, y, c)?;
+                mouse(win, Mouse::Up, btn, x, y, c, flags)?;
                 pause(40);
             }
             ok()
@@ -579,9 +597,9 @@ fn route<R: Runtime>(
         "drag" => {
             let (x1, y1, x2, y2) = (n("x1")?, n("y1")?, n("x2")?, n("y2")?);
             let steps = num_field(b, "steps").unwrap_or(12.0).clamp(1.0, 200.0) as u32;
-            mouse(win, Mouse::Move, Button::Left, x1, y1, 0)?;
+            mouse(win, Mouse::Move, Button::Left, x1, y1, 0, 0)?;
             pause(50);
-            mouse(win, Mouse::Down, Button::Left, x1, y1, 1)?;
+            mouse(win, Mouse::Down, Button::Left, x1, y1, 1, 0)?;
             pause(50);
             for i in 1..=steps {
                 let t = i as f64 / steps as f64;
@@ -592,10 +610,11 @@ fn route<R: Runtime>(
                     x1 + (x2 - x1) * t,
                     y1 + (y2 - y1) * t,
                     1,
+                    0,
                 )?;
                 pause(16);
             }
-            mouse(win, Mouse::Up, Button::Left, x2, y2, 1)?;
+            mouse(win, Mouse::Up, Button::Left, x2, y2, 1, 0)?;
             ok()
         }
         "wheel" => {
@@ -610,16 +629,31 @@ fn route<R: Runtime>(
         }
         "key" => {
             let spec = str_field(b, "key").ok_or("missing 'key'")?;
-            let (code, flags) =
+            #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+            let (code, mut flags) =
                 keys::chord(&spec).ok_or_else(|| format!("unknown key '{spec}'"))?;
-            let last = spec.rsplit('+').next().unwrap_or("");
+            let last = match spec.rsplit('+').next().unwrap_or("") {
+                "" => "+",
+                l => l,
+            };
             let mut ch = if flags & (keys::FLAG_CMD | keys::FLAG_CTRL) == 0 {
                 key_char(last)
             } else {
                 String::new()
             };
-            if ch.is_empty() && last.chars().count() == 1 {
-                ch = last.to_string();
+            if ch.is_empty() {
+                if let Some(c) = keys::named_char(last) {
+                    ch = c.to_string();
+                } else if last.chars().count() == 1 {
+                    ch = last.to_string();
+                }
+            }
+            // macOS: navigation and F-keys are AppKit function characters plus the
+            // Function (and, for arrows, NumericPad) flag, with or without modifiers.
+            #[cfg(target_os = "macos")]
+            if let Some((c, extra)) = keys::function_char(last) {
+                ch = c.to_string();
+                flags |= extra;
             }
             key(win, true, code, &ch, flags)?;
             pause(20);
