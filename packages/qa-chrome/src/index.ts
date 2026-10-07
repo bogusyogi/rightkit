@@ -14,14 +14,16 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
+import { chromeForTestingPlatform, managedChromeForTestingRoot, managedExecutable, managedVersions } from './install.js';
+
+export * from './install.js';
 
 /** Environment variable naming an explicit Chrome for Testing executable. */
 export const CHROME_FOR_TESTING_ENV = 'RIGHTKIT_CHROME_FOR_TESTING';
 
 export const CHROME_FOR_TESTING_INSTALL_HINT = [
-  'Install Chrome for Testing (any one of):',
-  '  pnpm dlx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer',
-  '  pnpm exec playwright install chromium',
+  'Install Chrome for Testing into the RightKit-managed folder:',
+  '  pnpm exec rightkit-qa-chrome install',
   `or point ${CHROME_FOR_TESTING_ENV} at its executable, e.g.`,
   `  ${CHROME_FOR_TESTING_ENV}="$HOME/.cache/puppeteer/chrome/mac_arm-<version>/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"`,
   'Regular Google Chrome is never used as a fallback: on macOS each killed instance leaks a code-sign clone.',
@@ -73,8 +75,9 @@ function versionedChildren(root: string, prefix: RegExp): string[] {
 
 /**
  * Known Chrome for Testing install locations in resolution order (after the explicit option
- * and the environment variable): app installs, then Puppeteer's cache, then Playwright's
- * cache, newest version first within each cache.
+ * and the environment variable): the RightKit-managed folder (newest version first, see
+ * `rightkit-qa-chrome install`), then app installs, then Puppeteer's and Playwright's caches
+ * as legacy fallbacks.
  */
 export function chromeForTestingCandidates(options: ResolveChromeForTestingOptions = {}): string[] {
   const env = options.env ?? process.env;
@@ -83,6 +86,10 @@ export function chromeForTestingCandidates(options: ResolveChromeForTestingOptio
   const home = options.homedir ?? homedir();
   const puppeteerRoot = path.join(env.PUPPETEER_CACHE_DIR || path.join(home, '.cache', 'puppeteer'), 'chrome');
   const out: string[] = [];
+  const key = chromeForTestingPlatform(platform, arch);
+  for (const v of managedVersions({ env, platform, homedir: home })) {
+    out.push(managedExecutable(path.join(managedChromeForTestingRoot({ env, platform, homedir: home }), v), key));
+  }
 
   if (platform === 'darwin') {
     out.push(path.join('/Applications', MAC_APP), path.join(home, 'Applications', MAC_APP));

@@ -275,3 +275,47 @@ describe("useDoctor", () => {
     expect(checks[0]!.run).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useLicenseSection loaded", () => {
+  it("is false until the first read settles, then true (also after a failed read)", async () => {
+    let release!: (l: StoredLicense | null) => void;
+    const { result } = renderHook(() => useLicenseSection({ client: make({ status: () => new Promise((r) => { release = r; }) }) }));
+    expect(result.current.loaded).toBe(false);
+    expect(result.current.license).toBeNull();
+    await act(async () => { release(null); });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    const failing = renderHook(() => useLicenseSection({ client: make({ status: async () => { throw new Error("ipc down"); } }) }));
+    await waitFor(() => expect(failing.result.current.loaded).toBe(true));
+    expect(failing.result.current.error).toBe("ipc down");
+  });
+  it("is true at once for a client that cannot read", () => {
+    const { result } = renderHook(() => useLicenseSection({ client: { activate: async () => active, deactivate: async () => ({}) } }));
+    expect(result.current.loaded).toBe(true);
+  });
+});
+
+describe("useDoctor probe", () => {
+  type Report = { notes: string[]; ffmpeg: boolean; engine: boolean };
+  it("runAll shares one probe call across checks, passes its report and exposes it", async () => {
+    const probe = vi.fn(async (): Promise<Report> => ({ notes: ["n1"], ffmpeg: true, engine: false }));
+    const checks: DoctorCheck<Report>[] = [
+      { id: "ffmpeg", label: "FFmpeg", run: (r) => ({ ok: r.ffmpeg }) },
+      { id: "engine", label: "Engine", run: (r) => ({ ok: r.engine, detail: "engine down" }) },
+    ];
+    const { result } = renderHook(() => useDoctor(checks, { probe }));
+    expect(result.current.report).toBeNull();
+    await act(async () => { await result.current.runAll(); });
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(result.current.summary.passed).toBe(1);
+    expect(result.current.report?.notes).toEqual(["n1"]);
+    await act(async () => { await result.current.runOne("engine"); });
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+  it("a rejected probe fails every check with its message", async () => {
+    const checks: DoctorCheck<Report>[] = [{ id: "a", label: "A", run: () => ({ ok: true }) }];
+    const { result } = renderHook(() => useDoctor(checks, { probe: async () => { throw new Error("no report"); } }));
+    await act(async () => { await result.current.runAll(); });
+    expect(result.current.status.a).toEqual({ state: "done", result: { ok: false, detail: "no report" } });
+    expect(result.current.report).toBeNull();
+  });
+});

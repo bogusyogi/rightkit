@@ -855,6 +855,22 @@ impl Control {
         }
     }
 
+    /// Wait until `text` appears in the visible text (`innerText`) of the first element
+    /// matching `selector` (`None` = the whole body). Polls every 100 ms until `timeout`.
+    pub fn wait_for_text(
+        &self,
+        selector: Option<&str>,
+        text: &str,
+        timeout: Duration,
+    ) -> Result<()> {
+        let sel = serde_json::to_string(selector.unwrap_or("body")).unwrap_or_default();
+        let needle = serde_json::to_string(text).unwrap_or_default();
+        let js = format!(
+            "return ((document.querySelector({sel}) || {{}}).innerText || '').includes({needle});"
+        );
+        self.wait_eval(&js, timeout).map(|_| ())
+    }
+
     /// Stop the app: kill the recorded pid tree, prove the port closed, and check
     /// we did not change the frontmost app.
     pub fn stop(&mut self) -> Result<StopReport> {

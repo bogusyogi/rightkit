@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.7 — 2026-10-08
+
+- `useLicenseSection` returns `loaded`: false until the first read settles (or a read fails, or an action sets the licence), so apps can tell "not read yet" from Free without a flash.
+- `useDoctor` accepts `probe: () => Promise<P>`: one shared in-flight call per run, whose report is passed to every check's `run(report)`; a rejection fails the checks that awaited it. The result exposes `report` (the latest settled probe). Without `probe`, behaviour is unchanged. Requested by ScrapeRight.
+
 ## 0.2.6 — 2026-10-07
 
 - Test-only: the real-browser e2e harness launches Chrome for Testing through `@rightkit/qa/chrome` (`RIGHTKIT_CHROME_FOR_TESTING` overrides; skips with install instructions when missing, never regular Chrome) and closes gracefully (CDP `Browser.close`, SIGTERM, SIGKILL last) with its temp profile removed. No runtime change.

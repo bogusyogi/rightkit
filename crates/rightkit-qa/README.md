@@ -33,7 +33,11 @@ Scenarios that launch a real `.app` (`control::launch`) must run from the user's
 tools/rightkit/scripts/run-ui-tests.sh -p cutright-e2e --test ui -- --nocapture
 ```
 
-On macOS, `control::launch` passes only `RIGHTKIT_*` keys to the app, because `open --env` exposes values in argv. It drops the workspace's `XDG_*`, `WEBVIEW2_*` and `<APP>_DATA_DIR` keys, so the app must derive its isolated data dir from `RIGHTKIT_QA_DATA_DIR`. Caller-supplied `LaunchSpec::env` is still checked strictly.
+On macOS, `control::launch` passes only `RIGHTKIT_*` keys to the app, because `open --env` exposes values in argv. It drops the workspace's `XDG_*`, `WEBVIEW2_*` and `<APP>_DATA_DIR` keys, so the app must derive its isolated data dir from `RIGHTKIT_QA_DATA_DIR`. Caller-supplied `LaunchSpec::env` is still checked strictly. For an app-specific QA knob, use a `RIGHTKIT_<APP>_*` key (for example `RIGHTKIT_COCKPIT_QA_HOME`) and honour it only in debug QA builds.
+
+Hidden launches: the app must not take focus itself. When `RIGHTKIT_QA_HIDDEN=1`, skip any `set_focus()`/`show()` on startup, and build with `activate_ignoring_other_apps(false)` on macOS (see `rightkit-control/examples/control-test-app/src/main.rs`). Compare paths with `std::fs::canonicalize`: the QA data dir lives under `/var/folders`, which macOS resolves to `/private/var/folders`.
+
+`Control::wait_for_text(Some("#status"), "Ready", timeout)` waits for visible text (`None` searches the whole body).
 
 ## Mocks and validators
 

@@ -28,9 +28,9 @@
     "@rightkit/pdf-ui": "0.1.2",
     "@rightkit/platform-ui": "0.1.2",
     "@rightkit/qa": "0.2.4",
-    "@rightkit/qa-chrome": "0.1.1",
+    "@rightkit/qa-chrome": "0.1.2",
     "@rightkit/release": "0.2.122",
-    "@rightkit/settings-ui": "0.2.6",
+    "@rightkit/settings-ui": "0.2.7",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/theme": "0.2.1",
@@ -176,7 +176,8 @@
       "0.2.2",
       "0.2.3",
       "0.2.4",
-      "0.2.5"
+      "0.2.5",
+      "0.2.6"
     ],
     "@rightkit/onboarding": [
       "0.1.0",
@@ -197,7 +198,8 @@
       "0.1.1"
     ],
     "@rightkit/qa-chrome": [
-      "0.1.0"
+      "0.1.0",
+      "0.1.1"
     ]
   },
   "cargo": {
@@ -240,7 +242,7 @@
     "rightkit-pdf": "0.1.0",
     "rightkit-playback": "0.1.0",
     "rightkit-process": "0.2.1",
-    "rightkit-qa": "0.2.6",
+    "rightkit-qa": "0.2.7",
     "rightkit-sandbox": "0.1.0",
     "rightkit-search": "0.1.0",
     "rightkit-secrets": "0.1.0",

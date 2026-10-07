@@ -36,6 +36,11 @@ export interface UseLicenseSectionOptions {
 export interface UseLicenseSectionResult {
   /** Current licence; null before the first read, when the client has none, or after deactivation. */
   license: StoredLicense | null;
+  /**
+   * The first read has settled (or the client cannot read, or an action already set the licence). Until then a null
+   * `license` means "not read yet", not "Free": render a placeholder instead of the free state.
+   */
+  loaded: boolean;
   /** `@rightkit/license` `isPro`: the licence is active, still valid (within `graceDays`) and its tier is at least "pro". */
   pro: boolean;
   /** Tier name from the licence (`@rightkit/license` `tier()`), or null. */
@@ -75,6 +80,7 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
   const opts = useRef(options);
   opts.current = options;
   const [license, setLicense] = useState<StoredLicense | null>(null);
+  const [loaded, setLoaded] = useState(!(client.status ?? client.load));
   const [busy, setBusy] = useState(false);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,21 +97,29 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
   const apply = useCallback((l: StoredLicense | null) => {
     reads.current += 1; // an action's result supersedes any read still in flight
     setLicense(l);
+    setLoaded(true);
     opts.current.onChange?.(l);
   }, []);
 
   const refresh = useCallback(async (): Promise<StoredLicense | null> => {
     const read = client.status ?? client.load;
-    if (!read) return null;
+    if (!read) {
+      setLoaded(true);
+      return null;
+    }
     const token = ++reads.current;
     try {
       const l = (await read.call(client)) ?? null;
       if (!mounted.current || reads.current !== token) return l;
       setLicense(l);
       setError(null);
+      setLoaded(true);
       return l;
     } catch (e) {
-      if (mounted.current && reads.current === token) setError(errText(e));
+      if (mounted.current && reads.current === token) {
+        setError(errText(e));
+        setLoaded(true);
+      }
       return null;
     }
   }, [client]);
@@ -171,6 +185,7 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
   const grace = options.graceDays ?? 7;
   return {
     license,
+    loaded,
     pro: isPro(license, grace),
     tier: licenseTier(license) ?? null,
     busy,
@@ -195,26 +210,36 @@ export interface DoctorResult {
   fix?: string;
 }
 
-export interface DoctorCheck {
+export interface DoctorCheck<P = undefined> {
   /** Stable id; becomes `data-check-id` and feeds `ids.check`. */
   id: string;
   label: string;
   /** Secondary text under the label before the check has run. */
   description?: string;
-  /** A throw or rejection is a failed check whose `detail` is the error message. */
-  run(): Promise<DoctorResult> | DoctorResult;
+  /**
+   * A throw or rejection is a failed check whose `detail` is the error message. With `UseDoctorOptions.probe`, receives
+   * that probe's report (one shared call per run).
+   */
+  run(report: P): Promise<DoctorResult> | DoctorResult;
 }
 
 export type DoctorStatus = { state: "idle" } | { state: "running" } | { state: "done"; result: DoctorResult };
 
-export interface UseDoctorOptions {
+export interface UseDoctorOptions<P = undefined> {
   /** Run every check once on mount. Default false. */
   autoRun?: boolean;
   /** Called after each check finishes (not for a superseded run). */
-  onResult?: (check: DoctorCheck, result: DoctorResult) => void;
+  onResult?: (check: DoctorCheck<P>, result: DoctorResult) => void;
+  /**
+   * One expensive probe shared by every check (for example a single `doctor` IPC report). Concurrent checks share one
+   * in-flight call; each check's `run(report)` receives its result. A rejection fails every check that awaited it.
+   */
+  probe?: () => Promise<P>;
 }
 
-export interface UseDoctorResult {
+export interface UseDoctorResult<P = undefined> {
+  /** The latest settled `probe` result (null before the first one or without a probe), e.g. to show its notes. */
+  report: P | null;
   /** One entry per current check id; `{ state: "idle" }` until it has run. */
   status: Record<string, DoctorStatus>;
   summary: {
@@ -237,7 +262,10 @@ export interface UseDoctorResult {
  * Per-check state for app-supplied checks. A throw or rejection is a failed check (`detail` = the message). Starting a check
  * again while it runs supersedes the earlier run: only the newest run writes status or calls `onResult`.
  */
-export function useDoctor(checks: ReadonlyArray<DoctorCheck>, options: UseDoctorOptions = {}): UseDoctorResult {
+export function useDoctor<P = undefined>(
+  checks: ReadonlyArray<DoctorCheck<P>>,
+  options: UseDoctorOptions<P> = {},
+): UseDoctorResult<P> {
   const [state, setState] = useState<Record<string, DoctorStatus>>({});
   const [lastRun, setLastRun] = useState<number | null>(null);
   const tokens = useRef<Record<string, number>>({});
@@ -246,6 +274,28 @@ export function useDoctor(checks: ReadonlyArray<DoctorCheck>, options: UseDoctor
   checksRef.current = checks;
   const onResult = useRef(options.onResult);
   onResult.current = options.onResult;
+  const probe = useRef(options.probe);
+  probe.current = options.probe;
+  const inflight = useRef<Promise<P> | null>(null);
+  const [report, setReport] = useState<P | null>(null);
+  // One probe call serves every check that starts while it is in flight.
+  const getReport = useCallback((): Promise<P> => {
+    const run = probe.current;
+    if (!run) return Promise.resolve(undefined as P);
+    if (!inflight.current) {
+      const p = run();
+      inflight.current = p;
+      p.then(
+        (r) => {
+          if (mounted.current) setReport(r);
+        },
+        () => {},
+      ).finally(() => {
+        if (inflight.current === p) inflight.current = null;
+      });
+    }
+    return inflight.current;
+  }, []);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -253,12 +303,13 @@ export function useDoctor(checks: ReadonlyArray<DoctorCheck>, options: UseDoctor
     };
   }, []);
 
-  const runCheck = useCallback(async (check: DoctorCheck): Promise<DoctorResult | null> => {
+  const runCheck = useCallback(async (check: DoctorCheck<P>): Promise<DoctorResult | null> => {
     const token = (tokens.current[check.id] = (tokens.current[check.id] ?? 0) + 1);
     setState((m) => ({ ...m, [check.id]: { state: "running" } }));
     let result: DoctorResult;
     try {
-      result = await check.run();
+      // No probe: call run() synchronously, exactly as before.
+      result = await check.run(probe.current ? await getReport() : (undefined as P));
     } catch (e) {
       result = { ok: false, detail: errText(e) };
     }
@@ -267,7 +318,7 @@ export function useDoctor(checks: ReadonlyArray<DoctorCheck>, options: UseDoctor
     setLastRun(Date.now());
     onResult.current?.(check, result);
     return result;
-  }, []);
+  }, [getReport]);
   const runOne = useCallback(
     async (id: string) => {
       const check = checksRef.current.find((c) => c.id === id);
@@ -288,6 +339,7 @@ export function useDoctor(checks: ReadonlyArray<DoctorCheck>, options: UseDoctor
   for (const c of checks) status[c.id] = state[c.id] ?? { state: "idle" };
   const all = Object.values(status);
   return {
+    report,
     status,
     summary: { passed: all.filter((s) => s.state === "done" && s.result.ok).length, total: checks.length, lastRun },
     running: all.some((s) => s.state === "running"),

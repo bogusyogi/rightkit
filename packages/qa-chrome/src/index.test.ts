@@ -50,12 +50,24 @@ describe('resolveChromeForTesting', () => {
     if (!existsSync(candidates[0])) expect(resolveChromeForTesting(base)).toBe(newest);
   });
 
+  it('the RightKit-managed folder wins, newest version first, over app installs and caches', () => {
+    const managed = path.join(home, 'Library', 'Application Support', 'Orthic Labs', 'shared', 'chrome-for-testing');
+    touch(path.join(managed, '153.0.1.1', 'chrome-mac-arm64', macExe));
+    const current = touch(path.join(managed, '155.0.8059.39', 'chrome-mac-arm64', macExe));
+    const candidates = chromeForTestingCandidates(base);
+    expect(candidates[0]).toBe(current);
+    expect(resolveChromeForTesting(base)).toBe(current);
+    const custom = path.join(scratch, 'custom-root');
+    const pinned = touch(path.join(custom, '154.0.1.2', 'chrome-mac-arm64', macExe));
+    expect(chromeForTestingCandidates({ ...base, env: { RIGHTKIT_CHROME_FOR_TESTING_ROOT: custom } })[0]).toBe(pinned);
+  });
+
   it('never resolves regular Google Chrome and explains how to install', () => {
     const empty = { env: {}, platform: 'linux' as const, arch: 'x64', homedir: path.join(scratch, 'empty-home') };
     expect(chromeForTestingCandidates({ ...base, homedir: path.join(scratch, 'empty-home') }).some((c) => c.includes('Google Chrome.app'))).toBe(false);
     const error = (() => { try { resolveChromeForTesting(empty); } catch (e) { return e as Error; } })();
     expect(error).toBeInstanceOf(ChromeForTestingNotFoundError);
-    expect(error!.message).toMatch(/@puppeteer\/browsers install chrome@stable/);
+    expect(error!.message).toMatch(/rightkit-qa-chrome install/);
     expect(error!.message).toMatch(new RegExp(CHROME_FOR_TESTING_ENV));
   });
 });
