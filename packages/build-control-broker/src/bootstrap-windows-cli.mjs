@@ -227,6 +227,19 @@ export async function assertElevatedWindows({ run = execFile } = {}) {
   if (!/S-1-16-(12288|16384)\b/.test(String(groups))) throw new Error('Windows bootstrap/cutover must run elevated (High integrity); run it from Mac through `win "node D:\\Claude\\tools\\rightkit\\packages\\build-control-broker\\src\\bootstrap-windows-cli.mjs"`');
 }
 
+// Sandboxed tools (CodeRight's AppContainer git) stat every physical ancestor of their
+// workspace. The managed root and tmp are Administrators-owned, so per-profile leases cannot
+// add ACEs there; grant ALL APPLICATION PACKAGES read-attributes/list/synchronize on these two
+// folders only (no inheritance, no file contents). icacls /grant is idempotent.
+async function grantAppContainerTraverse(paths) {
+  const icacls = join(process.env.SystemRoot ?? 'C:\Windows', 'System32', 'icacls.exe');
+  for (const path of paths) {
+    mkdirSync(path, { recursive: true });
+    try { await execFile(icacls, [path, '/grant', '*S-1-15-2-1:(RD,RA,S)'], { windowsHide: true }); }
+    catch (error) { throw new Error(`cannot grant AppContainer traverse on ${path}: ${error.message}`, { cause: error }); }
+  }
+}
+
 async function main() {
   await assertElevatedWindows();
   const options = parseArgs(process.argv.slice(2));
@@ -236,6 +249,7 @@ async function main() {
   mkdirSync(externalRoot, { recursive: true });
   mkdirSync(join(externalRoot, 'state'), { recursive: true });
   ensureRemoteRoutingRoots(externalRoot);
+  await grantAppContainerTraverse([externalRoot, join(externalRoot, 'tmp')]);
 
   if (!existsSync(configPath) || options.force) {
     const config = await buildConfig({ externalRoot });

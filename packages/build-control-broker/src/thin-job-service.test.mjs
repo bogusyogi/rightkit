@@ -711,8 +711,8 @@ test('quiet root with rising tree CPU keeps running even beyond kill limit', asy
     const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
     await waitFor(item.service, request.id, ['RUNNING']);
     clock += 900_000; await resourceSample(item, request.id);
-    clock = 2_701_000; cpu += 100; await resourceSample(item, request.id);
-    clock += 10_000; cpu += 100; await resourceSample(item, request.id);
+    clock = 2_701_000; cpu += 1_000; await resourceSample(item, request.id);
+    clock += 10_000; cpu += 1_000; await resourceSample(item, request.id);
     assert.equal(stallEvents(item, request.id).length, 0);
     const status = (await call(item.service, command('STATUS', request.id))).result;
     assert.equal(status.state, 'RUNNING'); assert.equal(status.stalledAt, null);
@@ -755,9 +755,9 @@ test('CPU progress clears an existing stall before kill, then requires fresh con
     clock += 900_000; await resourceSample(item, request.id);
     clock += 10_000; await resourceSample(item, request.id);
     assert.equal(stallEvents(item, request.id).length, 1);
-    clock = 2_701_000; cpu += 100; await resourceSample(item, request.id);
+    clock = 2_701_000; cpu += 1_000; await resourceSample(item, request.id);
     const [cleared] = stallEvents(item, request.id, 'JOB_STALL_CLEARED');
-    assert.equal(cleared.reason, 'cpu'); assert.equal(cleared.cpuDeltaMs, 100);
+    assert.equal(cleared.reason, 'cpu'); assert.equal(cleared.cpuDeltaMs, 1_000);
     clock += 9_999; await resourceSample(item, request.id);
     const status = (await call(item.service, command('STATUS', request.id))).result;
     assert.equal(status.state, 'RUNNING'); assert.equal(status.stalledAt, null);
@@ -821,9 +821,24 @@ test('unavailable resources confirm a stall; stallKillMs zero keeps it report on
   }
 });
 
+test('a CPU trickle below the threshold neither prevents nor clears a stall', async () => {
+  let clock = 1_000; let cpu = 100;
+  const item = await fixture({ now: () => clock, readResources: () => measuredBuildUsage(cpu) });
+  try {
+    const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, request.id, ['RUNNING']);
+    clock += 900_000; await resourceSample(item, request.id);
+    clock += 10_000; cpu += 15; await resourceSample(item, request.id);
+    assert.equal(stallEvents(item, request.id).length, 1);
+    clock += 10_000; cpu += 15; await resourceSample(item, request.id);
+    assert.equal(stallEvents(item, request.id, 'JOB_STALL_CLEARED').length, 0);
+    assert.notEqual((await call(item.service, command('STATUS', request.id))).result.stalledAt, null);
+  } finally { await item.close(); }
+});
+
 test('nested compiler jobs do not run the root stall watchdog', async () => {
   let clock = 1_000; let cpu = 100;
-  const item = await fixture({ now: () => clock, readResources: (child) => measuredBuildUsage(child.pid === 301 ? ++cpu : 100) });
+  const item = await fixture({ now: () => clock, readResources: (child) => measuredBuildUsage(child.pid === 301 ? (cpu += 1_000) : 100) });
   try {
     const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
     await waitFor(item.service, root.id, ['RUNNING']);

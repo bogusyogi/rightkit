@@ -103,6 +103,9 @@ const BROKER_ENDPOINT_ENVIRONMENT_KEY = 'RIGHTKIT_BUILD_BROKER_SOCKET';
 // time for output to drain, then release the pipes and settle on the exit status.
 export const STDIO_DRAIN_MS = 10_000;
 const STALL_SAMPLE_MS = 10_000;
+// CPU below this per ~10 s sample is idle housekeeping (a hung tree still ticks a few ms),
+// not progress: it neither prevents nor clears a stall.
+const STALL_MIN_CPU_MS = 500;
 
 /** A registry token travels only as credentialStdin, and only to a capability that pipes it (cargo login). */
 export function validateCredentialStdin(capability, credential) {
@@ -885,7 +888,7 @@ export class ThinJobService {
     const cpuTotalMs = job.processResources?.status === 'OK' ? job.processResources.cpuTotalMs : null;
     const previousCpu = job.stallLastCpuMs;
     if (cpuTotalMs !== null) job.stallLastCpuMs = cpuTotalMs;
-    if (job.stalledAt != null && cpuTotalMs !== null && previousCpu != null && cpuTotalMs > previousCpu) {
+    if (job.stalledAt != null && cpuTotalMs !== null && previousCpu != null && cpuTotalMs - previousCpu >= STALL_MIN_CPU_MS) {
       this.#clearStall(job, 'cpu', cpuTotalMs - previousCpu);
       // Require another full observation window before declaring a new stall.
       if (quietMs >= quietLimit) job.stallProbe = { at: now, cpuTotalMs };
@@ -896,7 +899,7 @@ export class ThinJobService {
     if (now - job.stallProbe.at >= STALL_SAMPLE_MS) {
       const cpuDeltaMs = cpuTotalMs !== null && job.stallProbe.cpuTotalMs !== null ? cpuTotalMs - job.stallProbe.cpuTotalMs : null;
       job.stallProbe = { at: now, cpuTotalMs };
-      if (cpuDeltaMs > 0) return;
+      if (cpuDeltaMs >= STALL_MIN_CPU_MS) return;
       if (job.stalledAt == null) {
         job.stalledAt = now;
         this.#stallEvent(job, 'JOB_STALLED', quietMs, cpuDeltaMs);
