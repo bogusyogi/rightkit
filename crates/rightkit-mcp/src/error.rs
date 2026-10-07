@@ -7,7 +7,10 @@ use crate::trust::PendingApproval;
 pub enum McpError {
     Transport(String),
     Protocol(String),
-    Rpc { code: i64, message: String },
+    Rpc {
+        code: i64,
+        message: String,
+    },
     ToolNotFound(String),
     /// Refused by an admission hook or a recorded trust denial; nothing ran.
     Denied(String),
@@ -17,7 +20,10 @@ pub enum McpError {
     Timeout,
     Closed,
     Unauthorized,
-    Collision { qualified: String, originals: Vec<String> },
+    Collision {
+        qualified: String,
+        originals: Vec<String>,
+    },
     Config(String),
     Io(String),
 }
@@ -41,7 +47,10 @@ impl fmt::Display for McpError {
             McpError::Timeout => write!(f, "request timed out"),
             McpError::Closed => write!(f, "connection closed"),
             McpError::Unauthorized => write!(f, "unauthorized"),
-            McpError::Collision { qualified, originals } => {
+            McpError::Collision {
+                qualified,
+                originals,
+            } => {
                 write!(f, "tool name collision on '{qualified}': {originals:?}")
             }
             McpError::Config(m) => write!(f, "config error: {m}"),

@@ -62,7 +62,10 @@ impl McpEvent {
     }
 
     pub fn timestamp_ms(&self) -> u64 {
-        self.at.duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+        self.at
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
     }
 
     pub fn to_json(&self) -> serde_json::Value {

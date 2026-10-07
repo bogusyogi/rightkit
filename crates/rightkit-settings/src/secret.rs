@@ -10,7 +10,10 @@ pub struct SecretRef {
 
 impl SecretRef {
     pub fn new(service: impl Into<String>, account: impl Into<String>) -> Self {
-        Self { service: service.into(), account: account.into() }
+        Self {
+            service: service.into(),
+            account: account.into(),
+        }
     }
 }
 

@@ -5,13 +5,29 @@ use serde_json::{json, Value};
 pub struct ToolAnnotations {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    #[serde(default, rename = "readOnlyHint", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "readOnlyHint",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub read_only: Option<bool>,
-    #[serde(default, rename = "destructiveHint", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "destructiveHint",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub destructive: Option<bool>,
-    #[serde(default, rename = "idempotentHint", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "idempotentHint",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub idempotent: Option<bool>,
-    #[serde(default, rename = "openWorldHint", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "openWorldHint",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub open_world: Option<bool>,
 }
 
@@ -69,7 +85,11 @@ impl Content {
             },
             Some("image") => Content::Image {
                 data: v.get("data").and_then(Value::as_str).unwrap_or("").into(),
-                mime_type: v.get("mimeType").and_then(Value::as_str).unwrap_or("").into(),
+                mime_type: v
+                    .get("mimeType")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .into(),
             },
             _ => Content::Other(v.clone()),
         }
@@ -85,13 +105,26 @@ pub struct ToolResult {
 
 impl ToolResult {
     pub fn text(s: impl Into<String>) -> Self {
-        Self { content: vec![Content::Text { text: s.into() }], structured: None, is_error: false }
+        Self {
+            content: vec![Content::Text { text: s.into() }],
+            structured: None,
+            is_error: false,
+        }
     }
     pub fn error(s: impl Into<String>) -> Self {
-        Self { is_error: true, ..Self::text(s) }
+        Self {
+            is_error: true,
+            ..Self::text(s)
+        }
     }
     pub fn json(v: Value) -> Self {
-        Self { content: vec![Content::Text { text: v.to_string() }], structured: Some(v), is_error: false }
+        Self {
+            content: vec![Content::Text {
+                text: v.to_string(),
+            }],
+            structured: Some(v),
+            is_error: false,
+        }
     }
     /// All text blocks joined with newlines.
     pub fn text_content(&self) -> String {
@@ -179,7 +212,11 @@ impl PromptMessage {
     }
     pub fn from_value(v: &Value) -> PromptMessage {
         PromptMessage {
-            role: v.get("role").and_then(Value::as_str).unwrap_or("user").into(),
+            role: v
+                .get("role")
+                .and_then(Value::as_str)
+                .unwrap_or("user")
+                .into(),
             text: v
                 .pointer("/content/text")
                 .and_then(Value::as_str)

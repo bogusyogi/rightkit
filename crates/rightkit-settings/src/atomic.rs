@@ -73,11 +73,23 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
             reserved: *mut std::ffi::c_void,
         ) -> i32;
     }
-    let wide = |p: &Path| p.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+    let wide = |p: &Path| {
+        p.as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect::<Vec<u16>>()
+    };
     let (d, s) = (wide(destination), wide(source));
     // SAFETY: both buffers are NUL-terminated and outlive the call.
     let ok = unsafe {
-        ReplaceFileW(d.as_ptr(), s.as_ptr(), std::ptr::null(), 0, std::ptr::null_mut(), std::ptr::null_mut())
+        ReplaceFileW(
+            d.as_ptr(),
+            s.as_ptr(),
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
     };
     if ok == 0 {
         Err(io::Error::last_os_error())

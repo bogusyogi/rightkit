@@ -15,7 +15,9 @@ fn expand(s: &str, env: &HashMap<String, String>) -> Result<String> {
     while let Some(i) = rest.find("${") {
         out.push_str(&rest[..i]);
         let after = &rest[i + 2..];
-        let end = after.find('}').ok_or_else(|| McpError::Config(format!("unterminated ${{ in '{s}'")))?;
+        let end = after
+            .find('}')
+            .ok_or_else(|| McpError::Config(format!("unterminated ${{ in '{s}'")))?;
         let inner = &after[..end];
         let (name, default) = match inner.split_once(":-") {
             Some((n, d)) => (n, Some(d)),
@@ -32,21 +34,38 @@ fn expand(s: &str, env: &HashMap<String, String>) -> Result<String> {
     Ok(out)
 }
 
-pub fn parse_mcp_json(text: &str, source: ServerSource, env: &HashMap<String, String>) -> Result<Vec<ServerEntry>> {
+pub fn parse_mcp_json(
+    text: &str,
+    source: ServerSource,
+    env: &HashMap<String, String>,
+) -> Result<Vec<ServerEntry>> {
     let v: Value = serde_json::from_str(text).map_err(|e| McpError::Config(e.to_string()))?;
-    let servers = v.get("mcpServers").and_then(Value::as_object).cloned().unwrap_or_default();
+    let servers = v
+        .get("mcpServers")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
     let mut out = Vec::new();
     for (name, s) in servers {
         let spec = if let Some(url) = s.get("url").and_then(Value::as_str) {
             if s.get("type").and_then(Value::as_str) == Some("sse") {
-                return Err(McpError::Config(format!("server '{name}': legacy SSE transport is not supported")));
+                return Err(McpError::Config(format!(
+                    "server '{name}': legacy SSE transport is not supported"
+                )));
             }
-            ServerSpec::Http { url: expand(url, env)? }
+            ServerSpec::Http {
+                url: expand(url, env)?,
+            }
         } else if let Some(cmd) = s.get("command").and_then(Value::as_str) {
             let args = s
                 .get("args")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).map(|x| expand(x, env)).collect::<Result<Vec<_>>>())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(|x| expand(x, env))
+                        .collect::<Result<Vec<_>>>()
+                })
                 .transpose()?
                 .unwrap_or_default();
             let mut envm = BTreeMap::new();
@@ -62,9 +81,15 @@ pub fn parse_mcp_json(text: &str, source: ServerSource, env: &HashMap<String, St
                 cwd: s.get("cwd").and_then(Value::as_str).map(Into::into),
             }
         } else {
-            return Err(McpError::Config(format!("server '{name}' has neither command nor url")));
+            return Err(McpError::Config(format!(
+                "server '{name}' has neither command nor url"
+            )));
         };
-        out.push(ServerEntry { name, spec, source: source.clone() });
+        out.push(ServerEntry {
+            name,
+            spec,
+            source: source.clone(),
+        });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)

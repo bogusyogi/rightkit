@@ -2,9 +2,9 @@ use crate::atomic::atomic_write;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{Map, Value};
 use std::fs;
+use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::fs::{File, OpenOptions, TryLockError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -49,7 +49,11 @@ pub struct Schema {
 
 impl Schema {
     pub fn new(namespace: impl Into<String>, version: u32) -> Self {
-        Self { namespace: namespace.into(), version, migrations: Vec::new() }
+        Self {
+            namespace: namespace.into(),
+            version,
+            migrations: Vec::new(),
+        }
     }
     pub fn migration(mut self, to: u32, apply: fn(&mut Map<String, Value>)) -> Self {
         self.migrations.push(Migration { to, apply });
@@ -57,14 +61,19 @@ impl Schema {
     }
     fn validate(&self) -> Result<(), Error> {
         let ok_ns = !self.namespace.is_empty()
-            && self.namespace.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.');
+            && self
+                .namespace
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.');
         if !ok_ns {
             return Err(Error::BadSchema("namespace must be [A-Za-z0-9._-]+"));
         }
         let mut last = 0;
         for m in &self.migrations {
             if m.to <= last || m.to > self.version {
-                return Err(Error::BadSchema("migrations must ascend and not exceed version"));
+                return Err(Error::BadSchema(
+                    "migrations must ascend and not exceed version",
+                ));
             }
             last = m.to;
         }
@@ -123,7 +132,12 @@ fn lock_file(settings: &Path) -> Result<FileGuard, Error> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)?;
     let start = Instant::now();
     loop {
         match file.try_lock() {
@@ -163,7 +177,10 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         Ok(Store {
             path,
             schema,
-            inner: Mutex::new(Inner { value: loaded.value, revision }),
+            inner: Mutex::new(Inner {
+                value: loaded.value,
+                revision,
+            }),
             listeners: Arc::default(),
             next_id: Mutex::new(0),
         })
@@ -195,9 +212,17 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
     /// Lock-free read of the committed file (writers replace it atomically).
     fn peek(&self) -> Option<Loaded<T>> {
         match read_doc(&self.path) {
-            Read::Ok { version, values, revision } if version == self.schema.version => {
+            Read::Ok {
+                version,
+                values,
+                revision,
+            } if version == self.schema.version => {
                 let (value, _) = repair::<T>(values).ok()?;
-                Some(Loaded { value, dirty: false, revision })
+                Some(Loaded {
+                    value,
+                    dirty: false,
+                    revision,
+                })
             }
             _ => None,
         }
@@ -215,18 +240,29 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
     /// Compare-and-swap form of [`Store::update`]: fails with
     /// [`Error::Conflict`] unless the committed revision still equals `expected`
     /// (from [`Store::revision`]); nothing is written on conflict.
-    pub fn update_at<R>(&self, expected: u64, f: impl FnOnce(&mut T) -> Result<R, Error>) -> Result<R, Error> {
+    pub fn update_at<R>(
+        &self,
+        expected: u64,
+        f: impl FnOnce(&mut T) -> Result<R, Error>,
+    ) -> Result<R, Error> {
         self.transact(Some(expected), f)
     }
 
-    fn transact<R>(&self, expected: Option<u64>, f: impl FnOnce(&mut T) -> Result<R, Error>) -> Result<R, Error> {
+    fn transact<R>(
+        &self,
+        expected: Option<u64>,
+        f: impl FnOnce(&mut T) -> Result<R, Error>,
+    ) -> Result<R, Error> {
         let (out, change) = {
             let mut g = lock(&self.inner);
             let _file = lock_file(&self.path)?;
             let loaded = load::<T>(&self.path, &self.schema)?;
             if let Some(expected) = expected {
                 if loaded.revision != expected {
-                    return Err(Error::Conflict { expected, actual: loaded.revision });
+                    return Err(Error::Conflict {
+                        expected,
+                        actual: loaded.revision,
+                    });
                 }
             }
             let mut next = loaded.value.clone();
@@ -249,7 +285,9 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
     }
 
     pub fn patch(&self, patch: &Value, allow: Option<&[&str]>) -> Result<T, Error> {
-        let obj = patch.as_object().ok_or_else(|| Error::Invalid("patch must be an object".into()))?;
+        let obj = patch
+            .as_object()
+            .ok_or_else(|| Error::Invalid("patch must be an object".into()))?;
         let defaults = to_object(&T::default())?;
         for k in obj.keys() {
             if !defaults.contains_key(k) {
@@ -271,7 +309,8 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
                     cur.insert(k.clone(), nv.clone());
                 }
             }
-            *v = serde_json::from_value(Value::Object(cur)).map_err(|e| Error::Invalid(e.to_string()))?;
+            *v = serde_json::from_value(Value::Object(cur))
+                .map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(())
         })?;
         Ok(self.get())
@@ -281,14 +320,20 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> Store<T> {
         let mut n = lock(&self.next_id);
         *n += 1;
         lock(&self.listeners).push((*n, Arc::new(f)));
-        Subscription { id: *n, listeners: self.listeners.clone() }
+        Subscription {
+            id: *n,
+            listeners: self.listeners.clone(),
+        }
     }
 
     fn emit(&self, change: Change) {
         if change.keys.is_empty() {
             return;
         }
-        let ls: Vec<Listener> = lock(&self.listeners).iter().map(|(_, l)| l.clone()).collect();
+        let ls: Vec<Listener> = lock(&self.listeners)
+            .iter()
+            .map(|(_, l)| l.clone())
+            .collect();
         for l in ls {
             l(&change);
         }
@@ -331,33 +376,58 @@ fn envelope(schema: &Schema, values: Map<String, Value>) -> Value {
 fn to_object<T: Serialize>(v: &T) -> Result<Map<String, Value>, Error> {
     match serde_json::to_value(v)? {
         Value::Object(m) => Ok(m),
-        _ => Err(Error::BadSchema("settings type must serialize to an object")),
+        _ => Err(Error::BadSchema(
+            "settings type must serialize to an object",
+        )),
     }
 }
 
 fn diff(old: &Map<String, Value>, new: &Map<String, Value>) -> Change {
-    let mut keys: Vec<String> = new.iter().filter(|(k, v)| old.get(*k) != Some(*v)).map(|(k, _)| k.clone()).collect();
+    let mut keys: Vec<String> = new
+        .iter()
+        .filter(|(k, v)| old.get(*k) != Some(*v))
+        .map(|(k, _)| k.clone())
+        .collect();
     keys.extend(old.keys().filter(|k| !new.contains_key(*k)).cloned());
     keys.sort();
     Change { keys }
 }
 
 enum Read {
-    Ok { version: u32, values: Map<String, Value>, revision: u64 },
+    Ok {
+        version: u32,
+        values: Map<String, Value>,
+        revision: u64,
+    },
     Missing,
     Corrupt,
 }
 
 fn read_doc(path: &Path) -> Read {
-    let Ok(bytes) = fs::read(path) else { return Read::Missing };
-    let Ok(Value::Object(mut doc)) = serde_json::from_slice::<Value>(&bytes) else { return Read::Corrupt };
+    let Ok(bytes) = fs::read(path) else {
+        return Read::Missing;
+    };
+    let Ok(Value::Object(mut doc)) = serde_json::from_slice::<Value>(&bytes) else {
+        return Read::Corrupt;
+    };
     let version = doc.get(ENVELOPE_VERSION).and_then(Value::as_u64);
-    let revision = doc.get(ENVELOPE_REVISION).and_then(Value::as_u64).unwrap_or(0);
+    let revision = doc
+        .get(ENVELOPE_REVISION)
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     match (version, doc.remove(ENVELOPE_VALUES)) {
-        (Some(v), Some(Value::Object(values))) => Read::Ok { version: v as u32, values, revision },
+        (Some(v), Some(Value::Object(values))) => Read::Ok {
+            version: v as u32,
+            values,
+            revision,
+        },
         (Some(_), _) => Read::Corrupt,
         // Legacy flat file: the whole document is version-0 values.
-        (None, _) => Read::Ok { version: 0, values: doc, revision: 0 },
+        (None, _) => Read::Ok {
+            version: 0,
+            values: doc,
+            revision: 0,
+        },
     }
 }
 
@@ -373,23 +443,41 @@ fn quarantine(path: &Path) {
 
 /// Read, recover, migrate and repair the committed settings. Persists nothing;
 /// callers holding the file lock write when `dirty`.
-fn load<T: Serialize + DeserializeOwned + Default>(path: &Path, schema: &Schema) -> Result<Loaded<T>, Error> {
+fn load<T: Serialize + DeserializeOwned + Default>(
+    path: &Path,
+    schema: &Schema,
+) -> Result<Loaded<T>, Error> {
     let (version, values, mut dirty, revision) = match read_doc(path) {
-        Read::Ok { version, values, revision } => (version, values, false, revision),
+        Read::Ok {
+            version,
+            values,
+            revision,
+        } => (version, values, false, revision),
         Read::Missing => match read_doc(&bak_path(path)) {
-            Read::Ok { version, values, revision } => (version, values, true, revision),
+            Read::Ok {
+                version,
+                values,
+                revision,
+            } => (version, values, true, revision),
             _ => (schema.version, Map::new(), true, 0),
         },
         Read::Corrupt => {
             quarantine(path);
             match read_doc(&bak_path(path)) {
-                Read::Ok { version, values, revision } => (version, values, true, revision),
+                Read::Ok {
+                    version,
+                    values,
+                    revision,
+                } => (version, values, true, revision),
                 _ => (schema.version, Map::new(), true, 0),
             }
         }
     };
     if version > schema.version {
-        return Err(Error::NewerSchema { found: version, supported: schema.version });
+        return Err(Error::NewerSchema {
+            found: version,
+            supported: schema.version,
+        });
     }
     let mut values = values;
     if version < schema.version {
@@ -399,12 +487,18 @@ fn load<T: Serialize + DeserializeOwned + Default>(path: &Path, schema: &Schema)
         dirty = true;
     }
     let (value, repaired) = repair::<T>(values)?;
-    Ok(Loaded { value, dirty: dirty || repaired, revision })
+    Ok(Loaded {
+        value,
+        dirty: dirty || repaired,
+        revision,
+    })
 }
 
 /// Deserialize, dropping individual invalid or unknown-typed fields back to
 /// their defaults instead of resetting everything.
-fn repair<T: Serialize + DeserializeOwned + Default>(values: Map<String, Value>) -> Result<(T, bool), Error> {
+fn repair<T: Serialize + DeserializeOwned + Default>(
+    values: Map<String, Value>,
+) -> Result<(T, bool), Error> {
     if let Ok(v) = serde_json::from_value::<T>(Value::Object(values.clone())) {
         return Ok((v, false));
     }
@@ -418,5 +512,8 @@ fn repair<T: Serialize + DeserializeOwned + Default>(values: Map<String, Value>)
             };
         }
     }
-    Ok((serde_json::from_value(Value::Object(good)).unwrap_or_default(), true))
+    Ok((
+        serde_json::from_value(Value::Object(good)).unwrap_or_default(),
+        true,
+    ))
 }

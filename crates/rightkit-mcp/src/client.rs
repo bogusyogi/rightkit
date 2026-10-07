@@ -18,8 +18,15 @@ use crate::types::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerSpec {
-    Stdio { command: String, args: Vec<String>, env: BTreeMap<String, String>, cwd: Option<PathBuf> },
-    Http { url: String },
+    Stdio {
+        command: String,
+        args: Vec<String>,
+        env: BTreeMap<String, String>,
+        cwd: Option<PathBuf>,
+    },
+    Http {
+        url: String,
+    },
 }
 
 #[derive(Clone)]
@@ -62,7 +69,12 @@ struct Lifecycle {
 
 impl Lifecycle {
     fn new(server: &str, transport: &'static str, events: &Option<EventSink>) -> Self {
-        Self { session_id: next_id("mcpc"), server: server.into(), transport, events: events.clone() }
+        Self {
+            session_id: next_id("mcpc"),
+            server: server.into(),
+            transport,
+            events: events.clone(),
+        }
     }
     fn emit(&self, kind: LifecycleKind, reason: impl Into<String>, pid: Option<u32>) {
         emit(&self.events, || {
@@ -112,9 +124,21 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 impl StdioConn {
     fn spawn(server: &str, spec: &ServerSpec, events: &Option<EventSink>) -> Result<StdioConn> {
-        let ServerSpec::Stdio { command, args, env, cwd } = spec else { unreachable!() };
+        let ServerSpec::Stdio {
+            command,
+            args,
+            env,
+            cwd,
+        } = spec
+        else {
+            unreachable!()
+        };
         let mut cmd = Command::new(command);
-        cmd.args(args).envs(env).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        cmd.args(args)
+            .envs(env)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -123,7 +147,9 @@ impl StdioConn {
         if let Some(c) = cwd {
             cmd.current_dir(c);
         }
-        let mut child = cmd.spawn().map_err(|e| McpError::Transport(format!("spawn '{command}': {e}")))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| McpError::Transport(format!("spawn '{command}': {e}")))?;
         let pid = child.id();
         let life = Lifecycle::new(server, "stdio", events);
         life.emit(LifecycleKind::Start, "spawned stdio server", Some(pid));
@@ -138,7 +164,9 @@ impl StdioConn {
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
-                let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
+                let Ok(msg) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
                 let has_method = msg.get("method").is_some();
                 match (msg.get("id").and_then(Value::as_u64), has_method) {
                     (Some(id), false) => {
@@ -188,7 +216,16 @@ impl StdioConn {
             };
             l2.emit(LifecycleKind::Crash, reason, Some(pid));
         });
-        Ok(StdioConn { child, stdin, pending, alive, closing, life, pid, next_id: AtomicU64::new(1) })
+        Ok(StdioConn {
+            child,
+            stdin,
+            pending,
+            alive,
+            closing,
+            life,
+            pid,
+            next_id: AtomicU64::new(1),
+        })
     }
 
     fn send(&self, msg: &Value) -> Result<()> {
@@ -196,14 +233,17 @@ impl StdioConn {
             return Err(McpError::Closed);
         }
         let mut w = lock(&self.stdin);
-        writeln!(w, "{msg}").and_then(|_| w.flush()).map_err(|_| McpError::Closed)
+        writeln!(w, "{msg}")
+            .and_then(|_| w.flush())
+            .map_err(|_| McpError::Closed)
     }
 
     fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = channel();
         lock(&self.pending).insert(id, tx);
-        if let Err(e) = self.send(&json!({"jsonrpc":"2.0","id":id,"method":method,"params":params})) {
+        if let Err(e) = self.send(&json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
+        {
             lock(&self.pending).remove(&id);
             return Err(e);
         }
@@ -225,7 +265,8 @@ impl Drop for StdioConn {
         let _ = c.kill();
         let _ = c.wait();
         drop(c);
-        self.life.emit(LifecycleKind::Stop, "closed", Some(self.pid));
+        self.life
+            .emit(LifecycleKind::Stop, "closed", Some(self.pid));
     }
 }
 
@@ -233,7 +274,11 @@ fn rpc_outcome(msg: &Value) -> Result<Value> {
     if let Some(e) = msg.get("error") {
         return Err(McpError::Rpc {
             code: e.get("code").and_then(Value::as_i64).unwrap_or(-32603),
-            message: e.get("message").and_then(Value::as_str).unwrap_or("").into(),
+            message: e
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .into(),
         });
     }
     Ok(msg.get("result").cloned().unwrap_or(Value::Null))
@@ -282,13 +327,30 @@ impl HttpConn {
             .send(body.to_string().as_str())
             .map_err(|e| McpError::Transport(e.to_string()))?;
         let status = resp.status().as_u16();
-        let ct = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-        if let Some(sid) = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()) {
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        if let Some(sid) = resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+        {
             *lock(&self.session) = Some(sid.to_string());
         }
-        let www = resp.headers().get("www-authenticate").and_then(|v| v.to_str().ok()).map(str::to_string);
+        let www = resp
+            .headers()
+            .get("www-authenticate")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
         let mut text = String::new();
-        let _ = resp.body_mut().as_reader().take(16 * 1024 * 1024).read_to_string(&mut text);
+        let _ = resp
+            .body_mut()
+            .as_reader()
+            .take(16 * 1024 * 1024)
+            .read_to_string(&mut text);
         if status == 401 {
             if retry_auth {
                 if let Some(a) = &self.auth {
@@ -302,7 +364,8 @@ impl HttpConn {
         if status == 404 && lock(&self.session).is_some() {
             *lock(&self.session) = None;
             if self.started.swap(false, Ordering::SeqCst) {
-                self.life.emit(LifecycleKind::Stop, "server ended the session", None);
+                self.life
+                    .emit(LifecycleKind::Stop, "server ended the session", None);
             }
             return Err(McpError::Closed); // session expired: caller re-initialises
         }
@@ -311,14 +374,17 @@ impl HttpConn {
 
     fn request(&self, method: &str, params: Value) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let (status, text, ct) =
-            self.post(&json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}), true)?;
+        let (status, text, ct) = self.post(
+            &json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}),
+            true,
+        )?;
         if !(200..300).contains(&status) {
             let snippet: String = text.chars().take(300).collect();
             return Err(McpError::Transport(format!("HTTP {status}: {snippet}")));
         }
         let msg = if ct.contains("text/event-stream") {
-            sse_find(&text, id).ok_or_else(|| McpError::Protocol("no response in event stream".into()))?
+            sse_find(&text, id)
+                .ok_or_else(|| McpError::Protocol("no response in event stream".into()))?
         } else {
             serde_json::from_str::<Value>(&text).map_err(|e| McpError::Protocol(e.to_string()))?
         };
@@ -412,7 +478,11 @@ impl McpClient {
 
     fn open(&self) -> Result<Arc<Conn>> {
         let conn = match &self.spec {
-            ServerSpec::Stdio { .. } => Conn::Stdio(StdioConn::spawn(&self.name, &self.spec, &self.opts.on_event)?),
+            ServerSpec::Stdio { .. } => Conn::Stdio(StdioConn::spawn(
+                &self.name,
+                &self.spec,
+                &self.opts.on_event,
+            )?),
             ServerSpec::Http { url } => Conn::Http(HttpConn::new(&self.name, url, &self.opts)),
         };
         let init = conn.request(
@@ -424,14 +494,21 @@ impl McpClient {
             }),
             self.opts.request_timeout,
         )?;
-        let v = init.get("protocolVersion").and_then(Value::as_str).unwrap_or(PROTOCOL_VERSION).to_string();
+        let v = init
+            .get("protocolVersion")
+            .and_then(Value::as_str)
+            .unwrap_or(PROTOCOL_VERSION)
+            .to_string();
         if !SUPPORTED_VERSIONS.contains(&v.as_str()) {
-            return Err(McpError::Protocol(format!("unsupported protocolVersion {v}")));
+            return Err(McpError::Protocol(format!(
+                "unsupported protocolVersion {v}"
+            )));
         }
         if let Conn::Http(h) = &conn {
             *lock(&h.version) = Some(v.clone());
             h.started.store(true, Ordering::SeqCst);
-            h.life.emit(LifecycleKind::Start, "initialized http session", None);
+            h.life
+                .emit(LifecycleKind::Start, "initialized http session", None);
         }
         conn.notify("notifications/initialized")?;
         *lock(&self.version) = v;
@@ -456,7 +533,8 @@ impl McpClient {
         match c.request(method, params.clone(), self.opts.request_timeout) {
             Err(McpError::Closed) => {
                 *lock(&self.conn) = None;
-                self.ensure()?.request(method, params, self.opts.request_timeout)
+                self.ensure()?
+                    .request(method, params, self.opts.request_timeout)
             }
             other => other,
         }
@@ -466,10 +544,16 @@ impl McpClient {
         let mut out = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
-            let params = cursor.as_ref().map(|c| json!({"cursor": c})).unwrap_or_else(|| json!({}));
+            let params = cursor
+                .as_ref()
+                .map(|c| json!({"cursor": c}))
+                .unwrap_or_else(|| json!({}));
             let r = self.request(method, params)?;
             let items = r.get(key).cloned().unwrap_or_else(|| json!([]));
-            out.extend(serde_json::from_value::<Vec<T>>(items).map_err(|e| McpError::Protocol(e.to_string()))?);
+            out.extend(
+                serde_json::from_value::<Vec<T>>(items)
+                    .map_err(|e| McpError::Protocol(e.to_string()))?,
+            );
             match r.get("nextCursor").and_then(Value::as_str) {
                 Some(c) if !c.is_empty() => cursor = Some(c.into()),
                 _ => return Ok(out),
@@ -489,7 +573,10 @@ impl McpClient {
     }
     pub fn read_resource(&self, uri: &str) -> Result<ResourceContents> {
         let r = self.request("resources/read", json!({"uri": uri}))?;
-        let first = r.pointer("/contents/0").cloned().ok_or_else(|| McpError::ToolNotFound(uri.into()))?;
+        let first = r
+            .pointer("/contents/0")
+            .cloned()
+            .ok_or_else(|| McpError::ToolNotFound(uri.into()))?;
         serde_json::from_value(first).map_err(|e| McpError::Protocol(e.to_string()))
     }
     pub fn list_prompts(&self) -> Result<Vec<PromptDescriptor>> {

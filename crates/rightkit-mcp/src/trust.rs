@@ -36,7 +36,12 @@ pub struct PendingApproval {
 /// Stable identity of what would run/connect: kind + command + args + env key names, or the URL.
 pub fn fingerprint(spec: &ServerSpec) -> String {
     let canonical = match spec {
-        ServerSpec::Stdio { command, args, env, cwd } => json_canon(&serde_json::json!({
+        ServerSpec::Stdio {
+            command,
+            args,
+            env,
+            cwd,
+        } => json_canon(&serde_json::json!({
             "kind": "stdio", "command": command, "args": args,
             "envKeys": env.keys().collect::<Vec<_>>(),
             "cwd": cwd.as_ref().map(|c| c.to_string_lossy().to_string()),
@@ -44,7 +49,10 @@ pub fn fingerprint(spec: &ServerSpec) -> String {
         ServerSpec::Http { url } => json_canon(&serde_json::json!({"kind": "http", "url": url})),
     };
     let d = Sha256::digest(canonical.as_bytes());
-    format!("sha256:{}", d.iter().map(|b| format!("{b:02x}")).collect::<String>())
+    format!(
+        "sha256:{}",
+        d.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    )
 }
 
 fn json_canon(v: &serde_json::Value) -> String {
@@ -53,12 +61,19 @@ fn json_canon(v: &serde_json::Value) -> String {
 
 pub(crate) fn pending_for(workspace: &str, server: &str, spec: &ServerSpec) -> PendingApproval {
     let (command, args, env_keys) = match spec {
-        ServerSpec::Stdio { command, args, env, .. } => {
-            (command.clone(), args.clone(), env.keys().cloned().collect())
-        }
+        ServerSpec::Stdio {
+            command, args, env, ..
+        } => (command.clone(), args.clone(), env.keys().cloned().collect()),
         ServerSpec::Http { url } => (url.clone(), vec![], vec![]),
     };
-    PendingApproval { workspace: workspace.into(), server: server.into(), fingerprint: fingerprint(spec), command, args, env_keys }
+    PendingApproval {
+        workspace: workspace.into(),
+        server: server.into(),
+        fingerprint: fingerprint(spec),
+        command,
+        args,
+        env_keys,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,19 +99,29 @@ impl TrustStore {
 
     /// Missing or corrupt file => empty store (everything still gated).
     pub fn load(path: &Path) -> Self {
-        std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(p) = path.parent() {
             std::fs::create_dir_all(p)?;
         }
-        std::fs::write(path, serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into()))
+        std::fs::write(
+            path,
+            serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".into()),
+        )
     }
 
     pub fn decide(&self, workspace: &str, server: &str, spec: &ServerSpec) -> TrustDecision {
         let fp = fingerprint(spec);
-        match self.records.iter().find(|r| r.workspace == workspace && r.server == server) {
+        match self
+            .records
+            .iter()
+            .find(|r| r.workspace == workspace && r.server == server)
+        {
             Some(r) if r.fingerprint == fp => {
                 if r.approved {
                     TrustDecision::Approved
@@ -119,7 +144,11 @@ impl TrustStore {
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
         };
-        match self.records.iter_mut().find(|r| r.workspace == workspace && r.server == server) {
+        match self
+            .records
+            .iter_mut()
+            .find(|r| r.workspace == workspace && r.server == server)
+        {
             Some(r) => *r = rec,
             None => self.records.push(rec),
         }

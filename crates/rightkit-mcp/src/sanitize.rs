@@ -4,7 +4,11 @@ fn clean(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut last_us = false;
     for ch in s.chars() {
-        let m = if ch.is_ascii_alphanumeric() || ch == '_' { ch.to_ascii_lowercase() } else { '_' };
+        let m = if ch.is_ascii_alphanumeric() || ch == '_' {
+            ch.to_ascii_lowercase()
+        } else {
+            '_'
+        };
         if m == '_' {
             if last_us {
                 continue;

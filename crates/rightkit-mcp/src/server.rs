@@ -69,11 +69,17 @@ pub struct ReadOnlyPolicy {
 impl AdmissionHook for ReadOnlyPolicy {
     fn admit(&self, req: &AdmissionRequest) -> Admission {
         if self.blocked.iter().any(|b| b == req.tool) {
-            return Admission::Deny(format!("tool '{}' is not available through this server", req.tool));
+            return Admission::Deny(format!(
+                "tool '{}' is not available through this server",
+                req.tool
+            ));
         }
         let read_only = req.descriptor.and_then(|d| d.annotations.read_only) == Some(true);
         if !read_only && !self.allow_mutate {
-            return Admission::Deny(format!("tool '{}' is mutating and mutation is not enabled", req.tool));
+            return Admission::Deny(format!(
+                "tool '{}' is mutating and mutation is not enabled",
+                req.tool
+            ));
         }
         Admission::Allow
     }
@@ -160,7 +166,14 @@ impl ServerHost {
         self.with_events(Arc::new(f))
     }
 
-    fn emit(&self, kind: LifecycleKind, run: &str, transport: &'static str, reason: impl Into<String>, tool: Option<&str>) {
+    fn emit(
+        &self,
+        kind: LifecycleKind,
+        run: &str,
+        transport: &'static str,
+        reason: impl Into<String>,
+        tool: Option<&str>,
+    ) {
         emit(&self.inner.events, || {
             let mut e = McpEvent::new(kind, run, reason);
             e.server = Some(self.inner.name.clone());
@@ -181,15 +194,31 @@ impl ServerHost {
     }
 
     pub fn serve_stdio_on(&self, reader: impl BufRead, writer: impl Write) -> Result<()> {
-        let ctx = Ctx { transport: ServerTransport::Stdio, session: None, run: next_id("mcps") };
-        self.emit(LifecycleKind::Start, &ctx.run, "stdio", "serving stdio", None);
+        let ctx = Ctx {
+            transport: ServerTransport::Stdio,
+            session: None,
+            run: next_id("mcps"),
+        };
+        self.emit(
+            LifecycleKind::Start,
+            &ctx.run,
+            "stdio",
+            "serving stdio",
+            None,
+        );
         match self.stdio_loop(reader, writer, &ctx) {
             Ok(()) => {
                 self.emit(LifecycleKind::Stop, &ctx.run, "stdio", "input closed", None);
                 Ok(())
             }
             Err(e) => {
-                self.emit(LifecycleKind::Crash, &ctx.run, "stdio", format!("serving failed: {e}"), None);
+                self.emit(
+                    LifecycleKind::Crash,
+                    &ctx.run,
+                    "stdio",
+                    format!("serving failed: {e}"),
+                    None,
+                );
                 Err(e)
             }
         }
@@ -216,8 +245,18 @@ impl ServerHost {
     /// Returns (reply, issued-session-id-if-initialize).
     fn handle_any(&self, msg: Value, ctx: &Ctx) -> (Option<Value>, Option<String>) {
         if let Value::Array(items) = msg {
-            let replies: Vec<Value> = items.into_iter().filter_map(|m| self.handle_one(&m, ctx)).collect();
-            return (if replies.is_empty() { None } else { Some(Value::Array(replies)) }, None);
+            let replies: Vec<Value> = items
+                .into_iter()
+                .filter_map(|m| self.handle_one(&m, ctx))
+                .collect();
+            return (
+                if replies.is_empty() {
+                    None
+                } else {
+                    Some(Value::Array(replies))
+                },
+                None,
+            );
         }
         let is_init = msg.get("method").and_then(Value::as_str) == Some("initialize");
         let reply = self.handle_one(&msg, ctx);
@@ -244,7 +283,10 @@ impl ServerHost {
             "resources/list" => Ok(json!({"resources": self.inner.provider.resources()})),
             "resources/read" => {
                 let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
-                self.inner.provider.read_resource(uri).map(|c| json!({"contents": [c]}))
+                self.inner
+                    .provider
+                    .read_resource(uri)
+                    .map(|c| json!({"contents": [c]}))
             }
             "prompts/list" => Ok(json!({"prompts": self.inner.provider.prompts()})),
             "prompts/get" => {
@@ -254,7 +296,13 @@ impl ServerHost {
                     json!({"messages": m.iter().map(PromptMessage::to_value).collect::<Vec<_>>()})
                 })
             }
-            _ => return Some(rpc_error(&id, -32601, format!("method not found: {method}"))),
+            _ => {
+                return Some(rpc_error(
+                    &id,
+                    -32601,
+                    format!("method not found: {method}"),
+                ))
+            }
         };
         Some(match out {
             Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
@@ -265,8 +313,15 @@ impl ServerHost {
     }
 
     fn initialize(&self, params: &Value) -> Value {
-        let requested = params.get("protocolVersion").and_then(Value::as_str).unwrap_or("");
-        let version = if SUPPORTED_VERSIONS.contains(&requested) { requested } else { PROTOCOL_VERSION };
+        let requested = params
+            .get("protocolVersion")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let version = if SUPPORTED_VERSIONS.contains(&requested) {
+            requested
+        } else {
+            PROTOCOL_VERSION
+        };
         let p = &self.inner.provider;
         let mut caps = json!({"tools": {}});
         if !p.resources().is_empty() {
@@ -301,9 +356,20 @@ impl ServerHost {
         let name = params
             .get("name")
             .and_then(Value::as_str)
-            .ok_or_else(|| McpError::Rpc { code: -32602, message: "missing tool name".into() })?;
-        let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-        let descriptor = self.inner.provider.list().into_iter().find(|t| t.name == name);
+            .ok_or_else(|| McpError::Rpc {
+                code: -32602,
+                message: "missing tool name".into(),
+            })?;
+        let args = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let descriptor = self
+            .inner
+            .provider
+            .list()
+            .into_iter()
+            .find(|t| t.name == name);
         if let Some(hook) = &self.inner.admission {
             let hidden = descriptor.as_ref().is_some_and(|d| !hook.expose(d));
             let verdict = if hidden {
@@ -322,7 +388,13 @@ impl ServerHost {
                     ServerTransport::Stdio => "stdio",
                     ServerTransport::Http { .. } => "http",
                 };
-                self.emit(LifecycleKind::Denied, &ctx.run, transport, reason.clone(), Some(name));
+                self.emit(
+                    LifecycleKind::Denied,
+                    &ctx.run,
+                    transport,
+                    reason.clone(),
+                    Some(name),
+                );
                 let mut r = ToolResult::error(format!("denied: {reason}"));
                 r.structured = Some(json!({"denied": true, "reason": reason}));
                 return Ok(r.to_value());
@@ -336,13 +408,20 @@ impl ServerHost {
 
     /// Loopback-only HTTP server on `POST /mcp`, bearer-token and Origin gated.
     pub fn serve_http(&self, opts: HttpServeOptions) -> Result<HttpServer> {
-        let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), opts.port))?;
+        let listener =
+            TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), opts.port))?;
         let addr = listener.local_addr()?;
         let token = opts.token.unwrap_or_else(|| random_hex(24));
         let stop = Arc::new(AtomicBool::new(false));
         let sessions: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
         let run = next_id("mcps");
-        self.emit(LifecycleKind::Start, &run, "http", format!("serving http on {addr}"), None);
+        self.emit(
+            LifecycleKind::Start,
+            &run,
+            "http",
+            format!("serving http on {addr}"),
+            None,
+        );
         let host = self.clone();
         let (stop2, token2, run2) = (stop.clone(), token.clone(), run.clone());
         let join = std::thread::spawn(move || {
@@ -359,7 +438,13 @@ impl ServerHost {
                     Err(e) => {
                         failures += 1;
                         if failures > 100 {
-                            host.emit(LifecycleKind::Crash, &run2, "http", format!("listener failed: {e}"), None);
+                            host.emit(
+                                LifecycleKind::Crash,
+                                &run2,
+                                "http",
+                                format!("listener failed: {e}"),
+                                None,
+                            );
                             return;
                         }
                         continue;
@@ -371,7 +456,15 @@ impl ServerHost {
                 });
             }
         });
-        Ok(HttpServer { addr, token, stop, join: Some(join), host: self.clone(), run, stopped: false })
+        Ok(HttpServer {
+            addr,
+            token,
+            stop,
+            join: Some(join),
+            host: self.clone(),
+            run,
+            stopped: false,
+        })
     }
 }
 
@@ -409,7 +502,8 @@ impl HttpServer {
             let _ = j.join();
         }
         if !std::mem::replace(&mut self.stopped, true) {
-            self.host.emit(LifecycleKind::Stop, &self.run, "http", "shutdown", None);
+            self.host
+                .emit(LifecycleKind::Stop, &self.run, "http", "shutdown", None);
         }
     }
 }
@@ -451,7 +545,12 @@ fn ct_eq(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-fn respond(s: &mut TcpStream, status: &str, extra: &[(&str, String)], body: &str) -> std::io::Result<()> {
+fn respond(
+    s: &mut TcpStream,
+    status: &str,
+    extra: &[(&str, String)],
+    body: &str,
+) -> std::io::Result<()> {
     let mut head = format!(
         "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
         body.len()
@@ -502,7 +601,9 @@ fn handle_http(
     let hdr = |name: &str| -> Option<String> {
         head.split("\r\n").skip(1).find_map(|l| {
             let (k, v) = l.split_once(':')?;
-            k.trim().eq_ignore_ascii_case(name).then(|| v.trim().to_string())
+            k.trim()
+                .eq_ignore_ascii_case(name)
+                .then(|| v.trim().to_string())
         })
     };
     // Gate order: path, Host (rebinding), Origin, bearer.
@@ -522,19 +623,36 @@ fn handle_http(
         .is_some_and(|t| ct_eq(&t, token));
     if !authed {
         deny("missing or wrong bearer token");
-        return respond(&mut s, "401 Unauthorized", &[("WWW-Authenticate", "Bearer".into())], r#"{"error":"unauthorized"}"#);
+        return respond(
+            &mut s,
+            "401 Unauthorized",
+            &[("WWW-Authenticate", "Bearer".into())],
+            r#"{"error":"unauthorized"}"#,
+        );
     }
     match method {
         "POST" => {}
         "DELETE" => {
             if let Some(sid) = hdr("mcp-session-id") {
-                sessions.lock().unwrap_or_else(|e| e.into_inner()).remove(&sid);
+                sessions
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&sid);
             }
             return respond(&mut s, "200 OK", &[], "{}");
         }
-        _ => return respond(&mut s, "405 Method Not Allowed", &[("Allow", "POST, DELETE".into())], "{}"),
+        _ => {
+            return respond(
+                &mut s,
+                "405 Method Not Allowed",
+                &[("Allow", "POST, DELETE".into())],
+                "{}",
+            )
+        }
     }
-    let len: usize = hdr("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let len: usize = hdr("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     if len > MAX_BODY {
         return respond(&mut s, "413 Payload Too Large", &[], "{}");
     }
@@ -548,8 +666,17 @@ fn handle_http(
     }
     let session = hdr("mcp-session-id");
     if let Some(sid) = &session {
-        if !sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(sid) {
-            return respond(&mut s, "404 Not Found", &[], r#"{"error":"unknown session"}"#);
+        if !sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(sid)
+        {
+            return respond(
+                &mut s,
+                "404 Not Found",
+                &[],
+                r#"{"error":"unknown session"}"#,
+            );
         }
     }
     let msg: Value = match serde_json::from_slice(&body) {
@@ -559,14 +686,21 @@ fn handle_http(
             return respond(&mut s, "400 Bad Request", &[], &r.to_string());
         }
     };
-    let ctx = Ctx { transport: ServerTransport::Http { peer }, session, run: run.to_string() };
+    let ctx = Ctx {
+        transport: ServerTransport::Http { peer },
+        session,
+        run: run.to_string(),
+    };
     let (reply, new_sid) = host.handle_any(msg, &ctx);
     match reply {
         None => respond(&mut s, "202 Accepted", &[], ""),
         Some(r) => {
             let mut extra = vec![];
             if let Some(sid) = new_sid {
-                sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(sid.clone());
+                sessions
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(sid.clone());
                 extra.push(("Mcp-Session-Id", sid));
             }
             respond(&mut s, "200 OK", &extra, &r.to_string())

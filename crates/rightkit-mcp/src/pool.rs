@@ -27,7 +27,10 @@ pub struct PoolConfig {
 
 impl Default for PoolConfig {
     fn default() -> Self {
-        Self { max_connections: 16, options: ClientOptions::default() }
+        Self {
+            max_connections: 16,
+            options: ClientOptions::default(),
+        }
     }
 }
 
@@ -49,7 +52,12 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl ConnectionPool {
     pub fn new(cfg: PoolConfig, trust: TrustStore) -> Self {
-        Self { id: next_id("mcpp"), cfg, trust: Mutex::new(trust), slots: Mutex::new(HashMap::new()) }
+        Self {
+            id: next_id("mcpp"),
+            cfg,
+            trust: Mutex::new(trust),
+            slots: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Session id this pool reports trust-gate denials under.
@@ -89,7 +97,9 @@ impl ConnectionPool {
                 }
                 TrustDecision::Pending => {
                     self.denied(&e.name, "workspace server is not approved");
-                    return Err(McpError::NotApproved(Box::new(pending_for(ws, &e.name, &e.spec))));
+                    return Err(McpError::NotApproved(Box::new(pending_for(
+                        ws, &e.name, &e.spec,
+                    ))));
                 }
             }
         }
@@ -113,8 +123,18 @@ impl ConnectionPool {
                 None => return Err(McpError::PoolFull(self.cfg.max_connections)),
             }
         }
-        let client = Arc::new(McpClient::connect(&e.name, e.spec.clone(), self.cfg.options.clone())?);
-        slots.insert(key, Slot { client: client.clone(), last_used: Instant::now() });
+        let client = Arc::new(McpClient::connect(
+            &e.name,
+            e.spec.clone(),
+            self.cfg.options.clone(),
+        )?);
+        slots.insert(
+            key,
+            Slot {
+                client: client.clone(),
+                last_used: Instant::now(),
+            },
+        );
         Ok(client)
     }
 
@@ -157,12 +177,21 @@ impl ConnectionPool {
         }
         let mut seen: HashMap<&str, Vec<String>> = HashMap::new();
         for t in &tools {
-            seen.entry(&t.qualified).or_default().push(format!("{}/{}", t.server, t.tool.name));
+            seen.entry(&t.qualified)
+                .or_default()
+                .push(format!("{}/{}", t.server, t.tool.name));
         }
         if let Some((q, o)) = seen.into_iter().find(|(_, v)| v.len() > 1) {
-            return Err(McpError::Collision { qualified: q.into(), originals: o });
+            return Err(McpError::Collision {
+                qualified: q.into(),
+                originals: o,
+            });
         }
-        Ok(Catalog { tools, skipped, entries: entries.to_vec() })
+        Ok(Catalog {
+            tools,
+            skipped,
+            entries: entries.to_vec(),
+        })
     }
 }
 
@@ -187,7 +216,11 @@ impl Catalog {
             .iter()
             .find(|t| t.qualified == qualified)
             .ok_or_else(|| McpError::ToolNotFound(qualified.into()))?;
-        let entry = self.entries.iter().find(|e| e.name == t.server).ok_or_else(|| McpError::ToolNotFound(qualified.into()))?;
+        let entry = self
+            .entries
+            .iter()
+            .find(|e| e.name == t.server)
+            .ok_or_else(|| McpError::ToolNotFound(qualified.into()))?;
         pool.get(entry)?.call_tool(&t.tool.name, args)
     }
 }
