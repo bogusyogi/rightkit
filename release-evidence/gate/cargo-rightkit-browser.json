@@ -2,30 +2,30 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-browser",
-  "version": "0.1.0",
-  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-  "artifactSha256": "61b09a53af722455788a17746d8874231cd6fd03809986cfa48003d6a9a8c618",
+  "version": "0.1.1",
+  "commit": "275d4f6a64181067e88cf85d45d1826b35dca5a3",
+  "artifactSha256": "5dfa7689a1dc6eabca5274723c2af5a338ce65e21ff75d16f2b976fdaa88516a",
   "runs": [
     {
       "host": {
         "os": "win32"
       },
-      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "commit": "275d4f6a64181067e88cf85d45d1826b35dca5a3",
       "command": "rightkit cargo test -p rightkit-browser --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
       "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T01:26:15.931278Z",
-      "passed": 11,
+      "timestamp": "2026-10-07T05:40:46.051925Z",
+      "passed": 25,
       "failed": 0
     },
     {
       "host": {
         "os": "darwin"
       },
-      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "commit": "275d4f6a64181067e88cf85d45d1826b35dca5a3",
       "command": "rightkit cargo test -p rightkit-browser --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
       "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T01:26:00Z",
-      "passed": 11,
+      "timestamp": "2026-10-07T05:41:37.349872Z",
+      "passed": 24,
       "failed": 0
     }
   ]
