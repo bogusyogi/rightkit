@@ -43,6 +43,52 @@ pub fn named(name: &str) -> Option<u16> {
     })
 }
 
+/// AppKit `NSEventModifierFlagNumericPad` / `NSEventModifierFlagFunction`.
+pub const FLAG_NUMPAD: u64 = 0x200000;
+pub const FLAG_FUNCTION: u64 = 0x800000;
+
+/// AppKit delivers navigation and F-keys as private-use function characters with
+/// `NSEventModifierFlagFunction` (arrows also with `NumericPad`). WebKit derives
+/// `KeyboardEvent.key` from those characters; without them it reports "Unidentified".
+pub fn function_char(name: &str) -> Option<(char, u64)> {
+    let arrow = FLAG_FUNCTION | FLAG_NUMPAD;
+    let (c, f) = match name.to_ascii_lowercase().as_str() {
+        "up" => ('\u{F700}', arrow),
+        "down" => ('\u{F701}', arrow),
+        "left" => ('\u{F702}', arrow),
+        "right" => ('\u{F703}', arrow),
+        "forwarddelete" => ('\u{F728}', FLAG_FUNCTION),
+        "home" => ('\u{F729}', FLAG_FUNCTION),
+        "end" => ('\u{F72B}', FLAG_FUNCTION),
+        "pageup" => ('\u{F72C}', FLAG_FUNCTION),
+        "pagedown" => ('\u{F72D}', FLAG_FUNCTION),
+        f if f.len() >= 2 && f.starts_with('f') => {
+            let n: u32 = f[1..].parse().ok().filter(|n| (1..=12).contains(n))?;
+            (char::from_u32(0xF703 + n)?, FLAG_FUNCTION)
+        }
+        _ => return None,
+    };
+    Some((c, f))
+}
+
+/// The printed character of a named punctuation key (`comma` -> `,`).
+pub fn named_char(name: &str) -> Option<char> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "comma" => ',',
+        "period" | "dot" => '.',
+        "slash" => '/',
+        "backslash" => '\\',
+        "semicolon" => ';',
+        "quote" | "apostrophe" => '\'',
+        "minus" => '-',
+        "equal" | "equals" => '=',
+        "leftbracket" => '[',
+        "rightbracket" => ']',
+        "grave" | "backtick" => '`',
+        _ => return None,
+    })
+}
+
 pub const FLAG_SHIFT: u64 = 0x20000;
 pub const FLAG_CTRL: u64 = 0x40000;
 pub const FLAG_ALT: u64 = 0x80000;
@@ -146,5 +192,22 @@ mod tests {
         assert_eq!(chord("cmd++"), Some((0x18, FLAG_CMD | FLAG_SHIFT)));
         assert_eq!(chord("f5"), Some((0x60, 0)));
         assert_eq!(chord("cmd+."), Some((0x2F, FLAG_CMD)));
+    }
+    #[test]
+    fn function_keys_carry_appkit_characters() {
+        let arrow = FLAG_FUNCTION | FLAG_NUMPAD;
+        assert_eq!(function_char("right"), Some(('\u{F703}', arrow)));
+        assert_eq!(function_char("Up"), Some(('\u{F700}', arrow)));
+        assert_eq!(function_char("home"), Some(('\u{F729}', FLAG_FUNCTION)));
+        assert_eq!(function_char("pagedown"), Some(('\u{F72D}', FLAG_FUNCTION)));
+        assert_eq!(
+            function_char("forwarddelete"),
+            Some(('\u{F728}', FLAG_FUNCTION))
+        );
+        assert_eq!(function_char("f1"), Some(('\u{F704}', FLAG_FUNCTION)));
+        assert_eq!(function_char("f12"), Some(('\u{F70F}', FLAG_FUNCTION)));
+        assert_eq!(function_char("f13"), None);
+        assert_eq!(function_char("a"), None);
+        assert_eq!(named_char("comma"), Some(','));
     }
 }

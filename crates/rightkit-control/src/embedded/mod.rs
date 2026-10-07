@@ -629,16 +629,31 @@ fn route<R: Runtime>(
         }
         "key" => {
             let spec = str_field(b, "key").ok_or("missing 'key'")?;
-            let (code, flags) =
+            #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+            let (code, mut flags) =
                 keys::chord(&spec).ok_or_else(|| format!("unknown key '{spec}'"))?;
-            let last = spec.rsplit('+').next().unwrap_or("");
+            let last = match spec.rsplit('+').next().unwrap_or("") {
+                "" => "+",
+                l => l,
+            };
             let mut ch = if flags & (keys::FLAG_CMD | keys::FLAG_CTRL) == 0 {
                 key_char(last)
             } else {
                 String::new()
             };
-            if ch.is_empty() && last.chars().count() == 1 {
-                ch = last.to_string();
+            if ch.is_empty() {
+                if let Some(c) = keys::named_char(last) {
+                    ch = c.to_string();
+                } else if last.chars().count() == 1 {
+                    ch = last.to_string();
+                }
+            }
+            // macOS: navigation and F-keys are AppKit function characters plus the
+            // Function (and, for arrows, NumericPad) flag, with or without modifiers.
+            #[cfg(target_os = "macos")]
+            if let Some((c, extra)) = keys::function_char(last) {
+                ch = c.to_string();
+                flags |= extra;
             }
             key(win, true, code, &ch, flags)?;
             pause(20);

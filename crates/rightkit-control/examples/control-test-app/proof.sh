@@ -27,7 +27,12 @@ echo "type:    $("$CALL" "$T/suite" control-ct right-qa type '{"text":"say \"hi\
 echo "typed-value: $("$CALL" "$T/suite" control-ct right-qa eval '{"js":"return document.getElementById(\"inp\").value;"}')"
 echo "shot-masked: $("$CALL" "$T/suite" control-ct right-qa screenshot | grep -o '"masked":[0-9]*')"
 echo "restored:    $("$CALL" "$T/suite" control-ct right-qa eval '{"js":"return getComputedStyle(document.getElementById(\"pw\")).visibility;"}')"
-echo "unlisted app:    $("$CALL" "$T/suite" control-ct someone-else health || true)"
+"$CALL" "$T/suite" control-ct right-qa eval '{"js":"window.__state.keys.length=0;document.body.focus();return 1;"}' >/dev/null
+for k in up down left right home end pageup pagedown forwarddelete f1 f12 comma cmd+,; do "$CALL" "$T/suite" control-ct right-qa key "{\"key\":\"$k\"}" >/dev/null; done
+KEYS=$("$CALL" "$T/suite" control-ct right-qa eval '{"js":"return window.__state.keys.join(\" \");"}')
+echo "named keys: $KEYS"
+echo "$KEYS" | grep -q "ArrowUp ArrowDown ArrowLeft ArrowRight Home End PageUp PageDown Delete F1 F12 , ,+cmd" && echo NAMED_KEYS_OK || { echo NAMED_KEYS_WRONG; exit 1; }
+echo "unlisted app:$("$CALL" "$T/suite" control-ct someone-else health || true)"
 echo "unlisted method: $("$CALL" "$T/suite" control-ct right-qa nope || true)"
 [ "$FRONT0" = "$("$BIN/rightkit-control" frontmost)" ] && echo FRONTMOST_UNCHANGED || { echo FRONTMOST_CHANGED; exit 1; }
 pkill -f "$APP/Contents/MacOS/control-test-app" || true; sleep 1
