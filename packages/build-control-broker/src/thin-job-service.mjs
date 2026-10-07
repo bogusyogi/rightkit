@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
 import { lstat, readFile, realpath, statfs as nodeStatfs } from 'node:fs/promises';
+import { sweepTemporary } from './temp-sweep.mjs';
 import net from 'node:net';
 import { cpus, freemem, homedir, totalmem } from 'node:os';
 import { safeResourceSnapshot, summarizeBuildResources } from './resource-telemetry.mjs';
@@ -354,6 +355,12 @@ export class ThinJobService {
         const gc = await this.#state.gc({ capBytes: this.#config.bounds?.targetCacheCapBytes ?? null, evictIdle: this.#evictIdleGeneration, freeFloorBytes: this.#config.bounds?.gcFreeFloorBytes ?? null, freeBytes: async () => { const stats = await nodeStatfs(this.#state.paths.base); return Number(stats.bavail) * Number(stats.bsize); } });
         if (gc.deleted?.length || gc.evicted?.length || gc.reclaimed?.deadRoots?.length || gc.reclaimed?.orphanLeaves?.length) await this.#log({ type: 'GENERATION_GC', deleted: gc.deleted ?? [], evicted: gc.evicted ?? [], reclaimed: gc.reclaimed ?? null, beforeBytes: gc.beforeBytes ?? null, afterBytes: gc.afterBytes ?? null, capBytes: gc.capBytes ?? null, effectiveCapBytes: gc.effectiveCapBytes ?? null, freeBytes: gc.freeBytes ?? null, freeFloorBytes: gc.freeFloorBytes ?? null });
         if (this.#nativeOpenSsl && this.#state.pinnedNativeKeys) { const native = await this.#nativeOpenSsl.gc({ pinned: await this.#state.pinnedNativeKeys('openssl') }); if (native.evicted.length) await this.#log({ type: 'NATIVE_OPENSSL_GC', ...native }); }
+        // Shared job temp root: leaked test temp dirs older than 6 h and older than every running job.
+        if (this.#state.paths?.temporary) {
+          const running = [...this.#jobs.values()].filter((job) => !job.terminal).map((job) => job.submittedAt ?? job.startedAt ?? this.#now());
+          const swept = await sweepTemporary(this.#state.paths.temporary, { now: this.#now(), notAfterMs: running.length ? Math.min(...running) : Infinity });
+          if (swept.removed || swept.skipped) await this.#log({ type: 'TEMP_SWEEP', ...swept });
+        }
         if (gc.unenforceable) await this.#log({ type: 'TARGET_CACHE_CAP_UNENFORCEABLE', capBytes: gc.capBytes, targetBytes: gc.afterBytes, overByBytes: gc.unenforceable.overByBytes, idleCandidatesRemaining: gc.unenforceable.idleCandidatesRemaining });
       } while (this.#gcQueued);
     } catch (error) {
