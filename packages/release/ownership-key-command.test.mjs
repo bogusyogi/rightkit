@@ -373,7 +373,9 @@ test("installed Legion review, receipt, and real pre-commit verification accept 
   const f = setup();
   try {
     const hookFile = path.join(f.repo, ".git", "hooks", "pre-commit");
-    const gitBashLegion = `$(cygpath -u '${stableLegion.replaceAll("\\", "/").replaceAll("'", "'\\''")}')`;
+    // Git Bash on Windows needs a POSIX path (cygpath); macOS and Linux use the path as is.
+    const quotedLegion = `'${stableLegion.replaceAll("\\", "/").replaceAll("'", "'\\''")}'`;
+    const gitBashLegion = process.platform === "win32" ? `$(cygpath -u ${quotedLegion})` : quotedLegion;
     writeFileSync(hookFile, `#!/bin/sh\nlegion=${gitBashLegion}\nexec "$legion" minimize commit verify "$PWD/.audit/minimize/commit-receipt.json"\n`, { mode: 0o755 });
     assert.equal(f.runner("git", ["-C", f.repo, "config", "core.hooksPath", path.join(f.repo, ".git", "hooks")]).status, 0);
     writeFileSync(path.join(f.repo, "unrelated.txt"), "preserved staged content\n");

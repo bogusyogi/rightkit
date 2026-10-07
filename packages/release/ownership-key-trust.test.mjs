@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -81,7 +81,8 @@ test("authority pins exact repository and checkout, survives omitted updates, an
 
 test("committed-authority verification binds origin, checkout root, and request log to committed bytes", () => {
   const { first, pin } = fixture();
-  const checkout = mkdtempSync(path.join(tmpdir(), "rk-key-authority-"));
+  // The authority must name its canonical path (macOS tmpdir is a /var -> /private/var symlink).
+  const checkout = realpathSync.native(mkdtempSync(path.join(tmpdir(), "rk-key-authority-")));
   const logBytes = Buffer.from(canonical(first));
   mkdirSync(path.join(checkout, ".rightkit"));
   writeFileSync(path.join(checkout, ".rightkit", "ownership-keys.json"), logBytes);
