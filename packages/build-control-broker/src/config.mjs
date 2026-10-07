@@ -2,13 +2,14 @@ import { HOST_DERIVED_BOUNDS } from './host-sizing.mjs';
 import { readFile as defaultReadFile } from 'node:fs/promises';
 import { isAbsolute, normalize, relative, win32 } from 'node:path';
 
-const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands']);
+const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands', 'ownership']);
 const brokerFields = new Set(['externalRoot', 'capacityBytes', 'stateFile', 'receiptsDir', 'activationFencePath']);
 const externalRootFields = new Set(['path', 'volumeId', 'mounted', 'writable', 'internal']);
 const toolFields = new Set(['id', 'path', 'root', 'sha256']);
 const shimNames = new Set(['cargo', 'rustc', 'rustdoc', 'rustup', 'pnpm', 'npm', 'swift', 'swiftc', 'cmake', 'make', 'cc', 'c++', 'clang', 'gcc']);
 const defaultFields = new Set(['repositoryIdentity', 'toolchain', 'targetTriple', 'targetTriples', 'buildProfile', 'rustcToolId', 'rustdocToolId', 'sccacheToolId', 'cacheMode', 'cargoBuildJobs']);
 const outputPolicyFields = new Set(['mode', 'allowedSourceDirs', 'scanRoot']);
+const ownershipFields = new Set(['mode', 'timeoutMs']);
 const externalCommandFields = new Set(['shim', 'command', 'toolId', 'lane', 'digest']);
 const sccacheFields = new Set(['mode', 'clientSide', 'lifecycleOwner', 'requireOwnershipProof', 'expectedVersion', 'maxSizeBytes', 'basedirs', 'basedirsEnabled', 'gatewayPort', 'healthLeaseMs', 'recoveryTimeoutMs', 'statsIntervalMs']);
 const defaultSccacheMaxSizeBytes = 20 * 1024 ** 3;
@@ -130,6 +131,17 @@ function validateOutputPolicy(value) {
   return normalized;
 }
 
+function validateOwnership(value) {
+  const ownership = object(value, 'ownership'); only(ownership, ownershipFields, 'ownership');
+  const normalized = {};
+  if (ownership.mode !== undefined) {
+    if (!['off', 'report', 'enforce'].includes(ownership.mode)) throw new TypeError('ownership.mode must be off, report or enforce');
+    normalized.mode = ownership.mode;
+  }
+  if (ownership.timeoutMs !== undefined) normalized.timeoutMs = nonnegative(ownership.timeoutMs, 'ownership.timeoutMs', { minimum: 1_000 });
+  return normalized;
+}
+
 function validateBounds(value, { capacity }) {
   const bounds = object(value, 'bounds'); only(bounds, boundFields, 'bounds');
   const normalized = {};
@@ -185,6 +197,7 @@ export function validateBrokerConfig(value) {
   normalized.defaults = validateDefaults(config.defaults ?? {}, toolIds);
 
   if (config.outputPolicy !== undefined) normalized.outputPolicy = validateOutputPolicy(config.outputPolicy);
+  if (config.ownership !== undefined) normalized.ownership = validateOwnership(config.ownership);
   if (config.bounds !== undefined) normalized.bounds = validateBounds(config.bounds, { capacity: capacityBytes });
 
   if (config.externalCommands !== undefined) {
@@ -266,6 +279,9 @@ export function preserveOperatorTunedConfig(next, previous) {
   if (next.sccache && typeof next.sccache === 'object' && Number.isSafeInteger(maxSizeBytes) && maxSizeBytes >= 1 && maxSizeBytes < next.sccache.maxSizeBytes) {
     next.sccache.maxSizeBytes = maxSizeBytes;
     preserved.push('sccache.maxSizeBytes');
+  }
+  if (previous.ownership && typeof previous.ownership === 'object' && !Array.isArray(previous.ownership)) {
+    try { validateOwnership(previous.ownership); next.ownership = { ...previous.ownership }; preserved.push('ownership'); } catch { /* invalid previous ownership policy: keep the generated default */ }
   }
   if (previous.bounds && typeof previous.bounds === 'object' && !Array.isArray(previous.bounds)) {
     const generatedBounds = next.bounds; const preservedBounds = { ...previous.bounds };

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { OwnershipAdmission } from './ownership-admission.mjs';
 import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
@@ -18,7 +19,7 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null } = {}) {
+async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }) } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
@@ -29,7 +30,7 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
   const logger = { events: [], flushes: 0, append(event) { this.events.push(event); return Promise.resolve(event); }, flush() { this.flushes += 1; return Promise.resolve(); }, close: async () => {} };
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
   const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc', rustup: 'rustup' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
-  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
+  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -57,6 +58,31 @@ test('Cargo iteration cache mode follows profile flags before executable argumen
       await waitFor(item.service, iterationRequest.id, ['SUCCEEDED']);
     }
   } finally { await item.close(); }
+});
+
+test('ownership enforcement refuses a duplicating app before it takes build capacity; report mode only records', async () => {
+  const violation = { fingerprint: 'browser.npm.playwright', capability: 'browser-automation', package: 'rightkit-browser', file: 'package.json', line: 0 };
+  const scans = [];
+  const runScan = async ({ scanRoot }) => { scans.push(scanRoot); return { report: { violations: [violation], enrollmentPending: false } }; };
+  const enforced = await fixture({ ownershipAdmission: new OwnershipAdmission({ mode: 'enforce', scannerRoot: 'scanner', runScan }) });
+  try {
+    const submitted = (await call(enforced.service, command('SUBMIT', message(enforced.workspace, ['build'])))).result;
+    const final = await waitFor(enforced.service, submitted.id, ['REJECTED']);
+    assert.equal(final.receipt.reason, 'RK_OWNERSHIP_VIOLATION'); assert.match(final.receipt.error, /browser-automation .* owned by rightkit-browser/);
+    assert.equal(enforced.children.length, 0, 'no build process started');
+    assert.equal(enforced.logger.events.find((event) => event.type === 'OWNERSHIP_ADMISSION').outcome, 'violations');
+  } finally { await enforced.close(); }
+  const reported = await fixture({ ownershipAdmission: new OwnershipAdmission({ mode: 'report', scannerRoot: 'scanner', runScan }) });
+  try {
+    const submitted = (await call(reported.service, command('SUBMIT', message(reported.workspace, ['build'])))).result;
+    await waitFor(reported.service, submitted.id, ['RUNNING']);
+    reported.children.at(-1).emit('close', 0, null);
+    await waitFor(reported.service, submitted.id, ['SUCCEEDED']);
+    for (let i = 0; i < 50 && !reported.logger.events.some((event) => event.type === 'OWNERSHIP_ADMISSION'); i += 1) await new Promise((resolve) => setTimeout(resolve, 2));
+    const event = reported.logger.events.find((item) => item.type === 'OWNERSHIP_ADMISSION');
+    assert.equal(event.mode, 'report'); assert.equal(event.violationCount, 1); assert.equal(event.violations[0].owner, 'rightkit-browser');
+  } finally { await reported.close(); }
+  assert.ok(scans.length >= 2);
 });
 
 test('broker readiness does not wait for retired-generation sizing', async () => {

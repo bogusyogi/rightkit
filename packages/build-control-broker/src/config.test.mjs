@@ -106,3 +106,11 @@ test('regenerated config may not drop tools the working config has', async () =>
   assert.throws(() => assertNoToolLoss(tools('pnpm', 'cmake'), tools('cargo', 'sccache', 'pnpm')), /drop tools: cargo, sccache/);
   assert.doesNotThrow(() => assertNoToolLoss(tools('cargo'), null));
 });
+
+test('ownership admission policy: off, report or enforce, and operator choice survives regeneration', () => {
+  assert.deepEqual(validateBrokerConfig({ ...fixture(), ownership: { mode: 'enforce', timeoutMs: 20_000 } }).ownership, { mode: 'enforce', timeoutMs: 20_000 });
+  assert.throws(() => validateBrokerConfig({ ...fixture(), ownership: { mode: 'warn' } }), /ownership.mode must be off, report or enforce/);
+  assert.throws(() => validateBrokerConfig({ ...fixture(), ownership: { mode: 'report', extra: true } }), /ownership/);
+  const next = fixture(); const preserved = preserveOperatorTunedConfig(next, { ...fixture(), ownership: { mode: 'enforce' } });
+  assert.ok(preserved.includes('ownership')); assert.deepEqual(next.ownership, { mode: 'enforce' });
+});

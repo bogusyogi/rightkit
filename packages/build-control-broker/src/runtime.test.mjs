@@ -4,11 +4,11 @@ import { execFile as nodeExecFile } from 'node:child_process';
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { OWNERSHIP_SCANNER_DIR, OWNERSHIP_SCANNER_FILES, RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, functionalResourceFailure, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, replaceRuntimeSelection, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
+import { OWNERSHIP_SCANNER_DIR, OWNERSHIP_SCANNER_ENTRIES, committedOwnershipScanner, RUNTIME_ACTIVATION_FENCE_SCHEMA, commitRuntimeActivationFence, functionalFailureDetail, functionalResourceFailure, healthProbeEndpoint, installManagedRuntime, loadRuntimeWindowsJobAddon, normalizeGitScopedPath, prepareRuntimeActivationFence, removeHealthProbeRoot, replaceRuntimeSelection, stageManagedRuntime, syncDirectoryForPlatform } from './runtime.mjs';
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
@@ -73,7 +73,9 @@ async function sourceFixture() {
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-source-')); const packages = join(root, 'packages'); const healthWorkspace = join(root, 'health');
   for (const name of ['build-control-broker', 'build-control-core', 'build-control-clients']) await cp(join(sourcePackages, name), join(packages, name), { recursive: true });
   await mkdir(join(packages, 'release'), { recursive: true });
-  for (const file of [...OWNERSHIP_SCANNER_FILES, 'package.json']) await cp(join(sourcePackages, 'release', file), join(packages, 'release', file));
+  const scanner = await committedOwnershipScanner(sourcePackages, 'HEAD');
+  for (const [file, bytes] of scanner.files) { await mkdir(dirname(join(packages, 'release', file)), { recursive: true }); await writeFile(join(packages, 'release', file), bytes); }
+  await writeFile(join(packages, 'release', 'package.json'), scanner.releasePackageJson);
   const addonRelative = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node'; const addonPath = join(packages, addonRelative); const addonBytes = Buffer.from('MZ-fixture-rightkit-job-addon');
   await mkdir(join(packages, 'build-control-broker/native/windows-job/build/Release'), { recursive: true }); await writeFile(addonPath, addonBytes);
   const macAddonPath = join(packages, 'build-control-broker/native/macos-resource/build/Release/rightkit_macos_resource.node'); const macAddonBytes = Buffer.from('fixture-macos-resource-addon');
@@ -195,10 +197,14 @@ test('staged runtime carries a loadable ownership scanner and its catalog, bound
   const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
     const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'scanner', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
     const scannerRoot = join(staged.runtime, OWNERSHIP_SCANNER_DIR);
-    for (const file of OWNERSHIP_SCANNER_FILES) assert.ok(await lstat(join(scannerRoot, file)), `${file} staged`);
+    for (const file of OWNERSHIP_SCANNER_ENTRIES) assert.ok(await lstat(join(scannerRoot, file)), `${file} staged`);
     const scanner = await import(pathToFileURL(join(scannerRoot, 'ownership.mjs')).href);
     const catalog = JSON.parse(await readFile(join(scannerRoot, 'rightkit-ownership.json'), 'utf8'));
     assert.equal(typeof scanner.checkApp, 'function');
     assert.ok(catalog.capabilities.length > 0);
+    // Uncommitted scanner edits neither block staging nor leak into the runtime.
+    await writeFile(join(fixture.packages, 'release', 'ownership.mjs'), 'throw new Error("uncommitted");\n');
+    const again = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'scanner-dirty', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
+    assert.equal(again.runtime, staged.runtime);
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
 });
