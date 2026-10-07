@@ -166,6 +166,9 @@ fn rpc_timeout_kills_wedged_child_and_recovers() {
         )
         .unwrap_err();
     assert_eq!(e.code, "timeout");
+    // The kill and restart land after the timeout returns; until then the old
+    // generation can still read Ready.
+    wait_generation(&s, 2);
     wait_until(&s, Lifecycle::Ready);
     assert!(s.status().generation >= 2);
     s.shutdown();
