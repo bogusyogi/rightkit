@@ -10,6 +10,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::error::{McpError, Result};
+use crate::events::{emit, next_id, EventSink, LifecycleKind, McpEvent};
 use crate::types::*;
 
 /// The typed tool surface a host app (e.g. rightkit-agent-tools) plugs in.
@@ -93,6 +94,7 @@ struct Inner {
     instructions: Option<String>,
     provider: Arc<dyn ToolProvider>,
     admission: Option<Arc<dyn AdmissionHook>>,
+    events: Option<EventSink>,
 }
 
 #[derive(Clone)]
@@ -103,6 +105,8 @@ pub struct ServerHost {
 struct Ctx {
     transport: ServerTransport,
     session: Option<String>,
+    /// Local id of this serving run (`mcps-N`), used for lifecycle events.
+    run: String,
 }
 
 fn random_hex(n: usize) -> String {
@@ -124,6 +128,7 @@ impl ServerHost {
                 instructions: None,
                 provider,
                 admission: None,
+                events: None,
             }),
         }
     }
@@ -136,6 +141,7 @@ impl ServerHost {
             instructions: i.instructions.clone(),
             provider: i.provider.clone(),
             admission: i.admission.clone(),
+            events: i.events.clone(),
         };
         f(&mut n);
         ServerHost { inner: Arc::new(n) }
@@ -143,6 +149,25 @@ impl ServerHost {
 
     pub fn with_admission(self, hook: Arc<dyn AdmissionHook>) -> Self {
         self.rebuild(|i| i.admission = Some(hook))
+    }
+
+    /// Receives start/stop/crash (serving runs) and denied (admission, HTTP gates) events.
+    pub fn with_events(self, sink: EventSink) -> Self {
+        self.rebuild(|i| i.events = Some(sink))
+    }
+
+    pub fn on_event(self, f: impl Fn(&McpEvent) + Send + Sync + 'static) -> Self {
+        self.with_events(Arc::new(f))
+    }
+
+    fn emit(&self, kind: LifecycleKind, run: &str, transport: &'static str, reason: impl Into<String>, tool: Option<&str>) {
+        emit(&self.inner.events, || {
+            let mut e = McpEvent::new(kind, run, reason);
+            e.server = Some(self.inner.name.clone());
+            e.transport = Some(transport);
+            e.tool = tool.map(str::to_string);
+            e
+        });
     }
 
     pub fn with_instructions(self, text: &str) -> Self {
@@ -155,15 +180,29 @@ impl ServerHost {
         self.serve_stdio_on(stdin.lock(), std::io::stdout())
     }
 
-    pub fn serve_stdio_on(&self, reader: impl BufRead, mut writer: impl Write) -> Result<()> {
-        let ctx = Ctx { transport: ServerTransport::Stdio, session: None };
+    pub fn serve_stdio_on(&self, reader: impl BufRead, writer: impl Write) -> Result<()> {
+        let ctx = Ctx { transport: ServerTransport::Stdio, session: None, run: next_id("mcps") };
+        self.emit(LifecycleKind::Start, &ctx.run, "stdio", "serving stdio", None);
+        match self.stdio_loop(reader, writer, &ctx) {
+            Ok(()) => {
+                self.emit(LifecycleKind::Stop, &ctx.run, "stdio", "input closed", None);
+                Ok(())
+            }
+            Err(e) => {
+                self.emit(LifecycleKind::Crash, &ctx.run, "stdio", format!("serving failed: {e}"), None);
+                Err(e)
+            }
+        }
+    }
+
+    fn stdio_loop(&self, reader: impl BufRead, mut writer: impl Write, ctx: &Ctx) -> Result<()> {
         for line in reader.lines() {
             let line = line?;
             if line.trim().is_empty() {
                 continue;
             }
             let reply = match serde_json::from_str::<Value>(&line) {
-                Ok(msg) => self.handle_any(msg, &ctx).0,
+                Ok(msg) => self.handle_any(msg, ctx).0,
                 Err(e) => Some(rpc_error(&Value::Null, -32700, format!("parse error: {e}"))),
             };
             if let Some(r) = reply {
@@ -279,6 +318,11 @@ impl ServerHost {
                 })
             };
             if let Admission::Deny(reason) = verdict {
+                let transport = match ctx.transport {
+                    ServerTransport::Stdio => "stdio",
+                    ServerTransport::Http { .. } => "http",
+                };
+                self.emit(LifecycleKind::Denied, &ctx.run, transport, reason.clone(), Some(name));
                 let mut r = ToolResult::error(format!("denied: {reason}"));
                 r.structured = Some(json!({"denied": true, "reason": reason}));
                 return Ok(r.to_value());
@@ -297,21 +341,37 @@ impl ServerHost {
         let token = opts.token.unwrap_or_else(|| random_hex(24));
         let stop = Arc::new(AtomicBool::new(false));
         let sessions: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+        let run = next_id("mcps");
+        self.emit(LifecycleKind::Start, &run, "http", format!("serving http on {addr}"), None);
         let host = self.clone();
-        let (stop2, token2) = (stop.clone(), token.clone());
+        let (stop2, token2, run2) = (stop.clone(), token.clone(), run.clone());
         let join = std::thread::spawn(move || {
+            let mut failures = 0u32;
             for conn in listener.incoming() {
                 if stop2.load(Ordering::SeqCst) {
-                    break;
+                    return;
                 }
-                let Ok(stream) = conn else { continue };
-                let (h, t, s) = (host.clone(), token2.clone(), sessions.clone());
+                let stream = match conn {
+                    Ok(s) => {
+                        failures = 0;
+                        s
+                    }
+                    Err(e) => {
+                        failures += 1;
+                        if failures > 100 {
+                            host.emit(LifecycleKind::Crash, &run2, "http", format!("listener failed: {e}"), None);
+                            return;
+                        }
+                        continue;
+                    }
+                };
+                let (h, t, s, r) = (host.clone(), token2.clone(), sessions.clone(), run2.clone());
                 std::thread::spawn(move || {
-                    let _ = handle_http(&h, stream, &t, &s);
+                    let _ = handle_http(&h, stream, &t, &s, &r);
                 });
             }
         });
-        Ok(HttpServer { addr, token, stop, join: Some(join) })
+        Ok(HttpServer { addr, token, stop, join: Some(join), host: self.clone(), run, stopped: false })
     }
 }
 
@@ -320,6 +380,9 @@ pub struct HttpServer {
     token: String,
     stop: Arc<AtomicBool>,
     join: Option<std::thread::JoinHandle<()>>,
+    host: ServerHost,
+    run: String,
+    stopped: bool,
 }
 
 impl HttpServer {
@@ -332,6 +395,10 @@ impl HttpServer {
     pub fn token(&self) -> &str {
         &self.token
     }
+    /// Local id this serving run reports lifecycle events under.
+    pub fn session_id(&self) -> &str {
+        &self.run
+    }
     pub fn shutdown(mut self) {
         self.stop_now();
     }
@@ -340,6 +407,9 @@ impl HttpServer {
         let _ = TcpStream::connect_timeout(&self.addr, Duration::from_millis(500));
         if let Some(j) = self.join.take() {
             let _ = j.join();
+        }
+        if !std::mem::replace(&mut self.stopped, true) {
+            self.host.emit(LifecycleKind::Stop, &self.run, "http", "shutdown", None);
         }
     }
 }
@@ -398,7 +468,14 @@ fn respond(s: &mut TcpStream, status: &str, extra: &[(&str, String)], body: &str
 const MAX_HEAD: usize = 64 * 1024;
 const MAX_BODY: usize = 8 * 1024 * 1024;
 
-fn handle_http(host: &ServerHost, mut s: TcpStream, token: &str, sessions: &Mutex<HashSet<String>>) -> std::io::Result<()> {
+fn handle_http(
+    host: &ServerHost,
+    mut s: TcpStream,
+    token: &str,
+    sessions: &Mutex<HashSet<String>>,
+    run: &str,
+) -> std::io::Result<()> {
+    let deny = |why: &str| host.emit(LifecycleKind::Denied, run, "http", why, None);
     s.set_read_timeout(Some(Duration::from_secs(30)))?;
     let peer = s.peer_addr()?;
     // Read head.
@@ -433,15 +510,18 @@ fn handle_http(host: &ServerHost, mut s: TcpStream, token: &str, sessions: &Mute
         return respond(&mut s, "404 Not Found", &[], "{}");
     }
     if hdr("host").is_some_and(|h| !host_is_loopback(&h, false)) {
+        deny("non-loopback Host header");
         return respond(&mut s, "403 Forbidden", &[], r#"{"error":"bad host"}"#);
     }
     if hdr("origin").is_some_and(|o| !host_is_loopback(&o, true)) {
+        deny("non-loopback Origin header");
         return respond(&mut s, "403 Forbidden", &[], r#"{"error":"bad origin"}"#);
     }
     let authed = hdr("authorization")
         .and_then(|a| a.strip_prefix("Bearer ").map(str::to_string))
         .is_some_and(|t| ct_eq(&t, token));
     if !authed {
+        deny("missing or wrong bearer token");
         return respond(&mut s, "401 Unauthorized", &[("WWW-Authenticate", "Bearer".into())], r#"{"error":"unauthorized"}"#);
     }
     match method {
@@ -479,7 +559,7 @@ fn handle_http(host: &ServerHost, mut s: TcpStream, token: &str, sessions: &Mute
             return respond(&mut s, "400 Bad Request", &[], &r.to_string());
         }
     };
-    let ctx = Ctx { transport: ServerTransport::Http { peer }, session };
+    let ctx = Ctx { transport: ServerTransport::Http { peer }, session, run: run.to_string() };
     let (reply, new_sid) = host.handle_any(msg, &ctx);
     match reply {
         None => respond(&mut s, "202 Accepted", &[], ""),

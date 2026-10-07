@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 
 use crate::auth::AuthProvider;
 use crate::error::{McpError, Result};
+use crate::events::{emit, next_id, EventSink, LifecycleKind, McpEvent};
 use crate::types::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +28,8 @@ pub struct ClientOptions {
     pub auth: Option<Arc<dyn AuthProvider>>,
     pub client_name: String,
     pub client_version: String,
+    /// Receives start/stop/crash (connections) and denied (pool trust gate) events.
+    pub on_event: Option<EventSink>,
 }
 
 impl Default for ClientOptions {
@@ -36,17 +39,53 @@ impl Default for ClientOptions {
             auth: None,
             client_name: "rightkit-mcp".into(),
             client_version: env!("CARGO_PKG_VERSION").into(),
+            on_event: None,
         }
+    }
+}
+
+impl ClientOptions {
+    pub fn on_event(mut self, f: impl Fn(&McpEvent) + Send + Sync + 'static) -> Self {
+        self.on_event = Some(Arc::new(f));
+        self
+    }
+}
+
+/// Identity a connection reports its lifecycle under.
+#[derive(Clone)]
+struct Lifecycle {
+    session_id: String,
+    server: String,
+    transport: &'static str,
+    events: Option<EventSink>,
+}
+
+impl Lifecycle {
+    fn new(server: &str, transport: &'static str, events: &Option<EventSink>) -> Self {
+        Self { session_id: next_id("mcpc"), server: server.into(), transport, events: events.clone() }
+    }
+    fn emit(&self, kind: LifecycleKind, reason: impl Into<String>, pid: Option<u32>) {
+        emit(&self.events, || {
+            let mut e = McpEvent::new(kind, &self.session_id, reason);
+            e.server = Some(self.server.clone());
+            e.transport = Some(self.transport);
+            e.pid = pid;
+            e
+        });
     }
 }
 
 type Pending = Arc<Mutex<HashMap<u64, Sender<Result<Value>>>>>;
 
 struct StdioConn {
-    child: Mutex<Child>,
+    child: Arc<Mutex<Child>>,
     stdin: Arc<Mutex<ChildStdin>>,
     pending: Pending,
     alive: Arc<AtomicBool>,
+    /// Set before an intentional kill so the reader does not report a crash.
+    closing: Arc<AtomicBool>,
+    life: Lifecycle,
+    pid: u32,
     next_id: AtomicU64,
 }
 
@@ -57,6 +96,8 @@ struct HttpConn {
     auth: Option<Arc<dyn AuthProvider>>,
     session: Mutex<Option<String>>,
     version: Mutex<Option<String>>,
+    life: Lifecycle,
+    started: AtomicBool,
     next_id: AtomicU64,
 }
 
@@ -70,7 +111,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl StdioConn {
-    fn spawn(spec: &ServerSpec) -> Result<StdioConn> {
+    fn spawn(server: &str, spec: &ServerSpec, events: &Option<EventSink>) -> Result<StdioConn> {
         let ServerSpec::Stdio { command, args, env, cwd } = spec else { unreachable!() };
         let mut cmd = Command::new(command);
         cmd.args(args).envs(env).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
@@ -83,11 +124,17 @@ impl StdioConn {
             cmd.current_dir(c);
         }
         let mut child = cmd.spawn().map_err(|e| McpError::Transport(format!("spawn '{command}': {e}")))?;
+        let pid = child.id();
+        let life = Lifecycle::new(server, "stdio", events);
+        life.emit(LifecycleKind::Start, "spawned stdio server", Some(pid));
         let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or(McpError::Closed)?));
         let stdout = child.stdout.take().ok_or(McpError::Closed)?;
+        let child = Arc::new(Mutex::new(child));
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
+        let closing = Arc::new(AtomicBool::new(false));
         let (p2, a2, w2) = (pending.clone(), alive.clone(), stdin.clone());
+        let (c2, k2, l2) = (child.clone(), closing.clone(), life.clone());
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
@@ -117,8 +164,31 @@ impl StdioConn {
             for (_, tx) in lock(&p2).drain() {
                 let _ = tx.send(Err(McpError::Closed));
             }
+            if k2.load(Ordering::SeqCst) {
+                return;
+            }
+            // Unasked end of output: report a crash with the exit status when the OS has it.
+            let mut status = None;
+            for _ in 0..25 {
+                if k2.load(Ordering::SeqCst) {
+                    return;
+                }
+                status = lock(&c2).try_wait().ok().flatten();
+                if status.is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if k2.load(Ordering::SeqCst) {
+                return;
+            }
+            let reason = match status {
+                Some(s) => format!("server process exited unexpectedly ({s})"),
+                None => "server closed its output".to_string(),
+            };
+            l2.emit(LifecycleKind::Crash, reason, Some(pid));
         });
-        Ok(StdioConn { child: Mutex::new(child), stdin, pending, alive, next_id: AtomicU64::new(1) })
+        Ok(StdioConn { child, stdin, pending, alive, closing, life, pid, next_id: AtomicU64::new(1) })
     }
 
     fn send(&self, msg: &Value) -> Result<()> {
@@ -150,9 +220,12 @@ impl StdioConn {
 
 impl Drop for StdioConn {
     fn drop(&mut self) {
+        self.closing.store(true, Ordering::SeqCst);
         let mut c = lock(&self.child);
         let _ = c.kill();
         let _ = c.wait();
+        drop(c);
+        self.life.emit(LifecycleKind::Stop, "closed", Some(self.pid));
     }
 }
 
@@ -181,6 +254,8 @@ impl HttpConn {
             auth: opts.auth.clone(),
             session: Mutex::new(None),
             version: Mutex::new(None),
+            life: Lifecycle::new(server, "http", &opts.on_event),
+            started: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
         }
     }
@@ -226,6 +301,9 @@ impl HttpConn {
         }
         if status == 404 && lock(&self.session).is_some() {
             *lock(&self.session) = None;
+            if self.started.swap(false, Ordering::SeqCst) {
+                self.life.emit(LifecycleKind::Stop, "server ended the session", None);
+            }
             return Err(McpError::Closed); // session expired: caller re-initialises
         }
         Ok((status, text, ct))
@@ -245,6 +323,14 @@ impl HttpConn {
             serde_json::from_str::<Value>(&text).map_err(|e| McpError::Protocol(e.to_string()))?
         };
         rpc_outcome(&msg)
+    }
+}
+
+impl Drop for HttpConn {
+    fn drop(&mut self) {
+        if self.started.swap(false, Ordering::SeqCst) {
+            self.life.emit(LifecycleKind::Stop, "closed", None);
+        }
     }
 }
 
@@ -326,7 +412,7 @@ impl McpClient {
 
     fn open(&self) -> Result<Arc<Conn>> {
         let conn = match &self.spec {
-            ServerSpec::Stdio { .. } => Conn::Stdio(StdioConn::spawn(&self.spec)?),
+            ServerSpec::Stdio { .. } => Conn::Stdio(StdioConn::spawn(&self.name, &self.spec, &self.opts.on_event)?),
             ServerSpec::Http { url } => Conn::Http(HttpConn::new(&self.name, url, &self.opts)),
         };
         let init = conn.request(
@@ -344,6 +430,8 @@ impl McpClient {
         }
         if let Conn::Http(h) = &conn {
             *lock(&h.version) = Some(v.clone());
+            h.started.store(true, Ordering::SeqCst);
+            h.life.emit(LifecycleKind::Start, "initialized http session", None);
         }
         conn.notify("notifications/initialized")?;
         *lock(&self.version) = v;

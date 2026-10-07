@@ -35,7 +35,7 @@ pub struct LaunchOptions {
     /// Network/SSRF policy. Default blocks loopback, link-local, private ranges,
     /// `localhost`, and `file:` unless allowed.
     pub network: NetworkPolicy,
-    /// Receives start/stop/denied lifecycle events.
+    /// Receives start/stop/crash/denied lifecycle events (session id, reason, time).
     pub on_event: Option<EventSink>,
 }
 

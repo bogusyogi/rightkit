@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::client::{ClientOptions, McpClient, ServerSpec};
 use crate::error::{McpError, Result};
+use crate::events::{emit, next_id, LifecycleKind, McpEvent};
 use crate::sanitize::sanitize_tool_name;
 use crate::trust::{fingerprint, pending_for, ServerSource, TrustDecision, TrustStore};
 use crate::types::{ToolDescriptor, ToolResult};
@@ -36,6 +37,7 @@ struct Slot {
 }
 
 pub struct ConnectionPool {
+    id: String,
     cfg: PoolConfig,
     trust: Mutex<TrustStore>,
     slots: Mutex<HashMap<String, Slot>>,
@@ -47,7 +49,20 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl ConnectionPool {
     pub fn new(cfg: PoolConfig, trust: TrustStore) -> Self {
-        Self { cfg, trust: Mutex::new(trust), slots: Mutex::new(HashMap::new()) }
+        Self { id: next_id("mcpp"), cfg, trust: Mutex::new(trust), slots: Mutex::new(HashMap::new()) }
+    }
+
+    /// Session id this pool reports trust-gate denials under.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn denied(&self, server: &str, reason: &str) {
+        emit(&self.cfg.options.on_event, || {
+            let mut e = McpEvent::new(LifecycleKind::Denied, &self.id, reason);
+            e.server = Some(server.to_string());
+            e
+        });
     }
 
     pub fn trust(&self) -> MutexGuard<'_, TrustStore> {
@@ -68,9 +83,14 @@ impl ConnectionPool {
             match lock(&self.trust).decide(ws, &e.name, &e.spec) {
                 TrustDecision::Approved => {}
                 TrustDecision::Denied => {
-                    return Err(McpError::Denied(format!("server '{}' was denied for this configuration", e.name)))
+                    let reason = format!("server '{}' was denied for this configuration", e.name);
+                    self.denied(&e.name, &reason);
+                    return Err(McpError::Denied(reason));
                 }
-                TrustDecision::Pending => return Err(McpError::NotApproved(Box::new(pending_for(ws, &e.name, &e.spec)))),
+                TrustDecision::Pending => {
+                    self.denied(&e.name, "workspace server is not approved");
+                    return Err(McpError::NotApproved(Box::new(pending_for(ws, &e.name, &e.spec))));
+                }
             }
         }
         let key = Self::key(e);

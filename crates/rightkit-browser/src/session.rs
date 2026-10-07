@@ -4,7 +4,7 @@ use crate::config::{
 };
 use crate::error::{cdp, BrowserError, Result};
 use crate::page::BrowserPage;
-use crate::policy::{BrowserEvent, Guard};
+use crate::policy::{Guard, LifecycleKind};
 use crate::proc::ChromeProc;
 use crate::proxy::{PinProxy, PinnedConnection};
 use chromiumoxide::browser::Browser;
@@ -15,7 +15,7 @@ use chromiumoxide::cdp::browser_protocol::browser::{
 use futures::StreamExt;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -36,6 +36,7 @@ pub struct BrowserSession {
     current: StdMutex<Option<String>>,
     page_seq: AtomicU64,
     handler: StdMutex<Option<JoinHandle<()>>>,
+    watcher: StdMutex<Option<JoinHandle<()>>>,
     _profile: ProfileGuard,
     profile_dir: PathBuf,
     download_dir: PathBuf,
@@ -43,9 +44,11 @@ pub struct BrowserSession {
     headless: bool,
     guard: Arc<Guard>,
     pid: Option<u32>,
-    proc: StdMutex<Option<ChromeProc>>,
+    proc: Arc<StdMutex<Option<ChromeProc>>>,
     proxy: Option<PinProxy>,
-    stopped: std::sync::atomic::AtomicBool,
+    /// Set before an intentional stop so the CDP pump does not report a crash.
+    stopping: Arc<AtomicBool>,
+    stopped: AtomicBool,
 }
 
 impl BrowserSession {
@@ -149,6 +152,9 @@ impl BrowserSession {
             args.push("--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1".into());
             // Keep cross-site frames in the page process so interception covers them.
             args.push("--disable-site-isolation-trials".into());
+            // No UDP path around the proxy: WebRTC only over proxied routes, no QUIC.
+            args.push("--force-webrtc-ip-handling-policy=disable_non_proxied_udp".into());
+            args.push("--disable-quic".into());
         }
         for a in &opts.extra_args {
             args.push(format!("--{}", a.trim_start_matches('-')));
@@ -164,10 +170,48 @@ impl BrowserSession {
         let (browser, mut handler) = Browser::connect(proc.ws_url.clone())
             .await
             .map_err(|e| BrowserError::Launch(e.to_string()))?;
+        let proc = Arc::new(StdMutex::new(Some(proc)));
+        let stopping = Arc::new(AtomicBool::new(false));
+        let crashed = Arc::new(AtomicBool::new(false));
+        let (pump_proc, pump_stopping, pump_guard, pump_crashed) =
+            (proc.clone(), stopping.clone(), guard.clone(), crashed.clone());
         let pump = tokio::spawn(async move {
+            // Transient handler errors are tolerated while Chrome is alive; the
+            // stream ending (or Chrome exiting) ends the session.
+            let mut errors = 0u32;
             while let Some(ev) = handler.next().await {
                 if ev.is_err() {
+                    errors += 1;
+                    if errors > 50 || chrome_exit(&pump_proc).is_some() {
+                        break;
+                    }
+                } else {
+                    errors = 0;
+                }
+            }
+            // Give the OS a moment to reap so the reason carries the exit status.
+            let mut status = None;
+            for _ in 0..25 {
+                status = chrome_exit(&pump_proc);
+                if status.is_some() || pump_stopping.load(Ordering::SeqCst) {
                     break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            report_crash(&pump_guard, &pump_stopping, &pump_crashed, status, pid);
+        });
+        // The CDP stream does not always end when Chrome dies, so also watch the process.
+        let (w_proc, w_stopping, w_crashed, w_guard) =
+            (proc.clone(), stopping.clone(), crashed.clone(), guard.clone());
+        let watcher = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                if w_stopping.load(Ordering::SeqCst) || w_crashed.load(Ordering::SeqCst) {
+                    return;
+                }
+                if let Some(status) = chrome_exit(&w_proc) {
+                    report_crash(&w_guard, &w_stopping, &w_crashed, Some(status), pid);
+                    return;
                 }
             }
         });
@@ -182,10 +226,8 @@ impl BrowserSession {
             .await
             .map_err(cdp)?;
 
-        guard.emit(BrowserEvent::Started {
-            session_id: id.clone(),
-            pid,
-        });
+        let mode = if opts.headless { "headless" } else { "headed" };
+        guard.emit_kind(LifecycleKind::Start, format!("launched ({mode})"), |e| e.pid = pid);
         Ok(Self {
             id,
             browser: Mutex::new(browser),
@@ -193,6 +235,7 @@ impl BrowserSession {
             current: StdMutex::new(None),
             page_seq: AtomicU64::new(0),
             handler: StdMutex::new(Some(pump)),
+            watcher: StdMutex::new(Some(watcher)),
             _profile: profile_guard,
             profile_dir,
             download_dir,
@@ -200,9 +243,10 @@ impl BrowserSession {
             headless: opts.headless,
             guard,
             pid,
-            proc: StdMutex::new(Some(proc)),
+            proc,
             proxy,
-            stopped: std::sync::atomic::AtomicBool::new(false),
+            stopping,
+            stopped: AtomicBool::new(false),
         })
     }
 
@@ -384,6 +428,7 @@ impl BrowserSession {
     }
 
     async fn stop(&self, hard: bool) {
+        self.stopping.store(true, Ordering::SeqCst);
         if !hard {
             let graceful = async {
                 let _ = self.browser.lock().await.close().await;
@@ -415,32 +460,66 @@ impl BrowserSession {
         if let Some(h) = self.handler.lock().unwrap().take() {
             h.abort();
         }
+        if let Some(w) = self.watcher.lock().unwrap().take() {
+            w.abort();
+        }
+        let reason = if hard { "cancelled" } else { "shutdown" };
+        self.emit_stopped(reason);
+    }
+
+    fn emit_stopped(&self, reason: &str) {
         if !self.stopped.swap(true, Ordering::SeqCst) {
-            self.guard.emit(BrowserEvent::Stopped {
-                session_id: self.id.clone(),
-            });
+            let pid = self.pid;
+            self.guard
+                .emit_kind(LifecycleKind::Stop, reason, |e| e.pid = pid);
         }
     }
 }
 
+/// Emit at most one `Crash` per session, never during an intentional stop.
+fn report_crash(
+    guard: &Guard,
+    stopping: &AtomicBool,
+    crashed: &AtomicBool,
+    status: Option<std::process::ExitStatus>,
+    pid: Option<u32>,
+) {
+    if stopping.load(Ordering::SeqCst) || crashed.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let reason = match status {
+        Some(s) => format!("chrome exited unexpectedly ({s})"),
+        None => "devtools connection lost".to_string(),
+    };
+    guard.emit_kind(LifecycleKind::Crash, reason, |e| e.pid = pid);
+}
+
+/// Exit status of the owned Chrome, if it has exited.
+fn chrome_exit(proc: &StdMutex<Option<ChromeProc>>) -> Option<std::process::ExitStatus> {
+    proc.lock()
+        .ok()?
+        .as_mut()
+        .and_then(|p| p.child.try_wait().ok().flatten())
+}
+
 impl Drop for BrowserSession {
     fn drop(&mut self) {
+        self.stopping.store(true, Ordering::SeqCst);
         for p in self.pages.lock().unwrap().iter() {
             p.abort_pumps();
         }
         if let Some(h) = self.handler.lock().unwrap().take() {
             h.abort();
         }
+        if let Some(w) = self.watcher.lock().unwrap().take() {
+            w.abort();
+        }
         // Dropping `ChromeProc` terminates Chrome's process tree, so an abandoned
         // session (cancelled caller, panic, early return) never leaves Chrome running.
         if let Some(mut p) = self.proc.lock().unwrap().take() {
             let _ = p.child.terminate_tree();
         }
-        if !self.stopped.swap(true, Ordering::SeqCst) {
-            self.guard.emit(BrowserEvent::Stopped {
-                session_id: self.id.clone(),
-            });
-        }
+        self.emit_stopped("dropped");
     }
 }
 

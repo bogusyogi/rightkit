@@ -4,6 +4,7 @@ pub mod auth;
 pub mod client;
 pub mod config;
 mod error;
+pub mod events;
 pub mod pool;
 mod sanitize;
 pub mod server;
@@ -13,6 +14,7 @@ mod types;
 pub use auth::{AuthProvider, Secret};
 pub use client::{ClientOptions, McpClient, ServerSpec};
 pub use error::{McpError, Result};
+pub use events::{EventSink, LifecycleKind, McpEvent};
 pub use pool::{Catalog, ConnectionPool, PoolConfig, QualifiedTool, ServerEntry};
 pub use sanitize::{parse_qualified_name, sanitize_tool_name};
 pub use server::{

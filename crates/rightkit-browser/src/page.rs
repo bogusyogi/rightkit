@@ -1,6 +1,9 @@
 use crate::error::{cdp, BrowserError, Result};
 use crate::keys::{self, KeyDef};
-use crate::policy::{ActionKind, AdmissionRequest, BlockedRequest, Guard};
+use crate::policy::{ActionKind, AdmissionRequest, BlockedRequest, Guard, LifecycleKind};
+use chromiumoxide::cdp::browser_protocol::inspector::{
+    EnableParams as InspectorEnableParams, EventTargetCrashed,
+};
 use chromiumoxide::cdp::browser_protocol::dom::SetFileInputFilesParams;
 use chromiumoxide::cdp::browser_protocol::fetch::{
     ContinueRequestParams, EnableParams as FetchEnableParams, EventRequestPaused,
@@ -192,6 +195,23 @@ impl BrowserPage {
                 .await;
             }
         }));
+        // Renderer crash -> `Crash` lifecycle event for this page.
+        let mut crashed = inner
+            .event_listener::<EventTargetCrashed>()
+            .await
+            .map_err(cdp)?;
+        let (g, page_id) = (guard.clone(), id.clone());
+        pumps.push(tokio::spawn(async move {
+            while crashed.next().await.is_some() {
+                g.emit_kind(LifecycleKind::Crash, "renderer crashed", |e| {
+                    e.page_id = Some(page_id.clone());
+                });
+            }
+        }));
+        inner
+            .execute(InspectorEnableParams::default())
+            .await
+            .map_err(cdp)?;
         let blocked = Arc::new(StdMutex::new(Vec::new()));
         if !guard.network.unrestricted {
             // Pause every request (document, redirect hops, subresources) and
@@ -203,11 +223,13 @@ impl BrowserPage {
             let page = inner.clone();
             let g = guard.clone();
             let sink = blocked.clone();
+            let page_id = id.clone();
             pumps.push(tokio::spawn(async move {
                 while let Some(e) = paused.next().await {
                     let page = page.clone();
                     let g = g.clone();
                     let sink = sink.clone();
+                    let pid = page_id.clone();
                     tokio::spawn(async move {
                         let kind = format!("{:?}", e.resource_type);
                         match g.network.check(&e.request.url, &kind).await {
@@ -223,16 +245,12 @@ impl BrowserPage {
                                         ErrorReason::BlockedByClient,
                                     ))
                                     .await;
-                                g.emit(crate::policy::BrowserEvent::Denied {
-                                    session_id: g.session_id.clone(),
-                                    what: kind,
-                                    reason: reason.clone(),
-                                });
+                                g.denied_network(Some(&pid), &kind, &reason);
                                 let mut b = sink.lock().unwrap();
                                 if b.len() < 500 {
                                     b.push(BlockedRequest {
                                         url: e.request.url.clone(),
-                                        reason,
+                                        reason: reason.to_string(),
                                     });
                                 }
                             }
@@ -332,9 +350,12 @@ impl BrowserPage {
     }
 
     pub async fn goto(&self, url: &str) -> Result<()> {
+        // EFF-001 order: policy, then approval; both before any side effect.
+        self.guard
+            .check_url(Some(&self.id), url, "Navigation")
+            .await?;
         self.admit(ActionKind::Navigate, Some(url.to_string()), None, None)
             .await?;
-        self.guard.check_url(url, "Navigation").await?;
         let _l = self.lane.lock().await;
         self.inner
             .goto(url)

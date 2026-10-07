@@ -4712,7 +4712,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chromiumoxide",
  "futures",
@@ -4873,7 +4873,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "getrandom 0.3.4",
  "serde",

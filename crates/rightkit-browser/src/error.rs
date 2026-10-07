@@ -28,8 +28,12 @@ pub enum BrowserError {
     Timeout(String),
     #[error("invalid argument: {0}")]
     Invalid(String),
+    /// The caller's admission hook refused the effect before it happened.
     #[error("denied before effect: {0}")]
     Denied(String),
+    /// The network (SSRF/host) policy refused a URL before any request left the machine.
+    #[error("blocked by network policy: {0}")]
+    Blocked(crate::policy::PolicyDenial),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 }

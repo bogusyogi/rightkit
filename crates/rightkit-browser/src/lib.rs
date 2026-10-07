@@ -4,8 +4,11 @@
 //! * [`ProfileSpec`] selects a temporary or named persistent profile.
 //! * Pointer and keyboard actions use real `Input.dispatch*Event` commands, so
 //!   `event.isTrusted`, `:hover`, focus, and default actions behave as for a user.
-//! * [`AdmissionHook`] gates every effect and [`NetworkPolicy`] blocks private/loopback/file
-//!   targets (redirects and subresources included) before they reach the network.
+//! * [`NetworkPolicy`] blocks loopback/link-local/private/reserved/`file:` targets
+//!   (redirects, subresources, and every proxied connection included) before they
+//!   reach the network; denials are typed ([`BrowserError::Blocked`]).
+//! * [`AdmissionHook`] then gates every effect before it happens.
+//! * [`BrowserEvent`] reports start/stop/crash/denied with session id, reason, and time.
 //! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
 mod config;
 mod error;
@@ -21,7 +24,8 @@ pub use error::{BrowserError, Result};
 pub use page::{BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, Target};
 pub use policy::{
     classify_ip, ActionKind, AddressClass, AdmissionHook, AdmissionRequest, AllowCallback,
-    BlockedRequest, BrowserEvent, Decision, EventSink, NetworkPolicy, NetworkRequest, Resolver,
+    BlockReason, BlockedRequest, BrowserEvent, BrowserRequest, Decision, EventSink,
+    LifecycleKind, NetworkPolicy, NetworkRequest, PolicyDecision, PolicyDenial, Resolver,
 };
 pub use proxy::PinnedConnection;
 pub use session::BrowserSession;

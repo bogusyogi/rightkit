@@ -541,7 +541,7 @@ test("RightKit exposes one current version manifest", () => {
     assert.deepEqual(versions.stagedCargo, {
       "rightkit-automation": "0.1.0",
       "rightkit-audio": "0.1.0",
-    "rightkit-browser": "0.1.0",
+    "rightkit-browser": "0.1.1",
     "rightkit-cache": "0.1.0",
     "rightkit-control": "0.1.1",
     "rightkit-crash": "0.1.0",

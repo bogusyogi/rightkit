@@ -5,7 +5,7 @@
 //! that flips from public to private between check and connect (DNS
 //! rebinding), or a request that bypassed page interception (workers), can
 //! therefore never reach a blocked address.
-use crate::policy::{BrowserEvent, Guard};
+use crate::policy::Guard;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -143,12 +143,8 @@ async fn serve(
     let ips = match guard.network.pin(&host).await {
         Ok(ips) => ips,
         Err(reason) => {
-            guard.emit(BrowserEvent::Denied {
-                session_id: guard.session_id.clone(),
-                what: "Connect".into(),
-                reason: reason.clone(),
-            });
-            refuse(&mut conn, "403 Forbidden", &reason).await;
+            guard.denied_network(None, "Connect", &reason);
+            refuse(&mut conn, "403 Forbidden", &reason.to_string()).await;
             return Ok(());
         }
     };

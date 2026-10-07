@@ -2,7 +2,8 @@
 //! real headless Chrome and local fixture servers (offline). Fixtures count
 //! requests that actually reach them, so "blocked" means the server never saw it.
 use rightkit_browser::{
-    ActionKind, AdmissionHook, BrowserError, BrowserEvent, BrowserSession, Decision, LaunchOptions,
+    ActionKind, AddressClass, AdmissionHook, BlockReason, BrowserError, BrowserSession, Decision,
+    LaunchOptions, LifecycleKind,
     NetworkPolicy, Target,
 };
 use std::collections::HashMap;
@@ -111,8 +112,8 @@ async fn default_policy_blocks_before_any_request_and_callback_allows() {
     let denied: Arc<Mutex<Vec<String>>> = Arc::default();
     let d = denied.clone();
     let opts = LaunchOptions::default().on_event(move |e| {
-        if let BrowserEvent::Denied { reason, .. } = e {
-            d.lock().unwrap().push(reason.clone());
+        if e.kind == LifecycleKind::Denied {
+            d.lock().unwrap().push(e.reason.clone());
         }
     });
     let s = BrowserSession::launch(opts).await.unwrap();
@@ -131,7 +132,7 @@ async fn default_policy_blocks_before_any_request_and_callback_allows() {
             .await
             .err()
             .unwrap_or_else(|| panic!("{url} was not denied"));
-        assert!(matches!(err, BrowserError::Denied(_)), "{url}: {err:?}");
+        assert!(matches!(err, BrowserError::Blocked(_)), "{url}: {err:?}");
     }
     assert_eq!(
         fx.hits("/"),
@@ -364,6 +365,114 @@ async fn chromium_child_is_owned_and_dies_on_shutdown_cancel_and_drop() {
     );
 }
 
+type Events = Arc<Mutex<Vec<rightkit_browser::BrowserEvent>>>;
+
+fn recording() -> (Events, LaunchOptions) {
+    let ev: Events = Arc::default();
+    let e2 = ev.clone();
+    let opts = LaunchOptions::default()
+        .on_event(move |e| e2.lock().unwrap_or_else(|p| p.into_inner()).push(e.clone()));
+    (ev, opts)
+}
+
+async fn wait_kind(ev: &Events, kind: LifecycleKind) -> bool {
+    let end = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < end {
+        if ev.lock().unwrap_or_else(|p| p.into_inner()).iter().any(|e| e.kind == kind) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lifecycle_start_stop_and_crash_events_carry_session_reason_and_time() {
+    // Start, then a graceful stop: exactly one of each, no crash.
+    let (ev, opts) = recording();
+    let s = BrowserSession::launch(opts).await.unwrap();
+    let sid = s.id().to_string();
+    s.shutdown().await;
+    s.shutdown().await;
+    drop(s);
+    {
+        let ev = ev.lock().unwrap();
+        let kinds: Vec<_> = ev.iter().map(|e| e.kind).collect();
+        assert_eq!(kinds, vec![LifecycleKind::Start, LifecycleKind::Stop], "{ev:?}");
+        for e in ev.iter() {
+            assert_eq!(e.session_id, sid);
+            assert!(!e.reason.is_empty());
+            assert!(e.timestamp_ms() > 0);
+            assert!(e.pid.is_some());
+        }
+        assert_eq!(ev[1].reason, "shutdown");
+    }
+
+    // Chrome killed from outside: a crash event, then stop on cleanup.
+    let (ev, opts) = recording();
+    let s = BrowserSession::launch(opts).await.unwrap();
+    let pid = s.process_id().unwrap().to_string();
+    #[cfg(unix)]
+    let _ = Command::new("kill").args(["-9", &pid]).status();
+    #[cfg(windows)]
+    let _ = Command::new("taskkill").args(["/F", "/T", "/PID", &pid]).status();
+    let got = wait_kind(&ev, LifecycleKind::Crash).await;
+    let seen = format!("{:?}", ev.lock().unwrap());
+    assert!(got, "no crash event: {seen}");
+    s.shutdown().await;
+    {
+        let ev = ev.lock().unwrap();
+        let crash = ev.iter().find(|e| e.kind == LifecycleKind::Crash).unwrap();
+        assert_eq!(crash.session_id, s.id());
+        assert!(crash.reason.contains("exited") || crash.reason.contains("lost"), "{crash:?}");
+        assert_eq!(ev.last().unwrap().kind, LifecycleKind::Stop);
+        assert_eq!(ev.iter().filter(|e| e.kind == LifecycleKind::Crash).count(), 1);
+    }
+
+    // Renderer crash on one page: a page-scoped crash event.
+    let (ev, opts) = recording();
+    let s = BrowserSession::launch(opts.network(NetworkPolicy::unrestricted()))
+        .await
+        .unwrap();
+    let p = s.new_page("about:blank").await.unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(5), p.goto("chrome://crash")).await;
+    assert!(wait_kind(&ev, LifecycleKind::Crash).await, "no renderer crash event");
+    {
+        let ev = ev.lock().unwrap();
+        let crash = ev.iter().find(|e| e.kind == LifecycleKind::Crash).unwrap();
+        assert_eq!(crash.page_id.as_deref(), Some(p.id()));
+        assert_eq!(crash.reason, "renderer crashed");
+    }
+    s.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn new_tab_and_denied_events_are_typed() {
+    let (ev, opts) = recording();
+    let s = BrowserSession::launch(opts).await.unwrap();
+    let err = s.new_page("http://169.254.169.254/latest/meta-data/").await.err().unwrap();
+    match err {
+        BrowserError::Blocked(d) => {
+            assert_eq!(d.resource_type, "Navigation");
+            assert!(matches!(d.reason, BlockReason::Address { class: AddressClass::LinkLocal, .. }));
+        }
+        other => panic!("{other:?}"),
+    }
+    let err = s.new_page("file:///etc/hosts").await.err().unwrap();
+    assert!(matches!(err, BrowserError::Blocked(ref d) if matches!(d.reason, BlockReason::Scheme(_))));
+    {
+        let ev = ev.lock().unwrap();
+        let denied: Vec<_> = ev.iter().filter(|e| e.kind == LifecycleKind::Denied).collect();
+        assert_eq!(denied.len(), 2, "{ev:?}");
+        for e in denied {
+            assert_eq!(e.session_id, s.id());
+            assert!(e.blocked.is_some());
+            assert_eq!(e.what.as_deref(), Some("Navigation"));
+        }
+    }
+    s.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn cross_site_iframe_and_subresources_are_intercepted() {
     // `localhost` and `127.0.0.1` are different sites, so the iframe is genuinely cross-site.
@@ -434,17 +543,21 @@ async fn dns_answer_is_resolved_once_and_pinned() {
     // The vetted (first) answer must be the one connected to; loopback is never touched.
     let calls = Arc::new(Mutex::new(0usize));
     let c = calls.clone();
-    let opts =
-        LaunchOptions::default().network(NetworkPolicy::default().with_resolver(move |host| {
+    // 203.0.113/24 is a documentation range: allowed here so the test stays offline.
+    let opts = LaunchOptions::default().network(
+        NetworkPolicy::default()
+            .allow_class(AddressClass::Reserved)
+            .with_resolver(move |host| {
             assert_eq!(host, "rebind.example");
             let mut n = c.lock().unwrap();
             *n += 1;
-            if *n == 1 {
-                vec!["203.0.113.9".parse().unwrap()]
-            } else {
-                vec!["127.0.0.1".parse().unwrap()]
-            }
-        }));
+                if *n == 1 {
+                    vec!["203.0.113.9".parse().unwrap()]
+                } else {
+                    vec!["127.0.0.1".parse().unwrap()]
+                }
+            }),
+    );
     let s = BrowserSession::launch(opts).await.unwrap();
     let _ = s
         .new_page(&format!("http://rebind.example:{port}/rebind"))
@@ -472,7 +585,8 @@ async fn dns_answer_is_resolved_once_and_pinned() {
     let s = BrowserSession::launch(opts).await.unwrap();
     assert!(matches!(
         s.new_page("http://intranet.example/").await,
-        Err(BrowserError::Denied(_))
+        Err(BrowserError::Blocked(ref d))
+            if matches!(d.reason, BlockReason::Address { class: AddressClass::Private, .. })
     ));
     assert!(s.pinned_connections().is_empty());
     s.shutdown().await;
