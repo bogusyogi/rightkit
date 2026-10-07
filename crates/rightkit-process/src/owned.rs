@@ -17,7 +17,14 @@ use process_wrap::std::{StdChildWrapper, StdCommandWrap, StdCommandWrapper};
 pub struct OwnedCommand {
     command: Command,
     windows_hidden: bool,
+    caller_job: CallerJob,
 }
+
+/// The caller's job object (Windows), duplicated until the child has been assigned to it.
+#[cfg(windows)]
+type CallerJob = Option<std::os::windows::io::OwnedHandle>;
+#[cfg(not(windows))]
+type CallerJob = Option<std::convert::Infallible>;
 
 impl OwnedCommand {
     pub fn new(program: impl AsRef<OsStr>) -> Self {
@@ -31,6 +38,7 @@ impl OwnedCommand {
         Self {
             command,
             windows_hidden: true,
+            caller_job: Default::default(),
         }
     }
 
@@ -78,8 +86,28 @@ impl OwnedCommand {
         self
     }
 
+    /// Windows: also bind the child to the caller's job object (an in-process host's own
+    /// job), before the child runs its first instruction. RightKit's kill-on-close jobs nest
+    /// beneath it and none of them allow breakaway, so terminating or closing the caller's
+    /// job kills the child and everything it spawned. The handle is duplicated here and the
+    /// duplicate is closed as soon as the child has been assigned.
+    #[cfg(windows)]
+    pub fn windows_job(
+        &mut self,
+        job: std::os::windows::io::BorrowedHandle<'_>,
+    ) -> io::Result<&mut Self> {
+        self.caller_job = Some(job.try_clone_to_owned()?);
+        Ok(self)
+    }
+
     pub fn spawn(self) -> io::Result<OwnedChild> {
-        spawn_owned(self.command, self.windows_hidden, false, None)
+        spawn_owned(
+            self.command,
+            self.windows_hidden,
+            false,
+            None,
+            self.caller_job,
+        )
     }
 }
 
@@ -241,6 +269,7 @@ impl AdoptedProcess {
 #[derive(Debug)]
 struct CleanupWrapper {
     captured_pid: Option<Arc<AtomicU32>>,
+    caller_job: CallerJob,
 }
 
 impl StdCommandWrapper for CleanupWrapper {
@@ -253,19 +282,51 @@ impl StdCommandWrapper for CleanupWrapper {
 
     fn wrap_child(
         &mut self,
-        child: Box<dyn StdChildWrapper>,
+        #[cfg_attr(not(windows), allow(unused_mut))] mut child: Box<dyn StdChildWrapper>,
         _core: &StdCommandWrap,
     ) -> io::Result<Box<dyn StdChildWrapper>> {
         // Runs first, while process-wrap's JobObject still holds the child suspended, so the
-        // child and everything it later spawns land in this kill-on-close job.
+        // child and everything it later spawns land in these jobs. The caller's job comes
+        // first: a process can join a non-empty job only while it belongs to none, and the
+        // empty RightKit jobs assigned after it then nest beneath it. A suspended child that
+        // cannot be bound is killed, never left behind.
+        #[cfg(not(windows))]
+        let _ = self.caller_job.take();
         #[cfg(windows)]
-        let kill_on_close = Some(KillOnCloseJob::assign(child.inner())?);
+        let kill_on_close = {
+            let bound = match self.caller_job.take() {
+                Some(job) => assign_to_caller_job(&job, child.inner()),
+                None => Ok(()),
+            }
+            .and_then(|()| KillOnCloseJob::assign(child.inner()));
+            match bound {
+                Ok(job) => Some(job),
+                Err(error) => {
+                    let _ = child.start_kill();
+                    let _ = child.wait();
+                    return Err(error);
+                }
+            }
+        };
         Ok(Box::new(CleanupChild {
             child: Some(child),
             #[cfg(windows)]
             _kill_on_close: kill_on_close,
         }))
     }
+}
+
+#[cfg(windows)]
+fn assign_to_caller_job(job: &std::os::windows::io::OwnedHandle, child: &Child) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::{Foundation::HANDLE, System::JobObjects::AssignProcessToJobObject};
+    unsafe {
+        AssignProcessToJobObject(
+            HANDLE(job.as_raw_handle() as _),
+            HANDLE(child.as_raw_handle() as _),
+        )
+    }
+    .map_err(|e| io::Error::other(format!("bind child to the caller's job object: {e}")))
 }
 
 /// process-wrap's std `JobObject` never sets JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, so a host that
@@ -417,9 +478,13 @@ fn spawn_owned(
     windows_hidden: bool,
     fail_after_spawn: bool,
     captured_pid: Option<Arc<AtomicU32>>,
+    caller_job: CallerJob,
 ) -> io::Result<OwnedChild> {
     let mut command = StdCommandWrap::from(command);
-    command.wrap(CleanupWrapper { captured_pid });
+    command.wrap(CleanupWrapper {
+        captured_pid,
+        caller_job,
+    });
 
     #[cfg(windows)]
     {
@@ -450,7 +515,7 @@ fn spawn_owned(
 
 #[cfg(test)]
 fn spawn_for_test(command: Command, captured_pid: Arc<AtomicU32>) -> io::Result<OwnedChild> {
-    spawn_owned(command, true, true, Some(captured_pid))
+    spawn_owned(command, true, true, Some(captured_pid), Default::default())
 }
 
 #[cfg(windows)]
@@ -511,6 +576,99 @@ mod tests {
         assert!(super::OwnedCommand::from_command(std::process::Command::new("x")).windows_hidden);
     }
 
+    /// A kill-on-close job standing in for an in-process host's own job object.
+    #[cfg(windows)]
+    fn host_job() -> std::os::windows::io::OwnedHandle {
+        use std::os::windows::io::FromRawHandle;
+        use windows::Win32::System::JobObjects::{
+            CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        };
+        let job = unsafe { CreateJobObjectW(None, None) }.unwrap();
+        let job_handle = unsafe { std::os::windows::io::OwnedHandle::from_raw_handle(job.0 as _) };
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                std::mem::size_of_val(&info) as u32,
+            )
+        }
+        .unwrap();
+        job_handle
+    }
+
+    #[cfg(windows)]
+    fn in_job(pid: u32, job: &std::os::windows::io::OwnedHandle) -> bool {
+        use std::os::windows::io::AsRawHandle;
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut std::ffi::c_void;
+            fn IsProcessInJob(
+                process: *mut std::ffi::c_void,
+                job: *mut std::ffi::c_void,
+                result: *mut i32,
+            ) -> i32;
+            fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
+        }
+        unsafe {
+            let process = OpenProcess(0x1000, 0, pid); // PROCESS_QUERY_LIMITED_INFORMATION
+            assert!(!process.is_null());
+            let mut inside = 0;
+            assert_ne!(
+                IsProcessInJob(process, job.as_raw_handle() as _, &mut inside),
+                0
+            );
+            CloseHandle(process);
+            inside != 0
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn children_join_the_callers_job_and_die_when_the_caller_closes_it() {
+        use std::os::windows::io::AsHandle;
+        use std::time::{Duration, Instant};
+        let job = host_job();
+        let sleeper = || {
+            let mut command = super::OwnedCommand::new("powershell.exe");
+            command.command_mut().args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Sleep -Seconds 60",
+            ]);
+            command.windows_job(job.as_handle()).unwrap();
+            command.spawn().unwrap()
+        };
+        // The second child joins a job that already holds a process: binding must happen
+        // before RightKit's own jobs, or Windows refuses it.
+        let (first, second) = (sleeper(), sleeper());
+        let pids = [first.id(), second.id()];
+        assert!(
+            pids.iter().all(|pid| in_job(*pid, &job)),
+            "children must be in the caller's job"
+        );
+
+        // The caller closes its job while the owned children are still alive: they die.
+        drop(job);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        for pid in pids {
+            let process = super::AdoptedProcess::new(std::num::NonZeroU32::new(pid).unwrap());
+            while process.is_running().unwrap_or(false) {
+                assert!(
+                    Instant::now() < deadline,
+                    "child {pid} survived its caller's job"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        drop((first, second));
+    }
+
     #[test]
     fn a_failure_after_spawn_cleans_up_the_partially_wrapped_child() {
         use std::{
@@ -525,6 +683,7 @@ mod tests {
 
         // A long-lived child that survives on its own if the partial-spawn cleanup fails.
         let command = if cfg!(windows) {
+            // windowless: spawned through spawn_owned (CREATE_NO_WINDOW).
             let mut command = Command::new("powershell.exe");
             command.args([
                 "-NoLogo",
@@ -535,6 +694,7 @@ mod tests {
             ]);
             command
         } else {
+            // windowless: spawned through spawn_owned (CREATE_NO_WINDOW).
             let mut command = Command::new("sleep");
             command.arg("60");
             command

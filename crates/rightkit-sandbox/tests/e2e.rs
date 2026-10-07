@@ -284,3 +284,273 @@ fn strict_profile_denies_spawn_before_any_process_exists_and_slots_release() {
     assert_eq!(fs::read_to_string(&marker).unwrap(), "ran\n");
     let _ = fs::remove_dir_all(&root);
 }
+
+/// Windows AppContainer: real confined processes, validated by content.
+#[cfg(windows)]
+mod windows {
+    use rightkit_sandbox::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    const T: Duration = Duration::from_secs(60);
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("rk-sandbox-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        let c = fs::canonicalize(&d).unwrap().to_string_lossy().to_string();
+        PathBuf::from(c.strip_prefix(r"\\?\").unwrap_or(&c))
+    }
+
+    fn cmd(script: &str) -> SandboxCommand {
+        SandboxCommand::new("cmd.exe").args(["/d", "/c", script])
+    }
+
+    fn expanded() -> Sandbox {
+        Sandbox::new(ResourceAuthority::new(ResourceProfile::Expanded))
+    }
+
+    #[test]
+    fn appcontainer_denies_write_and_read_outside_allowed_dir_but_allows_inside() {
+        let root = scratch("fs");
+        let (allowed, outside) = (root.join("allowed"), root.join("outside"));
+        fs::create_dir_all(&allowed).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("private.txt"), "OUTSIDE-DATA").unwrap();
+        let policy = SandboxPolicy::new().allow_write(&allowed);
+        let script = format!(
+            r"echo inside> {a}\in.txt & echo outside> {o}\out.txt & type {o}\private.txt",
+            a = allowed.display(),
+            o = outside.display()
+        );
+        let out = expanded()
+            .spawn(&policy, cmd(&script).cwd(&allowed))
+            .unwrap()
+            .wait_with_output(T)
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            fs::read_to_string(allowed.join("in.txt"))
+                .unwrap()
+                .trim_end(),
+            "inside",
+            "write inside must succeed: {stdout} {stderr}"
+        );
+        assert!(
+            !outside.join("out.txt").exists(),
+            "write outside must NOT create the file"
+        );
+        assert!(
+            !stdout.contains("OUTSIDE-DATA"),
+            "read outside must be denied"
+        );
+        assert!(!out.status.unwrap().success());
+        let denial = out.denial.expect("denial reported");
+        assert_eq!(denial.category, DenialCategory::Filesystem, "{stderr}");
+        assert_eq!(denial.source, DenialSource::WindowsAppContainer);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cwd_inside_a_grant_is_honoured_and_outside_every_grant_is_refused() {
+        let root = scratch("cwd");
+        let (allowed, nested, outside) = (
+            root.join("a"),
+            root.join("a").join("deep dir"),
+            root.join("o"),
+        );
+        fs::create_dir_all(&nested).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let policy = SandboxPolicy::new().allow_write(&allowed);
+        let out = expanded()
+            .spawn(&policy, cmd("echo here> marker.txt").cwd(&nested))
+            .unwrap()
+            .wait_with_output(T)
+            .unwrap();
+        assert!(
+            out.status.unwrap().success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            fs::read_to_string(nested.join("marker.txt")).unwrap(),
+            "here\r\n"
+        );
+        assert!(matches!(
+            expanded().spawn(&policy, cmd("echo x").cwd(&outside)),
+            Err(SandboxError::InvalidPolicy(_))
+        ));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// (is the token an AppContainer, its capability SIDs) for a live process.
+    fn token_capabilities(pid: u32) -> (bool, Vec<String>) {
+        use std::ffi::c_void;
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+            fn CloseHandle(h: *mut c_void) -> i32;
+            fn LocalFree(m: *mut c_void) -> *mut c_void;
+        }
+        #[link(name = "advapi32")]
+        unsafe extern "system" {
+            fn OpenProcessToken(p: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+            fn GetTokenInformation(
+                t: *mut c_void,
+                class: u32,
+                info: *mut c_void,
+                len: u32,
+                ret: *mut u32,
+            ) -> i32;
+            fn ConvertSidToStringSidW(sid: *mut c_void, text: *mut *mut u16) -> i32;
+        }
+        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+        const TOKEN_QUERY: u32 = 0x8;
+        const TOKEN_IS_APP_CONTAINER: u32 = 29;
+        const TOKEN_CAPABILITIES: u32 = 30;
+        unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            assert!(!process.is_null(), "open confined child");
+            let mut token = std::ptr::null_mut();
+            assert_ne!(OpenProcessToken(process, TOKEN_QUERY, &mut token), 0);
+            let mut is_container = 0u32;
+            let mut len = 0u32;
+            assert_ne!(
+                GetTokenInformation(
+                    token,
+                    TOKEN_IS_APP_CONTAINER,
+                    (&mut is_container as *mut u32).cast(),
+                    4,
+                    &mut len
+                ),
+                0
+            );
+            GetTokenInformation(token, TOKEN_CAPABILITIES, std::ptr::null_mut(), 0, &mut len);
+            // u64 storage keeps the TOKEN_GROUPS pointer array aligned.
+            let mut buf = vec![0u64; (len as usize).div_ceil(8)];
+            assert_ne!(
+                GetTokenInformation(
+                    token,
+                    TOKEN_CAPABILITIES,
+                    buf.as_mut_ptr().cast(),
+                    len,
+                    &mut len
+                ),
+                0
+            );
+            // TOKEN_GROUPS { u32 count; SID_AND_ATTRIBUTES groups[] } (pointer-aligned array).
+            let count = *(buf.as_ptr() as *const u32) as usize;
+            let groups =
+                (buf.as_ptr() as *const u8).add(std::mem::size_of::<usize>()) as *const [usize; 2];
+            let mut sids = Vec::new();
+            for i in 0..count {
+                let sid = (*groups.add(i))[0] as *mut c_void;
+                let mut text = std::ptr::null_mut();
+                assert_ne!(ConvertSidToStringSidW(sid, &mut text), 0);
+                let n = (0..).take_while(|&k| *text.add(k) != 0).count();
+                sids.push(String::from_utf16_lossy(std::slice::from_raw_parts(
+                    text, n,
+                )));
+                LocalFree(text.cast());
+            }
+            CloseHandle(token);
+            CloseHandle(process);
+            (is_container != 0, sids)
+        }
+    }
+
+    #[test]
+    fn network_capability_follows_policy() {
+        let root = scratch("net");
+        for (net, expect) in [(NetworkPolicy::Deny, false), (NetworkPolicy::Allow, true)] {
+            let policy = SandboxPolicy::new().allow_write(&root).network(net);
+            let mut child = expanded()
+                .spawn(
+                    &policy,
+                    SandboxCommand::new("powershell.exe").args([
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "Start-Sleep 30",
+                    ]),
+                )
+                .unwrap();
+            let (is_container, capabilities) = token_capabilities(child.id());
+            child.terminate_tree().unwrap();
+            assert!(is_container, "child must run in an AppContainer");
+            assert_eq!(
+                capabilities.iter().any(|s| s == "S-1-15-3-1"),
+                expect,
+                "network {net:?}: internetClient only on Allow, got {capabilities:?}"
+            );
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn env_is_scrubbed_but_explicit_values_pass_into_the_container() {
+        std::env::set_var("RK_SANDBOX_PROBE", "parent-only-value");
+        let root = scratch("env");
+        let mut env = EnvPolicy::default();
+        env.set.insert("RK_VISIBLE".into(), "yes".into());
+        let policy = SandboxPolicy::new().allow_write(&root).env(env);
+        let out = expanded()
+            .spawn(&policy, cmd("set"))
+            .unwrap()
+            .wait_with_output(T)
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            !text.contains("parent-only-value") && !text.contains("RK_SANDBOX_PROBE"),
+            "{text}"
+        );
+        assert!(text.contains("RK_VISIBLE=yes"), "{text}");
+        assert!(
+            text.to_ascii_lowercase().contains(r"\packages"),
+            "TEMP is container-rooted: {text}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn confined_grandchildren_die_with_the_child() {
+        let root = scratch("tree");
+        let policy = SandboxPolicy::new().allow_write(&root);
+        let child = expanded()
+            .spawn(
+                &policy,
+                cmd("powershell -NoProfile -NonInteractive -Command $PID ^| Set-Content pid.txt; Start-Sleep 300")
+                    .cwd(&root),
+            )
+            .unwrap();
+        let pid_file = root.join("pid.txt");
+        let deadline = Instant::now() + T;
+        let pid: u32 = loop {
+            if let Some(pid) = fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+            {
+                break pid;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "confined grandchild never started"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        let grandchild = rightkit_process::AdoptedProcess::new(pid.try_into().unwrap());
+        assert!(grandchild.is_running().unwrap());
+        drop(child);
+        let killed = Instant::now();
+        while grandchild.is_running().unwrap_or(false) {
+            assert!(
+                killed.elapsed() < Duration::from_secs(5),
+                "grandchild survived its child"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+}

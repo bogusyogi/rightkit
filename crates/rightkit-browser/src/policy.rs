@@ -218,7 +218,9 @@ pub enum BlockReason {
     Scheme(String),
     NoHost,
     /// The host has no addresses (fail closed).
-    Unresolved { host: String },
+    Unresolved {
+        host: String,
+    },
     /// The host is, or resolves to, a blocked address.
     Address {
         host: String,
@@ -226,7 +228,9 @@ pub enum BlockReason {
         class: AddressClass,
     },
     /// A cloud metadata hostname.
-    MetadataHost { host: String },
+    MetadataHost {
+        host: String,
+    },
     /// The per-request callback denied it.
     Callback(String),
 }
@@ -409,7 +413,8 @@ impl NetworkPolicy {
     }
 
     pub fn allow_scheme(mut self, scheme: impl Into<String>) -> Self {
-        self.allowed_schemes.push(scheme.into().to_ascii_lowercase());
+        self.allowed_schemes
+            .push(scheme.into().to_ascii_lowercase());
         self
     }
 
@@ -461,7 +466,8 @@ impl NetworkPolicy {
             return Ok(()); // inert subresource: never touches the network
         }
         let networked = matches!(scheme.as_str(), "http" | "https" | "ws" | "wss");
-        let mut default_block = (!self.scheme_allowed(&scheme)).then(|| BlockReason::Scheme(scheme.clone()));
+        let mut default_block =
+            (!self.scheme_allowed(&scheme)).then(|| BlockReason::Scheme(scheme.clone()));
         let mut host = String::new();
         let mut class = None;
         let mut addresses = Vec::new();
@@ -483,7 +489,9 @@ impl NetworkPolicy {
             if addresses.is_empty() {
                 return Err(BlockReason::Unresolved { host });
             }
-            if !self.address_allowed(&host, c) || (c == AddressClass::LinkLocal && self.hard_block_link_local) {
+            if !self.address_allowed(&host, c)
+                || (c == AddressClass::LinkLocal && self.hard_block_link_local)
+            {
                 let r = BlockReason::Address {
                     host: host.clone(),
                     ip: worst,
@@ -707,7 +715,12 @@ impl Guard {
         }
     }
 
-    pub fn emit_kind(&self, kind: LifecycleKind, reason: impl Into<String>, f: impl FnOnce(&mut BrowserEvent)) {
+    pub fn emit_kind(
+        &self,
+        kind: LifecycleKind,
+        reason: impl Into<String>,
+        f: impl FnOnce(&mut BrowserEvent),
+    ) {
         let mut e = BrowserEvent::new(kind, &self.session_id, reason);
         f(&mut e);
         self.emit(e);
@@ -736,7 +749,12 @@ impl Guard {
         Ok(())
     }
 
-    pub async fn check_url(&self, page_id: Option<&str>, url: &str, kind: &str) -> crate::error::Result<()> {
+    pub async fn check_url(
+        &self,
+        page_id: Option<&str>,
+        url: &str,
+        kind: &str,
+    ) -> crate::error::Result<()> {
         match self.network.check(url, kind).await {
             Ok(()) => Ok(()),
             Err(reason) => {
@@ -811,7 +829,15 @@ mod tests {
         for (s, want) in cases {
             assert_eq!(classify_ip(ip(s)), want, "{s}");
         }
-        for s in ["8.8.8.8", "93.184.216.34", "172.32.0.1", "172.15.255.255", "100.63.255.255", "100.128.0.1", "169.253.1.1"] {
+        for s in [
+            "8.8.8.8",
+            "93.184.216.34",
+            "172.32.0.1",
+            "172.15.255.255",
+            "100.63.255.255",
+            "100.128.0.1",
+            "169.253.1.1",
+        ] {
             assert_eq!(classify_ip(ip(s)), AddressClass::Public, "{s}");
         }
     }
@@ -844,7 +870,12 @@ mod tests {
         for (s, want) in cases {
             assert_eq!(classify_ip(ip(s)), want, "{s}");
         }
-        for s in ["2606:4700:4700::1111", "::ffff:8.8.8.8", "64:ff9b::808:808", "2002:0808:0808::1"] {
+        for s in [
+            "2606:4700:4700::1111",
+            "::ffff:8.8.8.8",
+            "64:ff9b::808:808",
+            "2002:0808:0808::1",
+        ] {
             assert_eq!(classify_ip(ip(s)), AddressClass::Public, "{s}");
         }
     }
@@ -871,8 +902,8 @@ mod tests {
             "http://[::ffff:127.0.0.1]/",
             "http://[::ffff:169.254.169.254]/",
             "http://[::ffff:10.0.0.1]/",
-            "http://2130706433/",   // decimal 127.0.0.1
-            "http://0x7f.0.0.1/",   // hex octet
+            "http://2130706433/", // decimal 127.0.0.1
+            "http://0x7f.0.0.1/", // hex octet
             "http://metadata.google.internal/computeMetadata/v1/",
         ] {
             let r = check(&p, url);
@@ -894,16 +925,24 @@ mod tests {
         }
         assert!(matches!(
             check(&p, "https://mapped.example/"),
-            Err(BlockReason::Address { class: AddressClass::Private, .. })
+            Err(BlockReason::Address {
+                class: AddressClass::Private,
+                ..
+            })
         ));
         assert!(matches!(
             check(&p, "https://meta.example/"),
-            Err(BlockReason::Address { class: AddressClass::LinkLocal, .. })
+            Err(BlockReason::Address {
+                class: AddressClass::LinkLocal,
+                ..
+            })
         ));
         // No answer fails closed.
         assert_eq!(
             check(&p, "https://nowhere.example/"),
-            Err(BlockReason::Unresolved { host: "nowhere.example".into() })
+            Err(BlockReason::Unresolved {
+                host: "nowhere.example".into()
+            })
         );
     }
 
@@ -927,7 +966,10 @@ mod tests {
         }
         // Inert: about:blank, data:/blob: subresources. data: documents are blocked.
         assert_eq!(check(&p, "about:blank"), Ok(()));
-        assert_eq!(block_on(p.check("data:image/png;base64,AA==", "Image")), Ok(()));
+        assert_eq!(
+            block_on(p.check("data:image/png;base64,AA==", "Image")),
+            Ok(())
+        );
         assert!(matches!(
             block_on(p.check("data:text/html,<h1>x</h1>", "Document")),
             Err(BlockReason::Scheme(_))
@@ -979,7 +1021,9 @@ mod tests {
         assert_eq!(check(&p, "https://public.example/"), Ok(()));
 
         // Opting out of the hard block makes link-local overridable.
-        let p = offline().hard_block_link_local(false).allow_host("169.254.169.254");
+        let p = offline()
+            .hard_block_link_local(false)
+            .allow_host("169.254.169.254");
         assert_eq!(check(&p, "http://169.254.169.254/"), Ok(()));
     }
 
@@ -993,7 +1037,9 @@ mod tests {
         let p = offline().allow_host("Rebind.Example.");
         assert_eq!(check(&p, "https://rebind.example/"), Ok(()));
         // Even listed, a link-local destination stays blocked.
-        let p = offline().allow_host("meta.example").allow_class(AddressClass::LinkLocal);
+        let p = offline()
+            .allow_host("meta.example")
+            .allow_class(AddressClass::LinkLocal);
         assert!(check(&p, "https://meta.example/").is_err());
     }
 
@@ -1001,7 +1047,10 @@ mod tests {
     fn pin_only_connects_to_vetted_addresses() {
         let p = offline();
         // Public host pins.
-        assert_eq!(block_on(p.pin("public.example")).unwrap(), vec![ip("93.184.216.34")]);
+        assert_eq!(
+            block_on(p.pin("public.example")).unwrap(),
+            vec![ip("93.184.216.34")]
+        );
         // Private resolution that the request check never approved is refused at connect time.
         assert!(block_on(p.pin("rebind.example")).is_err());
         assert!(block_on(p.pin("dev.example")).is_err());
@@ -1010,7 +1059,10 @@ mod tests {
         // After an explicit per-request allow, exactly those addresses pin.
         let p = offline().allow_with(|r: &BrowserRequest| r.host == "dev.example");
         assert_eq!(check(&p, "https://dev.example/"), Ok(()));
-        assert_eq!(block_on(p.pin("dev.example")).unwrap(), vec![ip("127.0.0.1")]);
+        assert_eq!(
+            block_on(p.pin("dev.example")).unwrap(),
+            vec![ip("127.0.0.1")]
+        );
     }
 
     #[test]
@@ -1032,7 +1084,10 @@ mod tests {
         p.resolved.lock().unwrap().clear(); // simulate TTL expiry
         assert!(matches!(
             block_on(p.pin("flip.example")),
-            Err(BlockReason::Address { class: AddressClass::Private, .. })
+            Err(BlockReason::Address {
+                class: AddressClass::Private,
+                ..
+            })
         ));
     }
 
@@ -1049,16 +1104,26 @@ mod tests {
         let e2 = events.clone();
         let g = Guard {
             session_id: "bs-test".into(),
-            admission: Some(Arc::new(|_req| Box::pin(async { Decision::Deny("needs approval".into()) }))),
+            admission: Some(Arc::new(|_req| {
+                Box::pin(async { Decision::Deny("needs approval".into()) })
+            })),
             network: offline(),
-            events: Some(Arc::new(move |e: &BrowserEvent| e2.lock().unwrap().push(e.clone()))),
+            events: Some(Arc::new(move |e: &BrowserEvent| {
+                e2.lock().unwrap().push(e.clone())
+            })),
         };
         let before = SystemTime::now();
         let err = block_on(g.check_url(Some("p1"), "http://10.0.0.1/", "Navigation")).unwrap_err();
         match err {
             crate::BrowserError::Blocked(d) => {
                 assert_eq!(d.resource_type, "Navigation");
-                assert!(matches!(d.reason, BlockReason::Address { class: AddressClass::Private, .. }));
+                assert!(matches!(
+                    d.reason,
+                    BlockReason::Address {
+                        class: AddressClass::Private,
+                        ..
+                    }
+                ));
             }
             other => panic!("{other:?}"),
         }

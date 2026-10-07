@@ -1,7 +1,8 @@
 //! Chrome as an owned child. Spawned through `rightkit-process` so it is a
 //! process-group leader on Unix and a Windows job object member
-//! (KILL_ON_JOB_CLOSE, no breakaway); a parent-death watchdog covers a host
-//! that dies without running destructors.
+//! (KILL_ON_JOB_CLOSE, no breakaway), bound first to the caller's own job when one
+//! is supplied; a parent-death watchdog covers a host that dies without running
+//! destructors on Unix.
 use crate::error::{BrowserError, Result};
 use rightkit_process::{OwnedChild, OwnedCommand};
 use std::io::{BufRead, BufReader};
@@ -16,9 +17,28 @@ pub(crate) struct ChromeProc {
     pub ws_url: String,
 }
 
-pub(crate) fn spawn_chrome(exe: &Path, args: &[String], timeout: Duration) -> Result<ChromeProc> {
+/// The caller's job object to bind Chrome to (Windows only).
+#[cfg(windows)]
+pub(crate) type CallerJob = Option<std::sync::Arc<std::os::windows::io::OwnedHandle>>;
+#[cfg(not(windows))]
+pub(crate) type CallerJob = Option<std::convert::Infallible>;
+
+pub(crate) fn spawn_chrome(
+    exe: &Path,
+    args: &[String],
+    timeout: Duration,
+    job: CallerJob,
+) -> Result<ChromeProc> {
     let mut cmd = OwnedCommand::new(exe);
     cmd.windows_hide();
+    #[cfg(windows)]
+    if let Some(job) = &job {
+        use std::os::windows::io::AsHandle;
+        cmd.windows_job(job.as_handle())
+            .map_err(|e| BrowserError::Launch(e.to_string()))?;
+    }
+    #[cfg(not(windows))]
+    let _ = job;
     cmd.command_mut()
         .args(args)
         .stdin(Stdio::null())

@@ -52,7 +52,9 @@ pub struct BrowserSession {
 }
 
 impl BrowserSession {
-    pub async fn launch(opts: LaunchOptions) -> Result<Self> {
+    pub async fn launch(
+        #[cfg_attr(not(windows), allow(unused_mut))] mut opts: LaunchOptions,
+    ) -> Result<Self> {
         validate_extra_args(&opts.extra_args)?;
         let exe = opts
             .chrome_path
@@ -161,8 +163,12 @@ impl BrowserSession {
         }
         args.push("about:blank".into());
         let launch_timeout = opts.launch_timeout;
+        #[cfg(windows)]
+        let job = opts.windows_job.take();
+        #[cfg(not(windows))]
+        let job = None;
         let proc = tokio::task::spawn_blocking(move || {
-            crate::proc::spawn_chrome(&exe, &args, launch_timeout)
+            crate::proc::spawn_chrome(&exe, &args, launch_timeout, job)
         })
         .await
         .map_err(|e| BrowserError::Launch(e.to_string()))??;
@@ -173,8 +179,12 @@ impl BrowserSession {
         let proc = Arc::new(StdMutex::new(Some(proc)));
         let stopping = Arc::new(AtomicBool::new(false));
         let crashed = Arc::new(AtomicBool::new(false));
-        let (pump_proc, pump_stopping, pump_guard, pump_crashed) =
-            (proc.clone(), stopping.clone(), guard.clone(), crashed.clone());
+        let (pump_proc, pump_stopping, pump_guard, pump_crashed) = (
+            proc.clone(),
+            stopping.clone(),
+            guard.clone(),
+            crashed.clone(),
+        );
         let pump = tokio::spawn(async move {
             // Transient handler errors are tolerated while Chrome is alive; the
             // stream ending (or Chrome exiting) ends the session.
@@ -201,8 +211,12 @@ impl BrowserSession {
             report_crash(&pump_guard, &pump_stopping, &pump_crashed, status, pid);
         });
         // The CDP stream does not always end when Chrome dies, so also watch the process.
-        let (w_proc, w_stopping, w_crashed, w_guard) =
-            (proc.clone(), stopping.clone(), crashed.clone(), guard.clone());
+        let (w_proc, w_stopping, w_crashed, w_guard) = (
+            proc.clone(),
+            stopping.clone(),
+            crashed.clone(),
+            guard.clone(),
+        );
         let watcher = tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -227,7 +241,9 @@ impl BrowserSession {
             .map_err(cdp)?;
 
         let mode = if opts.headless { "headless" } else { "headed" };
-        guard.emit_kind(LifecycleKind::Start, format!("launched ({mode})"), |e| e.pid = pid);
+        guard.emit_kind(LifecycleKind::Start, format!("launched ({mode})"), |e| {
+            e.pid = pid
+        });
         Ok(Self {
             id,
             browser: Mutex::new(browser),

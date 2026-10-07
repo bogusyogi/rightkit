@@ -1,7 +1,7 @@
 //! Shared sandbox + PTY + process-tree + resource authority for Right Suite apps.
 //!
 //! * [`Sandbox::spawn`] confines a child to a [`SandboxPolicy`] (macOS Seatbelt,
-//!   Linux Landlock/seccomp; Windows fails closed for confinement and gets a Job Object).
+//!   Linux Landlock/seccomp, Windows AppContainer inside a kill-on-close Job Object).
 //! * [`Sandbox::spawn_pty`] gives a PTY child with lease-epoch input fencing ([`PtySession`]).
 //! * [`process_tree`] enumerates and kills whole process trees (bounded).
 //! * [`ResourceAuthority`] reserves capacity before any process exists; `Strict` denies.
@@ -19,6 +19,8 @@ mod spawn;
 mod linux;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
+#[cfg(windows)]
+mod windows_appcontainer;
 #[cfg(windows)]
 mod windows_job;
 

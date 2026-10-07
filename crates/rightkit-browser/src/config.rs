@@ -37,6 +37,10 @@ pub struct LaunchOptions {
     pub network: NetworkPolicy,
     /// Receives start/stop/crash/denied lifecycle events (session id, reason, time).
     pub on_event: Option<EventSink>,
+    /// Windows: the caller's job object (see [`Self::windows_job`]). Chromium and every
+    /// helper it starts are bound to it; a clone of these options keeps the duplicate open.
+    #[cfg(windows)]
+    pub windows_job: Option<std::sync::Arc<std::os::windows::io::OwnedHandle>>,
 }
 
 impl std::fmt::Debug for LaunchOptions {
@@ -65,6 +69,8 @@ impl Default for LaunchOptions {
             admission: None,
             network: NetworkPolicy::default(),
             on_event: None,
+            #[cfg(windows)]
+            windows_job: None,
         }
     }
 }
@@ -88,6 +94,19 @@ impl LaunchOptions {
     ) -> Self {
         self.on_event = Some(std::sync::Arc::new(f));
         self
+    }
+    /// Windows: bind Chromium to the caller's job object (an in-process host's own job).
+    /// Chromium joins it before running its first instruction, beneath RightKit's own
+    /// kill-on-close jobs, none of which allow breakaway: terminating or closing the
+    /// caller's job kills the browser and all of its helpers. The handle is duplicated; the
+    /// session closes its duplicate as soon as Chromium has been bound.
+    #[cfg(windows)]
+    pub fn windows_job(
+        mut self,
+        job: std::os::windows::io::BorrowedHandle<'_>,
+    ) -> std::io::Result<Self> {
+        self.windows_job = Some(std::sync::Arc::new(job.try_clone_to_owned()?));
+        Ok(self)
     }
     pub fn named_profile(mut self, root: impl Into<PathBuf>, name: impl Into<String>) -> Self {
         self.profile = ProfileSpec::Named {

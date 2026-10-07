@@ -3,8 +3,7 @@
 //! requests that actually reach them, so "blocked" means the server never saw it.
 use rightkit_browser::{
     ActionKind, AddressClass, AdmissionHook, BlockReason, BrowserError, BrowserSession, Decision,
-    LaunchOptions, LifecycleKind,
-    NetworkPolicy, Target,
+    LaunchOptions, LifecycleKind, NetworkPolicy, Target,
 };
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -12,6 +11,10 @@ use std::net::TcpListener;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Each test drives real Chrome processes and asserts on process lifetimes with tight
+/// bounds; run them one at a time so parallel browsers cannot starve each other.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Clone)]
 struct Fixture {
@@ -108,6 +111,7 @@ async fn wait_gone(marker: &str) -> Vec<u32> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn default_policy_blocks_before_any_request_and_callback_allows() {
+    let _serial = SERIAL.lock().await;
     let fx = Fixture::start(None, None);
     let denied: Arc<Mutex<Vec<String>>> = Arc::default();
     let d = denied.clone();
@@ -156,6 +160,7 @@ async fn default_policy_blocks_before_any_request_and_callback_allows() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn redirects_and_subresources_are_blocked_in_the_browser() {
+    let _serial = SERIAL.lock().await;
     // `secret` is a loopback service the policy never allows.
     let secret = Fixture::start(None, None);
     let allowed = Fixture::start(
@@ -211,6 +216,7 @@ async fn redirects_and_subresources_are_blocked_in_the_browser() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn admission_denies_before_side_effect_and_sees_typed_requests() {
+    let _serial = SERIAL.lock().await;
     let fx = Fixture::start(None, None);
     // (action, url, target) for every admission request.
     type Seen = Arc<Mutex<Vec<(ActionKind, Option<String>, Option<String>)>>>;
@@ -271,6 +277,7 @@ async fn admission_denies_before_side_effect_and_sees_typed_requests() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn profiles_are_isolated_and_never_the_real_browser_profile() {
+    let _serial = SERIAL.lock().await;
     let fx = Fixture::start(None, None);
     let opts =
         || LaunchOptions::default().network(NetworkPolicy::default().allow_host("127.0.0.1"));
@@ -327,6 +334,7 @@ async fn profiles_are_isolated_and_never_the_real_browser_profile() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn chromium_child_is_owned_and_dies_on_shutdown_cancel_and_drop() {
+    let _serial = SERIAL.lock().await;
     let opts = || LaunchOptions::default();
     // Graceful shutdown.
     let s = BrowserSession::launch(opts()).await.unwrap();
@@ -378,7 +386,12 @@ fn recording() -> (Events, LaunchOptions) {
 async fn wait_kind(ev: &Events, kind: LifecycleKind) -> bool {
     let end = Instant::now() + Duration::from_secs(10);
     while Instant::now() < end {
-        if ev.lock().unwrap_or_else(|p| p.into_inner()).iter().any(|e| e.kind == kind) {
+        if ev
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .any(|e| e.kind == kind)
+        {
             return true;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -388,6 +401,7 @@ async fn wait_kind(ev: &Events, kind: LifecycleKind) -> bool {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_start_stop_and_crash_events_carry_session_reason_and_time() {
+    let _serial = SERIAL.lock().await;
     // Start, then a graceful stop: exactly one of each, no crash.
     let (ev, opts) = recording();
     let s = BrowserSession::launch(opts).await.unwrap();
@@ -398,7 +412,11 @@ async fn lifecycle_start_stop_and_crash_events_carry_session_reason_and_time() {
     {
         let ev = ev.lock().unwrap();
         let kinds: Vec<_> = ev.iter().map(|e| e.kind).collect();
-        assert_eq!(kinds, vec![LifecycleKind::Start, LifecycleKind::Stop], "{ev:?}");
+        assert_eq!(
+            kinds,
+            vec![LifecycleKind::Start, LifecycleKind::Stop],
+            "{ev:?}"
+        );
         for e in ev.iter() {
             assert_eq!(e.session_id, sid);
             assert!(!e.reason.is_empty());
@@ -415,7 +433,9 @@ async fn lifecycle_start_stop_and_crash_events_carry_session_reason_and_time() {
     #[cfg(unix)]
     let _ = Command::new("kill").args(["-9", &pid]).status();
     #[cfg(windows)]
-    let _ = Command::new("taskkill").args(["/F", "/T", "/PID", &pid]).status();
+    let _ = Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &pid])
+        .status();
     let got = wait_kind(&ev, LifecycleKind::Crash).await;
     let seen = format!("{:?}", ev.lock().unwrap());
     assert!(got, "no crash event: {seen}");
@@ -424,9 +444,15 @@ async fn lifecycle_start_stop_and_crash_events_carry_session_reason_and_time() {
         let ev = ev.lock().unwrap();
         let crash = ev.iter().find(|e| e.kind == LifecycleKind::Crash).unwrap();
         assert_eq!(crash.session_id, s.id());
-        assert!(crash.reason.contains("exited") || crash.reason.contains("lost"), "{crash:?}");
+        assert!(
+            crash.reason.contains("exited") || crash.reason.contains("lost"),
+            "{crash:?}"
+        );
         assert_eq!(ev.last().unwrap().kind, LifecycleKind::Stop);
-        assert_eq!(ev.iter().filter(|e| e.kind == LifecycleKind::Crash).count(), 1);
+        assert_eq!(
+            ev.iter().filter(|e| e.kind == LifecycleKind::Crash).count(),
+            1
+        );
     }
 
     // Renderer crash on one page: a page-scoped crash event.
@@ -436,7 +462,10 @@ async fn lifecycle_start_stop_and_crash_events_carry_session_reason_and_time() {
         .unwrap();
     let p = s.new_page("about:blank").await.unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(5), p.goto("chrome://crash")).await;
-    assert!(wait_kind(&ev, LifecycleKind::Crash).await, "no renderer crash event");
+    assert!(
+        wait_kind(&ev, LifecycleKind::Crash).await,
+        "no renderer crash event"
+    );
     {
         let ev = ev.lock().unwrap();
         let crash = ev.iter().find(|e| e.kind == LifecycleKind::Crash).unwrap();
@@ -448,21 +477,37 @@ async fn lifecycle_start_stop_and_crash_events_carry_session_reason_and_time() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn new_tab_and_denied_events_are_typed() {
+    let _serial = SERIAL.lock().await;
     let (ev, opts) = recording();
     let s = BrowserSession::launch(opts).await.unwrap();
-    let err = s.new_page("http://169.254.169.254/latest/meta-data/").await.err().unwrap();
+    let err = s
+        .new_page("http://169.254.169.254/latest/meta-data/")
+        .await
+        .err()
+        .unwrap();
     match err {
         BrowserError::Blocked(d) => {
             assert_eq!(d.resource_type, "Navigation");
-            assert!(matches!(d.reason, BlockReason::Address { class: AddressClass::LinkLocal, .. }));
+            assert!(matches!(
+                d.reason,
+                BlockReason::Address {
+                    class: AddressClass::LinkLocal,
+                    ..
+                }
+            ));
         }
         other => panic!("{other:?}"),
     }
     let err = s.new_page("file:///etc/hosts").await.err().unwrap();
-    assert!(matches!(err, BrowserError::Blocked(ref d) if matches!(d.reason, BlockReason::Scheme(_))));
+    assert!(
+        matches!(err, BrowserError::Blocked(ref d) if matches!(d.reason, BlockReason::Scheme(_)))
+    );
     {
         let ev = ev.lock().unwrap();
-        let denied: Vec<_> = ev.iter().filter(|e| e.kind == LifecycleKind::Denied).collect();
+        let denied: Vec<_> = ev
+            .iter()
+            .filter(|e| e.kind == LifecycleKind::Denied)
+            .collect();
         assert_eq!(denied.len(), 2, "{ev:?}");
         for e in denied {
             assert_eq!(e.session_id, s.id());
@@ -475,6 +520,7 @@ async fn new_tab_and_denied_events_are_typed() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cross_site_iframe_and_subresources_are_intercepted() {
+    let _serial = SERIAL.lock().await;
     // `localhost` and `127.0.0.1` are different sites, so the iframe is genuinely cross-site.
     let other = Fixture::start(None, None);
     let other_origin = format!("http://localhost:{}", other.port);
@@ -536,6 +582,7 @@ async fn cross_site_iframe_and_subresources_are_intercepted() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dns_answer_is_resolved_once_and_pinned() {
+    let _serial = SERIAL.lock().await;
     let fx = Fixture::start(None, None);
     let port = fx.port;
 
@@ -548,9 +595,9 @@ async fn dns_answer_is_resolved_once_and_pinned() {
         NetworkPolicy::default()
             .allow_class(AddressClass::Reserved)
             .with_resolver(move |host| {
-            assert_eq!(host, "rebind.example");
-            let mut n = c.lock().unwrap();
-            *n += 1;
+                assert_eq!(host, "rebind.example");
+                let mut n = c.lock().unwrap();
+                *n += 1;
                 if *n == 1 {
                     vec!["203.0.113.9".parse().unwrap()]
                 } else {
@@ -614,6 +661,7 @@ async fn dns_answer_is_resolved_once_and_pinned() {
 /// Child half of `host_death_kills_chrome`: only acts when re-executed by it.
 #[tokio::test(flavor = "multi_thread")]
 async fn host_for_sigkill() {
+    let _serial = SERIAL.lock().await;
     if std::env::var_os("RK_SIGKILL_HOST").is_none() {
         return;
     }
@@ -632,6 +680,7 @@ async fn host_for_sigkill() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn host_death_kills_chrome_without_destructors() {
+    let _serial = SERIAL.lock().await;
     use std::io::{BufRead, BufReader};
     use std::process::Stdio;
     let mut host = Command::new(std::env::current_exe().unwrap())
@@ -674,4 +723,77 @@ async fn host_death_kills_chrome_without_destructors() {
         );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+}
+
+/// CodeRight's InlineHost owns a job object; Chromium and every helper must live in it and
+/// die when the host terminates or closes it, with no breakaway.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn chromium_joins_the_callers_job_and_dies_when_the_caller_closes_it() {
+    let _serial = SERIAL.lock().await;
+    use std::ffi::c_void;
+    use std::os::windows::io::{AsHandle, AsRawHandle, FromRawHandle, OwnedHandle};
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateJobObjectW(attributes: *const c_void, name: *const u16) -> *mut c_void;
+        fn SetInformationJobObject(
+            job: *mut c_void,
+            class: u32,
+            info: *const c_void,
+            len: u32,
+        ) -> i32;
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+        fn IsProcessInJob(process: *mut c_void, job: *mut c_void, result: *mut i32) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    // JOBOBJECT_EXTENDED_LIMIT_INFORMATION (144 bytes on x64); LimitFlags sits at byte 16.
+    let job = unsafe {
+        let raw = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        assert!(!raw.is_null());
+        let mut info = [0u64; 18];
+        info[2] = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        assert_ne!(
+            SetInformationJobObject(raw, 9, info.as_ptr().cast(), 144),
+            0
+        );
+        OwnedHandle::from_raw_handle(raw)
+    };
+    let in_job = |pid: u32| unsafe {
+        let process = OpenProcess(0x1000, 0, pid);
+        if process.is_null() {
+            return None; // already gone
+        }
+        let mut inside = 0;
+        IsProcessInJob(process, job.as_raw_handle(), &mut inside);
+        CloseHandle(process);
+        Some(inside != 0)
+    };
+
+    let s = BrowserSession::launch(
+        LaunchOptions::default()
+            .windows_job(job.as_handle())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let marker = s.profile_dir().to_string_lossy().to_string();
+    let _p = s.new_page("about:blank").await.unwrap();
+    let pids = pids_for(&marker);
+    assert!(pids.len() >= 2, "browser plus helpers expected: {pids:?}");
+    for pid in &pids {
+        assert_ne!(
+            in_job(*pid),
+            Some(false),
+            "chromium process {pid} is outside the caller's job"
+        );
+    }
+
+    // The caller closes its job while the session is still alive: everything dies.
+    drop(job);
+    assert!(
+        wait_gone(&marker).await.is_empty(),
+        "chromium survived the caller closing its job"
+    );
+    drop(_p);
+    drop(s);
 }

@@ -24,8 +24,8 @@ pub use error::{BrowserError, Result};
 pub use page::{BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, Target};
 pub use policy::{
     classify_ip, ActionKind, AddressClass, AdmissionHook, AdmissionRequest, AllowCallback,
-    BlockReason, BlockedRequest, BrowserEvent, BrowserRequest, Decision, EventSink,
-    LifecycleKind, NetworkPolicy, NetworkRequest, PolicyDecision, PolicyDenial, Resolver,
+    BlockReason, BlockedRequest, BrowserEvent, BrowserRequest, Decision, EventSink, LifecycleKind,
+    NetworkPolicy, NetworkRequest, PolicyDecision, PolicyDenial, Resolver,
 };
 pub use proxy::PinnedConnection;
 pub use session::BrowserSession;

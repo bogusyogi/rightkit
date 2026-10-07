@@ -18,13 +18,21 @@ pub struct Sandbox {
 /// A supervised child: its resource reservation is held until drop, and drop
 /// kills the whole process tree (via `rightkit-process` ownership).
 pub struct SandboxedChild {
-    inner: rightkit_process::OwnedChild,
-    stdout: Option<std::process::ChildStdout>,
-    stderr: Option<std::process::ChildStderr>,
+    inner: Inner,
+    stdout: Option<Box<dyn Read + Send>>,
+    stderr: Option<Box<dyn Read + Send>>,
     source: DenialSource,
     _reservation: Reservation,
     #[cfg(windows)]
     _job: Option<crate::windows_job::WindowsJob>,
+}
+
+/// Supervised children are std processes; confined Windows children are created directly
+/// through `CreateProcessW` (the only way to enter an AppContainer).
+enum Inner {
+    Owned(rightkit_process::OwnedChild),
+    #[cfg(windows)]
+    Confined(crate::windows_appcontainer::ConfinedChild),
 }
 
 /// Collected result of [`SandboxedChild::wait_with_output`].
@@ -89,15 +97,30 @@ impl Sandbox {
         policy.validate()?;
         validate_command(&command)?;
         let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
-        // windowless: `finish` spawns it through OwnedCommand (CREATE_NO_WINDOW on Windows).
-        let mut cmd = Command::new(&command.program);
-        cmd.args(&command.args);
-        if let Some(cwd) = &command.cwd {
-            cmd.current_dir(cwd);
+        #[cfg(windows)]
+        {
+            let spawned = crate::windows_appcontainer::spawn(policy, &command)?;
+            Ok(SandboxedChild {
+                inner: Inner::Confined(spawned.child),
+                stdout: Some(Box::new(spawned.stdout)),
+                stderr: Some(Box::new(spawned.stderr)),
+                source: DenialSource::WindowsAppContainer,
+                _reservation: reservation,
+                _job: None,
+            })
         }
-        apply_env(&mut cmd, &policy.env, &command.env);
-        let source = confine(&mut cmd, policy)?;
-        finish(cmd, reservation, source)
+        #[cfg(not(windows))]
+        {
+            // windowless: `finish` spawns it through OwnedCommand (CREATE_NO_WINDOW on Windows).
+            let mut cmd = Command::new(&command.program);
+            cmd.args(&command.args);
+            if let Some(cwd) = &command.cwd {
+                cmd.current_dir(cwd);
+            }
+            apply_env(&mut cmd, &policy.env, &command.env);
+            let source = confine(&mut cmd, policy)?;
+            finish(cmd, reservation, source)
+        }
     }
 
     /// Reserve and spawn without filesystem/network confinement but with whole-tree
@@ -187,10 +210,10 @@ fn confine(cmd: &mut Command, policy: &SandboxPolicy) -> Result<DenialSource, Sa
     Ok(DenialSource::LinuxLandlockSeccomp)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 fn confine(_cmd: &mut Command, _policy: &SandboxPolicy) -> Result<DenialSource, SandboxError> {
     Err(SandboxError::Unsupported(
-        "no confinement backend on this platform (Windows AppContainer port pending); use spawn_supervised".into(),
+        "no confinement backend on this platform; use spawn_supervised".into(),
     ))
 }
 
@@ -210,9 +233,13 @@ fn finish(
         .and_then(|j| j.assign_process_id(child.id()).map(|_| j))
         .ok();
     Ok(SandboxedChild {
-        stdout: child.take_stdout(),
-        stderr: child.take_stderr(),
-        inner: child,
+        stdout: child
+            .take_stdout()
+            .map(|r| Box::new(r) as Box<dyn Read + Send>),
+        stderr: child
+            .take_stderr()
+            .map(|r| Box::new(r) as Box<dyn Read + Send>),
+        inner: Inner::Owned(child),
         source,
         _reservation: reservation,
         #[cfg(windows)]
@@ -220,28 +247,54 @@ fn finish(
     })
 }
 
+impl Inner {
+    fn wait_timeout(&mut self, timeout: Duration) -> std::io::Result<Option<ExitStatus>> {
+        match self {
+            Self::Owned(c) => c.wait_timeout(timeout),
+            #[cfg(windows)]
+            Self::Confined(c) => c.wait_timeout(timeout),
+        }
+    }
+}
+
 impl SandboxedChild {
     pub fn id(&self) -> u32 {
-        self.inner.id()
+        match &self.inner {
+            Inner::Owned(c) => c.id(),
+            #[cfg(windows)]
+            Inner::Confined(c) => c.id(),
+        }
     }
 
     pub fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
-        self.inner.try_wait()
+        match &mut self.inner {
+            Inner::Owned(c) => c.try_wait(),
+            #[cfg(windows)]
+            Inner::Confined(c) => c.try_wait(),
+        }
     }
 
     pub fn wait(&mut self) -> std::io::Result<ExitStatus> {
-        self.inner.wait()
+        match &mut self.inner {
+            Inner::Owned(c) => c.wait(),
+            #[cfg(windows)]
+            Inner::Confined(c) => c.wait(),
+        }
     }
 
     /// Kill the child and every descendant (including ones that left the process group).
     pub fn terminate_tree(&mut self) -> std::io::Result<ExitStatus> {
         let _ = process_tree::kill_tree(self.id(), Duration::from_millis(200));
-        self.inner.terminate_tree()
+        match &mut self.inner {
+            Inner::Owned(c) => c.terminate_tree(),
+            #[cfg(windows)]
+            Inner::Confined(c) => c.terminate_tree(),
+        }
     }
 
     /// Wait up to `timeout`, collecting stdout/stderr. On timeout the whole tree is killed.
     pub fn wait_with_output(mut self, timeout: Duration) -> std::io::Result<SandboxOutput> {
-        fn drain<R: Read + Send + 'static>(r: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+        fn drain(r: Option<Box<dyn Read + Send>>) -> std::thread::JoinHandle<Vec<u8>> {
             std::thread::spawn(move || {
                 let mut buf = Vec::new();
                 if let Some(mut r) = r {

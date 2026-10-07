@@ -1,9 +1,6 @@
 use crate::error::{cdp, BrowserError, Result};
 use crate::keys::{self, KeyDef};
 use crate::policy::{ActionKind, AdmissionRequest, BlockedRequest, Guard, LifecycleKind};
-use chromiumoxide::cdp::browser_protocol::inspector::{
-    EnableParams as InspectorEnableParams, EventTargetCrashed,
-};
 use chromiumoxide::cdp::browser_protocol::dom::SetFileInputFilesParams;
 use chromiumoxide::cdp::browser_protocol::fetch::{
     ContinueRequestParams, EnableParams as FetchEnableParams, EventRequestPaused,
@@ -12,6 +9,9 @@ use chromiumoxide::cdp::browser_protocol::fetch::{
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
     MouseButton,
+};
+use chromiumoxide::cdp::browser_protocol::inspector::{
+    EnableParams as InspectorEnableParams, EventTargetCrashed,
 };
 use chromiumoxide::cdp::browser_protocol::network::ErrorReason;
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;

@@ -1,13 +1,12 @@
-//! Windows Job Object lifecycle, ported from CodeRight `windows_job.rs`.
-//! AppContainer filesystem/network confinement is NOT ported yet: `Sandbox::spawn`
-//! fails closed on Windows when confinement is requested (see matrix.md).
-//! Compiled only on Windows; unverified on this macOS host.
+//! Windows Job Object lifecycle, ported from CodeRight `windows_job.rs`. Every sandboxed
+//! child lives in one (kill-on-close, bounded active processes); AppContainer confinement
+//! (`windows_appcontainer.rs`) adds the filesystem/network boundary on top.
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
@@ -62,6 +61,11 @@ impl WindowsJob {
             let _ = CloseHandle(process);
         }
         r.map_err(err)
+    }
+
+    /// Kill every process in the job.
+    pub fn terminate(&self) -> std::io::Result<()> {
+        unsafe { TerminateJobObject(self.handle, 1) }.map_err(err)
     }
 }
 
