@@ -1139,8 +1139,26 @@ impl AppContainerProfile {
         if under(&system32) || program_files {
             return Ok(());
         }
-        self.lease(&dir, false)
-            .map_err(|e| step_error(format!("lease image dir {}", dir.display()), e))
+        let target = image_lease_target(program, &dir);
+        self.lease(&target, false)
+            .map_err(|e| step_error(format!("lease image {}", target.display()), e))
+    }
+}
+
+/// Directories larger than this get a lease on the image file alone: an inherited grant on
+/// a huge tree (a cargo `target\deps`) propagates to every entry on each lease and revoke.
+const IMAGE_DIR_LEASE_MAX_ENTRIES: usize = 8192;
+
+fn image_lease_target(program: &Path, dir: &Path) -> PathBuf {
+    let large = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries.take(IMAGE_DIR_LEASE_MAX_ENTRIES + 1).count() > IMAGE_DIR_LEASE_MAX_ENTRIES
+        })
+        .unwrap_or(false);
+    if large {
+        program.to_path_buf()
+    } else {
+        dir.to_path_buf()
     }
 }
 
@@ -1482,7 +1500,13 @@ pub(crate) fn spawn(
     policy: &SandboxPolicy,
     command: &SandboxCommand,
 ) -> Result<ConfinedSpawn, SandboxError> {
+    // Launch and lease the real image: version managers (nvm-windows, volta, scoop) expose
+    // tools through links whose link objects the container cannot use and the user cannot
+    // re-ACL.
     let program = resolve_program(&command.program)?;
+    let program = std::fs::canonicalize(&program)
+        .map(|p| plain_path(&p))
+        .unwrap_or(program);
     let grants = canonical_grants(policy)?;
     let mut key: Vec<String> = grants
         .iter()
@@ -1746,6 +1770,22 @@ mod tests {
         assert!(entries
             .iter()
             .any(|e| e.starts_with("NODE_OPTIONS=--preserve-symlinks")));
+    }
+
+    #[test]
+    fn huge_image_dirs_lease_only_the_image() {
+        let base = std::env::temp_dir().join(format!("rk-image-lease-{}", std::process::id()));
+        let (small, large) = (base.join("small"), base.join("large"));
+        std::fs::create_dir_all(&small).unwrap();
+        std::fs::create_dir_all(&large).unwrap();
+        for i in 0..=IMAGE_DIR_LEASE_MAX_ENTRIES {
+            std::fs::File::create(large.join(format!("f{i}"))).unwrap();
+        }
+        let (small_exe, large_exe) = (small.join("tool.exe"), large.join("f0"));
+        std::fs::File::create(&small_exe).unwrap();
+        assert_eq!(image_lease_target(&small_exe, &small), small);
+        assert_eq!(image_lease_target(&large_exe, &large), large_exe);
+        std::fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
