@@ -4,6 +4,10 @@ use thiserror::Error;
 pub enum BrowserError {
     #[error("no Chrome, Chromium, or Edge executable found")]
     ChromeNotFound,
+    /// Chrome for Testing was not found (or an explicit path is missing); carries what was
+    /// searched and how to install it.
+    #[error("Chrome for Testing not found: {0}")]
+    ChromeForTestingNotFound(String),
     #[error("launch failed: {0}")]
     Launch(String),
     #[error("profile error: {0}")]

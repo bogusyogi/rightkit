@@ -4,6 +4,15 @@
 //! client is tested against the wire format and not against itself.
 //!
 //! `hr_fake_host <suite-root> <role> <protocol-minor> <state-dir> [--wait-free]`
+//! (minor >= 2 also advertises `file_transcription_verbatim`; minor >= 3 the job queue)
+//!
+//! Minor >= 3 queue contract: every file request is answered at once with a
+//! `queued` frame carrying `job_id`/`position`/`reason`, state is re-sent every
+//! 200 ms, request ids are idempotent (resubmits attach; finished jobs replay
+//! their result), and `file_transcription_status` answers one frame.
+//!   `*queue*` queued 1 behind_jobs -> queued 0 dictation_active -> running -> result (400 ms each)
+//!   `*hang*`  stays queued until `<state-dir>/finish` exists, then runs and answers
+//! Every minor-3 file request id is appended to `<state-dir>/request_ids`.
 //!
 //! Behaviour is selected by the requested file name:
 //!   `*handoff*`   first request per state-dir gets `speech_service_host_handoff`
@@ -22,13 +31,14 @@
 #[cfg(unix)]
 mod host {
     use serde_json::{json, Value};
+    use std::collections::HashMap;
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     const ROLES: [&str; 4] = [
@@ -37,11 +47,12 @@ mod host {
         "scrape_right",
         "cut_right",
     ];
-    const ALLOWED: [&str; 4] = [
+    const ALLOWED: [&str; 5] = [
         "engine_health",
         "engine_capabilities",
         "engine_info",
         "file_transcription_request",
+        "file_transcription_status",
     ];
     static TRACE: AtomicU64 = AtomicU64::new(1);
 
@@ -84,6 +95,8 @@ mod host {
         minor: u64,
         state: PathBuf,
         accepting: AtomicBool,
+        /// Minor 3: job id -> finished.
+        jobs: Mutex<HashMap<String, bool>>,
     }
 
     fn engines() -> Value {
@@ -188,6 +201,17 @@ mod host {
                             if cfg.minor >= 1 {
                                 p["engines"] = engines();
                             }
+                            if cfg.minor >= 2 {
+                                p["capabilities"] =
+                                    json!(["file_transcription", "file_transcription_verbatim"]);
+                            }
+                            if cfg.minor >= 3 {
+                                p["capabilities"] = json!([
+                                    "file_transcription",
+                                    "file_transcription_verbatim",
+                                    "file_transcription_queue"
+                                ]);
+                            }
                             frame("engine_capabilities", &rid, p, Value::Null)
                         }
                         ("engine_info", "engine_info") => frame(
@@ -196,6 +220,42 @@ mod host {
                             json!({"kind":"engine_info","mode":"speech_service","cold_load_s":1.5,"engine_version":"fake-hr-host/1"}),
                             Value::Null,
                         ),
+                        ("file_transcription_status", "file_transcription_status")
+                            if cfg.minor >= 3 =>
+                        {
+                            let id = v["payload"]["job_id"].as_str().unwrap_or("");
+                            match cfg.jobs.lock().unwrap().get(id) {
+                                Some(true) => result(&rid, &None),
+                                Some(false) => queued(&rid, id, 0, "behind_jobs"),
+                                None => error_frame(
+                                    &rid,
+                                    "speech_service_job_unknown",
+                                    "no such job",
+                                    false,
+                                ),
+                            }
+                        }
+                        ("file_transcription_request", "file_transcription_request")
+                            if cfg.minor >= 3
+                                && (v["payload"]["path"].as_str().is_some_and(|p| {
+                                    p.contains("queue") || p.contains("hang")
+                                })) =>
+                        {
+                            let path = v["payload"]["path"].as_str().unwrap().to_string();
+                            let _ = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(cfg.state.join("request_ids"))
+                                .and_then(|mut f| writeln!(f, "{rid}"));
+                            if cfg.jobs.lock().unwrap().get(&rid) == Some(&true) {
+                                result(&rid, &None)
+                            } else {
+                                cfg.jobs.lock().unwrap().insert(rid.clone(), false);
+                                job = Some((rid.clone(), path, Instant::now(), None));
+                                last_progress = Instant::now();
+                                queued(&rid, &rid, 1, "behind_jobs")
+                            }
+                        }
                         ("file_transcription_request", "file_transcription_request") => {
                             let Some(path) = v["payload"]["path"].as_str() else {
                                 let _ = writer.write_all(
@@ -294,6 +354,44 @@ mod host {
                     );
                 }
             }
+            if let Some((rid, path, started, _)) = job.clone().filter(|_| cfg.minor >= 3) {
+                if path.contains("queue") || path.contains("hang") {
+                    let t = started.elapsed();
+                    let hold = path.contains("hang") && !cfg.state.join("finish").exists();
+                    if !hold && (path.contains("hang") || t >= Duration::from_millis(1200)) {
+                        job = None;
+                        cfg.jobs.lock().unwrap().insert(rid.clone(), true);
+                        let _ = writer.write_all(result(&rid, &None).as_bytes());
+                        continue;
+                    }
+                    if last_progress.elapsed() >= Duration::from_millis(200) {
+                        last_progress = Instant::now();
+                        let out = if hold || t < Duration::from_millis(400) {
+                            queued(
+                                &rid,
+                                &rid,
+                                if hold { 0 } else { 1 },
+                                if hold {
+                                    "dictation_active"
+                                } else {
+                                    "behind_jobs"
+                                },
+                            )
+                        } else if t < Duration::from_millis(800) {
+                            queued(&rid, &rid, 0, "dictation_active")
+                        } else {
+                            frame(
+                                "file_transcription_progress",
+                                &rid,
+                                json!({"kind":"file_transcription_progress","job_id":rid,"state":"running","fraction":((t.as_secs_f64() - 0.8) / 0.4).min(0.99),"message":null}),
+                                Value::Null,
+                            )
+                        };
+                        let _ = writer.write_all(out.as_bytes());
+                    }
+                    continue;
+                }
+            }
             if let Some((rid, path, started, echo)) = job.clone() {
                 if path.contains("stall") {
                     continue;
@@ -325,6 +423,15 @@ mod host {
                 }
             }
         }
+    }
+
+    fn queued(rid: &str, job_id: &str, position: u32, reason: &str) -> String {
+        frame(
+            "file_transcription_progress",
+            rid,
+            json!({"kind":"file_transcription_progress","job_id":job_id,"state":"queued","position":position,"reason":reason,"fraction":null,"message":null}),
+            Value::Null,
+        )
     }
 
     fn result(rid: &str, echo: &Option<(String, Option<String>)>) -> String {
@@ -378,6 +485,7 @@ mod host {
             minor,
             state,
             accepting: AtomicBool::new(true),
+            jobs: Mutex::new(HashMap::new()),
         });
 
         let c = cfg.clone();

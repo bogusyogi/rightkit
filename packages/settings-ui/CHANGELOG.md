@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6 — 2026-10-07
+
+- Test-only: the real-browser e2e harness launches Chrome for Testing through `@rightkit/qa/chrome` (`RIGHTKIT_CHROME_FOR_TESTING` overrides; skips with install instructions when missing, never regular Chrome) and closes gracefully (CDP `Browser.close`, SIGTERM, SIGKILL last) with its temp profile removed. No runtime change.
+
 ## 0.2.5 — 2026-10-07
 
 - Model fit kinds `rental_only` and `api` (rightkit-models 0.2.0): labelled "Runs on a rented GPU" / "Runs through an API", and Download is disabled because there is no local backend.

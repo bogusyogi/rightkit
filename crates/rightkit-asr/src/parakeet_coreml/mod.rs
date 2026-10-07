@@ -344,6 +344,17 @@ impl CoreMlParakeet {
     /// for longer audio; a raw loop skips the quiet-cut search and welds words
     /// at every window boundary. Piece times are relative to the window start.
     pub fn transcribe_window(&self, audio: &[f32]) -> Result<(TranscriptionResult, DecodeStats)> {
+        self.transcribe_window_with(audio, self.options.detok)
+    }
+
+    /// [`transcribe_window`](Self::transcribe_window) with a per-call
+    /// detokenizer policy, so one loaded model serves cleaned dictation
+    /// (`strip_fillers: true`) and verbatim requests (`false`) alike.
+    pub fn transcribe_window_with(
+        &self,
+        audio: &[f32],
+        detok: DetokPolicy,
+    ) -> Result<(TranscriptionResult, DecodeStats)> {
         if audio.len() > self.win_samples {
             return Err(Error::Audio(format!(
                 "audio is {:.1}s but this primitive decodes at most one {:.1}s window; \
@@ -353,12 +364,18 @@ impl CoreMlParakeet {
             )));
         }
         let (hits, stats) = self.decode_window(audio, 0.0)?;
-        Ok((self.assemble(&hits), stats))
+        Ok((self.assemble_with(&hits, detok), stats))
     }
 
     /// Detokenize `(token_id, start_sec, duration_frames)` hits with the
     /// configured policy (N0, guarded digit boundaries, special-token skip).
     pub fn assemble(&self, hits: &[Hit]) -> TranscriptionResult {
+        self.assemble_with(hits, self.options.detok)
+    }
+
+    /// [`assemble`](Self::assemble) with an explicit policy. Text and word
+    /// timings both come from this one call, so they always follow the same policy.
+    pub fn assemble_with(&self, hits: &[Hit], detok: DetokPolicy) -> TranscriptionResult {
         let decoded: Vec<DecodedPiece> = hits
             .iter()
             .map(|&(id, start, dur_frames)| DecodedPiece {
@@ -368,7 +385,7 @@ impl CoreMlParakeet {
                 end: start + dur_frames as f32 * FRAME_SECONDS,
             })
             .collect();
-        assemble_timed_pieces(&decoded, self.options.detok)
+        assemble_timed_pieces(&decoded, detok)
     }
 
     /// The one long-form route (padded window, quiet cut, seam stitching).
@@ -376,6 +393,19 @@ impl CoreMlParakeet {
     pub fn transcribe_long(
         &self,
         audio: &[f32],
+        cancel: Option<&AtomicBool>,
+        progress: &dyn Fn(&LongFormProgress),
+    ) -> Result<LongFormTranscript> {
+        self.transcribe_long_with(audio, self.options.detok, cancel, progress)
+    }
+
+    /// [`transcribe_long`](Self::transcribe_long) with a per-request
+    /// detokenizer policy applied to every window. A host serving queued jobs
+    /// passes each job's own policy, so pausing for dictation never changes it.
+    pub fn transcribe_long_with(
+        &self,
+        audio: &[f32],
+        detok: DetokPolicy,
         cancel: Option<&AtomicBool>,
         progress: &dyn Fn(&LongFormProgress),
     ) -> Result<LongFormTranscript> {
@@ -387,7 +417,7 @@ impl CoreMlParakeet {
         let mut stats = DecodeStats::default();
         let mut windows = 0usize;
         let result = longform::transcribe_padded_window(audio, &opts, cancel, progress, |segment| {
-            let (r, s) = self.transcribe_window(segment)?;
+            let (r, s) = self.transcribe_window_with(segment, detok)?;
             stats.add(&s);
             windows += 1;
             Ok(r)

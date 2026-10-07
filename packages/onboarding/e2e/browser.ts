@@ -1,23 +1,20 @@
 /**
- * Minimal real-Chrome driver over the DevTools protocol (Node's built-in WebSocket): launches
- * headless Chrome muted, serves the built harness from a local static server, sends real input
- * events and captures screenshots. No Puppeteer/Playwright dependency.
+ * Minimal real-browser driver over the DevTools protocol (Node's built-in WebSocket): launches
+ * headless Chrome for Testing muted through @rightkit/qa, serves the built harness from a local
+ * static server, sends real input events and captures screenshots. One browser per suite; close
+ * is graceful (CDP Browser.close, SIGTERM, SIGKILL last) and removes the temp profile.
  */
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa/chrome";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 
-export const CHROME_CANDIDATES = [
-  process.env.CHROME_PATH,
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/usr/bin/google-chrome",
-  "/usr/bin/chromium",
-  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-].filter((p): p is string => Boolean(p));
-
-export const findChrome = (): string | undefined => CHROME_CANDIDATES.find((p) => existsSync(p));
+/** Chrome for Testing (explicit RIGHTKIT_CHROME_FOR_TESTING, then known installs); never regular Chrome. */
+export const findChrome = (): string | undefined => {
+  const found = findChromeForTesting();
+  if (!found.path) console.warn(`[e2e] skipping real-browser suite: ${found.reason}`);
+  return found.path;
+};
 
 const MIME: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json" };
 
@@ -75,26 +72,21 @@ function keyInfo(key: string) {
 }
 
 export async function launch(chrome: string) {
-  const profile = mkdtempSync(join(tmpdir(), "rk-app-shell-chrome-"));
-  const proc: ChildProcess = spawn(
-    chrome,
-    ["--headless=new", "--mute-audio", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars=false", `--user-data-dir=${profile}`, "--remote-debugging-port=0", "--window-size=1100,720", "about:blank"],
-    { stdio: ["ignore", "ignore", "pipe"] },
-  );
-  const wsUrl = await new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Chrome did not expose a DevTools endpoint")), 20000);
-    let buf = "";
-    proc.stderr!.on("data", (d) => {
-      buf += String(d);
-      const m = buf.match(/DevTools listening on (ws:\/\/\S+)/);
-      if (m) {
-        clearTimeout(timer);
-        resolve(m[1]);
-      }
-    });
-    proc.on("exit", () => reject(new Error("Chrome exited early")));
+  const browser = await launchChromeForTesting({
+    executablePath: chrome,
+    profilePrefix: "rk-app-shell-cft-",
+    args: ["--disable-gpu", "--hide-scrollbars=false", "--window-size=1100,720"],
   });
-  const port = new URL(wsUrl).port;
+  try {
+    return await attach(browser);
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
+}
+
+async function attach(browser: Awaited<ReturnType<typeof launchChromeForTesting>>) {
+  const port = browser.port;
   const target = (await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" })).json()) as { webSocketDebuggerUrl: string };
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise<void>((resolve, reject) => {
@@ -185,20 +177,10 @@ export async function launch(chrome: string) {
   return {
     page,
     async close() {
-      try {
-        await send("Browser.close");
-      } catch {
-        /* already gone */
-      }
       ws.close();
-      // Wait for Chrome to exit before removing its profile: it keeps writing
-      // into the directory until the process is gone.
-      if (proc.exitCode === null && proc.signalCode === null) {
-        const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
-        proc.kill("SIGKILL");
-        await exited;
-      }
-      rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      // Bounded wait after Browser.close, then SIGTERM, then SIGKILL last; profile removed after exit.
+      const report = await browser.close();
+      if (!report.exited || !report.profileRemoved) throw new Error(`Chrome for Testing did not close cleanly: ${JSON.stringify(report)}`);
     },
   };
 }

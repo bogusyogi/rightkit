@@ -140,6 +140,7 @@ impl BrowserTarget {
     }
 
     /// Full control over launch options (profile, Chrome path, admission hook, policy).
+    /// Launch uses Chrome for Testing unless `opts` names a binary or opts into the system browser.
     pub fn launch_with(opts: LaunchOptions) -> Result<Self> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -157,9 +158,12 @@ impl BrowserTarget {
         })
     }
 
+    /// Graceful close: CDP `Browser.close`, SIGTERM, SIGKILL last (bounded waits), then the
+    /// temporary profile is removed.
     pub fn stop(&mut self) {
         self.page.take();
         if let Some(s) = self.session.take() {
+            self.rt.block_on(s.shutdown());
             drop(s);
         }
     }

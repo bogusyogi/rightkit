@@ -193,7 +193,9 @@ fn frames_match_heardright_v1_fixtures_exactly() {
             "engine_health",
             "engine_capabilities",
             "engine_info",
-            "file_transcription_request"
+            "file_transcription_request",
+            // minor 3 (queue contract); HeardRight adds it with the queue
+            "file_transcription_status"
         ]
     );
 }
@@ -878,4 +880,163 @@ fn rightkit_service_host_ignores_lower_and_unknown_roles_but_yields_to_an_outran
     // ... and an outranking known role does displace it (same requester, now as the shell).
     write_tk("heard_right_shell");
     assert!(hosted.wait_released(Duration::from_secs(10)));
+}
+
+#[test]
+fn verbatim_is_sent_only_to_a_host_that_advertises_it() {
+    let p = Path::new("/x/a.wav");
+    let opts = || TranscribeOptions::new(Duration::from_secs(5));
+
+    // A minor-1 host strips fillers: verbatim is refused, never silently cleaned.
+    let e = env();
+    let h = Host::start(&e.root, "heard_right_shell", 1, &e.state);
+    let mut c = connect(&e.root).unwrap();
+    assert!(!c
+        .capabilities(Duration::from_secs(5))
+        .unwrap()
+        .supports_verbatim());
+    match c.transcribe(p, &mut opts().verbatim()) {
+        Err(ClientError::Unsupported(m)) => assert!(m.contains("verbatim"), "{m}"),
+        other => panic!("expected Unsupported, got {other:?}"),
+    }
+    assert!(
+        !e.state.join("last_request.json").exists(),
+        "nothing reached the host"
+    );
+    drop((c, h));
+
+    // A minor-2 host advertises it and receives `verbatim: true`; a default request stays byte-identical.
+    let e = env();
+    let _h = Host::start(&e.root, "heard_right_shell", 2, &e.state);
+    let mut c = connect(&e.root).unwrap();
+    assert!(c
+        .capabilities(Duration::from_secs(5))
+        .unwrap()
+        .supports_verbatim());
+    c.transcribe(p, &mut opts().verbatim()).unwrap();
+    assert_eq!(
+        last_request(&e),
+        json!({"kind": "file_transcription_request", "path": "/x/a.wav", "verbatim": true})
+    );
+    c.transcribe(p, &mut opts()).unwrap();
+    assert_eq!(
+        last_request(&e),
+        json!({"kind": "file_transcription_request", "path": "/x/a.wav"})
+    );
+}
+
+fn collect() -> (
+    Arc<Mutex<Vec<Progress>>>,
+    impl FnMut(&Progress) + Send + 'static,
+) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    (seen, move |p: &Progress| s.lock().unwrap().push(p.clone()))
+}
+
+#[test]
+fn queue_host_reports_position_reason_and_running_with_no_stall_timeout() {
+    let e = env();
+    let _h = Host::start(&e.root, "heard_right_shell", 3, &e.state);
+    let mut c = connect(&e.root).unwrap();
+    assert!(c.supports_queue().unwrap());
+    let (seen, f) = collect();
+    // 100 ms stall limit on a 1.2 s job: a queue host is judged by liveness, never by silence.
+    let mut opts = TranscribeOptions::new(Duration::from_millis(100))
+        .request_id("job-1")
+        .on_progress(f);
+    let r = c.transcribe(Path::new("/x/queue.wav"), &mut opts).unwrap();
+    assert_eq!(r.transcript.text, "hello from parakeet");
+    let seen = seen.lock().unwrap();
+    let queued: Vec<_> = seen
+        .iter()
+        .filter_map(|p| match p {
+            Progress::Queued {
+                job_id,
+                position,
+                reason,
+            } => Some((job_id.as_str(), *position, reason.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        queued.first(),
+        Some(&("job-1", 1, QueueReason::BehindJobs)),
+        "accepted at once: {seen:?}"
+    );
+    assert!(
+        queued.contains(&("job-1", 0, QueueReason::DictationActive)),
+        "{seen:?}"
+    );
+    assert!(
+        seen.iter().any(
+            |p| matches!(p, Progress::Running { job_id, fraction: Some(_) } if job_id == "job-1")
+        ),
+        "{seen:?}"
+    );
+    drop(seen);
+
+    // Status: finished jobs replay; unknown ids say so.
+    match c.job_status("job-1").unwrap() {
+        JobStatus::Done(r) => assert_eq!(r.transcript.text, "hello from parakeet"),
+        other => panic!("expected Done, got {other:?}"),
+    }
+    assert_eq!(c.job_status("nope").unwrap(), JobStatus::Unknown);
+}
+
+#[test]
+fn queue_client_resubmits_the_same_job_to_the_next_host_when_the_host_dies() {
+    let e = env();
+    let a = Host::start(&e.root, "heard_right_shell", 3, &e.state);
+    let (seen, f) = collect();
+    let root = e.root.clone();
+    let job = std::thread::spawn(move || {
+        let mut opts = TranscribeOptions::new(Duration::from_millis(100)).on_progress(f);
+        transcribe_via_service_with(
+            &root,
+            HostRole::CutRight,
+            Path::new("/x/hang.wav"),
+            &mut opts,
+        )
+    });
+    let ids = e.state.join("request_ids");
+    assert!(wait_for(&ids, 5), "first host got the job");
+    std::thread::sleep(Duration::from_millis(500));
+    drop(a); // SIGKILL: service.json stays behind with a dead pid
+    std::fs::write(e.state.join("finish"), b"1").unwrap();
+    let _b = Host::start(&e.root, "heard_right_shell", 3, &e.state);
+    let r = job.join().unwrap().unwrap();
+    assert_eq!(r.transcript.text, "hello from parakeet");
+    let sent: Vec<String> = std::fs::read_to_string(&ids)
+        .unwrap()
+        .lines()
+        .map(String::from)
+        .collect();
+    assert_eq!(sent.len(), 2, "submitted once per host: {sent:?}");
+    assert_eq!(
+        sent[0], sent[1],
+        "the resubmit reuses the request id (idempotency key)"
+    );
+    assert!(seen
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|p| matches!(p, Progress::Reconnecting { .. })));
+}
+
+#[test]
+fn pre_queue_hosts_keep_the_stall_timeout_and_refuse_status() {
+    let e = env();
+    let _h = Host::start(&e.root, "heard_right_shell", 2, &e.state);
+    let mut c = connect(&e.root).unwrap();
+    assert!(!c.supports_queue().unwrap());
+    assert!(matches!(
+        c.job_status("x"),
+        Err(ClientError::Unsupported(_))
+    ));
+    let r = c.transcribe(
+        Path::new("/x/stall.wav"),
+        &mut TranscribeOptions::new(Duration::from_millis(300)),
+    );
+    assert_eq!(r.unwrap_err(), ClientError::Timeout);
 }

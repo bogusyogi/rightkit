@@ -1,12 +1,13 @@
 // Headless-Chrome e2e for @rightkit/media-ui: real media decode/playback,
 // compat-fallback, subtitles, single-active-player exclusivity, and a real
-// canvas export round-trip (crop + rotate + text → pixel check). Chrome is
+// canvas export round-trip (crop + rotate + text → pixel check). Chrome for Testing is
 // launched with --mute-audio — nothing reaches the speakers.
 //
-// Requires a Chrome binary. Optional env:
-//   MEDIA_UI_CHROME=/path/to/chrome   override detection
+// Requires Chrome for Testing (see @rightkit/qa resolveChromeForTesting). Optional env:
+//   RIGHTKIT_CHROME_FOR_TESTING=/path/to/chrome-for-testing   override detection
 //   MEDIA_UI_FFMPEG=/path/to/ffmpeg   fixture regeneration (else reuse committed fixtures)
-import { spawn, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa/chrome";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -93,40 +94,19 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(Number(process.env.MEDIA_UI_PORT ?? 0), "127.0.0.1", r));
 const port = server.address().port;
 
-// ── Chrome ────────────────────────────────────────────────────────────────
-const candidates = [
-  process.env.MEDIA_UI_CHROME,
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/Applications/Chromium.app/Contents/MacOS/Chromium",
-  "C:/Program Files/Google/Chrome/Application/chrome.exe",
-  "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-].filter(Boolean);
-const chrome = candidates.find((c) => existsSync(c));
-if (!chrome) {
-  console.error("SKIP: no Chrome binary found (set MEDIA_UI_CHROME)");
+// ── Chrome for Testing (@rightkit/qa; RIGHTKIT_CHROME_FOR_TESTING overrides) ─
+const cft = findChromeForTesting();
+if (!cft.path) {
+  console.error(`SKIP: ${cft.reason}`);
   server.close();
   process.exit(0);
 }
-const profile = path.join(outDir, "profile");
-const proc = spawn(chrome, [
-  "--headless=new",
-  "--mute-audio",
-  "--autoplay-policy=no-user-gesture-required",
-  "--remote-debugging-port=0",
-  `--user-data-dir=${profile}`,
-  "--no-first-run",
-  "about:blank",
-]);
-const wsUrl = await new Promise((resolve, reject) => {
-  let buf = "";
-  proc.stderr.on("data", (d) => {
-    buf += d;
-    const m = buf.match(/DevTools listening on (ws:\/\/\S+)/);
-    if (m) resolve(m[1]);
-  });
-  proc.on("exit", () => reject(new Error("chrome exited early")));
-  setTimeout(() => reject(new Error("chrome ws timeout")), 15000);
+const browser = await launchChromeForTesting({
+  executablePath: cft.path,
+  profilePrefix: "rk-media-ui-cft-",
+  args: ["--autoplay-policy=no-user-gesture-required"],
 });
+const wsUrl = browser.wsEndpoint;
 
 // ── Minimal CDP client ────────────────────────────────────────────────────
 const ws = new WebSocket(wsUrl);
@@ -304,9 +284,10 @@ try {
       return !!viewer.querySelector('.rk-iv-panel') && !host.querySelector('.rk-iv-panel');
     })()`);
 } finally {
-  proc.kill("SIGKILL");
-  server.close();
   ws.close();
+  const closed = await browser.close();
+  server.close();
+  if (!closed.exited || !closed.profileRemoved) failures.push(`Chrome for Testing did not close cleanly: ${JSON.stringify(closed)}`);
 }
 
 if (failures.length) {

@@ -30,5 +30,5 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
 # Mock HTTP server (Range, dropped connections) for the end-to-end download
 # tests. rightkit-qa does not depend on rightkit-models, so this is no publish
-# cycle; it only orders publication (rightkit-qa 0.2.1 first).
-rightkit-qa = { version = "=0.2.1", path = "../rightkit-qa" }
+# cycle; it only orders publication (rightkit-qa 0.2.2 first).
+rightkit-qa = { version = "=0.2.2", path = "../rightkit-qa" }

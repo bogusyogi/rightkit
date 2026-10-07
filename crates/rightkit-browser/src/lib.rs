@@ -1,6 +1,9 @@
 //! Shared Chrome DevTools Protocol browser runtime for Right Suite products.
 //!
-//! * [`BrowserSession`] owns one Chrome process and any number of pages.
+//! * [`BrowserSession`] owns one Chrome process and any number of pages. Launch uses Chrome
+//!   for Testing ([`chrome_for_testing_path`]); the system browser only with
+//!   [`LaunchOptions::system_chrome`]. Shutdown and drop close gracefully (CDP
+//!   `Browser.close` / SIGTERM to the process group, bounded waits, SIGKILL last).
 //! * [`ProfileSpec`] selects a temporary or named persistent profile.
 //! * Pointer and keyboard actions use real `Input.dispatch*Event` commands, so
 //!   `event.isTrusted`, `:hover`, focus, and default actions behave as for a user.
@@ -19,7 +22,10 @@ mod proc;
 mod proxy;
 mod session;
 
-pub use config::{find_chrome, LaunchOptions, ProfileSpec};
+pub use config::{
+    chrome_for_testing_candidates, chrome_for_testing_path, find_chrome, LaunchOptions,
+    ProfileSpec, CHROME_FOR_TESTING_ENV, CHROME_FOR_TESTING_INSTALL_HINT,
+};
 pub use error::{BrowserError, Result};
 pub use page::{BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, Target};
 pub use policy::{

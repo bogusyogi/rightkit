@@ -27,11 +27,14 @@ use rightkit_service::Suite;
 pub use protocol::{
     endpoint_for, installed_heardright_path, is_allowed_schema, service_dir, service_record_path,
     takeover_request_path, Capabilities, EngineInfo, EngineSelector, FileOptions, FileTranscript,
-    FileTranscriptResult, HostProgress, HostRole, InstalledEngine, ProgressState, ServiceEnvelope,
-    ServiceErrorPayload, ServiceRecord, ServiceRequest, TakeoverRequest, TimedWord,
+    FileTranscriptResult, HostProgress, HostRole, InstalledEngine, ProgressState, QueueReason,
+    ServiceEnvelope, ServiceErrorPayload, ServiceRecord, ServiceRequest, TakeoverRequest,
+    TimedWord, CAPABILITY_FILE_TRANSCRIPTION, CAPABILITY_QUEUE, CAPABILITY_VERBATIM,
     ENGINE_PARAKEET, ENGINE_WHISPER, ERROR_ENGINE_UNAVAILABLE, ERROR_HOST_HANDOFF,
-    ERROR_NOT_ALLOWED, SCHEMA_PROGRESS, SERVICE_ALLOWED_SCHEMAS, SERVICE_NAME,
-    SERVICE_PROTOCOL_MAJOR, SERVICE_PROTOCOL_MINOR, SERVICE_PROTOCOL_MINOR_ENGINES, SPEECH_FAMILY,
+    ERROR_JOB_UNKNOWN, ERROR_NOT_ALLOWED, QUEUE_KEEPALIVE_MS, QUEUE_RESULT_RETENTION_MS,
+    SCHEMA_PROGRESS, SCHEMA_STATUS, SERVICE_ALLOWED_SCHEMAS, SERVICE_NAME, SERVICE_PROTOCOL_MAJOR,
+    SERVICE_PROTOCOL_MINOR, SERVICE_PROTOCOL_MINOR_ENGINES, SERVICE_PROTOCOL_MINOR_QUEUE,
+    SERVICE_PROTOCOL_MINOR_VERBATIM, SPEECH_FAMILY,
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -60,6 +63,9 @@ pub enum ClientError {
     Cancelled,
     /// The host's protocol minor cannot honour the request (for example Whisper on a v1.0 host).
     Unsupported(String),
+    /// Minor-3 host lost: connection closed, pid dead, or `service.json` withdrawn or
+    /// replaced. Re-discover and resubmit with the same request id (idempotent).
+    HostGone,
 }
 
 impl fmt::Display for ClientError {
@@ -75,6 +81,7 @@ impl fmt::Display for ClientError {
             Self::Io(m) => write!(f, "speech service I/O error: {m}"),
             Self::Cancelled => write!(f, "speech request cancelled"),
             Self::Unsupported(m) => write!(f, "speech service cannot serve this request: {m}"),
+            Self::HostGone => write!(f, "speech service host went away; resubmit"),
         }
     }
 }
@@ -291,8 +298,23 @@ pub enum Progress {
         elapsed: Duration,
         idle: Duration,
     },
-    /// A minor-1 host's own progress frame.
+    /// A minor-1/2 host's own progress frame (minor-3 hosts report `Queued`/`Running`).
     Host(HostProgress),
+    /// Minor 3: the job is waiting; `position` 0 = next.
+    Queued {
+        job_id: String,
+        position: u32,
+        reason: QueueReason,
+    },
+    /// Minor 3: the job is decoding.
+    Running {
+        job_id: String,
+        fraction: Option<f32>,
+    },
+    /// Minor 3: the host went away; re-discovering and resubmitting the same job.
+    Reconnecting {
+        attempt: u32,
+    },
     HandoffRetry {
         attempt: u32,
     },
@@ -312,6 +334,12 @@ pub struct TranscribeOptions {
     pub stall_timeout: Duration,
     pub cancel: Option<CancelToken>,
     pub on_progress: Option<ProgressFn>,
+    /// Idempotency key (= job id on a minor-3 host). `None`: the client picks one
+    /// and keeps it across reconnects. Set it to re-attach after your own restart.
+    pub request_id: Option<String>,
+    /// Require raw words with no filler removal (editing apps). Refused with
+    /// [`ClientError::Unsupported`] unless the host advertises verbatim.
+    pub verbatim: bool,
 }
 
 impl TranscribeOptions {
@@ -322,7 +350,17 @@ impl TranscribeOptions {
             stall_timeout,
             cancel: None,
             on_progress: None,
+            request_id: None,
+            verbatim: false,
         }
+    }
+    pub fn request_id(mut self, id: impl Into<String>) -> Self {
+        self.request_id = Some(id.into());
+        self
+    }
+    pub fn verbatim(mut self) -> Self {
+        self.verbatim = true;
+        self
     }
     pub fn engine(mut self, engine: EngineSelector) -> Self {
         self.engine = Some(engine);
@@ -398,7 +436,26 @@ pub struct SpeechClient {
     rx: Receiver<Incoming>,
     abort: Arc<dyn Fn() + Send + Sync>,
     record: ServiceRecord,
+    suite_root: PathBuf,
+    caps: Option<Capabilities>,
     dead: bool,
+}
+
+/// How [`SpeechClient`] decides a request is dead.
+#[derive(Clone, Copy)]
+enum Wait {
+    /// No frame for this long (v1.0-2 hosts).
+    Stall(Duration),
+    /// Minor 3: only the transport and the host's pid / `service.json` decide.
+    HostLiveness,
+}
+
+/// A minor-3 job's state from [`SpeechClient::job_status`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum JobStatus {
+    Active(HostProgress),
+    Done(FileTranscriptResult),
+    Unknown,
 }
 
 impl Drop for SpeechClient {
@@ -439,6 +496,21 @@ impl SpeechClient {
         frame: &ServiceEnvelope,
         stall: Duration,
         cancel: Option<&CancelToken>,
+        report: Option<&mut dyn FnMut(&Progress)>,
+    ) -> Result<ServiceEnvelope, ClientError> {
+        self.call_inner(frame, Wait::Stall(stall), cancel, report)
+    }
+
+    /// Whether the host this client connected to is still the live service host.
+    fn host_still_live(&self) -> bool {
+        read_live_record(&self.suite_root).is_some_and(|r| r.pid == self.record.pid)
+    }
+
+    fn call_inner(
+        &mut self,
+        frame: &ServiceEnvelope,
+        wait: Wait,
+        cancel: Option<&CancelToken>,
         mut report: Option<&mut dyn FnMut(&Progress)>,
     ) -> Result<ServiceEnvelope, ClientError> {
         if self.dead {
@@ -464,29 +536,37 @@ impl SpeechClient {
                 return Err(ClientError::Cancelled);
             }
             let idle = last_frame.elapsed();
-            if idle >= stall {
-                self.kill();
-                return Err(ClientError::Timeout);
-            }
-            let wait = (stall - idle).min(Duration::from_millis(100));
-            match self.rx.recv_timeout(wait) {
+            let poll = match wait {
+                Wait::Stall(stall) if idle >= stall => {
+                    self.kill();
+                    return Err(ClientError::Timeout);
+                }
+                Wait::Stall(stall) => (stall - idle).min(Duration::from_millis(100)),
+                Wait::HostLiveness => Duration::from_millis(100),
+            };
+            match self.rx.recv_timeout(poll) {
                 Ok(Incoming::Frame(f)) => {
                     last_frame = Instant::now();
                     if f.error.is_some() {
                         return Ok(*f);
                     }
                     if f.request_id == frame.request_id {
-                        if let Some(p) = f.host_progress() {
-                            if let Some(r) = report.as_deref_mut() {
-                                r(&Progress::Host(p));
+                        if frame.schema_name != SCHEMA_STATUS {
+                            if let Some(p) = f.host_progress() {
+                                if let Some(r) = report.as_deref_mut() {
+                                    r(&queue_progress(p, matches!(wait, Wait::HostLiveness)));
+                                }
+                                continue;
                             }
-                            continue;
                         }
                         return Ok(*f);
                     }
                 }
                 Ok(Incoming::Closed) | Err(RecvTimeoutError::Disconnected) => {
                     self.kill();
+                    if matches!(wait, Wait::HostLiveness) {
+                        return Err(ClientError::HostGone);
+                    }
                     return Err(ClientError::Io(
                         "speech service closed the connection".into(),
                     ));
@@ -498,6 +578,10 @@ impl SpeechClient {
                 Err(RecvTimeoutError::Timeout) => {
                     if last_beat.elapsed() >= Duration::from_secs(1) {
                         last_beat = Instant::now();
+                        if matches!(wait, Wait::HostLiveness) && !self.host_still_live() {
+                            self.kill();
+                            return Err(ClientError::HostGone);
+                        }
                         if let Some(r) = report.as_deref_mut() {
                             r(&Progress::Waiting {
                                 elapsed: started.elapsed(),
@@ -536,9 +620,50 @@ impl SpeechClient {
         if let Some(error) = &response.error {
             return Err(map_error(error));
         }
-        response
+        let caps = response
             .capabilities_info()
-            .ok_or_else(|| ClientError::Io("unexpected capabilities response".into()))
+            .ok_or_else(|| ClientError::Io("unexpected capabilities response".into()))?;
+        self.caps = Some(caps.clone());
+        Ok(caps)
+    }
+
+    /// Capabilities, asked once per connection (a v1.0 host is never asked: it has none of the extras).
+    fn cached_capabilities(&mut self) -> Result<Capabilities, ClientError> {
+        match &self.caps {
+            Some(c) => Ok(c.clone()),
+            None => self.capabilities(HANDSHAKE_TIMEOUT),
+        }
+    }
+
+    /// The host implements the minor-3 queue contract: no stall timeout, typed queue progress.
+    pub fn supports_queue(&mut self) -> Result<bool, ClientError> {
+        if !self.supports_engine_selection() {
+            return Ok(false);
+        }
+        Ok(self.cached_capabilities()?.supports_queue())
+    }
+
+    /// Minor 3: one-shot state of `job_id` (a request id this or an earlier client submitted).
+    pub fn job_status(&mut self, job_id: &str) -> Result<JobStatus, ClientError> {
+        if !self.supports_queue()? {
+            return Err(ClientError::Unsupported(
+                "host does not advertise the job-queue contract".into(),
+            ));
+        }
+        let frame = ServiceEnvelope::status_request(&next_request_id(), TRACE_ID, job_id);
+        let response = self.call_raw(&frame, HANDSHAKE_TIMEOUT, None, None)?;
+        match &response.error {
+            Some(e) if e.code == ERROR_JOB_UNKNOWN => return Ok(JobStatus::Unknown),
+            Some(e) => return Err(map_error(e)),
+            None => {}
+        }
+        if let Some(p) = response.host_progress() {
+            return Ok(JobStatus::Active(p));
+        }
+        response
+            .transcript_result()
+            .map(JobStatus::Done)
+            .ok_or_else(|| ClientError::Io("unexpected status response".into()))
     }
 
     /// Transcribe with the host's default engine (parity with `orthic-speech-client`).
@@ -558,16 +683,33 @@ impl SpeechClient {
         path: &Path,
         opts: &mut TranscribeOptions,
     ) -> Result<FileTranscriptResult, ClientError> {
-        let wire = self.wire_options(opts)?;
+        let mut wire = self.wire_options(opts)?;
+        let queue = self.supports_queue()?;
+        if opts.verbatim {
+            if !self.supports_engine_selection() || !self.cached_capabilities()?.supports_verbatim()
+            {
+                return Err(ClientError::Unsupported(
+                    "host does not advertise verbatim file transcription; it would strip fillers"
+                        .into(),
+                ));
+            }
+            wire.verbatim = true;
+        }
+        let request_id = opts.request_id.clone().unwrap_or_else(next_request_id);
         let frame = ServiceEnvelope::file_request_with(
-            &next_request_id(),
+            &request_id,
             TRACE_ID,
             path.to_string_lossy().into_owned(),
             &wire,
         );
-        let (stall, cancel) = (opts.stall_timeout, opts.cancel.clone());
+        let wait = if queue {
+            Wait::HostLiveness
+        } else {
+            Wait::Stall(opts.stall_timeout)
+        };
+        let cancel = opts.cancel.clone();
         let mut report = |p: &Progress| opts.report(p.clone());
-        let response = self.call_raw(&frame, stall, cancel.as_ref(), Some(&mut report))?;
+        let response = self.call_inner(&frame, wait, cancel.as_ref(), Some(&mut report))?;
         if let Some(error) = &response.error {
             return Err(map_error(error));
         }
@@ -584,6 +726,7 @@ impl SpeechClient {
             return Ok(FileOptions {
                 engine: opts.engine.clone(),
                 language: opts.language.clone(),
+                verbatim: false,
             });
         }
         match &opts.engine {
@@ -637,6 +780,8 @@ pub fn connect(suite_root: &Path) -> Result<SpeechClient, ClientError> {
         rx,
         abort,
         record,
+        suite_root: suite_root.to_path_buf(),
+        caps: None,
         dead: false,
     };
     client.handshake()?;
@@ -674,6 +819,10 @@ pub fn transcribe_via_service_with(
     path: &Path,
     opts: &mut TranscribeOptions,
 ) -> Result<FileTranscriptResult, ClientError> {
+    // One idempotency key for every attempt: a minor-3 host attaches a resubmit to the same job.
+    if opts.request_id.is_none() {
+        opts.request_id = Some(next_request_id());
+    }
     let mut last = ClientError::NoService;
     for attempt in 0..MAX_ATTEMPTS {
         if opts.cancelled() {
@@ -703,6 +852,13 @@ pub fn transcribe_via_service_with(
                 std::thread::sleep(Duration::from_millis(200 * (u64::from(attempt) + 1)));
                 wait_for_new_host(suite_root, host_pid, opts.cancel.as_ref());
             }
+            Err(ClientError::HostGone) => {
+                last = ClientError::HostGone;
+                opts.report(Progress::Reconnecting {
+                    attempt: attempt + 1,
+                });
+                wait_for_new_host(suite_root, host_pid, opts.cancel.as_ref());
+            }
             other => return other,
         }
     }
@@ -723,4 +879,30 @@ pub fn transcribe_via_service(
         &mut TranscribeOptions::new(timeout),
     )
     .map(|r| r.transcript)
+}
+
+/// Map a host progress frame to the typed client event. Minor-3 hosts get
+/// `Queued`/`Running` (a dictation pause is a queue wait: position 0, `dictation_active`).
+fn queue_progress(p: HostProgress, queue: bool) -> Progress {
+    if !queue {
+        return Progress::Host(p);
+    }
+    let job_id = p.job_id.clone().unwrap_or_default();
+    match p.state {
+        ProgressState::Queued => Progress::Queued {
+            job_id,
+            position: p.position.unwrap_or(0),
+            reason: p.reason.unwrap_or(QueueReason::BehindJobs),
+        },
+        ProgressState::PausedForDictation => Progress::Queued {
+            job_id,
+            position: 0,
+            reason: QueueReason::DictationActive,
+        },
+        ProgressState::Running => Progress::Running {
+            job_id,
+            fraction: p.fraction,
+        },
+        ProgressState::Other(_) => Progress::Host(p),
+    }
 }

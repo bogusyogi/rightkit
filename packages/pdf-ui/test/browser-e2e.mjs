@@ -1,6 +1,6 @@
-// Real Chrome smoke test for pdf.js rendering plus doc-render XSS boundaries.
-// Chrome is always muted; no media APIs are used.
-import { spawn } from "node:child_process";
+// Real-browser smoke test for pdf.js rendering plus doc-render XSS boundaries, on Chrome for
+// Testing (@rightkit/qa). Always muted; no media APIs are used.
+import { findChromeForTesting, launchChromeForTesting } from "@rightkit/qa/chrome";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -28,13 +28,10 @@ const server = createServer((req, res) => {
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const port = server.address().port;
-const candidates = [process.env.RIGHTKIT_CHROME, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium", "C:/Program Files/Google/Chrome/Application/chrome.exe"].filter(Boolean);
-const chrome = candidates.find((candidate) => existsSync(candidate));
-if (!chrome) { console.log("SKIP: no Chrome binary found"); server.close(); process.exit(0); }
-const profile = path.join(outDir, "profile");
-const proc = spawn(chrome, ["--headless=new", "--mute-audio", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
-const wsUrl = await new Promise((resolve, reject) => { let output = ""; const timeout = setTimeout(() => reject(new Error("Chrome DevTools timeout")), 15000); proc.stderr.on("data", (chunk) => { output += chunk; const match = output.match(/DevTools listening on (ws:\/\/\S+)/); if (match) { clearTimeout(timeout); resolve(match[1]); } }); proc.on("exit", () => reject(new Error("Chrome exited early"))); });
-const ws = new WebSocket(wsUrl);
+const cft = findChromeForTesting();
+if (!cft.path) { console.log(`SKIP: ${cft.reason}`); server.close(); process.exit(0); }
+const browser = await launchChromeForTesting({ executablePath: cft.path, profilePrefix: "rk-pdf-ui-cft-" });
+const ws = new WebSocket(browser.wsEndpoint);
 await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
 let sequence = 0; const pending = new Map();
 ws.onmessage = ({ data }) => { const message = JSON.parse(data); const callback = pending.get(message.id); if (callback) { pending.delete(message.id); callback(message); } };
@@ -118,5 +115,8 @@ try {
   console.log(`external-find=${externalFind} replace=bytes+loader(size ${sizes.alpha})`);
   console.log(`PASS: pdf pages=${checks.pages}, canvases=${checks.canvases}, textSpans=${checks.text}, navigation=page+thumbs, zoom=${zoomBefore}->${checks.zoom}, find=Quarterly, source-replace=clean, sanitizer=clean`);
 } finally {
-  ws.close(); proc.kill("SIGTERM"); server.close();
+  ws.close();
+  const closed = await browser.close();
+  server.close();
+  if (!closed.exited || !closed.profileRemoved) throw new Error(`Chrome for Testing did not close cleanly: ${JSON.stringify(closed)}`);
 }

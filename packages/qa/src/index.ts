@@ -1,3 +1,4 @@
+export * from './chrome.js';
 export * from './evidence.js';
 export * from './frames.js';
 export * from './guard.js';

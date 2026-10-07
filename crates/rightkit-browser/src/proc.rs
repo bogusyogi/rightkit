@@ -17,6 +17,28 @@ pub(crate) struct ChromeProc {
     pub ws_url: String,
 }
 
+impl ChromeProc {
+    /// Unix: SIGTERM Chrome's whole process group (Chrome's own clean-shutdown path),
+    /// wait up to `grace`, then SIGKILL the group. Windows: terminate the job's tree.
+    /// Then stops the watchdog.
+    pub(crate) fn terminate_gracefully(&mut self, grace: Duration) {
+        if !matches!(self.child.try_wait(), Ok(Some(_))) {
+            #[cfg(unix)]
+            if self.child.wait_or_kill(grace).is_err() {
+                let _ = self.child.terminate_tree();
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = grace;
+                let _ = self.child.terminate_tree();
+            }
+        }
+        if let Some(w) = self._watchdog.as_mut() {
+            let _ = w.terminate_tree();
+        }
+    }
+}
+
 /// The caller's job object to bind Chrome to (Windows only).
 #[cfg(windows)]
 pub(crate) type CallerJob = Option<std::sync::Arc<std::os::windows::io::OwnedHandle>>;
@@ -72,10 +94,16 @@ pub(crate) fn spawn_chrome(
 
 #[cfg(unix)]
 fn spawn_watchdog(chrome_pgid: u32) -> Option<OwnedChild> {
-    // Polls the host and Chrome; when the host is gone, kills Chrome's whole
-    // process group. Exits by itself once Chrome is gone.
+    // Polls the host and Chrome; when the host is gone, SIGTERMs Chrome's whole
+    // process group, waits up to 5 s, then SIGKILLs what is left. Exits by itself
+    // once Chrome is gone.
     let script = r#"while kill -0 "$1" 2>/dev/null && kill -0 "$2" 2>/dev/null; do sleep 0.2; done
-kill -0 "$2" 2>/dev/null && kill -KILL -- "-$2" 2>/dev/null
+if kill -0 "$2" 2>/dev/null; then
+  kill -TERM -- "-$2" 2>/dev/null
+  i=0
+  while [ "$i" -lt 25 ] && kill -0 -- "-$2" 2>/dev/null; do sleep 0.2; i=$((i+1)); done
+  kill -KILL -- "-$2" 2>/dev/null
+fi
 exit 0"#;
     let mut cmd = OwnedCommand::new("/bin/sh");
     cmd.command_mut()

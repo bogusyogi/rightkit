@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/theme",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -29,6 +29,7 @@
   ],
   "sideEffects": false,
   "devDependencies": {
+    "@rightkit/qa": "workspace:*",
     "@types/node": "^24.0.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.8"
@@ -36,7 +37,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm run build && vitest run"
+    "test": "pnpm --filter \"@rightkit/theme^...\" run build && pnpm run build && vitest run"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

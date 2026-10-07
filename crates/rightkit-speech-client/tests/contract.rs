@@ -95,3 +95,27 @@ fn plan_host_with_no_live_host_self_hosts_and_takeover_needs_a_lower_ranked_othe
     assert!(!should_request_takeover(HostRole::CutRight, Some(&record)));
     assert!(!should_request_takeover(HostRole::HeardRightShell, None));
 }
+
+#[test]
+fn verbatim_round_trips_through_the_request_and_capabilities() {
+    use rightkit_speech_client::{FileOptions, ServiceEnvelope, CAPABILITY_VERBATIM};
+    let opts = FileOptions {
+        verbatim: true,
+        ..Default::default()
+    };
+    let req = ServiceEnvelope::file_request_with("r", "t", "/a.wav".into(), &opts);
+    assert!(req.file_options().verbatim, "a host reads the flag back");
+    let plain =
+        ServiceEnvelope::file_request_with("r", "t", "/a.wav".into(), &FileOptions::default());
+    assert!(!plain.file_options().verbatim);
+    assert!(plain.payload.as_ref().unwrap().get("verbatim").is_none());
+    let caps = ServiceEnvelope::capabilities_full("r", "t", &[], true)
+        .capabilities_info()
+        .unwrap();
+    assert!(caps.supports_verbatim() && caps.supports_file_transcription());
+    assert!(caps.capabilities.iter().any(|c| c == CAPABILITY_VERBATIM));
+    let caps = ServiceEnvelope::capabilities_with_engines("r", "t", &[])
+        .capabilities_info()
+        .unwrap();
+    assert!(!caps.supports_verbatim());
+}
