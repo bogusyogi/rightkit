@@ -39,3 +39,7 @@ CPU fallback and its reason.
 gate passes.
 
 Licensed under MIT OR Apache-2.0.
+
+## Inherited `ORT_DYLIB_PATH`
+
+`configure_runtime()` never trusts a different inherited value. If `ORT_DYLIB_PATH` is already set and does not canonicalise to the candidate `resolve_runtime` selects, it returns `RuntimeError::AlreadyConfigured` and ORT is not initialised. A planted path can therefore stop ORT from starting, but can never load a foreign library. A release build that should start regardless can clear the variable at startup, before any ORT use: `unsafe { std::env::remove_var("ORT_DYLIB_PATH") }`. For tests and debug builds, put an explicit override first (`RuntimeCandidate::new(path, CandidateSource::Explicit)`); `RuntimeSelection::source` reports which candidate won.

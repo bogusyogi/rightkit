@@ -201,7 +201,6 @@ impl TextTokenizer {
         }
 
         while let Some((first, second)) = self.get_min_pair(&word) {
-
             let mut merged = Vec::with_capacity(word.len());
             let mut i = 0;
             while i < word.len() {
