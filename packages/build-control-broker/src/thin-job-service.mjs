@@ -507,11 +507,13 @@ export class ThinJobService {
           ? this.#workspaceResolver.resolve(executionCwd, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } })
           : this.#workspaceResolver(executionCwd, { cargoPath: cargoTool.path, environment: { ...process.env, CARGO_HOME: this.#state.paths.cargoHome } }));
     const repositoryRoot = parent?.repositoryRoot ?? (roots.workspaceRoot ? await this.#repositoryResolver(roots.workspaceRoot) : null);
-    // One repository owns one compiled-artifact pool even when it contains
-    // several independent Cargo workspaces (for example engine, tray, & Hub).
-    // Cargo's discovered root still governs resolution; repository root only
-    // governs RightKit cache/scheduler state.
-    const cacheRoot = repositoryRoot ?? roots.workspaceRoot;
+    // Each Cargo workspace owns its own compiled-artifact pool and scheduler
+    // lock, even when one repository holds several (CodeRight engine/ and
+    // Membrane context/engine/). Independent workspaces have independent
+    // lockfiles and never share artifacts usefully; a shared pool only made
+    // their jobs block each other on Cargo's target-dir lock. sccache still
+    // shares compiled crates across them.
+    const cacheRoot = roots.workspaceRoot ?? repositoryRoot;
     const workspace = cacheRoot ? await this.#state.workspace(cacheRoot) : null;
     const defaultTargetTriple = this.#config.defaults?.targetTriple;
     const rustupTargetTriple = message.shim === 'rustup' && request.argv.length === 3 && request.argv[0] === 'target' && request.argv[1] === 'add' ? request.argv[2] : null;

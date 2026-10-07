@@ -302,7 +302,7 @@ test('cache preparation receives broker-owned repository, workspace & active-gen
     await call(item.service, command('WATCH', submitted.id));
     assert.equal(prepared.length, 1);
     assert.equal(prepared[0].repositoryRoot, item.repository);
-    assert.equal(prepared[0].workspaceRoot, item.repository);
+    assert.equal(prepared[0].workspaceRoot, item.workspace);
     assert.match(prepared[0].layout.root, /g[\\/]001$/);
   } finally { await item.close(); }
 });
@@ -381,7 +381,7 @@ test('cutover fence rejects new roots while drain status exposes active analysis
     assert.equal(draining.inFlight[0].id, root.id);
     assert.equal(draining.inFlight[0].state, 'RUNNING');
     assert.equal(draining.inFlight[0].command, 'cargo outdated');
-    assert.equal(draining.inFlight[0].workspace, item.repository);
+    assert.equal(draining.inFlight[0].workspace, item.workspace);
     assert.ok(draining.inFlight[0].elapsedMs >= 0);
     fence = await beginCutoverDrain(item.root);
     const rejected = (await call(item.service, command('SUBMIT', message(item.workspace, ['outdated'])))).result;
@@ -569,7 +569,7 @@ test('idle-current-generation eviction holds workspace write exclusion & a queue
     const second = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
     assert.equal((await call(item.service, command('STATUS', second.id))).result.state, 'QUEUED');
     // Background GC evicts the idle main-workspace generation while the build waits.
-    const workspace = await item.state.workspace(item.repository);
+    const workspace = await item.state.workspace(item.workspace);
     const evicted = await evictIdle({ workspaceKey: workspace.key, canonicalRoot: workspace.canonicalRoot, generation: workspace.state.currentGeneration, sizeBytes: 1024 });
     assert.equal(evicted.evictedGeneration, 1);
     assert.equal(evicted.newGeneration, 2);
@@ -594,7 +594,7 @@ test('eviction never retires a generation with an active writer', async () => {
   try {
     const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
     await waitFor(item.service, submitted.id, ['RUNNING']);
-    const workspace = await item.state.workspace(item.repository);
+    const workspace = await item.state.workspace(item.workspace);
     assert.equal(await evictIdle({ workspaceKey: workspace.key, canonicalRoot: workspace.canonicalRoot, generation: workspace.state.currentGeneration, sizeBytes: 1024 }), null);
     await assert.doesNotReject(stat(workspace.layout.root));
     const terminal = (await call(item.service, command('CANCEL', submitted.id))).result;
