@@ -306,6 +306,37 @@ function signalTree(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
   }
 }
 
+/**
+ * Windows only: pids of every process whose command line carries `profileDir` (the Chrome
+ * browser process and all its descendants, including orphans of an exited launcher). `[]` on
+ * other platforms. The profile directory is unique per launch, so the match cannot hit
+ * unrelated browsers.
+ */
+export function chromeProcessesForProfile(profileDir: string): number[] {
+  if (process.platform !== 'win32') return [];
+  const script = '$p = $env:RK_QA_PROFILE; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.ProcessId -ne $PID -and $_.CommandLine.IndexOf($p, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { $_.ProcessId }';
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 15_000,
+    env: { ...process.env, RK_QA_PROFILE: profileDir },
+  });
+  if (result.status !== 0) return [];
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => Number.parseInt(line.trim(), 10))
+    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
+}
+
+async function waitProfileProcessesGone(profileDir: string, timeoutMs: number): Promise<number[]> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const left = chromeProcessesForProfile(profileDir);
+    if (left.length === 0 || Date.now() >= deadline) return left;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 async function sendBrowserClose(wsEndpoint: string, timeoutMs: number): Promise<void> {
   await new Promise<void>((resolve) => {
     let ws: WebSocket;
@@ -348,7 +379,9 @@ export async function closeChromeGracefully(options: {
     await sendBrowserClose(options.wsEndpoint, Math.min(grace, 2_000));
     exited = await waitGone(options.child, grace);
   }
-  if (!exited) {
+  // Windows has no graceful signal for a windowless headless browser (`taskkill /T` without
+  // `/F` is a no-op there), so that step is skipped rather than burning a grace period.
+  if (!exited && process.platform !== 'win32') {
     step = 'sigterm';
     signalTree(options.child, 'SIGTERM');
     exited = await waitGone(options.child, grace);
@@ -358,9 +391,24 @@ export async function closeChromeGracefully(options: {
     signalTree(options.child, 'SIGKILL');
     exited = await waitGone(options.child, 2_000);
   }
+  // Windows: Chrome's children outlive a dead launcher and `taskkill /T` can no longer find
+  // them, but they still hold the profile directory. Give them a short grace, then force them.
+  if (process.platform === 'win32' && options.profileDir) {
+    let left = await waitProfileProcessesGone(options.profileDir, 1_500);
+    if (left.length > 0) {
+      for (const pid of left) spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      if (step !== 'sigkill') step = 'sigkill';
+      left = await waitProfileProcessesGone(options.profileDir, 2_000);
+    }
+    exited = exited && left.length === 0;
+  }
   let profileRemoved = true;
   if (options.profileDir) {
-    rmSync(options.profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    try {
+      rmSync(options.profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch {
+      // A held profile is reported through `profileRemoved`, never thrown from close().
+    }
     profileRemoved = !existsSync(options.profileDir);
   }
   return { step, exited, profileRemoved, durationMs: Date.now() - started };

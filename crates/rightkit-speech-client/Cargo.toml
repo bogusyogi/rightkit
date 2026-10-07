@@ -17,3 +17,7 @@ serde_json = "1.0.150"
 
 [dev-dependencies]
 tempfile = "3"
+
+# The Windows named-pipe round-trip test (tests/windows_pipe.rs) hosts a raw pipe server.
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Pipes"] }

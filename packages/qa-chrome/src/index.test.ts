@@ -6,6 +6,7 @@ import {
   CHROME_FOR_TESTING_ENV,
   ChromeForTestingNotFoundError,
   chromeForTestingCandidates,
+  chromeProcessesForProfile,
   codeSignCloneEntries,
   findChromeForTesting,
   launchChromeForTesting,
@@ -76,6 +77,9 @@ describe.skipIf(!installed.path)('launchChromeForTesting + graceful close (real 
     expect(existsSync(browser.profileDir)).toBe(false);
     if (process.platform !== 'win32') {
       expect(() => process.kill(-browser.pid, 0)).toThrow();
+    } else {
+      // Windows: no browser, renderer, GPU or crashpad process may outlive close().
+      expect(chromeProcessesForProfile(browser.profileDir)).toEqual([]);
     }
     // Idempotent.
     expect(await browser.close()).toBe(report);

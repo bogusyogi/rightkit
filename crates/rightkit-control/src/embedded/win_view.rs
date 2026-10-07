@@ -99,6 +99,38 @@ pub fn wheel<R: Runtime>(
     .map(|_| ())
 }
 
+/// Windows VK for a US-layout printable character: letters and digits are their ASCII
+/// uppercase value; punctuation uses the `VK_OEM_*` codes (the ASCII value would collide
+/// with `VK_SNAPSHOT`, `VK_DELETE`, `VK_LWIN`, `VK_RIGHT`, ...). Shifted symbols map to
+/// their base key. Anything else has no virtual key (0).
+fn char_vk(c: char) -> u32 {
+    match c {
+        'a'..='z' | 'A'..='Z' | '0'..='9' => c.to_ascii_uppercase() as u32,
+        ';' | ':' => 186,
+        '=' | '+' => 187,
+        ',' | '<' => 188,
+        '-' | '_' => 189,
+        '.' | '>' => 190,
+        '/' | '?' => 191,
+        '`' | '~' => 192,
+        '[' | '{' => 219,
+        '\\' | '|' => 220,
+        ']' | '}' => 221,
+        '\'' | '"' => 222,
+        '!' => 49,
+        '@' => 50,
+        '#' => 51,
+        '$' => 52,
+        '%' => 53,
+        '^' => 54,
+        '&' => 55,
+        '*' => 56,
+        '(' => 57,
+        ')' => 48,
+        _ => 0,
+    }
+}
+
 /// `code` is the macOS virtual keycode used across the crate; map it to a Windows VK.
 fn vk(code: u16, chars: &str) -> u32 {
     match code {
@@ -107,6 +139,7 @@ fn vk(code: u16, chars: &str) -> u32 {
         0x31 => 32,
         0x33 => 8,
         0x35 => 27,
+        0x75 => 46,
         0x7B => 37,
         0x7E => 38,
         0x7C => 39,
@@ -115,11 +148,23 @@ fn vk(code: u16, chars: &str) -> u32 {
         0x77 => 35,
         0x74 => 33,
         0x79 => 34,
-        _ => chars
-            .chars()
-            .next()
-            .map(|c| c.to_ascii_uppercase() as u32)
-            .unwrap_or(0),
+        // F1..F12 (mac codes -> VK_F1 = 112 ..).
+        0x7A => 112,
+        0x78 => 113,
+        0x63 => 114,
+        0x76 => 115,
+        0x60 => 116,
+        0x61 => 117,
+        0x62 => 118,
+        0x64 => 119,
+        0x65 => 120,
+        0x6D => 121,
+        0x67 => 122,
+        0x6F => 123,
+        _ => crate::keys::ansi_char(code)
+            .map(char_vk)
+            .filter(|v| *v != 0)
+            .unwrap_or_else(|| chars.chars().next().map(char_vk).unwrap_or(0)),
     }
 }
 
@@ -266,5 +311,124 @@ mod tests {
             serde_json::from_str(&key_event_params(true, 0x24, "\r", 0)).unwrap();
         assert_eq!(enter["key"], "Enter");
         assert_eq!(enter["text"], "\r");
+    }
+}
+
+#[cfg(test)]
+mod vk_tests {
+    use super::*;
+    use crate::keys::{chord, named};
+
+    fn vk_of(spec: &str) -> u32 {
+        let (code, _) = chord(spec).unwrap();
+        let last = spec.rsplit('+').next().filter(|l| !l.is_empty()).unwrap_or("+");
+        let ch = crate::keys::named_char(last)
+            .map(String::from)
+            .or_else(|| (last.chars().count() == 1).then(|| last.to_string()))
+            .unwrap_or_default();
+        vk(code, &ch)
+    }
+
+    #[test]
+    fn named_keys_map_to_windows_vk() {
+        for (n, v) in [
+            ("enter", 13),
+            ("tab", 9),
+            ("space", 32),
+            ("backspace", 8),
+            ("esc", 27),
+            ("left", 37),
+            ("up", 38),
+            ("right", 39),
+            ("down", 40),
+            ("home", 36),
+            ("end", 35),
+            ("pageup", 33),
+            ("pagedown", 34),
+            ("forwarddelete", 46),
+        ] {
+            assert_eq!(vk(named(n).unwrap(), ""), v, "{n}");
+        }
+    }
+
+    #[test]
+    fn function_keys_map_to_vk_f1_through_f12() {
+        for n in 1..=12u32 {
+            assert_eq!(vk_of(&format!("f{n}")), 111 + n, "f{n}");
+        }
+    }
+
+    #[test]
+    fn digits_and_letters_use_ascii_vk() {
+        for d in '0'..='9' {
+            assert_eq!(vk_of(&format!("cmd+{d}")), d as u32, "{d}");
+        }
+        for l in 'a'..='z' {
+            assert_eq!(vk_of(&format!("ctrl+{l}")), l.to_ascii_uppercase() as u32, "{l}");
+        }
+    }
+
+    #[test]
+    fn punctuation_uses_oem_vk_not_colliding_ascii() {
+        for (spec, v) in [
+            ("cmd+;", 186),
+            ("cmd+=", 187),
+            ("cmd+,", 188),
+            ("cmd+-", 189),
+            ("cmd+.", 190),
+            ("cmd+/", 191),
+            ("cmd+`", 192),
+            ("cmd+[", 219),
+            ("cmd+\\", 220),
+            ("cmd+]", 221),
+            ("cmd+'", 222),
+            ("cmd+comma", 188),
+            ("cmd+period", 190),
+            ("cmd+slash", 191),
+            ("cmd+minus", 189),
+            ("cmd+equal", 187),
+        ] {
+            assert_eq!(vk_of(spec), v, "{spec}");
+        }
+    }
+
+    #[test]
+    fn cmd_plus_is_shifted_oem_plus() {
+        let (code, flags) = chord("cmd++").unwrap();
+        assert_eq!(flags, crate::keys::FLAG_CMD | crate::keys::FLAG_SHIFT);
+        assert_eq!(vk(code, "+"), 187);
+        assert_eq!(cdp_mods(flags), 4 | 8);
+    }
+
+    #[test]
+    fn typed_symbols_never_collide_with_navigation_vk() {
+        // Unmapped-code typed characters fall back to the character's own VK.
+        assert_eq!(vk(0xFF, "!"), 49);
+        assert_eq!(vk(0xFF, "%"), 53);
+        assert_eq!(vk(0xFF, "'"), 222);
+        assert_eq!(vk(0xFF, "("), 57);
+        assert_eq!(vk(0xFF, "é"), 0);
+    }
+
+    #[test]
+    fn modifier_flags_map_to_cdp_modifiers() {
+        use crate::keys::*;
+        assert_eq!(cdp_mods(FLAG_ALT), 1);
+        assert_eq!(cdp_mods(FLAG_CTRL), 2);
+        assert_eq!(cdp_mods(FLAG_CMD), 4);
+        assert_eq!(cdp_mods(FLAG_SHIFT), 8);
+        assert_eq!(cdp_mods(FLAG_ALT | FLAG_CTRL | FLAG_CMD | FLAG_SHIFT), 15);
+        assert_eq!(cdp_mods(0), 0);
+    }
+
+    #[test]
+    fn key_event_payload_is_valid_json_with_oem_vk() {
+        let v: serde_json::Value =
+            serde_json::from_str(&key_event_params(true, 0x2B, ",", crate::keys::FLAG_CMD))
+                .unwrap();
+        assert_eq!(v["windowsVirtualKeyCode"], 188);
+        assert_eq!(v["modifiers"], 4);
+        assert_eq!(v["key"], ",");
+        assert!(v.get("text").is_none());
     }
 }

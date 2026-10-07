@@ -4746,7 +4746,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "webview2-com",
- "windows 0.61.1",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -5139,6 +5139,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "windows 0.61.1",
 ]
 
 [[package]]
