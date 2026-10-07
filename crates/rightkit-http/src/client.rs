@@ -127,7 +127,8 @@ impl Request {
     }
     pub fn json<T: Serialize>(mut self, value: &T) -> Result<Self, HttpError> {
         self.body = serde_json::to_vec(value).map_err(|e| HttpError::Json(e.to_string()))?;
-        self.headers.push(("Content-Type".into(), "application/json".into()));
+        self.headers
+            .push(("Content-Type".into(), "application/json".into()));
         Ok(self)
     }
     /// `application/x-www-form-urlencoded` body.
@@ -154,7 +155,9 @@ pub fn percent_encode(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for b in input.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             b' ' => out.push('+'),
             _ => out.push_str(&format!("%{b:02X}")),
         }
@@ -279,7 +282,12 @@ impl Client {
         if (200..300).contains(&resp.status) {
             Ok(resp)
         } else {
-            Err(status_error(resp.status, &resp.headers, resp.body, resp.attempts))
+            Err(status_error(
+                resp.status,
+                &resp.headers,
+                resp.body,
+                resp.attempts,
+            ))
         }
     }
 
@@ -289,7 +297,12 @@ impl Client {
         let mut raw = self.execute(req, Some(timeout))?;
         let mut reader = raw.body.as_reader();
         let body = read_limited(&mut reader, self.config.max_response_bytes)?;
-        Ok(Response { status: raw.status, headers: raw.headers, body, attempts: raw.attempts })
+        Ok(Response {
+            status: raw.status,
+            headers: raw.headers,
+            body,
+            attempts: raw.attempts,
+        })
     }
 
     /// Streaming request; non-2xx becomes [`HttpError::Status`]. Retries happen
@@ -310,11 +323,15 @@ impl Client {
     }
 
     pub fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, HttpError> {
-        self.send(&Request::get(url).header("Accept", "application/json"))?.json()
+        self.send(&Request::get(url).header("Accept", "application/json"))?
+            .json()
     }
 
     fn execute(&self, req: &Request, total: Option<Duration>) -> Result<Raw, HttpError> {
-        let policy = req.retry.clone().unwrap_or_else(|| self.config.retry.clone());
+        let policy = req
+            .retry
+            .clone()
+            .unwrap_or_else(|| self.config.retry.clone());
         let max = policy.max_attempts.max(1);
         let mut attempt = 0u32;
         loop {
@@ -325,7 +342,10 @@ impl Client {
                     let retryable = policy.is_retryable_status(raw.status)
                         && (req.method.is_idempotent() || req.retry_unsafe_statuses);
                     if !retryable || attempt >= max {
-                        return Ok(Raw { attempts: attempt, ..raw });
+                        return Ok(Raw {
+                            attempts: attempt,
+                            ..raw
+                        });
                     }
                     let ra = header_of(&raw.headers, "retry-after").and_then(parse_retry_after);
                     // Drain so the connection is released.
@@ -350,7 +370,12 @@ impl Client {
             };
             let delay = policy.delay(attempt, retry_after);
             if let Some(obs) = &self.config.on_retry {
-                obs(&RetryEvent { url: req.url.clone(), retry: attempt, reason, delay });
+                obs(&RetryEvent {
+                    url: req.url.clone(),
+                    retry: attempt,
+                    reason,
+                    delay,
+                });
             }
             std::thread::sleep(delay);
         }
@@ -377,13 +402,28 @@ impl Client {
         let headers = response
             .headers()
             .iter()
-            .map(|(k, v)| (k.as_str().to_ascii_lowercase(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
+            .map(|(k, v)| {
+                (
+                    k.as_str().to_ascii_lowercase(),
+                    String::from_utf8_lossy(v.as_bytes()).into_owned(),
+                )
+            })
             .collect();
-        Ok(Raw { status, headers, body: response.into_body(), attempts: 1 })
+        Ok(Raw {
+            status,
+            headers,
+            body: response.into_body(),
+            attempts: 1,
+        })
     }
 }
 
-fn status_error(status: u16, headers: &[(String, String)], body: Vec<u8>, attempts: u32) -> HttpError {
+fn status_error(
+    status: u16,
+    headers: &[(String, String)],
+    body: Vec<u8>,
+    attempts: u32,
+) -> HttpError {
     let mut body = body;
     body.truncate(MAX_ERROR_BODY_BYTES);
     HttpError::Status {
@@ -401,7 +441,10 @@ fn read_limited(reader: &mut dyn Read, limit: usize) -> Result<Vec<u8>, HttpErro
         .read_to_end(&mut out)
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::TimedOut => HttpError::Timeout(e.to_string()),
-            _ => HttpError::Transport { message: e.to_string(), connect_phase: false },
+            _ => HttpError::Transport {
+                message: e.to_string(),
+                connect_phase: false,
+            },
         })?;
     if out.len() > limit {
         return Err(HttpError::BodyTooLarge { limit });
@@ -413,15 +456,34 @@ fn map_ureq_error(err: ureq::Error) -> HttpError {
     use ureq::Error as E;
     match err {
         E::Timeout(t) => HttpError::Timeout(format!("{t:?}")),
-        E::HostNotFound => HttpError::Transport { message: "host not found".into(), connect_phase: true },
-        E::ConnectionFailed => HttpError::Transport { message: "connection failed".into(), connect_phase: true },
-        E::Io(io) if matches!(
-            io.kind(),
-            std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
-        ) => HttpError::Transport { message: io.to_string(), connect_phase: true },
-        E::Io(io) => HttpError::Transport { message: io.to_string(), connect_phase: false },
+        E::HostNotFound => HttpError::Transport {
+            message: "host not found".into(),
+            connect_phase: true,
+        },
+        E::ConnectionFailed => HttpError::Transport {
+            message: "connection failed".into(),
+            connect_phase: true,
+        },
+        E::Io(io)
+            if matches!(
+                io.kind(),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+            ) =>
+        {
+            HttpError::Transport {
+                message: io.to_string(),
+                connect_phase: true,
+            }
+        }
+        E::Io(io) => HttpError::Transport {
+            message: io.to_string(),
+            connect_phase: false,
+        },
         E::BadUri(m) => HttpError::InvalidRequest(m),
         E::Http(e) => HttpError::InvalidRequest(e.to_string()),
-        other => HttpError::Transport { message: other.to_string(), connect_phase: false },
+        other => HttpError::Transport {
+            message: other.to_string(),
+            connect_phase: false,
+        },
     }
 }

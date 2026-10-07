@@ -125,7 +125,11 @@ impl SseDecoder {
             return None;
         }
         Some(SseEvent {
-            event: if event.is_empty() { "message".into() } else { event },
+            event: if event.is_empty() {
+                "message".into()
+            } else {
+                event
+            },
             data: data.join("\n"),
             id: self.id.clone(),
             retry_ms,
@@ -144,7 +148,12 @@ pub struct SseReader<R: Read> {
 
 impl<R: Read> SseReader<R> {
     pub fn new(reader: R) -> Self {
-        Self { reader, decoder: SseDecoder::default(), queue: VecDeque::new(), done: false }
+        Self {
+            reader,
+            decoder: SseDecoder::default(),
+            queue: VecDeque::new(),
+            done: false,
+        }
     }
 }
 
@@ -175,7 +184,10 @@ impl<R: Read> Iterator for SseReader<R> {
                     self.done = true;
                     return Some(Err(match e.kind() {
                         std::io::ErrorKind::TimedOut => HttpError::Timeout(e.to_string()),
-                        _ => HttpError::Transport { message: e.to_string(), connect_phase: false },
+                        _ => HttpError::Transport {
+                            message: e.to_string(),
+                            connect_phase: false,
+                        },
                     }));
                 }
             }

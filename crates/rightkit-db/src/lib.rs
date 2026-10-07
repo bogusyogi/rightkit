@@ -1,4 +1,5 @@
-#![forbid(unsafe_code)]
+// Unsafe is confined to the host-name FFI in `host`.
+#![deny(unsafe_code)]
 
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::ffi::OsString;
@@ -8,6 +9,9 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use zeroize::Zeroizing;
 
 mod backup;
+#[allow(unsafe_code)]
+mod host;
+pub use host::per_host_path;
 mod migrate;
 mod recover;
 
@@ -76,16 +80,27 @@ pub enum DurabilityProfile {
 /// filesystems often lack and which SQLite will silently downgrade; the default therefore
 /// *verifies* the mode that took effect and falls back to a rollback journal.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum JournalSelect {
-    /// WAL when the filesystem honors it and is not a detected network mount; else DELETE.
+    /// WAL when the filesystem honors it and is not a detected network mount; else a
+    /// rollback journal (TRUNCATE with [`DbOptions::per_host_fallback`], else DELETE).
     WalWithFallback,
     /// WAL or fail (no fallback).
     WalStrict,
-    /// Rollback journal.
+    /// Rollback journal, deleted after each transaction.
     Delete,
+    /// Rollback journal, truncated after each transaction.
+    Truncate,
 }
 
-/// Environment kill-switch (`wal` | `delete`) for a misclassified mount in the field.
+impl JournalSelect {
+    fn is_rollback(self) -> bool {
+        matches!(self, JournalSelect::Delete | JournalSelect::Truncate)
+    }
+}
+
+/// Environment kill-switch (`wal` | `delete` | `truncate`) for a misclassified mount in the
+/// field. An app's own variable ([`DbOptions::journal_env`]) is checked first.
 pub const JOURNAL_ENV: &str = "RIGHTKIT_SQLITE_JOURNAL_MODE";
 
 /// Post-key, pre-pragma per-connection initializer (register functions, collations, ...).
@@ -106,6 +121,14 @@ pub struct DbOptions {
     /// Narrow the database and its sidecars to owner-only (0600) on unix. Default on.
     pub owner_only: bool,
     pub init: Option<ConnInit>,
+    /// The app's own kill-switch variable (e.g. `CODERIGHT_SQLITE_JOURNAL_MODE`), checked
+    /// before [`JOURNAL_ENV`].
+    pub journal_env: Option<String>,
+    /// When a rollback journal is in force (network mount, kill switch, or WAL refused),
+    /// open the per-host sibling [`per_host_path`] instead of the requested file, so hosts
+    /// sharing a network directory never share one rollback-journaled database. The
+    /// requested file is not created. Default off.
+    pub per_host_fallback: bool,
 }
 
 impl DbOptions {
@@ -121,6 +144,33 @@ impl DbOptions {
             journal: JournalSelect::WalWithFallback,
             owner_only: true,
             init: None,
+            journal_env: None,
+            per_host_fallback: false,
+        }
+    }
+
+    pub fn with_journal_env(mut self, name: impl Into<String>) -> Self {
+        self.journal_env = Some(name.into());
+        self
+    }
+
+    pub fn with_per_host_fallback(mut self, on: bool) -> Self {
+        self.per_host_fallback = on;
+        self
+    }
+
+    /// The file connections actually open: the requested path, or its per-host sibling when
+    /// [`Self::per_host_fallback`] applies (a rollback journal is in force, or a writer
+    /// already fell back there).
+    pub fn effective_path(&self) -> PathBuf {
+        if !self.per_host_fallback {
+            return self.path.clone();
+        }
+        let sibling = per_host_path(&self.path);
+        if effective_journal(self).is_rollback() || (sibling.exists() && !self.path.exists()) {
+            sibling
+        } else {
+            self.path.clone()
         }
     }
 
@@ -153,28 +203,61 @@ impl DbOptions {
     }
 
     fn open(&self, kind: ConnectionKind) -> Result<Connection> {
+        let path = self.effective_path();
+        let existed = path.exists();
+        // The per-host sibling is always rollback-journaled, whoever opens it.
+        let forced = (path != self.path).then(|| match effective_journal(self) {
+            mode if mode.is_rollback() => mode,
+            _ => fallback_mode(self),
+        });
+        let (conn, journal) = self.open_at(&path, kind, forced)?;
+        // WAL refused at runtime: with per-host fallback, the rollback journal belongs on the
+        // per-host sibling, and a file this open created at the requested path goes away.
+        if journal == Opened::FellBack && self.per_host_fallback && path == self.path {
+            drop(conn);
+            if !existed {
+                for suffix in ["", "-journal", "-wal", "-shm"] {
+                    let mut name = OsString::from(path.as_os_str());
+                    name.push(suffix);
+                    let _ = std::fs::remove_file(PathBuf::from(name));
+                }
+            }
+            let sibling = per_host_path(&self.path);
+            return Ok(self
+                .open_at(&sibling, kind, Some(JournalSelect::Truncate))?
+                .0);
+        }
+        Ok(conn)
+    }
+
+    fn open_at(
+        &self,
+        path: &Path,
+        kind: ConnectionKind,
+        forced: Option<JournalSelect>,
+    ) -> Result<(Connection, Opened)> {
         let key = self.key_pragma_value()?;
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let conn = Connection::open_with_flags(&self.path, flags)?;
+        let conn = Connection::open_with_flags(path, flags)?;
         // Narrow the main file before any write so WAL/SHM sidecars inherit owner-only.
         if self.owner_only {
-            rightkit_fs::restrict_owner_only(&self.path)?;
+            rightkit_fs::restrict_owner_only(path)?;
         }
         apply_key_first(&conn, key.as_ref().map(|k| k.as_str()))?;
         verify_key(&conn)?;
         if let Some(init) = &self.init {
             init(&conn)?;
         }
-        configure_connection(&conn, self, kind)?;
+        let journal = configure_connection(&conn, self, kind, forced)?;
         if self.integrity_check_on_open {
             integrity_check(&conn, self.is_keyed())?;
         }
         if self.owner_only {
-            harden_sidecars(&self.path)?;
+            harden_sidecars(path)?;
         }
-        Ok(conn)
+        Ok((conn, journal))
     }
 
     /// The `PRAGMA key` right-hand side (already quoted), validated against injection.
@@ -212,13 +295,22 @@ enum ConnectionKind {
     Reader,
 }
 
+/// What journal setup did.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Opened {
+    AsRequested,
+    /// WAL was wanted but not honored; a rollback journal is in force.
+    FellBack,
+}
+
 fn configure_connection(
     conn: &Connection,
     options: &DbOptions,
     kind: ConnectionKind,
-) -> Result<()> {
+    forced: Option<JournalSelect>,
+) -> Result<Opened> {
     conn.busy_timeout(std::time::Duration::from_millis(BUSY_TIMEOUT_MS))?;
-    configure_journal(conn, options, kind)?;
+    let opened = configure_journal(conn, options, kind, forced)?;
     let synchronous = match options.durability {
         DurabilityProfile::Full => "FULL",
         DurabilityProfile::Normal => "NORMAL",
@@ -237,18 +329,31 @@ fn configure_connection(
     if matches!(kind, ConnectionKind::Reader) {
         conn.pragma_update(None, "query_only", true)?;
     }
+    Ok(opened)
+}
+
+fn set_rollback(conn: &Connection, mode: JournalSelect) -> Result<()> {
+    let pragma = if mode == JournalSelect::Truncate {
+        "PRAGMA journal_mode=TRUNCATE"
+    } else {
+        "PRAGMA journal_mode=DELETE"
+    };
+    conn.query_row(pragma, [], |row| row.get::<_, String>(0))?;
     Ok(())
 }
 
-fn configure_journal(conn: &Connection, options: &DbOptions, kind: ConnectionKind) -> Result<()> {
-    let wanted = effective_journal(options);
-    if wanted == JournalSelect::Delete {
-        if matches!(kind, ConnectionKind::Writer) {
-            conn.query_row("PRAGMA journal_mode=DELETE", [], |row| {
-                row.get::<_, String>(0)
-            })?;
-        }
-        return Ok(());
+fn configure_journal(
+    conn: &Connection,
+    options: &DbOptions,
+    kind: ConnectionKind,
+    forced: Option<JournalSelect>,
+) -> Result<Opened> {
+    let wanted = forced.unwrap_or_else(|| effective_journal(options));
+    if wanted.is_rollback() {
+        // Rollback modes are per connection: a reader left in the default DELETE mode would
+        // try to delete a TRUNCATE writer's open journal (IOERR_DELETE on Windows).
+        set_rollback(conn, wanted)?;
+        return Ok(Opened::AsRequested);
     }
     let honored = conn
         .query_row("PRAGMA journal_mode=WAL", [], |row| row.get::<_, String>(0))
@@ -259,7 +364,7 @@ fn configure_journal(conn: &Connection, options: &DbOptions, kind: ConnectionKin
         && (matches!(kind, ConnectionKind::Reader)
             || conn.execute_batch("BEGIN IMMEDIATE; ROLLBACK;").is_ok());
     if honored {
-        return Ok(());
+        return Ok(Opened::AsRequested);
     }
     if wanted == JournalSelect::WalStrict {
         return Err(DbError::Sqlite(rusqlite::Error::SqliteFailure(
@@ -268,27 +373,51 @@ fn configure_journal(conn: &Connection, options: &DbOptions, kind: ConnectionKin
         )));
     }
     let _ = conn.execute_batch("ROLLBACK;");
-    conn.query_row("PRAGMA journal_mode=DELETE", [], |row| {
-        row.get::<_, String>(0)
-    })?;
-    Ok(())
+    set_rollback(conn, fallback_mode(options))?;
+    Ok(Opened::FellBack)
+}
+
+/// The rollback journal used when WAL is unavailable: TRUNCATE with per-host fallback
+/// (CodeRight's network mode), DELETE otherwise.
+fn fallback_mode(options: &DbOptions) -> JournalSelect {
+    if options.per_host_fallback {
+        JournalSelect::Truncate
+    } else {
+        JournalSelect::Delete
+    }
+}
+
+/// Kill switches (the app's own variable first, then [`JOURNAL_ENV`]); set-but-empty or
+/// unrecognized values are ignored.
+fn env_journal(options: &DbOptions) -> Option<JournalSelect> {
+    options
+        .journal_env
+        .iter()
+        .map(String::as_str)
+        .chain([JOURNAL_ENV])
+        .find_map(|name| {
+            match std::env::var(name)
+                .ok()?
+                .trim()
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "wal" => Some(JournalSelect::WalStrict),
+                "delete" => Some(JournalSelect::Delete),
+                "truncate" => Some(JournalSelect::Truncate),
+                _ => None,
+            }
+        })
 }
 
 fn effective_journal(options: &DbOptions) -> JournalSelect {
-    match std::env::var(JOURNAL_ENV)
-        .ok()
-        .as_deref()
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("wal") => return JournalSelect::WalStrict,
-        Some("delete") | Some("truncate") => return JournalSelect::Delete,
-        _ => {}
+    if let Some(mode) = env_journal(options) {
+        return mode;
     }
     if options.journal == JournalSelect::WalWithFallback
         && rightkit_fs::is_network_filesystem(&options.path)
     {
-        return JournalSelect::Delete;
+        return fallback_mode(options);
     }
     options.journal
 }

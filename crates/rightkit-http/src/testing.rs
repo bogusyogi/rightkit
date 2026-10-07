@@ -75,7 +75,12 @@ pub struct MockResponse {
 
 impl MockResponse {
     pub fn new(status: u16) -> Self {
-        Self { status, headers: Vec::new(), body: MockBody::Full(Vec::new()), delay: Duration::ZERO }
+        Self {
+            status,
+            headers: Vec::new(),
+            body: MockBody::Full(Vec::new()),
+            delay: Duration::ZERO,
+        }
     }
     pub fn json(status: u16, value: &serde_json::Value) -> Self {
         Self::new(status)
@@ -83,12 +88,19 @@ impl MockResponse {
             .body(serde_json::to_vec(value).unwrap())
     }
     pub fn text(status: u16, text: &str) -> Self {
-        Self::new(status).header("Content-Type", "text/plain").body(text.as_bytes().to_vec())
+        Self::new(status)
+            .header("Content-Type", "text/plain")
+            .body(text.as_bytes().to_vec())
     }
     pub fn sse(frames: &[&str]) -> Self {
-        Self::new(200).header("Content-Type", "text/event-stream").chunks(
-            frames.iter().map(|f| (Duration::ZERO, f.as_bytes().to_vec())).collect(),
-        )
+        Self::new(200)
+            .header("Content-Type", "text/event-stream")
+            .chunks(
+                frames
+                    .iter()
+                    .map(|f| (Duration::ZERO, f.as_bytes().to_vec()))
+                    .collect(),
+            )
     }
     pub fn header(mut self, k: &str, v: &str) -> Self {
         self.headers.push((k.into(), v.into()));
@@ -119,7 +131,9 @@ pub struct MockServer {
 
 impl MockServer {
     /// `handler(request, zero_based_request_index)` produces each response.
-    pub fn start(handler: impl Fn(&RecordedRequest, usize) -> MockResponse + Send + Sync + 'static) -> Self {
+    pub fn start(
+        handler: impl Fn(&RecordedRequest, usize) -> MockResponse + Send + Sync + 'static,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         let addr = listener.local_addr().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -138,7 +152,12 @@ impl MockServer {
                 });
             }
         });
-        Self { addr, requests, stop, thread: Some(thread) }
+        Self {
+            addr,
+            requests,
+            stop,
+            thread: Some(thread),
+        }
     }
 
     pub fn url(&self, path: &str) -> String {
@@ -201,7 +220,12 @@ fn serve(
         .unwrap_or(0);
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body)?;
-    let request = RecordedRequest { method, target, headers, body };
+    let request = RecordedRequest {
+        method,
+        target,
+        headers,
+        body,
+    };
     let index = {
         let mut g = reqs.lock().unwrap();
         g.push(request.clone());
@@ -221,7 +245,10 @@ fn serve(
         503 => "Service Unavailable",
         _ => "Status",
     };
-    let mut head = format!("HTTP/1.1 {} {}\r\nConnection: close\r\n", resp.status, reason);
+    let mut head = format!(
+        "HTTP/1.1 {} {}\r\nConnection: close\r\n",
+        resp.status, reason
+    );
     for (k, v) in &resp.headers {
         head.push_str(&format!("{k}: {v}\r\n"));
     }

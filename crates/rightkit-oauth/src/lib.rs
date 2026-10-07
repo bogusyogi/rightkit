@@ -1,9 +1,29 @@
-//! OAuth 2.0 authorization-code flow for native desktop applications.
+//! OAuth 2.0 sign-in for Right Suite apps: one implementation every app uses.
 //!
-//! [`OAuthClient::begin_loopback`] binds only to `127.0.0.1` on an ephemeral
-//! port, creates a fresh state and S256 PKCE verifier, and returns an
-//! authorization URL. [`OAuthClient::finish_loopback`] consumes the callback,
-//! checks state before exchanging the code, and returns redacted tokens.
+//! * Loopback authorization code + PKCE: [`OAuthClient::begin_loopback`] binds only to
+//!   `127.0.0.1` (an ephemeral port unless the provider registration fixes one), creates a
+//!   fresh state and S256 verifier, and returns the authorization URL;
+//!   [`OAuthClient::finish_loopback`] checks state before exchanging the code.
+//! * Device authorization (RFC 8628): [`OAuthClient::begin_device`] /
+//!   [`OAuthClient::finish_device`] for headless, CLI/TUI and phone-assisted sign-in.
+//! * Provider presets ([`OAuthConfig::github`], [`OAuthConfig::google`],
+//!   [`OAuthConfig::cloudflare`], [`OAuthConfig::openai`]) carry endpoints only; every app
+//!   supplies its own registered client id.
+//! * `credentials` (feature `secrets`) stores tokens in the OS credential store, refreshes
+//!   them, and resolves a usable token or a typed "needs sign-in" outcome.
+//!
+//! Token values never appear in `Debug` or `Display` output.
+
+#[cfg(feature = "secrets")]
+pub mod credentials;
+mod device;
+#[cfg(feature = "system-sources")]
+pub mod system;
+
+pub use device::{
+    Clock, DeviceAuthorization, DevicePoll, DeviceWait, SystemClock, DEFAULT_INTERVAL,
+    MINIMUM_INTERVAL, SLOW_DOWN_INCREMENT,
+};
 
 use std::fmt;
 use std::io::Write;
@@ -15,15 +35,36 @@ use sha2::{Digest, Sha256};
 
 const GOOGLE_AUTHORIZATION_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+const GOOGLE_DEVICE_URL: &str = "https://oauth2.googleapis.com/device/code";
+const GITHUB_AUTHORIZATION_URL: &str = "https://github.com/login/oauth/authorize";
+const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+const GITHUB_DEVICE_URL: &str = "https://github.com/login/device/code";
+const CLOUDFLARE_AUTHORIZATION_URL: &str = "https://dash.cloudflare.com/oauth2/auth";
+const CLOUDFLARE_TOKEN_URL: &str = "https://dash.cloudflare.com/oauth2/token";
+const OPENAI_AUTHORIZATION_URL: &str = "https://auth.openai.com/oauth/authorize";
+const OPENAI_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum OAuthError {
     InvalidConfig(String),
     Http(HttpError),
     Callback(String),
     StateMismatch,
     NeedsReauth,
-    Provider { status: u16, error: String, description: Option<String> },
+    Provider {
+        status: u16,
+        error: String,
+        description: Option<String>,
+    },
+    /// The device code expired before the user approved it.
+    DeviceCodeExpired,
+    /// The user declined the device authorization.
+    AccessDenied,
+    /// The caller cancelled the flow.
+    Cancelled,
+    /// The OS credential store failed (never carries credential bytes).
+    Storage(String),
 }
 
 impl fmt::Display for OAuthError {
@@ -33,12 +74,26 @@ impl fmt::Display for OAuthError {
             Self::Http(e) => write!(f, "OAuth HTTP error: {e}"),
             Self::Callback(m) => write!(f, "OAuth callback error: {m}"),
             Self::StateMismatch => f.write_str("OAuth callback state mismatch"),
-            Self::NeedsReauth => f.write_str("OAuth authorization is no longer valid; reauthorization required"),
-            Self::Provider { status, error, description } => {
+            Self::NeedsReauth => {
+                f.write_str("OAuth authorization is no longer valid; reauthorization required")
+            }
+            Self::Provider {
+                status,
+                error,
+                description,
+            } => {
                 write!(f, "OAuth provider error {error} (HTTP {status})")?;
-                if let Some(d) = description { write!(f, ": {d}")?; }
+                if let Some(d) = description {
+                    write!(f, ": {d}")?;
+                }
                 Ok(())
             }
+            Self::DeviceCodeExpired => {
+                f.write_str("the sign-in code expired before it was approved")
+            }
+            Self::AccessDenied => f.write_str("sign-in was declined"),
+            Self::Cancelled => f.write_str("sign-in was cancelled"),
+            Self::Storage(m) => write!(f, "credential storage error: {m}"),
         }
     }
 }
@@ -46,7 +101,9 @@ impl fmt::Display for OAuthError {
 impl std::error::Error for OAuthError {}
 
 impl From<HttpError> for OAuthError {
-    fn from(e: HttpError) -> Self { Self::Http(e) }
+    fn from(e: HttpError) -> Self {
+        Self::Http(e)
+    }
 }
 
 /// OAuth provider endpoints and client parameters.
@@ -59,10 +116,40 @@ pub struct OAuthConfig {
     pub scopes: Vec<String>,
     /// Extra query parameters for provider-specific consent behavior.
     pub authorization_params: Vec<(String, String)>,
+    /// RFC 8628 device authorization endpoint, when the provider supports device sign-in.
+    pub device_authorization_url: Option<String>,
+    /// Where the loopback flow listens. Defaults to `127.0.0.1`, an ephemeral port, and
+    /// `/oauth/callback`; providers whose registration fixes the redirect set it exactly.
+    pub redirect: LoopbackRedirect,
+}
+
+/// The loopback redirect the provider registration expects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoopbackRedirect {
+    /// Host spelled in `redirect_uri`: `127.0.0.1` or `localhost`. The listener always binds
+    /// `127.0.0.1` only.
+    pub host: String,
+    /// `0` picks an ephemeral port.
+    pub port: u16,
+    pub path: String,
+}
+
+impl Default for LoopbackRedirect {
+    fn default() -> Self {
+        Self {
+            host: "127.0.0.1".into(),
+            port: 0,
+            path: "/oauth/callback".into(),
+        }
+    }
 }
 
 impl OAuthConfig {
-    pub fn new(client_id: impl Into<String>, authorization_url: impl Into<String>, token_url: impl Into<String>) -> Self {
+    pub fn new(
+        client_id: impl Into<String>,
+        authorization_url: impl Into<String>,
+        token_url: impl Into<String>,
+    ) -> Self {
         Self {
             authorization_url: authorization_url.into(),
             token_url: token_url.into(),
@@ -70,16 +157,82 @@ impl OAuthConfig {
             client_secret: None,
             scopes: Vec::new(),
             authorization_params: Vec::new(),
+            device_authorization_url: None,
+            redirect: LoopbackRedirect::default(),
         }
     }
 
-    /// Google defaults use an overridable client id, endpoints, and scopes.
-    pub fn google(client_id: impl Into<String>, scopes: impl IntoIterator<Item = impl Into<String>>) -> Self {
+    /// Google (incl. Gmail scopes): loopback with offline consent, plus device sign-in.
+    pub fn google(
+        client_id: impl Into<String>,
+        scopes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
         let mut c = Self::new(client_id, GOOGLE_AUTHORIZATION_URL, GOOGLE_TOKEN_URL);
         c.scopes = scopes.into_iter().map(Into::into).collect();
-        c.authorization_params.push(("access_type".into(), "offline".into()));
-        c.authorization_params.push(("prompt".into(), "consent".into()));
+        c.authorization_params
+            .push(("access_type".into(), "offline".into()));
+        c.authorization_params
+            .push(("prompt".into(), "consent".into()));
+        c.device_authorization_url = Some(GOOGLE_DEVICE_URL.into());
         c
+    }
+
+    /// GitHub, for the app's own GitHub App (or OAuth App) registration. GitHub Apps with
+    /// expiring user tokens return a rotating refresh grant; permissions come from the App,
+    /// so `scopes` is usually empty. Device sign-in is supported.
+    pub fn github(
+        client_id: impl Into<String>,
+        scopes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let mut c = Self::new(client_id, GITHUB_AUTHORIZATION_URL, GITHUB_TOKEN_URL);
+        c.scopes = scopes.into_iter().map(Into::into).collect();
+        c.device_authorization_url = Some(GITHUB_DEVICE_URL.into());
+        c
+    }
+
+    /// Cloudflare dashboard OAuth. Set the redirect the app's registration names with
+    /// [`Self::with_redirect`].
+    pub fn cloudflare(
+        client_id: impl Into<String>,
+        scopes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let mut c = Self::new(
+            client_id,
+            CLOUDFLARE_AUTHORIZATION_URL,
+            CLOUDFLARE_TOKEN_URL,
+        );
+        c.scopes = scopes.into_iter().map(Into::into).collect();
+        c
+    }
+
+    /// OpenAI / ChatGPT account sign-in. Its registrations fix the redirect (a `localhost`
+    /// port and path); set it with [`Self::with_redirect`].
+    pub fn openai(
+        client_id: impl Into<String>,
+        scopes: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        let mut c = Self::new(client_id, OPENAI_AUTHORIZATION_URL, OPENAI_TOKEN_URL);
+        c.scopes = scopes.into_iter().map(Into::into).collect();
+        c
+    }
+
+    pub fn with_redirect(
+        mut self,
+        host: impl Into<String>,
+        port: u16,
+        path: impl Into<String>,
+    ) -> Self {
+        self.redirect = LoopbackRedirect {
+            host: host.into(),
+            port,
+            path: path.into(),
+        };
+        self
+    }
+
+    pub fn with_device_authorization_url(mut self, url: impl Into<String>) -> Self {
+        self.device_authorization_url = Some(url.into());
+        self
     }
 
     pub fn with_client_secret(mut self, secret: impl Into<String>) -> Self {
@@ -92,7 +245,11 @@ impl OAuthConfig {
         self
     }
 
-    pub fn with_authorization_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn with_authorization_param(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
         self.authorization_params.push((name.into(), value.into()));
         self
     }
@@ -115,7 +272,10 @@ impl fmt::Debug for TokenSet {
             .field("access_token", &self.access_token)
             .field("token_type", &self.token_type)
             .field("expires_in", &self.expires_in)
-            .field("refresh_token", &self.refresh_token.as_ref().map(|_| "[redacted]"))
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[redacted]"),
+            )
             .field("scope", &self.scope)
             .field("obtained_at", &self.obtained_at)
             .finish()
@@ -123,7 +283,9 @@ impl fmt::Debug for TokenSet {
 }
 
 impl TokenSet {
-    pub fn access_token(&self) -> &str { self.access_token.expose() }
+    pub fn access_token(&self) -> &str {
+        self.access_token.expose()
+    }
 
     pub fn is_expired(&self, skew: Duration) -> bool {
         self.expires_in
@@ -163,7 +325,9 @@ impl fmt::Debug for AuthorizationRequest {
 }
 
 impl AuthorizationRequest {
-    pub fn code_verifier(&self) -> &str { &self.verifier }
+    pub fn code_verifier(&self) -> &str {
+        &self.verifier
+    }
 }
 
 /// A pending callback listener. Keep it alive while the browser is completing authorization.
@@ -174,13 +338,15 @@ pub struct LoopbackAuthorization {
 
 impl fmt::Debug for LoopbackAuthorization {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LoopbackAuthorization").field("request", &self.request).finish()
+        f.debug_struct("LoopbackAuthorization")
+            .field("request", &self.request)
+            .finish()
     }
 }
 
 pub struct OAuthClient {
-    config: OAuthConfig,
-    http: Client,
+    pub(crate) config: OAuthConfig,
+    pub(crate) http: Client,
 }
 
 impl OAuthClient {
@@ -189,17 +355,25 @@ impl OAuthClient {
         Ok(Self { config, http })
     }
 
-    pub fn config(&self) -> &OAuthConfig { &self.config }
+    pub fn config(&self) -> &OAuthConfig {
+        &self.config
+    }
 
     /// Bind the callback listener before constructing the authorization URL.
     pub fn begin_loopback(&self) -> Result<LoopbackAuthorization, OAuthError> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))
+        let listener = TcpListener::bind(("127.0.0.1", self.config.redirect.port))
             .map_err(|e| OAuthError::Callback(format!("bind loopback listener: {e}")))?;
         listener
             .set_nonblocking(false)
             .map_err(|e| OAuthError::Callback(format!("configure loopback listener: {e}")))?;
-        let port = listener.local_addr().map_err(|e| OAuthError::Callback(e.to_string()))?.port();
-        let redirect_uri = format!("http://127.0.0.1:{port}/oauth/callback");
+        let port = listener
+            .local_addr()
+            .map_err(|e| OAuthError::Callback(e.to_string()))?
+            .port();
+        let redirect_uri = format!(
+            "http://{}:{port}{}",
+            self.config.redirect.host, self.config.redirect.path
+        );
         let state = random_urlsafe(32)?;
         let verifier = random_urlsafe(48)?;
         let challenge = base64url(&Sha256::digest(verifier.as_bytes()));
@@ -217,43 +391,89 @@ impl OAuthClient {
         for (k, v) in &self.config.authorization_params {
             pairs.push((k.as_str(), v.clone()));
         }
-        let query = pairs.iter().map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v))).collect::<Vec<_>>().join("&");
-        let authorization_url = format!("{}{}{}", self.config.authorization_url, if self.config.authorization_url.contains('?') { '&' } else { '?' }, query);
-        Ok(LoopbackAuthorization { request: AuthorizationRequest { authorization_url, state, redirect_uri, verifier }, listener })
+        let query = pairs
+            .iter()
+            .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        let authorization_url = format!(
+            "{}{}{}",
+            self.config.authorization_url,
+            if self.config.authorization_url.contains('?') {
+                '&'
+            } else {
+                '?'
+            },
+            query
+        );
+        Ok(LoopbackAuthorization {
+            request: AuthorizationRequest {
+                authorization_url,
+                state,
+                redirect_uri,
+                verifier,
+            },
+            listener,
+        })
     }
 
     /// Wait for one browser callback and exchange its authorization code.
-    pub fn finish_loopback(&self, flow: LoopbackAuthorization, timeout: Duration) -> Result<TokenSet, OAuthError> {
-        flow.listener.set_nonblocking(true).map_err(|e| OAuthError::Callback(e.to_string()))?;
+    pub fn finish_loopback(
+        &self,
+        flow: LoopbackAuthorization,
+        timeout: Duration,
+    ) -> Result<TokenSet, OAuthError> {
+        flow.listener
+            .set_nonblocking(true)
+            .map_err(|e| OAuthError::Callback(e.to_string()))?;
         let started = std::time::Instant::now();
         let (stream, _) = loop {
             match flow.listener.accept() {
                 Ok(pair) => break pair,
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && started.elapsed() < timeout => {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        && started.elapsed() < timeout =>
+                {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    return Err(OAuthError::Callback("timed out waiting for browser callback".into()));
+                    return Err(OAuthError::Callback(
+                        "timed out waiting for browser callback".into(),
+                    ));
                 }
                 Err(e) => return Err(OAuthError::Callback(format!("accept callback: {e}"))),
             }
         };
         // One absolute deadline for the whole request line, never per read.
-        let remaining = timeout.saturating_sub(started.elapsed()).clamp(Duration::from_millis(250), CALLBACK_READ_MAX);
+        let remaining = timeout
+            .saturating_sub(started.elapsed())
+            .clamp(Duration::from_millis(250), CALLBACK_READ_MAX);
         let callback = read_callback(stream, remaining)?;
         if callback.state.as_deref() != Some(flow.request.state.as_str()) {
             return Err(OAuthError::StateMismatch);
         }
         if let Some(e) = callback.error {
-            if e == "access_denied" { return Err(OAuthError::NeedsReauth); }
+            if e == "access_denied" {
+                return Err(OAuthError::NeedsReauth);
+            }
             return Err(OAuthError::Callback(e));
         }
-        let code = callback.code.ok_or_else(|| OAuthError::Callback("callback did not contain a code".into()))?;
+        let code = callback
+            .code
+            .ok_or_else(|| OAuthError::Callback("callback did not contain a code".into()))?;
         self.exchange_code(&flow.request, &code)
     }
 
-    pub fn exchange_code(&self, authorization: &AuthorizationRequest, code: &str) -> Result<TokenSet, OAuthError> {
-        if code.is_empty() { return Err(OAuthError::InvalidConfig("authorization code is empty".into())); }
+    pub fn exchange_code(
+        &self,
+        authorization: &AuthorizationRequest,
+        code: &str,
+    ) -> Result<TokenSet, OAuthError> {
+        if code.is_empty() {
+            return Err(OAuthError::InvalidConfig(
+                "authorization code is empty".into(),
+            ));
+        }
         let pairs = vec![
             ("grant_type", "authorization_code"),
             ("code", code),
@@ -266,7 +486,10 @@ impl OAuthClient {
 
     /// Refresh an access token. A missing refresh token is a reauthorization requirement.
     pub fn refresh(&self, current: &TokenSet) -> Result<TokenSet, OAuthError> {
-        let refresh = current.refresh_token.as_ref().ok_or(OAuthError::NeedsReauth)?;
+        let refresh = current
+            .refresh_token
+            .as_ref()
+            .ok_or(OAuthError::NeedsReauth)?;
         let pairs = vec![
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh.expose()),
@@ -275,24 +498,75 @@ impl OAuthClient {
         self.token_request(&pairs, Some(refresh))
     }
 
-    fn token_request(&self, pairs: &[(&str, &str)], old_refresh: Option<&Secret>) -> Result<TokenSet, OAuthError> {
-        let mut owned: Vec<(String, String)> = pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect();
-        if let Some(secret) = &self.config.client_secret { owned.push(("client_secret".into(), secret.expose().into())); }
-        let refs: Vec<(&str, &str)> = owned.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-        let response = self.http.send(&Request::post(&self.config.token_url).form(&refs))
+    fn token_request(
+        &self,
+        pairs: &[(&str, &str)],
+        old_refresh: Option<&Secret>,
+    ) -> Result<TokenSet, OAuthError> {
+        let mut owned: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| ((*k).into(), (*v).into()))
+            .collect();
+        if let Some(secret) = &self.config.client_secret {
+            owned.push(("client_secret".into(), secret.expose().into()));
+        }
+        let refs: Vec<(&str, &str)> = owned
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        // GitHub answers form-encoded unless asked for JSON, and reports some errors with 200.
+        let response = self
+            .http
+            .send(
+                &Request::post(&self.config.token_url)
+                    .header("Accept", "application/json")
+                    .form(&refs),
+            )
             .map_err(provider_or_http)?;
         let value: serde_json::Value = response.json()?;
+        if let Some(error) = value.get("error").and_then(|e| e.as_str()) {
+            return Err(error_from(response.status, error, &value));
+        }
         parse_tokens(&value, old_refresh)
     }
 }
 
 fn validate_config(c: &OAuthConfig) -> Result<(), OAuthError> {
-    if c.client_id.trim().is_empty() { return Err(OAuthError::InvalidConfig("client_id is empty".into())); }
-    if !(c.authorization_url.starts_with("https://") || c.authorization_url.starts_with("http://127.0.0.1:") || c.authorization_url.starts_with("http://localhost:")) {
-        return Err(OAuthError::InvalidConfig("authorization_url must use HTTPS (or loopback in tests)".into()));
+    if c.client_id.trim().is_empty() {
+        return Err(OAuthError::InvalidConfig("client_id is empty".into()));
     }
-    if !(c.token_url.starts_with("https://") || c.token_url.starts_with("http://127.0.0.1:") || c.token_url.starts_with("http://localhost:")) {
-        return Err(OAuthError::InvalidConfig("token_url must use HTTPS (or loopback in tests)".into()));
+    if !(c.authorization_url.starts_with("https://")
+        || c.authorization_url.starts_with("http://127.0.0.1:")
+        || c.authorization_url.starts_with("http://localhost:"))
+    {
+        return Err(OAuthError::InvalidConfig(
+            "authorization_url must use HTTPS (or loopback in tests)".into(),
+        ));
+    }
+    if !(c.token_url.starts_with("https://")
+        || c.token_url.starts_with("http://127.0.0.1:")
+        || c.token_url.starts_with("http://localhost:"))
+    {
+        return Err(OAuthError::InvalidConfig(
+            "token_url must use HTTPS (or loopback in tests)".into(),
+        ));
+    }
+    if let Some(d) = &c.device_authorization_url {
+        if !(d.starts_with("https://")
+            || d.starts_with("http://127.0.0.1:")
+            || d.starts_with("http://localhost:"))
+        {
+            return Err(OAuthError::InvalidConfig(
+                "device_authorization_url must use HTTPS (or loopback in tests)".into(),
+            ));
+        }
+    }
+    if !matches!(c.redirect.host.as_str(), "127.0.0.1" | "localhost")
+        || !c.redirect.path.starts_with('/')
+    {
+        return Err(OAuthError::InvalidConfig(
+            "redirect must be a 127.0.0.1/localhost path".into(),
+        ));
     }
     Ok(())
 }
@@ -301,23 +575,60 @@ fn provider_or_http(e: HttpError) -> OAuthError {
     match e {
         HttpError::Status { status, body, .. } => {
             let v: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
-            let error = v.get("error").and_then(|x| x.as_str()).unwrap_or("token_request_failed").to_string();
-            let description = v.get("error_description").and_then(|x| x.as_str()).map(String::from);
-            if error == "invalid_grant" { OAuthError::NeedsReauth } else { OAuthError::Provider { status, error, description } }
+            let error = v
+                .get("error")
+                .and_then(|x| x.as_str())
+                .unwrap_or("token_request_failed")
+                .to_string();
+            error_from(status, &error, &v)
         }
         other => OAuthError::Http(other),
     }
 }
 
-fn parse_tokens(v: &serde_json::Value, old_refresh: Option<&Secret>) -> Result<TokenSet, OAuthError> {
-    let access = v.get("access_token").and_then(|x| x.as_str()).filter(|s| !s.is_empty())
+/// A token-endpoint error. A dead grant (`invalid_grant`; GitHub's `bad_refresh_token`) means
+/// the user must sign in again.
+fn error_from(status: u16, error: &str, v: &serde_json::Value) -> OAuthError {
+    if matches!(error, "invalid_grant" | "bad_refresh_token") {
+        return OAuthError::NeedsReauth;
+    }
+    let description = v
+        .get("error_description")
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    OAuthError::Provider {
+        status,
+        error: error.to_string(),
+        description,
+    }
+}
+
+pub(crate) fn parse_tokens(
+    v: &serde_json::Value,
+    old_refresh: Option<&Secret>,
+) -> Result<TokenSet, OAuthError> {
+    let access = v
+        .get("access_token")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
         .ok_or_else(|| OAuthError::Callback("token response omitted access_token".into()))?;
-    let refresh = v.get("refresh_token").and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(Secret::new)
+    let refresh = v
+        .get("refresh_token")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .map(Secret::new)
         .or_else(|| old_refresh.cloned());
     Ok(TokenSet {
         access_token: Secret::new(access),
-        token_type: v.get("token_type").and_then(|x| x.as_str()).unwrap_or("Bearer").to_string(),
-        expires_in: v.get("expires_in").and_then(|x| x.as_u64()).map(Duration::from_secs),
+        token_type: v
+            .get("token_type")
+            .and_then(|x| x.as_str())
+            .unwrap_or("Bearer")
+            .to_string(),
+        expires_in: v
+            .get("expires_in")
+            .and_then(|x| x.as_u64())
+            .map(Duration::from_secs),
         refresh_token: refresh,
         scope: v.get("scope").and_then(|x| x.as_str()).map(String::from),
         obtained_at: SystemTime::now(),
@@ -336,21 +647,39 @@ const CALLBACK_LINE_MAX: usize = 8 * 1024;
 const CALLBACK_READ_MAX: Duration = Duration::from_secs(10);
 
 /// Read one request line (up to `\n`) under an absolute deadline and a size cap.
-fn read_request_line(stream: &mut TcpStream, deadline: std::time::Instant) -> Result<String, OAuthError> {
+fn read_request_line(
+    stream: &mut TcpStream,
+    deadline: std::time::Instant,
+) -> Result<String, OAuthError> {
     use std::io::Read;
     let mut line: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 512];
     loop {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {
-            return Err(OAuthError::Callback("timed out reading callback request".into()));
+            return Err(OAuthError::Callback(
+                "timed out reading callback request".into(),
+            ));
         }
-        stream.set_read_timeout(Some(left)).map_err(|e| OAuthError::Callback(e.to_string()))?;
+        stream
+            .set_read_timeout(Some(left))
+            .map_err(|e| OAuthError::Callback(e.to_string()))?;
         let n = match stream.read(&mut chunk) {
-            Ok(0) => return Err(OAuthError::Callback("callback connection closed before request line".into())),
+            Ok(0) => {
+                return Err(OAuthError::Callback(
+                    "callback connection closed before request line".into(),
+                ))
+            }
             Ok(n) => n,
-            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
-                return Err(OAuthError::Callback("timed out reading callback request".into()));
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Err(OAuthError::Callback(
+                    "timed out reading callback request".into(),
+                ));
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(OAuthError::Callback(e.to_string())),
@@ -358,11 +687,15 @@ fn read_request_line(stream: &mut TcpStream, deadline: std::time::Instant) -> Re
         let end = chunk[..n].iter().position(|b| *b == b'\n');
         let take = end.unwrap_or(n);
         if line.len() + take > CALLBACK_LINE_MAX {
-            return Err(OAuthError::Callback("callback request line too long".into()));
+            return Err(OAuthError::Callback(
+                "callback request line too long".into(),
+            ));
         }
         line.extend_from_slice(&chunk[..take]);
         if end.is_some() {
-            return Ok(String::from_utf8_lossy(&line).trim_end_matches('\r').to_string());
+            return Ok(String::from_utf8_lossy(&line)
+                .trim_end_matches('\r')
+                .to_string());
         }
     }
 }
@@ -371,9 +704,16 @@ fn read_callback(mut stream: TcpStream, read_budget: Duration) -> Result<Callbac
     stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
     stream.set_nonblocking(false).ok();
     let first = read_request_line(&mut stream, std::time::Instant::now() + read_budget)?;
-    let target = first.split_whitespace().nth(1).ok_or_else(|| OAuthError::Callback("malformed callback request".into()))?;
+    let target = first
+        .split_whitespace()
+        .nth(1)
+        .ok_or_else(|| OAuthError::Callback("malformed callback request".into()))?;
     let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
-    let mut callback = Callback { code: None, state: None, error: None };
+    let mut callback = Callback {
+        code: None,
+        state: None,
+        error: None,
+    };
     for pair in query.split('&').filter(|p| !p.is_empty()) {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         match percent_decode(key).as_str() {
@@ -387,13 +727,16 @@ fn read_callback(mut stream: TcpStream, read_budget: Duration) -> Result<Callbac
     let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
     // The reply is a courtesy page: a browser (or client) that already closed its end must not turn
     // a received callback into a failure. Windows reports that as a reset on write; Unix usually doesn't.
-    let _ = stream.write_all(response.as_bytes()).and_then(|()| stream.write_all(body));
+    let _ = stream
+        .write_all(response.as_bytes())
+        .and_then(|()| stream.write_all(body));
     Ok(callback)
 }
 
 fn random_urlsafe(bytes: usize) -> Result<String, OAuthError> {
     let mut b = vec![0u8; bytes];
-    getrandom::fill(&mut b).map_err(|e| OAuthError::Callback(format!("randomness unavailable: {e}")))?;
+    getrandom::fill(&mut b)
+        .map_err(|e| OAuthError::Callback(format!("randomness unavailable: {e}")))?;
     Ok(base64url(&b))
 }
 
@@ -407,8 +750,12 @@ fn base64url(bytes: &[u8]) -> String {
         let c = bytes.get(i + 2).copied().unwrap_or(0) as u32;
         out.push(TABLE[((a >> 2) & 63) as usize] as char);
         out.push(TABLE[(((a & 3) << 4) | (b >> 4)) as usize] as char);
-        if i + 1 < bytes.len() { out.push(TABLE[(((b & 15) << 2) | (c >> 6)) as usize] as char); }
-        if i + 2 < bytes.len() { out.push(TABLE[(c & 63) as usize] as char); }
+        if i + 1 < bytes.len() {
+            out.push(TABLE[(((b & 15) << 2) | (c >> 6)) as usize] as char);
+        }
+        if i + 2 < bytes.len() {
+            out.push(TABLE[(c & 63) as usize] as char);
+        }
         i += 3;
     }
     out

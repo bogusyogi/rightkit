@@ -4761,8 +4761,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "libc",
  "rightkit-fs",
  "rusqlite",
  "tempfile",
@@ -4912,12 +4913,15 @@ dependencies = [
 
 [[package]]
 name = "rightkit-oauth"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.3.4",
  "rightkit-http",
+ "rightkit-process",
+ "rightkit-secrets",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
 ]
 
 [[package]]

@@ -21,14 +21,44 @@ type OSStatus = i32;
 extern "C" {
     fn SecKeychainSetUserInteractionAllowed(allowed: u8) -> OSStatus;
     fn SecKeychainGetUserInteractionAllowed(allowed: *mut u8) -> OSStatus;
-    fn SecKeychainCreate(path: *const c_char, pw_len: u32, pw: *const c_void, prompt: u8, access: *const c_void, out: *mut *mut c_void) -> OSStatus;
+    fn SecKeychainCreate(
+        path: *const c_char,
+        pw_len: u32,
+        pw: *const c_void,
+        prompt: u8,
+        access: *const c_void,
+        out: *mut *mut c_void,
+    ) -> OSStatus;
     fn SecKeychainOpen(path: *const c_char, out: *mut *mut c_void) -> OSStatus;
     fn SecKeychainDelete(kc: *mut c_void) -> OSStatus;
     fn SecKeychainLock(kc: *mut c_void) -> OSStatus;
     fn SecKeychainUnlock(kc: *mut c_void, pw_len: u32, pw: *const c_void, use_pw: u8) -> OSStatus;
-    fn SecKeychainAddGenericPassword(kc: *mut c_void, sl: u32, s: *const c_char, al: u32, a: *const c_char, pl: u32, p: *const c_void, item: *mut *mut c_void) -> OSStatus;
-    fn SecKeychainFindGenericPassword(kc: *const c_void, sl: u32, s: *const c_char, al: u32, a: *const c_char, pl: *mut u32, p: *mut *mut c_void, item: *mut *mut c_void) -> OSStatus;
-    fn SecKeychainItemModifyAttributesAndData(item: *mut c_void, attrs: *const c_void, len: u32, data: *const c_void) -> OSStatus;
+    fn SecKeychainAddGenericPassword(
+        kc: *mut c_void,
+        sl: u32,
+        s: *const c_char,
+        al: u32,
+        a: *const c_char,
+        pl: u32,
+        p: *const c_void,
+        item: *mut *mut c_void,
+    ) -> OSStatus;
+    fn SecKeychainFindGenericPassword(
+        kc: *const c_void,
+        sl: u32,
+        s: *const c_char,
+        al: u32,
+        a: *const c_char,
+        pl: *mut u32,
+        p: *mut *mut c_void,
+        item: *mut *mut c_void,
+    ) -> OSStatus;
+    fn SecKeychainItemModifyAttributesAndData(
+        item: *mut c_void,
+        attrs: *const c_void,
+        len: u32,
+        data: *const c_void,
+    ) -> OSStatus;
     fn SecKeychainItemDelete(item: *mut c_void) -> OSStatus;
     fn SecKeychainItemFreeContent(attrs: *const c_void, data: *mut c_void) -> OSStatus;
 }
@@ -50,7 +80,9 @@ fn map(op: &'static str, status: OSStatus) -> Error {
     match status {
         INTERACTION_NOT_ALLOWED => Error::InteractionRequired,
         USER_CANCELED | AUTH_FAILED => Error::Denied,
-        NO_SUCH_KEYCHAIN | NO_DEFAULT_KEYCHAIN => Error::Unavailable(format!("no usable keychain (code {status})")),
+        NO_SUCH_KEYCHAIN | NO_DEFAULT_KEYCHAIN => {
+            Error::Unavailable(format!("no usable keychain (code {status})"))
+        }
         s => Error::Backend { op, code: s as i64 },
     }
 }
@@ -82,7 +114,10 @@ impl KeychainBackend {
     }
     /// Open an existing keychain file; ONLY that file is searched or written.
     pub fn open_file(path: &Path, password: Option<&str>) -> Result<Self> {
-        let c = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| Error::Invalid { what: "path", reason: "NUL".into() })?;
+        let c = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| Error::Invalid {
+            what: "path",
+            reason: "NUL".into(),
+        })?;
         let mut kc: *mut c_void = null_mut();
         let st = unsafe { SecKeychainOpen(c.as_ptr(), &mut kc) };
         if st != 0 || kc.is_null() {
@@ -102,27 +137,47 @@ impl KeychainBackend {
     }
 
     fn with_ui<T>(mode: Interaction, f: impl FnOnce() -> T) -> Result<T> {
-        let _g = UI_LOCK.lock().map_err(|_| Error::Unavailable("keychain UI lock poisoned".into()))?;
-        let st = unsafe { SecKeychainSetUserInteractionAllowed((mode == Interaction::Interactive) as u8) };
+        let _g = UI_LOCK
+            .lock()
+            .map_err(|_| Error::Unavailable("keychain UI lock poisoned".into()))?;
+        let st = unsafe {
+            SecKeychainSetUserInteractionAllowed((mode == Interaction::Interactive) as u8)
+        };
         if st != 0 {
-            return Err(Error::Unavailable(format!("cannot set Keychain interaction policy (code {st})")));
+            return Err(Error::Unavailable(format!(
+                "cannot set Keychain interaction policy (code {st})"
+            )));
         }
         Ok(f())
     }
 
-    fn find(&self, ns: &Namespace, account: &str, want_data: bool, want_item: bool) -> (OSStatus, Option<Secret>, *mut c_void) {
+    fn find(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        want_data: bool,
+        want_item: bool,
+    ) -> (OSStatus, Option<Secret>, *mut c_void) {
         let (s, a) = (ns.service(), account);
         let (mut len, mut data, mut item) = (0u32, null_mut::<c_void>(), null_mut::<c_void>());
         let st = unsafe {
             SecKeychainFindGenericPassword(
-                self.kc_ptr(), s.len() as u32, s.as_ptr().cast(), a.len() as u32, a.as_ptr().cast(),
+                self.kc_ptr(),
+                s.len() as u32,
+                s.as_ptr().cast(),
+                a.len() as u32,
+                a.as_ptr().cast(),
                 if want_data { &mut len } else { null_mut() },
                 if want_data { &mut data } else { null_mut() },
                 if want_item { &mut item } else { null_mut() },
             )
         };
         let secret = if st == 0 && want_data {
-            let v = if data.is_null() { Vec::new() } else { unsafe { std::slice::from_raw_parts(data as *const u8, len as usize) }.to_vec() };
+            let v = if data.is_null() {
+                Vec::new()
+            } else {
+                unsafe { std::slice::from_raw_parts(data as *const u8, len as usize) }.to_vec()
+            };
             unsafe { SecKeychainItemFreeContent(null(), data) };
             Some(Secret::from_bytes(v))
         } else {
@@ -134,14 +189,27 @@ impl KeychainBackend {
     fn add(&self, ns: &Namespace, account: &str, secret: &Secret) -> OSStatus {
         let (s, a, p) = (ns.service(), account, secret.expose_bytes());
         unsafe {
-            SecKeychainAddGenericPassword(self.kc_ptr(), s.len() as u32, s.as_ptr().cast(), a.len() as u32, a.as_ptr().cast(), p.len() as u32, p.as_ptr().cast(), null_mut())
+            SecKeychainAddGenericPassword(
+                self.kc_ptr(),
+                s.len() as u32,
+                s.as_ptr().cast(),
+                a.len() as u32,
+                a.as_ptr().cast(),
+                p.len() as u32,
+                p.as_ptr().cast(),
+                null_mut(),
+            )
         }
     }
 }
 
 impl Backend for KeychainBackend {
     fn name(&self) -> &'static str {
-        if self.keychain.is_some() { "macos-keychain-file" } else { "macos-keychain" }
+        if self.keychain.is_some() {
+            "macos-keychain-file"
+        } else {
+            "macos-keychain"
+        }
     }
 
     fn get(&self, ns: &Namespace, account: &str, mode: Interaction) -> Result<Option<Secret>> {
@@ -175,7 +243,14 @@ impl Backend for KeychainBackend {
             }
             let h = Handle(item);
             let p = secret.expose_bytes();
-            let mst = unsafe { SecKeychainItemModifyAttributesAndData(h.0, null(), p.len() as u32, p.as_ptr().cast()) };
+            let mst = unsafe {
+                SecKeychainItemModifyAttributesAndData(
+                    h.0,
+                    null(),
+                    p.len() as u32,
+                    p.as_ptr().cast(),
+                )
+            };
             if mst == 0 {
                 return Ok(());
             }
@@ -187,13 +262,23 @@ impl Backend for KeychainBackend {
                     return Err(map("set", dst));
                 }
                 let ast = self.add(ns, account, secret);
-                return if ast == 0 { Ok(()) } else { Err(map("set", ast)) };
+                return if ast == 0 {
+                    Ok(())
+                } else {
+                    Err(map("set", ast))
+                };
             }
             Err(map("set", mst))
         })?
     }
 
-    fn add_if_absent(&self, ns: &Namespace, account: &str, secret: &Secret, mode: Interaction) -> Result<bool> {
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> Result<bool> {
         Self::with_ui(mode, || match self.add(ns, account, secret) {
             0 => Ok(true),
             DUPLICATE => Ok(false),
@@ -220,7 +305,11 @@ impl Backend for KeychainBackend {
 pub fn user_interaction_allowed() -> Result<bool> {
     let mut v = 1u8;
     let st = unsafe { SecKeychainGetUserInteractionAllowed(&mut v) };
-    if st != 0 { Err(map("get_interaction", st)) } else { Ok(v != 0) }
+    if st != 0 {
+        Err(map("get_interaction", st))
+    } else {
+        Ok(v != 0)
+    }
 }
 
 /// A throw-away keychain file used by end-to-end tests so they never see the user's real items.
@@ -243,12 +332,26 @@ impl IsolatedKeychain {
         let password = format!("pw-{hex}");
         let c = CString::new(path.to_string_lossy().as_bytes()).unwrap();
         let mut kc: *mut c_void = null_mut();
-        let st = unsafe { SecKeychainCreate(c.as_ptr(), password.len() as u32, password.as_ptr().cast(), 0, null(), &mut kc) };
+        let st = unsafe {
+            SecKeychainCreate(
+                c.as_ptr(),
+                password.len() as u32,
+                password.as_ptr().cast(),
+                0,
+                null(),
+                &mut kc,
+            )
+        };
         if st != 0 || kc.is_null() {
             let _ = std::fs::remove_dir_all(&dir);
             return Err(map("create_keychain", st));
         }
-        Ok(Self { path, dir, password, handle: Arc::new(Handle(kc)) })
+        Ok(Self {
+            path,
+            dir,
+            password,
+            handle: Arc::new(Handle(kc)),
+        })
     }
     pub fn path(&self) -> &Path {
         &self.path
@@ -258,13 +361,25 @@ impl IsolatedKeychain {
         &self.password
     }
     pub fn backend(&self) -> KeychainBackend {
-        KeychainBackend { keychain: Some(self.handle.clone()) }
+        KeychainBackend {
+            keychain: Some(self.handle.clone()),
+        }
     }
     pub fn lock(&self) -> Result<()> {
-        match unsafe { SecKeychainLock(self.handle.0) } { 0 => Ok(()), s => Err(map("lock", s)) }
+        match unsafe { SecKeychainLock(self.handle.0) } {
+            0 => Ok(()),
+            s => Err(map("lock", s)),
+        }
     }
     pub fn unlock(&self) -> Result<()> {
-        match unsafe { SecKeychainUnlock(self.handle.0, self.password.len() as u32, self.password.as_ptr().cast(), 1) } {
+        match unsafe {
+            SecKeychainUnlock(
+                self.handle.0,
+                self.password.len() as u32,
+                self.password.as_ptr().cast(),
+                1,
+            )
+        } {
             0 => Ok(()),
             s => Err(map("unlock", s)),
         }

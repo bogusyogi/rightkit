@@ -156,22 +156,38 @@ pub enum Source {
 
 fn env_value(env: EnvReader, vars: &[&str]) -> Option<Secret> {
     vars.iter()
-        .find_map(|v| env(v).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+        .find_map(|v| {
+            env(v)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
         .map(Secret::from_string)
 }
 
 impl Store {
     /// Store first; the environment answers when the store has no value OR is unreachable
     /// (Windows over SSH has no logon session) so an env key is never hidden by a dead store.
-    pub fn resolve(&self, account: &str, env_vars: &[&str], env: EnvReader) -> Result<Option<(Secret, Source)>> {
+    pub fn resolve(
+        &self,
+        account: &str,
+        env_vars: &[&str],
+        env: EnvReader,
+    ) -> Result<Option<(Secret, Source)>> {
         match self.get(account) {
             Ok(Some(s)) => Ok(Some((s, Source::Store))),
             Ok(None) => Ok(env_value(env, env_vars).map(|s| (s, Source::Environment))),
-            Err(e) => env_value(env, env_vars).map(|s| Some((s, Source::Environment))).ok_or(e),
+            Err(e) => env_value(env, env_vars)
+                .map(|s| Some((s, Source::Environment)))
+                .ok_or(e),
         }
     }
     /// Passive status: store presence, else environment presence. Never reads a stored secret.
-    pub fn status_source(&self, account: &str, env_vars: &[&str], env: EnvReader) -> Option<Source> {
+    pub fn status_source(
+        &self,
+        account: &str,
+        env_vars: &[&str],
+        env: EnvReader,
+    ) -> Option<Source> {
         if matches!(self.exists(account), Ok(true)) {
             Some(Source::Store)
         } else if env_value(env, env_vars).is_some() {

@@ -78,7 +78,10 @@ impl Config {
 
 fn env_tripped(name: &str) -> bool {
     match std::env::var(name) {
-        Ok(v) => !matches!(v.trim().to_ascii_lowercase().as_str(), "" | "0" | "false" | "off" | "no"),
+        Ok(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "" | "0" | "false" | "off" | "no"
+        ),
         Err(std::env::VarError::NotUnicode(_)) => true,
         Err(_) => false,
     }
@@ -109,19 +112,29 @@ impl Backend for Denied {
         "guard-deny"
     }
     fn get(&self, _: &Namespace, _: &str, _: Interaction) -> Result<Option<Secret>> {
-        Err(Error::Guarded { guard: self.0.clone() })
+        Err(Error::Guarded {
+            guard: self.0.clone(),
+        })
     }
     fn exists(&self, _: &Namespace, _: &str, _: Interaction) -> Result<bool> {
-        Err(Error::Guarded { guard: self.0.clone() })
+        Err(Error::Guarded {
+            guard: self.0.clone(),
+        })
     }
     fn set(&self, _: &Namespace, _: &str, _: &Secret, _: Interaction) -> Result<()> {
-        Err(Error::Guarded { guard: self.0.clone() })
+        Err(Error::Guarded {
+            guard: self.0.clone(),
+        })
     }
     fn add_if_absent(&self, _: &Namespace, _: &str, _: &Secret, _: Interaction) -> Result<bool> {
-        Err(Error::Guarded { guard: self.0.clone() })
+        Err(Error::Guarded {
+            guard: self.0.clone(),
+        })
     }
     fn delete(&self, _: &Namespace, _: &str, _: Interaction) -> Result<bool> {
-        Err(Error::Guarded { guard: self.0.clone() })
+        Err(Error::Guarded {
+            guard: self.0.clone(),
+        })
     }
 }
 
@@ -146,12 +159,24 @@ impl Store {
         });
         let (backend, guard): (Arc<dyn Backend>, _) = match tripped {
             Some(name) => match cfg.guard_mode {
-                GuardMode::Memory => (MemoryBackend::process_wide(), Some((name, GuardMode::Memory))),
-                GuardMode::Deny => (Arc::new(Denied(name.clone())), Some((name, GuardMode::Deny))),
+                GuardMode::Memory => (
+                    MemoryBackend::process_wide(),
+                    Some((name, GuardMode::Memory)),
+                ),
+                GuardMode::Deny => (
+                    Arc::new(Denied(name.clone())),
+                    Some((name, GuardMode::Deny)),
+                ),
             },
             None => (cfg.backend.unwrap_or_else(system_backend), None),
         };
-        Store { ns: cfg.namespace, backend, mode: cfg.interaction, timeout, guard }
+        Store {
+            ns: cfg.namespace,
+            backend,
+            mode: cfg.interaction,
+            timeout,
+            guard,
+        }
     }
 
     pub fn namespace(&self) -> &Namespace {
@@ -178,8 +203,16 @@ impl Store {
     }
     /// Same store, interactive. Use only for an explicit user action such as "Save key".
     pub fn interactive(&self) -> Store {
-        let timeout = if self.mode == Interaction::Interactive { self.timeout } else { Duration::from_secs(90) };
-        Store { mode: Interaction::Interactive, timeout, ..self.clone() }
+        let timeout = if self.mode == Interaction::Interactive {
+            self.timeout
+        } else {
+            Duration::from_secs(90)
+        };
+        Store {
+            mode: Interaction::Interactive,
+            timeout,
+            ..self.clone()
+        }
     }
 
     fn run<T: Send + 'static>(
@@ -189,14 +222,21 @@ impl Store {
         f: impl FnOnce(Arc<dyn Backend>, Namespace, String, Interaction) -> Result<T> + Send + 'static,
     ) -> Result<T> {
         check_account(account)?;
-        let (backend, ns, acct, mode) = (self.backend.clone(), self.ns.clone(), account.to_string(), self.mode);
+        let (backend, ns, acct, mode) = (
+            self.backend.clone(),
+            self.ns.clone(),
+            account.to_string(),
+            self.mode,
+        );
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = tx.send(f(backend, ns, acct, mode));
         });
         // An abandoned thread stays blocked in the OS call until a prompt is dismissed, then exits.
-        rx.recv_timeout(self.timeout)
-            .unwrap_or(Err(Error::Timeout { op, secs: self.timeout.as_secs() }))
+        rx.recv_timeout(self.timeout).unwrap_or(Err(Error::Timeout {
+            op,
+            secs: self.timeout.as_secs(),
+        }))
     }
 
     /// `Ok(None)` only when the store authoritatively reports the item absent.
@@ -210,7 +250,10 @@ impl Store {
     /// Create or replace. An empty secret is rejected; use [`Store::delete`].
     pub fn set(&self, account: &str, secret: &Secret) -> Result<()> {
         if secret.is_empty() {
-            return Err(Error::Invalid { what: "secret", reason: "empty (use delete)".into() });
+            return Err(Error::Invalid {
+                what: "secret",
+                reason: "empty (use delete)".into(),
+            });
         }
         let s = secret.clone();
         self.run("set", account, move |b, ns, a, m| b.set(&ns, &a, &s, m))
@@ -224,7 +267,9 @@ impl Store {
     }
     pub fn add_if_absent(&self, account: &str, secret: &Secret) -> Result<bool> {
         let s = secret.clone();
-        self.run("add", account, move |b, ns, a, m| b.add_if_absent(&ns, &a, &s, m))
+        self.run("add", account, move |b, ns, a, m| {
+            b.add_if_absent(&ns, &a, &s, m)
+        })
     }
 
     /// Get-or-create a random key (SQLCipher DB key etc.), returned as standard base64 text
@@ -233,9 +278,14 @@ impl Store {
     /// the winner's key. Returns the key and whether this call created it.
     pub fn get_or_create_key(&self, account: &str, bytes: usize) -> Result<(Secret, bool)> {
         if !(16..=1024).contains(&bytes) {
-            return Err(Error::Invalid { what: "key length", reason: "must be 16..=1024 bytes".into() });
+            return Err(Error::Invalid {
+                what: "key length",
+                reason: "must be 16..=1024 bytes".into(),
+            });
         }
-        let _mint = MINT_LOCK.lock().map_err(|_| Error::Unavailable("mint lock poisoned".into()))?;
+        let _mint = MINT_LOCK
+            .lock()
+            .map_err(|_| Error::Unavailable("mint lock poisoned".into()))?;
         if let Some(existing) = self.get(account)?.filter(|s| !s.is_empty()) {
             return Ok((existing, false));
         }
@@ -247,7 +297,10 @@ impl Store {
         }
         match self.get(account)?.filter(|s| !s.is_empty()) {
             Some(winner) => Ok((winner, false)),
-            None => Err(Error::Backend { op: "get_or_create_key", code: 0 }),
+            None => Err(Error::Backend {
+                op: "get_or_create_key",
+                code: 0,
+            }),
         }
     }
 }
@@ -256,7 +309,9 @@ impl Store {
 impl rightkit_settings::SecretProbe for Store {
     fn presence(&self, secret: &rightkit_settings::SecretRef) -> rightkit_settings::Presence {
         use rightkit_settings::Presence;
-        let Ok(ns) = Namespace::new(secret.service.clone()) else { return Presence::Unknown };
+        let Ok(ns) = Namespace::new(secret.service.clone()) else {
+            return Presence::Unknown;
+        };
         match self.with_namespace(ns).exists(&secret.account) {
             Ok(true) => Presence::Present,
             Ok(false) => Presence::Absent,

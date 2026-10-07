@@ -48,7 +48,11 @@ impl AppleHelper {
     /// `path` must be the helper inside the app bundle (it carries the keychain-access-groups
     /// entitlement); resolve and contain it under the bundle before calling.
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into(), args: Vec::new(), timeout: Duration::from_secs(10) }
+        Self {
+            path: path.into(),
+            args: Vec::new(),
+            timeout: Duration::from_secs(10),
+        }
     }
     pub fn timeout(mut self, d: Duration) -> Self {
         self.timeout = d;
@@ -69,10 +73,18 @@ impl AppleHelper {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| Error::Helper(format!("cannot start helper: {}", e.kind())))?;
-        let mut stdin = child.stdin.take().ok_or_else(|| Error::Helper("no stdin".into()))?;
-        stdin.write_all(line.as_bytes()).map_err(|e| Error::Helper(format!("write failed: {}", e.kind())))?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| Error::Helper("no stdin".into()))?;
+        stdin
+            .write_all(line.as_bytes())
+            .map_err(|e| Error::Helper(format!("write failed: {}", e.kind())))?;
         drop(stdin);
-        let mut stdout = child.stdout.take().ok_or_else(|| Error::Helper("no stdout".into()))?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::Helper("no stdout".into()))?;
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut buf = Zeroizing::new(String::new());
@@ -85,14 +97,21 @@ impl AppleHelper {
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(Error::Timeout { op: "apple_helper", secs: self.timeout.as_secs() });
+                return Err(Error::Timeout {
+                    op: "apple_helper",
+                    secs: self.timeout.as_secs(),
+                });
             }
         };
         let _ = child.wait();
         let first = out.lines().next().unwrap_or("");
-        let v: Value = serde_json::from_str(first).map_err(|_| Error::Helper("invalid helper response".into()))?;
+        let v: Value = serde_json::from_str(first)
+            .map_err(|_| Error::Helper("invalid helper response".into()))?;
         if v.get("ok").and_then(Value::as_bool) != Some(true) {
-            let msg = v.get("error").and_then(Value::as_str).unwrap_or("helper reported failure");
+            let msg = v
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("helper reported failure");
             return Err(Error::Helper(msg.to_string()));
         }
         Ok(v)
@@ -107,16 +126,23 @@ impl AppleHelper {
     }
     pub fn read(&self, scope: Scope, account: &str) -> Result<Option<Secret>> {
         let v = self.call(json!({"command": "read", "scope": scope.wire(), "account": account}))?;
-        Ok(v.get("value").and_then(Value::as_str).map(Secret::from_string))
+        Ok(v.get("value")
+            .and_then(Value::as_str)
+            .map(Secret::from_string))
     }
     /// Presence only; the helper does not request the item's data.
     pub fn exists(&self, scope: Scope, account: &str) -> Result<bool> {
-        let v = self.call(json!({"command": "exists", "scope": scope.wire(), "account": account}))?;
-        v.get("exists").and_then(Value::as_bool).ok_or_else(|| Error::Helper("helper lacks `exists` support".into()))
+        let v =
+            self.call(json!({"command": "exists", "scope": scope.wire(), "account": account}))?;
+        v.get("exists")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| Error::Helper("helper lacks `exists` support".into()))
     }
     pub fn write(&self, scope: Scope, account: &str, secret: &Secret) -> Result<()> {
         let value = secret.expose_str()?;
-        self.call(json!({"command": "write", "scope": scope.wire(), "account": account, "value": value}))?;
+        self.call(
+            json!({"command": "write", "scope": scope.wire(), "account": account, "value": value}),
+        )?;
         Ok(())
     }
     /// Removes the synced AND device copy; Apple propagates the deletion to every device of the

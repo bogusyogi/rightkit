@@ -25,7 +25,13 @@ pub trait Backend: Send + Sync + 'static {
     /// Create or replace.
     fn set(&self, ns: &Namespace, account: &str, secret: &Secret, mode: Interaction) -> Result<()>;
     /// Create only if absent; `Ok(false)` when an item already exists. Atomic where the OS allows.
-    fn add_if_absent(&self, ns: &Namespace, account: &str, secret: &Secret, mode: Interaction) -> Result<bool>;
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> Result<bool>;
     /// `Ok(true)` if an item was removed, `Ok(false)` if there was none.
     fn delete(&self, ns: &Namespace, account: &str, mode: Interaction) -> Result<bool>;
 }
@@ -43,7 +49,9 @@ impl MemoryBackend {
     /// Shared by every `Store` in this process that is guarded into memory.
     pub fn process_wide() -> Arc<MemoryBackend> {
         static SHARED: OnceLock<Arc<MemoryBackend>> = OnceLock::new();
-        SHARED.get_or_init(|| Arc::new(MemoryBackend::new())).clone()
+        SHARED
+            .get_or_init(|| Arc::new(MemoryBackend::new()))
+            .clone()
     }
     fn key(ns: &Namespace, account: &str) -> (String, String) {
         (ns.service().to_string(), account.to_string())
@@ -55,16 +63,34 @@ impl Backend for MemoryBackend {
         "memory"
     }
     fn get(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<Option<Secret>> {
-        Ok(self.map.lock().unwrap().get(&Self::key(ns, account)).cloned())
+        Ok(self
+            .map
+            .lock()
+            .unwrap()
+            .get(&Self::key(ns, account))
+            .cloned())
     }
     fn exists(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
-        Ok(self.map.lock().unwrap().contains_key(&Self::key(ns, account)))
+        Ok(self
+            .map
+            .lock()
+            .unwrap()
+            .contains_key(&Self::key(ns, account)))
     }
     fn set(&self, ns: &Namespace, account: &str, secret: &Secret, _: Interaction) -> Result<()> {
-        self.map.lock().unwrap().insert(Self::key(ns, account), secret.clone());
+        self.map
+            .lock()
+            .unwrap()
+            .insert(Self::key(ns, account), secret.clone());
         Ok(())
     }
-    fn add_if_absent(&self, ns: &Namespace, account: &str, secret: &Secret, _: Interaction) -> Result<bool> {
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        _: Interaction,
+    ) -> Result<bool> {
         let mut m = self.map.lock().unwrap();
         let k = Self::key(ns, account);
         if m.contains_key(&k) {
@@ -74,7 +100,12 @@ impl Backend for MemoryBackend {
         Ok(true)
     }
     fn delete(&self, ns: &Namespace, account: &str, _: Interaction) -> Result<bool> {
-        Ok(self.map.lock().unwrap().remove(&Self::key(ns, account)).is_some())
+        Ok(self
+            .map
+            .lock()
+            .unwrap()
+            .remove(&Self::key(ns, account))
+            .is_some())
     }
 }
 
@@ -114,6 +145,8 @@ pub fn system_backend() -> Arc<dyn Backend> {
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     {
-        Arc::new(UnavailableBackend("no OS credential store is wired for this platform"))
+        Arc::new(UnavailableBackend(
+            "no OS credential store is wired for this platform",
+        ))
     }
 }

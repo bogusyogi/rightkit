@@ -24,7 +24,8 @@ mod windows;
 pub use backend::{system_backend, Backend, Interaction, MemoryBackend, UnavailableBackend};
 pub use error::{Error, Result};
 pub use migrate::{
-    migrate_between, migrate_plaintext_file, EnvImport, EnvMap, EnvReader, FileMigration, MigrationReport, Source,
+    migrate_between, migrate_plaintext_file, EnvImport, EnvMap, EnvReader, FileMigration,
+    MigrationReport, Source,
 };
 pub use namespace::{Namespace, WindowsTarget};
 pub use secret::Secret;

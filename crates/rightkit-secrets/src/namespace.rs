@@ -21,13 +21,22 @@ pub struct Namespace {
 
 fn check(what: &'static str, v: &str) -> Result<()> {
     if v.is_empty() {
-        return Err(Error::Invalid { what, reason: "empty".into() });
+        return Err(Error::Invalid {
+            what,
+            reason: "empty".into(),
+        });
     }
     if v.len() > 250 {
-        return Err(Error::Invalid { what, reason: "longer than 250 bytes".into() });
+        return Err(Error::Invalid {
+            what,
+            reason: "longer than 250 bytes".into(),
+        });
     }
     if v.chars().any(|c| c.is_control()) {
-        return Err(Error::Invalid { what, reason: "contains a control character".into() });
+        return Err(Error::Invalid {
+            what,
+            reason: "contains a control character".into(),
+        });
     }
     Ok(())
 }
@@ -42,7 +51,10 @@ impl Namespace {
     pub fn new(service: impl Into<String>) -> Result<Self> {
         let service = service.into();
         check("namespace", &service)?;
-        Ok(Self { service, windows: WindowsTarget::Slash { prefix: None } })
+        Ok(Self {
+            service,
+            windows: WindowsTarget::Slash { prefix: None },
+        })
     }
     pub fn windows_target(mut self, style: WindowsTarget) -> Self {
         self.windows = style;

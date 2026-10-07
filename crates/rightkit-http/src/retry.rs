@@ -32,7 +32,10 @@ impl Default for RetryPolicy {
 
 impl RetryPolicy {
     pub fn none() -> Self {
-        Self { max_attempts: 1, ..Self::default() }
+        Self {
+            max_attempts: 1,
+            ..Self::default()
+        }
     }
 
     pub fn is_retryable_status(&self, status: u16) -> bool {

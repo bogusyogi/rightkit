@@ -9,7 +9,8 @@ use crate::secret::Secret;
 use std::sync::Mutex;
 use windows_sys::Win32::Foundation::{GetLastError, ERROR_NOT_FOUND};
 use windows_sys::Win32::Security::Credentials::{
-    CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
+    CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE,
+    CRED_TYPE_GENERIC,
 };
 
 fn wide(s: &str) -> Vec<u16> {
@@ -17,7 +18,10 @@ fn wide(s: &str) -> Vec<u16> {
 }
 
 fn code(op: &'static str, err: u32) -> Error {
-    Error::Backend { op, code: err as i64 }
+    Error::Backend {
+        op,
+        code: err as i64,
+    }
 }
 
 pub struct CredentialManagerBackend;
@@ -33,17 +37,25 @@ impl CredentialManagerBackend {
             let mut p: *mut CREDENTIALW = std::ptr::null_mut();
             if CredReadW(name.as_ptr(), CRED_TYPE_GENERIC, 0, &mut p) == 0 {
                 let e = GetLastError();
-                return if e == ERROR_NOT_FOUND { Ok(None) } else { Err(code("read", e)) };
+                return if e == ERROR_NOT_FOUND {
+                    Ok(None)
+                } else {
+                    Err(code("read", e))
+                };
             }
             if p.is_null() {
-                return Err(Error::Backend { op: "read", code: 0 });
+                return Err(Error::Backend {
+                    op: "read",
+                    code: 0,
+                });
             }
             let out = if want_blob {
                 let c = &*p;
                 let bytes = if c.CredentialBlob.is_null() || c.CredentialBlobSize == 0 {
                     Vec::new()
                 } else {
-                    std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize).to_vec()
+                    std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize)
+                        .to_vec()
                 };
                 Secret::from_bytes(bytes)
             } else {
@@ -83,8 +95,16 @@ impl Backend for CredentialManagerBackend {
         }
         Ok(())
     }
-    fn add_if_absent(&self, ns: &Namespace, account: &str, secret: &Secret, mode: Interaction) -> Result<bool> {
-        let _g = ADD_LOCK.lock().map_err(|_| Error::Unavailable("lock poisoned".into()))?;
+    fn add_if_absent(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        mode: Interaction,
+    ) -> Result<bool> {
+        let _g = ADD_LOCK
+            .lock()
+            .map_err(|_| Error::Unavailable("lock poisoned".into()))?;
         if self.exists(ns, account, mode)? {
             return Ok(false);
         }
@@ -96,7 +116,11 @@ impl Backend for CredentialManagerBackend {
         unsafe {
             if CredDeleteW(name.as_ptr(), CRED_TYPE_GENERIC, 0) == 0 {
                 let e = GetLastError();
-                return if e == ERROR_NOT_FOUND { Ok(false) } else { Err(code("delete", e)) };
+                return if e == ERROR_NOT_FOUND {
+                    Ok(false)
+                } else {
+                    Err(code("delete", e))
+                };
             }
         }
         Ok(true)

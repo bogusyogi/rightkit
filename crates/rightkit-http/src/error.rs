@@ -10,7 +10,10 @@ pub enum HttpError {
     InvalidRequest(String),
     /// Connection, TLS, or socket failure. `connect_phase` is true when nothing
     /// can have reached the server (safe to retry any method).
-    Transport { message: String, connect_phase: bool },
+    Transport {
+        message: String,
+        connect_phase: bool,
+    },
     /// A configured timeout elapsed.
     Timeout(String),
     /// Non-2xx response (after retries were exhausted or not applicable).
@@ -43,7 +46,9 @@ impl fmt::Display for HttpError {
             HttpError::InvalidRequest(m) => write!(f, "invalid request: {m}"),
             HttpError::Transport { message, .. } => write!(f, "transport error: {message}"),
             HttpError::Timeout(m) => write!(f, "timeout: {m}"),
-            HttpError::Status { status, attempts, .. } => {
+            HttpError::Status {
+                status, attempts, ..
+            } => {
                 write!(f, "HTTP {status} after {attempts} attempt(s)")
             }
             HttpError::BodyTooLarge { limit } => write!(f, "response body exceeds {limit} bytes"),
