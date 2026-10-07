@@ -267,6 +267,7 @@ impl Harness {
             artifacts: Mutex::new(vec![]),
             notes: Mutex::new(vec![]),
             skipped: Mutex::new(None),
+            scratches: Mutex::new(vec![]),
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&sc)));
         let orphans = match &result {
@@ -282,6 +283,27 @@ impl Harness {
         let arts = sc.artifacts.lock().unwrap().clone();
         let notes = sc.notes.lock().unwrap().clone();
         let skipped = sc.skipped.lock().unwrap().clone();
+        let scratches = sc.scratches.lock().unwrap().clone();
+        // Scratch dirs are removed once the scenario passes or skips (kept on failure for
+        // debugging, when they hold a kept artifact, or with the `keep_scratch` setting): they
+        // live in the OS temp dir, and model-sized fixtures leaked hundreds of GB otherwise.
+        let clean_scratch = || {
+            if self
+                .settings
+                .get_bool("keep_scratch")
+                .ok()
+                .flatten()
+                .unwrap_or(false)
+            {
+                return;
+            }
+            for d in &scratches {
+                if arts.iter().any(|(_, p)| p.starts_with(d)) {
+                    continue;
+                }
+                let _ = fs::remove_dir_all(d);
+            }
+        };
         match (result, orphans) {
             (Ok(()), Ok(())) => match skipped {
                 Some(reason) => {
@@ -294,6 +316,7 @@ impl Harness {
                         &arts,
                         started,
                     );
+                    clean_scratch();
                     Outcome::Skipped(reason)
                 }
                 None => {
@@ -306,6 +329,7 @@ impl Harness {
                         &arts,
                         started,
                     );
+                    clean_scratch();
                     Outcome::Passed
                 }
             },
@@ -452,6 +476,7 @@ pub struct Scenario {
     artifacts: Mutex<Vec<(String, PathBuf)>>,
     notes: Mutex<Vec<String>>,
     skipped: Mutex<Option<String>>,
+    scratches: Mutex<Vec<PathBuf>>,
 }
 
 impl Scenario {
@@ -488,11 +513,14 @@ impl Scenario {
     pub fn note(&self, msg: impl Into<String>) {
         self.notes.lock().unwrap().push(msg.into());
     }
-    /// A fresh scratch directory outside the evidence tree (short path, OS temp dir).
+    /// A fresh scratch directory outside the evidence tree (short path, OS temp dir). It is
+    /// removed when the scenario passes or skips; kept on failure for debugging.
     pub fn scratch(&self, label: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("rkqa-{}-{}", slug(label), &new_id()[..8]));
         let _ = fs::create_dir_all(&d);
-        d.canonicalize().unwrap_or(d)
+        let d = d.canonicalize().unwrap_or(d);
+        self.scratches.lock().unwrap().push(d.clone());
+        d
     }
 }
 

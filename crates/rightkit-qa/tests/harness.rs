@@ -124,6 +124,7 @@ fn passing_scenario_writes_hashed_evidence_in_its_own_dir() {
         .with_identity_file("engine", &bin)
         .unwrap();
     let mut dir = PathBuf::new();
+    let scratch_seen = std::cell::RefCell::new(None::<PathBuf>);
     let out = h.scenario("writes an artifact", "fast", &[], |sc| {
         dir = sc.dir().to_path_buf();
         assert!(sc.dir().is_dir());
@@ -132,8 +133,12 @@ fn passing_scenario_writes_hashed_evidence_in_its_own_dir() {
         sc.keep("out.txt", &f);
         let s = sc.scratch("work dir");
         assert!(s.is_dir() && !s.starts_with(sc.dir()));
+        fs::write(s.join("big.bin"), vec![0u8; 1024]).unwrap();
+        *scratch_seen.borrow_mut() = Some(s);
     });
     assert_eq!(out, Outcome::Passed);
+    // Scratch dirs are removed once the scenario passes (they leaked model-sized fixtures).
+    assert!(!scratch_seen.borrow().as_ref().unwrap().exists());
     assert_eq!(dir, h.evidence_root().join(slug("writes an artifact")));
     let b: Bundle = serde_json::from_slice(&fs::read(dir.join("evidence.json")).unwrap()).unwrap();
     assert!(b.verify().is_empty());
