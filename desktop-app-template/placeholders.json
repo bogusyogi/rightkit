@@ -1,19 +1,29 @@
 {
   "$comment": "Single list of every shared capability the template cannot consume by published exact version yet. Each entry is gated: `check` fails if the capability appears in rightkit-versions.json while its stand-in still exists, if the entry is declared as a real dependency, or if its stand-in file is gone. When a package publishes: pin it exactly, delete the stand-in, delete the entry. Nothing else in the template is a local copy of shared code.",
   "npm": {
-    "@rightkit/app-shell": { "blockedOn": "publish to the registry (packages/app-shell 0.1.0 is built; not in rightkit-versions.json)", "standIn": "src/shell/AppShell.tsx" },
-    "@rightkit/media-ui": { "blockedOn": "publish + rightkit-versions.json entry; add only when the app shows media", "standIn": "none (media apps add it)" }
+    "@rightkit/app-shell": {
+      "blockedOn": "publish to the registry (packages/app-shell 0.1.0 is built; not in rightkit-versions.json)",
+      "standIn": "src/shell/AppShell.tsx"
+    },
+    "@rightkit/media-ui": {
+      "blockedOn": "publish + rightkit-versions.json entry; add only when the app shows media",
+      "standIn": "none (media apps add it)"
+    }
   },
   "cargo": {
-    "rightkit-framed-sidecar": { "blockedOn": "crates.io publish (crate exists in the RightKit checkout, absent from the registry: pin =0.1.0 fails to resolve)", "standIn": "crates/protocol/src/framed.rs" },
-    "rightkit-jobs": { "blockedOn": "publish after rightkit-framed-sidecar; adds the durable job store", "standIn": "none (the engine has no job store until it publishes)" },
-    "rightkit-db": { "blockedOn": "rightkit-versions.json entry; add when the app owns a database", "standIn": "none" }
+    "rightkit-jobs": {
+      "blockedOn": "not yet in rightkit-versions.json; adds the durable job store",
+      "standIn": "none (the engine has no job store until it publishes)"
+    }
   },
   "harness": {
-    "rightkit-qa": { "blockedOn": "distribution of the `rightkit-qa` binary to app checkouts (crate is publish=false; apps invoke the managed binary)", "standIn": "none (rightkit-qa.toml + tests/scenarios are the real configuration)" }
+    "rightkit-qa": {
+      "blockedOn": "distribution of the `rightkit-qa` binary to app checkouts (crate is publish=false; apps invoke the managed binary)",
+      "standIn": "none (rightkit-qa.toml + tests/scenarios are the real configuration)"
+    }
   },
   "scripts": {
-    "scripts/package-placeholder.mjs": "release packaging is Node release tooling (right-release): copy GenRight scripts/{mac-dmg,win-nsis,sign-macos-bundle,install-macos-development}.mjs; fails loudly until then",
+    "scripts/package-placeholder.mjs": "Windows NSIS packaging (rightkit:package:win) and the mac development install script are Node release tooling (right-release): copy GenRight scripts/{win-nsis,install-macos-development}.mjs; fails loudly until then. mac signing/notarization is scripts/build-mac-notarized.sh (real)",
     "src-tauri/tauri.conf.json plugins.updater": "endpoint + pubkey are placeholders; use the suite updater pubkey and the app's R2/GitHub endpoint"
   }
 }

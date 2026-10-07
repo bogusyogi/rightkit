@@ -20,7 +20,7 @@ once in [`placeholders.json`](placeholders.json).
 | E2E | `rightkit-qa.toml`, `tests/scenarios/`, `crates/engine/tests`, `src-tauri/tests` | Rust `rightkit-qa` engine black-box scenarios with content assertions (real binary, isolated data dir, muted audio) plus real-process Rust tests of the supervisor; no Node harness |
 | Helpers + gate | `crates/tools` (`rightapp-tools brand-sync|build-engine|check|init`) | Rust replacements for the former Node helpers; `check` also rejects Node harnesses, loose pins and stale placeholders |
 
-Gated placeholders (staged in `rightkit-versions.json` but not yet on the registry, so not consumable by exact pin): `@rightkit/app-shell`, `@rightkit/media-ui`, `rightkit-framed-sidecar` (crates/protocol/src/framed.rs), `rightkit-jobs`, `rightkit-db`, plus packaging scripts and updater endpoint/pubkey. The gate fails the moment one is published while its stand-in remains.
+Gated placeholders (staged in `rightkit-versions.json` but not yet on the registry, so not consumable by exact pin): `@rightkit/app-shell`, `@rightkit/media-ui`, `rightkit-jobs`, plus packaging scripts and updater endpoint/pubkey. The gate fails the moment one is published while its stand-in remains.
 Unlicensed: `@rightkit/license`, `@rightkit/legal`, `@rightkit/legal-ui` are an add-on (below).
 
 ## Create a new app (checklist)
@@ -51,9 +51,12 @@ before any Rust command.
    manifest URL and the suite updater public key (copy from a shipped app; never generate keys).
 8. **Release.** In `right-release.config.mjs` choose exactly one `distribution.provider`
    (`github-releases` public, `r2-rightapps` private), set artifact names, and replace
-   `scripts/package-placeholder.mjs` with the packaging pair used by GenRight
-   (`mac-dmg.mjs`, `win-nsis.mjs`, `sign-macos-bundle.mjs`, `install-macos-development.mjs`).
-   Run `pnpm release:doctor`. Signing/notarization is provisioned: never run `az login` or browser auth.
+   `scripts/package-placeholder.mjs` (Windows NSIS packaging) with GenRight's `win-nsis.mjs`, and add
+   `install-macos-development.mjs`. The mac signing contract (`macos-developer-id-notarized-portable-v1`)
+   is already wired through `scripts/build-mac-notarized.sh`; the win contract
+   (`windows-raw-exe-authenticode-before-nsis-v1`) builds the raw exe in `prePackage`. See "Release config
+   migration" in `docs/RIGHTKIT-SHARED-PLATFORM.md`. `pnpm check:release-pin` asserts the exact
+   `@rightkit/release` pin matches the installed, registry-listed version. Run `pnpm release:doctor`. Signing/notarization is provisioned: never run `az login` or browser auth.
 9. **Licensed app add-on** (ScrapeRight/ViewRight/HeardRight pattern): add exact pins for
    `@rightkit/license`, `@rightkit/legal-ui`, dev `@rightkit/legal`, and crates `rightkit-license`;
    add `@tauri-apps/plugin-http`, `tauri-plugin-http` and the `http:default` capability scoped to the
@@ -67,8 +70,8 @@ before any Rust command.
     providers are exercised only against local HTTP mocks. Native UI scenarios drive the hidden app
     through `rightkit-control` (add the shell `qa-native` feature; see `crates/rightkit-qa/examples`).
     There is no browser/Node UI harness and no in-page IPC mock.
-12. **Adopt shared pieces as they land.** When `@rightkit/app-shell`, `rightkit-jobs`,
-    `rightkit-framed-sidecar` (published) or `rightkit-db` appear in `rightkit-versions.json`:
+12. **Adopt shared pieces as they land.** When `@rightkit/app-shell`, or `rightkit-jobs`
+    appear in `rightkit-versions.json`:
     pin exactly, delete the stand-in named in `placeholders.json`, delete the entry, run the gate.
 13. **Verify before first commit:** `pnpm check:template`, `pnpm typecheck`, `pnpm build`,
     `rightkit cargo test`, `pnpm test:e2e`.

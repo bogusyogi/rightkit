@@ -24,6 +24,7 @@
     "dev:build:win": "right-release dev --platform win",
     "dev:build:mac": "right-release dev --platform mac",
     "release:doctor": "right-release doctor",
+    "check:release-pin": "node scripts/check-release-pin.mjs",
     "release:build:mac": "right-release build --platform mac",
     "release:build:win": "right-release build --platform win",
     "release:upload:patch:mac": "right-release upload --config right-release.config.mjs --platform mac --tier patch",
@@ -33,12 +34,12 @@
     "deps:check": "right-release deps --check",
     "deps:audit": "right-release deps --audit",
     "deps:update": "right-release deps --update",
-    "rightkit:package:mac": "node scripts/package-placeholder.mjs mac",
+    "rightkit:package:mac": "bash scripts/build-mac-notarized.sh --finalize-right-release",
     "rightkit:package:win": "node scripts/package-placeholder.mjs win"
   },
   "dependencies": {
     "@rightkit/logs": "0.1.4",
-    "@rightkit/platform-ui": "0.1.0",
+    "@rightkit/platform-ui": "0.1.2",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/updates": "0.2.4",
     "@tauri-apps/api": "^2.11.1",
@@ -49,7 +50,7 @@
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@rightkit/release": "0.2.110",
+    "@rightkit/release": "0.2.119",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
     "@types/react": "^19.2.18",

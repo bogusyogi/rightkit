@@ -31,13 +31,10 @@ dirs = "6"
 # RightKit shared crates: exact registry pins only (no path/git/vendored copies).
 # Versions must equal packages/release/rightkit-versions.json `cargo`/`stagedCargo`;
 # `pnpm check:template` enforces this.
-rightkit-logs = "=0.1.0"
-rightkit-process = "=0.1.0"
+rightkit-logs = "=0.2.0"
+rightkit-process = "=0.2.1"
 rightkit-tauri = "=0.1.1"
 
-# --- PLACEHOLDERS: shared crates not yet published/promoted in rightkit-versions.json. ---
-# Uncomment and pin the exact version once promoted; then delete the local stand-in noted.
-# rightkit-db = "=0.1.0"             # SQLite/SQLCipher bootstrap; add when the app owns a DB.
+# --- Optional / upcoming shared crates (add-ons; pin exactly from rightkit-versions.json). ---
+# rightkit-db = "=0.2.1"             # SQLite/SQLCipher bootstrap; add when the app owns a DB.
 # rightkit-jobs = "=PLACEHOLDER"     # UPCOMING: durable job store/queue; replaces per-app job code.
-# rightkit-framed-sidecar = "=0.1.0" # publish=false today; crates/protocol/src/framed.rs is the
-#                                    # byte-compatible local stand-in. Swap and delete it.

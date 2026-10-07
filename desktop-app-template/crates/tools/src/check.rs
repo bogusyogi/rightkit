@@ -9,7 +9,7 @@ use std::path::Path;
 /// Test/UI automation harnesses that must not appear in an app (Rust `rightkit-qa` is the harness).
 const FORBIDDEN_HARNESS_DEPS: [&str; 7] = ["puppeteer", "puppeteer-core", "playwright", "@playwright/test", "selenium-webdriver", "webdriverio", "@wdio/cli"];
 /// Node files allowed under `scripts/`: gated release-packaging placeholders only.
-const ALLOWED_NODE_SCRIPTS: [&str; 1] = ["package-placeholder.mjs"];
+const ALLOWED_NODE_SCRIPTS: [&str; 2] = ["package-placeholder.mjs", "check-release-pin.mjs"];
 
 fn field(toml: &str, key: &str) -> Option<String> {
     toml.lines().find_map(|l| {
@@ -157,7 +157,7 @@ pub fn run(root: &Path) -> Result<()> {
     }
     for (key, cmd) in pkg["scripts"].as_object().into_iter().flatten() {
         let cmd = cmd.as_str().unwrap_or("");
-        let packaging_placeholder = key.starts_with("rightkit:package:");
+        let packaging_placeholder = key.starts_with("rightkit:package:") || key == "check:release-pin";
         need(packaging_placeholder || !(cmd.starts_with("node ") || cmd.contains("&& node ")), format!("script {key} runs Node ({cmd}); use rightapp-tools or rightkit-qa"));
     }
     let mut node_files = vec![];
@@ -175,7 +175,7 @@ pub fn run(root: &Path) -> Result<()> {
 
     // 9. pnpm release-age exclusions list exactly the pinned freshly published @rightkit versions.
     let ws = read(root, "pnpm-workspace.yaml")?;
-    for dep in ["@rightkit/release", "@rightkit/logs", "@rightkit/tauri", "@rightkit/updates"] {
+    for dep in ["@rightkit/release", "@rightkit/logs", "@rightkit/platform-ui", "@rightkit/tauri", "@rightkit/updates"] {
         if let Some(spec) = deps.get(dep) {
             need(ws.contains(&format!("'{dep}@{spec}'")), format!("pnpm-workspace.yaml minimumReleaseAgeExclude missing {dep}@{spec}"));
         }
