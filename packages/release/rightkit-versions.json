@@ -317,7 +317,7 @@
       "@rightkit/onboarding": "0.2.3",
       "@rightkit/pdf-ui": "0.1.2",
       "@rightkit/platform-ui": "0.1.2",
-      "@rightkit/qa": "0.2.4",
+      "@rightkit/qa": "0.3.0",
       "@rightkit/qa-chrome": "0.1.2",
       "@rightkit/release": "0.2.122",
       "@rightkit/settings-ui": "0.2.7",
