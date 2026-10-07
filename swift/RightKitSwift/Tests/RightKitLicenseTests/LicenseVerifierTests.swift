@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 
@@ -120,6 +121,48 @@ private func loadVector() throws -> Vector {
             now: vector.nowUnix,
         )
     }
+}
+
+// MARK: - entitlement scope claim (0.3.4)
+
+/// Signs `extra` into an otherwise fixed v2 payload with a throwaway key.
+private func scopedToken(_ extra: [String: Any]) throws -> (token: String, publicKey: String) {
+    let key = Curve25519.Signing.PrivateKey()
+    var payload: [String: Any] = [
+        "v": 2, "id": "lic", "app": "heardright", "tier": "pro", "features": [String](),
+        "device_id": "dev-1", "iat": 1_000, "exp": 9_999,
+    ]
+    payload.merge(extra) { $1 }
+    let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+    let token = data.base64urlEncodedString() + "." + (try key.signature(for: data)).base64urlEncodedString()
+    return (token, key.publicKey.rawRepresentation.base64urlEncodedString())
+}
+
+private func verifiedScope(_ extra: [String: Any]) throws -> String? {
+    let (token, publicKey) = try scopedToken(extra)
+    return try LicenseVerifier(publicKeyBase64url: publicKey).verify(token: token, app: "heardright", deviceId: "dev-1", now: 2_000).scope
+}
+
+@Test func decodesTheSignedEntitlementScopeClaim() throws {
+    // What the server signs (and ScrapeRight/HeardRight assert): `entitlement_scope`.
+    #expect(try verifiedScope(["entitlement_scope": "mobile"]) == "mobile")
+    #expect(try verifiedScope(["entitlement_scope": "full"]) == "full")
+}
+
+@Test func fallsBackToTheLegacyScopeClaim() throws {
+    #expect(try verifiedScope(["scope": "mobile"]) == "mobile")
+    // Both present: the signed `entitlement_scope` wins.
+    #expect(try verifiedScope(["entitlement_scope": "full", "scope": "mobile"]) == "full")
+}
+
+@Test func aTokenWithNoScopeClaimHasNilScope() throws {
+    #expect(try verifiedScope([:]) == nil)
+    // The shared contract vector carries no scope either.
+    let vector = try loadVector()
+    let claims = try LicenseVerifier(publicKeyBase64url: vector.publicKeyBase64url).verify(
+        token: vector.token, app: vector.expectedApp, deviceId: vector.expectedDeviceId, now: vector.nowUnix
+    )
+    #expect(claims.scope == nil)
 }
 
 extension Data {

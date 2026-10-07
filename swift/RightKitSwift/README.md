@@ -13,6 +13,66 @@ truth for the pieces every app would otherwise reimplement and let drift.
 | `RightKitCloudSync` | Generic CloudKit private-zone sync engine. One adapter can own several record types (`recordType(of:)`, `recordType(forItemID:)`) and read direct types it never uploads (`directRecordTypes`, written through `CloudSyncEngine.writeDirect`). `SyncTransport.fetchRecord(named:)` reads one live record. App-side failures back off with the engine (`noteFailure`, `raiseRetryGate(toAtLeast:)`, `retryGate`). `adoptLegacyLedger` imports a pre-RightKit ledger with its change token and versions without an account call. `encodeForUpload` / `SyncLazyPayload` produce payloads lazily at upload time. `SyncTrigger.submit`. |
 | `RightKitUI` | Generic adaptive-glass surface primitive: regular/clear native Liquid Glass + ConcentricRectangle on iOS/macOS 26, material fallback on older OS versions, and opaque accessibility fallback. Product radii, colors, layout, motion, and behavior stay app-local. |
 
+## RightKitLicense configuration (0.3.4)
+
+`LicenseVerifier` reads the entitlement scope from the signed `entitlement_scope` claim (the key
+the server signs and ScrapeRight/HeardRight assert), falling back to a legacy `scope` claim;
+`LicenseClaims.scope` is nil when neither is present. Before 0.3.4 only `scope` was read, so a
+lease record whose envelope carried `entitlementScope` never matched its token and was not Pro.
+
+`LicenseActivationClient.Configuration` (`LicenseClientConfiguration`) carries the wire
+differences between RightKit's original client and ScrapeRight's in-app client. Every default is
+the pre-0.3.4 behaviour:
+
+| Field | Default | ScrapeRight-style value | Effect |
+|---|---|---|---|
+| `deviceClass: String?` | `nil` (omitted) | `"iphone"` | Sent as `deviceClass` in the `activate` body when set. |
+| `includeAppKeyInLeaseBody: Bool` | `true` | `false` | Whether lease issue/renew/remove bodies carry `appKey`. |
+| `leasePathStyle: LicenseLeasePathStyle` | `.siblingOfBase` | `.originRooted(apiPrefix: "/v1")` | Lease URLs: parent of `baseURL` + `pro/<app>/devices/lease[/renew\|/remove]`, or origin + `apiPrefix` + the same. |
+| `refreshErrorPolicy: LicenseRefreshErrorPolicy` | `.keepRecordOnServerError` | `.keepRecordOnAnyError` (or `.surfaceAll` to show every failure) | Default: 4xx, transport and unreadable responses throw, other statuses (5xx) keep the record. `.surfaceAll` throws everything; `.keepRecordOnAnyError` never throws (what ScrapeRight's client does today). |
+
+```swift
+let client = LicenseActivationClient(
+    configuration: .init(
+        app: "scraperight", baseURL: URL(string: "https://scraperight.cc/v1/licenses")!,
+        appVersion: version, deviceID: { store.deviceID() }, publicKeyBase64url: key,
+        deviceClass: "iphone", includeAppKeyInLeaseBody: false,
+        leasePathStyle: .originRooted(apiPrefix: "/v1"), refreshErrorPolicy: .surfaceAll
+    ),
+    store: KeychainLicenseStore(service: "app.scraperight.ios.native.license")
+)
+```
+
+Lease URLs are now built from URL components instead of `appendingPathComponent("../pro/...")`.
+For the default style the URL equals the standardized form of the old one
+(`https://host/v1/licenses` → `https://host/v1/pro/<app>/devices/lease`), but the request line no
+longer carries the literal `/v1/licenses/../pro/...` segment, which URLSession used to send
+unresolved. A base URL with no path resolves to `/pro/<app>/devices/lease`.
+
+**Not verified against the server.** The license server source is not in this workspace, so
+whether it accepts each default and each alternative (a body without `appKey`, `deviceClass` on
+activate, the normalized lease request path) was not checked. The defaults reproduce the bodies
+and resolved URLs RightKit sent before 0.3.4; the alternatives reproduce ScrapeRight's client.
+
+`LicenseController`:
+
+- `refresh(silent: Bool = false)` renews lease-bound records (`leaseId != nil`) through
+  `renewLease()` and refreshes the rest through `refresh()`. `silent: true` leaves `message` and
+  `isBusy` untouched and republishes `license` only when it changed.
+- `LicenseMessages` (injected as `messages:` in either initializer) overrides every string the
+  controller sets: `activated`, `refreshed`, `removed`, plus optional `activatedPro` /
+  `refreshedPro` used when the new record verifies as Pro (e.g. `"Pro entitlement restored."`).
+  Defaults are the original strings, and `nil` Pro strings keep the original
+  `record.message ?? fallback` behaviour.
+
+For bridge and lease flows that receive an envelope themselves,
+`LicenseActivationClient.license(fromLease:activationToken:deviceId:publicKeyBase64url:key:activatedAt:allowedScopes:)`
+builds the `StoredLicense` after verifying the envelope signature and then the fail-closed scope
+check `LicenseLeaseEnvelope.validateEntitlementScope(allowed:)` (default
+`LicenseEntitlementScope.mobileCompatible` = `full`, `mobile`; a missing scope passes, anything
+else throws `LicenseScopeError.unsupportedEntitlementScope`). `activateLease` and `renewLease`
+keep their pre-0.3.4 behaviour and do not apply the scope check.
+
 ## Consuming it
 
 Swift has no public package registry like npmjs.com or crates.io (Apple is
@@ -27,7 +87,7 @@ edit of the pin, recorded in `rightkit-versions.json`.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.3"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.4"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -42,7 +102,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit-swift.git
-    exactVersion: "0.3.3"
+    exactVersion: "0.3.4"
 ```
 
 A clone of a consuming app resolves this straight from GitHub — no workspace

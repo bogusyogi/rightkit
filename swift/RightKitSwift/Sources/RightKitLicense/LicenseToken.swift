@@ -36,7 +36,8 @@ public struct LicenseClaims: Equatable, Sendable {
     public let deviceId: String
     public let issuedAt: Int
     public let expiresAt: Int
-    /// Server-owned entitlement scope. Missing means legacy full scope.
+    /// Server-owned entitlement scope, decoded from the signed `entitlement_scope` claim (falling back
+    /// to a legacy `scope` claim). Missing means legacy full scope.
     public let scope: String?
     public let licenseKind: String?
     public let entitlementStage: String?
@@ -139,7 +140,7 @@ public struct LicenseVerifier: Sendable {
             deviceId: payload.device_id,
             issuedAt: payload.iat,
             expiresAt: payload.exp,
-            scope: payload.scope,
+            scope: payload.entitlement_scope ?? payload.scope,
             licenseKind: payload.license_kind,
             entitlementStage: payload.entitlement_stage,
             licenseIssuedAt: payload.license_issued_at,
@@ -156,6 +157,9 @@ public struct LicenseVerifier: Sendable {
         let device_id: String
         let iat: Int
         let exp: Int
+        /// The claim signed tokens carry. Preferred over `scope` when both are present.
+        let entitlement_scope: String?
+        /// Legacy spelling some fixtures and older issuers used.
         let scope: String?
         let license_kind: String?
         let entitlement_stage: String?
