@@ -102,9 +102,23 @@ public struct LicenseVerifier: Sendable {
         }
     }
 
+    /// Token schema versions accepted by default: only v2, the current signer's format.
+    public static let defaultAcceptedVersions: Set<Int> = [2]
+
     /// Signature first, then claims. An expired token from the right key and a forged token are very
     /// different failures, and only the signature check decides whether the payload is worth reading.
-    public func verify(token: String, app: String, deviceId: String, now: Int) throws -> LicenseClaims {
+    ///
+    /// - Parameter acceptedVersions: the `v` claims accepted; anything else throws
+    ///   ``LicenseError/unsupportedVersion(_:)``. Default `[2]`. ScrapeRight passes `[1, 2]`: its
+    ///   original verifier never checked `v`. A v1 token is decoded by the same payload decoder, so it
+    ///   must still carry the core claims `v`, `id`, `app`, `tier`, `features`, `device_id`, `iat`
+    ///   and `exp` (exactly what ScrapeRight's decoder required). v1 has none of the additive claims
+    ///   (`entitlement_scope`/`scope`, `license_kind`, `entitlement_stage`, `license_issued_at`,
+    ///   `confirmation_due_at`); they decode as nil, and a nil scope means legacy full rights.
+    public func verify(
+        token: String, app: String, deviceId: String, now: Int,
+        acceptedVersions: Set<Int> = LicenseVerifier.defaultAcceptedVersions
+    ) throws -> LicenseClaims {
         let parts = token.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 2,
               let payloadData = Data(base64urlEncoded: String(parts[0])),
@@ -121,7 +135,7 @@ public struct LicenseVerifier: Sendable {
         } catch {
             throw LicenseError.malformedToken
         }
-        guard payload.v == 2 else { throw LicenseError.unsupportedVersion(payload.v) }
+        guard acceptedVersions.contains(payload.v) else { throw LicenseError.unsupportedVersion(payload.v) }
         guard payload.app == app else { throw LicenseError.wrongApp(expected: app, actual: payload.app) }
         guard payload.device_id == deviceId else {
             throw LicenseError.wrongDevice(expected: deviceId, actual: payload.device_id)

@@ -41,19 +41,30 @@ public struct LicenseServerResponse: Codable, Equatable, Sendable {
     public var entitlements: LicenseEntitlements?
     public var lease: LicenseLeaseEnvelope?
     public var error: String?
+    /// Optional elaboration some endpoints send beside `error`.
+    public var detail: String?
 
     public init(
         ok: Bool? = nil, status: String? = nil, message: String? = nil, activationToken: String? = nil,
         licenseId: String? = nil, validUntil: String? = nil, signedToken: String? = nil,
         licenseKind: String? = nil, entitlementStage: String? = nil, licenseIssuedAt: String? = nil,
         confirmationDueAt: String? = nil, entitlements: LicenseEntitlements? = nil,
-        lease: LicenseLeaseEnvelope? = nil, error: String? = nil,
+        lease: LicenseLeaseEnvelope? = nil, error: String? = nil, detail: String? = nil,
     ) {
         self.ok = ok; self.status = status; self.message = message; self.activationToken = activationToken
         self.licenseId = licenseId; self.validUntil = validUntil; self.signedToken = signedToken
         self.licenseKind = licenseKind; self.entitlementStage = entitlementStage
         self.licenseIssuedAt = licenseIssuedAt; self.confirmationDueAt = confirmationDueAt
-        self.entitlements = entitlements; self.lease = lease; self.error = error
+        self.entitlements = entitlements; self.lease = lease; self.error = error; self.detail = detail
+    }
+
+    /// The server's `error` text with its `detail` appended when present (`"error: detail"`), or
+    /// whichever of the two is non-empty; nil when neither is.
+    public var errorText: String? { LicenseServerResponse.errorText(error: error, detail: detail) }
+
+    static func errorText(error: String?, detail: String?) -> String? {
+        let parts = [error, detail].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ": ")
     }
 }
 
@@ -103,22 +114,27 @@ public struct StoredLicense: Codable, Equatable, Sendable {
         self.leaseGraceSeconds = leaseGraceSeconds; self.entitlementScope = entitlementScope
     }
 
+    /// Signature, app, device and expiry check of the stored token. Does NOT look at `status`; use
+    /// ``authorizedClaims(publicKeyBase64url:app:deviceId:now:requireActiveStatus:acceptedTokenVersions:)``
+    /// to gate features. `acceptedTokenVersions` is passed to ``LicenseVerifier/verify(token:app:deviceId:now:acceptedVersions:)``.
     public func verifiedClaims(
-        publicKeyBase64url: String, app: String, now: Int = Int(Date().timeIntervalSince1970)
+        publicKeyBase64url: String, app: String, now: Int = Int(Date().timeIntervalSince1970),
+        acceptedTokenVersions: Set<Int> = LicenseVerifier.defaultAcceptedVersions
     ) -> LicenseClaims? {
         guard let signedToken else { return nil }
         let verificationDevice = leaseId == nil ? deviceId : LicenseActivationClient.deviceIDHash(deviceId)
         guard let claims = try? LicenseVerifier(publicKeyBase64url: publicKeyBase64url).verify(
-            token: signedToken, app: app, deviceId: verificationDevice, now: now
+            token: signedToken, app: app, deviceId: verificationDevice, now: now, acceptedVersions: acceptedTokenVersions
         ) else { return nil }
         guard entitlementScope == nil || entitlementScope == claims.scope else { return nil }
         return claims
     }
 
     public func isProCandidate(
-        publicKeyBase64url: String, app: String, now: Int = Int(Date().timeIntervalSince1970)
+        publicKeyBase64url: String, app: String, now: Int = Int(Date().timeIntervalSince1970),
+        acceptedTokenVersions: Set<Int> = LicenseVerifier.defaultAcceptedVersions
     ) -> Bool {
-        verifiedClaims(publicKeyBase64url: publicKeyBase64url, app: app, now: now)?.isPro == true
+        verifiedClaims(publicKeyBase64url: publicKeyBase64url, app: app, now: now, acceptedTokenVersions: acceptedTokenVersions)?.isPro == true
     }
 }
 
@@ -131,13 +147,16 @@ public struct LicenseLeaseEnvelope: Codable, Equatable, Sendable {
     public let expiresAt: String
     public let graceSeconds: Int64
     public let generation: Int
-    public let entitlement: String
+    /// The signed entitlement token. Optional: a continuity-bridge response may carry an envelope
+    /// without one. It is not part of the signed canonical JSON, and a record built from an envelope
+    /// without it has no `signedToken`, so it never authorizes Pro (fail closed).
+    public let entitlement: String?
     public let signature: String?
     public let entitlementScope: String?
 
     public init(
         leaseId: String, deviceIdHash: String, pool: String, issuedAt: String, expiresAt: String,
-        graceSeconds: Int64, generation: Int, entitlement: String, signature: String? = nil,
+        graceSeconds: Int64, generation: Int, entitlement: String?, signature: String? = nil,
         entitlementScope: String? = nil,
     ) {
         self.leaseId = leaseId; self.deviceIdHash = deviceIdHash; self.pool = pool
@@ -202,6 +221,20 @@ public enum LicenseScopeError: Error, Equatable, Sendable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unsupportedEntitlementScope: return "The device lease has an unsupported entitlement scope."
+        }
+    }
+}
+
+/// Raised by ``LicenseActivationClient/activateLease(key:deviceLabel:)`` when a 2xx response lacks
+/// its lease or activation token but the server explained why (`error`, plus `detail` when present).
+/// Without that text the generic ``LicenseError/invalidResponse`` is thrown, as before. A separate
+/// type so adding it cannot break an exhaustive `switch` over ``LicenseError``.
+public enum LicenseResponseError: Error, Equatable, Sendable, LocalizedError {
+    case incomplete(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .incomplete(text): return text
         }
     }
 }
@@ -340,17 +373,42 @@ public struct LicenseClientConfiguration: Sendable {
     public let leasePathStyle: LicenseLeasePathStyle
     /// See ``LicenseRefreshErrorPolicy``. Default ``LicenseRefreshErrorPolicy/keepRecordOnServerError``.
     public let refreshErrorPolicy: LicenseRefreshErrorPolicy
+    /// Whether Pro also requires the stored record's `status == "active"`. Default true (desktop
+    /// `license.rs` requires it too). False: a verifying signed token alone is enough, as in
+    /// ScrapeRight's original client. Used by ``LicenseController`` and ``StoredLicenseResolver``.
+    public let requireActiveStatus: Bool
+    /// Token `v` claims accepted. Default `[2]`; ScrapeRight passes `[1, 2]`. See
+    /// ``LicenseVerifier/verify(token:app:deviceId:now:acceptedVersions:)`` for what v1 lacks.
+    public let acceptedTokenVersions: Set<Int>
+    /// Explicit refresh statuses (compared case-insensitively) that clear the signed token,
+    /// entitlements and `validUntil`. Default ``defaultRevokingStatuses`` (`removed`, `revoked`).
+    /// Any other status, and a 2xx body with neither `status` nor `ok`, keeps the token.
+    public let revokingStatuses: Set<String>
+    /// Envelope `entitlementScope`s `activateLease`/`renewLease` accept; anything else throws
+    /// ``LicenseScopeError`` before storage. Default ``LicenseEntitlementScope/mobileCompatible``.
+    public let allowedEntitlementScopes: Set<String>
+
+    /// The refresh statuses that revoke by default: what ScrapeRight's and HeardRight's shipped iOS
+    /// clients and HeardRight's desktop `refresh_license_and_reanchor_inner` treat as explicit
+    /// revocation. `invalid` is deliberately absent: none of them clears the token for it.
+    public static let defaultRevokingStatuses: Set<String> = ["removed", "revoked"]
 
     public init(
         app: String, baseURL: URL, appVersion: String = "0.0.0", deviceID: @escaping @Sendable () -> String,
         session: URLSession = .shared, publicKeyBase64url: String? = nil,
         deviceClass: String? = nil, includeAppKeyInLeaseBody: Bool = true,
         leasePathStyle: LicenseLeasePathStyle = .siblingOfBase,
-        refreshErrorPolicy: LicenseRefreshErrorPolicy = .keepRecordOnServerError
+        refreshErrorPolicy: LicenseRefreshErrorPolicy = .keepRecordOnServerError,
+        requireActiveStatus: Bool = true,
+        acceptedTokenVersions: Set<Int> = LicenseVerifier.defaultAcceptedVersions,
+        revokingStatuses: Set<String> = LicenseClientConfiguration.defaultRevokingStatuses,
+        allowedEntitlementScopes: Set<String> = LicenseEntitlementScope.mobileCompatible
     ) {
         self.app = app; self.baseURL = baseURL; self.appVersion = appVersion; self.deviceID = deviceID; self.session = session; self.publicKeyBase64url = publicKeyBase64url
         self.deviceClass = deviceClass; self.includeAppKeyInLeaseBody = includeAppKeyInLeaseBody
         self.leasePathStyle = leasePathStyle; self.refreshErrorPolicy = refreshErrorPolicy
+        self.requireActiveStatus = requireActiveStatus; self.acceptedTokenVersions = acceptedTokenVersions
+        self.revokingStatuses = revokingStatuses; self.allowedEntitlementScopes = allowedEntitlementScopes
     }
 
     /// The lease endpoint URL for `suffix` (`[]`, `["renew"]` or `["remove"]`), built from URL
@@ -417,7 +475,11 @@ public struct LicenseActivationClient: Sendable {
                 throw error
             }
         }
-        let updated = Self.merged(current: current, refreshed: Self.license(from: body, deviceId: current.deviceId, key: current.key, activatedAt: current.activatedAt))
+        let updated = Self.merged(
+            current: current, body: body,
+            refreshed: Self.license(from: body, deviceId: current.deviceId, key: current.key, activatedAt: current.activatedAt),
+            revokingStatuses: configuration.revokingStatuses
+        )
         try await store.save(updated)
         return updated
     }
@@ -441,29 +503,50 @@ public struct LicenseActivationClient: Sendable {
         var payload = leaseBody(["licenseKey": key.trimmingCharacters(in: .whitespacesAndNewlines), "deviceIdHash": deviceHash, "platform": Self.platform()])
         if let deviceLabel { payload["deviceLabel"] = deviceLabel }
         let body: LicenseServerResponse = try await post(url: configuration.leaseURL([]), payload: payload)
-        guard let lease = body.lease, let token = body.activationToken else { throw LicenseError.invalidResponse }
-        try lease.verifySignature(publicKey: try leaseKey())
-        let license = Self.license(from: lease, activationToken: token, deviceId: configuration.deviceID())
+        guard let lease = body.lease, let token = body.activationToken else {
+            if let text = body.errorText { throw LicenseResponseError.incomplete(text) }
+            throw LicenseError.invalidResponse
+        }
+        // Signature, then scope (fail closed), both before anything is stored.
+        let license = try verifiedLicense(from: lease, activationToken: token, deviceId: configuration.deviceID())
         try await store.save(license)
         return license
     }
 
+    /// Renews the stored lease. Signature and scope are checked before anything is stored: an
+    /// unsupported `entitlementScope` throws ``LicenseScopeError`` and leaves storage untouched; any
+    /// other failure except 404/410 returns the current record unchanged; 404/410 stores the record
+    /// as `revoked` with its token cleared.
     public func renewLease() async throws -> StoredLicense? {
-        guard let current = await store.load(), let leaseId = current.leaseId else { return await store.load() }
+        try await renewLeaseOutcome().license
+    }
+
+    /// ``renewLease()`` plus whether the server answered 404/410 (this device's lease is gone).
+    func renewLeaseOutcome() async throws -> (license: StoredLicense?, deviceRemoved: Bool) {
+        guard let current = await store.load(), let leaseId = current.leaseId else { return (await store.load(), false) }
         let payload = leaseBody(["deviceIdHash": Self.deviceIDHash(current.deviceId), "leaseId": leaseId])
         do {
             let body: LicenseServerResponse = try await post(url: configuration.leaseURL(["renew"]), payload: payload)
-            guard let lease = body.lease else { return current }
-            try lease.verifySignature(publicKey: try leaseKey())
-            let renewed = Self.license(from: lease, activationToken: current.activationToken ?? "", deviceId: current.deviceId, activatedAt: current.activatedAt)
-            try await store.save(renewed); return renewed
+            guard let lease = body.lease else { return (current, false) }
+            let renewed = try verifiedLicense(from: lease, activationToken: current.activationToken ?? "", deviceId: current.deviceId, activatedAt: current.activatedAt)
+            try await store.save(renewed); return (renewed, false)
+        } catch let error as LicenseScopeError {
+            throw error
         } catch let error as LicenseError {
             if case .serverStatus(let status, _) = error, status == 404 || status == 410 {
                 var revoked = current; revoked.status = "revoked"; revoked.signedToken = nil; revoked.entitlements = nil; revoked.validUntil = nil
-                try await store.save(revoked); return revoked
+                try await store.save(revoked); return (revoked, true)
             }
-            return current
-        } catch { return current }
+            return (current, false)
+        } catch { return (current, false) }
+    }
+
+    /// Verifies the envelope signature against the configured key, then its scope against
+    /// ``LicenseClientConfiguration/allowedEntitlementScopes``, then builds the record. Stores nothing.
+    private func verifiedLicense(from lease: LicenseLeaseEnvelope, activationToken: String, deviceId: String, activatedAt: String? = nil) throws -> StoredLicense {
+        try lease.verifySignature(publicKey: try leaseKey())
+        try lease.validateEntitlementScope(allowed: configuration.allowedEntitlementScopes)
+        return Self.license(from: lease, activationToken: activationToken, deviceId: deviceId, activatedAt: activatedAt)
     }
 
     public func removeLease() async throws {
@@ -534,13 +617,22 @@ public struct LicenseActivationClient: Sendable {
 
     private static func errorMessage(from data: Data) -> String {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "" }
-        return (object["message"] as? String) ?? (object["error"] as? String) ?? ""
+        if let message = object["message"] as? String { return message }
+        return LicenseServerResponse.errorText(error: object["error"] as? String, detail: object["detail"] as? String) ?? ""
     }
 
-    private static func merged(current: StoredLicense, refreshed: StoredLicense) -> StoredLicense {
-        let revoked = ["removed", "revoked", "invalid"].contains(refreshed.status.lowercased())
+    /// Refresh merge. Only an explicit status in `revokingStatuses` clears the signed token,
+    /// entitlements and `validUntil`. A 2xx body with neither `status` nor `ok` says nothing about
+    /// the license, so it keeps the token AND the current status (it never downgrades the record);
+    /// every other status is stored as sent, keeping the token.
+    static func merged(
+        current: StoredLicense, body: LicenseServerResponse, refreshed: StoredLicense, revokingStatuses: Set<String>
+    ) -> StoredLicense {
+        let silent = body.status == nil && body.ok == nil
+        let revoked = !silent && Set(revokingStatuses.map { $0.lowercased() }).contains(refreshed.status.lowercased())
         var value = current
-        value.status = refreshed.status; value.message = refreshed.message; value.lastRefreshedAt = refreshed.lastRefreshedAt
+        value.status = silent ? current.status : refreshed.status
+        value.message = refreshed.message; value.lastRefreshedAt = refreshed.lastRefreshedAt
         if !revoked { value.validUntil = refreshed.validUntil ?? current.validUntil; value.entitlements = refreshed.entitlements ?? current.entitlements; value.signedToken = refreshed.signedToken ?? current.signedToken }
         else { value.validUntil = nil; value.entitlements = nil; value.signedToken = nil }
         value.activationToken = refreshed.activationToken ?? current.activationToken
@@ -617,13 +709,33 @@ public extension StoredLicense {
     /// and is bound to `app`, to this record's device (and to the live `deviceId` the caller must supply
     /// (the cached record device ID alone is never trusted), and to an unexpired `exp`. The record must also still be
     /// `active`; a missing, unsigned, forged, wrong-app, wrong-device or expired token yields nil.
+    ///
+    /// - Parameters:
+    ///   - requireActiveStatus: default true, the strict gate (desktop `license.rs` requires
+    ///     `status == "active"` too). False drops only the status check: a verifying token is
+    ///     enough, as in ScrapeRight's original client. Signature, app, device and expiry still apply.
+    ///   - acceptedTokenVersions: token `v` claims accepted; default `[2]`.
     func authorizedClaims(
         publicKeyBase64url: String, app: String, deviceId expectedDeviceId: String,
-        now: Int = Int(Date().timeIntervalSince1970)
+        now: Int = Int(Date().timeIntervalSince1970),
+        requireActiveStatus: Bool = true,
+        acceptedTokenVersions: Set<Int> = LicenseVerifier.defaultAcceptedVersions
     ) -> LicenseClaims? {
-        guard status == "active" else { return nil }
+        if requireActiveStatus { guard status == "active" else { return nil } }
         guard !expectedDeviceId.isEmpty, expectedDeviceId == deviceId else { return nil }
-        return verifiedClaims(publicKeyBase64url: publicKeyBase64url, app: app, now: now)
+        return verifiedClaims(publicKeyBase64url: publicKeyBase64url, app: app, now: now, acceptedTokenVersions: acceptedTokenVersions)
+    }
+
+    /// ``authorizedClaims(publicKeyBase64url:app:deviceId:now:requireActiveStatus:acceptedTokenVersions:)``
+    /// with the key, app, live device id and knobs taken from `configuration`. Nil without a key.
+    func authorizedClaims(
+        configuration: LicenseClientConfiguration, now: Int = Int(Date().timeIntervalSince1970)
+    ) -> LicenseClaims? {
+        guard let key = configuration.publicKeyBase64url else { return nil }
+        return authorizedClaims(
+            publicKeyBase64url: key, app: configuration.app, deviceId: configuration.deviceID(), now: now,
+            requireActiveStatus: configuration.requireActiveStatus, acceptedTokenVersions: configuration.acceptedTokenVersions
+        )
     }
 }
 
@@ -641,12 +753,25 @@ public extension LicenseClaims {
     }
 }
 
-public func isPro(_ license: StoredLicense?, publicKeyBase64url: String, app: String, deviceId: String, now: Int = Int(Date().timeIntervalSince1970)) -> Bool {
-    license?.authorizedClaims(publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now)?.isPro == true
+public func isPro(
+    _ license: StoredLicense?, publicKeyBase64url: String, app: String, deviceId: String, now: Int = Int(Date().timeIntervalSince1970),
+    requireActiveStatus: Bool = true, acceptedTokenVersions: Set<Int> = LicenseVerifier.defaultAcceptedVersions
+) -> Bool {
+    license?.authorizedClaims(
+        publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now,
+        requireActiveStatus: requireActiveStatus, acceptedTokenVersions: acceptedTokenVersions
+    )?.isPro == true
 }
 
-public func satisfiesRequirement(_ license: StoredLicense?, _ requirement: LicenseRequirement, publicKeyBase64url: String, app: String, deviceId: String, now: Int = Int(Date().timeIntervalSince1970)) -> Bool {
-    license?.authorizedClaims(publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now)?.satisfies(requirement) == true
+public func satisfiesRequirement(
+    _ license: StoredLicense?, _ requirement: LicenseRequirement, publicKeyBase64url: String, app: String, deviceId: String,
+    now: Int = Int(Date().timeIntervalSince1970),
+    requireActiveStatus: Bool = true, acceptedTokenVersions: Set<Int> = LicenseVerifier.defaultAcceptedVersions
+) -> Bool {
+    license?.authorizedClaims(
+        publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now,
+        requireActiveStatus: requireActiveStatus, acceptedTokenVersions: acceptedTokenVersions
+    )?.satisfies(requirement) == true
 }
 
 /// Small resolver seam apps can inject beside `RightKitPurchases.AccessResolver`.
@@ -672,7 +797,9 @@ public struct StoredLicenseResolver: LicenseEntitlementResolving, Sendable {
             license = await client.load()
         }
         return license?.authorizedClaims(
-            publicKeyBase64url: publicKeyBase64url, app: app, deviceId: client.configuration.deviceID(), now: now()
+            publicKeyBase64url: publicKeyBase64url, app: app, deviceId: client.configuration.deviceID(), now: now(),
+            requireActiveStatus: client.configuration.requireActiveStatus,
+            acceptedTokenVersions: client.configuration.acceptedTokenVersions
         )
     }
 }
@@ -691,6 +818,10 @@ public struct LicenseMessages: Equatable, Sendable {
     public var refreshedPro: String? = nil
     /// After `remove()`.
     public var removed = "License removed."
+    /// When set, shown after a non-silent refresh whose lease renewal or legacy refresh got HTTP
+    /// 404/410 (the server no longer knows this device). Default nil: the original message (the
+    /// record's message or `refreshed` for a renewal, the error text for a legacy refresh).
+    public var deviceRemoved: String? = nil
     public init() {}
 }
 
@@ -756,7 +887,11 @@ public final class LicenseController: ObservableObject {
             // Without a verification key nothing can be proven Pro: a token-less record is stuck.
             return license.activationToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
         }
-        return license.needsReconnect(publicKeyBase64url: key, app: client.configuration.app, deviceId: client.configuration.deviceID())
+        return license.needsReconnect(
+            publicKeyBase64url: key, app: client.configuration.app, deviceId: client.configuration.deviceID(),
+            requireActiveStatus: client.configuration.requireActiveStatus,
+            acceptedTokenVersions: client.configuration.acceptedTokenVersions
+        )
     }
 
     /// Delivers queued server removals. No-op for controllers built with `init(client:)`.
@@ -811,15 +946,15 @@ public final class LicenseController: ObservableObject {
         defer { if !silent { isBusy = false } }
         guard pendingRemovals != nil else {
             do {
-                let refreshed = try await routedRefresh()
+                let (refreshed, removed) = try await routedRefresh()
                 publish(refreshed, silent: silent)
-                if !silent { message = outcomeMessage(for: refreshed, pro: messages.refreshedPro, fallback: messages.refreshed) }
-            } catch { if !silent { message = error.localizedDescription } }
+                if !silent { message = refreshMessage(for: refreshed, deviceRemoved: removed) }
+            } catch { if !silent { message = failureMessage(for: error) } }
             return
         }
         let generation = mutationGeneration
         do {
-            let refreshed = try await routedRefresh()
+            let (refreshed, removed) = try await routedRefresh()
             guard mutationGeneration == generation else {
                 // A removal landed while the refresh was in flight: the client already re-saved
                 // the old record, so take it back out; never publish it.
@@ -827,10 +962,22 @@ public final class LicenseController: ObservableObject {
                 return
             }
             publish(refreshed, silent: silent)
-            if !silent { message = outcomeMessage(for: refreshed, pro: messages.refreshedPro, fallback: messages.refreshed) }
+            if !silent { message = refreshMessage(for: refreshed, deviceRemoved: removed) }
             // A completed round trip proves connectivity: flush owed removals now.
             await retryPendingRemovals()
-        } catch { if !silent { message = error.localizedDescription } }
+        } catch { if !silent { message = failureMessage(for: error) } }
+    }
+
+    private func refreshMessage(for record: StoredLicense?, deviceRemoved: Bool) -> String {
+        if deviceRemoved, let text = messages.deviceRemoved { return text }
+        return outcomeMessage(for: record, pro: messages.refreshedPro, fallback: messages.refreshed)
+    }
+
+    private func failureMessage(for error: any Error) -> String {
+        if let text = messages.deviceRemoved, case let .serverStatus(status, _)? = error as? LicenseError, status == 404 || status == 410 {
+            return text
+        }
+        return error.localizedDescription
     }
 
     /// Removes the license from this device. With `init(client:)` this is the original
@@ -854,9 +1001,9 @@ public final class LicenseController: ObservableObject {
         await retryPendingRemovals()
     }
 
-    private func routedRefresh() async throws -> StoredLicense? {
-        if await client.load()?.leaseId != nil { return try await client.renewLease() }
-        return try await client.refresh()
+    private func routedRefresh() async throws -> (StoredLicense?, deviceRemoved: Bool) {
+        if await client.load()?.leaseId != nil { return try await client.renewLeaseOutcome() }
+        return (try await client.refresh(), false)
     }
 
     private func publish(_ refreshed: StoredLicense?, silent: Bool) {
@@ -865,10 +1012,7 @@ public final class LicenseController: ObservableObject {
     }
 
     private func verifiesPro(_ record: StoredLicense?) -> Bool {
-        guard let key = client.configuration.publicKeyBase64url else { return false }
-        return record?.authorizedClaims(
-            publicKeyBase64url: key, app: client.configuration.app, deviceId: client.configuration.deviceID()
-        )?.isPro == true
+        record?.authorizedClaims(configuration: client.configuration)?.isPro == true
     }
 
     /// `pro` (when set and the record verifies as Pro), else the server message, else `fallback` —
