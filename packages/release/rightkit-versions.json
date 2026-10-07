@@ -28,8 +28,8 @@
     "@rightkit/pdf-ui": "0.1.1",
     "@rightkit/platform-ui": "0.1.2",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.119",
-    "@rightkit/settings-ui": "0.2.3",
+    "@rightkit/release": "0.2.120",
+    "@rightkit/settings-ui": "0.2.4",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/theme": "0.2.0",
@@ -140,7 +140,8 @@
       "0.2.115",
       "0.2.116",
       "0.2.117",
-      "0.2.118"
+      "0.2.118",
+      "0.2.119"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -163,7 +164,8 @@
     "@rightkit/settings-ui": [
       "0.1.0",
       "0.2.0",
-      "0.2.2"
+      "0.2.2",
+      "0.2.3"
     ],
     "@rightkit/onboarding": [
       "0.1.0",

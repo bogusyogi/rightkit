@@ -8,3 +8,4 @@ export type { SettingsPanelProps } from "./SettingsPanel.js";
 export * from "./sections.js";
 export * from "./standard.js";
 export { sectionIcons } from "./icons.js";
+export * from "./hooks.js";
