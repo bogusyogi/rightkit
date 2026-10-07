@@ -148,10 +148,16 @@ public extension StoredLicense {
     /// `deviceId` and holds no activation token to refresh or exchange with. The only way out is
     /// an explicit re-activation (re-entering the key). Apps surface this as a distinct
     /// "reconnect" state instead of plain "free".
+    /// `requireActiveStatus` and `acceptedTokenVersions` are the same knobs as
+    /// ``authorizedClaims(publicKeyBase64url:app:deviceId:now:requireActiveStatus:acceptedTokenVersions:)``.
     func needsReconnect(
-        publicKeyBase64url: String, app: String, deviceId: String, now: Int = Int(Date().timeIntervalSince1970)
+        publicKeyBase64url: String, app: String, deviceId: String, now: Int = Int(Date().timeIntervalSince1970),
+        requireActiveStatus: Bool = true, acceptedTokenVersions: Set<Int> = LicenseVerifier.defaultAcceptedVersions
     ) -> Bool {
-        if authorizedClaims(publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now)?.isPro == true {
+        if authorizedClaims(
+            publicKeyBase64url: publicKeyBase64url, app: app, deviceId: deviceId, now: now,
+            requireActiveStatus: requireActiveStatus, acceptedTokenVersions: acceptedTokenVersions
+        )?.isPro == true {
             return false
         }
         return activationToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true

@@ -57,6 +57,9 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
     private var _tokenScope: String?
     private var _leaseScope: String?
     private var _paths: [String] = []
+    private var _bodyOverride: [String: Any]?
+    private var _omitLeaseEntitlement = false
+    private var _tokenVersion = 2
 
     var lastPath: String { lock.withLock { _lastPath } }
     var lastLicenseKey: String { lock.withLock { _lastLicenseKey } }
@@ -72,6 +75,21 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
     var leaseScope: String? {
         get { lock.withLock { _leaseScope } }
         set { lock.withLock { _leaseScope = newValue } }
+    }
+    /// When set, every later response body is exactly this JSON (no token or lease is added).
+    var bodyOverride: [String: Any]? {
+        get { lock.withLock { _bodyOverride } }
+        set { lock.withLock { _bodyOverride = newValue } }
+    }
+    /// Serve lease envelopes without an `entitlement` token (a bridge-style envelope).
+    var omitLeaseEntitlement: Bool {
+        get { lock.withLock { _omitLeaseEntitlement } }
+        set { lock.withLock { _omitLeaseEntitlement = newValue } }
+    }
+    /// `v` claim of every signed token.
+    var tokenVersion: Int {
+        get { lock.withLock { _tokenVersion } }
+        set { lock.withLock { _tokenVersion = newValue } }
     }
     /// HTTP status every later response carries.
     var status: Int {
@@ -150,7 +168,7 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
         }
         let status = self.status
         var payload: [String: Any] = [
-            "v": 2, "id": "loopback-license", "app": "coderight", "tier": "pro",
+            "v": tokenVersion, "id": "loopback-license", "app": "coderight", "tier": "pro",
             "features": ["routing"], "device_id": deviceID, "iat": 1_700_000_000, "exp": 2_000_000_000,
         ]
         if let tokenScope { payload["entitlement_scope"] = tokenScope }
@@ -161,16 +179,17 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
             "signedToken": token, "entitlements": ["v": 1, "tier": "pro", "features": ["routing"]],
         ]
         if path.contains("/devices/lease") {
-            let lease = signedLease(signingKey, deviceIdHash: deviceID, entitlement: token, scope: leaseScope)
+            let lease = signedLease(signingKey, deviceIdHash: deviceID, entitlement: omitLeaseEntitlement ? nil : token, scope: leaseScope)
             var object: [String: Any] = [
                 "leaseId": lease.leaseId, "deviceIdHash": lease.deviceIdHash, "pool": lease.pool,
                 "issuedAt": lease.issuedAt, "expiresAt": lease.expiresAt, "graceSeconds": lease.graceSeconds,
-                "generation": lease.generation, "entitlement": lease.entitlement, "signature": lease.signature!,
+                "generation": lease.generation, "signature": lease.signature!,
             ]
+            if let entitlement = lease.entitlement { object["entitlement"] = entitlement }
             if let scope = lease.entitlementScope { object["entitlementScope"] = scope }
             response["lease"] = object
         }
-        let bytes = try! JSONSerialization.data(withJSONObject: response, options: [.sortedKeys])
+        let bytes = try! JSONSerialization.data(withJSONObject: bodyOverride ?? response, options: [.sortedKeys])
         let header = "HTTP/1.1 \(status) \(status == 200 ? "OK" : "Error")\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
         connection.send(content: Data(header.utf8) + bytes, completion: .contentProcessed { _ in connection.cancel() })
     }
@@ -182,8 +201,8 @@ private extension Data {
     }
 }
 
-private func signedToken(_ key: Curve25519.Signing.PrivateKey, app: String = "coderight", tier: String = "pro", deviceID: String = "dev", exp: Int = 2_000_000_000, extraClaims: [String: Any] = [:]) -> String {
-    var payload: [String: Any] = ["v": 2, "id": "lic", "app": app, "tier": tier, "features": ["routing"], "device_id": deviceID, "iat": 1_700_000_000, "exp": exp]
+private func signedToken(_ key: Curve25519.Signing.PrivateKey, app: String = "coderight", tier: String = "pro", deviceID: String = "dev", exp: Int = 2_000_000_000, version: Int = 2, extraClaims: [String: Any] = [:]) -> String {
+    var payload: [String: Any] = ["v": version, "id": "lic", "app": app, "tier": tier, "features": ["routing"], "device_id": deviceID, "iat": 1_700_000_000, "exp": exp]
     payload.merge(extraClaims) { $1 }
     let data = try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
     return data.base64URLEncodedString() + "." + (try! key.signature(for: data)).base64URLEncodedString()
@@ -543,7 +562,7 @@ private final class DeliveryLog: @unchecked Sendable {
 
 /// A lease envelope signed over its canonical JSON, as the server signs it.
 private func signedLease(
-    _ key: Curve25519.Signing.PrivateKey, deviceIdHash: String, entitlement: String, scope: String?,
+    _ key: Curve25519.Signing.PrivateKey, deviceIdHash: String, entitlement: String?, scope: String?,
     leaseId: String = "lease-1", generation: Int = 1
 ) -> LicenseLeaseEnvelope {
     let unsigned = LicenseLeaseEnvelope(
@@ -563,13 +582,18 @@ private func client(
     _ server: LoopbackLicenseServer, store: InMemoryLicenseStore, app: String = "coderight", device: String = "dev",
     publicKey: String? = nil, deviceClass: String? = nil, includeAppKeyInLeaseBody: Bool = true,
     leasePathStyle: LicenseLeasePathStyle = .siblingOfBase,
-    refreshErrorPolicy: LicenseRefreshErrorPolicy = .keepRecordOnServerError
+    refreshErrorPolicy: LicenseRefreshErrorPolicy = .keepRecordOnServerError,
+    requireActiveStatus: Bool = true, acceptedTokenVersions: Set<Int> = [2],
+    revokingStatuses: Set<String> = LicenseClientConfiguration.defaultRevokingStatuses,
+    allowedEntitlementScopes: Set<String> = LicenseEntitlementScope.mobileCompatible
 ) -> LicenseActivationClient {
     LicenseActivationClient(
         configuration: LicenseActivationClient.Configuration(
             app: app, baseURL: server.baseURL.appendingPathComponent("v1/licenses"), deviceID: { device },
             publicKeyBase64url: publicKey, deviceClass: deviceClass, includeAppKeyInLeaseBody: includeAppKeyInLeaseBody,
-            leasePathStyle: leasePathStyle, refreshErrorPolicy: refreshErrorPolicy
+            leasePathStyle: leasePathStyle, refreshErrorPolicy: refreshErrorPolicy,
+            requireActiveStatus: requireActiveStatus, acceptedTokenVersions: acceptedTokenVersions,
+            revokingStatuses: revokingStatuses, allowedEntitlementScopes: allowedEntitlementScopes
         ),
         store: store
     )
@@ -853,4 +877,340 @@ private func client(
     #expect(notPro.message == "License refreshed, but Pro is not active.")
     await notPro.activateLease("RK-L")
     #expect(notPro.message == "License saved, but no signed Pro entitlement was returned.")
+}
+
+// MARK: - 0.3.5
+
+private func pubKey(_ key: Curve25519.Signing.PrivateKey) -> String { key.publicKey.rawRepresentation.base64URLEncodedString() }
+
+// Fix 3: activateLease / renewLease validate the envelope scope before storing.
+
+@Test func activateLeaseRejectsUnsupportedScopeAndStoresNothing() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let server = try await LoopbackLicenseServer(signingKey: key, deviceID: LicenseActivationClient.deviceIDHash("dev"))
+    defer { server.stop() }
+    server.leaseScope = "desktop"
+    let existing = StoredLicense(status: "active", deviceId: "dev", activationToken: "keep-me")
+    for initial in [nil, existing] as [StoredLicense?] {
+        let store = InMemoryLicenseStore(initial)
+        await #expect(throws: LicenseScopeError.unsupportedEntitlementScope("desktop")) {
+            try await client(server, store: store, publicKey: pubKey(key)).activateLease(key: "RK-L")
+        }
+        #expect(await store.load() == initial, "storage untouched on a bad scope")
+    }
+    // The allowed set is configurable.
+    let store = InMemoryLicenseStore()
+    let license = try await client(server, store: store, publicKey: pubKey(key), allowedEntitlementScopes: ["desktop"]).activateLease(key: "RK-L")
+    #expect(license.entitlementScope == "desktop")
+    #expect(await store.load() == license)
+}
+
+@Test func renewLeaseRejectsUnsupportedScopeAndLeavesStorageUntouched() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let server = try await LoopbackLicenseServer(signingKey: key, deviceID: LicenseActivationClient.deviceIDHash("dev"))
+    defer { server.stop() }
+    let leased = StoredLicense(status: "active", deviceId: "dev", activationToken: "act", signedToken: "old-token", leaseId: "lease-0", leaseGeneration: 1)
+    let store = InMemoryLicenseStore(leased)
+    server.leaseScope = "desktop"
+    await #expect(throws: LicenseScopeError.unsupportedEntitlementScope("desktop")) {
+        try await client(server, store: store, publicKey: pubKey(key)).renewLease()
+    }
+    #expect(await store.load() == leased)
+    // Supported scopes still renew and store.
+    server.leaseScope = "mobile"
+    let renewed = try await client(server, store: store, publicKey: pubKey(key)).renewLease()
+    #expect(renewed?.entitlementScope == "mobile" && renewed?.leaseId == "lease-1")
+    #expect(await store.load() == renewed)
+    // A forged envelope still leaves the record untouched without throwing (unchanged behaviour).
+    let forgedServer = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: LicenseActivationClient.deviceIDHash("dev"))
+    defer { forgedServer.stop() }
+    let forgedStore = InMemoryLicenseStore(leased)
+    #expect(try await client(forgedServer, store: forgedStore, publicKey: pubKey(key)).renewLease() == leased)
+    #expect(await forgedStore.load() == leased)
+}
+
+// Fix 4: refresh merge keeps the token unless the status explicitly revokes.
+
+private func refreshed(
+    with body: [String: Any], revokingStatuses: Set<String> = LicenseClientConfiguration.defaultRevokingStatuses
+) async throws -> (record: StoredLicense, token: String, key: Curve25519.Signing.PrivateKey) {
+    let key = Curve25519.Signing.PrivateKey()
+    let server = try await LoopbackLicenseServer(signingKey: key, deviceID: "dev")
+    defer { server.stop() }
+    server.bodyOverride = body
+    let token = signedToken(key)
+    let current = StoredLicense(
+        status: "active", deviceId: "dev", activationToken: "act", validUntil: "2033-01-01T00:00:00Z",
+        entitlements: LicenseEntitlements(tier: "pro"), signedToken: token
+    )
+    let record = try await client(server, store: InMemoryLicenseStore(current), publicKey: pubKey(key), revokingStatuses: revokingStatuses).refresh()
+    return (try #require(record), token, key)
+}
+
+@Test func refreshWithoutStatusOrOkKeepsTokenAndStatus() async throws {
+    let (record, token, key) = try await refreshed(with: ["message": "nothing to report"])
+    #expect(record.signedToken == token && record.entitlements?.tier == "pro" && record.validUntil == "2033-01-01T00:00:00Z")
+    #expect(record.status == "active", "an empty body never downgrades the record")
+    #expect(isPro(record, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: 1_800_000_000))
+    let (empty, emptyToken, _) = try await refreshed(with: [:])
+    #expect(empty.signedToken == emptyToken && empty.status == "active")
+}
+
+@Test func refreshWithEachDefaultRevokingStatusClearsToken() async throws {
+    #expect(LicenseClientConfiguration.defaultRevokingStatuses == ["removed", "revoked"])
+    for status in ["removed", "revoked", "REVOKED", "Removed"] {
+        let (record, _, key) = try await refreshed(with: ["ok": false, "status": status])
+        #expect(record.signedToken == nil && record.entitlements == nil && record.validUntil == nil, "\(status)")
+        #expect(record.status == status && record.activationToken == "act")
+        #expect(!isPro(record, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: 1_800_000_000, requireActiveStatus: false))
+    }
+}
+
+@Test func refreshWithInvalidStatusKeepsTokenByDefaultButIsNotActive() async throws {
+    let (record, token, key) = try await refreshed(with: ["ok": false, "status": "invalid"])
+    #expect(record.signedToken == token && record.status == "invalid")
+    #expect(!isPro(record, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: 1_800_000_000), "strict gate: not active")
+    #expect(isPro(record, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: 1_800_000_000, requireActiveStatus: false))
+    // `ok: false` with no status derives "invalid" and keeps the token the same way.
+    let (derived, derivedToken, _) = try await refreshed(with: ["ok": false])
+    #expect(derived.status == "invalid" && derived.signedToken == derivedToken)
+    // Configurable: an app can make "invalid" revoke.
+    let (revoked, _, _) = try await refreshed(with: ["ok": false, "status": "invalid"], revokingStatuses: ["removed", "revoked", "invalid"])
+    #expect(revoked.signedToken == nil && revoked.entitlements == nil && revoked.validUntil == nil)
+    // An empty revoking set never clears.
+    let (kept, keptToken, _) = try await refreshed(with: ["status": "revoked"], revokingStatuses: [])
+    #expect(kept.signedToken == keptToken)
+}
+
+@Test func refreshMergeIsPure() {
+    let current = StoredLicense(status: "active", deviceId: "d", signedToken: "t")
+    let silent = LicenseServerResponse()
+    let fresh = LicenseActivationClient.license(from: silent, deviceId: "d", key: nil)
+    #expect(fresh.status == "invalid", "the builder still derives invalid for a status-less body")
+    let merged = LicenseActivationClient.merged(current: current, body: silent, refreshed: fresh, revokingStatuses: ["invalid"])
+    #expect(merged.signedToken == "t" && merged.status == "active", "a status-less body is not an explicit invalid")
+}
+
+// Knob 1: requireActiveStatus.
+
+@MainActor
+@Test func requireActiveStatusKnob() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let now = 1_800_000_000
+    let token = signedToken(key)
+    for status in ["invalid", "expired", "pending", "revoked"] {
+        let record = StoredLicense(status: status, deviceId: "dev", signedToken: token)
+        #expect(!isPro(record, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: now))
+        #expect(isPro(record, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: now, requireActiveStatus: false))
+        #expect(satisfiesRequirement(record, .pro, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: now, requireActiveStatus: false))
+        #expect(record.needsReconnect(publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: now))
+        #expect(!record.needsReconnect(publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: now, requireActiveStatus: false))
+    }
+    // The relaxed gate still verifies the token: wrong device, expiry and forgery stay denied.
+    let relaxed = StoredLicense(status: "invalid", deviceId: "dev", signedToken: token)
+    #expect(!isPro(relaxed, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "other", now: now, requireActiveStatus: false))
+    #expect(!isPro(relaxed, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: 2_000_000_001, requireActiveStatus: false))
+    #expect(!isPro(relaxed, publicKeyBase64url: pubKey(Curve25519.Signing.PrivateKey()), app: "coderight", deviceId: "dev", now: now, requireActiveStatus: false))
+
+    // Configuration drives the controller and resolver.
+    let server = try await LoopbackLicenseServer(signingKey: key, deviceID: "dev")
+    defer { server.stop() }
+    server.status = 503
+    let strict = LicenseController(client: client(server, store: InMemoryLicenseStore(), publicKey: pubKey(key)))
+    try await strict.persist(relaxed)
+    #expect(!strict.isProCandidate && strict.needsReconnect)
+    let loose = LicenseController(client: client(server, store: InMemoryLicenseStore(), publicKey: pubKey(key), requireActiveStatus: false))
+    try await loose.persist(relaxed)
+    #expect(loose.isProCandidate && !loose.needsReconnect)
+    let looseClient = client(server, store: InMemoryLicenseStore(relaxed), publicKey: pubKey(key), requireActiveStatus: false)
+    #expect(await StoredLicenseResolver(client: looseClient, publicKeyBase64url: pubKey(key), app: "coderight").resolve()?.isPro == true)
+    let strictClient = client(server, store: InMemoryLicenseStore(relaxed), publicKey: pubKey(key))
+    #expect(await StoredLicenseResolver(client: strictClient, publicKeyBase64url: pubKey(key), app: "coderight").resolve() == nil)
+    #expect(LicenseClientConfiguration(app: "a", baseURL: URL(string: "https://x.test")!, deviceID: { "d" }).requireActiveStatus)
+}
+
+// Knob 2: acceptedTokenVersions.
+
+@MainActor
+@Test func acceptedTokenVersionsKnob() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let verifier = try LicenseVerifier(publicKeyBase64url: pubKey(key))
+    let now = 1_800_000_000
+    // A v1 token: the core claims only, none of the additive ones.
+    let v1 = signedToken(key, version: 1)
+    #expect(throws: LicenseError.unsupportedVersion(1)) { try verifier.verify(token: v1, app: "coderight", deviceId: "dev", now: now) }
+    let claims = try verifier.verify(token: v1, app: "coderight", deviceId: "dev", now: now, acceptedVersions: [1, 2])
+    #expect(claims.version == 1 && claims.isPro && claims.features == ["routing"] && claims.expiresAt == 2_000_000_000)
+    #expect(claims.scope == nil && claims.licenseKind == nil && claims.entitlementStage == nil)
+    #expect(claims.licenseIssuedAt == nil && claims.confirmationDueAt == nil)
+    // v2 still verifies under [1, 2]; an unknown version is rejected by both.
+    #expect(try verifier.verify(token: signedToken(key), app: "coderight", deviceId: "dev", now: now, acceptedVersions: [1, 2]).version == 2)
+    #expect(throws: LicenseError.unsupportedVersion(3)) {
+        try verifier.verify(token: signedToken(key, version: 3), app: "coderight", deviceId: "dev", now: now, acceptedVersions: [1, 2])
+    }
+    // A v1 token missing a core claim is malformed, not silently accepted.
+    var missing: [String: Any] = ["v": 1, "id": "lic", "app": "coderight", "tier": "pro", "device_id": "dev", "iat": 1, "exp": 2_000_000_000]
+    missing["features"] = nil
+    let data = try JSONSerialization.data(withJSONObject: missing, options: [.sortedKeys])
+    let noFeatures = data.base64URLEncodedString() + "." + (try key.signature(for: data)).base64URLEncodedString()
+    #expect(throws: LicenseError.malformedToken) {
+        try verifier.verify(token: noFeatures, app: "coderight", deviceId: "dev", now: now, acceptedVersions: [1, 2])
+    }
+
+    let record = StoredLicense(status: "active", deviceId: "dev", signedToken: v1)
+    #expect(!isPro(record, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: now))
+    #expect(isPro(record, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: now, acceptedTokenVersions: [1, 2]))
+    #expect(record.isProCandidate(publicKeyBase64url: pubKey(key), app: "coderight", now: now, acceptedTokenVersions: [1, 2]))
+
+    // Over the wire through the controller.
+    let server = try await LoopbackLicenseServer(signingKey: key, deviceID: "dev")
+    defer { server.stop() }
+    server.tokenVersion = 1
+    let strict = LicenseController(client: client(server, store: InMemoryLicenseStore(), publicKey: pubKey(key)))
+    await strict.activate("RK-1")
+    #expect(strict.license?.signedToken != nil && !strict.isProCandidate)
+    let scrapeRight = LicenseController(client: client(server, store: InMemoryLicenseStore(), publicKey: pubKey(key), acceptedTokenVersions: [1, 2]))
+    await scrapeRight.activate("RK-1")
+    #expect(scrapeRight.isProCandidate)
+}
+
+// Fix 5a: error text and detail.
+
+@Test func incompleteLeaseResponseSurfacesServerErrorAndDetail() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let server = try await LoopbackLicenseServer(signingKey: key, deviceID: "dev")
+    defer { server.stop() }
+    let store = InMemoryLicenseStore()
+    let cases: [([String: Any], any Error)] = [
+        (["ok": false, "error": "seat_limit", "detail": "3 of 3 devices in use"], LicenseResponseError.incomplete("seat_limit: 3 of 3 devices in use")),
+        (["ok": false, "error": "seat_limit"], LicenseResponseError.incomplete("seat_limit")),
+        (["ok": false, "detail": "only detail"], LicenseResponseError.incomplete("only detail")),
+        (["ok": false, "error": "  "], LicenseError.invalidResponse),
+        (["ok": true], LicenseError.invalidResponse),
+    ]
+    for (body, expected) in cases {
+        server.bodyOverride = body
+        do {
+            _ = try await client(server, store: store, publicKey: pubKey(key)).activateLease(key: "RK-L")
+            Issue.record("expected \(expected)")
+        } catch {
+            #expect(error.localizedDescription == expected.localizedDescription, "\(body)")
+            #expect(type(of: error) == type(of: expected))
+        }
+        #expect(await store.load() == nil)
+    }
+    #expect(LicenseResponseError.incomplete("x").localizedDescription == "x")
+}
+
+@Test func nonSuccessStatusReadsDetailBesideError() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "dev")
+    defer { server.stop() }
+    server.status = 409
+    let cases: [([String: Any], String)] = [
+        (["detail": "lease superseded"], "lease superseded"),
+        (["error": "conflict", "detail": "lease superseded"], "conflict: lease superseded"),
+        (["error": "conflict"], "conflict"),
+        (["message": "Readable message", "error": "conflict", "detail": "d"], "Readable message"),
+    ]
+    for (body, expected) in cases {
+        server.bodyOverride = body
+        await #expect(throws: LicenseError.serverStatus(409, expected)) {
+            try await client(server, store: InMemoryLicenseStore()).removeLease(deviceIdHash: "h", leaseId: "l")
+        }
+    }
+    #expect(LicenseServerResponse(error: "e", detail: "d").errorText == "e: d")
+    let decoded = try JSONDecoder().decode(LicenseServerResponse.self, from: Data(#"{"error":"e","detail":"d"}"#.utf8))
+    #expect(decoded.detail == "d")
+}
+
+// Fix 5b: LicenseMessages.deviceRemoved.
+
+@MainActor
+@Test func deviceRemovedMessageOnRenewAndRefresh404Or410() async throws {
+    #expect(LicenseMessages().deviceRemoved == nil)
+    var messages = LicenseMessages()
+    messages.deviceRemoved = "This device was removed from your license."
+    let leased = StoredLicense(status: "active", deviceId: "dev", activationToken: "act", signedToken: "t", leaseId: "lease-0")
+    let legacy = StoredLicense(status: "active", deviceId: "dev", activationToken: "act", signedToken: "t")
+    for status in [404, 410] {
+        let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "dev")
+        defer { server.stop() }
+        server.status = status
+        for housekeeping in [false, true] {
+            for record in [leased, legacy] {
+                let c = client(server, store: InMemoryLicenseStore(record))
+                let controller = housekeeping
+                    ? LicenseController(client: c, deviceState: InMemoryLicenseDeviceState(), messages: messages)
+                    : LicenseController(client: c, messages: messages)
+                await controller.refresh()
+                #expect(controller.message == messages.deviceRemoved, "\(status) lease=\(record.leaseId != nil) housekeeping=\(housekeeping)")
+                if let stored = controller.license { #expect(stored.message == messages.deviceRemoved, "the stored record carries the removed text too") }
+                await controller.refresh(silent: true)
+                #expect(controller.message == messages.deviceRemoved, "silent refresh leaves the message alone")
+            }
+            // Defaults unchanged: renewal shows the refreshed fallback, a legacy refresh the error.
+            let leaseController = LicenseController(client: client(server, store: InMemoryLicenseStore(leased)))
+            await leaseController.refresh()
+            #expect(leaseController.message == "License refreshed." && leaseController.license?.status == "revoked")
+            let legacyController = LicenseController(client: client(server, store: InMemoryLicenseStore(legacy)))
+            await legacyController.refresh()
+            #expect(legacyController.message == LicenseError.serverStatus(status, "").localizedDescription)
+        }
+    }
+    // Other failures keep their own text.
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "dev")
+    defer { server.stop() }
+    server.status = 401
+    let controller = LicenseController(client: client(server, store: InMemoryLicenseStore(legacy)), messages: messages)
+    await controller.refresh()
+    #expect(controller.message == LicenseError.serverStatus(401, "").localizedDescription)
+}
+
+// Fix 5c: an envelope without `entitlement` decodes and fails closed.
+
+@MainActor
+@Test func leaseEnvelopeWithoutEntitlementDecodesAndIsNotPro() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let hash = LicenseActivationClient.deviceIDHash("dev")
+    let json = #"{"ok":true,"activationToken":"act","lease":{"leaseId":"l","deviceIdHash":"h","pool":"mobile","issuedAt":"2026-01-01T00:00:00Z","expiresAt":"2033-05-18T03:33:20Z","graceSeconds":60,"generation":2,"signature":"sig"}}"#
+    let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+    let bridge = try decoder.decode(LicenseServerResponse.self, from: Data(json.utf8))
+    #expect(bridge.lease?.entitlement == nil && bridge.lease?.generation == 2)
+
+    let lease = signedLease(key, deviceIdHash: hash, entitlement: nil, scope: "mobile")
+    let built = try LicenseActivationClient.license(fromLease: lease, activationToken: "act", deviceId: "dev", publicKeyBase64url: pubKey(key))
+    #expect(built.signedToken == nil && built.leaseId == "lease-1")
+    #expect(!isPro(built, publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev", now: 1_800_000_000, requireActiveStatus: false))
+    #expect(built.needsReconnect(publicKeyBase64url: pubKey(key), app: "coderight", deviceId: "dev") == false, "it still holds an activation token")
+
+    // Over the wire: activation and renewal store a non-Pro record rather than failing to decode.
+    let server = try await LoopbackLicenseServer(signingKey: key, deviceID: hash)
+    defer { server.stop() }
+    server.omitLeaseEntitlement = true
+    let store = InMemoryLicenseStore()
+    let controller = LicenseController(client: client(server, store: store, publicKey: pubKey(key)))
+    await controller.activateLease("RK-L")
+    #expect(controller.license?.leaseId == "lease-1" && controller.license?.signedToken == nil && !controller.isProCandidate)
+    let renewed = try await client(server, store: store, publicKey: pubKey(key)).renewLease()
+    #expect(renewed?.signedToken == nil && renewed?.status == "active")
+}
+
+
+// Keychain: a concurrent remove() is never undone by load()'s accessibility migration.
+@Test func keychainLoadNeverResurrectsAConcurrentlyRemovedLicense() async throws {
+    let store = KeychainLicenseStore(service: "test.race.\(UUID().uuidString)", account: "activation")
+    do { try await store.save(StoredLicense(status: "active", deviceId: "d")) } catch {
+        return // no usable Keychain in this test host
+    }
+    for _ in 0..<200 {
+        try await store.save(StoredLicense(status: "active", deviceId: "d"))
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = await store.load() }
+            group.addTask { try? await store.remove() }
+            group.addTask { _ = await store.load() }
+        }
+        try await store.remove()
+        #expect(await store.load() == nil)
+    }
+    try? await store.remove()
 }
