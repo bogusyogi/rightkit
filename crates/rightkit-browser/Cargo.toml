@@ -20,4 +20,4 @@ tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net", "io-util"] }
 url = "2"
-rightkit-process = { path = "../rightkit-process", version = "=0.2.0" }
+rightkit-process = { path = "../rightkit-process", version = "=0.2.1" }

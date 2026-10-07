@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-process"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps."

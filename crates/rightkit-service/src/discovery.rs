@@ -488,8 +488,7 @@ fn read_windows_uninstall_entries() -> Vec<UninstallEntry> {
             use std::os::windows::process::CommandExt;
             reg.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
         }
-        if let Ok(output) = reg.output()
-        {
+        if let Ok(output) = reg.output() {
             all.push_str(&String::from_utf8_lossy(&output.stdout));
             all.push('\n');
         }

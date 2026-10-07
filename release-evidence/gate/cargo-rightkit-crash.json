@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-crash",
+  "version": "0.1.0",
+  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+  "artifactSha256": "99440127fee62d9b15e5283e4bcd9aefb02ac91e6837d34afe121e91d88d01f3",
+  "runs": [
+    {
+      "host": {
+        "os": "win32"
+      },
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "rightkit cargo test -p rightkit-crash --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T01:26:22.994684Z",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "rightkit cargo test -p rightkit-crash --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T01:26:06Z",
+      "passed": 5,
+      "failed": 0
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-media",
+  "version": "0.1.0",
+  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+  "artifactSha256": "487d8f636287429d1cb547e1b5e6f9cbb975cc06ad5519bb6e2d254e45a369b2",
+  "runs": [
+    {
+      "host": {
+        "os": "win32"
+      },
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "rightkit cargo test -p rightkit-media --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T01:26:57.516139Z",
+      "passed": 25,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "rightkit cargo test -p rightkit-media --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T01:26:17Z",
+      "passed": 23,
+      "failed": 0
+    }
+  ]
+}

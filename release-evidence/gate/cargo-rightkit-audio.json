@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-audio",
+  "version": "0.1.0",
+  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+  "artifactSha256": "924e904e1aeb79e123f923d83b408db415473db338d2905bb06a36bdbea5beec",
+  "runs": [
+    {
+      "host": {
+        "os": "win32"
+      },
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "rightkit cargo test -p rightkit-audio --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T01:27:47.557772Z",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "rightkit cargo test -p rightkit-audio --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T01:26:50Z",
+      "passed": 3,
+      "failed": 0
+    }
+  ]
+}

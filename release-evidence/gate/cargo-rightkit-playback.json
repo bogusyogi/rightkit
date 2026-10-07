@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-playback",
+  "version": "0.1.0",
+  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+  "artifactSha256": "42eb379d49ea015e5baa51e9170ebf66885a07a35219b71f0e1618a8e82f60d5",
+  "runs": [
+    {
+      "host": {
+        "os": "win32"
+      },
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "rightkit cargo test -p rightkit-playback --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T01:27:29.947815Z",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
+      "command": "rightkit cargo test -p rightkit-playback --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T01:26:46Z",
+      "passed": 4,
+      "failed": 0
+    }
+  ]
+}

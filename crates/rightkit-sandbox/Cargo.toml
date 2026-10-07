@@ -10,7 +10,7 @@ repository = "https://github.com/bogusyogi/claude"
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-rightkit-process = { version = "=0.2.0", path = "../rightkit-process" }
+rightkit-process = { version = "=0.2.1", path = "../rightkit-process" }
 portable-pty = "0.9"
 
 [target.'cfg(unix)'.dependencies]
