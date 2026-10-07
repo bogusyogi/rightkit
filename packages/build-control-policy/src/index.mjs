@@ -205,11 +205,18 @@ function denialMessage(blocked) {
 }
 
 export function claudeHookDecision(input) {
-  const command = input?.tool_input?.command ?? input?.command ?? input?.input?.command;
-  const blocked = githubActionsOnlyViolation(command ?? '', {
+  // Codex exec_command uses `cmd`; functions.exec carries JavaScript which can
+  // compose an exec_command call. Treat that string conservatively as a shell
+  // command because it is still user supplied executable text.
+  const command = input?.tool_input?.command ?? input?.tool_input?.cmd ?? input?.tool_input?.code ?? input?.tool_input?.input ?? input?.command ?? input?.cmd ?? input?.code ?? input?.input?.command ?? input?.input?.cmd;
+  const composedCommands = typeof command === 'string'
+    ? [...command.matchAll(/\b(?:cmd|command)\s*:\s*(["'`])([\s\S]*?)\1/g)].map((match) => match[2]).join('\n')
+    : '';
+  const inspectedCommand = composedCommands ? `${command}\n${composedCommands}` : command;
+  const blocked = githubActionsOnlyViolation(inspectedCommand ?? '', {
     cwd: input?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
     environment: input?.environment ?? process.env,
-  }) ?? managedBuildViolation(command ?? '');
+  }) ?? managedBuildViolation(inspectedCommand ?? '');
   return blocked ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: denialMessage(blocked) } } : { decision: 'allow' };
 }
 

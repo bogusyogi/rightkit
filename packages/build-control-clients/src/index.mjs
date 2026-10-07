@@ -472,3 +472,5 @@ export async function installAgentShims({ directory, platform = process.platform
   await writeAtomic(resolve(target, INSTALL_MANIFEST), `${JSON.stringify(installed, null, 2)}\n`);
   return installed;
 }
+
+export { findOwnedCapability, formatOwnedCapability, loadOwnershipCatalog, ownershipLookup, renderOwnershipSessionCatalog } from './ownership-lookup.mjs';

@@ -1,0 +1,376 @@
+{
+  "schema": 1,
+  "version": "1",
+  "capabilities": [
+    {
+      "package": "rightkit-browser",
+      "capability": "browser-automation",
+      "summary": "Chromium over CDP with admission, SSRF policy, profiles and owned processes",
+      "fingerprints": [
+        {
+          "id": "browser.cargo.chromiumoxide",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "chromiumoxide"
+        },
+        {
+          "id": "browser.cargo.headless_chrome",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "headless_chrome"
+        },
+        {
+          "id": "browser.cargo.fantoccini",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "fantoccini"
+        },
+        {
+          "id": "browser.cargo.thirtyfour",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "thirtyfour"
+        },
+        {
+          "id": "browser.npm.puppeteer",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "puppeteer"
+        },
+        {
+          "id": "browser.npm.puppeteer-core",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "puppeteer-core"
+        },
+        {
+          "id": "browser.npm.playwright-core",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "playwright-core"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-db",
+      "capability": "sqlite-storage",
+      "summary": "SQLite open profiles, WAL with verified fallback, keys, migrations, backup, recovery",
+      "fingerprints": [
+        {
+          "id": "db.cargo.rusqlite",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "rusqlite"
+        },
+        {
+          "id": "db.cargo.sqlx",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "sqlx"
+        },
+        {
+          "id": "db.npm.better-sqlite3",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "better-sqlite3"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-embed",
+      "capability": "embeddings",
+      "summary": "Local text embeddings",
+      "fingerprints": [
+        {
+          "id": "embed.cargo.fastembed",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "fastembed"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-mcp",
+      "capability": "mcp",
+      "summary": "MCP client/server transports, trust gate, server pool",
+      "fingerprints": [
+        {
+          "id": "mcp.cargo.rmcp",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "rmcp"
+        },
+        {
+          "id": "mcp.npm.sdk",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@modelcontextprotocol/sdk"
+        },
+        {
+          "id": "mcp.protocol.initialized",
+          "type": "source",
+          "pattern": "[\"']notifications/initialized[\"']"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-oauth",
+      "capability": "oauth-sign-in",
+      "summary": "OAuth sign-in: loopback PKCE, device flow, provider endpoints, refresh",
+      "fingerprints": [
+        {
+          "id": "oauth.cargo.oauth2",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "oauth2"
+        },
+        {
+          "id": "oauth.cargo.openidconnect",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "openidconnect"
+        },
+        {
+          "id": "oauth.cargo.yup-oauth2",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "yup-oauth2"
+        },
+        {
+          "id": "oauth.npm.simple-oauth2",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "simple-oauth2"
+        },
+        {
+          "id": "oauth.npm.oauth4webapi",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "oauth4webapi"
+        },
+        {
+          "id": "oauth.endpoint.github",
+          "type": "source",
+          "pattern": "github\\.com/login/(oauth/(authorize|access_token)|device/code)"
+        },
+        {
+          "id": "oauth.endpoint.google",
+          "type": "source",
+          "pattern": "accounts\\.google\\.com/o/oauth2|oauth2\\.googleapis\\.com/(token|device/code)"
+        },
+        {
+          "id": "oauth.endpoint.openai",
+          "type": "source",
+          "pattern": "auth\\.openai\\.com/oauth/(authorize|token)"
+        },
+        {
+          "id": "oauth.endpoint.apple",
+          "type": "source",
+          "pattern": "appleid\\.apple\\.com/auth/(authorize|token)"
+        },
+        {
+          "id": "oauth.endpoint.cloudflare",
+          "type": "source",
+          "pattern": "dash\\.cloudflare\\.com/oauth2/(auth|token)"
+        },
+        {
+          "id": "oauth.device-grant",
+          "type": "source",
+          "pattern": "urn:ietf:params:oauth:grant-type:device_code"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-ort",
+      "capability": "onnx-runtime",
+      "summary": "ONNX Runtime selection, execution providers, dylib resolution and global pools",
+      "fingerprints": [
+        {
+          "id": "ort.cargo.ort",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "ort"
+        },
+        {
+          "id": "ort.npm.onnxruntime-node",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "onnxruntime-node"
+        },
+        {
+          "id": "ort.env.dylib",
+          "type": "source",
+          "pattern": "ORT_DYLIB_PATH"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-process",
+      "capability": "owned-processes",
+      "summary": "Child processes owned as a tree: process groups / kill-on-close jobs, hidden windows",
+      "fingerprints": [
+        {
+          "id": "process.cargo.process-wrap",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "process-wrap"
+        },
+        {
+          "id": "process.cargo.command-group",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "command-group"
+        },
+        {
+          "id": "process.api.kill-on-job-close",
+          "type": "source",
+          "pattern": "JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-sandbox",
+      "capability": "os-sandbox",
+      "summary": "Seatbelt / Landlock+seccomp / AppContainer confinement, PTY leases, resource authority",
+      "fingerprints": [
+        {
+          "id": "sandbox.cargo.landlock",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "landlock"
+        },
+        {
+          "id": "sandbox.cargo.seccompiler",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "seccompiler"
+        },
+        {
+          "id": "sandbox.api.appcontainer",
+          "type": "source",
+          "pattern": "\\b(CreateAppContainerProfile|DeriveAppContainerSidFromAppContainerName|PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES)\\b"
+        },
+        {
+          "id": "sandbox.api.seatbelt",
+          "type": "source",
+          "pattern": "\\bsandbox_init\\b|sandbox-exec\\b"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-secrets",
+      "capability": "os-credential-store",
+      "summary": "Keychain / Credential Manager access with per-app namespaces and test guards",
+      "fingerprints": [
+        {
+          "id": "secrets.cargo.keyring",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "keyring"
+        },
+        {
+          "id": "secrets.cargo.security-framework",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "security-framework"
+        },
+        {
+          "id": "secrets.npm.keytar",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "keytar"
+        },
+        {
+          "id": "secrets.api.wincred",
+          "type": "source",
+          "pattern": "\\bCred(Write|Read|Delete|Enumerate)W?\\b"
+        },
+        {
+          "id": "secrets.api.secitem",
+          "type": "source",
+          "pattern": "\\bSecItem(Add|CopyMatching|Update|Delete)\\b"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-shell",
+      "capability": "desktop-shell",
+      "summary": "Tauri shell: tray, autostart, deep links, single instance, window state, notifications",
+      "fingerprints": [
+        {
+          "id": "shell.cargo.tauri-plugin-autostart",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-autostart"
+        },
+        {
+          "id": "shell.cargo.tauri-plugin-deep-link",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-deep-link"
+        },
+        {
+          "id": "shell.cargo.tauri-plugin-single-instance",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-single-instance"
+        },
+        {
+          "id": "shell.cargo.tauri-plugin-window-state",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-window-state"
+        },
+        {
+          "id": "shell.cargo.tauri-plugin-notification",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "tauri-plugin-notification"
+        },
+        {
+          "id": "shell.cargo.auto-launch",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "auto-launch"
+        }
+      ]
+    },
+    {
+      "package": "rightkit-watch",
+      "capability": "file-watching",
+      "summary": "Coalesced, ignore-aware file watching with rescan recovery",
+      "fingerprints": [
+        {
+          "id": "watch.cargo.notify",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "notify"
+        },
+        {
+          "id": "watch.cargo.notify-debouncer-full",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "notify-debouncer-full"
+        },
+        {
+          "id": "watch.npm.chokidar",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "chokidar"
+        }
+      ]
+    },
+    {
+      "package": "RightKitSwift",
+      "capability": "os-credential-store",
+      "summary": "Native Apple scoped credential storage and sync migration",
+      "fingerprints": [
+        {
+          "id": "secrets.swift.scoped-migration",
+          "type": "source",
+          "pattern": "\\bfunc\\s+copySyncedToDeviceOnly\\s*\\("
+        }
+      ]
+    }
+  ]
+}

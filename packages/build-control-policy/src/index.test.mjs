@@ -12,6 +12,12 @@ for (const command of ['env PATH=/real pnpm exec cargo --version', 'env PATH=C:\
 for (const command of ['pnpm exec cargo --version && cargo test', 'npm run cargo-version; rustc x.rs']) test(`rejects composed package manager bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
 for (const command of ['rightkit cargo -- test && cargo test', 'rightkit cargo -- test; rustc x.rs', 'rightkit cargo -- $(cargo test)', 'rightkit cargo test | rustdoc x.rs', '/tmp/rightkit cargo test', 'env PATH=/tmp rightkit cargo test', 'alias c=cargo; c test', 'env PATH=/x /opt/rust/bin/cargo test']) test(`rejects rightkit bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
 test('hook denial is independent of default permission mode', () => { for (const mode of ['auto', 'bypassPermissions']) assert.equal(claudeHookDecision({ permission_mode: mode, tool_input: { command: 'cargo test' } }).hookSpecificOutput.permissionDecision, 'deny'); });
+
+test('Codex cmd field and composed functions.exec payload retain managed build policy', () => {
+  assert.equal(claudeHookDecision({ tool_name: 'exec_command', tool_input: { cmd: 'cargo test' } }).hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { code: "await tools.exec_command({cmd: 'cargo test'})" } }).hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { command: "await tools.exec_command({cmd: 'cargo test'})" } }).hookSpecificOutput.permissionDecision, 'deny');
+});
 test('cline hook blocks direct cargo', () => { assert.equal(clineHookDecision({ preToolUse: { tool: 'execute_command', parameters: { command: 'cargo test' } } }).cancel, true); });
 test('cline hook permits rightkit', () => { assert.equal(clineHookDecision({ environment: { GITHUB_ACTIONS: 'true' }, preToolUse: { tool: 'execute_command', parameters: { command: 'rightkit cargo -- test' } } }).cancel, false); });
 
