@@ -388,6 +388,9 @@ importers:
 
   packages/qa:
     dependencies:
+      '@rightkit/qa-chrome':
+        specifier: workspace:*
+        version: link:../qa-chrome
       '@wdio/cli':
         specifier: 9.27.1
         version: 9.27.1(@types/node@24.13.3)(expect-webdriverio@5.7.0)(supports-color@8.1.1)
@@ -409,6 +412,18 @@ importers:
       webdriverio:
         specifier: 9.27.1
         version: 9.27.1(supports-color@8.1.1)
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
+
+  packages/qa-chrome:
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
