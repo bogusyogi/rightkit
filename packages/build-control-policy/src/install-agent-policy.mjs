@@ -16,9 +16,18 @@ async function readConfig(path) {
   return { config, mode: (await stat(path)).mode, raw };
 }
 
-function appendHook(groups, event, record, commandText) {
-  const current = groups[event] ?? [];
-  if (!Array.isArray(current)) throw new TypeError(`${event} must be an array`);
+/** A hook command installed from an earlier agent-policy content root for the same CLI script. */
+function stalePolicyHook(command, commandText) {
+  const script = commandText.match(/([\w-]+-cli\.mjs)"?$/)?.[1];
+  return Boolean(script) && command !== commandText && /agent-policy[\\/]+content-[0-9a-f]{64}/.test(command) && command.replace(/"$/, '').endsWith(script);
+}
+
+export function appendHook(groups, event, record, commandText) {
+  if (groups[event] !== undefined && !Array.isArray(groups[event])) throw new TypeError(`${event} must be an array`);
+  // Policy assets are content-addressed, so every update moves the hook path: drop the superseded entry instead of running both.
+  const current = (groups[event] ?? [])
+    .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter((hook) => !(hook.type === 'command' && stalePolicyHook(hook.command, commandText))) }))
+    .filter((group) => group.hooks.length > 0);
   const duplicate = current.some((group) => group.matcher === record.matcher
     && (group.hooks ?? []).some((hook) => hook.type === 'command' && hook.command === commandText));
   if (!duplicate) current.push({ ...record, hooks: [{ type: 'command', command: commandText }] });
