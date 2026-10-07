@@ -15,6 +15,30 @@ pub fn named(name: &str) -> Option<u16> {
         "end" => 0x77,
         "pageup" => 0x74,
         "pagedown" => 0x79,
+        "forwarddelete" => 0x75,
+        "comma" => 0x2B,
+        "period" | "dot" => 0x2F,
+        "slash" => 0x2C,
+        "backslash" => 0x2A,
+        "semicolon" => 0x29,
+        "quote" | "apostrophe" => 0x27,
+        "minus" => 0x1B,
+        "equal" | "equals" => 0x18,
+        "leftbracket" => 0x21,
+        "rightbracket" => 0x1E,
+        "grave" | "backtick" => 0x32,
+        "f1" => 0x7A,
+        "f2" => 0x78,
+        "f3" => 0x63,
+        "f4" => 0x76,
+        "f5" => 0x60,
+        "f6" => 0x61,
+        "f7" => 0x62,
+        "f8" => 0x64,
+        "f9" => 0x65,
+        "f10" => 0x6D,
+        "f11" => 0x67,
+        "f12" => 0x6F,
         _ => return None,
     })
 }
@@ -24,11 +48,23 @@ pub const FLAG_CTRL: u64 = 0x40000;
 pub const FLAG_ALT: u64 = 0x80000;
 pub const FLAG_CMD: u64 = 0x100000;
 
-/// Parse "cmd+shift+return" into (keycode, flags). Single letters use ANSI codes.
+/// Parse "cmd+shift+return" into (keycode, flags). Single letters, digits and
+/// punctuation (`cmd+,`, `cmd+/`, `cmd+[`) use ANSI codes; a trailing `+` is the
+/// plus key (`cmd++` = cmd+shift+equal).
 pub fn chord(spec: &str) -> Option<(u16, u64)> {
     let mut flags = 0;
     let mut key = None;
-    for part in spec.split('+') {
+    let spec = match spec.strip_suffix("++") {
+        Some(rest) => {
+            flags |= FLAG_SHIFT;
+            key = Some(0x18);
+            rest
+        }
+        None if spec == "+" => return Some((0x18, FLAG_SHIFT)),
+        None => spec,
+    };
+    let plus_key = key.is_some();
+    for part in spec.split('+').filter(|p| !p.is_empty() || !plus_key) {
         match part.to_ascii_lowercase().as_str() {
             "cmd" | "command" => flags |= FLAG_CMD,
             "shift" => flags |= FLAG_SHIFT,
@@ -68,6 +104,27 @@ fn letter(s: &str) -> Option<u16> {
         ('k', 40),
         ('n', 45),
         ('m', 46),
+        ('1', 18),
+        ('2', 19),
+        ('3', 20),
+        ('4', 21),
+        ('6', 22),
+        ('5', 23),
+        ('=', 24),
+        ('9', 25),
+        ('7', 26),
+        ('-', 27),
+        ('8', 28),
+        ('0', 29),
+        (']', 30),
+        ('[', 33),
+        ('\'', 39),
+        (';', 41),
+        ('\\', 42),
+        (',', 43),
+        ('/', 44),
+        ('.', 47),
+        ('`', 50),
     ];
     let c = s.chars().next().filter(|_| s.chars().count() == 1)?;
     ANSI.iter().find(|(l, _)| *l == c).map(|(_, k)| *k)
@@ -81,5 +138,13 @@ mod tests {
         assert_eq!(chord("cmd+a"), Some((0, FLAG_CMD)));
         assert_eq!(chord("shift+tab"), Some((0x30, FLAG_SHIFT)));
         assert_eq!(chord("nope"), None);
+        assert_eq!(chord("cmd+,"), Some((0x2B, FLAG_CMD)));
+        assert_eq!(chord("cmd+comma"), Some((0x2B, FLAG_CMD)));
+        assert_eq!(chord("cmd+shift+/"), Some((0x2C, FLAG_CMD | FLAG_SHIFT)));
+        assert_eq!(chord("cmd+["), Some((0x21, FLAG_CMD)));
+        assert_eq!(chord("cmd+1"), Some((18, FLAG_CMD)));
+        assert_eq!(chord("cmd++"), Some((0x18, FLAG_CMD | FLAG_SHIFT)));
+        assert_eq!(chord("f5"), Some((0x60, 0)));
+        assert_eq!(chord("cmd+."), Some((0x2F, FLAG_CMD)));
     }
 }

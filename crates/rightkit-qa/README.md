@@ -25,6 +25,16 @@ Search order (the first existing file wins; files are not merged):
 
 A non-empty process environment variable overrides the file for a single key. This only applies to direct, unmanaged runs. The harness reads `RIGHTKIT_QA_TIER` to override the tier selection (`Harness::with_tier_key` renames it) and `RIGHTKIT_QA_EVIDENCE` to set the evidence root.
 
+## UI scenarios against a real app (macOS)
+
+Scenarios that launch a real `.app` (`control::launch`) must run from the user's login session. Under `rightkit cargo test`, the test binary runs in the build broker's context, where `open` has no GUI session and exits 1. Build through the broker and run the binary yourself; `scripts/run-ui-tests.sh` does both and keeps your shell's environment:
+
+```sh
+tools/rightkit/scripts/run-ui-tests.sh -p cutright-e2e --test ui -- --nocapture
+```
+
+On macOS, `control::launch` passes only `RIGHTKIT_*` keys to the app, because `open --env` exposes values in argv. It drops the workspace's `XDG_*`, `WEBVIEW2_*` and `<APP>_DATA_DIR` keys, so the app must derive its isolated data dir from `RIGHTKIT_QA_DATA_DIR`. Caller-supplied `LaunchSpec::env` is still checked strictly.
+
 ## Mocks and validators
 
 - `mock::MockServer::start_with(|req, base| Reply)` serves dynamic, stateful and binary (`Reply::bytes`) responses for paid-provider contracts. `MockServer::start(routes)` keeps the static JSON routes; `MockServer::start_static(vec![(method, path, Reply)])` serves static binary replies.
