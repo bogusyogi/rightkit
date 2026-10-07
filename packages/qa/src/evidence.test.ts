@@ -31,7 +31,7 @@ describe('QA evidence bundle', () => {
       runId: 'run-1',
       startedAt: '2026-07-13T10:00:00.000Z',
     });
-    addEvidenceCheck(bundle, { name: 'native.health', status: 'passed', details: { endpoint: '/health' } });
+    addEvidenceCheck(bundle, { name: 'app.health', status: 'passed', details: { endpoint: '/health' } });
     finishEvidenceBundle(bundle, { status: 'passed', finishedAt: '2026-07-13T10:00:01.000Z' });
 
     const output = path.join(tempRoot(), 'nested', 'evidence.json');
@@ -45,7 +45,7 @@ describe('QA evidence bundle', () => {
       startedAt: '2026-07-13T10:00:00.000Z',
       finishedAt: '2026-07-13T10:00:01.000Z',
       status: 'passed',
-      checks: [{ name: 'native.health', status: 'passed', details: { endpoint: '/health' } }],
+      checks: [{ name: 'app.health', status: 'passed', details: { endpoint: '/health' } }],
       artifacts: [],
     });
     expect(fs.readdirSync(path.dirname(output))).toEqual(['evidence.json']);
@@ -81,7 +81,7 @@ describe('QA evidence bundle', () => {
 
     const bundle = createEvidenceBundle({ app: 'viewright', platform: 'win32', runId: 'run-4' });
     addEvidenceArtifact(bundle, { name: 'driver.log', path: log });
-    addEvidenceCheck(bundle, { name: 'wdio.run', status: 'passed', artifacts: ['driver.log'] });
+    addEvidenceCheck(bundle, { name: 'app.run', status: 'passed', artifacts: ['driver.log'] });
     finishEvidenceBundle(bundle, { status: 'passed' });
 
     fs.writeFileSync(log, 'session ok (edited)');
@@ -96,7 +96,7 @@ describe('QA evidence bundle', () => {
 
     const bundle = createEvidenceBundle({ app: 'viewright', platform: 'win32', runId: 'run-5' });
     addEvidenceArtifact(bundle, { name: 'driver.log', path: log });
-    addEvidenceCheck(bundle, { name: 'wdio.run', status: 'failed', artifacts: ['driver.log'] });
+    addEvidenceCheck(bundle, { name: 'app.run', status: 'failed', artifacts: ['driver.log'] });
     finishEvidenceBundle(bundle, { status: 'failed' });
     fs.rmSync(log);
 

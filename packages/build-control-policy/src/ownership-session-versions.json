@@ -27,9 +27,9 @@
     "@rightkit/onboarding": "0.2.3",
     "@rightkit/pdf-ui": "0.1.2",
     "@rightkit/platform-ui": "0.1.2",
-    "@rightkit/qa": "0.2.4",
+    "@rightkit/qa": "0.3.0",
     "@rightkit/qa-chrome": "0.1.2",
-    "@rightkit/release": "0.2.122",
+    "@rightkit/release": "0.2.123",
     "@rightkit/settings-ui": "0.2.7",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.1.1",
@@ -144,14 +144,16 @@
       "0.2.118",
       "0.2.119",
       "0.2.120",
-      "0.2.121"
+      "0.2.121",
+      "0.2.122"
     ],
     "@rightkit/qa": [
       "0.1.0",
       "0.2.0",
       "0.2.1",
       "0.2.2",
-      "0.2.3"
+      "0.2.3",
+      "0.2.4"
     ],
     "@rightkit/app-shell": [
       "0.1.0",
@@ -315,7 +317,7 @@
       "@rightkit/onboarding": "0.2.3",
       "@rightkit/pdf-ui": "0.1.2",
       "@rightkit/platform-ui": "0.1.2",
-      "@rightkit/qa": "0.2.4",
+      "@rightkit/qa": "0.3.0",
       "@rightkit/qa-chrome": "0.1.2",
       "@rightkit/release": "0.2.122",
       "@rightkit/settings-ui": "0.2.7",
