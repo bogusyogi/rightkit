@@ -29,6 +29,35 @@ pub const SERVICE_PROTOCOL_MINOR_ENGINES: u32 = 1;
 pub const SERVICE_PROTOCOL_MINOR_VERBATIM: u32 = 2;
 pub const CAPABILITY_FILE_TRANSCRIPTION: &str = "file_transcription";
 pub const CAPABILITY_VERBATIM: &str = "file_transcription_verbatim";
+/// Minor 3 (additive): the explicit job-queue contract, advertised as
+/// [`CAPABILITY_QUEUE`]. A host that lists it:
+///
+/// 1. answers every file request at once with a `file_transcription_progress`
+///    frame: `state: "queued"`, `job_id` (= the request's `request_id`),
+///    `position` (0 = next) and `reason` (`dictation_active` / `behind_jobs` /
+///    `loading_model`);
+/// 2. re-sends the job's current state on every change and at least every
+///    [`QUEUE_KEEPALIVE_MS`] while it holds the job;
+/// 3. reports `state: "running"` with `fraction`, then the result or a typed error;
+/// 4. treats `request_id` as the idempotency key: a file request whose
+///    `request_id` matches a queued or running job attaches to that job instead
+///    of enqueueing it twice, and one matching a job finished within
+///    [`QUEUE_RESULT_RETENTION_MS`] gets the stored result again;
+/// 5. answers `file_transcription_status {job_id}` with one progress frame, the
+///    stored result, or [`ERROR_JOB_UNKNOWN`].
+///
+/// Clients of such a host never time out on silence: the host is gone only when
+/// the connection closes, its pid dies, or `service.json` is withdrawn or
+/// replaced. The client then re-discovers and resubmits with the same `request_id`.
+pub const SERVICE_PROTOCOL_MINOR_QUEUE: u32 = 3;
+pub const CAPABILITY_QUEUE: &str = "file_transcription_queue";
+pub const SCHEMA_STATUS: &str = "file_transcription_status";
+/// Minor 3: no queued, running or recently finished job has that id. Not retryable; resubmit.
+pub const ERROR_JOB_UNKNOWN: &str = "speech_service_job_unknown";
+/// Minor 3: the host's maximum interval between job-state frames.
+pub const QUEUE_KEEPALIVE_MS: u64 = 2_000;
+/// Minor 3: how long a host keeps a finished job's result for re-attach.
+pub const QUEUE_RESULT_RETENTION_MS: u64 = 600_000;
 pub const ERROR_HOST_HANDOFF: &str = "speech_service_host_handoff";
 pub const ERROR_NOT_ALLOWED: &str = "speech_service_request_not_allowed";
 /// Minor 1: the requested engine is unknown, not installed, or not ready. Not retryable.
@@ -39,6 +68,7 @@ pub const SERVICE_ALLOWED_SCHEMAS: &[&str] = &[
     "engine_capabilities",
     "engine_info",
     "file_transcription_request",
+    "file_transcription_status",
 ];
 const ENGINE_PROTOCOL_MAJOR: u16 = 1;
 const ENGINE_PROTOCOL_MINOR: u16 = 0;
@@ -282,6 +312,10 @@ impl Capabilities {
     pub fn supports_verbatim(&self) -> bool {
         self.capabilities.iter().any(|c| c == CAPABILITY_VERBATIM)
     }
+    /// The host implements the minor-3 job-queue contract.
+    pub fn supports_queue(&self) -> bool {
+        self.capabilities.iter().any(|c| c == CAPABILITY_QUEUE)
+    }
     pub fn engines_or_default(&self) -> Vec<EngineInfo> {
         if self.engines.is_empty() && self.supports_file_transcription() {
             vec![EngineInfo {
@@ -329,6 +363,40 @@ pub struct HostProgress {
     pub fraction: Option<f32>,
     pub state: ProgressState,
     pub message: Option<String>,
+    /// Minor 3: the job id (= the file request's `request_id`).
+    pub job_id: Option<String>,
+    /// Minor 3, queued only: jobs ahead of this one (0 = next).
+    pub position: Option<u32>,
+    /// Minor 3, queued only: why the job is waiting.
+    pub reason: Option<QueueReason>,
+}
+
+/// Why a minor-3 job is waiting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueReason {
+    DictationActive,
+    BehindJobs,
+    LoadingModel,
+    Other(String),
+}
+
+impl QueueReason {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::DictationActive => "dictation_active",
+            Self::BehindJobs => "behind_jobs",
+            Self::LoadingModel => "loading_model",
+            Self::Other(s) => s,
+        }
+    }
+    pub fn from_wire(s: &str) -> Self {
+        match s {
+            "dictation_active" => Self::DictationActive,
+            "behind_jobs" => Self::BehindJobs,
+            "loading_model" => Self::LoadingModel,
+            o => Self::Other(o.into()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -382,7 +450,13 @@ pub enum ServiceRequest {
     Health,
     Capabilities,
     Info,
-    FileTranscription { path: String },
+    FileTranscription {
+        path: String,
+    },
+    /// Minor 3: one-shot query for a job's state.
+    Status {
+        job_id: String,
+    },
 }
 
 /// Minor-1 optional fields of a file request (see [`ServiceEnvelope::file_options`]).
@@ -449,10 +523,28 @@ impl ServiceEnvelope {
         engines: &[EngineInfo],
         verbatim: bool,
     ) -> Self {
+        let extra: &[&str] = if verbatim {
+            &[CAPABILITY_VERBATIM]
+        } else {
+            &[]
+        };
+        Self::capabilities_with(request_id, trace_id, engines, extra)
+    }
+    /// Capabilities response listing `file_transcription` plus `extra`
+    /// (for example [`CAPABILITY_VERBATIM`], [`CAPABILITY_QUEUE`]). List only what the host implements.
+    pub fn capabilities_with(
+        request_id: &str,
+        trace_id: &str,
+        engines: &[EngineInfo],
+        extra: &[&str],
+    ) -> Self {
         let mut capabilities = vec![CAPABILITY_FILE_TRANSCRIPTION];
-        if verbatim {
-            capabilities.push(CAPABILITY_VERBATIM);
-        }
+        capabilities.extend(
+            extra
+                .iter()
+                .copied()
+                .filter(|c| *c != CAPABILITY_FILE_TRANSCRIPTION),
+        );
         Self::base(
             "engine_capabilities",
             request_id,
@@ -534,6 +626,38 @@ impl ServiceEnvelope {
         )
     }
     /// Minor-1 progress frame for `request_id`.
+    /// Minor-3 job-state frame (host side). `request_id` is the job id.
+    /// `position`/`reason` belong to `queued`; `fraction` to `running`.
+    pub fn job_progress(
+        job_id: &str,
+        trace_id: &str,
+        state: &str,
+        position: Option<u32>,
+        reason: Option<&QueueReason>,
+        fraction: Option<f32>,
+    ) -> Self {
+        Self::base(
+            SCHEMA_PROGRESS,
+            job_id,
+            trace_id,
+            Some(json!({
+                "kind": SCHEMA_PROGRESS, "job_id": job_id, "state": state,
+                "position": position, "reason": reason.map(QueueReason::as_str),
+                "fraction": fraction, "message": null,
+            })),
+            None,
+        )
+    }
+    /// Minor-3 one-shot job query (client side).
+    pub fn status_request(request_id: &str, trace_id: &str, job_id: &str) -> Self {
+        Self::base(
+            SCHEMA_STATUS,
+            request_id,
+            trace_id,
+            Some(json!({"kind": SCHEMA_STATUS, "job_id": job_id})),
+            None,
+        )
+    }
     pub fn progress(
         request_id: &str,
         trace_id: &str,
@@ -612,6 +736,14 @@ impl ServiceEnvelope {
                 .and_then(Value::as_str)
                 .map(|path| ServiceRequest::FileTranscription { path: path.into() })
                 .ok_or("missing file path"),
+            (SCHEMA_STATUS, Some(SCHEMA_STATUS)) => self
+                .payload
+                .as_ref()
+                .and_then(|v| v.get("job_id"))
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(|id| ServiceRequest::Status { job_id: id.into() })
+                .ok_or("missing job id"),
             _ if is_allowed_schema(&self.schema_name) => Err("payload schema mismatch"),
             _ => Err("request not allowed"),
         }
@@ -689,6 +821,15 @@ impl ServiceEnvelope {
                 p.get("state").and_then(Value::as_str).unwrap_or("running"),
             ),
             message: p.get("message").and_then(Value::as_str).map(str::to_string),
+            job_id: p.get("job_id").and_then(Value::as_str).map(str::to_string),
+            position: p
+                .get("position")
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok()),
+            reason: p
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(QueueReason::from_wire),
         })
     }
 }

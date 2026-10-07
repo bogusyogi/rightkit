@@ -562,7 +562,7 @@ test("RightKit exposes one current version manifest", () => {
     "rightkit-service": "0.1.0",
     "rightkit-settings": "0.1.0",
     "rightkit-shell": "0.1.0",
-    "rightkit-speech-client": "0.2.0",
+    "rightkit-speech-client": "0.3.0",
     "rightkit-sync": "0.1.0",
     "rightkit-license": "0.1.3",
     "rightkit-tauri": "0.1.1",
