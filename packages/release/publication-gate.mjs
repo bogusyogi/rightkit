@@ -45,9 +45,10 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
     if (!SHA.test(String(evidence.commit ?? ""))) missing.push("evidence commit is not a full 40-character SHA");
     else if (head && evidence.commit !== head) missing.push(`evidence commit ${evidence.commit} != current HEAD ${head}`);
     const runs = Array.isArray(evidence.runs) ? evidence.runs : [];
-    // npm UI packages may ship on macOS evidence first when Adrian decides so; the decision must be
+    // npm packages and crates may ship on macOS evidence first when Adrian decides so; the decision must be
     // recorded in the evidence (hostPolicy "darwin-only" + a non-empty hostPolicyReason).
-    const darwinOnly = kind === "npm" && evidence.hostPolicy === "darwin-only"
+    // Crates may ship Mac-first too (Adrian 2026-10-07): the Windows run follows; the reason is recorded.
+    const darwinOnly = (kind === "npm" || kind === "cargo") && evidence.hostPolicy === "darwin-only"
       && typeof evidence.hostPolicyReason === "string" && evidence.hostPolicyReason.trim() !== "";
     for (const host of darwinOnly ? ["darwin"] : requiredHosts(kind)) {
       const label = host === "darwin" ? "macOS" : "Windows";
@@ -81,7 +82,33 @@ export const NPM_KEYCHAIN_SERVICE = "npm-rightkit-publish";
 // Add `--publish --tarball <file>` to publish that exact gated tarball: its sha256 must equal the
 // evidence artifactSha256, the token is read from the macOS Keychain inside this process (never
 // printed or passed on a command line), and the registry shasum is verified after publication.
+/** `right-release publish npm --check-auth`: prove the Keychain token authenticates (whoami +
+ * @rightkit package access) without publishing. Prints only the username and counts. */
+export function checkNpmAuth(deps = {}) {
+  const run = deps.spawnSync ?? spawnSync;
+  const token = deps.readToken ? deps.readToken() : readKeychainToken(run);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-npm-auth-"));
+  const userconfig = path.join(dir, "npmrc");
+  const redact = (text) => String(text ?? "").split(token).join("<redacted>");
+  try {
+    fs.writeFileSync(userconfig, "//registry.npmjs.org/:_authToken=${RIGHTKIT_NPM_TOKEN}\n", { mode: 0o600 });
+    const env = { ...process.env, RIGHTKIT_NPM_TOKEN: token };
+    const base = ["--registry", "https://registry.npmjs.org/", "--userconfig", userconfig];
+    const who = run("npm", ["whoami", ...base], { encoding: "utf8", env, windowsHide: true });
+    if (who.status !== 0) throw new Error(`npm whoami failed with the Keychain token:\n${redact(`${who.stdout ?? ""}${who.stderr ?? ""}`).trim()}`);
+    const access = run("npm", ["access", "list", "packages", "@rightkit", "--json", ...base], { encoding: "utf8", env, windowsHide: true });
+    let packages = {};
+    try { packages = JSON.parse(access.stdout || "{}"); } catch { packages = {}; }
+    const writable = Object.values(packages).filter((level) => level === "read-write").length;
+    process.stdout.write(`[right-release] npm token OK: ${String(who.stdout).trim()}, read-write on ${writable} @rightkit packages\n`);
+    return { user: String(who.stdout).trim(), writable };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 export function runNpmPreflight(argv, workspaceRoot = process.cwd(), deps = {}) {
+  if (argv.includes("--check-auth")) { checkNpmAuth(deps); return; }
   let pkg; let evidence; let tarball; const dryRun = argv.includes("--dry-run"); const publish = argv.includes("--publish");
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--package") pkg = argv[++i];

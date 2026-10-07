@@ -121,14 +121,28 @@ pub fn tier_selected(scenario_tier: &str, selected: &str) -> bool {
             .any(|t| sel.contains(&t))
 }
 
-/// `Some(reason)` when a requirement is not met (the scenario is skipped).
+/// `Some(reason)` when a requirement is not met (the scenario is skipped). `env:X` reads the
+/// process environment; see [`unmet_requirement_with`] for a settings source.
 pub fn unmet_requirement(requires: &[String], app_root: &Path) -> Option<String> {
+    unmet_requirement_with(requires, app_root, &|k| {
+        std::env::var(k).ok().filter(|v| !v.is_empty())
+    })
+}
+
+/// Like [`unmet_requirement`], with `env:X` answered by `lookup` (for example
+/// `|k| settings.get(k)` over a [`crate::settings::Settings`], which survives managed cargo).
+/// Kinds: `env:NAME`, `file:path` (relative to `app_root` or absolute), `cmd:program` (on `PATH`
+/// or a path), `platform:darwin|windows`.
+pub fn unmet_requirement_with(
+    requires: &[String],
+    app_root: &Path,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
     for r in requires {
         let (kind, value) = r.split_once(':').unwrap_or((r.as_str(), ""));
         let missing = match kind {
-            "env" => std::env::var(value)
-                .map(|v| v.is_empty())
-                .unwrap_or(true)
+            "env" => lookup(value)
+                .is_none()
                 .then(|| format!("missing env {value}")),
             "file" => (!app_root.join(value).exists() && !Path::new(value).exists())
                 .then(|| format!("missing file {value}")),
@@ -750,7 +764,7 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
 
 #[cfg(feature = "browser")]
 pub(crate) mod params {
-    pub(crate) use super::{dur, pb, pf_or, ps, ps_opt};
+    pub(crate) use super::{dur, pb, pf_or, ps, ps_opt, pv};
 }
 
 #[cfg(test)]

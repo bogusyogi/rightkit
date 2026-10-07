@@ -25,6 +25,10 @@
 #[cfg(feature = "session")]
 pub use ort;
 
+/// `half` (f16/bf16) as used by ort's `half` feature: `rightkit_ort::half::f16`.
+#[cfg(feature = "half")]
+pub use half;
+
 #[cfg(feature = "session")]
 pub mod environment;
 #[cfg(feature = "session")]

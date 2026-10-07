@@ -196,6 +196,7 @@ mod tests {
             version: "7.1.5".into(),
             status: ArtifactStatus::Approved,
             sha256: Some(digest.into()),
+            size: None,
             source_sha256: "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f"
                 .into(),
             attribution: Attribution {

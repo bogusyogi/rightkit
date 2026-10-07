@@ -354,7 +354,12 @@ impl JobStore {
     }
 
     fn record_row(&self, r: &Row) -> rusqlite::Result<JobRecord> {
-        let job = row(r)?;
+        let mut job = row(r)?;
+        if !self.cfg.includes_retryable() {
+            if let Some(Value::Object(o)) = &mut job.error {
+                o.remove("retryable");
+            }
+        }
         let mut ext = Ext::new();
         for (i, c) in self.cfg.columns.iter().enumerate() {
             let v: rusqlite::types::Value = r.get(NCORE + i)?;
@@ -655,14 +660,24 @@ impl JobStore {
     pub fn record_error(&self, job_id: &str, error: &JobError) -> JobResult<()> {
         self.c().execute(
             "UPDATE jobs SET error_json=?2, updated_at=?3 WHERE job_id=?1",
-            params![job_id, error.to_json().to_string(), now()],
+            params![
+                job_id,
+                error
+                    .to_json_with(self.cfg.includes_retryable())
+                    .to_string(),
+                now()
+            ],
         )?;
         Ok(())
     }
 
     pub fn fail(&self, job_id: &str, error: &JobError) -> JobResult<bool> {
         Ok(self
-            .transition(job_id, &Transition::to(FAILED).error(Some(error.to_json())))?
+            .transition(
+                job_id,
+                &Transition::to(FAILED)
+                    .error(Some(error.to_json_with(self.cfg.includes_retryable()))),
+            )?
             .is_some())
     }
 
@@ -811,11 +826,11 @@ impl JobStore {
             ..Transition::default()
         }
         .set(col, Value::Null)
-        .error(Some(error.to_json()));
+        .error(Some(error.to_json_with(self.cfg.includes_retryable())));
         let after = self.exec(&tx, &before, &t)?;
         tx.execute(
             "UPDATE rk_job_submissions SET state='failed', error_json=?3, updated_at=?4 WHERE job_id=?1 AND attempt=?2",
-            params![job_id, before.job.attempts, error.to_json().to_string(), now()],
+            params![job_id, before.job.attempts, error.to_json_with(self.cfg.includes_retryable()).to_string(), now()],
         )?;
         tx.commit()?;
         Ok(Some(after))
@@ -864,6 +879,7 @@ impl JobStore {
     }
 
     /// Append a progress event (oldest beyond [`MAX_EVENTS`] are dropped).
+    /// Status and attempt are read from the job row.
     pub fn add_event(
         &self,
         job_id: &str,
@@ -871,8 +887,29 @@ impl JobStore {
         progress: Option<f64>,
         message: Option<&str>,
     ) -> JobResult<Event> {
+        self.add_event_with(job_id, None, stage, None, progress, message)
+    }
+
+    /// Like [`JobStore::add_event`], recording an explicit `status` and/or
+    /// `attempt` on the event instead of the job row's (`None` keeps the row
+    /// value). An explicit status must be in the configured vocabulary
+    /// (`bad_input` otherwise).
+    pub fn add_event_with(
+        &self,
+        job_id: &str,
+        status: Option<&str>,
+        stage: &str,
+        attempt: Option<i64>,
+        progress: Option<f64>,
+        message: Option<&str>,
+    ) -> JobResult<Event> {
+        if let Some(s) = status {
+            if !self.cfg.statuses.is_known(s) {
+                return Err(JobError::bad_input(format!("unknown event status: {s}")));
+            }
+        }
         let conn = self.c();
-        let (status, attempt): (String, i64) = conn
+        let (row_status, row_attempt): (String, i64) = conn
             .query_row(
                 "SELECT status, attempts FROM jobs WHERE job_id=?1",
                 [job_id],
@@ -880,6 +917,8 @@ impl JobStore {
             )
             .optional()?
             .ok_or_else(|| JobError::new("job_not_found", format!("no such job: {job_id}")))?;
+        let status = status.map(String::from).unwrap_or(row_status);
+        let attempt = attempt.unwrap_or(row_attempt);
         let at = now();
         conn.execute(
             "INSERT INTO job_events (job_id, at, status, stage, attempt, progress, message) VALUES (?1,?2,?3,?4,?5,?6,?7)",

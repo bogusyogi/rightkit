@@ -15,6 +15,61 @@ const sections = mergeSections(
 <SettingsPanel backend={backend} sections={sections} />
 ```
 
+## Headless hooks (0.2.4)
+
+RightKit shares behaviour; apps keep their own markup. Both built-in sections are views over these hooks.
+
+### `useLicenseSection(options)`
+
+`options`: `client` (`LicenseClientLike`: `activate`, `deactivate`, and `status()` or `load()`), `beforeDeactivate`, `confirmDeactivate` (default true), `graceDays`, `notAcceptedMessage`, `onChange`.
+Returns `{ license, pro, tier, busy, activating, error, activate(key), deactivate(), requestDeactivate(), confirmPending, cancelDeactivate(), refresh() }`.
+
+- `activate(key)` ignores a blank key, resolves the licence the client returned (or null on a throw), and sets `error` for a thrown error or a non-active result.
+- `deactivate()` always deactivates: `beforeDeactivate` (a throw aborts and sets `error`), `client.deactivate()`, then `onChange(null)`.
+- Two-step confirmation: call `requestDeactivate()` from your button. With `confirmDeactivate` on (default) the first call sets `confirmPending` (disarms after 4 s or `cancelDeactivate()`), the second deactivates. With `confirmDeactivate: false` the first call deactivates.
+
+```tsx
+function PlanCard({ client }: { client: LicenseClientLike }) {
+  const [key, setKey] = useState("");
+  const lic = useLicenseSection({ client, onChange: refreshEntitlements });
+  return lic.pro ? (
+    <div>
+      <p>Pro is active on this device</p>
+      {lic.error && <p role="alert">{lic.error}</p>}
+      <button disabled={lic.busy} onClick={lic.requestDeactivate}>{lic.confirmPending ? "Click again to deactivate" : "Deactivate"}</button>
+    </div>
+  ) : (
+    <form onSubmit={async (e) => { e.preventDefault(); if (await lic.activate(key)) setKey(""); }}>
+      <input value={key} onChange={(e) => setKey(e.target.value)} />
+      <button disabled={lic.busy || !key.trim()}>{lic.activating ? "Activating…" : "Activate"}</button>
+      {lic.error && <p role="alert">{lic.error}</p>}
+    </form>
+  );
+}
+```
+
+### `useDoctor(checks, options?)`
+
+`checks`: `DoctorCheck[]` (`{ id, label, run() }`); `options`: `autoRun`, `onResult`. Returns `{ status, summary: { passed, total, lastRun }, running, runAll(), runOne(id) }`. `status[id]` is `{ state: "idle" }`, `{ state: "running" }` or `{ state: "done", result }`; `lastRun` is `Date.now()` of the last finished check, or null. A throw or rejection is a failed check (`detail` is the message); a stale run never overwrites a newer one.
+
+```tsx
+function Doctor({ checks }: { checks: DoctorCheck[] }) {
+  const doc = useDoctor(checks);
+  return (
+    <section>
+      <button disabled={doc.running} onClick={() => void doc.runAll()}>Run all</button>
+      <p>{doc.summary.lastRun ? `${doc.summary.passed} of ${doc.summary.total} passed` : "Not run"}</p>
+      <ul>
+        {checks.map((c) => {
+          const s = doc.status[c.id];
+          return <li key={c.id}>{c.label}: {s.state === "done" ? (s.result.ok ? "ok" : s.result.detail) : s.state}</li>;
+        })}
+      </ul>
+    </section>
+  );
+}
+```
+
 ## 0.2.2 seams
 
 - `SettingsPanel`: `navFooter` (e.g. `<span>Version 1.2.3</span>`), `navHeading` (`ReactNode | false`), `renderNavItem(section, { active })`, `hideNav`. Class/attribute contract for app-drawn active markers: `button.rk-settings__item[data-section-id]` with `aria-current="page"` and `data-active="true"` on the active one only (also `.is-active`).

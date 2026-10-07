@@ -4824,7 +4824,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-jobs"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-db",
  "rightkit-framed-sidecar",
@@ -4886,7 +4886,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-media"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rightkit-process",
  "serde",
@@ -4945,8 +4945,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ort"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
+ "half",
  "ort",
  "rightkit-media",
  "windows-sys 0.61.2",
@@ -5004,8 +5005,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "png 0.18.1",
  "rightkit-browser",
  "rightkit-control",
  "rightkit-framed-sidecar",

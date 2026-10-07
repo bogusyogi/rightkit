@@ -6,7 +6,7 @@ use crate::{check, Result};
 use std::path::{Path, PathBuf};
 
 const SKIP_DIRS: [&str; 5] = ["node_modules", "target", ".git", "dist", "gen"];
-const TEXT_EXT: [&str; 11] = ["json", "toml", "mjs", "ts", "tsx", "rs", "md", "html", "css", "yaml", "yml"];
+const TEXT_EXT: [&str; 12] = ["json", "toml", "mjs", "ts", "tsx", "rs", "md", "html", "css", "yaml", "yml", "sh"];
 
 fn opt(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == &format!("--{name}")).and_then(|i| args.get(i + 1)).cloned()

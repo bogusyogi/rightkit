@@ -2855,6 +2855,7 @@ dependencies = [
 name = "rightapp-protocol"
 version = "0.1.0"
 dependencies = [
+ "rightkit-framed-sidecar",
  "serde",
  "serde_json",
 ]
@@ -2863,6 +2864,16 @@ dependencies = [
 name = "rightapp-tools"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "rightkit-framed-sidecar"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bc17386b348fe12f6bdc4bd1821a84f4141a97fd73a6450e33b3a2b50e7261e"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -2880,20 +2891,25 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04e7423a879db7711f9eb2fe3a481e34b5cb2636a90ecb63b27ea8848053c66c"
+checksum = "79b013e56193781eb954246b704ae6793b4dc1f8aacfb998876b7684895abed5"
 dependencies = [
  "chrono",
+ "getrandom 0.4.3",
+ "libc",
+ "objc2-foundation",
  "serde",
  "serde_json",
+ "ureq",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "rightkit-process"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d003be3c7f65bd2cd04c92faf0960443c2af27125e972af12dc853a4675626d0"
+checksum = "2d1af4eb0e6f425987976a7357eff2e52a3317ce6b0ddf2824e0d8240a816687"
 dependencies = [
  "nix 0.30.1",
  "process-wrap",
@@ -2958,6 +2974,7 @@ version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
@@ -4335,6 +4352,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
+name = "ureq"
+version = "3.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
+dependencies = [
+ "base64 0.23.1",
+ "log",
+ "percent-encoding",
+ "rustls",
+ "rustls-pki-types",
+ "ureq-proto",
+ "utf8-zero",
+ "webpki-roots",
+]
+
+[[package]]
+name = "ureq-proto"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f86fd172ccca569e458f61b6bdd6220965a9ef36e672a6852953b51a0e1583be"
+dependencies = [
+ "base64 0.23.1",
+ "http",
+ "httparse",
+ "log",
+]
+
+[[package]]
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4358,6 +4403,12 @@ dependencies = [
  "serde",
  "url",
 ]
+
+[[package]]
+name = "utf8-zero"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e"
 
 [[package]]
 name = "utf8_iter"
@@ -4593,6 +4644,15 @@ name = "webpki-root-certs"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+dependencies = [
+ "rustls-pki-types",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
 dependencies = [
  "rustls-pki-types",
 ]

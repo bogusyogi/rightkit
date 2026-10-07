@@ -51,7 +51,16 @@ impl JobError {
         Self::new("bad_input", message)
     }
     pub fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({"code": self.code, "message": self.message, "retryable": self.retryable})
+        self.to_json_with(true)
+    }
+    /// Like [`JobError::to_json`], omitting `retryable` when `include_retryable`
+    /// is false (an app whose wire `error` is `{code, message}`).
+    pub fn to_json_with(&self, include_retryable: bool) -> serde_json::Value {
+        if include_retryable {
+            serde_json::json!({"code": self.code, "message": self.message, "retryable": self.retryable})
+        } else {
+            serde_json::json!({"code": self.code, "message": self.message})
+        }
     }
 }
 

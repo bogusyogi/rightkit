@@ -31,10 +31,24 @@ shell invocation.
   default (port of GenRight `transcode_normalized`).
 - Keep the shared audio contract at WAV, mono, 16 kHz, `pcm_s16le`.
 
-The artifact catalog records the binary/source digests, official source URL,
-build provenance, full LGPL notice, components, and required configure flags.
-`recipes/build-ffmpeg-macos.sh` reproduces the macOS entries from the sources
-pinned in `recipes/ffmpeg-sources.json`.
+The artifact catalog records the binary/source digests (and size, where recorded),
+official source URL, build provenance, full LGPL notice, components, and required
+configure flags. `recipes/build-ffmpeg-macos.sh` reproduces the macOS entries
+bit-for-bit from the sources pinned in `recipes/ffmpeg-sources.json`, which also
+records each source's upstream evidence (signature, announcement checksum, or a
+file-by-file comparison with the upstream git tag where none is published).
+
+## Variants
+
+- `decode` — native codecs only (Windows x64, macOS arm64/x86_64; ffprobe on macOS).
+- `export-ass` — `decode` plus libass (`subtitles`/`ass` burn-in), FreeType and
+  HarfBuzz (`drawtext` captions), zlib, and VideoToolbox/AudioToolbox
+  (`h264_videotoolbox`). SPDX `LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC`.
+  macOS arm64 is approved; macOS x86_64 is built and reproducible but stays
+  `pending` until its probes run on an x86_64-capable host. See
+  `third-party/BUILD-NOTES-ffmpeg-export-ass-macos.txt`. `tests/export_ass_e2e.rs`
+  burns an `.ass` subtitle and a `drawtext` caption into a VideoToolbox MP4 and
+  checks the decoded pixels whenever the binary is present in `vendor/ffmpeg-lgpl/`.
 
 ## Publication gate
 

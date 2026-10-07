@@ -11,6 +11,8 @@ const version = tauri.version;
 const targetRoot = resolveTargetRoot(fileURLToPath(new URL("./Cargo.toml", import.meta.url)));
 const windowsBundle = path.join(targetRoot, "release", "bundle", "nsis");
 const windowsInstaller = path.join(windowsBundle, `RightApp_${version}_x64-setup.exe`);
+// Raw exe built by the win prePackage step; Authenticode-signed before NSIS packaging.
+const windowsRawExe = path.join(targetRoot, "release", "rightapp.exe");
 const macDmg = `RightApp_${version}_aarch64.dmg`;
 
 export default {
@@ -22,6 +24,44 @@ export default {
   packageManager: "pnpm",
   deps: { workdirs: ["."] },
   checks: ["typecheck"],
+  // Files whose change invalidates a release build; right-release requires a non-empty include list.
+  buildInputs: {
+    include: [
+      "right-release.config.mjs",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "index.html",
+      "tsconfig.json",
+      "vite.config.ts",
+      "src/**",
+      "assets/**",
+      "Cargo.toml",
+      "Cargo.lock",
+      "rust-toolchain.toml",
+      "crates/**",
+      "src-tauri/Cargo.toml",
+      "src-tauri/build.rs",
+      "src-tauri/src/**",
+      "src-tauri/capabilities/**",
+      "src-tauri/icons/**",
+      "src-tauri/tauri.conf.json",
+      "scripts/build-mac-notarized.sh",
+    ],
+    exclude: [
+      "**/*.test.*",
+      "**/tests/**",
+      "node_modules/**",
+      ".right-release/**",
+      ".cache/**",
+      "dist/**",
+      "target/**",
+      "src-tauri/target/**",
+      "*.dmg",
+      "*.exe",
+      "*.sig",
+    ],
+  },
   development: {
     targets: {
       win: {
@@ -44,8 +84,11 @@ export default {
   targets: {
     mac: {
       signed: true,
-      // PLACEHOLDER scripts: scripts/mac-dmg.mjs + sign-macos-bundle.mjs (GenRight) are the mature
-      // packaging pair; they resolve the managed Cargo target root and mirror the DMG to repo root.
+      signingContract: "macos-developer-id-notarized-portable-v1",
+      // Prepare: build, deep-sign, notarize the app and build the DMG. Finalize (package): notarize + staple the DMG.
+      prePackage: { cmd: "bash", args: ["scripts/build-mac-notarized.sh", "--prepare-right-release"] },
+      sign: { prePackageFiles: [macDmg] },
+      notarize: { file: macDmg, profile: "apple-dev-notary" },
       package: { cmd: "pnpm", args: ["run", "rightkit:package:mac"] },
       artifacts: [macDmg],
       hardening: [macDmg],
@@ -55,10 +98,17 @@ export default {
     },
     win: {
       signed: true,
-      // PLACEHOLDER script: scripts/win-nsis.mjs (GenRight).
+      signingContract: "windows-raw-exe-authenticode-before-nsis-v1",
+      // Prepare: build only the raw exe (no bundle) so right-release can Authenticode-sign it before NSIS packaging.
+      prePackage: {
+        cmd: "pnpm",
+        args: ["exec", "tauri", "build", "--no-bundle", "--config", JSON.stringify({ bundle: { createUpdaterArtifacts: false } })],
+        timeoutMs: 20 * 60 * 1000,
+      },
+      // PLACEHOLDER script: scripts/win-nsis.mjs (GenRight) must build the NSIS installer from the signed exe.
       package: { cmd: "pnpm", args: ["run", "rightkit:package:win"], timeoutMs: 20 * 60 * 1000 },
       artifacts: [windowsBundle],
-      sign: { files: [windowsInstaller] },
+      sign: { prePackageFiles: [windowsRawExe], files: [windowsInstaller] },
       hardening: [windowsBundle],
       publish: { cmd: "right-release", args: ["publish-update", "--config", "right-release.config.mjs", "--platform", "win"] },
       installer: { artifacts: [{ file: windowsInstaller, key: "rightapp/installers/windows/current/RightApp_x64-setup.exe" }] },

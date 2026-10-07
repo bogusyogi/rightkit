@@ -14,11 +14,12 @@ const gate = (kind, ev) => checkPublicationGate({
   readFile: () => JSON.stringify({ schema: 1, kind, name: '@rightkit/x', version: '1.0.0', commit: SHA, artifactSha256: 'b'.repeat(64), runs: [run('darwin')], ...ev }),
 });
 
-test('npm passes on macOS alone only with a recorded darwin-only host policy; crates never do', () => {
+test('npm and crates pass on macOS alone only with a recorded darwin-only host policy; Swift needs only macOS anyway', () => {
   assert.match(gate('npm', {}).missing.join('\n'), /no Windows host run receipt/);
   assert.match(gate('npm', { hostPolicy: 'darwin-only' }).missing.join('\n'), /no Windows host run receipt/);
   assert.equal(gate('npm', { hostPolicy: 'darwin-only', hostPolicyReason: 'Adrian 2026-10-07' }).ok, true);
-  assert.match(gate('cargo', { hostPolicy: 'darwin-only', hostPolicyReason: 'x' }).missing.join('\n'), /no Windows host run receipt/);
+  assert.match(gate('cargo', {}).missing.join('\n'), /no Windows host run receipt/);
+  assert.equal(gate('cargo', { hostPolicy: 'darwin-only', hostPolicyReason: 'Adrian 2026-10-07' }).ok, true);
 });
 
 test('publishGatedTarball refuses a non-gated tarball, never exposes the token, removes its npmrc and verifies registry bytes', () => {

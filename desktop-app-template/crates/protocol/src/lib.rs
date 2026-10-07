@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub mod framed;
+pub use rightkit_framed_sidecar as framed;
 
 /// Per-frame ceiling (bytes, excluding newline). Large payloads go through files, not frames.
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;

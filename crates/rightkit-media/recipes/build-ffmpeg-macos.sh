@@ -14,8 +14,16 @@
 #
 # Variants
 #   decode           The approved catalog build (BUILD-NOTES-macos-*.txt): native codecs only.
-#   export-ass       decode + libass (subtitle burn-in) +
-#                    zlib (PNG) + VideoToolbox/AudioToolbox (h264_videotoolbox).
+#   export-ass       decode + libass (`subtitles`/`ass` burn-in) + FreeType/HarfBuzz
+#                    (`drawtext` captions) + zlib (PNG) + VideoToolbox/AudioToolbox
+#                    (h264_videotoolbox).
+#
+# export-ass needs meson and ninja for HarfBuzz and FriBidi (on PATH, or named by MESON and
+# NINJA) and nasm for x86_64. Both arches are built with an explicit meson cross file (`-arch <arch>`); meson's
+# native (build-machine) compiler stays the host clang so FriBidi's table generators run on
+# the host. FriBidi is built only from files that exist in its upstream v<version> git tag:
+# the release tarball's autotools output and pre-generated tables are deleted and the tables
+# are regenerated from the tagged Unicode data (FriBidi publishes no tarball checksum).
 #
 # Both variants keep --disable-gpl --disable-nonfree --disable-autodetect. Third-party
 # libraries are built static from pinned sources into a private prefix, and pkg-config is
@@ -96,23 +104,16 @@ fi
 
 notices=()
 if [ "$variant" = export-ass ]; then
-  command -v meson >/dev/null || { echo "meson is required for harfbuzz" >&2; exit 1; }
-  command -v ninja >/dev/null || { echo "ninja is required for harfbuzz" >&2; exit 1; }
+  # MESON/NINJA may name a specific meson/ninja (for example from a throwaway venv).
+  meson="${MESON:-meson}" ninja="${NINJA:-ninja}"
+  command -v "$meson" >/dev/null || { echo "meson is required (harfbuzz, fribidi); set MESON" >&2; exit 1; }
+  command -v "$ninja" >/dev/null || { echo "ninja is required (harfbuzz, fribidi); set NINJA" >&2; exit 1; }
+  export NINJA="$(command -v "$ninja")"
+  command -v pkg-config >/dev/null || { echo "pkg-config is required" >&2; exit 1; }
   export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
   unset PKG_CONFIG_PATH
-  export CC="$cc" CFLAGS="-O2" CXX="clang++ -arch $arch"
+  export ZERO_AR_DATE=1
   autotools=(--host="$host" --prefix="$prefix" --disable-shared --enable-static)
-
-  src="$(unpack freetype)"
-  (cd "$src" && ./configure "${autotools[@]}" --without-zlib --without-bzip2 --without-png \
-      --without-harfbuzz --without-brotli && make -j"$jobs" && make install)
-  notices+=("freetype:$src/$(field freetype noticeFile)")
-
-  src="$(unpack fribidi)"
-  (cd "$src" && ./configure "${autotools[@]}" --disable-docs && make -j"$jobs" && make install)
-  notices+=("fribidi:$src/$(field fribidi noticeFile)")
-
-  src="$(unpack harfbuzz)"
   cat > "$root/meson-$arch.ini" <<EOF
 [binaries]
 c = ['clang', '-arch', '$arch']
@@ -126,12 +127,36 @@ cpu_family = '$family'
 cpu = '$family'
 endian = 'little'
 EOF
-  meson setup "$root/harfbuzz-build" "$src" --cross-file "$root/meson-$arch.ini" \
-    --prefix "$prefix" --libdir lib --default-library static --buildtype release \
-    -Dfreetype=disabled -Dglib=disabled -Dgobject=disabled -Dcairo=disabled -Dicu=disabled \
-    -Dcoretext=disabled -Dchafa=disabled -Dtests=disabled -Ddocs=disabled -Dutilities=disabled \
-    -Dintrospection=disabled
-  ninja -C "$root/harfbuzz-build" -j"$jobs" install
+  # meson reads CC/CXX/CFLAGS for the build machine when cross compiling: keep them unset.
+  mesonbuild() {
+    env -u CC -u CXX -u CFLAGS -u CXXFLAGS "$meson" setup "$1" "$2" --cross-file "$root/meson-$arch.ini" \
+      --prefix "$prefix" --libdir lib --default-library static --buildtype release "${@:3}"
+    env -u CC -u CXX -u CFLAGS -u CXXFLAGS "$NINJA" -C "$1" -j"$jobs" install
+  }
+  export CC="$cc" CFLAGS="-O2" CXX="clang++ -arch $arch"
+
+  src="$(unpack freetype)"
+  (cd "$src" && ./configure "${autotools[@]}" --without-zlib --without-bzip2 --without-png \
+      --without-harfbuzz --without-brotli && make -j"$jobs" && make install)
+  notices+=("freetype:$src/$(field freetype noticeFile)")
+
+  src="$(unpack fribidi)"
+  # Keep only files present in the upstream git tag (see header): drop autotools output and
+  # the pre-generated tables so meson regenerates them from the tagged Unicode data.
+  (cd "$src" && rm -f configure aclocal.m4 config.h.in ltmain.sh ar-lib compile config.guess \
+      config.sub depcomp install-sh missing test-driver ChangeLog INSTALL \
+      lib/arabic-shaping.tab.i lib/bidi-type.tab.i lib/brackets-type.tab.i lib/brackets.tab.i \
+      lib/joining-type.tab.i lib/mirroring.tab.i lib/fribidi-unicode-version.h doc/*.3 doc/c2man.stamp && find . -name Makefile.in -delete \
+      && rm -f m4/libtool.m4 m4/ltoptions.m4 m4/ltsugar.m4 m4/ltversion.m4 'm4/lt~obsolete.m4')
+  mesonbuild "$root/fribidi-build" "$src" -Ddocs=false -Dbin=false -Dtests=false -Ddeprecated=true
+  notices+=("fribidi:$src/$(field fribidi noticeFile)")
+
+  src="$(unpack harfbuzz)"
+  # FreeType integration (hb-ft) is required by FFmpeg's drawtext filter.
+  mesonbuild "$root/harfbuzz-build" "$src" \
+    -Dfreetype=enabled -Dglib=disabled -Dgobject=disabled -Dcairo=disabled -Dicu=disabled \
+    -Dgraphite=disabled -Dcoretext=disabled -Dchafa=disabled -Dwasm=disabled -Dtests=disabled \
+    -Ddocs=disabled -Dutilities=disabled -Dintrospection=disabled -Dbenchmark=disabled
   notices+=("harfbuzz:$src/$(field harfbuzz noticeFile)")
 
   src="$(unpack libass)"
@@ -140,10 +165,12 @@ EOF
   notices+=("libass:$src/$(field libass noticeFile)")
 
   ffmpeg_flags+=(
-    --enable-libass --enable-zlib --enable-videotoolbox --enable-audiotoolbox
+    --enable-libass --enable-libfreetype --enable-libharfbuzz
+    --enable-zlib --enable-videotoolbox --enable-audiotoolbox
     --pkg-config-flags=--static
-    --extra-cflags="-I$prefix/include" --extra-ldflags="-L$prefix/lib"
   )
+  # Include and library paths come only from the prefix's .pc files, so the embedded
+  # configuration string (and therefore the binary) does not depend on the work directory.
   unset CC CFLAGS CXX
 fi
 
@@ -170,14 +197,19 @@ grep -q 'License: LGPL version 2.1 or later' "$src/ffbuild/config.log" 2>/dev/nu
   || { echo "configure did not report LGPL 2.1 or later" >&2; exit 1; }
 version_output=""
 if [ "$arch" = "$(uname -m)" ]; then version_output="$("$artifact" -hide_banner -version)"; fi
+tools="clang: $(clang --version | head -1)"
+if [ "$variant" = export-ass ]; then
+  tools="$tools; meson $("$meson" --version); ninja $("$NINJA" --version); pkg-config $(pkg-config --version)"
+fi
+if [ "$arch" = x86_64 ]; then tools="$tools; $(nasm -v)"; fi
 
-python3 - "$artifact" "$build_tag" "$variant" "$tool" "$arch" "$configuration" "$linkage" "$version_output" "$(clang --version | head -1)" <<'PY'
-import hashlib, json, sys
-path, tag, variant, tool, arch, configuration, linkage, version_output, compiler = sys.argv[1:10]
+python3 - "$artifact" "$build_tag" "$variant" "$tool" "$arch" "$configuration" "$linkage" "$version_output" "$tools" <<'PY'
+import hashlib, json, os, sys
+path, tag, variant, tool, arch, configuration, linkage, version_output, tools = sys.argv[1:10]
 digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
 json.dump({
     "artifact": tag, "tool": tool, "variant": variant, "arch": arch,
-    "sha256": digest, "configuration": configuration, "compiler": compiler,
+    "sha256": digest, "size": os.path.getsize(path), "configuration": configuration, "tools": tools,
     "linkage": [line.strip() for line in linkage.splitlines()],
     "versionOutput": version_output or "not executed (foreign architecture)",
 }, open(path + ".evidence.json", "w"), indent=2)

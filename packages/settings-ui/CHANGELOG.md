@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.4
+
+Headless (behaviour-only) hooks for apps that keep their own markup. The built-in licence and doctor sections are now views over the same hooks; their rendered output is unchanged (pinned by snapshot tests).
+
+### Added
+- `useLicenseSection({ client, beforeDeactivate?, confirmDeactivate?, graceDays?, notAcceptedMessage?, onChange? })` returns `{ license, pro, tier, busy, activating, error, activate(key), deactivate(), requestDeactivate(), confirmPending, cancelDeactivate(), refresh() }`. `pro` is `isPro` from `@rightkit/license`. `deactivate()` always runs (`beforeDeactivate`, then `client.deactivate()`, then `onChange(null)`); `requestDeactivate()` is the confirmation-aware two-step call (first call sets `confirmPending`, which disarms after 4 s or on `cancelDeactivate()`; the second call deactivates; with `confirmDeactivate: false` the first call deactivates). A throwing `beforeDeactivate` aborts and sets `error`. Exports `UseLicenseSectionOptions` and `UseLicenseSectionResult`.
+- `useDoctor(checks, { autoRun?, onResult? }?)` returns `{ status, summary: { passed, total, lastRun }, running, runAll(), runOne(id) }` with `DoctorStatus` per check id. A throw or rejection is a failed check; a stale run never overwrites a newer one or fires `onResult`. Exports `UseDoctorOptions`, `UseDoctorResult` and `DoctorStatus`.
+- Tests: hook behaviour (`src/hooks.test.tsx`) and snapshots of the built-in licence and doctor markup (`src/output.test.tsx`).
+
+### Changed
+- `LicenseClientLike`, `DoctorCheck` and `DoctorResult` now live next to the hooks; the public exports are unchanged.
+- The built-in Deactivate button now renders from the hook's `confirmPending` state instead of a private two-step button (same markup and 4 s timeout).
+
 ## 0.2.3
 
 Update-stable seams for the licence panel and a new engine doctor section. All additive; default output is unchanged.

@@ -295,3 +295,18 @@ fn reexported_ort_builds_and_runs_a_session_without_a_direct_dependency() {
     setup();
     assert_eq!(run_add_via_reexport(), vec![6.0, 8.0, 10.0, 12.0]);
 }
+
+/// f16 tensors through the re-exports alone (CutRight's Parakeet f16 encoder): compiles only when
+/// `ort/half` is forwarded and `rightkit_ort::half` is the same `half` ort uses.
+#[cfg(feature = "half")]
+#[test]
+fn f16_tensor_through_reexports() {
+    setup();
+    use rightkit_ort::half::f16;
+    let data = vec![f16::from_f32(1.5), f16::from_f32(-2.0)];
+    let tensor =
+        rightkit_ort::ort::value::Tensor::<f16>::from_array(([2usize], data)).expect("f16 tensor");
+    let (_, values) = tensor.extract_tensor();
+    assert_eq!(values[0].to_f32(), 1.5);
+    assert_eq!(values[1].to_f32(), -2.0);
+}
