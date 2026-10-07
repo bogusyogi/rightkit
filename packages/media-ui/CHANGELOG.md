@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.1
+
+Image viewer, all additive; 0.2.0 APIs unchanged.
+
+- `toolbarContainer` now portals only the capsule row (`.rk-iv-bar`); tool panels stay
+  inside the viewer above the stage (0.2.0 moved the panels too). New optional
+  `panelsContainer` portals the panels separately. Portalled parts keep their default
+  styling outside `.rk-iv`.
+- Capsule is `role="toolbar"` with `toolbarLabel` (default "Image tools") and arrow-key
+  roving focus (Left/Right/Home/End, single tab stop, disabled controls skipped).
+- Buttons act on mousedown (primary button, `preventDefault`, focus unchanged) and on click
+  only when `event.detail === 0`, matching ViewRight's TBtn. Buttons gain a
+  `:focus-visible` ring.
+- Public styling contract documented in the README; new tokens for capsule, button, input,
+  badge and sibling-arrow styling (defaults identical to 0.2.0).
+- Dev: jsdom + @testing-library/react devDependencies for toolbar tests.
+
 ## 0.2.0
 
 Breaking: the image viewer moved out of the root entry.

@@ -54,6 +54,17 @@ export function bootstrapQaPlatform(input: QaPlatformBootstrapInput): Platform |
 
 let cachedPlatform: Platform | undefined;
 
+function browserPlatform(): Platform {
+  const nav = (globalThis as { navigator?: { platform?: string; userAgent?: string; userAgentData?: { platform?: string } } }).navigator;
+  const raw = `${nav?.userAgentData?.platform ?? ""} ${nav?.platform ?? ""} ${nav?.userAgent ?? ""}`.toLowerCase();
+  if (/iphone|ipad|ipod/.test(raw)) return normalizePlatform("ios");
+  if (/mac/.test(raw)) return normalizePlatform("macos");
+  if (/win/.test(raw)) return normalizePlatform("windows");
+  if (/android/.test(raw)) return normalizePlatform("android");
+  if (/linux/.test(raw)) return normalizePlatform("linux");
+  return "unknown";
+}
+
 export function getPlatform(): Platform {
   if (globalThis.__RIGHTKIT_QA_PLATFORM__ !== undefined) {
     return normalizePlatform(globalThis.__RIGHTKIT_QA_PLATFORM__);
@@ -62,7 +73,8 @@ export function getPlatform(): Platform {
   try {
     cachedPlatform = normalizePlatform(tauriPlatform());
   } catch {
-    cachedPlatform = "unknown";
+    // Outside Tauri (browser dev, previews) fall back to the browser's own platform report.
+    cachedPlatform = browserPlatform();
   }
   return cachedPlatform;
 }

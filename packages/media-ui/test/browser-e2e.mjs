@@ -291,6 +291,18 @@ try {
   await check("ImageViewer mounted and measured stage", `
     (() => !!document.querySelector('[data-rk-image-stage]') &&
        !!document.querySelector('[data-rk-image-stage] img'))()`);
+
+  await check("toolbarContainer portals only the capsule; panels stay in viewer", `
+    (async () => {
+      const host = document.querySelector('[data-probe="portal-host"]');
+      const viewer = document.querySelector('[data-probe="portal-viewer"]');
+      if (!host.querySelector('.rk-iv-bar [role="toolbar"][aria-label="Image tools"]')) return false;
+      if (viewer.querySelector('.rk-iv-bar')) return false;
+      const crop = host.querySelector('button[aria-label="Crop"]');
+      if (crop.getAttribute('aria-pressed') !== 'true') crop.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+      await new Promise((r) => setTimeout(r, 200));
+      return !!viewer.querySelector('.rk-iv-panel') && !host.querySelector('.rk-iv-panel');
+    })()`);
 } finally {
   proc.kill("SIGKILL");
   server.close();

@@ -25,11 +25,32 @@ export function TBtn({
       aria-label={title}
       aria-pressed={active}
       disabled={disabled}
-      onClick={onRun}
-      className="rk-iv-btn"
+      // Same activation contract as ViewRight's TBtn: act on mousedown with
+      // preventDefault so focus (and any selection) stays where it was.
+      onMouseDown={
+        disabled
+          ? undefined
+          : (event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              onRun();
+            }
+      }
+      // A pointer click (detail > 0) always follows the mousedown above, which already
+      // ran onRun. Keyboard Enter/Space and assistive-tech click() report detail === 0
+      // and have no mousedown, so they run here.
+      onClick={
+        disabled
+          ? undefined
+          : (event) => {
+              if (event.detail > 0) return;
+              onRun();
+            }
+      }
+      className={round ? "rk-iv-btn rk-iv-btn-round" : "rk-iv-btn"}
       style={{
         width,
-        borderRadius: round ? 999 : undefined,
         fontWeight: bold ? 700 : undefined,
       }}
       data-active={active || undefined}

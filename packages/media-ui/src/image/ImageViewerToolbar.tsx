@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import type { ImageAdjustments, ExportResize, TextLayer } from "./imageEdit.js";
 import type { MediaAdapters } from "../adapters.js";
 import { AdjustPanel, CropPanel, ResizePanel, TextPanel } from "./ImageViewerToolbarPanels.js";
@@ -6,6 +7,8 @@ import { Sep, TBtn } from "./toolbar.js";
 export type ImageTool = "view" | "crop" | "adjust" | "text" | "resize";
 
 export interface ImageViewerToolbarProps {
+  /** Accessible name of the capsule toolbar. Default "Image tools". */
+  toolbarLabel?: string;
   tool: ImageTool;
   /** Read mode — hides the edit/transform controls and tool panels; view + zoom stay. */
   readOnly?: boolean;
@@ -47,7 +50,140 @@ export interface ImageViewerToolbarProps {
   onResize: (resize: ExportResize) => void;
 }
 
-export function ImageViewerToolbar({
+type PanelProps = Pick<
+  ImageViewerToolbarProps,
+  | "tool"
+  | "readOnly"
+  | "adjustments"
+  | "resize"
+  | "cropRatio"
+  | "selectedText"
+  | "adapters"
+  | "onCropRatio"
+  | "onCropApply"
+  | "onCropCancel"
+  | "onCropClear"
+  | "onAddText"
+  | "onTextPatch"
+  | "onTextDelete"
+  | "onAdjustment"
+  | "onResize"
+>;
+
+/** Contextual tool panels (crop/adjust/text/resize). Stay in the viewer above the stage. */
+export function ImageViewerToolPanels({
+  tool,
+  readOnly = false,
+  adjustments,
+  resize,
+  cropRatio,
+  selectedText,
+  adapters,
+  onCropRatio,
+  onCropApply,
+  onCropCancel,
+  onCropClear,
+  onAddText,
+  onTextPatch,
+  onTextDelete,
+  onAdjustment,
+  onResize,
+}: PanelProps) {
+  return (
+    <>
+      {!readOnly && tool === "crop" && (
+        <CropPanel
+          ratio={cropRatio}
+          onRatio={onCropRatio}
+          onApply={onCropApply}
+          onCancel={onCropCancel}
+          onClear={onCropClear}
+        />
+      )}
+      {!readOnly && tool === "adjust" && (
+        <AdjustPanel adjustments={adjustments} onChange={onAdjustment} />
+      )}
+      {!readOnly && tool === "text" && (
+        <TextPanel
+          selected={selectedText}
+          adapters={adapters}
+          onAdd={onAddText}
+          onPatch={onTextPatch}
+          onDelete={onTextDelete}
+        />
+      )}
+      {!readOnly && tool === "resize" && <ResizePanel resize={resize} onChange={onResize} />}
+    </>
+  );
+}
+
+const ROVING_ITEMS = "button, select";
+
+function rovingItems(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(ROVING_ITEMS)).filter(
+    (el) => !(el as HTMLButtonElement).disabled,
+  );
+}
+
+/**
+ * Arrow-key roving focus over the capsule controls: one tab stop, Left/Right move,
+ * Home/End jump. Disabled controls are skipped. The tab stop follows focus.
+ */
+function useRovingToolbar() {
+  const ref = useRef<HTMLDivElement>(null);
+  const current = useRef<HTMLElement | null>(null);
+  // Re-sync tabindex after every render: enabled/disabled sets change with props.
+  useLayoutEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    const items = rovingItems(root);
+    if (!current.current || !items.includes(current.current)) current.current = items[0] ?? null;
+    for (const el of root.querySelectorAll<HTMLElement>(ROVING_ITEMS)) {
+      el.tabIndex = el === current.current ? 0 : -1;
+    }
+  });
+  const onFocus = (event: { target: EventTarget }) => {
+    const root = ref.current;
+    const target = (event.target as HTMLElement).closest?.(ROVING_ITEMS) as HTMLElement | null;
+    if (!root || !target || !root.contains(target) || (target as HTMLButtonElement).disabled) return;
+    current.current = target;
+    for (const el of root.querySelectorAll<HTMLElement>(ROVING_ITEMS)) {
+      el.tabIndex = el === target ? 0 : -1;
+    }
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    const root = ref.current;
+    if (!root) return;
+    const items = rovingItems(root);
+    const index = items.indexOf(event.target as HTMLElement);
+    if (index < 0 || items.length === 0) return;
+    let next: number;
+    switch (event.key) {
+      case "ArrowRight":
+        next = (index + 1) % items.length;
+        break;
+      case "ArrowLeft":
+        next = (index - 1 + items.length) % items.length;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = items.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    items[next]?.focus();
+  };
+  return { ref, onFocus, onKeyDown };
+}
+
+/** The single capsule row (`.rk-iv-bar`). Portalable on its own. */
+export function ImageViewerCapsule({
+  toolbarLabel = "Image tools",
   tool,
   readOnly = false,
   zoomLabel,
@@ -87,35 +223,19 @@ export function ImageViewerToolbar({
   onAdjustment,
   onResize,
 }: ImageViewerToolbarProps) {
+  const roving = useRovingToolbar();
   return (
-    <div className="rk-iv-toolbar">
-      {/* Tool panels stay in-flow at the top — contextual panels, not the format bar. */}
-      {!readOnly && tool === "crop" && (
-        <CropPanel
-          ratio={cropRatio}
-          onRatio={onCropRatio}
-          onApply={onCropApply}
-          onCancel={onCropCancel}
-          onClear={onCropClear}
-        />
-      )}
-      {!readOnly && tool === "adjust" && (
-        <AdjustPanel adjustments={adjustments} onChange={onAdjustment} />
-      )}
-      {!readOnly && tool === "text" && (
-        <TextPanel
-          selected={selectedText}
-          adapters={adapters}
-          onAdd={onAddText}
-          onPatch={onTextPatch}
-          onDelete={onTextDelete}
-        />
-      )}
-      {!readOnly && tool === "resize" && <ResizePanel resize={resize} onChange={onResize} />}
-
+    <>
       {/* Single capsule row under any open tool panel; horizontal scroll inside, never wraps. */}
       <div className="rk-iv-bar">
-        <div className="rk-iv-capsule">
+        <div
+          className="rk-iv-capsule"
+          role="toolbar"
+          aria-label={toolbarLabel}
+          ref={roving.ref}
+          onFocus={roving.onFocus}
+          onKeyDown={roving.onKeyDown}
+        >
           <TBtn
             round
             active={fitActive}
@@ -232,6 +352,16 @@ export function ImageViewerToolbar({
           )}
         </div>
       </div>
+    </>
+  );
+}
+
+/** Panels + capsule in one in-flow column (the 0.2.0 layout). */
+export function ImageViewerToolbar(props: ImageViewerToolbarProps) {
+  return (
+    <div className="rk-iv-toolbar">
+      <ImageViewerToolPanels {...props} />
+      <ImageViewerCapsule {...props} />
     </div>
   );
 }

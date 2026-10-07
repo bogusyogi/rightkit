@@ -10,7 +10,8 @@ import type { MediaAdapters } from "../adapters.js";
 import type { ImageSize, ImageTransform } from "./imageViewerState.js";
 import { ImageViewerStage } from "./ImageViewerStage.js";
 import {
-  ImageViewerToolbar,
+  ImageViewerCapsule,
+  ImageViewerToolPanels,
   type ImageTool,
   type ImageViewerToolbarProps,
 } from "./ImageViewerToolbar.js";
@@ -68,6 +69,8 @@ interface ImageViewerShellProps extends ToolbarHandlers {
   selectedLayer: TextLayer | null;
   adapters: MediaAdapters;
   toolbarContainer?: HTMLElement | null;
+  panelsContainer?: HTMLElement | null;
+  toolbarLabel?: string;
   onPageSibling: (delta: number) => void;
   onWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -114,52 +117,69 @@ export function ImageViewerShell(props: ImageViewerShellProps) {
     [edit.flipX, edit.flipY, edit.rotation, view.zoom],
   );
 
-  const toolbar = (
-      <ImageViewerToolbar
-        tool={tool}
-        readOnly={readOnly}
-        zoomLabel={`${Math.round(view.zoom * 100)}%`}
-        fitActive={view.mode === "fit"}
-        actualActive={view.mode === "actual" && view.zoom === 1}
-        disabled={!ready}
-        edited={edited}
-        canUndo={canUndoEdit}
-        canRedo={canRedoEdit}
-        flippedX={edit.flipX}
-        flippedY={edit.flipY}
-        adjustments={edit.adjustments}
-        resize={edit.resize}
-        cropRatio={cropRatio}
-        selectedText={selectedLayer}
-        adapters={adapters}
-        onTool={props.onTool}
-        onFit={props.onFit}
-        onActual={props.onActual}
-        onZoomIn={props.onZoomIn}
-        onZoomOut={props.onZoomOut}
-        onZoomPreset={props.onZoomPreset}
-        onRotateLeft={props.onRotateLeft}
-        onRotateRight={props.onRotateRight}
-        onFlipX={props.onFlipX}
-        onFlipY={props.onFlipY}
-        onReset={props.onReset}
-        onUndo={props.onUndo}
-        onRedo={props.onRedo}
-        onCropRatio={props.onCropRatio}
-        onCropApply={props.onCropApply}
-        onCropCancel={props.onCropCancel}
-        onCropClear={props.onCropClear}
-        onAddText={props.onAddText}
-        onTextPatch={props.onTextPatch}
-        onTextDelete={props.onTextDelete}
-        onAdjustment={props.onAdjustment}
-        onResize={props.onResize}
-      />
+  const toolbarProps: ImageViewerToolbarProps = {
+    toolbarLabel: props.toolbarLabel,
+    tool,
+    readOnly,
+    zoomLabel: `${Math.round(view.zoom * 100)}%`,
+    fitActive: view.mode === "fit",
+    actualActive: view.mode === "actual" && view.zoom === 1,
+    disabled: !ready,
+    edited,
+    canUndo: canUndoEdit,
+    canRedo: canRedoEdit,
+    flippedX: edit.flipX,
+    flippedY: edit.flipY,
+    adjustments: edit.adjustments,
+    resize: edit.resize,
+    cropRatio,
+    selectedText: selectedLayer,
+    adapters,
+    onTool: props.onTool,
+    onFit: props.onFit,
+    onActual: props.onActual,
+    onZoomIn: props.onZoomIn,
+    onZoomOut: props.onZoomOut,
+    onZoomPreset: props.onZoomPreset,
+    onRotateLeft: props.onRotateLeft,
+    onRotateRight: props.onRotateRight,
+    onFlipX: props.onFlipX,
+    onFlipY: props.onFlipY,
+    onReset: props.onReset,
+    onUndo: props.onUndo,
+    onRedo: props.onRedo,
+    onCropRatio: props.onCropRatio,
+    onCropApply: props.onCropApply,
+    onCropCancel: props.onCropCancel,
+    onCropClear: props.onCropClear,
+    onAddText: props.onAddText,
+    onTextPatch: props.onTextPatch,
+    onTextDelete: props.onTextDelete,
+    onAdjustment: props.onAdjustment,
+    onResize: props.onResize,
+  };
+  // Only the capsule row moves to `toolbarContainer`; the tool panels stay in the viewer
+  // above the stage unless `panelsContainer` places them elsewhere.
+  const capsule = <ImageViewerCapsule {...toolbarProps} />;
+  const panels = <ImageViewerToolPanels {...toolbarProps} />;
+  const capsuleOut = props.toolbarContainer ? createPortal(capsule, props.toolbarContainer) : null;
+  const inViewerCapsule = props.toolbarContainer ? null : capsule;
+  const panelsOut = props.panelsContainer ? (
+    <>
+      <div className="rk-iv-toolbar rk-iv-panels">{inViewerCapsule}</div>
+      {createPortal(<div className="rk-iv-toolbar rk-iv-panels">{panels}</div>, props.panelsContainer)}
+    </>
+  ) : (
+    <div className="rk-iv-toolbar rk-iv-panels">
+      {panels}
+      {inViewerCapsule}
+    </div>
   );
 
   return (
     <div className="rk-iv">
-      {props.toolbarContainer ? createPortal(toolbar, props.toolbarContainer) : toolbar}
+      {panelsOut}
+      {capsuleOut}
       <ImageViewerStage
         displayName={displayName}
         displaySrc={displaySrc}

@@ -68,11 +68,19 @@ export interface ImageViewerProps {
    */
   printEventName?: string;
   /**
-   * Render the toolbar (`.rk-iv-toolbar`) into this element (via a portal)
-   * instead of inside the viewer, so hosts can place it in their own chrome.
-   * While it is null/undefined the toolbar stays inside the viewer.
+   * Render ONLY the capsule row (`.rk-iv-bar`) into this element (via a portal)
+   * so hosts can place it in their own chrome. The crop/adjust/text/resize tool
+   * panels stay inside the viewer above the stage (see `panelsContainer`).
+   * While it is null/undefined the capsule stays inside the viewer.
    */
   toolbarContainer?: HTMLElement | null;
+  /**
+   * Optionally portal the tool panels into this element instead of leaving them
+   * inside the viewer above the stage. Independent of `toolbarContainer`.
+   */
+  panelsContainer?: HTMLElement | null;
+  /** Accessible name of the capsule toolbar (role="toolbar"). Default "Image tools". */
+  toolbarLabel?: string;
   adapters?: MediaAdapters;
 }
 
@@ -89,6 +97,8 @@ export function ImageViewer(props: ImageViewerProps) {
     readOnly = false,
     printEventName = "media-ui:print-image",
     toolbarContainer,
+    panelsContainer,
+    toolbarLabel,
   } = props;
   const adapters = useMediaAdapters(props.adapters);
   const displaySrc = displaySrcProp || src;
@@ -649,6 +659,8 @@ export function ImageViewer(props: ImageViewerProps) {
       selectedLayer={selectedLayer}
       adapters={adapters}
       toolbarContainer={toolbarContainer}
+      panelsContainer={panelsContainer}
+      toolbarLabel={toolbarLabel}
       onTool={setActiveTool}
       onFit={fit}
       onActual={actual}

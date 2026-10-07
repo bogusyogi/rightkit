@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/platform-ui",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -16,7 +16,12 @@
       "import": "./dist/react.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE-MIT", "LICENSE-APACHE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
   "sideEffects": false,
   "peerDependencies": {
     "@tauri-apps/plugin-os": ">=2 <3",

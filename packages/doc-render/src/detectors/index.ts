@@ -25,13 +25,25 @@ export type Block =
   | { kind: "semantic"; hit: DetectorHit; position: { start: number; end: number } }
   | { kind: "plain"; nodes: RootContent[] };
 
-const HINT_RE =
-  /<!--\s*(?:doc|viewright):\s*(frontmatter|callout|stepper|comparison|faq|richTable|descriptionList)\s*-->/i;
+const HINT_KINDS = "frontmatter|callout|stepper|comparison|faq|richTable|descriptionList";
+const DEFAULT_HINT_PREFIXES = ["doc", "viewright"] as const;
 
-function parseHint(node: RootContent): SemanticKind | null {
+function hintPattern(prefixes: readonly string[]): RegExp {
+  const names = prefixes.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return new RegExp(`<!--\\s*(?:${names}):\\s*(${HINT_KINDS})\\s*-->`, "i");
+}
+
+const DEFAULT_HINT_RE = hintPattern(DEFAULT_HINT_PREFIXES);
+
+function parseHint(node: RootContent, re: RegExp): SemanticKind | null {
   if ((node.type as string) !== "html") return null;
-  const m = HINT_RE.exec((node as unknown as { value: string }).value ?? "");
+  const m = re.exec((node as unknown as { value: string }).value ?? "");
   return m ? (m[1] as SemanticKind) : null;
+}
+
+export interface BuildBlocksOptions {
+  /** Comment prefixes accepted for explicit hints (`<!-- PREFIX: KIND -->`). Default `["doc", "viewright"]`. */
+  hintPrefixes?: readonly string[];
 }
 
 /**
@@ -41,7 +53,8 @@ function parseHint(node: RootContent): SemanticKind | null {
  *   - no hit                                       → plain markdown
  * Returns a flat block list the renderer maps to React.
  */
-export function buildBlocks(nodes: RootContent[]): Block[] {
+export function buildBlocks(nodes: RootContent[], options: BuildBlocksOptions = {}): Block[] {
+  const hintRe = options.hintPrefixes ? hintPattern(options.hintPrefixes) : DEFAULT_HINT_RE;
   const blocks: Block[] = [];
   let pendingHint: SemanticKind | null = null;
   let plainRun: RootContent[] = [];
@@ -57,7 +70,7 @@ export function buildBlocks(nodes: RootContent[]): Block[] {
   while (i < nodes.length) {
     const node = nodes[i];
 
-    const hint = parseHint(node);
+    const hint = parseHint(node, hintRe);
     if (hint) {
       pendingHint = hint;
       i += 1; // the hint comment itself never renders

@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/media-ui",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Brand-neutral media player and image viewer/editor for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -33,10 +33,13 @@
     "react-image-crop": "^11.1.2"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1",
-    "fabric": "^7.4.0",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.28.1",
+    "fabric": "^7.4.0",
+    "jsdom": "^25.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.0",

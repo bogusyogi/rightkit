@@ -121,13 +121,35 @@
 
 /* ── Image viewer / editor ─────────────────────────────────────────────── */
 
-.rk-iv {
+.rk-iv,
+.rk-iv-bar,
+.rk-iv-panels {
   --_rkiv-accent: var(--rk-iv-accent, var(--rk-accent, #d9803f));
   --_rkiv-bg: var(--rk-iv-bg, #171716);
   --_rkiv-panel: var(--rk-iv-panel, #1f1f1e);
   --_rkiv-line: var(--rk-iv-line, rgba(255, 255, 255, 0.09));
   --_rkiv-fg: var(--rk-iv-fg, #ece9e2);
   --_rkiv-fg-dim: var(--rk-iv-fg-dim, #8f8c85);
+  /* Component tokens (public inputs: --rk-iv-<name>). */
+  --_rkiv-capsule-radius: var(--rk-iv-capsule-radius, 999px);
+  --_rkiv-capsule-border: var(--rk-iv-capsule-border, 1px solid var(--_rkiv-line));
+  --_rkiv-capsule-shadow: var(--rk-iv-capsule-shadow, none);
+  --_rkiv-capsule-bg: var(--rk-iv-capsule-bg, var(--_rkiv-panel));
+  --_rkiv-btn-size: var(--rk-iv-btn-size, 28px);
+  --_rkiv-btn-radius: var(--rk-iv-btn-radius, 6px);
+  --_rkiv-btn-radius-round: var(--rk-iv-btn-radius, 999px);
+  --_rkiv-btn-border: var(--rk-iv-btn-border, 0);
+  --_rkiv-btn-font-size: var(--rk-iv-btn-font-size, 11px);
+  --_rkiv-input-height: var(--rk-iv-input-height, 28px);
+  --_rkiv-input-bg: var(--rk-iv-input-bg, var(--_rkiv-bg));
+  --_rkiv-input-focus: var(--rk-iv-input-focus, var(--_rkiv-accent));
+  --_rkiv-badge-font-family: var(--rk-iv-badge-font-family, ui-monospace, monospace);
+  --_rkiv-badge-bg: var(--rk-iv-badge-bg, color-mix(in srgb, var(--_rkiv-panel) 90%, transparent));
+  --_rkiv-badge-shadow: var(--rk-iv-badge-shadow, 0 2px 8px rgba(0, 0, 0, 0.4));
+  --_rkiv-sibling-size: var(--rk-iv-sibling-size, 40px);
+  --_rkiv-sibling-bg: var(--rk-iv-sibling-bg, color-mix(in srgb, var(--_rkiv-panel) 80%, transparent));
+}
+.rk-iv {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -145,8 +167,13 @@
   color: var(--_rkiv-fg-dim);
 }
 
+.rk-iv-panels { font-size: 11px; color: var(--_rkiv-fg-dim); }
 .rk-iv-toolbar { display: flex; flex-direction: column; flex-shrink: 0; }
-.rk-iv-bar { position: relative; z-index: 30; flex-shrink: 0; padding: 4px 0; }
+.rk-iv-bar {
+  position: relative; z-index: 30; flex-shrink: 0; padding: 4px 0;
+  /* Same inherited text metrics as inside .rk-iv, for a portalled capsule. */
+  font-size: 11px; color: var(--_rkiv-fg-dim);
+}
 .rk-iv-capsule {
   display: flex;
   align-items: center;
@@ -157,36 +184,39 @@
   width: max-content;
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--_rkiv-line);
-  border-radius: 999px;
-  background: var(--_rkiv-panel);
+  border: var(--_rkiv-capsule-border);
+  border-radius: var(--_rkiv-capsule-radius);
+  background: var(--_rkiv-capsule-bg);
+  box-shadow: var(--_rkiv-capsule-shadow);
 }
 .rk-iv-btn {
-  height: 28px;
-  border: 0;
-  border-radius: 6px;
+  height: var(--_rkiv-btn-size);
+  border: var(--_rkiv-btn-border);
+  border-radius: var(--_rkiv-btn-radius);
   background: none;
   color: var(--_rkiv-fg-dim);
-  font-size: 11px;
+  font-size: var(--_rkiv-btn-font-size);
   cursor: pointer;
   padding: 0 8px;
 }
+.rk-iv-btn-round { border-radius: var(--_rkiv-btn-radius-round); }
 .rk-iv-btn:hover { color: var(--_rkiv-fg); background: var(--_rkiv-line); }
 .rk-iv-btn[data-active] { color: var(--rk-iv-active-fg, var(--_rkiv-accent)); background: var(--rk-iv-active-bg, transparent); }
 .rk-iv-btn:disabled { opacity: 0.35; cursor: default; }
+.rk-iv-btn:focus-visible { outline: 2px solid var(--_rkiv-input-focus); outline-offset: -2px; }
 .rk-iv-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--_rkiv-line); }
 .rk-iv-dim { color: var(--_rkiv-fg-dim); }
 .rk-iv-input {
-  height: 28px;
+  height: var(--_rkiv-input-height);
   border: 1px solid var(--_rkiv-line);
   border-radius: 6px;
-  background: var(--_rkiv-bg);
+  background: var(--_rkiv-input-bg);
   color: var(--_rkiv-fg);
   padding: 0 8px;
   font-size: 12px;
   outline: none;
 }
-.rk-iv-input:focus { border-color: var(--_rkiv-accent); }
+.rk-iv-input:focus { border-color: var(--_rkiv-input-focus); }
 .rk-iv-input:disabled { opacity: 0.4; }
 .rk-iv-num { width: 96px; }
 .rk-iv-num-sm { width: 64px; }
@@ -242,11 +272,11 @@
   pointer-events: none;
   border: 1px solid var(--_rkiv-line);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--_rkiv-panel) 90%, transparent);
+  background: var(--_rkiv-badge-bg);
   padding: 4px 8px;
-  font: 11px ui-monospace, monospace;
+  font: 11px var(--_rkiv-badge-font-family);
   color: var(--_rkiv-fg-dim);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--_rkiv-badge-shadow);
 }
 .rk-iv-badge-left { left: 12px; }
 .rk-iv-badge-center { left: 50%; transform: translateX(-50%); }
@@ -258,11 +288,11 @@
   transform: translateY(-50%);
   display: grid;
   place-items: center;
-  height: 40px;
-  width: 40px;
+  height: var(--_rkiv-sibling-size);
+  width: var(--_rkiv-sibling-size);
   border: 1px solid var(--_rkiv-line);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--_rkiv-panel) 80%, transparent);
+  background: var(--_rkiv-sibling-bg);
   color: var(--_rkiv-fg-dim);
   opacity: 0;
   cursor: pointer;

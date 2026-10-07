@@ -39,7 +39,14 @@ function managedHost(env) {
 export function runCargoSync(args, options = {}) {
   const env = options.env ?? process.env;
   const client = managedRuntimeClient(env);
-  if (client) return spawnSync(process.execPath, [client, "cargo", ...args], { ...options, cwd: process.cwd() });
+  if (client) {
+    // The managed `rightkit` wrapper defaults the broker socket to <managed root>/broker.sock; calling the
+    // client directly must do the same, or agent shells without the variable fail metadata.
+    const root = path.dirname(path.dirname(path.dirname(path.dirname(client))));
+    const socket = path.join(root, "broker.sock");
+    const childEnv = !env.RIGHTKIT_BUILD_BROKER_SOCKET && existsSync(socket) ? { ...env, RIGHTKIT_BUILD_BROKER_SOCKET: socket } : env;
+    return spawnSync(process.execPath, [client, "cargo", ...args], { ...options, env: childEnv, cwd: process.cwd() });
+  }
   if (managedHost(env) && process.platform === "win32") {
     return { status: null, stdout: "", stderr: "", error: new Error("installed RightKit runtime client is unavailable for managed Cargo metadata") };
   }

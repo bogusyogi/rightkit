@@ -91,6 +91,19 @@ function PreviewOriginalProbe() {
   );
 }
 
+// Portal-split probe: capsule goes to an external host, tool panels stay in the viewer.
+function PortalProbe() {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  return (
+    <div data-probe="portal">
+      <div data-probe="portal-host" ref={setHost} />
+      <div style={{ height: 200 }} data-probe="portal-viewer">
+        <ImageViewer path="/tmp/portal.png" src={fx("picture.png")} toolbarContainer={host} />
+      </div>
+    </div>
+  );
+}
+
 function App() {
   return (
     <StrictMode>
@@ -106,6 +119,7 @@ function App() {
           <MediaPlayer src={fx("bad.mkv")} playbackId="bad.mkv" kind="video" title="compat" />
           <SwapProbe />
           <PreviewOriginalProbe />
+          <PortalProbe />
           <div style={{ height: 300 }}>
             <ImageViewer path="/tmp/picture.png" src={fx("picture.png")} readOnly />
           </div>

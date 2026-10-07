@@ -157,7 +157,7 @@ importers:
         version: 19.2.3(@types/react@19.2.17)
       jsdom:
         specifier: ^25.0.1
-        version: 25.0.1(supports-color@8.1.1)
+        version: 25.0.1(canvas@3.2.3)(supports-color@8.1.1)
       react:
         specifier: ^19.0.0
         version: 19.2.7
@@ -205,7 +205,7 @@ importers:
         version: 0.28.1
       jsdom:
         specifier: ^25.0.1
-        version: 25.0.1(supports-color@8.1.1)
+        version: 25.0.1(canvas@3.2.3)(supports-color@8.1.1)
       react:
         specifier: ^19.0.0
         version: 19.2.7
@@ -249,6 +249,12 @@ importers:
         specifier: ^11.1.2
         version: 11.1.2(react@19.2.7)
     devDependencies:
+      '@testing-library/dom':
+        specifier: ^10.4.0
+        version: 10.4.1
+      '@testing-library/react':
+        specifier: ^16.1.0
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17
@@ -261,6 +267,9 @@ importers:
       fabric:
         specifier: ^7.4.0
         version: 7.4.0(supports-color@8.1.1)
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1(canvas@3.2.3)(supports-color@8.1.1)
       react:
         specifier: ^19.0.0
         version: 19.2.7
@@ -272,7 +281,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.1.8
-        version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
+        version: 2.1.9(@types/node@24.13.3)(jsdom@25.0.1(supports-color@8.1.1))(supports-color@8.1.1)
 
   packages/onboarding:
     devDependencies:
@@ -299,7 +308,7 @@ importers:
         version: 19.2.3(@types/react@19.2.17)
       jsdom:
         specifier: ^25.0.1
-        version: 25.0.1(supports-color@8.1.1)
+        version: 25.0.1(canvas@3.2.3)(supports-color@8.1.1)
       react:
         specifier: ^19.0.0
         version: 19.2.7
@@ -6780,7 +6789,7 @@ snapshots:
     dependencies:
       argparse: 2.0.1
 
-  jsdom@25.0.1(supports-color@8.1.1):
+  jsdom@25.0.1(canvas@3.2.3)(supports-color@8.1.1):
     dependencies:
       cssstyle: 4.6.0
       data-urls: 5.0.0
@@ -6803,6 +6812,8 @@ snapshots:
       whatwg-url: 14.2.0
       ws: 8.21.0
       xml-name-validator: 5.0.0
+    optionalDependencies:
+      canvas: 3.2.3
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -8363,7 +8374,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 24.13.3
-      jsdom: 25.0.1(supports-color@8.1.1)
+      jsdom: 25.0.1(canvas@3.2.3)(supports-color@8.1.1)
     transitivePeerDependencies:
       - less
       - lightningcss

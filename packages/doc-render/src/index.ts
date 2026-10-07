@@ -7,7 +7,7 @@ export { collectFootnotes } from "./footnotes.js";
 export { formatCitation, formatBibliographyEntry, formatNames, formatYear, buildBibliographyMap } from "./citations/formatter.js";
 export type { CslEntry, CslName, BibliographyEntry, CitationMatch } from "./citations/types.js";
 export { buildBlocks } from "./detectors/index.js";
-export type { Block } from "./detectors/index.js";
+export type { Block, BuildBlocksOptions } from "./detectors/index.js";
 export type { Detector, DetectorHit, SemanticKind } from "./detectors/types.js";
 export { remarkCitations } from "./remarkCitations.js";
 export { remarkDefListAbbr } from "./remarkDefListAbbr.js";
