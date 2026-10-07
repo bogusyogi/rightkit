@@ -255,6 +255,7 @@ pub struct Runner {
     gate: Arc<Gate>,
     stall_timeout: Option<Duration>,
     attempts: AttemptPolicy,
+    implicit_events: bool,
 }
 
 impl Runner {
@@ -268,6 +269,7 @@ impl Runner {
             gate: Gate::new(),
             stall_timeout: None,
             attempts: AttemptPolicy::PerRun,
+            implicit_events: true,
         }
     }
     pub fn with_sink(mut self, sink: EventSink) -> Self {
@@ -294,6 +296,22 @@ impl Runner {
     pub fn with_attempt_policy(mut self, p: AttemptPolicy) -> Self {
         self.attempts = p;
         self
+    }
+    /// Whether the runner itself emits `started`, `complete`, `paused`,
+    /// `failed` and `cancelled` events (default `true`). With `false` the
+    /// handler owns the event stream (via [`JobControl::progress`]); status
+    /// changes, attempts, locks and outcomes are unchanged.
+    pub fn with_implicit_events(mut self, on: bool) -> Self {
+        self.implicit_events = on;
+        self
+    }
+    pub fn implicit_events(&self) -> bool {
+        self.implicit_events
+    }
+    fn implicit(&self, ctl: &JobControl, stage: &str, progress: Option<f64>, msg: Option<&str>) {
+        if self.implicit_events {
+            ctl.progress(stage, progress, msg);
+        }
     }
     pub fn attempt_policy(&self) -> AttemptPolicy {
         self.attempts
@@ -354,7 +372,8 @@ impl Runner {
         if per_run && job.attempts >= self.max_attempts {
             let e = JobError::new("max_attempts", "job used every allowed attempt");
             self.store.fail(job_id, &e)?;
-            self.control(job_id, sink, Priority::of(&job)).progress(
+            self.implicit(
+                &self.control(job_id, sink, Priority::of(&job)),
                 "failed",
                 None,
                 Some(&e.message),
@@ -370,7 +389,8 @@ impl Runner {
                 let ctl = self.control(job_id, sink, Priority::of(&job));
                 if e.retryable {
                     self.store.record_error(job_id, &e)?;
-                    ctl.progress(
+                    self.implicit(
+                        &ctl,
                         "paused",
                         None,
                         Some(&format!("paused, will resume: {}", e.message)),
@@ -378,7 +398,7 @@ impl Runner {
                     return Ok(RunOutcome::Paused(self.store.get(job_id)?));
                 }
                 if self.store.fail(job_id, &e)? {
-                    ctl.progress("failed", None, Some(&e.message));
+                    self.implicit(&ctl, "failed", None, Some(&e.message));
                 }
                 return Ok(RunOutcome::Finished(self.store.get(job_id)?));
             }
@@ -388,14 +408,14 @@ impl Runner {
         let _interactive =
             (priority == Priority::Interactive).then(|| self.gate.begin_interactive());
         let ctl = Arc::new(self.control(job_id, sink, priority));
-        ctl.progress("started", None, None);
+        self.implicit(&ctl, "started", None, None);
         let result = self.run_handler(&job, &ctl);
         match result {
             Ok(value) => {
                 if self.store.complete(job_id, &value)? {
-                    ctl.progress("complete", Some(1.0), None);
+                    self.implicit(&ctl, "complete", Some(1.0), None);
                 } else if self.store.get(job_id)?.status == CANCELLED {
-                    ctl.progress("cancelled", None, None);
+                    self.implicit(&ctl, "cancelled", None, None);
                 }
                 Ok(RunOutcome::Finished(self.store.get(job_id)?))
             }
@@ -404,7 +424,8 @@ impl Runner {
                     self.store.refund_attempt(job_id)?;
                 }
                 self.store.record_error(job_id, &e)?;
-                ctl.progress(
+                self.implicit(
+                    &ctl,
                     "paused",
                     None,
                     Some(&format!("paused, will resume: {}", e.message)),
@@ -413,9 +434,9 @@ impl Runner {
             }
             Err(e) => {
                 if self.store.fail(job_id, &e)? {
-                    ctl.progress("failed", None, Some(&e.message));
+                    self.implicit(&ctl, "failed", None, Some(&e.message));
                 } else if self.store.get(job_id)?.status == CANCELLED {
-                    ctl.progress("cancelled", None, None);
+                    self.implicit(&ctl, "cancelled", None, None);
                 }
                 Ok(RunOutcome::Finished(self.store.get(job_id)?))
             }

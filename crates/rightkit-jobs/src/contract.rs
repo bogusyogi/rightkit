@@ -73,6 +73,7 @@ pub struct Dispatcher {
     builtins: Vec<&'static str>,
     doctor: Option<DoctorFn>,
     cli_targets: Vec<(String, String)>,
+    error_retryable: bool,
 }
 
 pub struct Outcome {
@@ -86,8 +87,8 @@ fn ok(id: u64, result: Value) -> Value {
 fn err(id: u64, code: &str, message: &str) -> Value {
     json!({"type": "response", "id": id, "ok": false, "error": {"code": code, "message": message, "retryable": false}})
 }
-fn err_job(id: u64, e: &JobError) -> Value {
-    json!({"type": "response", "id": id, "ok": false, "error": {"code": e.code, "message": e.message, "retryable": e.retryable}})
+fn err_job(id: u64, e: &JobError, retryable: bool) -> Value {
+    json!({"type": "response", "id": id, "ok": false, "error": e.to_json_with(retryable)})
 }
 
 /// `internal` error for a panic while serving `method`.
@@ -112,6 +113,7 @@ impl Dispatcher {
             builtins: BUILTINS.to_vec(),
             doctor: None,
             cli_targets: vec![],
+            error_retryable: true,
         }
     }
     /// Drop a built-in (`ping`, `doctor`, `shutdown`) so an app command set
@@ -129,6 +131,12 @@ impl Dispatcher {
     /// `prefix` fills `key` (defaults: `job` -> `job_id`, `artifact` -> `artifact_id`).
     pub fn with_cli_target(mut self, prefix: impl Into<String>, key: impl Into<String>) -> Self {
         self.cli_targets.push((prefix.into(), key.into()));
+        self
+    }
+    /// Whether response `error` objects carry `retryable` (default `true`).
+    /// `false` serves `{code, message}` for an app with that wire shape.
+    pub fn with_error_retryable(mut self, yes: bool) -> Self {
+        self.error_retryable = yes;
         self
     }
     fn has_builtin(&self, m: &str) -> bool {
@@ -268,7 +276,7 @@ impl Dispatcher {
         let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
         let response = match self.call(method, &params, dry_run, &frames) {
             Ok(v) => ok(id, v),
-            Err(e) => err_job(id, &e),
+            Err(e) => err_job(id, &e, self.error_retryable),
         };
         Outcome {
             response,
@@ -321,7 +329,9 @@ where
                         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             d.handle_request_value(&req, dry_run, &emit).response
                         }))
-                        .unwrap_or_else(|p| err_job(id, &panic_error(&method, p.as_ref())));
+                        .unwrap_or_else(|p| {
+                            err_job(id, &panic_error(&method, p.as_ref()), d.error_retryable)
+                        });
                         emit(r)
                     }));
                     continue;

@@ -367,6 +367,7 @@ pub struct StoreConfig {
     pub(crate) hook: Option<Arc<dyn StoreHook>>,
     pub(crate) app_schema: Vec<String>,
     pub(crate) user_version: Option<i64>,
+    pub(crate) include_retryable: bool,
 }
 
 impl Default for StoreConfig {
@@ -379,6 +380,7 @@ impl Default for StoreConfig {
             hook: None,
             app_schema: vec![],
             user_version: Some(1),
+            include_retryable: true,
         }
     }
 }
@@ -393,6 +395,7 @@ impl std::fmt::Debug for StoreConfig {
             .field("hook", &self.hook.is_some())
             .field("app_schema", &self.app_schema.len())
             .field("user_version", &self.user_version)
+            .field("include_retryable", &self.include_retryable)
             .finish()
     }
 }
@@ -437,6 +440,16 @@ impl StoreConfig {
     pub fn user_version(mut self, v: Option<i64>) -> Self {
         self.user_version = v;
         self
+    }
+    /// Whether stored and served job errors carry `retryable` (default `true`).
+    /// `false` keeps an app's `{code, message}` error shape: the key is never
+    /// written, and is removed from errors already stored.
+    pub fn include_retryable(mut self, yes: bool) -> Self {
+        self.include_retryable = yes;
+        self
+    }
+    pub fn includes_retryable(&self) -> bool {
+        self.include_retryable
     }
     pub fn columns(&self) -> &[ExtColumn] {
         &self.columns
