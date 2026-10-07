@@ -126,13 +126,25 @@ test('one heavy build consumes the full budget until it releases', async () => {
   (await check.permit).release();
 });
 
-test('lane caps remain a secondary bound under an aggregate budget', async () => {
-  // Budget would allow four 1-cost analysis roots but ANALYSIS lane cap is 2.
+test('under an aggregate budget, memory cost alone governs costed roots, not the lane count', async () => {
+  // Lane cap 2, but the budget fits five test roots (cost 2 each at budget 12 / build 4): all five run.
+  const scheduler = new ThinScheduler({ buildConcurrency: 2, compileBudget: 12 });
+  const costs = deriveCompileCosts(12, 4);
+  const test = { lane: 'BUILD', workspaceAccess: 'write', compile: true };
+  const permits = await Promise.all([1, 2, 3, 4, 5].map((n) => scheduler.acquire({ id: `t-${n}`, capability: test, workspaceKey: `ws-${n}`, compileCost: costs.TEST }).permit));
+  assert.equal(scheduler.snapshot.active.length, 5);
+  const over = scheduler.acquire({ id: 'b-1', capability: test, workspaceKey: 'ws-6', compileCost: costs.BUILD });
+  await tick();
+  assert.equal(scheduler.snapshot.active.length, 5, 'a full build waits until the budget has room');
+  permits.forEach((p) => p.release());
+  (await over.permit).release();
+});
+
+test('uncosted roots still respect the lane cap under a budget', async () => {
   const scheduler = new ThinScheduler({ analysisConcurrency: 2, compileBudget: 12 });
-  const costs = deriveCompileCosts(12);
-  const a = await scheduler.acquire({ id: 'an-1', capability: { lane: 'ANALYSIS', workspaceAccess: 'read' }, workspaceKey: '1', compileCost: costs.ANALYSIS }).permit;
-  const b = await scheduler.acquire({ id: 'an-2', capability: { lane: 'ANALYSIS', workspaceAccess: 'read' }, workspaceKey: '2', compileCost: costs.ANALYSIS }).permit;
-  const c = scheduler.acquire({ id: 'an-3', capability: { lane: 'ANALYSIS', workspaceAccess: 'read' }, workspaceKey: '3', compileCost: costs.ANALYSIS });
+  const a = await scheduler.acquire({ id: 'an-1', capability: { lane: 'ANALYSIS', workspaceAccess: 'read' }, workspaceKey: '1' }).permit;
+  const b = await scheduler.acquire({ id: 'an-2', capability: { lane: 'ANALYSIS', workspaceAccess: 'read' }, workspaceKey: '2' }).permit;
+  const c = scheduler.acquire({ id: 'an-3', capability: { lane: 'ANALYSIS', workspaceAccess: 'read' }, workspaceKey: '3' });
   await tick();
   assert.equal(scheduler.snapshot.active.length, 2);
   a.release(); b.release();

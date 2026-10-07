@@ -90,13 +90,18 @@ export class ThinScheduler {
     return Number.isFinite(available) && available < ticket.cost * this.#costUnitBytes;
   }
 
+  #budgeted(ticket) { return ticket.cost !== null && this.#compileBudget !== null; }
+
   #laneCount(lane) { let count = 0; for (const item of this.#active.values()) if (item.lane === lane) count += 1; return count; }
   #workspaceState(key) { if (!key) return null; if (!this.#workspace.has(key)) this.#workspace.set(key, { readers: 0, writer: false }); return this.#workspace.get(key); }
 
   #canRun(ticket) {
     if (ticket.lane === 'TOOLCHAIN_WRITE') return this.#active.size === 0;
     if (this.#toolchainActive || this.#queue.some((item) => item.lane === 'TOOLCHAIN_WRITE')) return false;
-    if (this.#laneCount(ticket.lane) >= this.#limits[ticket.lane]) return false;
+    // A costed compile root is governed by the memory budget alone; the lane count cap only bounds
+    // roots without a cost (no budget configured), so cheap test/check roots are not capped at the
+    // number of full builds that fit.
+    if (!this.#budgeted(ticket) && this.#laneCount(ticket.lane) >= this.#limits[ticket.lane]) return false;
     // Aggregate compiler budget (dual-host routing §5): the sum of admitted
     // root costs stays within one machine-wide budget. Lane caps remain the
     // secondary bound above; budget admission never replaces them.
@@ -117,7 +122,7 @@ export class ThinScheduler {
     const note = (other, reason) => { if (other.id !== ticket.id && !ticket.blockers.has(other.id)) ticket.blockers.set(other.id, reason); };
     if (ticket.lane === 'TOOLCHAIN_WRITE') { for (const other of this.#active.values()) note(other, 'toolchain-exclusive'); return; }
     if (this.#toolchainActive) for (const other of this.#active.values()) if (other.lane === 'TOOLCHAIN_WRITE') note(other, 'toolchain-write-active');
-    if (this.#laneCount(ticket.lane) >= this.#limits[ticket.lane]) for (const other of this.#active.values()) if (other.lane === ticket.lane) note(other, `lane-cap:${ticket.lane}`);
+    if (!this.#budgeted(ticket) && this.#laneCount(ticket.lane) >= this.#limits[ticket.lane]) for (const other of this.#active.values()) if (other.lane === ticket.lane) note(other, `lane-cap:${ticket.lane}`);
     const state = this.#workspaceState(ticket.workspaceKey);
     if (state && ((ticket.access === 'read' && state.writer) || (ticket.access === 'write' && (state.writer || state.readers > 0)))) {
       for (const other of this.#active.values()) if (other.workspaceKey === ticket.workspaceKey && (other.access === 'write' || ticket.access === 'write')) note(other, 'workspace-exclusion');

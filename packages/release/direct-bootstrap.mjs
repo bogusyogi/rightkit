@@ -353,6 +353,10 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
       "$ReleaseBase = if ($Version) { " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version } else { $null }",
       "$Work = Join-Path ([IO.Path]::GetTempPath()) (" + psQuote(product + "-install-") + " + [guid]::NewGuid())",
       "New-Item -ItemType Directory -Force -Path $Work | Out-Null",
+      // Early failures (download, catalog, checksum, preflight) throw before the activation
+      // try/finally; the trap removes $Work for them, and stale dirs from older bootstraps are swept.
+      "trap { try { if ($Work -and (Test-Path -LiteralPath $Work)) { Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue } } catch {}; break }",
+      "Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter " + psQuote(product + "-install-*") + " -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $Work -and $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }",
       "$ManifestPath = Join-Path $Work 'release-manifest.json'; $SignaturePath = Join-Path $Work 'release-manifest.cat'; $ChecksumsPath = Join-Path $Work 'checksums.json'",
       "function Receive-ReleaseFile([string]$Name, [string]$Destination) { if ($LocalReleaseRoot) { $RootPrefix = $LocalReleaseRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar; $Source = [IO.Path]::GetFullPath((Join-Path $LocalReleaseRoot $Name)); if (-not $Source.StartsWith($RootPrefix, [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path -LiteralPath $Source -PathType Leaf)) { throw ('Local release asset is missing or escapes root: ' + $Name) }; Copy-Item -LiteralPath $Source -Destination $Destination } else { Invoke-WebRequest ($ReleaseBase + '/' + $Name) -OutFile $Destination } }",
       "Receive-ReleaseFile 'release-manifest.json' $ManifestPath",
@@ -367,6 +371,10 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
       "$ReleaseBase = " + psQuote("https://github.com/" + repository + "/releases/download/v") + " + $Version",
       "$Work = Join-Path ([IO.Path]::GetTempPath()) (" + psQuote(product + "-install-") + " + [guid]::NewGuid())",
       "New-Item -ItemType Directory -Force -Path $Work | Out-Null",
+      // Early failures (download, catalog, checksum, preflight) throw before the activation
+      // try/finally; the trap removes $Work for them, and stale dirs from older bootstraps are swept.
+      "trap { try { if ($Work -and (Test-Path -LiteralPath $Work)) { Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue } } catch {}; break }",
+      "Get-ChildItem ([IO.Path]::GetTempPath()) -Directory -Filter " + psQuote(product + "-install-*") + " -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $Work -and $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }",
       "$ManifestPath = Join-Path $Work 'release-manifest.json'; $SignaturePath = Join-Path $Work 'release-manifest.cat'; $ChecksumsPath = Join-Path $Work 'checksums.json'",
       "Invoke-WebRequest ($ReleaseBase + '/release-manifest.json') -OutFile $ManifestPath",
       "Invoke-WebRequest ($ReleaseBase + '/release-manifest.cat') -OutFile $SignaturePath",
@@ -440,6 +448,10 @@ function Invoke-BoundedExe($Path, [string[]]$Arguments, [int]$TimeoutSeconds) {
     "  $StableBin = Split-Path $StableExe -Parent; $InstallRootResolved = [IO.Path]::GetFullPath($InstallRoot).TrimEnd([IO.Path]::DirectorySeparatorChar); $UserPath = [Environment]::GetEnvironmentVariable('Path','User'); $Kept = @($UserPath -split ';' | Where-Object { $Entry = $_.Trim(); $Entry -ne '' -and -not ($Entry.TrimEnd([IO.Path]::DirectorySeparatorChar).StartsWith(($InstallRootResolved + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -and -not $Entry.TrimEnd([IO.Path]::DirectorySeparatorChar).Equals($StableBin.TrimEnd([IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) }); $NewPath = ((@($StableBin) + $Kept) -join ';'); if ($NewPath -ne $UserPath) { [Environment]::SetEnvironmentVariable('Path', $NewPath, 'User') }",
     // Journal cleanup must succeed before discarding the prior pointer. If
     // cleanup fails, catch still has a rollback anchor to restore.
+    // Retention: after a healthy activation keep only the new version and the prior target (the
+    // app's first-start probation may still roll back to it, then deletes it). Every other version
+    // is removed; one a running process still holds fails the rename and is retried next install.
+    "  $KeepVersions = @([IO.Path]::GetFullPath($VersionRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)); if ($PriorTarget) { $KeepVersions += [IO.Path]::GetFullPath([string]$PriorTarget).TrimEnd([IO.Path]::DirectorySeparatorChar) }; Get-ChildItem -LiteralPath $VersionsRoot -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $Candidate = $_.FullName.TrimEnd([IO.Path]::DirectorySeparatorChar); -not ($KeepVersions | Where-Object { $_.Equals($Candidate, [StringComparison]::OrdinalIgnoreCase) }) } | ForEach-Object { try { $Doomed = Join-Path $VersionsRoot ('.prune-' + [guid]::NewGuid()); Rename-Item -LiteralPath $_.FullName -NewName (Split-Path -Leaf $Doomed) -ErrorAction Stop; Remove-Item -LiteralPath $Doomed -Recurse -Force -ErrorAction SilentlyContinue } catch { } }",
     "  Remove-Item -Force $Journal; Remove-StableJunction $PreviousLink; Write-Output (" + psQuote(product + " ") + " + $Version + ' installed')",
     "} catch {",
     "  $InstallError = $_; $RollbackErrors = New-Object 'System.Collections.Generic.List[string]'",

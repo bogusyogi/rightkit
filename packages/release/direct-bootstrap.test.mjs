@@ -101,6 +101,11 @@ test("generated PowerShell owns signed-manifest install, health, and rollback co
   assert.match(script, /SignerFingerprint/);
   assert.match(script, /\.current-previous/);
   assert.match(script, /Expand-BootstrapArgs/);
+  // Installer temp work never outlives the run: early failures trap-clean it, stale dirs are swept.
+  assert.match(script, /trap \{ try \{ if \(\$Work -and \(Test-Path -LiteralPath \$Work\)\) \{ Remove-Item -LiteralPath \$Work -Recurse -Force/);
+  assert.match(script, /-Filter 'legion-install-\*'.*AddDays\(-1\)/);
+  // Versions are never kept indefinitely: a healthy activation keeps only the new and prior targets.
+  assert.match(script, /\$KeepVersions = @\(.*\$VersionRoot.*if \(\$PriorTarget\) \{ \$KeepVersions \+=.*\.prune-/);
   const scriptPath = join(mkdtempSync(join(tmpdir(), "rightrelease-ps-")), "install.ps1");
   writeFileSync(scriptPath, script);
   const escapedScriptPath = scriptPath.replaceAll("'", "''");

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { spawnSync } from "./background-process.mjs";
 
 const CHUNK_BYTES = 1024 * 1024;
 
@@ -62,6 +63,7 @@ export function installPortableDevelopment(descriptor, { root, platform = proces
       const entryDigest = hashFile(entrypoint);
       if (entryDigest !== hashFile(path.join(source, descriptor.entrypoint))) throw new Error("development entrypoint readback did not match source");
       if (backup) removeIfExists(backup);
+      emit("PRUNE", pruneDevelopmentVersions(installRoot, versionRoot, { platform }));
       emit("SUCCEEDED", { installRoot, current, versionRoot, digest, entrypoint: descriptor.entrypoint, entrypointDigest: entryDigest });
       return { installRoot, current, versionRoot, digest, entrypoint: path.join(current, descriptor.entrypoint), entrypointDigest: entryDigest };
     } catch (error) {
@@ -73,6 +75,60 @@ export function installPortableDevelopment(descriptor, { root, platform = proces
     emit("FAILED", { installRoot: descriptor?.installRoot, versionRoot, digest, message: error?.message ?? String(error) });
     throw error;
   }
+}
+
+/**
+ * Development installs keep only the active version: dev builds are rebuilt from source, so there is
+ * no rollback copy. A version a running process still uses is skipped and removed by the next
+ * install. Never throws: a prune problem must not fail an install that already activated.
+ */
+export function pruneDevelopmentVersions(installRoot, keepRoot, { platform = process.platform, runningExecutables = null } = {}) {
+  const versionsRoot = path.join(installRoot, "versions");
+  const removed = []; const skipped = []; let reclaimedBytes = 0;
+  let running = null;
+  const inUse = (dir) => {
+    if (platform === "win32") return false; // Windows: a loaded image or DLL makes the rename below fail.
+    running ??= runningExecutables ?? listRunningExecutables();
+    return running.some((exe) => isWithin(dir, exe, platform));
+  };
+  const candidates = [];
+  for (const [dir, pattern] of [[versionsRoot, /^(dev-[0-9a-f]+|\.stage-.+|\.prune-.+)$/], [installRoot, /^\.(current-backup|prune)-.+$/]]) {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { continue; }
+    for (const name of names) if (pattern.test(name)) candidates.push(path.join(dir, name));
+  }
+  for (const candidate of candidates) {
+    if (samePath(candidate, keepRoot, platform)) continue;
+    if (path.basename(candidate).includes(`-${process.pid}-`)) continue; // this process's own stage/backup
+    try {
+      if (inUse(candidate)) { skipped.push({ path: candidate, reason: "in-use" }); continue; }
+      const bytes = treeBytes(candidate);
+      // Rename first: on Windows this fails while any file inside is loaded, so a running version is skipped whole.
+      const doomed = path.basename(candidate).startsWith(".prune-") ? candidate : path.join(path.dirname(candidate), `.prune-${randomSuffix()}`);
+      if (doomed !== candidate) fs.renameSync(candidate, doomed);
+      fs.rmSync(doomed, { recursive: true, force: true });
+      removed.push(candidate); reclaimedBytes += bytes;
+    } catch (error) {
+      skipped.push({ path: candidate, reason: error?.code ?? error?.message ?? String(error) });
+    }
+  }
+  return { kept: keepRoot, removed: removed.length, skipped, reclaimedBytes };
+}
+
+function listRunningExecutables() {
+  const result = spawnSync("ps", ["-axo", "comm="], { encoding: "utf8" });
+  return result.status === 0 ? result.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => path.isAbsolute(line)) : [];
+}
+
+function treeBytes(target) {
+  let total = 0;
+  const stat = fs.lstatSync(target);
+  if (!stat.isDirectory()) return stat.size;
+  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    const child = path.join(target, entry.name);
+    total += entry.isDirectory() && !entry.isSymbolicLink() ? treeBytes(child) : fs.lstatSync(child).size;
+  }
+  return total;
 }
 
 function validateDescriptor(descriptor, root, platform) {

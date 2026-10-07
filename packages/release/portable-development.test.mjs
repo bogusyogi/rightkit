@@ -110,3 +110,37 @@ test("rejects filesystem roots and absolute payload paths", (t) => {
   assert.throws(() => installPortableDevelopment({ ...fx.descriptor, installRoot: path.parse(fx.root).root }, { root: fx.root }), /non-filesystem-root/);
   assert.throws(() => installPortableDevelopment({ ...fx.descriptor, entrypoint: path.join(fx.source, "coderight.exe") }, { root: fx.root }), /contained relative path/);
 });
+
+test("keeps only the active development version and sweeps stage, backup and prune leftovers", (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  let last;
+  for (let n = 1; n <= 5; n += 1) {
+    fs.writeFileSync(path.join(fx.source, "coderight.exe"), `dev-binary-${n}\n`);
+    last = installPortableDevelopment(fx.descriptor, { root: fx.root });
+  }
+  const versions = path.join(fx.installRoot, "versions");
+  assert.deepEqual(fs.readdirSync(versions), [path.basename(last.versionRoot)]);
+  fs.mkdirSync(path.join(versions, ".stage-1-old"));
+  fs.mkdirSync(path.join(versions, ".prune-old"));
+  fs.mkdirSync(path.join(fx.installRoot, ".current-backup-1-old"));
+  fs.writeFileSync(path.join(fx.source, "coderight.exe"), "dev-binary-6\n");
+  const sixth = installPortableDevelopment(fx.descriptor, { root: fx.root });
+  assert.deepEqual(fs.readdirSync(versions), [path.basename(sixth.versionRoot)]);
+  assert.deepEqual(fs.readdirSync(fx.installRoot).filter((name) => name.startsWith(".")), []);
+});
+
+test("a development version a running process uses survives until the next install", async (t) => {
+  const { pruneDevelopmentVersions } = await import("./portable-development.mjs");
+  const fx = fixture(); t.after(fx.cleanup);
+  const versions = path.join(fx.installRoot, "versions");
+  const busy = path.join(versions, "dev-aaaa"); const keep = path.join(versions, "dev-bbbb");
+  for (const dir of [busy, keep]) { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "coderight.exe"), "x"); }
+  let result = pruneDevelopmentVersions(fx.installRoot, keep, { platform: "darwin", runningExecutables: [path.join(busy, "coderight.exe")] });
+  assert.equal(result.removed, 0);
+  assert.deepEqual(result.skipped.map((s) => s.reason), ["in-use"]);
+  assert.ok(fs.existsSync(busy));
+  result = pruneDevelopmentVersions(fx.installRoot, keep, { platform: "darwin", runningExecutables: [] });
+  assert.equal(result.removed, 1);
+  assert.ok(result.reclaimedBytes > 0);
+  assert.deepEqual(fs.readdirSync(versions), ["dev-bbbb"]);
+});

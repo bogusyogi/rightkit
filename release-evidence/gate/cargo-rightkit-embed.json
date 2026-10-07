@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-embed",
+  "version": "0.2.0",
+  "commit": "35d2e18a24442d42eeecb8168c3e954a8d675a42",
+  "artifactSha256": "af18e92f6df323b2cb1b5e12ef8dae6095081f70486fd16e70ab633a45f898b3",
+  "runs": [
+    {
+      "host": {
+        "os": "win32"
+      },
+      "commit": "35d2e18a24442d42eeecb8168c3e954a8d675a42",
+      "command": "rightkit cargo test -p rightkit-embed --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T09:13:31.943371Z",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "35d2e18a24442d42eeecb8168c3e954a8d675a42",
+      "command": "rightkit cargo test -p rightkit-embed --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T09:21:53.717401Z",
+      "passed": 4,
+      "failed": 0
+    }
+  ]
+}

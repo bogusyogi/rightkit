@@ -12,7 +12,13 @@ export const BUILD_ALLOCATABLE_MEMORY_FRACTION = 0.8;
 /** Target-cache GC keeps at least this share of the managed volume free. */
 export const DISK_FREE_FLOOR_FRACTION = 0.1;
 /** sccache may use at most this share of the managed volume. */
-export const COMPILER_CACHE_VOLUME_FRACTION = 0.1;
+export const COMPILER_CACHE_VOLUME_FRACTION = 0.05;
+/** Build outputs may use at most this share of the managed volume. */
+export const TARGET_CACHE_VOLUME_FRACTION = 0.15;
+/** Absolute ceilings: build storage is a fixed budget, never "the rest of the disk". GC evicts
+ * idle generations past the cap before admitting builds. Measure from receipts before raising. */
+export const TARGET_CACHE_MAX_BYTES = 400 * GiB;
+export const COMPILER_CACHE_MAX_BYTES = 60 * GiB;
 
 /** Bounds regenerated from the host on every bootstrap; never carried forward as operator tuning. */
 export const HOST_DERIVED_BOUNDS = Object.freeze(['compileBudgetUnits', 'buildCostUnits', 'buildConcurrency', 'targetCacheCapBytes', 'gcFreeFloorBytes']);
@@ -48,9 +54,9 @@ export function deriveHostSizing({ cpus = cpuCount(), totalMemoryBytes = totalme
     buildCostUnits,
     buildConcurrency: Math.max(1, Math.floor(compileBudgetUnits / buildCostUnits)),
     capacityBytes,
-    targetCacheCapBytes: capacityBytes,
+    targetCacheCapBytes: Math.min(capacityBytes, TARGET_CACHE_MAX_BYTES, Math.floor(managedVolumeBytes * TARGET_CACHE_VOLUME_FRACTION)),
     gcFreeFloorBytes,
-    compilerCacheMaxBytes: Math.floor(managedVolumeBytes * COMPILER_CACHE_VOLUME_FRACTION)
+    compilerCacheMaxBytes: Math.min(COMPILER_CACHE_MAX_BYTES, Math.floor(managedVolumeBytes * COMPILER_CACHE_VOLUME_FRACTION))
   });
 }
 

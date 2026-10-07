@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "cargo",
+  "name": "rightkit-settings",
+  "version": "0.1.0",
+  "commit": "89cf0b68667c375a78badf78b40137639a8986c1",
+  "artifactSha256": "153fbdb71ceefdb95ff27515a9365571b7649777c5ff287758622347d7139598",
+  "runs": [
+    {
+      "host": {
+        "os": "win32"
+      },
+      "commit": "89cf0b68667c375a78badf78b40137639a8986c1",
+      "command": "rightkit cargo test -p rightkit-settings --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T08:40:16.321718Z",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "host": {
+        "os": "darwin"
+      },
+      "commit": "89cf0b68667c375a78badf78b40137639a8986c1",
+      "command": "rightkit cargo test -p rightkit-settings --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
+      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
+      "timestamp": "2026-10-07T08:43:52.014276Z",
+      "passed": 8,
+      "failed": 0
+    }
+  ]
+}
