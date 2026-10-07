@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qts"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/adrdsouza/claude"
@@ -44,7 +44,7 @@ rand = "0.10"
 hound = "3.5.1"
 rustfft = "6.4.1"
 prost = "0.14"
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "tracing", "load-dynamic", "api-24"] }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "tracing", "load-dynamic", "api-24"] }
 
 
 [build-dependencies]

@@ -201,6 +201,41 @@ fn tiny_model_runs_on_coreml_and_directml_is_refused_on_macos() {
 }
 
 #[test]
+fn platform_accelerator_is_coreml_and_cpu_fallback_is_reported() {
+    setup();
+    assert_eq!(
+        ExecutionProvider::platform_accelerator(),
+        ExecutionProvider::CoreMl
+    );
+    let accelerated = SessionOptions::new(ExecutionProvider::platform_accelerator())
+        .with_cpu_fallback(true)
+        .build_from_memory_reported(&add_model())
+        .expect("coreml session");
+    assert_eq!(accelerated.provider, ExecutionProvider::CoreMl);
+    assert!(accelerated.fallback.is_none());
+
+    // DirectML cannot exist on macOS: with fallback the session lands on CPU,
+    // says why, and still computes the right answer.
+    let mut fell_back = SessionOptions::new(ExecutionProvider::DirectMl)
+        .with_cpu_fallback(true)
+        .build_from_memory_reported(&add_model())
+        .expect("cpu fallback session");
+    assert_eq!(fell_back.provider, ExecutionProvider::Cpu);
+    let reason = fell_back.fallback.as_deref().expect("fallback reason");
+    assert!(reason.starts_with("DirectMl -> Cpu"), "{reason}");
+    let a = Tensor::from_array(([4usize], vec![1.0f32, 2.0, 3.0, 4.0])).unwrap();
+    let b = Tensor::from_array(([4usize], vec![10.0f32, 20.0, 30.0, 40.0])).unwrap();
+    let out = fell_back
+        .session
+        .run(ort::inputs!["x" => a, "y" => b])
+        .unwrap();
+    assert_eq!(
+        out["z"].try_extract_tensor::<f32>().unwrap().1,
+        &[11.0f32, 22.0, 33.0, 44.0]
+    );
+}
+
+#[test]
 fn model_file_path_and_missing_file_are_distinguished() {
     setup();
     let path = std::env::temp_dir().join(format!("rightkit-ort-add-{}.onnx", std::process::id()));

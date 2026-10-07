@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ocr"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 publish = false
@@ -20,8 +20,8 @@ include = [
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "api-24", "load-dynamic"] }
-rightkit-ort = { version = "=0.1.0", path = "../rightkit-ort" }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "api-24", "load-dynamic"] }
+rightkit-ort = { version = "=0.1.1", path = "../rightkit-ort" }
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -38,7 +38,7 @@ objc2-vision = { version = "0.3", default-features = false, features = ["std", "
 objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 
 [target.'cfg(windows)'.dependencies]
-ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "api-24", "load-dynamic", "directml"] }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "api-24", "load-dynamic", "directml"] }
 windows = { version = "0.62", features = ["Foundation", "Foundation_Collections", "Globalization", "Graphics_Imaging", "Media_Ocr", "Security_Cryptography", "Storage_Streams"] }
 
 [dev-dependencies]

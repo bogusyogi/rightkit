@@ -846,7 +846,7 @@ impl Vocoder {
         provider_label: &'static str,
         supported_platforms: &'static str,
     ) -> Result<(), Qwen3TtsError> {
-        if !provider.supported_by_platform() {
+        if !ep_supported_by_platform(provider.name()) {
             if required {
                 return Err(Qwen3TtsError::InvalidInput(format!(
                     "QWEN3_TTS_VOCODER_EP={provider_token} is only supported on {supported_platforms}"
@@ -1108,6 +1108,74 @@ impl Vocoder {
             "XNNPACK",
             "supported Arm or x86_64 platforms",
         )
+    }
+}
+
+/// Platform support per execution provider. ort rc.13 removed
+/// `ExecutionProvider::supported_by_platform` (EPs are now feature-gated
+/// instead); these rules are carried over verbatim from ort rc.12 so an EP
+/// enabled on a host that cannot run it still fails with the same message.
+#[allow(dead_code)]
+fn ep_supported_by_platform(name: &str) -> bool {
+    match name {
+        "ACLExecutionProvider" => cfg!(target_arch = "aarch64"),
+        "ArmNNExecutionProvider" => cfg!(all(
+            target_arch = "aarch64",
+            any(target_os = "linux", target_os = "android")
+        )),
+        "AzureExecutionProvider" => cfg!(any(
+            target_os = "linux",
+            target_os = "windows",
+            target_os = "android"
+        )),
+        "CANNExecutionProvider" => cfg!(all(
+            target_os = "linux",
+            any(target_arch = "aarch64", target_arch = "x86_64")
+        )),
+        "RknpuExecutionProvider" => cfg!(all(target_arch = "aarch64", target_os = "linux")),
+        "CoreMLExecutionProvider" => cfg!(target_vendor = "apple"),
+        "CUDAExecutionProvider" | "TensorrtExecutionProvider" => cfg!(any(
+            all(
+                target_os = "linux",
+                any(target_arch = "aarch64", target_arch = "x86_64")
+            ),
+            all(target_os = "windows", target_arch = "x86_64")
+        )),
+        "DmlExecutionProvider" => cfg!(target_os = "windows"),
+        "MIGraphXExecutionProvider" | "VitisAIExecutionProvider" => cfg!(all(
+            target_arch = "x86_64",
+            any(target_os = "linux", target_os = "windows")
+        )),
+        "NnapiExecutionProvider" => cfg!(target_os = "android"),
+        "NvTensorRTRTXExecutionProvider" => {
+            cfg!(all(target_os = "windows", target_arch = "x86_64"))
+        }
+        "DnnlExecutionProvider" | "OpenVINOExecutionProvider" => cfg!(all(
+            target_arch = "x86_64",
+            any(target_os = "windows", target_os = "linux")
+        )),
+        "QNNExecutionProvider" => cfg!(all(
+            target_arch = "aarch64",
+            any(
+                target_os = "windows",
+                target_os = "linux",
+                target_os = "android"
+            )
+        )),
+        "WebGpuExecutionProvider" => cfg!(any(
+            target_os = "windows",
+            target_os = "linux",
+            target_arch = "wasm32"
+        )),
+        "XnnpackExecutionProvider" => cfg!(any(
+            target_arch = "aarch64",
+            all(
+                target_arch = "arm",
+                any(target_os = "linux", target_os = "android")
+            ),
+            target_arch = "x86_64"
+        )),
+        _ => true,
     }
 }
 
