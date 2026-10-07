@@ -5,13 +5,77 @@
       "capability": "browser-automation",
       "summary": "Chromium over CDP with admission, SSRF policy, profiles and owned processes",
       "fingerprints": [
-        { "id": "browser.cargo.chromiumoxide", "type": "dependency", "ecosystem": "cargo", "name": "chromiumoxide" },
-        { "id": "browser.cargo.headless_chrome", "type": "dependency", "ecosystem": "cargo", "name": "headless_chrome" },
-        { "id": "browser.cargo.fantoccini", "type": "dependency", "ecosystem": "cargo", "name": "fantoccini" },
-        { "id": "browser.cargo.thirtyfour", "type": "dependency", "ecosystem": "cargo", "name": "thirtyfour" },
-        { "id": "browser.npm.puppeteer", "type": "dependency", "ecosystem": "npm", "name": "puppeteer" },
-        { "id": "browser.npm.puppeteer-core", "type": "dependency", "ecosystem": "npm", "name": "puppeteer-core" },
-        { "id": "browser.npm.playwright-core", "type": "dependency", "ecosystem": "npm", "name": "playwright-core" }
+        {
+          "id": "browser.cargo.chromiumoxide",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "chromiumoxide"
+        },
+        {
+          "id": "browser.cargo.headless_chrome",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "headless_chrome"
+        },
+        {
+          "id": "browser.cargo.fantoccini",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "fantoccini"
+        },
+        {
+          "id": "browser.cargo.thirtyfour",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "thirtyfour"
+        },
+        {
+          "id": "browser.npm.puppeteer",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "puppeteer"
+        },
+        {
+          "id": "browser.npm.puppeteer-core",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "puppeteer-core"
+        },
+        {
+          "id": "browser.npm.playwright-core",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "playwright-core"
+        },
+        {
+          "id": "browser.npm.playwright",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "playwright"
+        },
+        {
+          "id": "browser.npm.playwright-test",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@playwright/test"
+        },
+        {
+          "id": "browser.npm.selenium-webdriver",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "selenium-webdriver"
+        },
+        {
+          "id": "browser.cargo.webdriver",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "webdriver"
+        },
+        {
+          "id": "browser.source.chrome-discovery",
+          "type": "source",
+          "pattern": "Google[\\\\/]+Chrome[\\\\/]+Application[\\\\/]+chrome\\.exe|Google Chrome\\.app/Contents/MacOS/Google Chrome"
+        }
       ]
     }
   ]

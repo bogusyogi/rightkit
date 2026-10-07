@@ -1,0 +1,62 @@
+{
+  "package": "rightkit-control",
+  "capabilities": [
+    {
+      "capability": "desktop-control",
+      "summary": "Background native input, accessibility reads and WebDriver bridge for driving desktop apps without stealing focus",
+      "fingerprints": [
+        {
+          "id": "control.cargo.enigo",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "enigo"
+        },
+        {
+          "id": "control.cargo.rdev",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "rdev"
+        },
+        {
+          "id": "control.cargo.uiautomation",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "uiautomation"
+        },
+        {
+          "id": "control.cargo.accessibility-sys",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "accessibility-sys"
+        },
+        {
+          "id": "control.npm.nut-js",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "@nut-tree/nut-js"
+        },
+        {
+          "id": "control.npm.robotjs",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "robotjs"
+        },
+        {
+          "id": "control.api.cgevent-post",
+          "type": "source",
+          "pattern": "\\bCGEventPost(ToPid)?\\s*\\("
+        },
+        {
+          "id": "control.api.ax-element",
+          "type": "source",
+          "pattern": "\\bAXUIElementCreate(Application|SystemWide)\\s*\\("
+        },
+        {
+          "id": "control.api.sendinput",
+          "type": "source",
+          "pattern": "\\bSendInput\\s*\\("
+        }
+      ]
+    }
+  ]
+}

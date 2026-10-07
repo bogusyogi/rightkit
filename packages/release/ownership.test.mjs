@@ -24,6 +24,10 @@ const SAMPLES = {
   "sandbox.api.seatbelt": "let rc = unsafe { sandbox_init(profile.as_ptr(), 0, &mut err) };",
   "process.api.kill-on-job-close": "info.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;",
   "ort.env.dylib": 'std::env::var("ORT_DYLIB_PATH")',
+  "browser.source.chrome-discovery": 'let path = r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";',
+  "control.api.cgevent-post": "unsafe { CGEventPostToPid(pid, event) };",
+  "control.api.ax-element": "let app = unsafe { AXUIElementCreateApplication(pid) };",
+  "control.api.sendinput": "let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };",
   "mcp.protocol.initialized": 'self.notify("notifications/initialized", json!({})).await?;',
 };
 const NEUTRAL = "let greeting = 'hello';";
