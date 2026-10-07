@@ -22,6 +22,7 @@ const commands = new Map([
   ["mirror-root-artifact", "mirror-root-artifact.mjs"],
   ["github", "github-release.mjs"],
   ["cargo-target", "cargo-target.mjs"],
+  ["ownership", "ownership-command.mjs"],
 ]);
 
 const args = process.argv.slice(2);
@@ -169,6 +170,7 @@ Commands:
   doctor [--platform mac|win]                        Inspect one app's release config
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories
+  ownership [--app <dir>] [--json]                   Fail on app copies of RightKit-owned capabilities
   cache status [--json]                              Inspect the shared local build cache
   cache prune [--dry-run|--apply] [--json]           Plan or apply safe shared-target pruning
   cache migrate --config <file> [--dry-run|--apply] [--json]

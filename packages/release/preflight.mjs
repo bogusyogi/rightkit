@@ -20,8 +20,10 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
+import { checkApp, MANIFEST_FILE } from "./ownership.mjs";
 
 export const PREFLIGHT_OK = "ok";
 export const PREFLIGHT_WARN = "warn";
@@ -176,6 +178,7 @@ export function collectPreflight({
   env = process.env,
   versionProbe = commandVersion,
   isBrokerManagedHost = brokerManagedHost,
+  ownership = true,
 } = {}) {
   const checks = [];
   const windows = platform === "win" || platform === "win32";
@@ -287,7 +290,33 @@ export function collectPreflight({
     }
   }
 
+  if (repoRoot && ownership) {
+    // An app living inside the RightKit workspace repository is scoped to its own directory.
+    const workspace = existsSync(path.join(repoRoot, "tools", "rightkit", "packages", "release"));
+    checks.push(ownershipCheck(workspace && appRoot ? appRoot : repoRoot));
+  }
+
   return checks;
+}
+
+/** Release-blocking: the app keeps no unexcepted copy of a RightKit-owned capability. */
+export function ownershipCheck(repoRoot, manifestPath = path.join(path.dirname(fileURLToPath(import.meta.url)), MANIFEST_FILE)) {
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    return fail("ownership", `RightKit ownership manifest unreadable: ${error.message}`, "reinstall @rightkit/release");
+  }
+  const result = checkApp(repoRoot, manifest);
+  if (result.ok) {
+    const excepted = result.covered.length;
+    return ok("ownership", excepted ? `no unexcepted copies (${excepted} findings under dated exceptions)` : "no copies of RightKit-owned capabilities");
+  }
+  const first = result.violations[0];
+  const detail = first
+    ? `${result.violations.length} own cop${result.violations.length === 1 ? "y" : "ies"} of RightKit capabilities, e.g. ${first.fingerprint} at ${first.file}${first.line ? `:${first.line}` : ""}`
+    : result.problems[0];
+  return fail("ownership", detail, "run: right-release ownership (move to RightKit, or add a reviewed, dated exception)");
 }
 
 export function formatPreflight(checks) {

@@ -1,0 +1,22 @@
+{
+  "package": "rightkit-oauth",
+  "capabilities": [
+    {
+      "capability": "oauth-sign-in",
+      "summary": "OAuth sign-in: loopback PKCE, device flow, provider endpoints, refresh",
+      "fingerprints": [
+        { "id": "oauth.cargo.oauth2", "type": "dependency", "ecosystem": "cargo", "name": "oauth2" },
+        { "id": "oauth.cargo.openidconnect", "type": "dependency", "ecosystem": "cargo", "name": "openidconnect" },
+        { "id": "oauth.cargo.yup-oauth2", "type": "dependency", "ecosystem": "cargo", "name": "yup-oauth2" },
+        { "id": "oauth.npm.simple-oauth2", "type": "dependency", "ecosystem": "npm", "name": "simple-oauth2" },
+        { "id": "oauth.npm.oauth4webapi", "type": "dependency", "ecosystem": "npm", "name": "oauth4webapi" },
+        { "id": "oauth.endpoint.github", "type": "source", "pattern": "github\\.com/login/(oauth/(authorize|access_token)|device/code)" },
+        { "id": "oauth.endpoint.google", "type": "source", "pattern": "accounts\\.google\\.com/o/oauth2|oauth2\\.googleapis\\.com/(token|device/code)" },
+        { "id": "oauth.endpoint.openai", "type": "source", "pattern": "auth\\.openai\\.com/oauth/(authorize|token)" },
+        { "id": "oauth.endpoint.apple", "type": "source", "pattern": "appleid\\.apple\\.com/auth/(authorize|token)" },
+        { "id": "oauth.endpoint.cloudflare", "type": "source", "pattern": "dash\\.cloudflare\\.com/oauth2/(auth|token)" },
+        { "id": "oauth.device-grant", "type": "source", "pattern": "urn:ietf:params:oauth:grant-type:device_code" }
+      ]
+    }
+  ]
+}

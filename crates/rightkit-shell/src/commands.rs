@@ -494,9 +494,7 @@ pub fn rk_shell_stream_grant(
     Ok(json!({"id": id, "url": url}))
 }
 
-fn recovery_of(
-    state: &ShellState,
-) -> Result<&crate::recovery::RecoveryStore, ShellError> {
+fn recovery_of(state: &ShellState) -> Result<&crate::recovery::RecoveryStore, ShellError> {
     state
         .recovery
         .as_ref()

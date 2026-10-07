@@ -1,0 +1,17 @@
+{
+  "package": "rightkit-shell",
+  "capabilities": [
+    {
+      "capability": "desktop-shell",
+      "summary": "Tauri shell: tray, autostart, deep links, single instance, window state, notifications",
+      "fingerprints": [
+        { "id": "shell.cargo.tauri-plugin-autostart", "type": "dependency", "ecosystem": "cargo", "name": "tauri-plugin-autostart" },
+        { "id": "shell.cargo.tauri-plugin-deep-link", "type": "dependency", "ecosystem": "cargo", "name": "tauri-plugin-deep-link" },
+        { "id": "shell.cargo.tauri-plugin-single-instance", "type": "dependency", "ecosystem": "cargo", "name": "tauri-plugin-single-instance" },
+        { "id": "shell.cargo.tauri-plugin-window-state", "type": "dependency", "ecosystem": "cargo", "name": "tauri-plugin-window-state" },
+        { "id": "shell.cargo.tauri-plugin-notification", "type": "dependency", "ecosystem": "cargo", "name": "tauri-plugin-notification" },
+        { "id": "shell.cargo.auto-launch", "type": "dependency", "ecosystem": "cargo", "name": "auto-launch" }
+      ]
+    }
+  ]
+}

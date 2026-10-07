@@ -1,0 +1,14 @@
+{
+  "package": "rightkit-watch",
+  "capabilities": [
+    {
+      "capability": "file-watching",
+      "summary": "Coalesced, ignore-aware file watching with rescan recovery",
+      "fingerprints": [
+        { "id": "watch.cargo.notify", "type": "dependency", "ecosystem": "cargo", "name": "notify" },
+        { "id": "watch.cargo.notify-debouncer-full", "type": "dependency", "ecosystem": "cargo", "name": "notify-debouncer-full" },
+        { "id": "watch.npm.chokidar", "type": "dependency", "ecosystem": "npm", "name": "chokidar" }
+      ]
+    }
+  ]
+}

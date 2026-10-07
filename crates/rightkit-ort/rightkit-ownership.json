@@ -1,0 +1,28 @@
+{
+  "package": "rightkit-ort",
+  "capabilities": [
+    {
+      "capability": "onnx-runtime",
+      "summary": "ONNX Runtime selection, execution providers, dylib resolution and global pools",
+      "fingerprints": [
+        {
+          "id": "ort.cargo.ort",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "ort"
+        },
+        {
+          "id": "ort.npm.onnxruntime-node",
+          "type": "dependency",
+          "ecosystem": "npm",
+          "name": "onnxruntime-node"
+        },
+        {
+          "id": "ort.env.dylib",
+          "type": "source",
+          "pattern": "ORT_DYLIB_PATH"
+        }
+      ]
+    }
+  ]
+}

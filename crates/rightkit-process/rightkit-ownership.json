@@ -1,0 +1,14 @@
+{
+  "package": "rightkit-process",
+  "capabilities": [
+    {
+      "capability": "owned-processes",
+      "summary": "Child processes owned as a tree: process groups / kill-on-close jobs, hidden windows",
+      "fingerprints": [
+        { "id": "process.cargo.process-wrap", "type": "dependency", "ecosystem": "cargo", "name": "process-wrap" },
+        { "id": "process.cargo.command-group", "type": "dependency", "ecosystem": "cargo", "name": "command-group" },
+        { "id": "process.api.kill-on-job-close", "type": "source", "pattern": "JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE" }
+      ]
+    }
+  ]
+}

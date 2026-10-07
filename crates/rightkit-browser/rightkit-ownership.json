@@ -1,0 +1,18 @@
+{
+  "package": "rightkit-browser",
+  "capabilities": [
+    {
+      "capability": "browser-automation",
+      "summary": "Chromium over CDP with admission, SSRF policy, profiles and owned processes",
+      "fingerprints": [
+        { "id": "browser.cargo.chromiumoxide", "type": "dependency", "ecosystem": "cargo", "name": "chromiumoxide" },
+        { "id": "browser.cargo.headless_chrome", "type": "dependency", "ecosystem": "cargo", "name": "headless_chrome" },
+        { "id": "browser.cargo.fantoccini", "type": "dependency", "ecosystem": "cargo", "name": "fantoccini" },
+        { "id": "browser.cargo.thirtyfour", "type": "dependency", "ecosystem": "cargo", "name": "thirtyfour" },
+        { "id": "browser.npm.puppeteer", "type": "dependency", "ecosystem": "npm", "name": "puppeteer" },
+        { "id": "browser.npm.puppeteer-core", "type": "dependency", "ecosystem": "npm", "name": "puppeteer-core" },
+        { "id": "browser.npm.playwright-core", "type": "dependency", "ecosystem": "npm", "name": "playwright-core" }
+      ]
+    }
+  ]
+}

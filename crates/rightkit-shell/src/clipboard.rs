@@ -295,7 +295,9 @@ mod imp {
         let mut out = ClipboardContent::default();
         if let Some(raw) = get(CF_UNICODETEXT) {
             let u: Vec<u16> = raw
-                .as_chunks::<2>().0.iter()
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|p| u16::from_le_bytes([p[0], p[1]]))
                 .take_while(|u| *u != 0)
                 .collect();

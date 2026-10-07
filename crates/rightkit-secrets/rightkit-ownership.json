@@ -1,0 +1,16 @@
+{
+  "package": "rightkit-secrets",
+  "capabilities": [
+    {
+      "capability": "os-credential-store",
+      "summary": "Keychain / Credential Manager access with per-app namespaces and test guards",
+      "fingerprints": [
+        { "id": "secrets.cargo.keyring", "type": "dependency", "ecosystem": "cargo", "name": "keyring" },
+        { "id": "secrets.cargo.security-framework", "type": "dependency", "ecosystem": "cargo", "name": "security-framework" },
+        { "id": "secrets.npm.keytar", "type": "dependency", "ecosystem": "npm", "name": "keytar" },
+        { "id": "secrets.api.wincred", "type": "source", "pattern": "\\bCred(Write|Read|Delete|Enumerate)W?\\b" },
+        { "id": "secrets.api.secitem", "type": "source", "pattern": "\\bSecItem(Add|CopyMatching|Update|Delete)\\b" }
+      ]
+    }
+  ]
+}

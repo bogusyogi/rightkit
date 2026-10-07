@@ -1,0 +1,17 @@
+{
+  "package": "rightkit-embed",
+  "capabilities": [
+    {
+      "capability": "embeddings",
+      "summary": "Local text embeddings",
+      "fingerprints": [
+        {
+          "id": "embed.cargo.fastembed",
+          "type": "dependency",
+          "ecosystem": "cargo",
+          "name": "fastembed"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "package": "rightkit-db",
+  "capabilities": [
+    {
+      "capability": "sqlite-storage",
+      "summary": "SQLite open profiles, WAL with verified fallback, keys, migrations, backup, recovery",
+      "fingerprints": [
+        { "id": "db.cargo.rusqlite", "type": "dependency", "ecosystem": "cargo", "name": "rusqlite" },
+        { "id": "db.cargo.sqlx", "type": "dependency", "ecosystem": "cargo", "name": "sqlx" },
+        { "id": "db.npm.better-sqlite3", "type": "dependency", "ecosystem": "npm", "name": "better-sqlite3" }
+      ]
+    }
+  ]
+}

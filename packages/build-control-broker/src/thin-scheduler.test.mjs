@@ -201,3 +201,13 @@ test('same-workspace waits are attributed to workspace exclusion, not host memor
   assert.deepEqual(second.blockers(), [{ id: 'b-1', reason: 'workspace-exclusion' }]);
   first.release(); (await second.permit).release();
 });
+
+test('observe access never waits on or blocks a workspace writer', async () => {
+  const scheduler = new ThinScheduler();
+  const build = await scheduler.acquire({ id: 'b', capability: BUILD, workspaceKey: 'ws' }).permit;
+  const observe = await scheduler.acquire({ id: 'o', capability: cap('ANALYSIS', 'observe'), workspaceKey: 'ws' }).permit;
+  build.release();
+  const writer = await scheduler.acquire({ id: 'w', capability: WRITE, workspaceKey: 'ws' }).permit;
+  assert.equal(typeof writer.release, 'function', 'a held observe permit does not block the next writer');
+  observe.release(); writer.release();
+});

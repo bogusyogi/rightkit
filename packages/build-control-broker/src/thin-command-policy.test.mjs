@@ -22,6 +22,7 @@ test('classifies canonical resource classes from one policy', () => {
 test('locked metadata is read-only while mutating variants take writer lock', () => {
   assert.equal(policy.classify('cargo', ['metadata', '--locked']).workspaceAccess, 'read');
   assert.equal(policy.classify('cargo', ['metadata']).workspaceAccess, 'write');
+  assert.equal(policy.classify('cargo', ['metadata', '--offline', '--no-deps', '--format-version', '1']).workspaceAccess, 'observe');
   assert.equal(policy.classify('cargo', ['fmt', '--check']).workspaceAccess, 'read');
   assert.equal(policy.classify('cargo', ['fmt']).workspaceAccess, 'write');
 });

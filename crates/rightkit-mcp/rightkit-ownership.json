@@ -1,0 +1,14 @@
+{
+  "package": "rightkit-mcp",
+  "capabilities": [
+    {
+      "capability": "mcp",
+      "summary": "MCP client/server transports, trust gate, server pool",
+      "fingerprints": [
+        { "id": "mcp.cargo.rmcp", "type": "dependency", "ecosystem": "cargo", "name": "rmcp" },
+        { "id": "mcp.npm.sdk", "type": "dependency", "ecosystem": "npm", "name": "@modelcontextprotocol/sdk" },
+        { "id": "mcp.protocol.initialized", "type": "source", "pattern": "[\"']notifications/initialized[\"']" }
+      ]
+    }
+  ]
+}

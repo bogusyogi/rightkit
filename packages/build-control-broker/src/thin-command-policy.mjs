@@ -19,6 +19,10 @@ const commandCapability = (lane, workspaceAccess, { compile = false, artifactWri
 
 const CONTROL = commandCapability('CONTROL', 'none');
 const ANALYSIS = commandCapability('ANALYSIS', 'read');
+// Workspace-scoped (managed env, so `target_directory` is right) but lock-free: `metadata --no-deps`
+// reads manifests only, never resolves or writes Cargo.lock, so it must not queue behind a
+// long-running build in the same workspace.
+const WORKSPACE_OBSERVE = commandCapability('ANALYSIS', 'observe');
 const WORKSPACE_WRITE = commandCapability('WORKSPACE_WRITE', 'write');
 const ARTIFACT_WRITE = commandCapability('WORKSPACE_WRITE', 'write', { artifactWrite: true });
 const BUILD = commandCapability('BUILD', 'write', { compile: true, artifactWrite: true, cache: true });
@@ -114,6 +118,7 @@ function assertNoArgvToken(command, argv) {
 function cargoCapability(command, argv) {
   if (DENIED_CARGO_COMMANDS.has(command)) throw new DeniedThinCommandError('cargo', command, DENIED_CARGO_COMMANDS.get(command));
   if (['--version', '-V', '-vV', 'version', 'help', 'locate-project', 'read-manifest'].includes(command)) return CONTROL;
+  if (command === 'metadata' && hasFlag(argv, '--no-deps')) return WORKSPACE_OBSERVE;
   if (command === 'metadata' || command === 'tree') return hasFlag(argv, '--locked') || hasFlag(argv, '--frozen') ? ANALYSIS : WORKSPACE_WRITE;
   if (command === 'search') return ANALYSIS;
   // Read-only queries: registry/manifest/config inspection, never a build or workspace write.

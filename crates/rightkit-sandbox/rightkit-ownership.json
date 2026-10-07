@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-sandbox",
+  "capabilities": [
+    {
+      "capability": "os-sandbox",
+      "summary": "Seatbelt / Landlock+seccomp / AppContainer confinement, PTY leases, resource authority",
+      "fingerprints": [
+        { "id": "sandbox.cargo.landlock", "type": "dependency", "ecosystem": "cargo", "name": "landlock" },
+        { "id": "sandbox.cargo.seccompiler", "type": "dependency", "ecosystem": "cargo", "name": "seccompiler" },
+        { "id": "sandbox.api.appcontainer", "type": "source", "pattern": "\\b(CreateAppContainerProfile|DeriveAppContainerSidFromAppContainerName|PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES)\\b" },
+        { "id": "sandbox.api.seatbelt", "type": "source", "pattern": "\\bsandbox_init\\b|sandbox-exec\\b" }
+      ]
+    }
+  ]
+}

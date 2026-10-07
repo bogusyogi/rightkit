@@ -5122,6 +5122,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tauri",
+ "tempfile",
  "webview2-com",
  "windows 0.62.2",
 ]

@@ -36,7 +36,8 @@ test('fingerprint census counts rebuilt vs untouched units without a JSON stream
     for (const unit of ['fresh-a', 'fresh-b', 'stale-c']) { await mkdir(join(dir, unit), { recursive: true }); await writeFile(join(dir, unit, 'lib'), 'h'); }
     const old = new Date(Date.now() - 60_000);
     for (const unit of ['fresh-a', 'fresh-b', 'stale-c']) await utimes(join(dir, unit, 'lib'), old, old);
-    const start = await fingerprintCensusStart(root, ['build', '--profile', 'release-iterate'], 'x86_64-pc-windows-msvc');
+    // Filesystem mtimes can trail Date.now() by a few ms (Windows); the census start sits between old and new.
+    const start = await fingerprintCensusStart(root, ['build', '--profile', 'release-iterate'], 'x86_64-pc-windows-msvc', { now: () => Date.now() - 30_000 });
     assert.equal(start.unitsAtStart, 3);
     await writeFile(join(dir, 'stale-c', 'lib'), 'h2');
     await mkdir(join(dir, 'new-d')); await writeFile(join(dir, 'new-d', 'lib'), 'h');
