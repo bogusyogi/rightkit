@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.5
+
+Update-stable styling seams; apps no longer need to reset package defaults.
+
+- `styles.css`: every rule is now wrapped in `:where(...)` (zero specificity), so any app
+  rule wins regardless of order. Includes `.rk-media-fallback` (`flex-direction: column`)
+  and the narrow-screen audio rules.
+- The `speedControl="menu"` `<select>` now has its own class `rk-media-speed-menu` and no
+  longer carries `rk-media-btn` / `rk-media-speed` (so `min-width: 30px`, `min-height: 30px`,
+  `min-width: 34px` and `font-size: 11px` no longer apply to it). Defaults: `font: inherit`,
+  `color: inherit`, no border/background, 6px radius, pointer cursor, `0 4px` padding.
+  `rk-media-speed` remains the cycle button.
+- Visible default changes (only for apps that override nothing): the speed select is
+  content-height instead of a 30px minimum, and its text inherits the controls font size
+  (12px) instead of 11px. Everything else renders as in 0.2.4.
+- README styling contract lists the media-player classes.
+
 ## 0.2.4 — 2026-10-07
 
 - `adapters.icons` overrides image-viewer glyphs, starting with the sibling pagers (`caretLeft` / `caretRight`); same semantics as MediaPlayer `icons` (`null` hides).

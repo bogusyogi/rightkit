@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   DEFAULT_MEDIA_PLAYER_LABELS,
@@ -95,6 +96,8 @@ describe("MediaPlayer props", () => {
   it("renders a speed menu with custom speeds", () => {
     const out = html({ speedControl: "menu", speeds: [1, 2, 3] });
     expect(out).toContain("<select");
+    expect(out).toContain('class="rk-media-speed-menu"');
+    expect(out).not.toMatch(/<select[^>]*rk-media-btn/);
     expect(out).toContain("3×");
     expect(out).not.toContain("0.5×");
   });
@@ -137,5 +140,25 @@ describe("entry split", () => {
     };
     expect(reach("index.ts")).toBe(false);
     expect(reach("image.ts")).toBe(true);
+  });
+});
+
+describe("styles.css specificity contract", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const selectors: string[] = [];
+  for (const m of css.matchAll(/(?:^|[};{])\s*([^{};@]+?)\s*\{/g)) selectors.push(m[1]!.trim());
+
+  it("wraps every default rule in :where() so app CSS always wins", () => {
+    expect(selectors.length).toBeGreaterThan(50);
+    const bare = selectors.filter((s) => !/^:where\(/.test(s));
+    expect(bare).toEqual([]);
+  });
+  it("keeps the fallback box and speed menu on their own classes", () => {
+    expect(selectors).toContain(":where(.rk-media-fallback)");
+    expect(selectors).toContain(":where(.rk-media-speed-menu)");
+    const menu = /:where\(\.rk-media-speed-menu\)\s*\{([^}]*)\}/.exec(css)![1]!;
+    expect(menu).toContain("font: inherit");
+    expect(menu).not.toMatch(/min-width|min-height|font-size/);
   });
 });

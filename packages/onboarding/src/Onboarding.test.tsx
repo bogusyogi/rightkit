@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Onboarding } from "./Onboarding.js";
-import type { ModelEntry, ModelsBackend, OnboardingProps, SettingsBackend } from "./types.js";
+import type { LegalAcceptanceRecord, LegalReceiptPort, ModelEntry, ModelsBackend, OnboardingProps, SettingsBackend } from "./types.js";
 
 afterEach(() => cleanup());
 
@@ -200,5 +200,106 @@ describe("other seams", () => {
     setup(accepted(), { steps: [step] });
     await screen.findByText("A body");
     expect(screen.queryByTestId("onboarding-titlebar")).toBeNull();
+  });
+});
+
+describe("legal stage drag region", () => {
+  const step = { id: "a", label: "A", title: "A", render: () => <p>A body</p> };
+  it("is not rendered on the legal gate unless legalDragRegion is set", async () => {
+    setup({}, { steps: [step], dragRegion: true });
+    await screen.findByTestId("onboarding-legal");
+    expect(screen.queryByTestId("onboarding-titlebar")).toBeNull();
+    cleanup();
+    setup({}, { steps: [step], dragRegion: true, legalDragRegion: true });
+    await screen.findByTestId("onboarding-legal");
+    expect(await screen.findByTestId("onboarding-titlebar")).toHaveAttribute("data-tauri-drag-region");
+    cleanup();
+    setup({}, { steps: [step], legalDragRegion: true });
+    await screen.findByTestId("onboarding-legal");
+    expect(screen.getByTestId("onboarding-titlebar")).toHaveAttribute("data-tauri-drag-region");
+  });
+  it("keeps a titlebar slot on the legal stage without a drag attribute", async () => {
+    setup({}, { steps: [step], titlebar: <span>Title</span>, dragRegion: true });
+    await screen.findByTestId("onboarding-legal");
+    const bar = screen.getByTestId("onboarding-titlebar");
+    expect(bar).toHaveTextContent("Title");
+    expect(bar).not.toHaveAttribute("data-tauri-drag-region");
+  });
+  it("still renders the drag region on the setup steps", async () => {
+    setup(accepted(), { steps: [step], dragRegion: true });
+    expect(await screen.findByTestId("onboarding-titlebar")).toHaveAttribute("data-tauri-drag-region");
+  });
+});
+
+describe("legalReceipt seam", () => {
+  const step = { id: "a", label: "A", title: "A", render: () => <p>A body</p> };
+  const rec = (version: string): LegalAcceptanceRecord => ({ version, documentsHash: "h", acceptedAt: "2026-01-01T00:00:00.000Z", eligibilityBasis: "individual" });
+  const port = (initial: LegalAcceptanceRecord | null, over: Partial<LegalReceiptPort> = {}) => {
+    let stored = initial;
+    const write = vi.fn(async (r: LegalAcceptanceRecord) => { stored = r; });
+    const p: LegalReceiptPort = { read: async () => stored, write, ...over };
+    return { p, write, get stored() { return stored; } };
+  };
+
+  it("skips the gate when the app receipt satisfies requiredVersion, even with empty settings", async () => {
+    const r = port(rec("v2"));
+    setup({}, { steps: [step], requiredVersion: "v2", legalReceipt: r.p });
+    expect(await screen.findByText("A body")).toBeInTheDocument();
+    expect(screen.queryByTestId("onboarding-legal")).toBeNull();
+  });
+  it("re-prompts when the app receipt is for another version, even if settings say accepted", async () => {
+    const r = port(rec("v1"));
+    setup(accepted({ legalAcceptance: record("v2") }), { steps: [step], requiredVersion: "v2", legalReceipt: r.p });
+    const gate = await screen.findByTestId("onboarding-legal");
+    expect(gate).toHaveAttribute("data-variant", "re-acceptance");
+  });
+  it("shows the first-run gate when the receipt is null, overriding accepted settings", async () => {
+    const r = port(null);
+    setup(accepted(), { steps: [step], legalReceipt: r.p });
+    expect(await screen.findByTestId("onboarding-legal")).toHaveAttribute("data-variant", "first-run");
+  });
+  it("treats a throwing read as no acceptance and an invalid record as no acceptance", async () => {
+    setup({}, { steps: [step], legalReceipt: { read: () => { throw new Error("boom"); }, write: vi.fn() } });
+    expect(await screen.findByTestId("onboarding-legal")).toBeInTheDocument();
+    cleanup();
+    setup({}, { steps: [step], legalReceipt: { read: async () => ({ version: "v" } as never), write: vi.fn() } });
+    expect(await screen.findByTestId("onboarding-legal")).toBeInTheDocument();
+  });
+  it("writes the record to the receipt on agree, then continues", async () => {
+    const user = userEvent.setup();
+    const r = port(null);
+    const { values } = setup({}, { steps: [step], requiredVersion: "v3", documentsHash: "sha-x", legalReceipt: r.p });
+    await agree(user);
+    expect(await screen.findByText("A body")).toBeInTheDocument();
+    expect(r.write).toHaveBeenCalledTimes(1);
+    expect(r.write.mock.calls[0]![0]).toMatchObject({ version: "v3", documentsHash: "sha-x", eligibilityBasis: "individual" });
+    expect(r.write.mock.calls[0]![0].acceptedAt).toMatch(/Z$/);
+    expect((values["onboarding.state"] as { legalAcceptance: LegalAcceptanceRecord }).legalAcceptance.version).toBe("v3");
+  });
+  it("does not accept when the receipt write fails; the error is shown", async () => {
+    const user = userEvent.setup();
+    const r = port(null, { write: async () => { throw new Error("disk full"); } });
+    const { values } = setup({}, { steps: [step], legalReceipt: r.p });
+    await agree(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/save your acceptance/i);
+    expect(screen.queryByText("A body")).toBeNull();
+    expect(values["onboarding.state"]).toBeUndefined();
+  });
+  it("maps a ScrapeRight-style four-field receipt both ways", async () => {
+    type Receipt = { legalAcceptanceVersion: string | null; legalAcceptedAt: string | null; legalEligibilityBasis: "individual" | "enterprise" | null; legalMaterialSha256: string | null };
+    let store: Receipt | null = { legalAcceptanceVersion: "2026-09", legalAcceptedAt: "2026-09-01T10:00:00.000Z", legalEligibilityBasis: "enterprise", legalMaterialSha256: "abc" };
+    const mapped: LegalReceiptPort = {
+      read: () => (store && store.legalAcceptanceVersion && store.legalAcceptedAt && store.legalEligibilityBasis ? { version: store.legalAcceptanceVersion, acceptedAt: store.legalAcceptedAt, eligibilityBasis: store.legalEligibilityBasis, documentsHash: store.legalMaterialSha256 ?? "" } : null),
+      write: (r) => { store = { legalAcceptanceVersion: r.version, legalAcceptedAt: r.acceptedAt, legalEligibilityBasis: r.eligibilityBasis, legalMaterialSha256: r.documentsHash }; },
+    };
+    setup({}, { steps: [step], requiredVersion: "2026-09", legalReceipt: mapped });
+    expect(await screen.findByText("A body")).toBeInTheDocument();
+    cleanup();
+    store = null;
+    const user = userEvent.setup();
+    setup({}, { steps: [step], requiredVersion: "2026-09", documentsHash: "abc", legalReceipt: mapped });
+    await agree(user);
+    await screen.findByText("A body");
+    expect(store).toMatchObject({ legalAcceptanceVersion: "2026-09", legalEligibilityBasis: "individual", legalMaterialSha256: "abc" });
   });
 });

@@ -87,6 +87,11 @@ only shared fallback is the suite accent `--rk-accent`; other app variables are 
 
 ### Styling contract (stable)
 
+Every default rule in `styles.css` is wrapped in `:where(...)`, so it has zero
+specificity: any app rule (a single class) overrides it without `!important` or resets,
+regardless of stylesheet order. Never rely on default metrics of one control being shared
+with another.
+
 These class names are public. Renames or removals happen only in a major version.
 
 `rk-iv`, `rk-iv-empty`, `rk-iv-toolbar`, `rk-iv-panels`, `rk-iv-bar`, `rk-iv-capsule`,
@@ -96,7 +101,11 @@ These class names are public. Renames or removals happen only in a major version
 `rk-iv-slider-value`, `rk-iv-range`, `rk-iv-stage`, `rk-iv-canvas-pos`, `rk-iv-canvas-box`,
 `rk-iv-canvas-inner`, `rk-iv-img`, `rk-iv-overlay`, `rk-iv-crop`, `rk-iv-badge`,
 `rk-iv-badge-left`, `rk-iv-badge-center`, `rk-iv-sibling`, `rk-iv-sibling-left`,
-`rk-iv-sibling-right`. State hook: `data-active` on `.rk-iv-btn`.
+`rk-iv-sibling-right`. Media player: `rk-media`, `rk-media-video`, `rk-media-audio`,
+`rk-media-controls`, `rk-media-btn` (icon buttons), `rk-media-speed` (the cycle button
+only), `rk-media-speed-menu` (the `speedControl="menu"` `<select>`; deliberately not an
+`rk-media-btn`), `rk-media-time`, `rk-media-seek`, `rk-media-vol`, `rk-media-info`,
+`rk-media-error`, `rk-media-fallback` (+ `-note`, `-actions`). State hook: `data-active` on `.rk-iv-btn`.
 
 Public tokens (custom properties; defaults equal 0.2.0 rendering):
 `--rk-iv-capsule-radius` (999px), `--rk-iv-capsule-border` (`1px solid <line>`),

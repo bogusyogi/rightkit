@@ -428,12 +428,24 @@ importers:
       '@rightkit/shell':
         specifier: workspace:*
         version: link:../shell
+      '@testing-library/jest-dom':
+        specifier: ^6.6.3
+        version: 6.9.1
+      '@testing-library/react':
+        specifier: ^16.1.0
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@testing-library/user-event':
+        specifier: ^14.5.2
+        version: 14.6.1(@testing-library/dom@10.4.1)
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17
       '@types/react-dom':
         specifier: ^19.0.0
         version: 19.2.3(@types/react@19.2.17)
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1(canvas@3.2.3)(supports-color@8.1.1)
       react:
         specifier: ^19.0.0
         version: 19.2.7
@@ -448,7 +460,7 @@ importers:
         version: 6.4.3(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
       vitest:
         specifier: ^2.1.8
-        version: 2.1.9(@types/node@24.13.3)(jsdom@26.1.0(canvas@3.2.3)(supports-color@8.1.1))(supports-color@8.1.1)
+        version: 2.1.9(@types/node@24.13.3)(jsdom@25.0.1(supports-color@8.1.1))(supports-color@8.1.1)
 
   packages/shell:
     devDependencies:

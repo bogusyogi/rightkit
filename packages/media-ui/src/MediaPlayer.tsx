@@ -771,7 +771,7 @@ export function MediaPlayer(props: MediaPlayerProps) {
           />
           {speedControl === "menu" ? (
             <select
-              className="rk-media-btn rk-media-speed rk-media-speed-menu"
+              className="rk-media-speed-menu"
               aria-label={`${labels.playbackSpeed} ${speed}×`}
               value={speed}
               onChange={(e) => chooseSpeed(Number(e.target.value))}

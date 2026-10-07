@@ -77,6 +77,17 @@ export interface LegalAcceptanceRecord {
   eligibilityBasis: EligibilityBasis;
 }
 
+/**
+ * App-owned persistence for the legal acceptance. Lets an app keep its existing receipt (any shape, any store) and map it
+ * to and from the package's record. When supplied it is the source of truth: `read()` is consulted on load and overrides
+ * whatever acceptance the settings backend holds (`null` means "not accepted", so the gate shows), and `write()` is
+ * awaited when the user agrees, before the settings backend is patched.
+ */
+export interface LegalReceiptPort {
+  read(): LegalAcceptanceRecord | null | Promise<LegalAcceptanceRecord | null>;
+  write(record: LegalAcceptanceRecord): void | Promise<void>;
+}
+
 export interface PersistedOnboardingState {
   version: 1;
   currentStep: number;
@@ -148,8 +159,12 @@ export interface OnboardingProps {
   allowSkip?: boolean;
   /** Optional titlebar content rendered in a strip along the top. */
   titlebar?: ReactNode;
-  /** Render a `data-tauri-drag-region` strip at the top. Default false. */
+  /** Render a `data-tauri-drag-region` strip at the top of the setup steps. Default false. Never applied to the legal stage; see `legalDragRegion`. */
   dragRegion?: boolean;
+  /** Also render the drag region on the legal stage (loading and gate). Default false: the legal gate has no strip. */
+  legalDragRegion?: boolean;
+  /** Read and write the legal acceptance in the app's own receipt instead of (overriding) the settings backend's copy. */
+  legalReceipt?: LegalReceiptPort;
 }
 
 export type { LegalGateDocument, LegalGateTheme };

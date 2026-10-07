@@ -27,7 +27,39 @@ import "@rightkit/onboarding/onboarding.css";
 | `modelsIntro` | App copy shown at the top of the models step. |
 | `allowSkip` | Show "Set up later" (default `true`). |
 | `titlebar` | Node rendered in a strip along the top. |
-| `dragRegion` | Add `data-tauri-drag-region` to that strip (default `false`; height `--rk-onboarding-titlebar-h`, default 32px). |
+| `dragRegion` | Add `data-tauri-drag-region` to that strip on the setup steps (default `false`; height `--rk-onboarding-titlebar-h`, default 32px). Never rendered on the legal stage. |
+| `legalDragRegion` | Also render the drag region on the legal stage (default `false`; the legal gate has no strip, and `titlebar` content alone never adds the attribute). |
+| `legalReceipt` | `{ read(), write(record) }`: the app's own acceptance receipt. See below. |
+
+## App-owned legal receipt
+
+An app that already persists its own acceptance receipt passes `legalReceipt` and keeps that store as the source of truth. `read()` runs on load (sync or async) and returns a `LegalAcceptanceRecord` (`version`, `documentsHash`, `acceptedAt`, `eligibilityBasis`) or `null`. Its result replaces any acceptance in the settings backend: `null`, a throw, or an incomplete record all mean "not accepted", so the gate shows. `requiredVersion` / `isAccepted` then evaluate against the app's receipt, and a receipt for another version re-prompts with `variant: "re-acceptance"`. On agree, `write(record)` is awaited first; if it throws, the gate shows its save-failure alert and nothing else is persisted.
+
+Mapping example for ScrapeRight's four-field `scraperight.legal-acceptance.v1` receipt (`legalAcceptanceVersion`, `legalAcceptedAt`, `legalEligibilityBasis`, `legalMaterialSha256`; pass `documentsHash={LEGAL_MATERIAL_SHA256}` so the hash round-trips):
+
+```ts
+const legalReceipt: LegalReceiptPort = {
+  read() {
+    const r = loadLegalAcceptance(); // reads localStorage "scraperight.legal-acceptance.v1"
+    if (!r?.legalAcceptanceVersion || !r.legalAcceptedAt || !r.legalEligibilityBasis) return null;
+    return {
+      version: r.legalAcceptanceVersion,
+      acceptedAt: r.legalAcceptedAt,
+      eligibilityBasis: r.legalEligibilityBasis, // "individual" | "enterprise"
+      documentsHash: r.legalMaterialSha256 ?? "",
+    };
+  },
+  write(rec) {
+    saveLegalAcceptance({
+      legalAcceptanceVersion: rec.version,
+      legalAcceptedAt: rec.acceptedAt, // UTC ISO, ends in Z
+      legalEligibilityBasis: rec.eligibilityBasis,
+      legalMaterialSha256: rec.documentsHash,
+    });
+  },
+};
+<Onboarding legalReceipt={legalReceipt} requiredVersion={REQUIRED_LEGAL_ACCEPTANCE_VERSION} documentsHash={LEGAL_MATERIAL_SHA256} ... />
+```
 
 ## Custom steps and readiness
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+### Added
+- `legalReceipt?: LegalReceiptPort` (`read()` / `write(record)`, sync or async): the app supplies and reads its own acceptance receipt (e.g. ScrapeRight's four-field v1), mapped to and from `LegalAcceptanceRecord`. The receipt overrides the settings backend's acceptance on load (`null`, a throw or an incomplete record mean not accepted), `requiredVersion` / `isAccepted` evaluate against it, and `write` is awaited on agree before settings are patched (a failed write shows the gate's save-failure alert and records nothing). README has the 4-field mapping.
+- `legalDragRegion` (default `false`).
+
+### Fixed
+- `dragRegion` no longer renders on the legal stage (loading and gate); the gate has no drag strip, as before 0.2.0. Set `legalDragRegion: true` to restore it there. `titlebar` content is unchanged. Setup steps are unaffected.
+
 ## 0.2.0
 
 ### Fixed
