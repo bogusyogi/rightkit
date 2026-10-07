@@ -3,12 +3,17 @@
 //! Probe: macOS `sysctl` + `system_profiler -json`; Windows kernel32 FFI for
 //! RAM and `reg.exe` display-class keys for GPUs; Linux `/proc/meminfo`;
 //! `nvidia-smi` for NVIDIA VRAM on Windows/Linux when present.
-//! `RIGHTKIT_HW_JSON` injects a profile (tests, or hardware of another host).
+//! `RIGHTKIT_HW_JSON` injects a profile (tests, or hardware of another host);
+//! apps with their own override pass its path or JSON to
+//! [`Hardware::probe_with`] (the crate never reads app env vars).
+//! [`ProfileAlias`] files a detected host under an app-recorded profile id.
 //!
 //! Fit: `Measured` only when a recorded measurement names this hardware
 //! profile; otherwise `Estimated` (requirement fits) or `Unsupported`
 //! (requirement exceeds the usable pool - not a permanent limit), and
 //! `Unqualified` when the model declares no requirement for this hardware class.
+//! Models with no local backend ([`Requirements::remote_only`]) are
+//! `RentalOnly` (unless measured on this profile) or `Api`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -25,7 +30,7 @@ pub struct Gpu {
     pub backends: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Hardware {
     pub os: String,
     pub arch: String,
@@ -38,6 +43,10 @@ pub struct Hardware {
     /// `detected` or `override`.
     #[serde(default)]
     pub source: String,
+    /// Further profile ids this host answers to (see [`ProfileAlias`]);
+    /// recorded measurements under any of them count as `Measured`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profile_aliases: Vec<String>,
 }
 
 /// What a model needs, per hardware class. Missing = not declared.
@@ -46,6 +55,51 @@ pub struct Requirements {
     pub memory_gb: Option<f64>,
     pub unified_memory_gb: Option<f64>,
     pub vram_gb: Option<f64>,
+    /// VRAM on a CUDA-capable (NVIDIA) GPU; preferred over `vram_gb` there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cuda_vram_gb: Option<f64>,
+    /// Memory for the Apple MPS/Metal backend on unified memory; preferred
+    /// over `unified_memory_gb` there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mps_memory_gb: Option<f64>,
+    /// The model has no local backend; hardware fit is `RentalOnly` / `Api`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_only: Option<RemoteRoute>,
+}
+
+/// Route of a model with no local backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteRoute {
+    /// Runs on a rented worker; a measurement on this profile still counts.
+    Rental,
+    /// Billed provider API; hardware fit does not apply.
+    Api,
+}
+
+/// Files a host under an extra profile id when it matches: any GPU name
+/// containing `gpu_name_contains` (case-insensitive), or a detected profile
+/// equal to `profile` (modulo `-unified`). An alias with neither criterion
+/// never matches. `primary` makes the alias the reported `profile` (the
+/// detected id moves to `profile_aliases`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ProfileAlias {
+    pub alias: String,
+    #[serde(default)]
+    pub gpu_name_contains: Option<String>,
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub primary: bool,
+}
+
+/// An app-supplied hardware override (the crate never reads app env vars).
+#[derive(Debug, Clone, Copy)]
+pub enum HardwareOverride<'a> {
+    /// Path to a JSON file.
+    Path(&'a std::path::Path),
+    /// The JSON text itself.
+    Json(&'a str),
 }
 
 /// A recorded real run on a named hardware profile.
@@ -65,6 +119,10 @@ pub enum FitKind {
     Estimated,
     Unsupported,
     Unqualified,
+    /// No local backend; route through a rented worker.
+    RentalOnly,
+    /// No local backend; billed provider API.
+    Api,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,12 +138,15 @@ pub struct Fit {
 impl Hardware {
     pub fn probe() -> Self {
         if let Ok(raw) = std::env::var("RIGHTKIT_HW_JSON") {
-            if let Ok(mut hw) = serde_json::from_str::<Hardware>(&raw) {
-                hw.source = "override".into();
-                hw.profile = hw.profile_id();
+            if let Ok(hw) = Self::from_override_json(&raw) {
                 return hw;
             }
         }
+        Self::detect()
+    }
+
+    /// The real host, ignoring every override.
+    pub fn detect() -> Self {
         let mut hw = Hardware {
             os: std::env::consts::OS.into(),
             arch: std::env::consts::ARCH.into(),
@@ -93,9 +154,99 @@ impl Hardware {
             gpus: detect_gpus(),
             profile: String::new(),
             source: "detected".into(),
+            profile_aliases: Vec::new(),
         };
         hw.profile = hw.profile_id();
         hw
+    }
+
+    /// `probe` with an app-supplied override taking precedence. `None` is
+    /// exactly [`Hardware::probe`]; an unreadable or malformed override is an
+    /// error (callers decide whether to fall back).
+    pub fn probe_with(ov: Option<HardwareOverride<'_>>) -> crate::Result<Self> {
+        match ov {
+            None => Ok(Self::probe()),
+            Some(HardwareOverride::Json(raw)) => Self::from_override_json(raw),
+            Some(HardwareOverride::Path(path)) => {
+                let raw = std::fs::read_to_string(path)
+                    .map_err(|e| crate::Error::io(path.display(), e))?;
+                Self::from_override_json(&raw)
+            }
+        }
+    }
+
+    /// Parse an injected profile leniently: missing `os`/`arch` take the
+    /// host's, missing memory stays unknown, and unreadable `gpus` entries are
+    /// dropped instead of rejecting the profile. `source` becomes `override`
+    /// and `profile` is recomputed. Fails only when the text is not a JSON
+    /// object or a present field has the wrong type.
+    pub fn from_override_json(raw: &str) -> crate::Result<Self> {
+        let bad = |why: String| {
+            crate::Error::new(
+                crate::ErrorCode::InvalidSpec,
+                format!("hardware override: {why}"),
+            )
+        };
+        let mut v: Value = serde_json::from_str(raw).map_err(|e| bad(e.to_string()))?;
+        let obj = v
+            .as_object_mut()
+            .ok_or_else(|| bad("not a JSON object".into()))?;
+        obj.entry("os")
+            .or_insert_with(|| std::env::consts::OS.into());
+        obj.entry("arch")
+            .or_insert_with(|| std::env::consts::ARCH.into());
+        let gpus: Vec<Value> = match obj.remove("gpus") {
+            Some(Value::Array(list)) => list
+                .into_iter()
+                .filter(|g| serde_json::from_value::<Gpu>(g.clone()).is_ok())
+                .collect(),
+            _ => Vec::new(),
+        };
+        obj.insert("gpus".into(), Value::Array(gpus));
+        let mut hw: Hardware = serde_json::from_value(v).map_err(|e| bad(e.to_string()))?;
+        hw.source = "override".into();
+        hw.profile = hw.profile_id();
+        Ok(hw)
+    }
+
+    /// Apply every matching [`ProfileAlias`] (see its docs). Idempotent.
+    pub fn apply_profile_aliases(&mut self, aliases: &[ProfileAlias]) {
+        for a in aliases {
+            if a.alias.is_empty() {
+                continue;
+            }
+            let by_gpu = a.gpu_name_contains.as_deref().is_some_and(|needle| {
+                let needle = needle.to_ascii_lowercase();
+                !needle.is_empty()
+                    && self
+                        .gpus
+                        .iter()
+                        .any(|g| g.name.to_ascii_lowercase().contains(&needle))
+            });
+            let by_profile = a.profile.as_deref().is_some_and(|p| self.answers_to(p));
+            if !(by_gpu || by_profile) {
+                continue;
+            }
+            if a.primary && self.profile != a.alias {
+                let old = std::mem::replace(&mut self.profile, a.alias.clone());
+                self.profile_aliases.push(old);
+            } else if self.profile != a.alias {
+                self.profile_aliases.push(a.alias.clone());
+            }
+        }
+        let current = self.profile.clone();
+        self.profile_aliases.retain(|p| *p != current);
+        let mut seen = std::collections::BTreeSet::new();
+        self.profile_aliases.retain(|p| seen.insert(p.clone()));
+    }
+
+    /// Does a recorded profile id name this host (its profile or an alias)?
+    pub fn answers_to(&self, recorded: &str) -> bool {
+        profiles_match(recorded, &self.profile)
+            || self
+                .profile_aliases
+                .iter()
+                .any(|a| profiles_match(recorded, a))
     }
 
     /// Stable profile id: `{os}-{mem}gb-unified`, `{os}-gpu-{vram}gb`, `{os}-{mem}gb`.
@@ -114,6 +265,14 @@ impl Hardware {
 
     fn unified(&self) -> bool {
         self.gpus.first().is_some_and(|g| g.unified)
+    }
+
+    fn cuda(&self) -> bool {
+        self.gpus.iter().any(|g| {
+            !g.unified
+                && (g.backends.iter().any(|b| b.eq_ignore_ascii_case("cuda"))
+                    || g.name.to_ascii_lowercase().contains("nvidia"))
+        })
     }
 
     fn max_vram(&self) -> f64 {
@@ -139,9 +298,16 @@ impl Hardware {
 
     pub fn required_gb(&self, req: &Requirements) -> Option<f64> {
         if self.unified() {
-            req.unified_memory_gb.or(req.memory_gb).or(req.vram_gb)
+            req.mps_memory_gb
+                .or(req.unified_memory_gb)
+                .or(req.memory_gb)
+                .or(req.vram_gb)
         } else if self.max_vram() > 0.0 {
-            req.vram_gb.or(req.memory_gb)
+            if self.cuda() {
+                req.cuda_vram_gb.or(req.vram_gb).or(req.memory_gb)
+            } else {
+                req.vram_gb.or(req.memory_gb)
+            }
         } else {
             req.memory_gb.or(req.vram_gb)
         }
@@ -151,8 +317,33 @@ impl Hardware {
         let profile = self.profile.clone();
         let evidence = measured
             .iter()
-            .find(|m| profiles_match(&m.profile, &profile))
+            .find(|m| self.answers_to(&m.profile))
             .cloned();
+        match req.remote_only {
+            Some(RemoteRoute::Api) => {
+                return Fit {
+                    kind: FitKind::Api,
+                    profile,
+                    required_gb: None,
+                    available_gb: None,
+                    evidence: None,
+                    reasons: vec!["billed provider route; hardware fit does not apply".into()],
+                }
+            }
+            Some(RemoteRoute::Rental) if evidence.is_none() => {
+                return Fit {
+                    kind: FitKind::RentalOnly,
+                    profile,
+                    required_gb: None,
+                    available_gb: None,
+                    evidence: None,
+                    reasons: vec![
+                        "no local backend; route through a rented worker or provider API".into(),
+                    ],
+                }
+            }
+            _ => {}
+        }
         let required = self.required_gb(req);
         let avail = round1(self.available_gb());
         let fit = |kind, reasons: Vec<String>, evidence| Fit {

@@ -2,7 +2,8 @@
 //!
 //! - [`spec`]: declarative manifest - revisions, quantizations, platform-filtered files.
 //! - [`store::Store`]: revisioned on-disk layout, verify, rollback, uninstall.
-//! - [`install`]: preflight, resumable verified download, extraction, atomic activation, progress events.
+//! - [`install`]: preflight, resumable verified download, extraction, atomic activation,
+//!   pause/resume vs cancel, adoption of existing installs ([`Store::adopt`]), progress events.
 //! - [`hardware`]: host probe and measured-vs-estimated fit.
 //!
 //! - [`suite`]: the flat on-disk contract shared by ScrapeRight, HeardRight and CutRight
@@ -10,6 +11,7 @@
 //!
 //! Brand-neutral: callers choose the store root and lock-holder name.
 
+mod alias;
 pub mod archive;
 pub mod disk;
 pub mod download;
@@ -25,9 +27,15 @@ pub mod store;
 pub mod suite;
 
 pub use error::{Error, ErrorCode, Result};
-pub use hardware::{Fit, FitKind, Gpu, Hardware, Measurement, Requirements};
+pub use hardware::{
+    Fit, FitKind, Gpu, Hardware, HardwareOverride, Measurement, ProfileAlias, RemoteRoute,
+    Requirements,
+};
 pub use ids::{encode_revision_key, ModelId, RevisionKey};
 pub use install::{CrashPoint, Event, InstallOptions, InstallOutcome};
 pub use platform::Platform;
 pub use spec::{Extract, FileSpec, ModelSpec, RevisionSpec};
-pub use store::{FileRecord, RevisionRecord, State, Store, VerifyMode};
+pub use store::{
+    AliasStatus, AliasSync, FileRecord, PausedInstall, ResolvedRevision, RevisionRecord, State,
+    Store, VerifyMode,
+};

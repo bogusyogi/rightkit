@@ -2,6 +2,18 @@
 //! persistent staging dir, archive extraction, then an atomic swap +
 //! `state.json` activation. Installing a newer revision *is* the upgrade; the
 //! previous revision stays on disk for rollback up to `keep_revisions`.
+//!
+//! - **Pause vs cancel.** `InstallOptions::pause` stops at the next chunk and
+//!   keeps staging (finished files and `.part`s) with a `paused.json` marker;
+//!   installing the same revision again resumes (HTTP `Range` when the server
+//!   proves continuity with a strong ETag, otherwise a clean restart of that
+//!   file). `InstallOptions::cancel` stops and discards the staging.
+//! - **Preflight credit.** Files already staged, already present in the
+//!   same-key revision (hard-linked into staging, no copy), or already at
+//!   their shared-runtime location with matching pins need no space; `.part`
+//!   files are credited by their length.
+//! - **Adoption.** [`Store::adopt`] records an existing install (verified
+//!   against the pins) without downloading.
 
 use crate::archive;
 use crate::disk;
@@ -10,9 +22,13 @@ use crate::error::{Error, ErrorCode, Result};
 use crate::hash::sha256_file;
 use crate::ids::ModelId;
 use crate::platform::Platform;
-use crate::spec::{safe_rel_path, Extract, FileSpec, ModelSpec};
-use crate::store::{remove_tree, FileRecord, RevisionRecord, Store, VerifyMode};
+use crate::spec::{safe_rel_path, Extract, FileSpec, ModelSpec, RevisionSpec};
+use crate::store::{
+    is_link, remove_tree, write_atomic, AliasStatus, FileRecord, PausedInstall, RevisionRecord,
+    State, Store, VerifyMode,
+};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,9 +38,19 @@ use std::time::Duration;
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
+    /// Bytes that need no new disk space: staged/installed files whose pins
+    /// already match, plus resumable `.part` lengths. Sent before `Preflight`.
+    PreflightCredit {
+        credited_bytes: u64,
+    },
     Preflight {
         needed_bytes: u64,
         free_bytes: Option<u64>,
+    },
+    /// A paused install picked up again.
+    Resumed {
+        key: String,
+        staged_bytes: u64,
     },
     FileStart {
         path: String,
@@ -45,6 +71,12 @@ pub enum Event {
     Extracted {
         path: String,
     },
+    /// [`Store::adopt_with`]: an existing file was placed (hard link when
+    /// `linked`, else a copy) and verified against its pins.
+    Adopted {
+        path: String,
+        linked: bool,
+    },
     AlreadyInstalled {
         key: String,
     },
@@ -54,6 +86,18 @@ pub enum Event {
     },
     Pruned {
         key: String,
+    },
+    /// The install stopped on `pause`; staging is kept.
+    Paused {
+        key: String,
+        staged_bytes: u64,
+    },
+    /// Legacy flat alias maintenance (only when an alias root is configured).
+    LegacyAlias {
+        status: AliasStatus,
+        path: Option<PathBuf>,
+        target: Option<PathBuf>,
+        message: Option<String>,
     },
 }
 
@@ -66,8 +110,14 @@ pub struct InstallOptions {
     pub platform: Platform,
     /// `Authorization` header value for gated hosts.
     pub authorization: Option<String>,
-    /// Set to `true` from another thread to cancel; `.part` files stay resumable.
+    /// Set to `true` from another thread to cancel: the install stops with
+    /// `Cancelled` and its staging (including `.part` files) is discarded.
     pub cancel: Arc<AtomicBool>,
+    /// Set to `true` from another thread to pause: the install stops with
+    /// `Paused`, keeps staging and `.part` files, and records a
+    /// [`PausedInstall`] marker. Installing the same revision again resumes.
+    /// `cancel` wins when both are set.
+    pub pause: Arc<AtomicBool>,
     /// Revisions kept besides the active one (for rollback).
     pub keep_revisions: usize,
     /// Test/override hook for the free-space probe.
@@ -103,6 +153,7 @@ impl Default for InstallOptions {
             platform: Platform::current(),
             authorization: None,
             cancel: Arc::new(AtomicBool::new(false)),
+            pause: Arc::new(AtomicBool::new(false)),
             keep_revisions: 1,
             free_bytes_override: None,
             require_pinned: false,
@@ -120,13 +171,62 @@ pub struct InstallOutcome {
     pub previous: Option<String>,
 }
 
+/// sha256 of files hashed during one locked operation, so preflight credit
+/// and the fetch pass never hash the same multi-GB file twice.
+#[derive(Default)]
+struct HashCache(HashMap<PathBuf, String>);
+
+impl HashCache {
+    fn sha(&mut self, p: &Path) -> Result<String> {
+        if let Some(h) = self.0.get(p) {
+            return Ok(h.clone());
+        }
+        let h = sha256_file(p).map_err(|e| Error::new(ErrorCode::Io, e))?;
+        self.0.insert(p.to_path_buf(), h.clone());
+        Ok(h)
+    }
+    fn forget(&mut self, p: &Path) {
+        self.0.remove(p);
+    }
+}
+
+/// Size first (cheap), then the cached hash. At least one pin is required.
+fn pins_match(path: &Path, bytes: Option<u64>, sha: Option<&str>, cache: &mut HashCache) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() || bytes.is_some_and(|b| b != meta.len()) {
+        return false;
+    }
+    if bytes.is_none() && sha.is_none() {
+        return false;
+    }
+    sha.is_none_or(|s| cache.sha(path).is_ok_and(|h| h.eq_ignore_ascii_case(s)))
+}
+
+/// Pins of the payload as it sits on disk after install.
+fn final_pins(f: &FileSpec) -> (Option<u64>, Option<&str>) {
+    match f.extract {
+        Some(Extract::Member(_)) => (f.installed_bytes, f.installed_sha256.as_deref()),
+        _ => (f.bytes, f.sha256.as_deref()),
+    }
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 impl Store {
-    pub fn install(
+    /// Revision + platform files for `opts`, validated.
+    fn select_files<'a>(
         &self,
-        spec: &ModelSpec,
-        opts: &InstallOptions,
-        mut sink: impl FnMut(Event),
-    ) -> Result<InstallOutcome> {
+        spec: &'a ModelSpec,
+        opts: &'a InstallOptions,
+        require_pinned: bool,
+    ) -> Result<(&'a RevisionSpec, Vec<&'a FileSpec>)> {
         let rev = spec
             .select(opts.revision.as_deref(), opts.quant.as_deref())
             .ok_or_else(|| {
@@ -149,23 +249,50 @@ impl Store {
                     format!("unsafe file path {:?}", f.path),
                 ));
             }
-        }
-        if opts.require_pinned {
-            for f in &files {
-                let archive_pinned = f.sha256.is_some() && f.bytes.is_some();
-                let member_pinned = !matches!(f.extract, Some(Extract::Member(_)))
-                    || (f.installed_sha256.is_some() && f.installed_bytes.is_some());
+            let archive_pinned = f.sha256.is_some() && f.bytes.is_some();
+            let member_pinned = !matches!(f.extract, Some(Extract::Member(_)))
+                || (f.installed_sha256.is_some() && f.installed_bytes.is_some());
+            if let Some(kind) = &f.shared {
+                self.shared_path(kind, &f.path)?;
+                if matches!(f.extract, Some(Extract::TarGz)) {
+                    return Err(Error::new(
+                        ErrorCode::InvalidSpec,
+                        format!(
+                            "{}: shared file {:?} cannot be a TarGz tree",
+                            spec.id, f.path
+                        ),
+                    ));
+                }
                 if !archive_pinned || !member_pinned {
                     return Err(Error::new(
                         ErrorCode::InvalidSpec,
                         format!(
-                            "{}: file {:?} is not hash- and size-pinned",
+                            "{}: shared file {:?} is not hash- and size-pinned",
                             spec.id, f.path
                         ),
                     ));
                 }
             }
+            if require_pinned && (!archive_pinned || !member_pinned) {
+                return Err(Error::new(
+                    ErrorCode::InvalidSpec,
+                    format!(
+                        "{}: file {:?} is not hash- and size-pinned",
+                        spec.id, f.path
+                    ),
+                ));
+            }
         }
+        Ok((rev, files))
+    }
+
+    pub fn install(
+        &self,
+        spec: &ModelSpec,
+        opts: &InstallOptions,
+        mut sink: impl FnMut(Event),
+    ) -> Result<InstallOutcome> {
+        let (rev, files) = self.select_files(spec, opts, opts.require_pinned)?;
         let key = rev.checked_key()?.as_str().to_string();
         let id = ModelId::parse(&spec.id)?.as_str().to_string();
         let id = id.as_str();
@@ -173,45 +300,35 @@ impl Store {
         self.reject_links(id)?;
         let mut state = self.state(id)?;
         state.id = id.to_string();
-        let cancelled = || opts.cancel.load(Ordering::Relaxed);
 
-        // Already installed and intact: just (re)activate.
-        let installed =
-            state.revisions.contains_key(&key) && self.verify(id, &key, VerifyMode::Full);
-        if installed {
-            sink(Event::AlreadyInstalled { key: key.clone() });
-            let previous = self.activate(&mut state, &key)?;
-            sink(Event::Activated {
-                key: key.clone(),
-                previous: previous.clone(),
-            });
-            self.prune(&mut state, opts.keep_revisions, &mut sink)?;
-            return Ok(InstallOutcome {
-                dir: self.revision_dir(id, &key)?,
-                key,
-                already_installed: true,
-                previous,
-            });
+        if let Some(out) = self.reactivate_if_installed(&mut state, &key, opts, &mut sink)? {
+            return Ok(out);
         }
 
         let staging = self.staging_dir(id, &key)?;
+        let marker = staging.join(".dl").join("paused.json");
+        if let Some(p) = fs::read(&marker)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<PausedInstall>(&b).ok())
+        {
+            let _ = fs::remove_file(&marker);
+            sink(Event::Resumed {
+                key: key.clone(),
+                staged_bytes: p.staged_bytes,
+            });
+        }
         fs::create_dir_all(staging.join(".dl")).map_err(|e| Error::io(staging.display(), e))?;
+        let mut cache = HashCache::default();
+        self.seed_from_installed(id, &key, &files, &staging, &mut cache);
 
-        // Disk preflight: remaining payload (minus resumable partials) + 10% headroom.
-        let resumable: u64 = files
-            .iter()
-            .filter_map(|f| {
-                fs::metadata(partial_path(&staging, f))
-                    .ok()
-                    .map(|m| m.len())
-            })
-            .sum();
-        let needed = rev
-            .required_disk_bytes(&opts.platform)
-            .saturating_sub(resumable);
+        // Disk preflight: what is still missing + 10% headroom.
+        let (needed, credited) = self.preflight(&files, &staging, &mut cache);
         let free = opts
             .free_bytes_override
             .or_else(|| disk::free_bytes(&self.root));
+        sink(Event::PreflightCredit {
+            credited_bytes: credited,
+        });
         sink(Event::Preflight {
             needed_bytes: needed,
             free_bytes: free,
@@ -229,21 +346,29 @@ impl Store {
             }
         }
 
+        let cancel = || opts.cancel.load(Ordering::Relaxed);
+        let stop = || cancel() || opts.pause.load(Ordering::Relaxed);
         let agent = http_agent();
         let overall_total: u64 = files.iter().filter_map(|f| f.bytes).sum();
         let mut overall_base = 0u64;
         let mut records: Vec<FileRecord> = Vec::new();
         for (index, f) in files.iter().enumerate() {
-            if cancelled() {
-                return Err(Error::new(ErrorCode::Cancelled, "install cancelled"));
+            if stop() {
+                return Err(self.interrupted(rev, &key, &staging, cancel(), &mut sink));
             }
             sink(Event::FileStart {
                 path: f.path.clone(),
                 index,
                 total_files: files.len(),
             });
-            let recs =
-                self.fetch_file(&agent, f, &staging, opts, &cancelled, &mut |done, total| {
+            let fetched = self.fetch_file(
+                &agent,
+                f,
+                &staging,
+                opts,
+                &stop,
+                &mut cache,
+                &mut |done, total| {
                     sink(Event::Progress {
                         path: f.path.clone(),
                         file_done: done,
@@ -251,7 +376,15 @@ impl Store {
                         overall_done: overall_base + done,
                         overall_total,
                     });
-                })?;
+                },
+            );
+            let recs = match fetched {
+                Ok(r) => r,
+                Err(e) if e.code == ErrorCode::Cancelled || stop() => {
+                    return Err(self.interrupted(rev, &key, &staging, cancel(), &mut sink));
+                }
+                Err(e) => return Err(e),
+            };
             for r in &recs {
                 sink(Event::FileVerified {
                     path: r.path.clone(),
@@ -261,32 +394,355 @@ impl Store {
             records.extend(recs);
             overall_base += f.bytes.unwrap_or(0);
         }
+        self.place_shared(&files, &staging, &mut cache)?;
+        self.commit_staged(&mut state, rev, &key, &staging, records, opts, &mut sink)
+    }
 
-        // Atomic swap. A same-key directory is never deleted before its
-        // replacement is durable: it is renamed to `.aside/<key>`, the new tree
-        // renamed in, the ledger written, and only then the aside dropped.
-        // `Store::recover` (run under every lock acquisition) finishes or undoes
-        // whichever step a crash interrupted.
+    /// Verify an existing install (e.g. a pre-store flat directory) against
+    /// the manifest pins and record it as installed, without downloading.
+    /// `existing` maps each manifest file to where its installed payload lives
+    /// today (`Extract::Member` files: the extracted member). Each file is
+    /// hard-linked (same volume) or copied into a private `.adopt/<key>`
+    /// tree, verified there (size + sha256), and the tree is swapped in and
+    /// activated exactly like a download. Fails closed: every platform file
+    /// must be supplied (shared-runtime files may instead already sit at their
+    /// shared location) and pinned, `TarGz` trees cannot be adopted, and any
+    /// mismatch aborts with nothing recorded.
+    pub fn adopt(
+        &self,
+        spec: &ModelSpec,
+        opts: &InstallOptions,
+        existing: impl Fn(&FileSpec) -> Option<PathBuf>,
+    ) -> Result<InstallOutcome> {
+        self.adopt_with(spec, opts, existing, |_| {})
+    }
+
+    /// [`Store::adopt`] with progress events.
+    pub fn adopt_with(
+        &self,
+        spec: &ModelSpec,
+        opts: &InstallOptions,
+        existing: impl Fn(&FileSpec) -> Option<PathBuf>,
+        mut sink: impl FnMut(Event),
+    ) -> Result<InstallOutcome> {
+        let (rev, files) = self.select_files(spec, opts, true)?;
+        if let Some(f) = files
+            .iter()
+            .find(|f| matches!(f.extract, Some(Extract::TarGz)))
+        {
+            return Err(Error::new(
+                ErrorCode::InvalidSpec,
+                format!(
+                    "{}: {:?} is an unpacked archive tree with no per-file pins; it cannot be adopted",
+                    spec.id, f.path
+                ),
+            ));
+        }
+        let key = rev.checked_key()?.as_str().to_string();
+        let id = ModelId::parse(&spec.id)?.as_str().to_string();
+        let id = id.as_str();
+        let _lock = self.acquire(id, opts.lock_wait)?;
+        self.reject_links(id)?;
+        let mut state = self.state(id)?;
+        state.id = id.to_string();
+
+        if let Some(out) = self.reactivate_if_installed(&mut state, &key, opts, &mut sink)? {
+            return Ok(out);
+        }
+
+        let work = self.model_dir(id)?.join(".adopt").join(&key);
+        remove_tree(&work)?;
+        fs::create_dir_all(&work).map_err(|e| Error::io(work.display(), e))?;
+        let mut cache = HashCache::default();
+        let assembled = (|| -> Result<Vec<FileRecord>> {
+            let mut records = Vec::new();
+            for f in &files {
+                let (bytes, sha) = final_pins(f);
+                if let Some(kind) = &f.shared {
+                    let at = self.shared_path(kind, &f.path)?;
+                    if pins_match(&at, bytes, sha, &mut cache) {
+                        records.push(record(&at, &f.path, Some(kind), &mut cache)?);
+                        continue;
+                    }
+                }
+                let src = existing(f).ok_or_else(|| {
+                    Error::new(
+                        ErrorCode::NotFound,
+                        format!("adopt {id}: no existing file for {:?}", f.path),
+                    )
+                })?;
+                let dest = stage_dest(&work, f);
+                let linked = link_or_copy(&src, &dest)?;
+                let len = fs::metadata(&dest)
+                    .map_err(|e| Error::io(dest.display(), e))?
+                    .len();
+                if bytes.is_some_and(|b| b != len) {
+                    return Err(Error::new(
+                        ErrorCode::SizeMismatch,
+                        format!(
+                            "adopt {id}: {} is {len} bytes, pinned {}",
+                            src.display(),
+                            bytes.unwrap_or(0)
+                        ),
+                    ));
+                }
+                if !pins_match(&dest, bytes, sha, &mut cache) {
+                    return Err(Error::new(
+                        ErrorCode::HashMismatch,
+                        format!("adopt {id}: {} fails its sha256 pin", src.display()),
+                    ));
+                }
+                records.push(record(&dest, &f.path, f.shared.as_deref(), &mut cache)?);
+                sink(Event::Adopted {
+                    path: f.path.clone(),
+                    linked,
+                });
+            }
+            self.place_shared(&files, &work, &mut cache)?;
+            Ok(records)
+        })();
+        let adopt_root = self.model_dir(id)?.join(".adopt");
+        let records = match assembled {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = remove_tree(&work);
+                let _ = fs::remove_dir(&adopt_root);
+                return Err(e);
+            }
+        };
+        // A failure from here on leaves `.adopt` for the next lock holder's
+        // recovery to discard; nothing is recorded until `state.json` is.
+        let out = self.commit_staged(&mut state, rev, &key, &work, records, opts, &mut sink)?;
+        let _ = fs::remove_dir(&adopt_root);
+        Ok(out)
+    }
+
+    /// Already installed and intact: just (re)activate.
+    fn reactivate_if_installed(
+        &self,
+        state: &mut State,
+        key: &str,
+        opts: &InstallOptions,
+        sink: &mut impl FnMut(Event),
+    ) -> Result<Option<InstallOutcome>> {
+        let id = state.id.clone();
+        if !(state.revisions.contains_key(key) && self.verify(&id, key, VerifyMode::Full)) {
+            return Ok(None);
+        }
+        sink(Event::AlreadyInstalled { key: key.into() });
+        let previous = self.activate(state, key)?;
+        sink(Event::Activated {
+            key: key.into(),
+            previous: previous.clone(),
+        });
+        self.prune(state, opts.keep_revisions, sink)?;
+        self.alias_event(state, sink);
+        Ok(Some(InstallOutcome {
+            dir: self.revision_dir(&id, key)?,
+            key: key.into(),
+            already_installed: true,
+            previous,
+        }))
+    }
+
+    /// Stop on pause (keep staging + marker) or cancel (discard staging).
+    fn interrupted(
+        &self,
+        rev: &RevisionSpec,
+        key: &str,
+        staging: &Path,
+        cancelled: bool,
+        sink: &mut impl FnMut(Event),
+    ) -> Error {
+        if cancelled {
+            return match remove_tree(staging) {
+                Ok(()) => Error::new(
+                    ErrorCode::Cancelled,
+                    "install cancelled; staged files discarded",
+                ),
+                Err(e) => Error::new(
+                    ErrorCode::Cancelled,
+                    format!("install cancelled; discarding staging failed: {e}"),
+                ),
+            };
+        }
+        let staged_bytes = tree_bytes(staging);
+        let marker = PausedInstall {
+            key: key.into(),
+            revision: rev.revision.clone(),
+            quant: rev.quant.clone(),
+            staged_bytes,
+            paused_at_unix: unix_now(),
+        };
+        let written = serde_json::to_vec_pretty(&marker)
+            .map_err(|e| Error::io("serialize pause marker", e))
+            .and_then(|b| write_atomic(&staging.join(".dl").join("paused.json"), &b));
+        sink(Event::Paused {
+            key: key.into(),
+            staged_bytes,
+        });
+        match written {
+            Ok(()) => Error::new(
+                ErrorCode::Paused,
+                "install paused; staged files kept for resume",
+            ),
+            Err(e) => Error::new(
+                ErrorCode::Paused,
+                format!("install paused; marker not written: {e}"),
+            ),
+        }
+    }
+
+    /// Hard-link files of the existing same-key revision (a repair) whose
+    /// pins still match into staging, so they are neither downloaded nor
+    /// counted against free space. Best effort: anything not linked is fetched.
+    fn seed_from_installed(
+        &self,
+        id: &str,
+        key: &str,
+        files: &[&FileSpec],
+        staging: &Path,
+        cache: &mut HashCache,
+    ) {
+        let Ok(dir) = self.revision_dir(id, key) else {
+            return;
+        };
+        if !dir.is_dir() {
+            return;
+        }
+        for f in files {
+            if f.shared.is_some() || matches!(f.extract, Some(Extract::TarGz)) {
+                continue;
+            }
+            let Some(rel) = safe_rel_path(&f.path) else {
+                continue;
+            };
+            let (src, dest) = (dir.join(&rel), staging.join(&rel));
+            let (bytes, sha) = final_pins(f);
+            if dest.exists() || is_link(&src) || !pins_match(&src, bytes, sha, cache) {
+                continue;
+            }
+            if let Some(parent) = dest.parent() {
+                if fs::create_dir_all(parent).is_err() {
+                    continue;
+                }
+            }
+            if fs::hard_link(&src, &dest).is_ok() {
+                if let Ok(h) = cache.sha(&src) {
+                    cache.0.insert(dest, h);
+                }
+            }
+        }
+    }
+
+    /// (still needed, credited) bytes for the remaining work.
+    fn preflight(&self, files: &[&FileSpec], staging: &Path, cache: &mut HashCache) -> (u64, u64) {
+        let (mut needed, mut credited) = (0u64, 0u64);
+        for f in files {
+            let download = f.bytes.unwrap_or(0);
+            let installed = f.installed_bytes.unwrap_or(0);
+            let total = download + installed;
+            let (fb, fs_) = final_pins(f);
+            let shared_ready = f.shared.as_ref().is_some_and(|k| {
+                self.shared_path(k, &f.path)
+                    .is_ok_and(|p| pins_match(&p, fb, fs_, cache))
+            });
+            let dest = stage_dest(staging, f);
+            let staged_ready = match f.extract {
+                Some(Extract::TarGz) => dest.is_dir(),
+                _ => pins_match(&dest, fb, fs_, cache),
+            };
+            if shared_ready || staged_ready {
+                credited += total;
+                continue;
+            }
+            let part = fs::metadata(partial_path(staging, f))
+                .map(|m| m.len())
+                .unwrap_or(0)
+                .min(download);
+            let archive_ready = f.extract.is_some()
+                && pins_match(
+                    &archive_path(staging, f),
+                    f.bytes,
+                    f.sha256.as_deref(),
+                    cache,
+                );
+            let (need, credit) = if archive_ready {
+                (installed, download)
+            } else {
+                (total - part, part)
+            };
+            needed += need;
+            credited += credit;
+        }
+        (needed, credited)
+    }
+
+    /// Move staged shared-runtime files to their shared location without ever
+    /// clobbering an existing file: identical bytes are accepted, different
+    /// bytes are a `Conflict` (staging is kept).
+    fn place_shared(
+        &self,
+        files: &[&FileSpec],
+        staging: &Path,
+        cache: &mut HashCache,
+    ) -> Result<()> {
+        for f in files {
+            let Some(kind) = &f.shared else { continue };
+            let staged = stage_dest(staging, f);
+            if !staged.is_file() {
+                continue; // already in place (verified when recorded)
+            }
+            let (bytes, sha) = final_pins(f);
+            let dst = self.shared_path(kind, &f.path)?;
+            place_no_clobber(&staged, &dst, bytes, sha, cache)?;
+        }
+        let _ = remove_tree(&staging.join(".shared"));
+        Ok(())
+    }
+
+    /// Atomic swap of `staging` into `revisions/<key>`, ledger write,
+    /// activation, pruning and alias maintenance. A same-key directory is
+    /// never deleted before its replacement is durable: it is renamed to
+    /// `.aside/<key>`, the new tree renamed in, the ledger written, and only
+    /// then the aside dropped. `Store::recover` (run under every lock
+    /// acquisition) finishes or undoes whichever step a crash interrupted.
+    #[allow(clippy::too_many_arguments)]
+    fn commit_staged(
+        &self,
+        state: &mut State,
+        rev: &RevisionSpec,
+        key: &str,
+        staging: &Path,
+        mut records: Vec<FileRecord>,
+        opts: &InstallOptions,
+        sink: &mut impl FnMut(Event),
+    ) -> Result<InstallOutcome> {
+        let id = state.id.clone();
         let _ = fs::remove_dir_all(staging.join(".dl"));
-        let dest = self.revision_dir(id, &key)?;
-        fs::create_dir_all(dest.parent().unwrap()).map_err(|e| Error::io(dest.display(), e))?;
+        let _ = remove_tree(&staging.join(".shared"));
+        let dest = self.revision_dir(&id, key)?;
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| Error::io(dest.display(), e))?;
+        }
         let crash = |p: CrashPoint| -> Result<()> {
             if opts.crash_after == Some(p) {
                 return Err(Error::new(ErrorCode::Io, format!("injected crash {p:?}")));
             }
             Ok(())
         };
-        let aside = self.aside_dir(id, &key)?;
+        let aside = self.aside_dir(&id, key)?;
         let had_previous = fs::symlink_metadata(&dest).is_ok();
         if had_previous {
-            fs::create_dir_all(aside.parent().unwrap())
-                .map_err(|e| Error::io(aside.display(), e))?;
+            if let Some(parent) = aside.parent() {
+                fs::create_dir_all(parent).map_err(|e| Error::io(aside.display(), e))?;
+            }
             remove_tree(&aside)?;
             fs::rename(&dest, &aside)
                 .map_err(|e| Error::io(format!("move aside {}", dest.display()), e))?;
             crash(CrashPoint::AfterAside)?;
         }
-        if let Err(e) = fs::rename(&staging, &dest) {
+        if let Err(e) = fs::rename(staging, &dest) {
             if had_previous {
                 let _ = fs::rename(&aside, &dest);
             }
@@ -295,37 +751,47 @@ impl Store {
         crash(CrashPoint::AfterSwap)?;
         records.sort_by(|a, b| a.path.cmp(&b.path));
         state.revisions.insert(
-            key.clone(),
+            key.to_string(),
             RevisionRecord {
                 revision: rev.revision.clone(),
                 quant: rev.quant.clone(),
-                installed_at_unix: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0),
+                installed_at_unix: unix_now(),
                 files: records,
             },
         );
-        let previous = self.activate(&mut state, &key)?;
+        let previous = self.activate(state, key)?;
         crash(CrashPoint::AfterState)?;
         if had_previous {
             remove_tree(&aside)?;
         }
         sink(Event::Activated {
-            key: key.clone(),
+            key: key.to_string(),
             previous: previous.clone(),
         });
-        self.prune(&mut state, opts.keep_revisions, &mut sink)?;
+        self.prune(state, opts.keep_revisions, sink)?;
+        self.alias_event(state, sink);
         Ok(InstallOutcome {
             dir: dest,
-            key,
+            key: key.to_string(),
             already_installed: false,
             previous,
         })
     }
 
+    fn alias_event(&self, state: &State, sink: &mut impl FnMut(Event)) {
+        let a = self.sync_alias_locked(&state.id, state);
+        if a.status != AliasStatus::Disabled {
+            sink(Event::LegacyAlias {
+                status: a.status,
+                path: a.path,
+                target: a.target,
+                message: a.message,
+            });
+        }
+    }
+
     /// Flip `active` to `key` (recording the old one in history) and persist.
-    fn activate(&self, state: &mut crate::store::State, key: &str) -> Result<Option<String>> {
+    fn activate(&self, state: &mut State, key: &str) -> Result<Option<String>> {
         let previous = state.active.clone().filter(|a| a != key);
         if let Some(p) = &previous {
             state.history.retain(|k| k != p);
@@ -338,12 +804,7 @@ impl Store {
     }
 
     /// Keep the active revision plus the `keep` most recent history entries.
-    fn prune(
-        &self,
-        state: &mut crate::store::State,
-        keep: usize,
-        sink: &mut impl FnMut(Event),
-    ) -> Result<()> {
+    fn prune(&self, state: &mut State, keep: usize, sink: &mut impl FnMut(Event)) -> Result<()> {
         let id = state.id.clone();
         let retained: Vec<String> = state.history.iter().rev().take(keep).cloned().collect();
         let doomed: Vec<String> = state
@@ -369,77 +830,84 @@ impl Store {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn fetch_file(
         &self,
         agent: &ureq::Agent,
         f: &FileSpec,
         staging: &Path,
         opts: &InstallOptions,
-        cancelled: &dyn Fn() -> bool,
+        stop: &dyn Fn() -> bool,
+        cache: &mut HashCache,
         progress: &mut dyn FnMut(u64, u64),
     ) -> Result<Vec<FileRecord>> {
-        let dest = staging.join(safe_rel_path(&f.path).unwrap());
-        let download =
-            |dest_path: &Path, part: &Path, progress: &mut dyn FnMut(u64, u64)| -> Result<String> {
-                let res = download_resumable(
-                    agent,
-                    DownloadRequest {
-                        url: &f.url,
-                        part_path: part,
-                        dest_path,
-                        expected_sha256: f.sha256.as_deref(),
-                        authorization: opts.authorization.as_deref(),
-                        cancelled,
-                    },
-                    &mut *progress,
-                )?;
-                let len = fs::metadata(dest_path).map(|m| m.len()).unwrap_or(0);
-                if f.bytes.is_some_and(|b| b != len) {
-                    let _ = fs::remove_file(dest_path);
-                    return Err(Error::new(
-                        ErrorCode::SizeMismatch,
-                        format!("{}: expected {} bytes, got {len}", f.path, f.bytes.unwrap()),
-                    ));
-                }
-                Ok(res.sha256)
-            };
-        let record = |path: &Path, rel: &str, known: Option<String>| -> Result<FileRecord> {
-            let sha256 = match known {
-                Some(s) => s,
-                None => sha256_file(path).map_err(|e| Error::new(ErrorCode::Io, e))?,
-            };
-            let bytes = fs::metadata(path)
-                .map_err(|e| Error::io(path.display(), e))?
-                .len();
-            Ok(FileRecord {
-                path: rel.to_string(),
-                bytes,
-                sha256,
-            })
+        let shared = f.shared.as_deref();
+        if let Some(kind) = shared {
+            let at = self.shared_path(kind, &f.path)?;
+            let (bytes, sha) = final_pins(f);
+            if pins_match(&at, bytes, sha, cache) {
+                return Ok(vec![record(&at, &f.path, shared, cache)?]);
+            }
+        }
+        let dest = stage_dest(staging, f);
+        let download = |dest_path: &Path,
+                        part: &Path,
+                        progress: &mut dyn FnMut(u64, u64),
+                        cache: &mut HashCache|
+         -> Result<String> {
+            let res = download_resumable(
+                agent,
+                DownloadRequest {
+                    url: &f.url,
+                    part_path: part,
+                    dest_path,
+                    expected_sha256: f.sha256.as_deref(),
+                    authorization: opts.authorization.as_deref(),
+                    cancelled: stop,
+                },
+                &mut *progress,
+            )?;
+            cache.forget(dest_path);
+            let len = fs::metadata(dest_path).map(|m| m.len()).unwrap_or(0);
+            if f.bytes.is_some_and(|b| b != len) {
+                let _ = fs::remove_file(dest_path);
+                return Err(Error::new(
+                    ErrorCode::SizeMismatch,
+                    format!("{}: expected {} bytes, got {len}", f.path, f.bytes.unwrap()),
+                ));
+            }
+            cache.0.insert(dest_path.to_path_buf(), res.sha256.clone());
+            Ok(res.sha256)
         };
 
         match &f.extract {
             None => {
-                if dest.is_file() && pins_match(&dest, f.bytes, f.sha256.as_deref()) {
-                    return Ok(vec![record(&dest, &f.path, None)?]);
+                if !pins_match(&dest, f.bytes, f.sha256.as_deref(), cache) {
+                    download(&dest, &partial_path(staging, f), progress, cache)?;
                 }
-                let sha = download(&dest, &partial_path(staging, f), progress)?;
-                Ok(vec![record(&dest, &f.path, Some(sha))?])
+                Ok(vec![record(&dest, &f.path, shared, cache)?])
             }
             Some(Extract::Member(member)) => {
-                if dest.is_file()
-                    && pins_match(&dest, f.installed_bytes, f.installed_sha256.as_deref())
-                {
-                    return Ok(vec![record(&dest, &f.path, None)?]);
+                if pins_match(
+                    &dest,
+                    f.installed_bytes,
+                    f.installed_sha256.as_deref(),
+                    cache,
+                ) {
+                    return Ok(vec![record(&dest, &f.path, shared, cache)?]);
                 }
                 let archive_path = archive_path(staging, f);
-                if !(archive_path.is_file()
-                    && pins_match(&archive_path, f.bytes, f.sha256.as_deref()))
-                {
-                    download(&archive_path, &partial_path(staging, f), progress)?;
+                if !pins_match(&archive_path, f.bytes, f.sha256.as_deref(), cache) {
+                    download(&archive_path, &partial_path(staging, f), progress, cache)?;
                 }
                 archive::extract_member(&archive_path, member, &dest)?;
-                if !pins_match(&dest, f.installed_bytes, f.installed_sha256.as_deref()) {
+                cache.forget(&dest);
+                if !pins_match(
+                    &dest,
+                    f.installed_bytes,
+                    f.installed_sha256.as_deref(),
+                    cache,
+                ) {
                     let _ = fs::remove_file(&dest);
                     return Err(Error::new(
                         ErrorCode::HashMismatch,
@@ -447,15 +915,13 @@ impl Store {
                     ));
                 }
                 let _ = fs::remove_file(&archive_path);
-                Ok(vec![record(&dest, &f.path, None)?])
+                Ok(vec![record(&dest, &f.path, shared, cache)?])
             }
             Some(Extract::TarGz) => {
                 if !dest.is_dir() {
                     let archive_path = archive_path(staging, f);
-                    if !(archive_path.is_file()
-                        && pins_match(&archive_path, f.bytes, f.sha256.as_deref()))
-                    {
-                        download(&archive_path, &partial_path(staging, f), progress)?;
+                    if !pins_match(&archive_path, f.bytes, f.sha256.as_deref(), cache) {
+                        download(&archive_path, &partial_path(staging, f), progress, cache)?;
                     }
                     let tmp = dest.with_extension("unpacking");
                     let _ = fs::remove_dir_all(&tmp);
@@ -466,10 +932,38 @@ impl Store {
                 let mut out = Vec::new();
                 walk(&dest, &dest, &mut out)?;
                 out.into_iter()
-                    .map(|(abs, rel)| record(&abs, &format!("{}/{rel}", f.path), None))
+                    .map(|(abs, rel)| record(&abs, &format!("{}/{rel}", f.path), None, cache))
                     .collect()
             }
         }
+    }
+}
+
+fn record(
+    path: &Path,
+    rel: &str,
+    shared: Option<&str>,
+    cache: &mut HashCache,
+) -> Result<FileRecord> {
+    let sha256 = cache.sha(path)?;
+    let bytes = fs::metadata(path)
+        .map_err(|e| Error::io(path.display(), e))?
+        .len();
+    Ok(FileRecord {
+        path: rel.to_string(),
+        bytes,
+        sha256,
+        shared: shared.map(String::from),
+    })
+}
+
+/// Where `f`'s installed payload sits in a staging (or adoption) tree:
+/// `<staging>/<path>`, or `<staging>/.shared/<kind>/<path>` for shared files.
+fn stage_dest(staging: &Path, f: &FileSpec) -> PathBuf {
+    let rel = safe_rel_path(&f.path).unwrap_or_default();
+    match &f.shared {
+        Some(kind) => staging.join(".shared").join(kind).join(rel),
+        None => staging.join(rel),
     }
 }
 
@@ -479,30 +973,145 @@ fn archive_path(staging: &Path, f: &FileSpec) -> PathBuf {
         .chars()
         .map(|c| if c == '/' { '_' } else { c })
         .collect();
-    staging.join(".dl").join(name)
+    match &f.shared {
+        Some(kind) => staging.join(".dl").join("shared").join(kind).join(name),
+        None => staging.join(".dl").join(name),
+    }
 }
 
 /// `.part` location for the artifact of `f` (matches `download_resumable`'s
 /// dest + ".part" convention).
 fn partial_path(staging: &Path, f: &FileSpec) -> PathBuf {
     let dest = match f.extract {
-        None => staging.join(safe_rel_path(&f.path).unwrap_or_default()),
+        None => stage_dest(staging, f),
         Some(_) => archive_path(staging, f),
     };
     crate::download::part_path_for(&dest)
 }
 
-fn pins_match(path: &Path, bytes: Option<u64>, sha: Option<&str>) -> bool {
-    let Ok(meta) = fs::metadata(path) else {
-        return false;
+/// Place `src` at `dest` (which must not exist): hard link when the volume
+/// allows it, else a copy written beside `dest` and renamed in. Returns
+/// whether a hard link was made.
+fn link_or_copy(src: &Path, dest: &Path) -> Result<bool> {
+    let src = fs::canonicalize(src).map_err(|e| {
+        Error::new(
+            ErrorCode::NotFound,
+            format!("existing file {}: {e}", src.display()),
+        )
+    })?;
+    if !src.is_file() {
+        return Err(Error::new(
+            ErrorCode::NotFound,
+            format!("existing path {} is not a file", src.display()),
+        ));
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| Error::io(parent.display(), e))?;
+    }
+    if fs::hard_link(&src, dest).is_ok() {
+        return Ok(true);
+    }
+    let tmp = crate::download::part_path_for(dest);
+    let copied = (|| -> std::io::Result<()> {
+        fs::copy(&src, &tmp)?;
+        fs::File::open(&tmp)?.sync_all()?;
+        fs::rename(&tmp, dest)
+    })();
+    if let Err(e) = copied {
+        let _ = fs::remove_file(&tmp);
+        return Err(Error::io(format!("copy {}", src.display()), e));
+    }
+    Ok(false)
+}
+
+/// Put verified `src` at `dst` without replacing anything already there.
+fn place_no_clobber(
+    src: &Path,
+    dst: &Path,
+    bytes: Option<u64>,
+    sha: Option<&str>,
+    cache: &mut HashCache,
+) -> Result<()> {
+    let existing_ok = |cache: &mut HashCache| -> Result<()> {
+        if is_link(dst) {
+            return Err(Error::new(
+                ErrorCode::Io,
+                format!("refusing to follow symlink at {}", dst.display()),
+            ));
+        }
+        if pins_match(dst, bytes, sha, cache) {
+            let _ = fs::remove_file(src);
+            Ok(())
+        } else {
+            Err(Error::new(
+                ErrorCode::Conflict,
+                format!(
+                    "shared runtime file {} exists with different bytes; not overwritten",
+                    dst.display()
+                ),
+            ))
+        }
     };
-    if bytes.is_some_and(|b| b != meta.len()) {
-        return false;
+    if fs::symlink_metadata(dst).is_ok() {
+        return existing_ok(cache);
     }
-    if bytes.is_none() && sha.is_none() {
-        return false;
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent).map_err(|e| Error::io(parent.display(), e))?;
     }
-    sha.is_none_or(|s| sha256_file(path).is_ok_and(|h| h.eq_ignore_ascii_case(s)))
+    match fs::hard_link(src, dst) {
+        Ok(()) => {
+            let _ = fs::remove_file(src);
+            return Ok(());
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return existing_ok(cache),
+        Err(_) => {}
+    }
+    // Different volume (or no hard links): copy beside the target, then link
+    // or rename it in.
+    let name = dst
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = dst.with_file_name(format!(".{name}.tmp-{}", std::process::id()));
+    let copied = (|| -> std::io::Result<()> {
+        fs::copy(src, &tmp)?;
+        fs::File::open(&tmp)?.sync_all()
+    })();
+    if let Err(e) = copied {
+        let _ = fs::remove_file(&tmp);
+        return Err(Error::io(format!("copy to {}", dst.display()), e));
+    }
+    if !pins_match(&tmp, bytes, sha, cache) {
+        let _ = fs::remove_file(&tmp);
+        return Err(Error::new(
+            ErrorCode::HashMismatch,
+            format!("copy to {} fails its pins", dst.display()),
+        ));
+    }
+    let placed = match fs::hard_link(&tmp, dst) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let _ = fs::remove_file(&tmp);
+            return existing_ok(cache);
+        }
+        Err(_) => fs::rename(&tmp, dst),
+    };
+    let _ = fs::remove_file(&tmp);
+    placed.map_err(|e| Error::io(format!("place {}", dst.display()), e))?;
+    let _ = fs::remove_file(src);
+    Ok(())
+}
+
+/// Bytes of every file under `dir` (staged files and `.part`s).
+fn tree_bytes(dir: &Path) -> u64 {
+    let mut out = Vec::new();
+    if walk(dir, dir, &mut out).is_err() {
+        return 0;
+    }
+    out.iter()
+        .filter(|(_, rel)| !rel.ends_with("paused.json") && !rel.ends_with(".meta"))
+        .filter_map(|(abs, _)| fs::metadata(abs).ok().map(|m| m.len()))
+        .sum()
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<()> {
