@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5 — 2026-10-07
+
+- Model fit kinds `rental_only` and `api` (rightkit-models 0.2.0): labelled "Runs on a rented GPU" / "Runs through an API", and Download is disabled because there is no local backend.
+
 ## 0.2.4
 
 Headless (behaviour-only) hooks for apps that keep their own markup. The built-in licence and doctor sections are now views over the same hooks; their rendered output is unchanged (pinned by snapshot tests).

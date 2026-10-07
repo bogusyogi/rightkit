@@ -4,11 +4,30 @@
 //! <root>/<model-id>/state.json              active revision, history, per-revision file records
 //! <root>/<model-id>/revisions/<key>/<files> one immutable dir per (revision, quant)
 //! <root>/<model-id>/.staging/<key>/         resumable in-flight install (swapped in atomically)
+//! <root>/<model-id>/.staging/<key>/.dl/paused.json  marker of a paused install
 //! <root>/<model-id>/.aside/<key>/          previous same-key revision while a replacement commits (crash-recoverable)
+//! <root>/<model-id>/.adopt/<key>/          an adoption being assembled (discarded if interrupted)
 //! <root>/<model-id>.lock                    cross-process operation lock
+//! <shared root>/<path>                     shared-runtime files (FileSpec::shared), outside the model dir
+//! <alias root>/<model-id> -> revisions/<active key>   opt-in legacy flat alias
 //! ```
 //! Activation is a single atomic write of `state.json`; revision directories
 //! are never edited in place, so rollback is a pointer flip.
+//!
+//! **Resolving a model.** Runtimes call [`Store::resolve`] (active revision,
+//! size-verified) or [`Store::resolve_or_legacy`] (falls back to a pre-store
+//! flat directory).
+//!
+//! **Legacy flat alias (opt-in).** With [`Store::with_legacy_alias_root`],
+//! `<alias root>/<id>` is kept as a symlink (Windows: directory symlink, else
+//! a junction) to the active revision directory. It is re-pointed on every
+//! install, adopt and rollback, re-pointed or removed on revision removal, and
+//! removed on uninstall and GC, so runtimes that read flat directories keep
+//! working. A real file or directory already at the alias path is never
+//! touched (status `skipped_real_path`); move it away (e.g. after
+//! [`Store::adopt`]) and call [`Store::sync_legacy_alias`]. On unix the link
+//! is replaced atomically (rename over); on Windows it is removed and
+//! recreated, so a reader can briefly see no alias.
 
 use crate::error::{Error, ErrorCode, Result};
 use crate::hash::sha256_file;
@@ -21,11 +40,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileRecord {
     pub path: String,
     pub bytes: u64,
     pub sha256: String,
+    /// Shared-runtime kind: `path` is relative to that shared root, not to
+    /// the revision directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +83,52 @@ pub struct Store {
     pub root: PathBuf,
     /// Identifies the lock holder (an app name).
     pub app: String,
+    shared_roots: BTreeMap<String, PathBuf>,
+    legacy_alias_root: Option<PathBuf>,
+}
+
+/// The active revision of a model, as runtimes should load it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ResolvedRevision {
+    pub key: String,
+    pub dir: PathBuf,
+}
+
+/// Outcome of keeping the legacy flat alias in step with `state.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AliasStatus {
+    /// No alias root configured.
+    Disabled,
+    /// The alias now points at the active revision.
+    Linked,
+    /// It already did.
+    Unchanged,
+    /// No active revision; the alias link was removed (or never existed).
+    Removed,
+    /// A real file/directory occupies the alias path; left untouched.
+    SkippedRealPath,
+    /// The link could not be written; see the message.
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AliasSync {
+    pub status: AliasStatus,
+    pub path: Option<PathBuf>,
+    pub target: Option<PathBuf>,
+    pub message: Option<String>,
+}
+
+/// A paused install waiting in `.staging/<key>` (see `InstallOptions::pause`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PausedInstall {
+    pub key: String,
+    pub revision: String,
+    pub quant: Option<String>,
+    /// Bytes already on disk in staging (finished files plus `.part`s).
+    pub staged_bytes: u64,
+    pub paused_at_unix: u64,
 }
 
 impl Store {
@@ -67,7 +136,69 @@ impl Store {
         Self {
             root: root.into(),
             app: app.into(),
+            shared_roots: BTreeMap::new(),
+            legacy_alias_root: None,
         }
+    }
+
+    /// Declare where files of shared-runtime `kind` live
+    /// (`FileSpec::shared`). The root is trusted app configuration; manifest
+    /// paths under it are still traversal-checked.
+    pub fn with_shared_root(mut self, kind: &str, root: impl Into<PathBuf>) -> Result<Self> {
+        let kind = crate::spec::parse_shared_kind(kind)?;
+        self.shared_roots.insert(kind, root.into());
+        Ok(self)
+    }
+
+    /// Configured root for shared-runtime `kind`.
+    pub fn shared_root(&self, kind: &str) -> Option<&Path> {
+        self.shared_roots.get(kind).map(PathBuf::as_path)
+    }
+
+    /// Absolute location of shared file `path` of `kind`; fails for an
+    /// unconfigured kind or an unsafe path.
+    pub fn shared_path(&self, kind: &str, path: &str) -> Result<PathBuf> {
+        let root = self.shared_root(kind).ok_or_else(|| {
+            Error::new(
+                ErrorCode::InvalidSpec,
+                format!("shared-runtime kind {kind:?} has no configured root"),
+            )
+        })?;
+        let rel = safe_rel_path(path).ok_or_else(|| {
+            Error::new(
+                ErrorCode::InvalidSpec,
+                format!("unsafe shared file path {path:?}"),
+            )
+        })?;
+        Ok(root.join(rel))
+    }
+
+    /// Opt in to the legacy flat alias `<dir>/<id>` (see the module docs).
+    /// `dir` must differ from the store root, where `<root>/<id>` is the
+    /// model directory itself.
+    pub fn with_legacy_alias_root(mut self, dir: impl Into<PathBuf>) -> Result<Self> {
+        let dir = dir.into();
+        let same = |a: &Path, b: &Path| {
+            a == b
+                || matches!(
+                    (fs::canonicalize(a), fs::canonicalize(b)),
+                    (Ok(x), Ok(y)) if x == y
+                )
+        };
+        if same(&dir, &self.root) {
+            return Err(Error::new(
+                ErrorCode::InvalidSpec,
+                "legacy alias root must differ from the store root",
+            ));
+        }
+        self.legacy_alias_root = Some(dir);
+        Ok(self)
+    }
+
+    /// `<alias root>/<id>` when the legacy alias is enabled.
+    pub fn legacy_alias_path(&self, id: &str) -> Result<Option<PathBuf>> {
+        let id = ModelId::parse(id)?;
+        Ok(self.legacy_alias_root.as_ref().map(|r| r.join(id.as_str())))
     }
 
     /// `<root>/<id>`; fails for any id that is not a single safe path component.
@@ -139,6 +270,7 @@ impl Store {
             dir.join("revisions"),
             dir.join(".staging"),
             dir.join(".aside"),
+            dir.join(".adopt"),
             dir.join("state.json"),
         ] {
             if is_link(&p) {
@@ -176,8 +308,14 @@ impl Store {
     /// live install lock, and everything while any runtime-family lease is
     /// held. A corrupt ref blocks deletion (nothing is removed).
     pub fn gc(&self, keep: &[&str]) -> Result<Vec<String>> {
-        crate::suite::store::prune_unref_entries_with(&self.root, keep, &[])
-            .map_err(|e| Error::new(ErrorCode::Io, e))
+        let removed = crate::suite::store::prune_unref_entries_with(&self.root, keep, &[])
+            .map_err(|e| Error::new(ErrorCode::Io, e))?;
+        for id in &removed {
+            if let Ok(Some(alias)) = self.legacy_alias_path(id) {
+                let _ = crate::alias::remove(&alias);
+            }
+        }
+        Ok(removed)
     }
 
     /// As [`Store::uninstall`], but refuses with `Busy` while any app still
@@ -215,18 +353,137 @@ impl Store {
         let Some(rec) = state.revisions.get(key) else {
             return false;
         };
-        record_matches(rec, &dir, mode)
+        self.record_matches(rec, &dir, mode)
+    }
+
+    /// Do the files recorded in `rec` exist (under `dir`, or their shared
+    /// root) and pass `mode`? A shared file whose kind has no configured root
+    /// fails (closed).
+    pub(crate) fn record_matches(
+        &self,
+        rec: &RevisionRecord,
+        dir: &Path,
+        mode: VerifyMode,
+    ) -> bool {
+        !rec.files.is_empty()
+            && rec.files.iter().all(|f| {
+                let p = match &f.shared {
+                    Some(kind) => match self.shared_path(kind, &f.path) {
+                        Ok(p) => p,
+                        Err(_) => return false,
+                    },
+                    None => match safe_rel_path(&f.path) {
+                        Some(rel) => dir.join(rel),
+                        None => return false,
+                    },
+                };
+                file_matches(&p, f, mode)
+            })
     }
 
     /// Directory of the active revision if it passes a size check.
     pub fn active_dir(&self, id: &str) -> Option<PathBuf> {
+        self.resolve(id).map(|r| r.dir)
+    }
+
+    /// The active revision (key + directory) if it passes a size check:
+    /// what a runtime should load for `id`.
+    pub fn resolve(&self, id: &str) -> Option<ResolvedRevision> {
         let key = self.state(id).ok()?.active?;
         if self.reject_links(id).is_err() {
             return None;
         }
-        self.verify(id, &key, VerifyMode::Size)
-            .then(|| self.revision_dir(id, &key).ok())
-            .flatten()
+        if !self.verify(id, &key, VerifyMode::Size) {
+            return None;
+        }
+        let dir = self.revision_dir(id, &key).ok()?;
+        Some(ResolvedRevision { key, dir })
+    }
+
+    /// [`Store::resolve`], else `legacy` when it is an existing directory
+    /// (a pre-store flat install the runtime can still read).
+    pub fn resolve_or_legacy(&self, id: &str, legacy: &Path) -> Option<PathBuf> {
+        self.active_dir(id)
+            .or_else(|| legacy.is_dir().then(|| legacy.to_path_buf()))
+    }
+
+    /// Re-point (or remove) the legacy flat alias to match `state.json`.
+    pub fn sync_legacy_alias(&self, id: &str) -> Result<AliasSync> {
+        let _lock = self.acquire(id, Duration::ZERO)?;
+        let state = self.state(id)?;
+        Ok(self.sync_alias_locked(id, &state))
+    }
+
+    pub(crate) fn sync_alias_locked(&self, id: &str, state: &State) -> AliasSync {
+        let path = match self.legacy_alias_path(id) {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                return AliasSync {
+                    status: AliasStatus::Disabled,
+                    path: None,
+                    target: None,
+                    message: None,
+                }
+            }
+            Err(e) => {
+                return AliasSync {
+                    status: AliasStatus::Failed,
+                    path: None,
+                    target: None,
+                    message: Some(e.to_string()),
+                }
+            }
+        };
+        let target = state
+            .active
+            .as_deref()
+            .filter(|k| self.verify_record(state, id, k))
+            .and_then(|k| self.revision_dir(id, k).ok())
+            .map(|d| crate::alias::absolute(&d));
+        let result = match &target {
+            Some(t) => crate::alias::point(&path, t),
+            None => crate::alias::remove(&path),
+        };
+        let (status, message) = match result {
+            Ok(s) => (s, None),
+            Err(e) => (AliasStatus::Failed, Some(e)),
+        };
+        AliasSync {
+            status,
+            path: Some(path),
+            target,
+            message,
+        }
+    }
+
+    /// Installs paused with `InstallOptions::pause`, resumable by installing
+    /// the same revision again.
+    pub fn paused(&self, id: &str) -> Result<Vec<PausedInstall>> {
+        let root = self.model_dir(id)?.join(".staging");
+        let mut out = Vec::new();
+        let Ok(entries) = fs::read_dir(&root) else {
+            return Ok(out);
+        };
+        for entry in entries.flatten() {
+            let marker = entry.path().join(".dl").join("paused.json");
+            if let Some(p) = fs::read(&marker)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<PausedInstall>(&b).ok())
+            {
+                out.push(p);
+            }
+        }
+        out.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok(out)
+    }
+
+    /// Cancel a paused (or interrupted) install: delete its staging,
+    /// including `.part` files. Installed revisions are untouched.
+    pub fn discard_staging(&self, id: &str, key: &str) -> Result<()> {
+        let key = RevisionKey::parse(key)?;
+        let _lock = self.acquire(id, Duration::ZERO)?;
+        self.reject_links(id)?;
+        remove_tree(&self.staging_dir(id, key.as_str())?)
     }
 
     /// Re-point `active` at an earlier revision (default: the most recent
@@ -258,6 +515,7 @@ impl Store {
         }
         state.active = Some(target.clone());
         self.save_state(&state)?;
+        self.sync_alias_locked(id, &state);
         Ok(target)
     }
 
@@ -288,6 +546,7 @@ impl Store {
             }
         }
         self.save_state(&state)?;
+        self.sync_alias_locked(id, &state);
         remove_tree(&self.revision_dir(id, key)?)?;
         let _ = remove_tree(&self.staging_dir(id, key)?);
         Ok(())
@@ -300,13 +559,17 @@ impl Store {
         state
             .revisions
             .get(key)
-            .is_some_and(|r| record_matches(r, &dir, VerifyMode::Size))
+            .is_some_and(|r| self.record_matches(r, &dir, VerifyMode::Size))
     }
 
-    /// Remove the whole model: every revision, staging, and state. A symlink at
-    /// `<root>/<id>` is unlinked, never followed.
+    /// Remove the whole model: every revision, staging, and state, plus the
+    /// legacy alias link. A symlink at `<root>/<id>` is unlinked, never
+    /// followed. Shared-runtime files stay (other models may load them).
     pub fn uninstall(&self, id: &str) -> Result<()> {
         let _lock = self.acquire_raw(id, Duration::ZERO)?;
+        if let Some(alias) = self.legacy_alias_path(id)? {
+            crate::alias::remove(&alias).map_err(|e| Error::new(ErrorCode::Io, e))?;
+        }
         remove_tree(&self.model_dir(id)?)
     }
 
@@ -321,6 +584,9 @@ impl Store {
     /// Caller holds the model lock. Returns whether anything was restored.
     pub(crate) fn recover_locked(&self, id: &str) -> Result<bool> {
         self.reject_links(id)?;
+        // An adoption is assembled entirely under the lock; leftovers are
+        // from a killed process and were never recorded.
+        remove_tree(&self.model_dir(id)?.join(".adopt"))?;
         let aside_root = self.model_dir(id)?.join(".aside");
         let Ok(entries) = fs::read_dir(&aside_root) else {
             return Ok(false);
@@ -339,8 +605,9 @@ impl Store {
             let restore = if !dest.exists() {
                 true
             } else {
-                let dest_ok = rec.is_some_and(|r| record_matches(r, &dest, VerifyMode::Size));
-                let aside_ok = rec.is_some_and(|r| record_matches(r, &aside, VerifyMode::Size));
+                let dest_ok = rec.is_some_and(|r| self.record_matches(r, &dest, VerifyMode::Size));
+                let aside_ok =
+                    rec.is_some_and(|r| self.record_matches(r, &aside, VerifyMode::Size));
                 !dest_ok && aside_ok
             };
             if restore {
@@ -360,7 +627,7 @@ impl Store {
     }
 }
 
-fn is_link(p: &Path) -> bool {
+pub(crate) fn is_link(p: &Path) -> bool {
     fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
 }
 
@@ -383,26 +650,17 @@ pub(crate) fn remove_tree(path: &Path) -> Result<()> {
     result.map_err(|e| Error::io(path.display(), e))
 }
 
-/// Do the files recorded in `rec` exist under `dir` and pass `mode`?
-pub(crate) fn record_matches(rec: &RevisionRecord, dir: &Path, mode: VerifyMode) -> bool {
-    !rec.files.is_empty()
-        && rec.files.iter().all(|f| {
-            let Some(rel) = safe_rel_path(&f.path) else {
-                return false;
-            };
-            let p = dir.join(rel);
-            let Ok(meta) = fs::metadata(&p) else {
-                return false;
-            };
-            if !meta.is_file() || meta.len() == 0 {
-                return false;
-            }
-            if mode != VerifyMode::Presence && meta.len() != f.bytes {
-                return false;
-            }
-            mode != VerifyMode::Full
-                || sha256_file(&p).is_ok_and(|h| h.eq_ignore_ascii_case(&f.sha256))
-        })
+fn file_matches(p: &Path, f: &FileRecord, mode: VerifyMode) -> bool {
+    let Ok(meta) = fs::metadata(p) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() == 0 {
+        return false;
+    }
+    if mode != VerifyMode::Presence && meta.len() != f.bytes {
+        return false;
+    }
+    mode != VerifyMode::Full || sha256_file(p).is_ok_and(|h| h.eq_ignore_ascii_case(&f.sha256))
 }
 
 /// Durable replacement: private temp file + fsync + rename.

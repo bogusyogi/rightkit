@@ -115,6 +115,7 @@ fn file(path: &str, url: String, data: &[u8]) -> FileSpec {
         extract: None,
         installed_bytes: None,
         installed_sha256: None,
+        shared: None,
     }
 }
 
@@ -281,22 +282,22 @@ fn install_resume_extract_upgrade_rollback_uninstall() {
 }
 
 #[test]
-fn cancel_keeps_partial_and_next_install_resumes() {
+fn pause_keeps_partial_and_next_install_resumes() {
     let fx = fixture();
     let tmp = tempfile::tempdir().unwrap();
     let store = Store::new(tmp.path(), "test-app");
     let o = opts("2");
-    let cancel = o.cancel.clone();
+    let pause = o.pause.clone();
     let err = store
         .install(&fx.spec, &o, |e| {
             if let Event::Progress { file_done, .. } = e {
                 if file_done > 50_000 {
-                    cancel.store(true, Ordering::Relaxed);
+                    pause.store(true, Ordering::Relaxed);
                 }
             }
         })
         .unwrap_err();
-    assert_eq!(err.code, ErrorCode::Cancelled);
+    assert_eq!(err.code, ErrorCode::Paused);
     assert!(
         store.state("demo").unwrap().active.is_none(),
         "nothing activated"
@@ -317,6 +318,35 @@ fn cancel_keeps_partial_and_next_install_resumes() {
             .any(|l| l.contains("/v2.bin") && l.contains("range=Some(")),
         "resumed: {log:?}"
     );
+}
+
+#[test]
+fn cancel_discards_staging() {
+    let fx = fixture();
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::new(tmp.path(), "test-app");
+    let o = opts("2");
+    let cancel = o.cancel.clone();
+    let err = store
+        .install(&fx.spec, &o, |e| {
+            if let Event::Progress { file_done, .. } = e {
+                if file_done > 50_000 {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+            }
+        })
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Cancelled);
+    assert!(store.state("demo").unwrap().active.is_none());
+    assert!(
+        !store
+            .model_dir("demo")
+            .unwrap()
+            .join(".staging/2@q4")
+            .exists(),
+        "cancel discards staging and .part files"
+    );
+    assert!(store.paused("demo").unwrap().is_empty());
 }
 
 #[test]
@@ -357,6 +387,7 @@ fn fit_is_measured_only_with_evidence_for_the_profile() {
         }],
         profile: String::new(),
         source: "override".into(),
+        profile_aliases: vec![],
     };
     let hw = Hardware {
         profile: hw.profile_id(),

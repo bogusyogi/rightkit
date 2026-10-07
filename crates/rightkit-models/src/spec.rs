@@ -5,7 +5,7 @@ use crate::hardware::{Measurement, Requirements};
 use crate::platform::Platform;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModelSpec {
     pub id: String,
     #[serde(default)]
@@ -14,7 +14,7 @@ pub struct ModelSpec {
     pub revisions: Vec<RevisionSpec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RevisionSpec {
     pub revision: String,
     /// Quantization label (`q4_k_m`, `int8`, `fp16`, ...). `None` = unquantized.
@@ -38,9 +38,11 @@ pub enum Extract {
     TarGz,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FileSpec {
-    /// Destination path inside the revision directory, forward slashes.
+    /// Destination path, forward slashes: inside the revision directory, or,
+    /// when [`FileSpec::shared`] is set, inside that shared-runtime root.
+    /// Always a relative path with no `.`/`..`/empty components.
     pub path: String,
     pub url: String,
     /// Size of the downloaded artifact.
@@ -59,6 +61,15 @@ pub struct FileSpec {
     pub installed_bytes: Option<u64>,
     #[serde(default)]
     pub installed_sha256: Option<String>,
+    /// Shared-runtime kind (e.g. `onnxruntime`): the file lives at
+    /// `<shared root for kind>/<path>` instead of inside the revision, where
+    /// several models (and apps) can load it. The root is configured by the
+    /// app with [`crate::Store::with_shared_root`]; an unconfigured kind is
+    /// rejected. Shared files must be hash- and size-pinned, are never
+    /// overwritten when present with other bytes (`Conflict`), and are left in
+    /// place by uninstall. `extract: TarGz` is not allowed for them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<String>,
 }
 
 impl RevisionSpec {
@@ -106,6 +117,19 @@ impl ModelSpec {
             .iter()
             .find(|r| !key.is_empty() && r.key() == key)
     }
+}
+
+/// Validate a shared-runtime kind: one safe path component, same alphabet as
+/// a model id (`[A-Za-z0-9._-]`, no leading/trailing `.`).
+pub fn parse_shared_kind(kind: &str) -> crate::error::Result<String> {
+    crate::ids::ModelId::parse(kind)
+        .map(|k| k.as_str().to_string())
+        .map_err(|_| {
+            crate::error::Error::new(
+                crate::error::ErrorCode::InvalidSpec,
+                format!("invalid shared-runtime kind {kind:?}"),
+            )
+        })
 }
 
 pub(crate) fn safe_rel_path(path: &str) -> Option<std::path::PathBuf> {

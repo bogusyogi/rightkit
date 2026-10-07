@@ -225,6 +225,8 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     expect(await text("[data-setting-id='models.asr-small']")).toContain("In use");
     expect(await text("[data-setting-id='models.asr-small']")).toContain("Tested on this hardware");
     expect(await text("[data-setting-id='models.asr-shared']")).toContain("Shared");
+    expect(await text("[data-setting-id='models.gen-api']")).toContain("Runs through an API");
+    expect(await page.eval<boolean>("document.querySelector('[data-setting-id=\"models.gen-api\"] button').disabled")).toBe(true);
     expect(await text("[data-setting-id='models.asr-shared']")).not.toContain("Remove");
     expect(await page.eval<boolean>("document.querySelector('[data-setting-id=\"models.llm-huge\"] button').disabled")).toBe(true);
     await shot("settings-models-light");

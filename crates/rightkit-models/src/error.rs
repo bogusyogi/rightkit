@@ -5,6 +5,10 @@ use std::fmt;
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     Cancelled,
+    /// Install paused: staging and `.part` files are kept for a later resume.
+    Paused,
+    /// A shared-runtime file already exists with different bytes.
+    Conflict,
     DiskSpace,
     Download,
     SizeMismatch,

@@ -1443,6 +1443,7 @@ fn revisioned_store_shares_refs_gc_and_pin_enforcement_with_suite_layout() {
         extract: None,
         installed_bytes: None,
         installed_sha256: None,
+        shared: None,
     };
     let spec = |pinned| RevSpec {
         id: "rev-model".into(),
