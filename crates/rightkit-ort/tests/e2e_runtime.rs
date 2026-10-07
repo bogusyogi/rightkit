@@ -304,7 +304,8 @@ fn f16_tensor_through_reexports() {
     setup();
     use rightkit_ort::half::f16;
     let data = vec![f16::from_f32(1.5), f16::from_f32(-2.0)];
-    let tensor = rightkit_ort::ort::value::Tensor::<f16>::from_array(([2usize], data)).expect("f16 tensor");
+    let tensor =
+        rightkit_ort::ort::value::Tensor::<f16>::from_array(([2usize], data)).expect("f16 tensor");
     let (_, values) = tensor.extract_tensor();
     assert_eq!(values[0].to_f32(), 1.5);
     assert_eq!(values[1].to_f32(), -2.0);
