@@ -85,18 +85,44 @@ unsafe fn uptime() -> f64 {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct Insets {
-    top: f64,
-    left: f64,
-    bottom: f64,
-    right: f64,
+struct NSSize {
+    width: f64,
+    height: f64,
 }
 
-/// CSS viewport (x, y) -> window coordinates. The page viewport starts below
-/// any titlebar/safe-area inset, which WKWebView applies inside its own bounds.
-unsafe fn window_point(wk: Id, x: f64, y: f64) -> NSPoint {
-    let inset = msg!(Insets; wk, "safeAreaInsets");
-    msg!(NSPoint; wk, "convertPoint:toView:", NSPoint = NSPoint { x: x + inset.left, y: y + inset.top }, Id = std::ptr::null_mut())
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NSRect {
+    origin: NSPoint,
+    size: NSSize,
+}
+
+/// The page's CSS viewport size, measured in the page.
+fn css_viewport<R: Runtime>(win: &WebviewWindow<R>) -> Option<(f64, f64)> {
+    let s = eval(win, "innerWidth + ',' + innerHeight").ok()?;
+    let (w, h) = s.split_once(',')?;
+    Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+}
+
+/// CSS viewport (x, y) -> window coordinates. The CSS viewport is the bottom of the
+/// (flipped) WKWebView bounds: any top inset WebKit applies (titlebar, content inset)
+/// is the view height minus the scaled viewport height, and the scale is the page
+/// zoom. Measured, never assumed: with `titleBarStyle: Overlay` the page fills the
+/// view, and adding `safeAreaInsets` put every pointer event one titlebar (32 px) low.
+unsafe fn window_point(wk: Id, viewport: Option<(f64, f64)>, x: f64, y: f64) -> NSPoint {
+    let b = msg!(NSRect; wk, "bounds");
+    let (scale, top) = match viewport {
+        Some((w, h)) if w > 0.0 && h > 0.0 => {
+            let scale = b.size.width / w;
+            (scale, (b.size.height - h * scale).max(0.0))
+        }
+        _ => (1.0, 0.0),
+    };
+    let p = NSPoint {
+        x: b.origin.x + x * scale,
+        y: b.origin.y + top + y * scale,
+    };
+    msg!(NSPoint; wk, "convertPoint:toView:", NSPoint = p, Id = std::ptr::null_mut())
 }
 
 /// Run `f` on the main thread with the WKWebView pointer and wait for it.
@@ -121,12 +147,13 @@ pub fn mouse<R: Runtime>(
     y: f64,
     clicks: i64,
 ) -> Result<(), String> {
+    let viewport = css_viewport(win);
     on_view(win, move |wk| unsafe {
         let window = msg!(Id; wk, "window");
         if window.is_null() {
             return Err("webview has no window".to_string());
         }
-        let wp = window_point(wk, x, y);
+        let wp = window_point(wk, viewport, x, y);
         let right = button == Button::Right;
         // Hover is delivered as a button-less `mouseDragged:` on the WKWebView itself:
         // WebKit gates `mouseMoved:` (tracking-area path) on an active window, but the
@@ -187,12 +214,13 @@ pub fn wheel<R: Runtime>(
     dx: f64,
     dy: f64,
 ) -> Result<(), String> {
+    let viewport = css_viewport(win);
     on_view(win, move |wk| unsafe {
         let window = msg!(Id; wk, "window");
         if window.is_null() {
             return Err("webview has no window".to_string());
         }
-        let wp = window_point(wk, x, y);
+        let wp = window_point(wk, viewport, x, y);
         let top = CGDisplayPixelsHigh(CGMainDisplayID()) as f64;
         // DOM convention: positive dy scrolls the page down; CG wheel is the inverse.
         let cg =

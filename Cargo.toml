@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# Hook receipt directories (`.audit`) can appear under crates/ when an agent works there.
+exclude = ["crates/.audit"]
 
 [workspace.dependencies]
 serde = { version = "1.0.228", features = ["derive"] }

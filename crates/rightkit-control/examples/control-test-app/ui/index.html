@@ -18,7 +18,7 @@ pre{background:#f4f4f4;padding:8px}
 const S={clicks:0,trusted:[],hoverEnter:0,hoverNow:false,dragDx:0,dragDy:0,keys:[],value:'',scrollTop:0,cmdK:false};
 window.__state=S;
 const out=()=>{S.hoverNow=document.getElementById('hov').matches(':hover');S.value=document.getElementById('inp').value;S.scrollTop=document.getElementById('scroll').scrollTop;document.getElementById('state').textContent=JSON.stringify(S)};
-btn.addEventListener('click',e=>{S.clicks++;S.trusted.push(e.isTrusted);out()});
+btn.addEventListener('click',e=>{S.clicks++;S.trusted.push(e.isTrusted);S.lastClick=[e.clientX,e.clientY];out()});
 hov.addEventListener('mouseenter',()=>{S.hoverEnter++;out()});
 let d=null;
 box.addEventListener('mousedown',e=>{d={x:e.clientX,y:e.clientY}});

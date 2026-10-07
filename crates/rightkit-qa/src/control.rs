@@ -450,8 +450,16 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     // -10810), so the live log goes to the system temp dir and is copied into the
     // evidence dir when the app stops.
     let raw_log = ws.home.join(format!("app-{}.log", &id[..8]));
-    let mut env: Vec<(String, String)> =
-        ws.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    // macOS launches go through `open --env`, which exposes values in argv, so only the
+    // workspace's RIGHTKIT_* keys travel; apps derive isolation from RIGHTKIT_QA_DATA_DIR
+    // there. The XDG_*/WEBVIEW2_*/<APP>_DATA_DIR keys serve direct-exec platforms.
+    // Caller-supplied `spec.env` is still checked strictly below.
+    let mut env: Vec<(String, String)> = ws
+        .env
+        .iter()
+        .filter(|(k, _)| cfg!(not(target_os = "macos")) || k.starts_with("RIGHTKIT_"))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     env.push(("RIGHTKIT_CONTROL_SERVICE".into(), service.clone()));
     env.push((
         "RIGHTKIT_SUITE_ROOT".into(),
