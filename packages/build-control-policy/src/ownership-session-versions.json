@@ -13,9 +13,9 @@
     "@rightkit/updates": "0.2.3"
   },
   "stagedNpm": {
-    "@rightkit/app-shell": "0.2.0",
+    "@rightkit/app-shell": "0.2.1",
     "@rightkit/ax": "0.2.4",
-    "@rightkit/doc-render": "0.1.2",
+    "@rightkit/doc-render": "0.1.3",
     "@rightkit/git": "0.2.25",
     "@rightkit/hooks": "0.1.1",
     "@rightkit/i18n": "0.1.0",
@@ -23,16 +23,17 @@
     "@rightkit/legal-ui": "0.1.3",
     "@rightkit/license": "0.1.8",
     "@rightkit/logs": "0.1.4",
-    "@rightkit/media-ui": "0.2.5",
-    "@rightkit/onboarding": "0.2.2",
-    "@rightkit/pdf-ui": "0.1.1",
+    "@rightkit/media-ui": "0.2.6",
+    "@rightkit/onboarding": "0.2.3",
+    "@rightkit/pdf-ui": "0.1.2",
     "@rightkit/platform-ui": "0.1.2",
-    "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.121",
-    "@rightkit/settings-ui": "0.2.5",
+    "@rightkit/qa": "0.2.3",
+    "@rightkit/qa-chrome": "0.1.0",
+    "@rightkit/release": "0.2.122",
+    "@rightkit/settings-ui": "0.2.6",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.1.1",
-    "@rightkit/theme": "0.2.0",
+    "@rightkit/theme": "0.2.1",
     "@rightkit/updates": "0.2.4"
   },
   "legacyNpm": {
@@ -142,14 +143,18 @@
       "0.2.117",
       "0.2.118",
       "0.2.119",
-      "0.2.120"
+      "0.2.120",
+      "0.2.121"
     ],
     "@rightkit/qa": [
       "0.1.0",
-      "0.2.0"
+      "0.2.0",
+      "0.2.1",
+      "0.2.2"
     ],
     "@rightkit/app-shell": [
-      "0.1.0"
+      "0.1.0",
+      "0.2.0"
     ],
     "@rightkit/media-ui": [
       "0.1.0",
@@ -157,32 +162,38 @@
       "0.2.1",
       "0.2.2",
       "0.2.3",
-      "0.2.4"
+      "0.2.4",
+      "0.2.5"
     ],
     "@rightkit/theme": [
-      "0.1.0"
+      "0.1.0",
+      "0.2.0"
     ],
     "@rightkit/settings-ui": [
       "0.1.0",
       "0.2.0",
       "0.2.2",
       "0.2.3",
-      "0.2.4"
+      "0.2.4",
+      "0.2.5"
     ],
     "@rightkit/onboarding": [
       "0.1.0",
       "0.2.0",
-      "0.2.1"
+      "0.2.1",
+      "0.2.2"
     ],
     "@rightkit/doc-render": [
       "0.1.0",
-      "0.1.1"
+      "0.1.1",
+      "0.1.2"
     ],
     "@rightkit/platform-ui": [
       "0.1.1"
     ],
     "@rightkit/pdf-ui": [
-      "0.1.0"
+      "0.1.0",
+      "0.1.1"
     ]
   },
   "cargo": {
@@ -203,32 +214,39 @@
     "rightkit-tauri": "0.1.0"
   },
   "stagedCargo": {
-    "rightkit-automation": "0.1.0",
     "rightkit-audio": "0.1.0",
-    "rightkit-browser": "0.1.1",
+    "rightkit-automation": "0.1.0",
+    "rightkit-browser": "0.2.0",
     "rightkit-cache": "0.1.0",
-    "rightkit-control": "0.1.2",
+    "rightkit-control": "0.1.5",
     "rightkit-crash": "0.1.0",
     "rightkit-db": "0.2.1",
+    "rightkit-embed": "0.2.0",
     "rightkit-framed-sidecar": "0.1.0",
     "rightkit-fs": "0.1.0",
+    "rightkit-http": "0.1.0",
     "rightkit-jobs": "0.2.1",
+    "rightkit-license": "0.1.3",
     "rightkit-logs": "0.2.0",
+    "rightkit-mcp": "0.1.1",
     "rightkit-media": "0.2.2",
-    "rightkit-models": "0.2.0",
+    "rightkit-models": "0.2.1",
+    "rightkit-oauth": "0.2.0",
+    "rightkit-ort": "0.1.4",
     "rightkit-pdf": "0.1.0",
     "rightkit-playback": "0.1.0",
     "rightkit-process": "0.2.1",
-    "rightkit-qa": "0.2.0",
+    "rightkit-qa": "0.2.5",
     "rightkit-sandbox": "0.1.0",
     "rightkit-search": "0.1.0",
+    "rightkit-secrets": "0.1.0",
     "rightkit-service": "0.1.0",
     "rightkit-settings": "0.1.0",
     "rightkit-shell": "0.1.0",
-    "rightkit-speech-client": "0.1.0",
+    "rightkit-speech-client": "0.3.0",
     "rightkit-sync": "0.1.0",
-    "rightkit-license": "0.1.3",
-    "rightkit-tauri": "0.1.1"
+    "rightkit-tauri": "0.1.1",
+    "rightkit-watch": "0.1.0"
   },
   "swift": {
     "rightkit-swift": {

@@ -19,8 +19,8 @@ const catalogs = {
 test("lookup uses canonical capability catalog and registry availability", () => {
   const [item] = findOwnedCapability("oauth-sign-in", catalogs);
   assert.equal(item.owner, "rightkit-oauth");
-  assert.deepEqual(item.availability, [{ registry: "crates.io", package: "rightkit-oauth", version: "0.2.1", state: "staged-unverified" }]);
-  assert.match(formatOwnedCapability([item]), /rightkit-oauth@0\.2\.1 \(staged-unverified, crates\.io\)/);
+  assert.deepEqual(item.availability, [{ registry: "crates.io", package: "rightkit-oauth", version: "0.2.1", state: "latest" }]);
+  assert.match(formatOwnedCapability([item]), /rightkit-oauth@0\.2\.1 \(latest, crates\.io\)/);
   assert.deepEqual(findOwnedCapability("unknown", catalogs), []);
 });
 
@@ -49,7 +49,7 @@ test("copied client package runs rightkit owns without release sibling", () => {
     const result = spawnSync(process.execPath, [cli, "owns", "oauth-sign-in"], { encoding: "utf8", windowsHide: true, cwd: root });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /oauth-sign-in — rightkit-oauth/);
-    assert.match(result.stdout, /Availability: no published version recorded/);
+    assert.match(result.stdout, /Availability: rightkit-oauth@\d+\.\d+\.\d+ \(latest, crates\.io\)/);
     const compact = spawnSync(process.execPath, [cli, "owns", "--compact"], { encoding: "utf8", windowsHide: true, cwd: root });
     assert.equal(compact.status, 0, compact.stderr);
     assert.match(compact.stdout, /RightKit ownership index/);

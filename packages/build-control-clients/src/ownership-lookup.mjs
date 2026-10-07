@@ -14,12 +14,12 @@ function published(capability, versions) {
   const cargo = capability.package?.startsWith("rightkit-") ? capability.package : null;
   const npm = capability.package?.startsWith("@rightkit/") ? capability.package : null;
   if (npm) {
-    const version = versions.npm?.[npm] ?? versions.stagedNpm?.[npm];
-    if (version) result.push({ registry: "npm", package: npm, version, state: versions.npm?.[npm] ? "registry-pinned" : "staged-unverified" });
+    const version = versions.stagedNpm?.[npm] ?? versions.npm?.[npm];
+    if (version) result.push({ registry: "npm", package: npm, version, state: versions.stagedNpm?.[npm] ? "latest" : "floor" });
   }
   if (cargo) {
-    const version = versions.cargo?.[cargo] ?? versions.stagedCargo?.[cargo];
-    if (version) result.push({ registry: "crates.io", package: cargo, version, state: versions.cargo?.[cargo] ? "registry-pinned" : "staged-unverified" });
+    const version = versions.stagedCargo?.[cargo] ?? versions.cargo?.[cargo];
+    if (version) result.push({ registry: "crates.io", package: cargo, version, state: versions.stagedCargo?.[cargo] ? "latest" : "floor" });
   }
   return result;
 }

@@ -17,12 +17,12 @@ export function renderSessionCatalog(manifest = catalog, versionManifest = versi
 function availabilityFrom(item, versionManifest) {
   const name = item.package;
   if (name?.startsWith('@rightkit/')) {
-    const version = versionManifest.npm?.[name] ?? versionManifest.stagedNpm?.[name];
-    return version ? `${name}@${version} [${versionManifest.npm?.[name] ? 'registry-pinned' : 'staged-unverified'}]` : null;
+    const version = versionManifest.stagedNpm?.[name] ?? versionManifest.npm?.[name];
+    return version ? `${name}@${version} [${versionManifest.stagedNpm?.[name] ? 'latest' : 'floor'}]` : null;
   }
   if (name?.startsWith('rightkit-')) {
-    const version = versionManifest.cargo?.[name] ?? versionManifest.stagedCargo?.[name];
-    return version ? `${name}@${version} [${versionManifest.cargo?.[name] ? 'registry-pinned' : 'staged-unverified'}]` : null;
+    const version = versionManifest.stagedCargo?.[name] ?? versionManifest.cargo?.[name];
+    return version ? `${name}@${version} [${versionManifest.stagedCargo?.[name] ? 'latest' : 'floor'}]` : null;
   }
   return null;
 }

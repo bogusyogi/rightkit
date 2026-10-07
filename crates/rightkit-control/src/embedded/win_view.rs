@@ -321,7 +321,11 @@ mod vk_tests {
 
     fn vk_of(spec: &str) -> u32 {
         let (code, _) = chord(spec).unwrap();
-        let last = spec.rsplit('+').next().filter(|l| !l.is_empty()).unwrap_or("+");
+        let last = spec
+            .rsplit('+')
+            .next()
+            .filter(|l| !l.is_empty())
+            .unwrap_or("+");
         let ch = crate::keys::named_char(last)
             .map(String::from)
             .or_else(|| (last.chars().count() == 1).then(|| last.to_string()))
@@ -364,7 +368,11 @@ mod vk_tests {
             assert_eq!(vk_of(&format!("cmd+{d}")), d as u32, "{d}");
         }
         for l in 'a'..='z' {
-            assert_eq!(vk_of(&format!("ctrl+{l}")), l.to_ascii_uppercase() as u32, "{l}");
+            assert_eq!(
+                vk_of(&format!("ctrl+{l}")),
+                l.to_ascii_uppercase() as u32,
+                "{l}"
+            );
         }
     }
 
