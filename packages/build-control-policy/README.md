@@ -1,28 +1,41 @@
-# Write-time ownership feedback
+# Agent ownership policy hooks
 
-`src/ownership-write-hook-cli.mjs` accepts one host event as JSON on stdin. It
-reconstructs Claude `Write`/`Edit`/`MultiEdit` and Codex `apply_patch` updates,
-then blocks source fingerprints whose occurrence count increases. Edits that
-reduce duplicates are allowed. A malformed patch that clearly adds a known
-fingerprint is blocked. The hook blocks write-shaped commands targeting
-`.rightkit/ownership-exceptions.json` and the platform trust registry; opaque
-shell writes remain governed by authoritative build admission.
+`ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` & Codex `apply_patch`. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative.
 
-The adapter loads its packaged `src/ownership-fingerprints.json` snapshot. The
-catalog equality test keeps this snapshot aligned with the release catalog.
+Install the seven runtime assets & append the hook records to both host configs:
 
-Append these entries to existing hook arrays, keeping current groups and
-commands. Source checkout paths are `D:/Claude/tools/rightkit` on Windows and
-`/Volumes/D/claude/tools/rightkit` on Mac.
+```sh
+node tools/rightkit/packages/build-control-policy/src/install-agent-policy.mjs
+```
 
-Claude PreToolUse append: `{"matcher":"Write|Edit|MultiEdit","hooks":[{"type":"command","command":"node \"D:/Claude/tools/rightkit/packages/build-control-policy/src/ownership-write-hook-cli.mjs\""}]}`
+The installer writes verified assets into a content-addressed `content-<sha256>` directory under `D:\.rightkit-managed\agent-policy` on Windows or `/Volumes/D/.rightkit-managed/agent-policy` on Mac. Hook commands use that exact path, so each registration identifies the installed byte set. It preserves existing config fields/groups & skips duplicate records. Never register source checkout paths.
 
-Claude SessionStart append: `{"hooks":[{"type":"command","command":"node \"D:/Claude/tools/rightkit/packages/build-control-policy/src/ownership-session-hook-cli.mjs\""}]}`
+Append these groups to existing host hook arrays. Preserve all existing groups & commands. Substitute `<write-hook>` & `<session-hook>` with installer output paths, escaping backslashes for JSON.
 
-Codex PreToolUse append: `{"matcher":"Bash|apply_patch|exec_command|functions\\.exec","hooks":[{"type":"command","command":"node \"D:/Claude/tools/rightkit/packages/build-control-policy/src/ownership-write-hook-cli.mjs\""}]}`
+Claude `settings.json` additions:
 
-Codex SessionStart append: `{"hooks":[{"type":"command","command":"node \"D:/Claude/tools/rightkit/packages/build-control-policy/src/ownership-session-hook-cli.mjs\""}]}`
+```json
+{
+  "PreToolUse": [{
+    "matcher": "Write|Edit|MultiEdit",
+    "hooks": [{ "type": "command", "command": "node <write-hook>" }]
+  }],
+  "SessionStart": [{
+    "hooks": [{ "type": "command", "command": "node <session-hook>" }]
+  }]
+}
+```
 
-For Mac, replace `D:/Claude/tools/rightkit` in command strings with
-`/Volumes/D/claude/tools/rightkit`. Codex adds JSON `additionalContext` to
-session context.
+Codex `hooks.json` additions:
+
+```json
+{
+  "PreToolUse": [{
+    "matcher": "Bash|apply_patch|exec_command|functions\\.exec",
+    "hooks": [{ "type": "command", "command": "node <write-hook>" }]
+  }],
+  "SessionStart": [{
+    "hooks": [{ "type": "command", "command": "node <session-hook>" }]
+  }]
+}
+```
