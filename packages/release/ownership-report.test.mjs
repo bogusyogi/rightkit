@@ -1,0 +1,57 @@
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { buildOwnershipReport, publishedAvailability, renderOwnershipMarkdown } from "./ownership-report.mjs";
+
+const manifest = { schema: 1, capabilities: [
+  { package: "rightkit-oauth", capability: "oauth-sign-in", summary: "OAuth", fingerprints: [] },
+  { package: "rightkit-new", capability: "new-capability", summary: "New", fingerprints: [] },
+] };
+const versions = { cargo: {}, stagedCargo: { "rightkit-oauth": "0.2.1" }, npm: {}, stagedNpm: {} };
+
+test("published availability uses only current or staged published registry versions", () => {
+  assert.deepEqual(publishedAvailability(manifest.capabilities[0], versions), [{ registry: "crates.io", package: "rightkit-oauth", version: "0.2.1", state: "staged-unverified" }]);
+  assert.deepEqual(publishedAvailability(manifest.capabilities[1], versions), []);
+});
+
+test("cross-app report keeps dependency distinct from integration and hashes/deduplicates scan evidence", () => {
+  const workspaceRoot = mkdtempSync(path.join(tmpdir(), "rk-report-"));
+  for (const name of ["app-a", "app-b"]) mkdirSync(path.join(workspaceRoot, name));
+  const scanner = (root) => ({
+    ok: true,
+    rows: [
+      { capability: "oauth-sign-in", owner: "rightkit-oauth", uses: true, status: "declared-dependency", count: 0 },
+      { capability: "new-capability", owner: "rightkit-new", uses: false, status: "not-detected", count: 0 },
+    ],
+    findings: [],
+    violations: [{ fingerprint: "oauth.endpoint.github", file: "src/auth.rs", occurrenceHash: "same-block-digest" }],
+    covered: [], problems: [], coverage: [],
+    metadata: { repositoryIdentity: root, commit: "abc123", host: "host/windows", scannedAt: "2026-10-07T00:00:00.000Z", catalogDigest: "catalog" },
+  });
+  try {
+    const report = buildOwnershipReport({ workspaceRoot, manifest, versions, apps: [{ key: "a", root: "app-a" }, { key: "b", root: "app-b" }], now: new Date("2026-10-07T00:00:10.000Z"), scanner });
+    assert.equal(report.blocks.length, 1);
+    assert.equal(report.blocks[0].contentHash, "same-block-digest");
+    assert.deepEqual(report.blocks[0].apps, ["a", "b"]);
+    assert.equal(report.apps[0].rows[0].status, "declared-dependency");
+    assert.equal(report.apps[0].rows[1].status, "not-detected");
+    assert.equal(report.apps[0].scanAgeSeconds, 10);
+    assert.deepEqual(report.apps[0].contentDigests, []);
+    assert.match(renderOwnershipMarkdown(report), /declared-dependency/);
+    assert.match(renderOwnershipMarkdown(report), /staged-unverified/);
+  } finally { rmSync(workspaceRoot, { recursive: true, force: true }); }
+});
+
+test("raw exception records become pending requests and are never treated as approved", () => {
+  const workspaceRoot = mkdtempSync(path.join(tmpdir(), "rk-exception-feed-"));
+  const appRoot = path.join(workspaceRoot, "app"); mkdirSync(path.join(appRoot, ".rightkit"), { recursive: true });
+  writeFileSync(path.join(appRoot, ".rightkit", "ownership-exceptions.json"), JSON.stringify({ exceptions: [{ requestId: "RK-ABCDEF", fingerprint: "oauth.endpoint.github", paths: ["src/auth.rs"], reason: "migration", owner: "app" }] }));
+  try {
+    const report = buildOwnershipReport({ workspaceRoot, manifest, versions, apps: [{ key: "app", root: "app" }], scanner: () => ({ rows: [], findings: [], violations: [], covered: [], problems: [], coverage: [], metadata: {} }) });
+    assert.equal(report.exceptionRequests.length, 1);
+    assert.equal(report.exceptionRequests[0].state, "request-pending-verification");
+    assert.deepEqual(report.apps[0].covered, []);
+  } finally { rmSync(workspaceRoot, { recursive: true, force: true }); }
+});

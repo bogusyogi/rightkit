@@ -23,6 +23,8 @@ const commands = new Map([
   ["github", "github-release.mjs"],
   ["cargo-target", "cargo-target.mjs"],
   ["ownership", "ownership-command.mjs"],
+  ["ownership-approval", "ownership-approval-command.mjs"],
+  ["ownership-report", "ownership-report-command.mjs"],
 ]);
 
 const args = process.argv.slice(2);
@@ -171,6 +173,12 @@ Commands:
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories
   ownership [--app <dir>] [--json]                   Fail on app copies of RightKit-owned capabilities
+  ownership-approval --draft <input.json> [--out <draft.json>]
+                                                      Draft an exception for native owner approval
+  ownership-approval --verify <signed.json> --context <scan.json>
+                                                      Verify exact signed exception coverage
+  ownership-report --workspace <dir> [--markdown <file>] [--json-out <file>]
+                                                      Report cross-app ownership & pending requests
   cache status [--json]                              Inspect the shared local build cache
   cache prune [--dry-run|--apply] [--json]           Plan or apply safe shared-target pruning
   cache migrate --config <file> [--dry-run|--apply] [--json]
