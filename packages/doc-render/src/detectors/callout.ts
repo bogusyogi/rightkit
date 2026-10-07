@@ -1,5 +1,5 @@
 import type { Blockquote, RootContent } from "mdast";
-import type { Detector, DetectorHit } from "./types";
+import type { Detector, DetectorHit } from "./types.js";
 import { nodeText } from "./nodeText.js";
 
 const CALLOUT_TYPES = ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"] as const;

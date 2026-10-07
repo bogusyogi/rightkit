@@ -1,4 +1,4 @@
-import type { CslEntry, CslName } from "./types";
+import type { CslEntry, CslName } from "./types.js";
 
 export function formatName(name: CslName): string {
   if (name.literal) return name.literal;

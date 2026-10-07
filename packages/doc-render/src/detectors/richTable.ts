@@ -1,5 +1,5 @@
 import type { Table, TableRow } from "mdast";
-import type { Detector, DetectorHit } from "./types";
+import type { Detector, DetectorHit } from "./types.js";
 import { nodeText } from "./nodeText.js";
 
 export interface RichTableData {

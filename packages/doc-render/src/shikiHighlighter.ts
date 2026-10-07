@@ -1,5 +1,4 @@
 import type { HighlighterCore, LanguageRegistration } from "shiki/core";
-import onigWasmUrl from "shiki/onig.wasm?url";
 
 /**
  * The one Shiki highlighter shared by the Markdown preview (`CodeBlock`), the hybrid editor's
@@ -126,6 +125,21 @@ export function resolveShikiLanguage(language: string | null | undefined): strin
   return LANGUAGE_ALIASES.get(normalized) ?? null;
 }
 
+let configuredWasmUrl: string | null = null;
+
+/** Override where the Oniguruma WASM is fetched from (hosts that serve it themselves). */
+export function configureShikiWasm(url: string): void {
+  configuredWasmUrl = url;
+}
+
+// Imported only when a highlighter is first built: a top-level `?url` import is a bundler feature,
+// and plain Node ESM hosts (e.g. Vitest without inlining) would try to load the .wasm as a module.
+async function onigWasmUrl(): Promise<string> {
+  if (configuredWasmUrl) return configuredWasmUrl;
+  const mod = (await import("shiki/onig.wasm?url")) as { default: string };
+  return mod.default;
+}
+
 async function createRegexEngine() {
   try {
     const { createOnigurumaEngine } = await import("shiki/engine/oniguruma");
@@ -133,7 +147,7 @@ async function createRegexEngine() {
     // rejects unless the asset protocol serves `application/wasm`. Any fetch or instantiate failure
     // lands in the catch below and falls back to the JavaScript regex engine.
     return await createOnigurumaEngine(() =>
-      fetch(onigWasmUrl).then((response) => {
+      onigWasmUrl().then((url) => fetch(url)).then((response) => {
         if (!response.ok) throw new Error(`Shiki WASM failed to load (${response.status})`);
         return response.arrayBuffer();
       }),

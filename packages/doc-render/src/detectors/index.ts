@@ -1,5 +1,5 @@
 import type { RootContent } from "mdast";
-import { CONFIDENCE_THRESHOLD, type Detector, type DetectorHit, type SemanticKind } from "./types";
+import { CONFIDENCE_THRESHOLD, type Detector, type DetectorHit, type SemanticKind } from "./types.js";
 import { calloutDetector } from "./callout.js";
 import { frontmatterDetector } from "./frontmatter.js";
 import { stepperDetector } from "./stepper.js";
@@ -8,7 +8,7 @@ import { faqDetector } from "./faq.js";
 import { richTableDetector } from "./richTable.js";
 import { descriptionListDetector } from "./descriptionList.js";
 
-export * from "./types";
+export * from "./types.js";
 
 // Priority order: most specific / least ambiguous first.
 const DETECTORS: Detector[] = [

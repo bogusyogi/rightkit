@@ -12,4 +12,4 @@ export type { Detector, DetectorHit, SemanticKind } from "./detectors/types.js";
 export { remarkCitations } from "./remarkCitations.js";
 export { remarkDefListAbbr } from "./remarkDefListAbbr.js";
 export { remarkWikiLink } from "./remarkWikiLink.js";
-export { resolveShikiLanguage, ensureShikiLanguage, getShikiHighlighter } from "./shikiHighlighter.js";
+export { resolveShikiLanguage, ensureShikiLanguage, getShikiHighlighter, configureShikiWasm } from "./shikiHighlighter.js";

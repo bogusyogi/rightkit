@@ -1,4 +1,4 @@
-import type { Detector, DetectorHit } from "./types";
+import type { Detector, DetectorHit } from "./types.js";
 
 export interface FrontmatterData {
   /** Parsed key/value pairs (flat, string values only — deep YAML stays untouched). */
