@@ -90,7 +90,7 @@ fn pids_for(marker: &str) -> Vec<u32> {
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter(|l| l.contains(marker))
-        .filter_map(|l| l.trim().split_whitespace().next()?.parse().ok())
+        .filter_map(|l| l.split_whitespace().next()?.parse().ok())
         .collect()
 }
 
@@ -211,7 +211,9 @@ async fn redirects_and_subresources_are_blocked_in_the_browser() {
 #[tokio::test(flavor = "multi_thread")]
 async fn admission_denies_before_side_effect_and_sees_typed_requests() {
     let fx = Fixture::start(None, None);
-    let seen: Arc<Mutex<Vec<(ActionKind, Option<String>, Option<String>)>>> = Arc::default();
+    // (action, url, target) for every admission request.
+    type Seen = Arc<Mutex<Vec<(ActionKind, Option<String>, Option<String>)>>>;
+    let seen: Seen = Arc::default();
     let log = seen.clone();
     let hook: AdmissionHook = Arc::new(move |req| {
         let log = log.clone();
@@ -239,15 +241,14 @@ async fn admission_denies_before_side_effect_and_sees_typed_requests() {
     assert_eq!(p.title().await, "Btn", "denied click must not have clicked");
     // Allowed action still works and is reported with its typed fields.
     p.hover(&Target::css("#b")).await.unwrap();
-    let seen = seen.lock().unwrap();
-    assert!(seen
-        .iter()
-        .any(|(a, u, _)| *a == ActionKind::Navigate
+    {
+        let seen = seen.lock().unwrap();
+        assert!(seen.iter().any(|(a, u, _)| *a == ActionKind::Navigate
             && u.as_deref().is_some_and(|u| u.ends_with("/btn"))));
-    assert!(seen
-        .iter()
-        .any(|(a, _, t)| *a == ActionKind::Click && t.as_deref() == Some("css:#b")));
-    drop(seen);
+        assert!(seen
+            .iter()
+            .any(|(a, _, t)| *a == ActionKind::Click && t.as_deref() == Some("css:#b")));
+    }
     // Denied navigation never reaches the server.
     let hook: AdmissionHook =
         Arc::new(|_| Box::pin(async { Decision::Deny("no navigation".into()) }));
@@ -342,7 +343,7 @@ async fn chromium_child_is_owned_and_dies_on_shutdown_cancel_and_drop() {
     let s = BrowserSession::launch(opts()).await.unwrap();
     let marker = s.profile_dir().to_string_lossy().to_string();
     let _p = s.new_page("about:blank").await.unwrap();
-    assert!(pids_for(&marker).len() >= 1);
+    assert!(!pids_for(&marker).is_empty());
     s.cancel().await;
     assert!(
         wait_gone(&marker).await.is_empty(),

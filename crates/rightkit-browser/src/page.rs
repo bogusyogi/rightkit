@@ -240,12 +240,14 @@ impl BrowserPage {
                     });
                 }
             }));
-            let mut en = FetchEnableParams::default();
-            en.patterns = Some(vec![RequestPattern {
-                url_pattern: Some("*".into()),
-                resource_type: None,
-                request_stage: None,
-            }]);
+            let en = FetchEnableParams {
+                patterns: Some(vec![RequestPattern {
+                    url_pattern: Some("*".into()),
+                    resource_type: None,
+                    request_stage: None,
+                }]),
+                ..Default::default()
+            };
             inner.execute(en).await.map_err(cdp)?;
         }
         Ok(Self {

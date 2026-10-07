@@ -262,6 +262,9 @@ impl Drop for Hosted {
 
 /// Host `cfg.service` on `suite`: discover, rank, take over if outranking,
 /// bind the current-user-only endpoint, publish `service.json`.
+// `HostError::Held` carries the incumbent's record by value so callers can match on it directly;
+// this runs once per host start, so the larger Err is not a hot-path cost.
+#[allow(clippy::result_large_err)]
 pub fn host(
     suite: &Suite,
     cfg: ServiceConfig,

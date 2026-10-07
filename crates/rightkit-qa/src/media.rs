@@ -55,7 +55,7 @@ pub fn wav_stats(path: &Path) -> Result<Value> {
     let duration = data.len() as f64 / (rate * channels * (bits as f64 / 8.0)).max(1.0);
     let (mut sum_sq, mut peak, mut n) = (0f64, 0f64, 0usize);
     if bits == 16 {
-        for c in data.chunks_exact(2) {
+        for c in data.as_chunks::<2>().0 {
             let v = i16::from_le_bytes([c[0], c[1]]) as f64 / 32768.0;
             sum_sq += v * v;
             peak = peak.max(v.abs());

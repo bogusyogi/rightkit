@@ -11,12 +11,15 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+/// Scripted responses: (status, optional Retry-After seconds), consumed in order.
+type Script = Arc<Mutex<Vec<(u16, Option<u64>)>>>;
+
 /// Minimal recording HTTP server. Responses are scripted; once the script is
 /// exhausted every request gets 200.
 pub struct MockServer {
     pub url: String,
     requests: Arc<Mutex<Vec<Value>>>,
-    script: Arc<Mutex<Vec<(u16, Option<u64>)>>>,
+    script: Script,
     stop: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }

@@ -70,8 +70,11 @@ pub(crate) fn char_key(c: char) -> KeyDef {
     }
 }
 
+/// (modifier bitmask, modifier keys to press in order, main key).
+pub(crate) type Chord = (i64, Vec<(String, KeyDef)>, KeyDef);
+
 /// Parse `Control+Shift+a`, `Enter`, `a`. Returns (modifier bitmask, key).
-pub(crate) fn parse_chord(spec: &str) -> Result<(i64, Vec<(String, KeyDef)>, KeyDef)> {
+pub(crate) fn parse_chord(spec: &str) -> Result<Chord> {
     let mut mods = 0;
     let mut mod_keys = Vec::new();
     let parts: Vec<&str> = if spec == "+" {

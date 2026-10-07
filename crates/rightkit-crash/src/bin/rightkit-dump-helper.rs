@@ -57,7 +57,7 @@ mod windows {
             }
         };
 
-        let output_handle = file.as_raw_handle() as *mut c_void;
+        let output_handle: *mut c_void = file.as_raw_handle();
         let result = unsafe {
             MiniDumpWriteDump(
                 process,

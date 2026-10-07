@@ -400,11 +400,7 @@ impl Scheduler {
             .name("rightkit-telemetry-upload".into())
             .spawn(move || {
                 let mut wait = Duration::from_millis(0);
-                loop {
-                    match signal.recv_timeout(wait) {
-                        Err(RecvTimeoutError::Timeout) => {}
-                        _ => break,
-                    }
+                while let Err(RecvTimeoutError::Timeout) = signal.recv_timeout(wait) {
                     let report = uploader.flush();
                     wait = match report.state {
                         FlushState::Retrying { wait_secs, .. } => {

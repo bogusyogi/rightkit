@@ -81,7 +81,7 @@ fn prewarm_ring_storage(
     consumer: &mut ringbuf::HeapCons<f32>,
     capacity: usize,
 ) {
-    let warmed = producer.push_iter(std::iter::repeat(0.0).take(capacity));
+    let warmed = producer.push_iter(std::iter::repeat_n(0.0, capacity));
     debug_assert_eq!(warmed, capacity);
     consumer.clear();
 }
@@ -188,7 +188,7 @@ impl CaptureSession {
         let input_channels = supported.channels();
         let sample_format = supported.sample_format();
 
-        let stream_config: StreamConfig = supported.clone().into();
+        let stream_config: StreamConfig = supported.into();
 
         tracing::info!(
             device = %device_name,

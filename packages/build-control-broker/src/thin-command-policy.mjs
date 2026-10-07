@@ -117,6 +117,8 @@ function cargoCapability(command, argv) {
   if (command === 'clean') return ARTIFACT_WRITE;
   if (command === 'run') return CARGO_RUN;
   if (command === 'login') { assertLoginArgv(argv); return CREDENTIAL_LOGIN; }
+  // `cargo package` verifies by compiling the packaged crate into target/package.
+  if (command === 'package') return BUILD;
   if (command === 'publish') {
     const end = argv.indexOf('--');
     if (argv.slice(0, end < 0 ? argv.length : end).some((value) => value === '--token' || value.startsWith('--token='))) throw new DeniedThinCommandError('cargo', 'publish', NO_ARGV_TOKEN);

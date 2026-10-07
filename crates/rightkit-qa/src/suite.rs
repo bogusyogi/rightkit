@@ -195,9 +195,13 @@ pub fn run_suite(cfg: &QaConfig, opts: &SuiteOptions) -> Result<SuiteReport> {
     workspace::prune_abandoned(
         &cfg.evidence_root,
         Duration::from_secs(6 * 3600),
-        &[run_id.clone()],
+        std::slice::from_ref(&run_id),
     );
-    workspace::prune_abandoned_homes(&cfg.app, Duration::from_secs(6 * 3600), &[run_id.clone()]);
+    workspace::prune_abandoned_homes(
+        &cfg.app,
+        Duration::from_secs(6 * 3600),
+        std::slice::from_ref(&run_id),
+    );
     let ws = workspace::create(&cfg.evidence_root, Some(&run_id), &cfg.app)?;
     let tracker = Tracker::with_registry(ws.root.join("pids.json"));
     let mut bundle = Bundle::new(&cfg.app, platform, &run_id)?;

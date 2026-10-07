@@ -47,6 +47,7 @@ test('cargo login is a credential-stdin control command; publish builds; tokens 
   }
   const publish = policy.classify('cargo', ['publish', '-p', 'rightkit-db', '--dry-run']);
   assert.equal(publish.lane, 'BUILD'); assert.equal(publish.compile, true); assert.equal(publish.credentialStdin, undefined);
+  assert.equal(policy.classify('cargo', ['package', '--list', '-p', 'rightkit-db']).lane, 'BUILD');
   assert.throws(() => policy.classify('cargo', ['publish', '--token', 'test-token-value']), /never on the command line/);
   assert.throws(() => policy.classify('cargo', ['publish', '--token=test-token-value']), /never on the command line/);
 });

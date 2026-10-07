@@ -246,10 +246,10 @@ impl StateDir {
             }
             let age_ms = now_ms().saturating_sub(stat.modified_unix_ms);
             let old = age_ms >= max_age.as_millis() as u64;
-            if (pid != std::process::id() && !crate::process_alive(pid)) || old {
-                if self.dir.unlink(&name).is_ok() {
-                    removed += 1;
-                }
+            if ((pid != std::process::id() && !crate::process_alive(pid)) || old)
+                && self.dir.unlink(&name).is_ok()
+            {
+                removed += 1;
             }
         }
         Ok(removed)

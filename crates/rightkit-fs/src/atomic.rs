@@ -254,10 +254,10 @@ pub fn sweep_stale_temps(dir: &Path, max_age: Duration) -> Result<usize> {
             .ok()
             .and_then(|m| m.elapsed().ok())
             .is_some_and(|age| age >= max_age);
-        if (pid != std::process::id() && !crate::process_alive(pid)) || old {
-            if fs::remove_file(entry.path()).is_ok() {
-                removed += 1;
-            }
+        if ((pid != std::process::id() && !crate::process_alive(pid)) || old)
+            && fs::remove_file(entry.path()).is_ok()
+        {
+            removed += 1;
         }
     }
     Ok(removed)

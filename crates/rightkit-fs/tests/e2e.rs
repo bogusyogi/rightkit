@@ -576,7 +576,7 @@ fn identity_follows_renames_moves_and_atomic_replacement() {
     let id = store.track(&original).unwrap();
     assert_eq!(id.len(), 32);
     assert_eq!(
-        store.resolve(&id, &[root.clone()]).unwrap(),
+        store.resolve(&id, std::slice::from_ref(&root)).unwrap(),
         Resolution::Unchanged(original.clone())
     );
 
@@ -584,7 +584,7 @@ fn identity_follows_renames_moves_and_atomic_replacement() {
     let renamed = root.join("inbox/report-final.txt");
     std::fs::rename(&original, &renamed).unwrap();
     assert_eq!(
-        store.resolve(&id, &[root.clone()]).unwrap(),
+        store.resolve(&id, std::slice::from_ref(&root)).unwrap(),
         Resolution::Moved(renamed.clone())
     );
     // The ledger remembers: now it is Unchanged at the new path.
@@ -598,7 +598,7 @@ fn identity_follows_renames_moves_and_atomic_replacement() {
     std::fs::create_dir_all(archived.parent().unwrap()).unwrap();
     std::fs::rename(&renamed, &archived).unwrap();
     assert_eq!(
-        store.resolve(&id, &[root.clone()]).unwrap(),
+        store.resolve(&id, std::slice::from_ref(&root)).unwrap(),
         Resolution::Moved(archived.clone())
     );
 
@@ -609,7 +609,7 @@ fn identity_follows_renames_moves_and_atomic_replacement() {
     atomic_write(&saved, b"quarterly numbers").unwrap();
     assert_ne!(rightkit_fs::FileKey::of_path(&saved).unwrap(), before);
     assert_eq!(
-        store.resolve(&id, &[root.clone()]).unwrap(),
+        store.resolve(&id, std::slice::from_ref(&root)).unwrap(),
         Resolution::Replaced(saved.clone())
     );
     assert_eq!(
@@ -621,7 +621,7 @@ fn identity_follows_renames_moves_and_atomic_replacement() {
     // Rewritten with different content: no longer recognisable, and say so.
     atomic_write(&saved, b"completely different").unwrap();
     assert_eq!(
-        store.resolve(&id, &[root.clone()]).unwrap(),
+        store.resolve(&id, std::slice::from_ref(&root)).unwrap(),
         Resolution::Missing
     );
     store.rebind(&id, &saved).unwrap();
@@ -635,7 +635,7 @@ fn identity_follows_renames_moves_and_atomic_replacement() {
     std::fs::create_dir_all(outside.parent().unwrap()).unwrap();
     std::fs::rename(root.join("archive/2026/q3/report-final.txt"), &outside).unwrap();
     assert_eq!(
-        store.resolve(&id, &[root.clone()]).unwrap(),
+        store.resolve(&id, std::slice::from_ref(&root)).unwrap(),
         Resolution::Missing
     );
 
@@ -662,7 +662,7 @@ fn identity_prefers_the_real_file_over_a_same_size_decoy_and_ignores_symlinks() 
     #[cfg(unix)]
     std::os::unix::fs::symlink(&moved, root.join("0-link.dat")).unwrap();
     assert_eq!(
-        store.resolve(&id, &[root.clone()]).unwrap(),
+        store.resolve(&id, std::slice::from_ref(&root)).unwrap(),
         Resolution::Moved(moved)
     );
 }

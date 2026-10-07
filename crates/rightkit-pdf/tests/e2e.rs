@@ -127,7 +127,12 @@ fn replace_source_text_in_place_round_trips_through_reopen() {
         },
         available_bounds: bounds,
     };
-    let out = compose_candidate(&original, &[command.clone()], FontCatalog::shared()).unwrap();
+    let out = compose_candidate(
+        &original,
+        std::slice::from_ref(&command),
+        FontCatalog::shared(),
+    )
+    .unwrap();
     assert_eq!(out.affected_pages, vec![1]);
     let text = page_text(&out.bytes, 1);
     assert!(text.contains("Hello Rustaceans"), "{text}");
@@ -151,7 +156,12 @@ fn add_text_on_chrome_pdf_stages_and_commits_atomically_leaving_other_pages_byte
         text: "Reviewed by RightKit".into(),
         appearance: appearance_for("source-serif-4"),
     };
-    let composed = compose_candidate(&original, &[command.clone()], FontCatalog::shared()).unwrap();
+    let composed = compose_candidate(
+        &original,
+        std::slice::from_ref(&command),
+        FontCatalog::shared(),
+    )
+    .unwrap();
     assert_eq!(composed.affected_pages, vec![2]);
 
     let dir = scratch("commit");
@@ -223,7 +233,12 @@ fn same_path_commit_refuses_when_source_changed_after_staging() {
         text: "Approved".into(),
         appearance: appearance_for("source-serif-4"),
     };
-    let composed = compose_candidate(&original, &[command.clone()], FontCatalog::shared()).unwrap();
+    let composed = compose_candidate(
+        &original,
+        std::slice::from_ref(&command),
+        FontCatalog::shared(),
+    )
+    .unwrap();
     let dir = scratch("conflict");
     let target = dir.join("memo.pdf");
     std::fs::write(&target, &original).unwrap();

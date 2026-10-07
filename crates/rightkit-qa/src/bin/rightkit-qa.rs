@@ -146,8 +146,8 @@ fn guard(a: &Args) -> Result<i32> {
         .unwrap_or(Backend::Control);
     let read = |rel: &Option<String>, default: &str| -> Result<String> {
         let p = cfg.app_root.join(rel.as_deref().unwrap_or(default));
-        Ok(std::fs::read_to_string(&p)
-            .map_err(|e| rightkit_qa::Error(format!("cannot read {}: {e}", p.display())))?)
+        std::fs::read_to_string(&p)
+            .map_err(|e| rightkit_qa::Error(format!("cannot read {}: {e}", p.display())))
     };
     let cargo = read(&cfg.ui.cargo_toml, "src-tauri/Cargo.toml")?;
     let rust = if cfg.ui.rust_sources.is_empty() {

@@ -54,6 +54,8 @@ struct Closed {
     cv: Condvar,
 }
 
+/// One frame for the writer thread and the channel its write result goes back on.
+type WriteRequest = (Vec<u8>, Sender<std::io::Result<()>>);
 type Subscribers = Arc<Mutex<Vec<Sender<Value>>>>;
 
 /// State shared with the reader thread and the bounded-shutdown helper.
@@ -63,7 +65,7 @@ struct Core {
     subscribers: Subscribers,
     /// Frames go to a dedicated writer thread so a full pipe to a wedged engine
     /// blocks that thread, never a caller that has a deadline.
-    writes: Mutex<Sender<(Vec<u8>, Sender<std::io::Result<()>>)>>,
+    writes: Mutex<Sender<WriteRequest>>,
     pending: PendingMap,
     next_id: AtomicU64,
     child: Mutex<Option<OwnedChild>>,

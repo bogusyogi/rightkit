@@ -362,7 +362,7 @@ pub fn build_engine(
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .filter(|m| m["reason"] == "compiler-artifact" && m["target"]["name"] == package)
         .filter_map(|m| m["executable"].as_str().map(PathBuf::from))
-        .last()
+        .next_back()
         .ok_or_else(|| {
             Error(format!(
                 "build produced no executable for package {package}"

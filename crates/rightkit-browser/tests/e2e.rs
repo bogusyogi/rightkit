@@ -86,10 +86,7 @@ async fn browser_runtime_outcomes() {
 
     // Real click.
     p.click(&Target::css("#btn")).await.unwrap();
-    assert_eq!(
-        p.text().await.unwrap().contains("clicked trusted=true"),
-        true
-    );
+    assert!(p.text().await.unwrap().contains("clicked trusted=true"));
 
     // Real hover: :hover matches only with a genuine pointer position.
     p.hover(&Target::css("#hov")).await.unwrap();

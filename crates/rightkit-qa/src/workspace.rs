@@ -182,6 +182,37 @@ pub fn prune_abandoned(cache_root: &Path, older_than: Duration, keep: &[String])
     report
 }
 
+/// Sweep temp-side homes (`<temp>/rightkit-qa/<app>-<run>`) of crashed runs for one app.
+pub fn prune_abandoned_homes(
+    app_key: &str,
+    older_than: Duration,
+    keep_run_ids: &[String],
+) -> DisposeReport {
+    let mut report = DisposeReport::default();
+    let Ok(rd) = fs::read_dir(std::env::temp_dir().join("rightkit-qa")) else {
+        return report;
+    };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !name.starts_with(&format!("{app_key}-"))
+            || keep_run_ids.iter().any(|k| name.ends_with(k.as_str()))
+        {
+            continue;
+        }
+        let age = fs::metadata(e.path())
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| SystemTime::now().duration_since(t).ok());
+        if age.map(|a| a >= older_than).unwrap_or(false) {
+            match fs::remove_dir_all(e.path()) {
+                Ok(()) => report.removed.push(e.path()),
+                Err(err) => report.retained.push((e.path(), err.to_string())),
+            }
+        }
+    }
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,35 +248,4 @@ mod tests {
         assert!(root.join("runs/b").exists() && !root.join("runs/a").exists());
         let _ = fs::remove_dir_all(root);
     }
-}
-
-/// Sweep temp-side homes (`<temp>/rightkit-qa/<app>-<run>`) of crashed runs for one app.
-pub fn prune_abandoned_homes(
-    app_key: &str,
-    older_than: Duration,
-    keep_run_ids: &[String],
-) -> DisposeReport {
-    let mut report = DisposeReport::default();
-    let Ok(rd) = fs::read_dir(std::env::temp_dir().join("rightkit-qa")) else {
-        return report;
-    };
-    for e in rd.flatten() {
-        let name = e.file_name().to_string_lossy().to_string();
-        if !name.starts_with(&format!("{app_key}-"))
-            || keep_run_ids.iter().any(|k| name.ends_with(k.as_str()))
-        {
-            continue;
-        }
-        let age = fs::metadata(e.path())
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| SystemTime::now().duration_since(t).ok());
-        if age.map(|a| a >= older_than).unwrap_or(false) {
-            match fs::remove_dir_all(e.path()) {
-                Ok(()) => report.removed.push(e.path()),
-                Err(err) => report.retained.push((e.path(), err.to_string())),
-            }
-        }
-    }
-    report
 }

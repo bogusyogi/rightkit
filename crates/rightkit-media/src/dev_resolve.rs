@@ -26,6 +26,8 @@ pub enum ResolutionKind {
     DevUnverified { path: PathBuf, reason: String },
 }
 
+// Development-only resolution result, created once per test/tool run; boxing buys nothing.
+#[allow(clippy::large_enum_variant)]
 pub enum DevResolved {
     Verified(VerifiedFfmpeg),
     Dev(DevFfmpeg),

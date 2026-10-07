@@ -90,7 +90,10 @@ pub struct NetworkRequest {
 
 pub type AllowCallback = Arc<dyn Fn(&NetworkRequest) -> bool + Send + Sync>;
 
-#[derive(Clone)]
+/// Per-host resolution shared by the request check and the pinning proxy.
+type ResolvedCache = Arc<Mutex<HashMap<String, (Instant, Vec<IpAddr>)>>>;
+
+#[derive(Clone, Default)]
 pub struct NetworkPolicy {
     /// Hosts (exact, case-insensitive) allowed even when their address class is blocked.
     pub allow_hosts: Vec<String>,
@@ -102,25 +105,12 @@ pub struct NetworkPolicy {
     pub resolver: Option<Resolver>,
     /// One resolution per host is shared by the request check and the pinning
     /// proxy, so the address that was vetted is the address that is connected.
-    resolved: Arc<Mutex<HashMap<String, (Instant, Vec<IpAddr>)>>>,
+    resolved: ResolvedCache,
     /// Non-public addresses an explicit allow let through, per host.
     approved: Arc<Mutex<HashMap<String, Vec<IpAddr>>>>,
 }
 
 pub type Resolver = Arc<dyn Fn(&str) -> Vec<IpAddr> + Send + Sync>;
-
-impl Default for NetworkPolicy {
-    fn default() -> Self {
-        Self {
-            allow_hosts: Vec::new(),
-            allow_request: None,
-            unrestricted: false,
-            resolver: None,
-            resolved: Arc::default(),
-            approved: Arc::default(),
-        }
-    }
-}
 
 impl fmt::Debug for NetworkPolicy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -154,9 +144,7 @@ pub fn classify_ip(ip: IpAddr) -> AddressClass {
                 AddressClass::Multicast
             } else if seg[0] & 0xffc0 == 0xfe80 {
                 AddressClass::LinkLocal
-            } else if seg[0] & 0xfe00 == 0xfc00 {
-                AddressClass::Private
-            } else if is_nat64_private(v6) {
+            } else if seg[0] & 0xfe00 == 0xfc00 || is_nat64_private(v6) {
                 AddressClass::Private
             } else {
                 AddressClass::Public
@@ -299,7 +287,7 @@ impl NetworkPolicy {
             .get(&host)
             .cloned()
             .unwrap_or_default();
-        let listed = self.allow_hosts.iter().any(|h| *h == host);
+        let listed = self.allow_hosts.contains(&host);
         let ok: Vec<IpAddr> = ips
             .iter()
             .copied()

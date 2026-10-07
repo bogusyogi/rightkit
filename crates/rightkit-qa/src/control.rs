@@ -869,8 +869,8 @@ impl Control {
             frontmost_states: states,
             frontmost_before: self.frontmost_before.clone(),
             frontmost_after: after,
-            owned_never_frontmost: owned_never_frontmost,
-            owned_frontmost_pids: owned_frontmost_pids,
+            owned_never_frontmost,
+            owned_frontmost_pids,
         })
     }
 }
