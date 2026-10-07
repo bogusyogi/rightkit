@@ -7,7 +7,7 @@ This directory contains source drafts. Repository files are not trusted by the p
 Native builds are ready at these content-addressed development artifact paths:
 
 - Windows: `D:\.rightkit-managed\ownership-approval\windows\content-529b1cffef8adfdfa9661ff2d6f15994c138b5b035bdfcc609a521d3fc627537\RightKit.OwnershipApproval.Windows.exe` (SHA-256 matches its directory suffix).
-- Mac: `/Volumes/D/.rightkit-managed/ownership-approval/macos/content-f17d21e1ad78a789121c5ad7e9abfff7909a821628da3c28023568de4f5edea/ownership-approval --enroll` (SHA-256 matches its directory suffix).
+- Mac: `/Users/adrdsouza/.rightkit-managed/ownership-approval/macos/content-f17d21e1ad78a789121c5ad7e9abfff7909a821628da3c28023568de4f5edea0/ownership-approval --enroll` (SHA-256 matches its directory suffix).
 
 These native development artifacts are locally built; their directories do not establish protected verifier authority. Windows compilation plus ephemeral signature interoperability passed; Mac compilation plus ephemeral signature interoperability passed. Adrian performs actual host enrollment from these visible native helpers.
 
@@ -60,3 +60,22 @@ sudo install -o root -g wheel -m 644 '<reviewed-trust-schema.mjs>' '/Library/App
 The installer expects its protected directory and files to have been provisioned by Adrian after reviewing their source and runtime. It does not bootstrap or loosen those permissions. It validates keys, IDs, registry roots, policy floors, revocations, evidence, and provenance before writing. It does not enroll keys or sign records.
 
 Read-only host probes on 2026-10-07 found no existing `Orthic Labs\RightKit` Program Files/ProgramData install root on Windows and no `/Library/Application Support/Orthic Labs/RightKit` or helper app on Mac. Therefore Adrian must provision the installer directory from reviewed source and protected runtime on each native host before invoking it; do not elevate or execute this checkout to install. After install, run the installed verifier from a non-elevated session on each host. It must pass its fixed-path owner/ACL and link audit and report two distinct enrolled hosts before approvals can verify.
+
+## Prepared rollout bundles
+
+Exact source from commit `b22fdf2998333462e62192cd643442168c904013` is staged with existing Node 26.8.1 runtimes & regular-file `smol-toml` dependencies. Mac bundles use home storage because `/Volumes/D` became unavailable. These are review inputs; directory hashes do not establish protected authority.
+
+| Host | Bundle | Absolute development path |
+|---|---|---|
+| Windows | Adapters | `D:\.rightkit-managed\ownership-install\windows-adapters-7944c2f34654d5dcbb7780e6d97ddef7d57bce8c920cf793136e11a544a7db93` |
+| Windows | Trust installer | `D:\.rightkit-managed\ownership-install\windows-installer-5fec910d0736f97a7558bacb68a50741e810a51045ea67027aff7e9a7bd016ba` |
+| Windows | Baseline policy | `D:\.rightkit-managed\ownership-install\windows-candidate-671c540e539d150ebbe8207c6701004fe97639b3b0b1aaab20a8c4c24ffdf95d` |
+| Mac | Adapters | `/Users/adrdsouza/.rightkit-managed/ownership-install/macos-adapters-5a5c3ab010ecc759a547fcb4d5b501f9567a1498b90ac28c0c4d9688327ceefa` |
+| Mac | Trust installer | `/Users/adrdsouza/.rightkit-managed/ownership-install/macos-installer-a6f956867a8d1c3b2b78d215f436a943132f85be599259321ef300d5ca4c6e1b` |
+| Mac | Baseline policy | `/Users/adrdsouza/.rightkit-managed/ownership-install/macos-candidate-671c540e539d150ebbe8207c6701004fe97639b3b0b1aaab20a8c4c24ffdf95d` |
+
+Each adapter bundle has 26 regular files. Its `ownership/adapters/adapter-files.json` SHA-256 is `59a0afc55576a6d68fac9b19a3f3f72828cde3f19d5a48c4301acea842d8a908` on Windows & `f26ebcde7455ce8c7d7434f85666fae6bcb8bbef9de2d0c50198b15c4928649a` on Mac. Manifest verification, production imports, syntax, development-path rejection, & enrollment policy lifecycle checks passed on both hosts. Baseline `first-install-baseline.json` has SHA-256 `83c8d1fa1cf5a8408ef5aa2569e7185f71817e1cdcdc1de8a0af675633b05cda` & zero host keys; use it only as reviewed baseline input to `prepare-enrollment.mjs` after obtaining both public exports.
+
+For first install, copy adapter bundle contents into fresh fixed adapter roots listed in [adapters/README.md](adapters/README.md). Copy `ownership/installer/` from each trust-installer bundle into its fixed protected installer directory described above. Refuse existing destinations, preserve existing trust during upgrades, & apply required owner/ACL protection to every new ancestor & installed file before executing. On Mac, `ditto` can preserve source ownership: explicitly set copied tree owner to `root:wheel` & remove group/world write; retain restrictive key permissions. Verify copied code inventory with installed `package-manifest.mjs --verify --root <fixed-adapter-root>`. Enrollment policy/installer paths have separate protection checks, so adding reviewed trust leaves code inventory valid.
+
+Existing duplicates have 102 unsigned migration drafts; complete real expiry, request ID, & protected tracking evidence, then use Adrian's native review/sign/import flow in [migrations/README.md](migrations/README.md).
