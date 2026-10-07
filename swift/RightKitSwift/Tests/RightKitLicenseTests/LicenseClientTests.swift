@@ -57,6 +57,7 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
     private var _tokenScope: String?
     private var _leaseScope: String?
     private var _paths: [String] = []
+    private var _records: [(path: String, body: [String: String])] = []
     private var _bodyOverride: [String: Any]?
     private var _omitLeaseEntitlement = false
     private var _tokenVersion = 2
@@ -66,6 +67,10 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
     var lastBody: [String: String] { lock.withLock { _lastBody } }
     var requestCount: Int { lock.withLock { _requestCount } }
     var paths: [String] { lock.withLock { _paths } }
+    /// Bodies of every request to `path`, in arrival order.
+    func bodies(path: String) -> [[String: String]] { lock.withLock { _records.filter { $0.path == path }.map(\.body) } }
+    /// Forgets every recorded request and serves 200 again.
+    func reset() { lock.withLock { _records = []; _paths = []; _requestCount = 0; _status = 200 } }
     /// `entitlement_scope` claim signed into every token; nil omits the claim.
     var tokenScope: String? {
         get { lock.withLock { _tokenScope } }
@@ -165,6 +170,7 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
             _lastBody = (json ?? [:]).compactMapValues { $0 as? String }
             _requestCount += 1
             _paths.append(path)
+            _records.append((path, (json ?? [:]).compactMapValues { $0 as? String }))
         }
         let status = self.status
         var payload: [String: Any] = [
@@ -512,7 +518,7 @@ private final class DeliveryLog: @unchecked Sendable {
     // Relaunch: a fresh controller over the same device state still owes the removal.
     server.status = 200
     let relaunched = LicenseController(client: client, deviceState: state)
-    // The init-time retry may already be in flight (a concurrent retry returns []): settle both.
+    // Retry until the queue drains (the init-time retry and this one run in order on the chain).
     var attempts = 0
     while await relaunched.pendingRemovals?.pending.isEmpty != true, attempts < 100 {
         _ = await relaunched.retryPendingRemovals()
@@ -1213,4 +1219,283 @@ private func refreshed(
         #expect(await store.load() == nil)
     }
     try? await store.remove()
+}
+
+// MARK: - 0.3.7 serialized controller and single-flight removal retry
+
+private let raceIterations = 100
+private let scrapeRightLeaseRemovePath = "/v1/pro/scraperight/devices/lease/remove"
+
+/// A Keychain store with a unique service when this host has a usable Keychain, else memory.
+private func journeyStore() async -> any LicenseStore {
+    let keychain = KeychainLicenseStore(service: "test.journey.\(UUID().uuidString)", account: "activation")
+    do {
+        try await keychain.save(StoredLicense(status: "probe", deviceId: "probe"))
+        try await keychain.remove()
+        return keychain
+    } catch {
+        return InMemoryLicenseStore()
+    }
+}
+
+/// ScrapeRight's `ProLicense.configuration` knobs, pointed at the loopback server.
+private func scrapeRightClient(_ server: LoopbackLicenseServer, store: any LicenseStore, deviceID: String) -> LicenseActivationClient {
+    LicenseActivationClient(
+        configuration: LicenseClientConfiguration(
+            app: "scraperight", baseURL: server.baseURL.appendingPathComponent("v1/licenses"),
+            appVersion: "1.0.0", deviceID: { deviceID },
+            publicKeyBase64url: Curve25519.Signing.PrivateKey().publicKey.rawRepresentation.base64URLEncodedString(),
+            deviceClass: "iphone", includeAppKeyInLeaseBody: false,
+            leasePathStyle: .originRooted(apiPrefix: "/v1"), refreshErrorPolicy: .keepRecordOnAnyError,
+            requireActiveStatus: false, acceptedTokenVersions: [1, 2],
+            revokingStatuses: ["removed", "revoked"], allowedEntitlementScopes: LicenseEntitlementScope.mobileCompatible
+        ),
+        store: store
+    )
+}
+
+/// ScrapeRight's `ProLicense.makeController`: build the controller, then immediately fire the
+/// launch-time silent refresh in an unstructured task. The task handle is returned only so a
+/// test can wait for it; the app discards it.
+@MainActor
+private func makeScrapeRightController(
+    _ server: LoopbackLicenseServer, store: any LicenseStore, state: any LicenseDeviceStateStoring, deviceID: String
+) -> (LicenseController, Task<Void, Never>) {
+    let controller = LicenseController(
+        client: scrapeRightClient(server, store: store, deviceID: deviceID), deviceState: state, namespace: "scraperight"
+    )
+    let launchRefresh = Task { await controller.refresh(silent: true) }
+    return (controller, launchRefresh)
+}
+
+/// Port of ScrapeRight's `LicenseRemovalJourneyTests.testOfflineRemovalStaysQueuedAcrossRelaunchUntilAcknowledged`,
+/// with the same steps and assertions. "Offline" is HTTP 503 from the loopback server, which the
+/// client treats as an undelivered removal exactly as it treats a transport failure.
+@MainActor
+@Test func offlineRemovalStaysQueuedAcrossRelaunchUntilAcknowledged() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    var failures = 0
+    for iteration in 0..<raceIterations {
+        server.reset()
+        let suite = "LicenseRemovalJourneyTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let state = UserDefaultsLicenseDeviceState(defaults: defaults)
+        let store = await journeyStore()
+        let deviceID = "device-\(iteration)"
+        let record = StoredLicense(status: "active", deviceId: deviceID, activationToken: "atk-1", leaseId: "lease-1", leaseGeneration: 1)
+        try await store.save(record)
+        server.status = 503
+
+        let (first, _) = makeScrapeRightController(server, store: store, state: state, deviceID: deviceID)
+        await first.remove()
+        let firstLicense = first.license
+        let stored = await store.load()
+        #expect(firstLicense == nil, "iteration \(iteration): removed licence republished in memory")
+        #expect(stored == nil, "iteration \(iteration): local Pro ends immediately even offline")
+        #expect(first.isBridgeConsumptionSuppressed)
+        let hash = LicenseActivationClient.deviceIDHash(record.deviceId)
+
+        server.status = 200
+        let (relaunched, _) = makeScrapeRightController(server, store: store, state: state, deviceID: deviceID)
+        #expect(relaunched.isBridgeConsumptionSuppressed)
+        await relaunched.retryPendingRemovals()
+        let delivered = server.bodies(path: scrapeRightLeaseRemovePath)
+            .filter { $0["leaseId"] == "lease-1" && $0["deviceIdHash"] == hash }
+        #expect(!delivered.isEmpty, "queued removal must reach the server with its original identity")
+        let count = delivered.count
+        await relaunched.retryPendingRemovals()
+        let after = server.bodies(path: scrapeRightLeaseRemovePath).filter { $0["leaseId"] == "lease-1" }.count
+        #expect(after == count, "iteration \(iteration): acknowledged removal re-posted")
+        if firstLicense != nil || stored != nil || delivered.isEmpty || after != count { failures += 1 }
+
+        await first.waitForPendingOperations()
+        await relaunched.waitForPendingOperations()
+        try? await store.remove()
+    }
+    #expect(failures == 0, "\(failures) of \(raceIterations) iterations failed")
+}
+
+/// The same journey with every launch task drained, so the removal calls are exact: the offline
+/// `remove()` posts once, the launch refresh queued behind it flushes the queue once more
+/// (still offline), and the relaunch delivers once, however many `retryPendingRemovals()` race
+/// the relaunch's own init retry and launch refresh. 3 in total, never 4.
+@MainActor
+@Test func journeyRemovalCallCountsStayExactUnderConcurrentRetries() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    var failures = 0
+    for iteration in 0..<raceIterations {
+        server.reset()
+        let state = InMemoryLicenseDeviceState()
+        let store = await journeyStore()
+        let deviceID = "device-\(iteration)"
+        try await store.save(StoredLicense(status: "active", deviceId: deviceID, activationToken: "atk-1", leaseId: "lease-1", leaseGeneration: 1))
+        server.status = 503
+
+        let (first, firstRefresh) = makeScrapeRightController(server, store: store, state: state, deviceID: deviceID)
+        await first.remove()
+        let removedLicense = first.license
+        await firstRefresh.value
+        await first.waitForPendingOperations()
+        let offlineCalls = server.bodies(path: scrapeRightLeaseRemovePath).count
+        let stillQueued = await first.pendingRemovals?.pending.count
+
+        server.status = 200
+        let (relaunched, relaunchRefresh) = makeScrapeRightController(server, store: store, state: state, deviceID: deviceID)
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<6 { group.addTask { await relaunched.retryPendingRemovals() } }
+        }
+        await relaunchRefresh.value
+        await relaunched.waitForPendingOperations()
+        let totalCalls = server.bodies(path: scrapeRightLeaseRemovePath).count
+        await relaunched.retryPendingRemovals()
+        let finalCalls = server.bodies(path: scrapeRightLeaseRemovePath).count
+        let queueAfter = await relaunched.pendingRemovals?.pending
+
+        #expect(removedLicense == nil)
+        #expect(offlineCalls == 2, "iteration \(iteration): offline remove + launch-refresh flush")
+        #expect(stillQueued == 1)
+        #expect(totalCalls == 3, "iteration \(iteration): expected 3 lease/remove calls, saw \(totalCalls)")
+        #expect(finalCalls == 3)
+        #expect(queueAfter?.isEmpty == true)
+        if removedLicense != nil || offlineCalls != 2 || stillQueued != 1 || totalCalls != 3 || finalCalls != 3 || queueAfter?.isEmpty != true {
+            failures += 1
+        }
+        try? await store.remove()
+    }
+    #expect(failures == 0, "\(failures) of \(raceIterations) iterations failed")
+}
+
+/// The app pattern under load: launch refresh plus a burst of refreshes and retries around a
+/// removal. Once `await remove()` returns, the licence is gone in memory and in storage, and stays
+/// gone after every other operation has finished.
+@MainActor
+@Test func concurrentRefreshesNeverRepublishARemovedLicense() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    var failures = 0
+    for iteration in 0..<raceIterations {
+        server.reset()
+        let store = InMemoryLicenseStore(StoredLicense(status: "active", deviceId: "dev", activationToken: "atk", leaseId: "lease-\(iteration)", leaseGeneration: 1))
+        let (controller, launchRefresh) = makeScrapeRightController(server, store: store, state: InMemoryLicenseDeviceState(), deviceID: "dev")
+        let burst = (0..<8).map { index in
+            Task { @MainActor in
+                if index.isMultiple(of: 3) { await controller.retryPendingRemovals() } else { await controller.refresh(silent: index.isMultiple(of: 2)) }
+            }
+        }
+        await controller.remove()
+        let afterRemove = controller.license
+        let storedAfterRemove = await store.load()
+        await launchRefresh.value
+        for task in burst { await task.value }
+        await controller.waitForPendingOperations()
+        let settled = controller.license
+        let storedSettled = await store.load()
+        let removeCalls = server.paths.filter { $0.hasSuffix("/lease/remove") }.count
+        let queue = await controller.pendingRemovals?.pending
+
+        #expect(afterRemove == nil, "iteration \(iteration): removed licence republished")
+        #expect(storedAfterRemove == nil)
+        #expect(settled == nil && storedSettled == nil)
+        #expect(removeCalls == 1, "iteration \(iteration): one delivered removal, saw \(removeCalls)")
+        #expect(queue?.isEmpty == true)
+        if afterRemove != nil || storedAfterRemove != nil || settled != nil || storedSettled != nil || removeCalls != 1 || queue?.isEmpty != true {
+            failures += 1
+        }
+    }
+    #expect(failures == 0, "\(failures) of \(raceIterations) iterations failed")
+}
+
+/// Many concurrent activate/activateLease/refresh/remove/retry calls: the published licence always
+/// ends equal to the stored one, every queued removal is delivered once, and a final removal
+/// leaves nothing behind.
+@MainActor
+@Test func concurrentMixedOperationsEndInAConsistentState() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let server = try await LoopbackLicenseServer(signingKey: key, deviceID: LicenseActivationClient.deviceIDHash("dev"))
+    defer { server.stop() }
+    var failures = 0
+    for iteration in 0..<raceIterations {
+        server.reset()
+        let store = InMemoryLicenseStore()
+        let c = client(server, store: store, publicKey: pubKey(key))
+        let controller = LicenseController(client: c, deviceState: InMemoryLicenseDeviceState())
+        let tasks = (0..<24).map { index in
+            Task { @MainActor in
+                switch index % 6 {
+                case 0: await controller.activate("RK-\(iteration)-\(index)")
+                case 1: await controller.activateLease("RK-\(iteration)-\(index)")
+                case 2: await controller.refresh(silent: true)
+                case 3: await controller.refresh()
+                case 4: await controller.remove()
+                default: await controller.retryPendingRemovals()
+                }
+            }
+        }
+        for task in tasks { await task.value }
+        await controller.waitForPendingOperations()
+        let published = controller.license
+        let stored = await store.load()
+        let consistent = published == stored && !controller.isBusy
+
+        await controller.remove()
+        await controller.waitForPendingOperations()
+        let finalLicense = controller.license
+        let finalStored = await store.load()
+        let queue = await controller.pendingRemovals?.pending
+
+        #expect(consistent, "iteration \(iteration): published \(String(describing: published?.leaseId)) vs stored \(String(describing: stored?.leaseId))")
+        #expect(finalLicense == nil && finalStored == nil)
+        #expect(queue?.isEmpty == true)
+        #expect(controller.isBridgeConsumptionSuppressed)
+        if !consistent || finalLicense != nil || finalStored != nil || queue?.isEmpty != true { failures += 1 }
+    }
+    #expect(failures == 0, "\(failures) of \(raceIterations) iterations failed")
+}
+
+/// Direct queue use: concurrent `retry` calls on one queue join one wave, and waves of two queue
+/// instances over the same storage run one after another, so each entry is posted exactly once.
+@Test func pendingRemovalRetryIsSingleFlightAcrossCallersAndInstances() async throws {
+    var failures = 0
+    for iteration in 0..<raceIterations {
+        let storage = InMemoryLicenseDeviceState()
+        let namespace = "single-flight-\(iteration)"
+        let queue = PendingLicenseRemovalQueue(storage: storage, namespace: namespace)
+        let relaunched = PendingLicenseRemovalQueue(storage: storage, namespace: namespace)
+        let entries = (0..<3).map { PendingLicenseRemoval.lease(deviceIdHash: "h\($0)", leaseId: "l\($0)") }
+        for entry in entries { await queue.enqueue(entry) }
+        let log = DeliveryLog()
+        let results = await withTaskGroup(of: [PendingLicenseRemoval].self) { group in
+            for index in 0..<8 {
+                let target = index.isMultiple(of: 2) ? queue : relaunched
+                group.addTask {
+                    await target.retry { removal in
+                        try await Task.sleep(nanoseconds: 200_000)
+                        try log.deliver(removal)
+                    }
+                }
+            }
+            var all: [[PendingLicenseRemoval]] = []
+            for await result in group { all.append(result) }
+            return all
+        }
+        let posted = log.delivered
+        let pendingAfter = await queue.pending
+        #expect(posted.count == entries.count && Set(posted) == Set(entries), "iteration \(iteration): posted \(posted)")
+        #expect(pendingAfter.isEmpty)
+        #expect(Set(results.flatMap { $0 }) == Set(entries))
+        if posted.count != entries.count || Set(posted) != Set(entries) || !pendingAfter.isEmpty { failures += 1 }
+    }
+    #expect(failures == 0, "\(failures) of \(raceIterations) iterations failed")
+
+    // A `deliver` that retries the same queue again returns [] instead of waiting on itself.
+    let queue = PendingLicenseRemovalQueue(storage: InMemoryLicenseDeviceState(), namespace: "reentrant")
+    await queue.enqueue(.activation(activationToken: "t"))
+    let delivered = await queue.retry { _ in
+        let nested = await queue.retry { _ in Issue.record("nested wave must not deliver") }
+        #expect(nested.isEmpty)
+    }
+    #expect(delivered == [.activation(activationToken: "t")])
 }

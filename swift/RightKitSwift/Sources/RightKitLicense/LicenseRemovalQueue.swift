@@ -56,10 +56,21 @@ public enum PendingLicenseRemoval: Codable, Equatable, Hashable, Sendable {
 /// Durable, idempotent queue of server-side removals. Enqueue BEFORE the first network attempt:
 /// endpoint idempotency makes a retry safe, but a dropped request is not an acknowledgement and
 /// does not free the server seat. Entries leave the queue only after the server accepted them.
+///
+/// Retries are single-flight. Concurrent `retry` calls on one queue join the wave already in
+/// flight and return its result. Waves of different queue instances over the same persisted key
+/// (an app relaunch, or two controllers in one process) run one after another, and each re-checks
+/// the persisted queue before every post. So a queued removal is posted at most once per wave,
+/// and an acknowledged entry is never posted again.
 public actor PendingLicenseRemovalQueue {
     private let storage: any LicenseDeviceStateStoring
     private let key: String
     private var retrying = false
+    private var joiners: [CheckedContinuation<[PendingLicenseRemoval], Never>] = []
+
+    /// Persisted keys whose wave is running in the current task, so a `deliver` closure that
+    /// calls `retry` again returns `[]` instead of waiting on its own wave.
+    @TaskLocal private static var activeWaveKeys: Set<String> = []
 
     /// - Parameter namespace: prefix for the persisted key (e.g. the app id), so two apps or an app
     ///   and its extension sharing a suite never collide.
@@ -78,10 +89,10 @@ public actor PendingLicenseRemovalQueue {
         save(current)
     }
 
-    /// Delivers every queued removal through `client`, removing only those the server accepted.
-    /// Returns the delivered entries. Safe to call repeatedly (launch, foreground, after a
-    /// successful refresh); a call while another retry is running returns `[]` instead of
-    /// double-posting.
+    /// Delivers every queued removal through `client`, removing each one as soon as the server
+    /// accepts it. Returns the delivered entries. Safe to call repeatedly (launch, foreground,
+    /// after a successful refresh); a call while a retry is in flight joins that retry and
+    /// returns its result instead of posting again.
     @discardableResult
     public func retry(using client: LicenseActivationClient) async -> [PendingLicenseRemoval] {
         await retry { removal in
@@ -92,24 +103,43 @@ public actor PendingLicenseRemovalQueue {
         }
     }
 
-    /// `retry(using:)` with an injected delivery (tests, custom transports).
+    /// `retry(using:)` with an injected delivery (tests, custom transports). A joining caller's
+    /// `deliver` is not used: the wave in flight delivers with its own.
     @discardableResult
     public func retry(deliver: @Sendable (PendingLicenseRemoval) async throws -> Void) async -> [PendingLicenseRemoval] {
-        guard !retrying else { return [] }
+        if Self.activeWaveKeys.contains(key) { return [] }
+        if retrying {
+            return await withCheckedContinuation { joiners.append($0) }
+        }
         retrying = true
-        defer { retrying = false }
+        await RemovalDeliveryLock.shared.acquire(key)
+        let delivered = await Self.$activeWaveKeys.withValue(Self.activeWaveKeys.union([key])) {
+            await wave(deliver: deliver)
+        }
+        RemovalDeliveryLock.shared.release(key)
+        retrying = false
+        let waiting = joiners
+        joiners = []
+        for joiner in waiting { joiner.resume(returning: delivered) }
+        return delivered
+    }
+
+    /// One pass over the entries queued when the wave started. Each is re-checked against
+    /// storage right before it is posted (so an entry acknowledged elsewhere is skipped), attempted
+    /// once, and dropped from storage as soon as the server accepts it. An entry queued mid-wave is
+    /// kept for the next wave.
+    private func wave(deliver: @Sendable (PendingLicenseRemoval) async throws -> Void) async -> [PendingLicenseRemoval] {
         var delivered: [PendingLicenseRemoval] = []
-        for removal in load() {
+        for removal in load() where load().contains(removal) {
             do {
                 try await deliver(removal)
-                delivered.append(removal)
             } catch {
-                // Offline or rejected for now: stays queued for the next retry.
+                continue // Offline or rejected for now: stays queued for the next retry.
             }
+            delivered.append(removal)
+            // Re-read after the await: a removal queued meanwhile must survive.
+            save(load().filter { $0 != removal })
         }
-        guard !delivered.isEmpty else { return [] }
-        // Re-read after the awaits: a removal queued meanwhile must survive.
-        save(load().filter { !delivered.contains($0) })
         return delivered
     }
 
@@ -122,6 +152,36 @@ public actor PendingLicenseRemovalQueue {
     private func save(_ removals: [PendingLicenseRemoval]) {
         guard !removals.isEmpty else { storage.set(nil, forKey: key); return }
         storage.set(try? JSONEncoder().encode(removals), forKey: key)
+    }
+}
+
+/// Process-wide FIFO lock per persisted queue key. A holder never awaits another key's lock, and
+/// a nested wave on the same key is short-circuited by `activeWaveKeys`, so it cannot deadlock.
+final class RemovalDeliveryLock: @unchecked Sendable {
+    static let shared = RemovalDeliveryLock()
+    private let lock = NSLock()
+    private var held: Set<String> = []
+    private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+
+    func acquire(_ key: String) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let granted: Bool = lock.withLock {
+                if held.contains(key) { waiters[key, default: []].append(continuation); return false }
+                held.insert(key); return true
+            }
+            if granted { continuation.resume() }
+        }
+    }
+
+    /// Hands the lock straight to the next waiter, or frees it.
+    func release(_ key: String) {
+        let next: CheckedContinuation<Void, Never>? = lock.withLock {
+            guard var queue = waiters[key], !queue.isEmpty else { held.remove(key); return nil }
+            let first = queue.removeFirst()
+            waiters[key] = queue.isEmpty ? nil : queue
+            return first
+        }
+        next?.resume()
     }
 }
 

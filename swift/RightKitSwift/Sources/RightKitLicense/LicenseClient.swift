@@ -847,6 +847,15 @@ public struct LicenseMessages: Equatable, Sendable {
 }
 
 #if canImport(Combine)
+/// Main-actor license state for app UI.
+///
+/// Every operation that reads or writes the store or publishes `license` (the initial load,
+/// `activate`, `activateLease`, `persist`, `refresh`, `remove`, `retryPendingRemovals`) runs on
+/// one serial chain: each starts only after the previous one finished, in call order. A call
+/// therefore sees every earlier call's effects, and none of them can publish over it. In
+/// particular, once `await remove()` returns, no earlier operation is still running and every
+/// later one reads the already-emptied store, so no removed license is ever republished. Waiting
+/// on the chain suspends; it never blocks the main actor.
 @MainActor
 public final class LicenseController: ObservableObject {
     @Published public private(set) var license: StoredLicense?
@@ -860,16 +869,18 @@ public final class LicenseController: ObservableObject {
     public let pendingRemovals: PendingLicenseRemovalQueue?
     /// Bridge re-consumption gate; nil for controllers built with `init(client:)`.
     public let bridgeConsumption: BridgeConsumptionGate?
-    /// Invalidates an in-flight refresh so it cannot publish (or re-store) a license after a
-    /// removal, activation or persist that happened meanwhile.
-    private var mutationGeneration: UInt64 = 0
+    /// Last operation on the serial chain; the next operation awaits it before it starts.
+    private var operationTail: Task<Void, Never>?
 
     public init(client: LicenseActivationClient, messages: LicenseMessages = LicenseMessages()) {
         self.client = client
         self.messages = messages
         self.pendingRemovals = nil
         self.bridgeConsumption = nil
-        Task { [weak self] in self?.license = await client.load() }
+        operationTail = Task { [weak self] in
+            let loaded = await client.load()
+            self?.license = loaded
+        }
     }
 
     /// Controller with device-side removal housekeeping: `remove()` suppresses bridge consumption
@@ -888,12 +899,41 @@ public final class LicenseController: ObservableObject {
         self.messages = messages
         self.pendingRemovals = PendingLicenseRemovalQueue(storage: deviceState, namespace: scope)
         self.bridgeConsumption = BridgeConsumptionGate(storage: deviceState, namespace: scope)
-        Task { [weak self] in
-            let generation = self?.mutationGeneration
+        operationTail = Task { [weak self] in
             let loaded = await client.load()
             guard let self else { return }
-            if self.mutationGeneration == generation { self.license = loaded }
-            await self.retryPendingRemovals()
+            self.license = loaded
+            await self.deliverPendingRemovals()
+        }
+    }
+
+    /// Runs `operation` after every operation enqueued before it, and returns its result. The
+    /// operation runs in its own task, so a cancelled caller never leaves it half done.
+    private func serialized<T: Sendable>(_ operation: @escaping @MainActor @Sendable () async -> T) async -> T {
+        let previous = operationTail
+        let task = Task { @MainActor in
+            await previous?.value
+            return await operation()
+        }
+        operationTail = Task { @MainActor in _ = await task.value }
+        return await task.value
+    }
+
+    private func serializedThrowing<T: Sendable>(_ operation: @escaping @MainActor @Sendable () async throws -> T) async throws -> T {
+        let previous = operationTail
+        let task = Task { @MainActor in
+            await previous?.value
+            return try await operation()
+        }
+        operationTail = Task { @MainActor in _ = try? await task.value }
+        return try await task.value
+    }
+
+    /// Waits until every operation enqueued so far has finished (tests).
+    func waitForPendingOperations() async {
+        while let tail = operationTail {
+            await tail.value
+            if operationTail == tail { return }
         }
     }
 
@@ -918,6 +958,13 @@ public final class LicenseController: ObservableObject {
     /// Delivers queued server removals. No-op for controllers built with `init(client:)`.
     @discardableResult
     public func retryPendingRemovals() async -> [PendingLicenseRemoval] {
+        guard pendingRemovals != nil else { return [] }
+        return await serialized { await self.deliverPendingRemovals() }
+    }
+
+    /// Unserialized delivery, for use inside an operation already on the chain.
+    @discardableResult
+    private func deliverPendingRemovals() async -> [PendingLicenseRemoval] {
         guard let pendingRemovals else { return [] }
         return await pendingRemovals.retry(using: client)
     }
@@ -925,35 +972,38 @@ public final class LicenseController: ObservableObject {
     /// Activation through the renewable device-lease endpoint. Clears bridge suppression on
     /// success: an explicit activation is the user's way back after a removal.
     public func activateLease(_ key: String, deviceLabel: String? = nil) async {
-        mutationGeneration &+= 1
-        isBusy = true; defer { isBusy = false }
-        do {
-            license = try await client.activateLease(key: key, deviceLabel: deviceLabel)
-            bridgeConsumption?.allow()
-            message = outcomeMessage(for: license, pro: messages.activatedPro, fallback: messages.activated)
-        } catch { message = error.localizedDescription }
+        await serialized {
+            self.isBusy = true; defer { self.isBusy = false }
+            do {
+                self.license = try await self.client.activateLease(key: key, deviceLabel: deviceLabel)
+                self.bridgeConsumption?.allow()
+                self.message = self.outcomeMessage(for: self.license, pro: self.messages.activatedPro, fallback: self.messages.activated)
+            } catch { self.message = error.localizedDescription }
+        }
     }
 
     /// Store an already-verified license obtained elsewhere (e.g. a continuity-bridge exchange
     /// the app performed) through the same device-only store as an activation. Does not clear
     /// bridge suppression.
     public func persist(_ verified: StoredLicense) async throws {
-        mutationGeneration &+= 1
-        try await client.store.save(verified)
-        license = verified
+        try await serializedThrowing {
+            try await self.client.store.save(verified)
+            self.license = verified
+        }
     }
 
     public var isProCandidate: Bool { verifiesPro(license) }
 
     public func activate(_ key: String) async {
-        mutationGeneration &+= 1
-        isBusy = true; defer { isBusy = false }
-        do {
-            license = try await client.activate(key: key)
-            bridgeConsumption?.allow()
-            message = outcomeMessage(for: license, pro: messages.activatedPro, fallback: messages.activated)
+        await serialized {
+            self.isBusy = true; defer { self.isBusy = false }
+            do {
+                self.license = try await self.client.activate(key: key)
+                self.bridgeConsumption?.allow()
+                self.message = self.outcomeMessage(for: self.license, pro: self.messages.activatedPro, fallback: self.messages.activated)
+            }
+            catch { self.message = error.localizedDescription }
         }
-        catch { message = error.localizedDescription }
     }
 
     /// Refreshes the stored record. A lease-bound record (`leaseId != nil`) renews through
@@ -963,34 +1013,19 @@ public final class LicenseController: ObservableObject {
     /// - Parameter silent: for background refreshes (launch, foreground). Leaves `message` and
     ///   `isBusy` untouched (success or failure) and republishes `license` only when it changed.
     public func refresh(silent: Bool = false) async {
+        await serialized { await self.performRefresh(silent: silent) }
+    }
+
+    private func performRefresh(silent: Bool) async {
         if !silent { isBusy = true }
         defer { if !silent { isBusy = false } }
-        guard pendingRemovals != nil else {
-            do {
-                let (fetched, removed) = try await routedRefresh()
-                let refreshed = await stampDeviceRemoved(fetched, removed: removed)
-                publish(refreshed, silent: silent)
-                if !silent { message = refreshMessage(for: refreshed, deviceRemoved: removed) }
-            } catch {
-            if Self.isDeviceRemoved(error), let stamped = await stampDeviceRemoved(license, removed: true) { license = stamped }
-            if !silent { message = failureMessage(for: error) }
-        }
-            return
-        }
-        let generation = mutationGeneration
         do {
             let (fetched, removed) = try await routedRefresh()
-            guard mutationGeneration == generation else {
-                // A removal landed while the refresh was in flight: the client already re-saved
-                // the old record, so take it back out; never publish it.
-                if license == nil { try? await client.store.remove() }
-                return
-            }
             let refreshed = await stampDeviceRemoved(fetched, removed: removed)
             publish(refreshed, silent: silent)
             if !silent { message = refreshMessage(for: refreshed, deviceRemoved: removed) }
             // A completed round trip proves connectivity: flush owed removals now.
-            await retryPendingRemovals()
+            await deliverPendingRemovals()
         } catch {
             if Self.isDeviceRemoved(error), let stamped = await stampDeviceRemoved(license, removed: true) { license = stamped }
             if !silent { message = failureMessage(for: error) }
@@ -1028,20 +1063,22 @@ public final class LicenseController: ObservableObject {
     /// consumption, queue the owed server removal durably, delete the local record (Pro ends
     /// immediately, even offline), then attempt delivery; an undelivered removal stays queued.
     public func remove() async {
+        await serialized { await self.performRemove() }
+    }
+
+    private func performRemove() async {
+        isBusy = true; defer { isBusy = false }
         guard let pendingRemovals else {
-            isBusy = true; defer { isBusy = false }
             try? await client.deactivate(); license = nil; message = messages.removed
             return
         }
-        mutationGeneration &+= 1
-        isBusy = true; defer { isBusy = false }
         bridgeConsumption?.suppress()
         let current = await client.load()
         if let current, let owed = PendingLicenseRemoval.owed(by: current) { await pendingRemovals.enqueue(owed) }
         try? await client.store.remove()
         license = nil
         message = messages.removed
-        await retryPendingRemovals()
+        await deliverPendingRemovals()
     }
 
     private func routedRefresh() async throws -> (StoredLicense?, deviceRemoved: Bool) {

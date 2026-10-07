@@ -2,23 +2,23 @@
   "schema": 1,
   "kind": "swift",
   "name": "RightKitSwift",
-  "version": "0.3.6",
-  "commit": "7753589d8ff9a59be2d6f4ccf3ed51e1c96e8c0e",
-  "artifactSha256": "bc2c65d402d58e7bfddf785c120e561a51f5c4c2391aa0357532a82cbbb56184",
+  "version": "0.3.7",
+  "commit": "b0566e951e0a72880c1b6fff124abb2b2ba1a38b",
+  "artifactSha256": "bc320519303c1e898496ff302895d3f2a8866f7f7cfa39403ab951ee0ee7288b",
   "runs": [
     {
       "host": {
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "7753589d8ff9a59be2d6f4ccf3ed51e1c96e8c0e",
+      "commit": "b0566e951e0a72880c1b6fff124abb2b2ba1a38b",
       "command": "swift test --no-parallel --package-path tools/rightkit/swift/RightKitSwift",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T07:25:55Z",
-      "passed": 190,
+      "timestamp": "2026-10-07T07:49:59Z",
+      "passed": 195,
       "failed": 0
     }
   ]

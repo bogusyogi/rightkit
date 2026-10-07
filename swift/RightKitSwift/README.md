@@ -72,6 +72,20 @@ and resolved URLs RightKit sent before 0.3.4; the alternatives reproduce ScrapeR
 - `LicenseMessages.deviceRemoved` (0.3.5, optional) replaces the message after a non-silent
   refresh whose lease renewal or legacy refresh got HTTP 404/410. `nil` keeps the original text.
 
+### Serialized controller and single-flight removal retry (0.3.7)
+
+- Every `LicenseController` operation that touches the store or publishes `license` (the initial
+  load, `activate`, `activateLease`, `persist`, `refresh`, `remove`, `retryPendingRemovals`) runs
+  on one serial chain, in call order; each starts only after the previous one finished. Once
+  `await remove()` returns, nothing queued or in flight can republish the removed licence: earlier
+  operations have finished and later ones read the emptied store. Waiting suspends, never blocks
+  the main actor. A slow operation (e.g. a refresh on a stalled network) delays the ones behind it.
+- `PendingLicenseRemovalQueue.retry` is single-flight: concurrent callers on one queue join the
+  wave in flight and get its result (0.3.6 returned `[]`). Waves of different queue instances on
+  the same persisted key run one after another. Each entry is re-read from storage right before it
+  is posted and dropped as soon as the server accepts it, so a removal is posted at most once per
+  wave and an acknowledged one is never posted again.
+
 ### Refresh merge (0.3.5)
 
 `refresh()` clears the signed token, entitlements and `validUntil` only for an explicit status in
@@ -119,7 +133,7 @@ edit of the pin, recorded in `rightkit-versions.json`.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.6"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.7"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -134,7 +148,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit-swift.git
-    exactVersion: "0.3.6"
+    exactVersion: "0.3.7"
 ```
 
 A clone of a consuming app resolves this straight from GitHub — no workspace
