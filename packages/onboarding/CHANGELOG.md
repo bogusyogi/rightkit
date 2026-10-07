@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2
+
+### Added
+- `shouldAutoStart?(entry, models)`: the app picks which missing model auto-starts when the models step first opens (first `missing` entry returning true; no "something is installed" guard, the app decides). `autoStartDownload` behaves as before.
+- `onModelsStepEnter?(ctx)`: full control, called once when the step opens and the list has loaded; `ctx` has `models`, `start(id)` and `refresh()`. Replaces `shouldAutoStart` and `autoStartDownload`; a throw is shown in the step. New types `ModelsStepEnterContext`, `ModelsAutoStart`; `ModelsStepOptions` gains the same options and `startGuard`.
+
+### Fixed
+- The auto-start guard now lives in `Onboarding`, not in the models step, so Back/Next (which remounts the step) and re-renders cannot start a download a second time.
+
 ## 0.2.1
 
 ### Added

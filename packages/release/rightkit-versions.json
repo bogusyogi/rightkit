@@ -24,12 +24,12 @@
     "@rightkit/license": "0.1.8",
     "@rightkit/logs": "0.1.4",
     "@rightkit/media-ui": "0.2.5",
-    "@rightkit/onboarding": "0.2.1",
+    "@rightkit/onboarding": "0.2.2",
     "@rightkit/pdf-ui": "0.1.1",
     "@rightkit/platform-ui": "0.1.2",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.118",
-    "@rightkit/settings-ui": "0.2.2",
+    "@rightkit/release": "0.2.119",
+    "@rightkit/settings-ui": "0.2.3",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.1.1",
     "@rightkit/theme": "0.2.0",
@@ -139,7 +139,8 @@
       "0.2.114",
       "0.2.115",
       "0.2.116",
-      "0.2.117"
+      "0.2.117",
+      "0.2.118"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -161,11 +162,13 @@
     ],
     "@rightkit/settings-ui": [
       "0.1.0",
-      "0.2.0"
+      "0.2.0",
+      "0.2.2"
     ],
     "@rightkit/onboarding": [
       "0.1.0",
-      "0.2.0"
+      "0.2.0",
+      "0.2.1"
     ],
     "@rightkit/doc-render": [
       "0.1.0",

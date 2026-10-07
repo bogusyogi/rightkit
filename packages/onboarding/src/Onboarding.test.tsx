@@ -129,6 +129,72 @@ describe("models seams", () => {
   });
 });
 
+describe("models auto-start hooks", () => {
+  const entries: ModelEntry[] = [{ id: "small", label: "Small", state: "missing" }, { id: "big", label: "Big", state: "missing" }, { id: "have", label: "Have", state: "installed" }];
+  it("default autoStartDownload is unchanged: starts nothing when a model is installed", async () => {
+    const install = vi.fn(async () => {});
+    setup(accepted(), { models: models(entries, { install }), autoStartDownload: true });
+    await screen.findByText("Have");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(install).not.toHaveBeenCalled();
+  });
+  it("shouldAutoStart picks the model the app chooses, without the installed guard, and only that one", async () => {
+    const install = vi.fn(async () => {});
+    setup(accepted(), { models: models(entries, { install }), shouldAutoStart: (e) => e.id === "big" });
+    await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
+    expect(install).toHaveBeenCalledWith("big");
+  });
+  it("shouldAutoStart starts nothing when no entry matches", async () => {
+    const install = vi.fn(async () => {});
+    setup(accepted(), { models: models(entries, { install }), shouldAutoStart: () => false });
+    await screen.findByText("Small");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(install).not.toHaveBeenCalled();
+  });
+  it("onModelsStepEnter receives the loaded list, starts through ctx.start, and replaces the built-in rules", async () => {
+    const install = vi.fn(async () => {});
+    const enter = vi.fn(async (ctx: { models: readonly ModelEntry[]; start(id: string): Promise<void> }) => { await ctx.start(ctx.models.find((m) => m.id === "small")!.id); });
+    setup(accepted(), { models: models(entries, { install }), autoStartDownload: true, shouldAutoStart: () => true, onModelsStepEnter: enter });
+    await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
+    expect(install).toHaveBeenCalledWith("small");
+    expect(enter).toHaveBeenCalledTimes(1);
+    expect(enter.mock.calls[0]![0].models.map((m) => m.id)).toEqual(["small", "big", "have"]);
+  });
+  it("shows an error thrown by onModelsStepEnter", async () => {
+    setup(accepted(), { models: models(entries), onModelsStepEnter: () => { throw new Error("no gpu"); } });
+    expect(await screen.findByText("no gpu")).toBeInTheDocument();
+  });
+  it("does not start twice across re-renders or Back/Next", async () => {
+    const user = userEvent.setup();
+    const install = vi.fn(async () => {});
+    const list = [{ id: "m", label: "Model", state: "missing" as const }];
+    const props = { models: models(list, { install }), shouldAutoStart: () => true, steps: [{ id: "x", label: "X", title: "Step X", render: () => <p>X body</p> }] };
+    const s = memorySettings(accepted());
+    const ui = (extra: Partial<OnboardingProps> = {}) => <Onboarding settings={s.backend} legal={legal} onComplete={() => {}} {...props} {...extra} />;
+    const view = render(ui());
+    await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
+    view.rerender(ui({ steps: [{ id: "x", label: "X", title: "Step X", render: () => <p>X body</p> }] }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await screen.findByText("X body");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByText("Model");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(install).toHaveBeenCalledTimes(1);
+  });
+  it("onModelsStepEnter also fires once across Back/Next", async () => {
+    const user = userEvent.setup();
+    const enter = vi.fn();
+    setup(accepted(), { models: models([{ id: "m", label: "Model", state: "missing" }]), onModelsStepEnter: enter, steps: [{ id: "x", label: "X", title: "Step X", render: () => <p>X body</p> }] });
+    await waitFor(() => expect(enter).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await screen.findByText("X body");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByText("Model");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(enter).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("legal acceptance", () => {
   it("stores a full acceptance record with UTC timestamp", async () => {
     const user = userEvent.setup();

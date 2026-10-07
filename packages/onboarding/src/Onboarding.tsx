@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LegalGate } from "@rightkit/legal-ui";
 import { Button } from "@rightkit/app-shell/react";
 import { cx } from "./ui.js";
@@ -71,12 +71,14 @@ function TitleStrip({ titlebar, dragRegion }: { titlebar?: ReactNode; dragRegion
   return <div className="rk-onboarding__titlebar" data-testid="onboarding-titlebar" {...(dragRegion ? { "data-tauri-drag-region": "" } : {})}>{titlebar}</div>;
 }
 
-export function Onboarding({ settings, legal, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt }: OnboardingProps) {
+export function Onboarding({ settings, legal, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt }: OnboardingProps) {
   const [state, setState] = useState<PersistedOnboardingState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [readyMap, setReadyMap] = useState<Record<string, boolean>>({});
   const [gateCleared, setGateCleared] = useState(false);
+  /** One auto-start per mount, even when the models step unmounts (Back/Next) or the step list is rebuilt. */
+  const modelsStarted = useRef(false);
   /** Persists a patch; throws when the settings backend rejects it. */
   const persist = useCallback(async (patch: Partial<PersistedOnboardingState>) => {
     setSaving(true); setError(null);
@@ -112,10 +114,10 @@ export function Onboarding({ settings, legal, steps = [], permissions, models, l
   const builtins = useMemo<OnboardingStep[]>(() => [
     { id: "legal", label: "Agreement", title: "Review agreement", skippable: false, render: () => <p className="rk-onboarding__muted">Agreement accepted.</p> },
     ...(permissions ? [permissionsStep(permissions)] : []),
-    ...(models ? [modelsStep(models, { required: requireModel, autoStartDownload, intro: modelsIntro })] : []),
+    ...(models ? [modelsStep(models, { required: requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, intro: modelsIntro, startGuard: modelsStarted })] : []),
     ...(license ? [licenseStep(license)] : []),
     ...steps,
-  ], [license, models, permissions, steps, requireModel, autoStartDownload, modelsIntro]);
+  ], [license, models, permissions, steps, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro]);
   const activeState = state ?? INITIAL;
   const accepted = isLegalAccepted(activeState, requiredVersion, isAccepted);
   const needsGate = state !== null && !accepted;

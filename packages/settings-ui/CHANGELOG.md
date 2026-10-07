@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3
+
+Update-stable seams for the licence panel and a new engine doctor section. All additive; default output is unchanged.
+
+### Added
+- Licence: `LicenseOptions.labels` (`LicenseLabels`) covers every visible string: section/status/active-status titles, free/not-activated/invalid/expired badges, trial/subscription/lifetime kind names, free/rejected/active/expired details (the last two are functions of `(kind, until)`), the Deactivate row (title, hint, button, confirm), the Activate row (title, hint, aria label, placeholder, button, in-flight `activating`, `notAccepted`), the purchase row and the search entries.
+- Licence: `confirmDeactivate?: boolean` (default true; false deactivates on the first click; `beforeDeactivate` still runs and can abort).
+- Licence: `LicenseOptions.ids` (`LicenseIds`): `section` (wraps plan slot and rows in `<div id>`), `licenseKey`, `form`, `activate`, `deactivate`, `status`. Nothing is rendered unless set, so apps can keep `#settings-pro` and `#settings-license-key`.
+- `doctorSection(options)` (section id `doctor`, also `standardSections({ doctor })` and `StandardSectionId`): app-supplied `DoctorCheck { id, label, description?, run(): Promise<{ ok, detail?, fix? }> }`, run-all plus per-check re-run, status badges (not run / checking / ok / needs attention), summary, `autoRun`, `onResult`, `DoctorLabels` (all strings, optional `detailsLabel` to wrap the list in `<details>`), `DoctorIds` (`section`, `summary`, `runAll`, `list`, `check(id)`, `rerun(id)`) and `data-check-id` / `data-status` on each row. A throwing check is a failed check; a stale run never overwrites a newer one. Styles in `settings.css` (`.rk-doctor__*`).
+
 ## 0.2.2
 
 Update-stable seams so apps keep their own nav, update, licence and About UI. All additive; defaults render as in 0.2.1.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Input, Badge } from "@rightkit/app-shell/react";
-import type { LicenseBackend, ModelEntry, LicenseState, ModelsBackend, OnboardingStep, PermissionStatus, PermissionsBackend } from "./types.js";
+import type { LicenseBackend, ModelEntry, ModelsAutoStart, ModelsStepEnterContext, LicenseState, ModelsBackend, OnboardingStep, PermissionStatus, PermissionsBackend } from "./types.js";
 
 function ProgressBar({ value, label }: { value: number; label: string }) {
   const pct = Math.max(0, Math.min(1, value));
@@ -53,14 +53,15 @@ export function permissionsStep(backend: PermissionsBackend, options: { label?: 
   return { id: "permissions", label: options.label ?? "Permissions", title: options.title ?? "Allow what this app needs", description: options.description ?? "You can change these permissions later in System Settings.", skippable: true, render: () => <PermissionsBody backend={backend} /> };
 }
 
-interface ModelsBodyProps { backend: ModelsBackend; onReady?: (ready: boolean) => void; autoStartDownload?: boolean; intro?: ReactNode }
+interface ModelsBodyProps extends ModelsAutoStart { backend: ModelsBackend; onReady?: (ready: boolean) => void; intro?: ReactNode; startGuard?: { current: boolean } }
 
-function ModelsBody({ backend, onReady, autoStartDownload, intro }: ModelsBodyProps) {
+function ModelsBody({ backend, onReady, autoStartDownload, shouldAutoStart, onModelsStepEnter, intro, startGuard }: ModelsBodyProps) {
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const autoStarted = useRef(false);
+  const ownGuard = useRef(false);
+  const autoStarted = startGuard ?? ownGuard;
   const reload = useCallback(() => backend.list().then((list) => { setModels(list); setLoaded(true); }, (e) => setError(e instanceof Error ? e.message : String(e))), [backend]);
   useEffect(() => {
     void reload();
@@ -77,14 +78,26 @@ function ModelsBody({ backend, onReady, autoStartDownload, intro }: ModelsBodyPr
     void request.then(reload, (e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setBusy(null));
   };
   useEffect(() => {
-    if (!autoStartDownload || !loaded || autoStarted.current) return;
+    if (!loaded || autoStarted.current) return;
+    if (!onModelsStepEnter && !shouldAutoStart && !autoStartDownload) return;
     autoStarted.current = true;
+    if (onModelsStepEnter) {
+      // The app owns which model starts and when; the hook runs once per Onboarding mount.
+      const ctx: ModelsStepEnterContext = { models, start: (id) => backend.install(id).then(reload), refresh: () => backend.list().then((list) => { setModels(list); return list; }) };
+      void Promise.resolve().then(() => onModelsStepEnter(ctx)).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      return;
+    }
+    if (shouldAutoStart) {
+      const pick = models.find((m) => m.state === "missing" && shouldAutoStart(m, models));
+      if (pick) run(pick.id, backend.install(pick.id));
+      return;
+    }
     if (models.some((m) => m.state === "installed" || m.state === "downloading" || m.state === "verifying")) return;
     const first = models.find((m) => m.state === "missing");
     if (first) run(first.id, backend.install(first.id));
     // run is intentionally omitted: it only closes over setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStartDownload, loaded, models, backend]);
+  }, [autoStartDownload, shouldAutoStart, onModelsStepEnter, loaded, models, backend]);
   return (
     <div className="rk-onboarding__card" data-testid="onboarding-models">
       {intro ? <div className="rk-onboarding__intro" data-testid="onboarding-models-intro">{intro}</div> : null}
@@ -108,7 +121,7 @@ function ModelsBody({ backend, onReady, autoStartDownload, intro }: ModelsBodyPr
   );
 }
 
-export interface ModelsStepOptions {
+export interface ModelsStepOptions extends ModelsAutoStart {
   label?: string; title?: string; description?: string;
   /** Continue/Finish wait until at least one model is installed. Default false. */
   required?: boolean;
@@ -116,6 +129,8 @@ export interface ModelsStepOptions {
   autoStartDownload?: boolean;
   /** App copy rendered at the top of the step. */
   intro?: ReactNode;
+  /** Shared "already auto-started" flag. `Onboarding` supplies one that survives Back/Next and re-renders; omit it and the guard lives for the step's mount only. */
+  startGuard?: { current: boolean };
 }
 
 export function modelsStep(backend: ModelsBackend, options: ModelsStepOptions = {}): OnboardingStep {
@@ -123,7 +138,7 @@ export function modelsStep(backend: ModelsBackend, options: ModelsStepOptions = 
     id: "models", label: options.label ?? "Models", title: options.title ?? "Choose local models", description: options.description ?? "Downloads are verified before a model is activated.", skippable: true,
     canContinue: options.required ? (ctx) => ctx.ready.models === true : undefined,
     blockedHint: options.required ? "Download a model to continue." : undefined,
-    render: (ctx) => <ModelsBody backend={backend} onReady={ctx.setReady} autoStartDownload={options.autoStartDownload} intro={options.intro} />,
+    render: (ctx) => <ModelsBody backend={backend} onReady={ctx.setReady} autoStartDownload={options.autoStartDownload} shouldAutoStart={options.shouldAutoStart} onModelsStepEnter={options.onModelsStepEnter} intro={options.intro} startGuard={options.startGuard} />,
   };
 }
 
