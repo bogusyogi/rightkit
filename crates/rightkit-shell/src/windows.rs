@@ -245,7 +245,7 @@ fn order_back_native(w: &WebviewWindow<Wry>) -> Result<(), String> {
 pub fn readback(w: &WebviewWindow<Wry>) -> Result<WindowReadback, String> {
     #[cfg(target_os = "macos")]
     {
-        return dispatch_native(w, |w| {
+        dispatch_native(w, |w| {
             use objc2_app_kit::NSWindow;
             let ptr = w.ns_window().map_err(|e| e.to_string())?;
             if ptr.is_null() {
@@ -259,7 +259,7 @@ pub fn readback(w: &WebviewWindow<Wry>) -> Result<WindowReadback, String> {
                 main: native.isMainWindow(),
                 level: Some(native.level() as i64),
             })
-        });
+        })
     }
     #[cfg(not(target_os = "macos"))]
     Ok(WindowReadback {

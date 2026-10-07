@@ -15,6 +15,8 @@ use rightkit_asr::{
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::sync::OnceLock;
+#[cfg(target_os = "macos")]
+use rightkit_asr::transcribe_spans;
 
 #[cfg(target_os = "macos")]
 fn init_ort_runtime() {
