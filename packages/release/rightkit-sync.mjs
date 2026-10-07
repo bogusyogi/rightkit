@@ -68,9 +68,12 @@ export async function registryLatest({ crates, packages }, { fetchImpl = fetch, 
 
 /** Pure update: returns the new versions document and the list of changes. */
 export function applyRegistryLatest(versions, latest) {
-  const next = structuredClone(versions); const changes = [];
+  const next = structuredClone(versions); const changes = []; let verified = 0;
   for (const { registry, name, version } of latest) {
     if (!version) continue;
+    // What the registry serves: the only versions adoption recommends (staged may still be unpublished).
+    next.registry ??= { cargo: {}, npm: {} }; next.registry[registry] ??= {};
+    if (next.registry[registry][name] !== version) { next.registry[registry][name] = version; verified += 1; }
     const stagedKey = registry === "cargo" ? "stagedCargo" : "stagedNpm";
     const legacyKey = registry === "cargo" ? "legacyCargo" : "legacyNpm";
     const current = next[stagedKey]?.[name] ?? next[registry]?.[name] ?? null;
@@ -86,19 +89,20 @@ export function applyRegistryLatest(versions, latest) {
     next[stagedKey] = Object.fromEntries(Object.entries(next[stagedKey]).sort(([a], [b]) => a.localeCompare(b)));
     changes.push({ registry, name, from: current, to: version });
   }
-  return { versions: next, changes };
+  for (const key of ["cargo", "npm"]) if (next.registry?.[key]) next.registry[key] = Object.fromEntries(Object.entries(next.registry[key]).sort(([a], [b]) => a.localeCompare(b)));
+  return { versions: next, changes, verified };
 }
 
 export async function syncRightkitVersions({ check = false, fetchImpl = fetch, file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`) } = {}) {
   const versions = JSON.parse(readFileSync(file, "utf8"));
   const latest = await registryLatest(rightkitPublishables(root), { fetchImpl });
-  const { versions: next, changes } = applyRegistryLatest(versions, latest);
+  const { versions: next, changes, verified } = applyRegistryLatest(versions, latest);
   for (const change of changes) log(`${change.registry} ${change.name}: ${change.from ?? "unlisted"} -> ${change.to}`);
   const unpublished = latest.filter((item) => !item.version).map((item) => `${item.registry}:${item.name}`);
   if (unpublished.length) log(`never published: ${unpublished.join(", ")}`);
   if (!changes.length) log("rightkit-versions.json matches the registries");
   if (check) return { changes, unpublished, copies: [], written: false };
-  if (changes.length) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
+  if (changes.length || verified) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
   const copies = syncConsumerCopies(root);
   for (const copy of copies) log(`refreshed ${copy}`);
   return { changes, unpublished, copies, written: changes.length > 0 };
@@ -106,12 +110,10 @@ export async function syncRightkitVersions({ check = false, fetchImpl = fetch, f
 
 /** Record one just-published version (the registry index can lag the upload) and refresh the copies.
  * Called by right-release after a verified cargo or npm publish; never fails the publish itself. */
-export function recordPublished({ registry, name, version }, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}
-`) } = {}) {
+export function recordPublished({ registry, name, version }, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`) } = {}) {
   try {
-    const { versions: next, changes } = applyRegistryLatest(JSON.parse(readFileSync(file, "utf8")), [{ registry, name, version }]);
-    if (changes.length) writeFileSync(file, `${JSON.stringify(next, null, 2)}
-`);
+    const { versions: next, changes, verified } = applyRegistryLatest(JSON.parse(readFileSync(file, "utf8")), [{ registry, name, version }]);
+    if (changes.length || verified) writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
     const copies = syncConsumerCopies(root);
     log(`[right-release] release feed: ${name} ${version} ${changes.length ? "staged" : "already current"}${copies.length ? `; refreshed ${copies.length} copies` : ""}; commit rightkit-versions.json and its copies`);
   } catch (error) { log(`[right-release] release feed not updated (${error.message}); run node rightkit-sync.mjs`); }

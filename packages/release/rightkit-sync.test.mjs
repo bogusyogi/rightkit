@@ -78,3 +78,9 @@ test("checked-in consumer copies match the canonical catalog and versions (run: 
   ];
   for (const [source, copy] of pairs) assert.equal(await readFile(path.join(packages, copy), "utf8"), await readFile(path.join(packages, source), "utf8"), `${copy} is stale`);
 });
+
+test("the registry block records what the registries serve, independent of staging", () => {
+  const { versions: next, verified } = applyRegistryLatest({ stagedNpm: { "@rightkit/release": "0.2.122" } }, [{ registry: "npm", name: "@rightkit/release", version: "0.2.121" }, { registry: "cargo", name: "rightkit-x", version: null }]);
+  assert.equal(next.stagedNpm["@rightkit/release"], "0.2.122", "staged is never downgraded");
+  assert.deepEqual(next.registry, { cargo: {}, npm: { "@rightkit/release": "0.2.121" } }); assert.equal(verified, 1);
+});

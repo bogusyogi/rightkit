@@ -24,7 +24,10 @@ const numeric = (value) => String(value).split("-")[0].split(".").map((part) => 
 const newer = (candidate, current) => { const a = numeric(candidate); const b = numeric(current); for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
 /** Semver-breaking for 0.x crates/packages is a minor bump; from 1.0 it is a major bump. */
 export const breakingBump = (from, to) => { const a = numeric(from); const b = numeric(to); return a[0] === 0 && b[0] === 0 ? a[1] !== b[1] : a[0] !== b[0]; };
-const latestFor = (versions, ecosystem, name) => ecosystem === "npm" ? versions.stagedNpm?.[name] ?? versions.npm?.[name] : versions.stagedCargo?.[name] ?? versions.cargo?.[name];
+// Only versions the registry is known to serve: a staged version may not be published yet.
+const latestFor = (versions, ecosystem, name) => versions.registry
+  ? versions.registry[ecosystem]?.[name]
+  : ecosystem === "npm" ? versions.stagedNpm?.[name] ?? versions.npm?.[name] : versions.stagedCargo?.[name] ?? versions.cargo?.[name];
 
 /** Tracked package.json and Cargo.toml files, excluding RightKit's own source tree and vendored trees. */
 export function dependencyManifests(appRoot) {

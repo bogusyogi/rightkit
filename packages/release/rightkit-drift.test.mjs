@@ -61,3 +61,10 @@ test("apply adopts compatible bumps, keeps pin prefixes, and leaves breaking bum
     assert.deepEqual(rightkitDrift(root, versions), []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("with a registry block, only versions the registry serves are recommended", async () => {
+  const root = await app(); try {
+    const registryOnly = { ...versions, registry: { cargo: { "rightkit-db": "0.2.1" }, npm: {} } };
+    assert.deepEqual(rightkitDrift(root, registryOnly).map((d) => `${d.name}:${d.latest}`), ["rightkit-db:0.2.1"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
