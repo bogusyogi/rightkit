@@ -85,15 +85,15 @@ Support is provided on a reasonable-efforts basis at [TBD: support email] unless
 
 ## 11. Public documents and contact
 
-- Terms: <https://cutright.cc/terms/>
-- Privacy Notice: <https://cutright.cc/privacy/>
-- Refund Policy: <https://cutright.cc/refund/>
-- EULA: <https://cutright.cc/legal/eula/>
-- Ownership Notice: <https://cutright.cc/legal/license/>
-- Acceptable Use: <https://cutright.cc/legal/acceptable-use/>
-- Product Schedule: <https://cutright.cc/legal/product-schedule/>
-- Third-Party Notices: <https://cutright.cc/legal/third-party/>
-- Pricing: <https://cutright.cc/pricing/>
+- Terms: <https://orthiclabs.com/cutright/terms/>
+- Privacy Notice: <https://orthiclabs.com/cutright/legal/privacy/>
+- Refund Policy: <https://orthiclabs.com/cutright/refund/>
+- EULA: <https://orthiclabs.com/cutright/legal/eula/>
+- Ownership Notice: <https://orthiclabs.com/cutright/legal/license/>
+- Acceptable Use: <https://orthiclabs.com/cutright/legal/acceptable-use/>
+- Product Schedule: <https://orthiclabs.com/cutright/legal/product-schedule/>
+- Third-Party Notices: <https://orthiclabs.com/cutright/legal/third-party/>
+- Pricing: <https://orthiclabs.com/cutright/pricing/>
 
 Support and privacy requests: [TBD: support email]  
 Legal requests: legal@damnedventures.com  

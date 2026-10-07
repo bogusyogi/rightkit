@@ -3,7 +3,7 @@
 
 **Version [TBD] · Effective [TBD]**
 
-CutRight is designed to edit your media locally. This notice explains what stays on your device, what Damned Ventures LLC receives, why we use it, and your choices. It applies to cutright.cc, CutRight for [TBD: platforms], checkout and licensing, and support.
+CutRight is designed to edit your media locally. This notice explains what stays on your device, what Damned Ventures LLC receives, why we use it, and your choices. It applies to orthiclabs.com/cutright, CutRight for [TBD: platforms], checkout and licensing, and support.
 
 This notice is information, not consent to optional processing. Optional features request consent or another choice separately where required.
 
