@@ -39,6 +39,12 @@ Also (0.2.1):
   loopback mock (`http://` on `127.0.0.0/8`, `localhost` or `[::1]` only;
   never read from the environment). `Store::download_url` shows the result.
 
+Also (0.2.2):
+
+- Shared-runtime reference counting: `Store::register_shared(app, kind, version)` records that an app uses `<tools root>/<kind>/<version>` in `tools/refs` (the tools root is `tools` beside the store root, or `Store::with_tools_root`); `Store::unregister_shared(app)` drops them, and `Store::unregister_app` now does so too (its return value is still model ids).
+- `Store::gc_shared(kinds)` removes, under the registry lock, unreferenced `tools/<kind>/<version>` directories for the listed kinds only (unlisted tools such as yt-dlp are never touched; an empty list removes nothing) and returns the `(kind, version)` pairs; symlinks are never followed, `tools/refs` is untouched, and a corrupt ref aborts with nothing removed.
+- `suite::paths::shared_runtime_dir(kind, version)` / `shared_runtime_dir_at(tools_root, kind, version)` validate both as single safe path segments (`InvalidSpec` otherwise).
+
 See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`
 and `tests/e2e_resume.rs` (rightkit-qa `MockServer`: Range, dropped
 connections, servers without resume) for end-to-end usage.

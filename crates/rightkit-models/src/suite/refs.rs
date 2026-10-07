@@ -34,13 +34,15 @@ fn ref_path(refs_dir: &Path, app_id: &str) -> Option<PathBuf> {
     Some(refs_dir.join(format!("{app_id}.json")))
 }
 
+/// Ref ids are model ids, or `<kind>@<version>` for shared runtimes in the
+/// tools registry (hence `@`). Never used as a path, only as a set member.
 fn valid_model_id(model_id: &str) -> bool {
     !model_id.is_empty()
         && model_id != "."
         && model_id != ".."
         && model_id
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '@'))
 }
 
 /// Held across a complete ref read-modify-write or GC operation.

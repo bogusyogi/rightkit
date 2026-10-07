@@ -172,6 +172,39 @@ pub fn tool_dir_at(tools_root: &Path, tool: &str, version: &str) -> PathBuf {
     tools_root.join(tool).join(version)
 }
 
+/// Directory of shared runtime `kind` at `version` under the suite tools root
+/// (`<root>/tools/<kind>/<version>`). `kind` and `version` must each be a
+/// single safe path segment (model-id rules: ASCII letters, digits, `.`, `_`,
+/// `-`; no separators, no `..`; `refs` is reserved), else `InvalidSpec`.
+pub fn shared_runtime_dir(kind: &str, version: &str) -> crate::error::Result<PathBuf> {
+    shared_runtime_dir_at(&tools_root(), kind, version)
+}
+
+/// As [`shared_runtime_dir`], under an explicit tools root.
+pub fn shared_runtime_dir_at(
+    tools_root: &Path,
+    kind: &str,
+    version: &str,
+) -> crate::error::Result<PathBuf> {
+    let (kind, version) = parse_shared_runtime(kind, version)?;
+    Ok(tool_dir_at(tools_root, &kind, &version))
+}
+
+/// Validate a shared-runtime `(kind, version)` pair as safe path segments.
+pub(crate) fn parse_shared_runtime(
+    kind: &str,
+    version: &str,
+) -> crate::error::Result<(String, String)> {
+    let kind = crate::spec::parse_shared_kind(kind)?;
+    let version = crate::ids::ModelId::parse(version).map_err(|_| {
+        crate::error::Error::new(
+            crate::error::ErrorCode::InvalidSpec,
+            format!("invalid shared-runtime version {version:?}"),
+        )
+    })?;
+    Ok((kind, version.as_str().to_string()))
+}
+
 /// The manifest file inside a store entry dir.
 pub fn manifest_path(entry_dir: &Path) -> PathBuf {
     entry_dir.join("manifest.json")

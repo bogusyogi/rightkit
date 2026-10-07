@@ -107,6 +107,7 @@ pub struct Store {
     /// Identifies the lock holder (an app name).
     pub app: String,
     shared_roots: BTreeMap<String, PathBuf>,
+    tools_root: Option<PathBuf>,
     legacy_alias_root: Option<PathBuf>,
     legacy_alias_map: Option<AliasMap>,
     alias_allowed_roots: Vec<PathBuf>,
@@ -175,6 +176,7 @@ impl Store {
             root: root.into(),
             app: app.into(),
             shared_roots: BTreeMap::new(),
+            tools_root: None,
             legacy_alias_root: None,
             legacy_alias_map: None,
             alias_allowed_roots: Vec::new(),
@@ -189,6 +191,30 @@ impl Store {
         let kind = crate::spec::parse_shared_kind(kind)?;
         self.shared_roots.insert(kind, root.into());
         Ok(self)
+    }
+
+    /// Override the tools root that holds shared-runtime directories
+    /// (`<tools root>/<kind>/<version>`) and their `refs` registry. Without
+    /// it the root is the sibling `tools` of the store root
+    /// (`<suite root>/tools` for `<suite root>/models`), see
+    /// [`Store::tools_root`].
+    pub fn with_tools_root(mut self, root: impl Into<PathBuf>) -> Self {
+        self.tools_root = Some(root.into());
+        self
+    }
+
+    /// Tools root for shared runtimes: the [`Store::with_tools_root`] override,
+    /// else `tools` next to the store root.
+    pub fn tools_root(&self) -> PathBuf {
+        match &self.tools_root {
+            Some(root) => root.clone(),
+            None => self.root.parent().unwrap_or(&self.root).join("tools"),
+        }
+    }
+
+    /// `<tools root>/refs`: per-app shared-runtime reference registry.
+    pub fn tool_refs_dir(&self) -> PathBuf {
+        crate::suite::paths::tool_refs_dir_at(&self.tools_root())
     }
 
     /// Configured root for shared-runtime `kind`.
@@ -480,9 +506,100 @@ impl Store {
 
     /// Drop `app`'s references; returns model ids no app references any more.
     /// A corrupt ref file aborts without changing anything.
+    /// Also drops `app`'s shared-runtime references
+    /// ([`Store::unregister_shared`]); the returned ids are model ids only.
     pub fn unregister_app(&self, app: &str) -> Result<Vec<String>> {
-        crate::suite::refs::unregister(&self.refs_dir(), app)
+        let unreferenced = crate::suite::refs::unregister(&self.refs_dir(), app)
+            .map_err(|e| Error::new(ErrorCode::Io, e))?;
+        self.unregister_shared(app)?;
+        Ok(unreferenced)
+    }
+
+    /// Record that `app` uses shared runtime `kind` at `version` (the files
+    /// under `<tools root>/<kind>/<version>`) so [`Store::gc_shared`] keeps
+    /// it. `kind` and `version` must be single safe path segments. Idempotent.
+    pub fn register_shared(&self, app: &str, kind: &str, version: &str) -> Result<()> {
+        let (kind, version) = crate::suite::paths::parse_shared_runtime(kind, version)?;
+        crate::suite::refs::register(&self.tool_refs_dir(), app, &format!("{kind}@{version}"))
             .map_err(|e| Error::new(ErrorCode::Io, e))
+    }
+
+    /// Drop `app`'s shared-runtime references; returns the `(kind, version)`
+    /// pairs no app references any more (their files stay until
+    /// [`Store::gc_shared`]). A corrupt ref file aborts without changing
+    /// anything. A no-op when the tools registry does not exist.
+    pub fn unregister_shared(&self, app: &str) -> Result<Vec<(String, String)>> {
+        let refs_dir = self.tool_refs_dir();
+        if !refs_dir.is_dir() {
+            return Ok(Vec::new());
+        }
+        let ids = crate::suite::refs::unregister(&refs_dir, app)
+            .map_err(|e| Error::new(ErrorCode::Io, e))?;
+        Ok(ids
+            .iter()
+            .filter_map(|id| id.split_once('@'))
+            .map(|(kind, version)| (kind.to_string(), version.to_string()))
+            .collect())
+    }
+
+    /// Remove `<tools root>/<kind>/<version>` directories that no app
+    /// references, considering only the listed `kinds` (a tool kind never
+    /// registered, such as one installed by an app that does not use refs, is
+    /// never touched; an empty list removes nothing). Runs under the registry
+    /// lock and returns the removed `(kind, version)` pairs. Symlinks are never
+    /// followed (a link is skipped), `refs` is never touched, and a corrupt
+    /// ref blocks deletion (nothing is removed). Entries whose names are not
+    /// safe segments are left alone; an invalid kind is `InvalidSpec`.
+    pub fn gc_shared(&self, kinds: &[&str]) -> Result<Vec<(String, String)>> {
+        let mut kinds = kinds
+            .iter()
+            .map(|kind| crate::spec::parse_shared_kind(kind))
+            .collect::<Result<Vec<_>>>()?;
+        kinds.sort();
+        kinds.dedup();
+        let tools = self.tools_root();
+        if kinds.is_empty() || !tools.is_dir() {
+            return Ok(Vec::new());
+        }
+        let refs_dir = self.tool_refs_dir();
+        let _guard = crate::suite::refs::acquire_registry(&refs_dir)
+            .map_err(|e| Error::new(ErrorCode::Io, e))?;
+        let referenced = crate::suite::refs::referenced_ids_locked(&refs_dir)
+            .map_err(|e| Error::new(ErrorCode::Io, e))?;
+        let real_dir = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_dir());
+        let mut removed = Vec::new();
+        for kind in kinds {
+            let kind_dir = tools.join(&kind);
+            if !real_dir(&kind_dir) {
+                continue;
+            }
+            for version_entry in
+                fs::read_dir(&kind_dir).map_err(|e| Error::io(kind_dir.display(), e))?
+            {
+                let version_dir = version_entry
+                    .map_err(|e| Error::io(kind_dir.display(), e))?
+                    .path();
+                let Some(version) = version_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(String::from)
+                else {
+                    continue;
+                };
+                if ModelId::parse(&version).is_err()
+                    || !real_dir(&version_dir)
+                    || referenced.contains(&format!("{kind}@{version}"))
+                {
+                    continue;
+                }
+                remove_tree(&version_dir)?;
+                removed.push((kind.clone(), version));
+            }
+            // Drop the kind directory once empty; a non-empty one stays.
+            let _ = fs::remove_dir(&kind_dir);
+        }
+        removed.sort();
+        Ok(removed)
     }
 
     /// Remove every model no app references, skipping `keep`, anything under a
