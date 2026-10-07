@@ -23,6 +23,24 @@ test('config accepts exact thin settings & freezes result', () => {
   const config = validateBrokerConfig(fixture()); assert.equal(config.bounds.buildConcurrency, 1); assert.equal(Object.isFrozen(config), true); assert.equal(Object.isFrozen(config.broker), true);
 });
 
+test('stall bounds default to 15/45 minutes & accept nonnegative safe integers including zero', () => {
+  const defaults = validateBrokerConfig(fixture());
+  assert.equal(defaults.bounds.stallQuietMs, 900_000); assert.equal(defaults.bounds.stallKillMs, 2_700_000);
+  const omitted = fixture(); delete omitted.bounds;
+  assert.deepEqual(validateBrokerConfig(omitted).bounds, { stallQuietMs: 900_000, stallKillMs: 2_700_000 });
+  for (const field of ['stallQuietMs', 'stallKillMs']) {
+    for (const valid of [0, 1, 123_456, Number.MAX_SAFE_INTEGER]) {
+      const value = fixture(); value.bounds[field] = valid;
+      assert.equal(validateBrokerConfig(value).bounds[field], valid);
+    }
+    for (const invalid of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '900000', null, true]) {
+      const value = fixture(); value.bounds[field] = invalid;
+      assert.throws(() => validateBrokerConfig(value), new RegExp(`bounds\\.${field}`));
+    }
+  }
+  assert.throws(() => validateBrokerConfig({ ...fixture(), bounds: null }), /bounds must be an object/);
+});
+
 test('config accepts aggregate compile budget units & rejects invalid values', () => {
   const value = fixture(); value.bounds.compileBudgetUnits = 12;
   const config = validateBrokerConfig(value); assert.equal(config.bounds.compileBudgetUnits, 12);

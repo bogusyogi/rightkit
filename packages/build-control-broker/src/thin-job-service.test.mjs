@@ -19,7 +19,7 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }) } = {}) {
+async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }) } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
@@ -30,6 +30,7 @@ async function fixture({ externalCommands = [], cache = null, cacheEnvironment =
   const logger = { events: [], flushes: 0, append(event) { this.events.push(event); return Promise.resolve(event); }, flush() { this.flushes += 1; return Promise.resolve(); }, close: async () => {} };
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
   const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc', rustup: 'rustup' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
+  Object.assign(config.bounds, bounds);
   const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
@@ -651,6 +652,207 @@ test('cleanly-reaped sccache-unavailable cancellation keeps the warm generation'
 
 
 const measuredBuildUsage = (cpuTotalMs, extra = {}) => ({ status: 'OK', cpuUserMs: cpuTotalMs, cpuKernelMs: 0, cpuTotalMs, peakCommittedBytes: 4096, totalProcesses: 2, activeProcesses: 0, ...extra });
+
+// Observe the existing unref'd sampling timer; advance only the injected clock.
+// No real 15/45-minute waits or polling are needed for watchdog acceptance.
+async function resourceSample(item, id) {
+  const append = item.logger.append; let timer;
+  try {
+    return await new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`resource sample missing for ${id}`)), 2_000);
+      item.logger.append = (event) => {
+        const result = append.call(item.logger, event);
+        if (event.type === 'RUNNING' && event.id === id) resolve(event);
+        return result;
+      };
+    });
+  } finally { clearTimeout(timer); item.logger.append = append; }
+}
+
+const stallEvents = (item, id, type = 'JOB_STALLED') => item.logger.events.filter((event) => event.type === type && event.id === id);
+
+test('quiet root confirms flat CPU after 10 seconds, logs & publishes a stall with STATUS/LIST evidence', async () => {
+  let clock = 1_000;
+  const item = await fixture({ now: () => clock, readResources: () => measuredBuildUsage(100) });
+  try {
+    const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['test'])))).result;
+    await waitFor(item.service, request.id, ['RUNNING']);
+    const child = item.children.at(-1); const events = [];
+    const watching = item.service.dispatch(command('WATCH', request.id), (event) => { events.push(event); return true; });
+    child.stderr.emit('data', Buffer.from('Compiling example\n'));
+    clock += 899_999; await resourceSample(item, request.id);
+    assert.equal(stallEvents(item, request.id).length, 0);
+    clock += 1; await resourceSample(item, request.id);
+    clock += 9_999; await resourceSample(item, request.id);
+    assert.equal(stallEvents(item, request.id).length, 0, 'two samples must be at least 10s apart');
+    clock += 1; await resourceSample(item, request.id);
+    const [event] = stallEvents(item, request.id);
+    assert.equal(event.quietMs, 910_000); assert.equal(event.cpuDeltaMs, 0);
+    assert.match(event.command, /^cargo test/); assert.equal(event.workspace, item.workspace);
+    assert.equal(event.processResources.cpuTotalMs, 100);
+    assert.deepEqual(events.find((value) => value.event?.type === 'JOB_STALLED').event, event);
+    assert.ok(events.some((value) => value.event?.type === 'STDERR' && /no output for 15\.2 min and no CPU/.test(value.event.data)));
+    const status = (await call(item.service, command('STATUS', request.id))).result;
+    assert.equal(status.stalledAt, new Date(clock).toISOString()); assert.equal(status.quietMs, 910_000);
+    assert.equal(status.outputBytes, Buffer.byteLength('Compiling example\n'), 'broker diagnostics are not process output');
+    const list = (await call(item.service, command('LIST'))).result;
+    assert.equal(list.inFlight.find((job) => job.id === request.id).stalledAt, status.stalledAt);
+    assert.equal(list.inFlight.find((job) => job.id === request.id).quietMs, status.quietMs);
+    clock += 10_000; await resourceSample(item, request.id);
+    assert.equal(stallEvents(item, request.id).length, 1, 'report once per stall');
+    child.emit('close', 0, null); await watching;
+  } finally { await item.close(); }
+});
+
+test('quiet root with rising tree CPU keeps running even beyond kill limit', async () => {
+  let clock = 1_000; let cpu = 100;
+  const item = await fixture({ now: () => clock, readResources: () => measuredBuildUsage(cpu) });
+  try {
+    const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+    await waitFor(item.service, request.id, ['RUNNING']);
+    clock += 900_000; await resourceSample(item, request.id);
+    clock = 2_701_000; cpu += 100; await resourceSample(item, request.id);
+    clock += 10_000; cpu += 100; await resourceSample(item, request.id);
+    assert.equal(stallEvents(item, request.id).length, 0);
+    const status = (await call(item.service, command('STATUS', request.id))).result;
+    assert.equal(status.state, 'RUNNING'); assert.equal(status.stalledAt, null);
+    assert.equal(item.children.at(-1).closed, undefined);
+  } finally { await item.close(); }
+});
+
+test('process output clears a stall & restarts quiet confirmation for either stream', async () => {
+  for (const stream of ['stdout', 'stderr']) {
+    let clock = 0;
+    const item = await fixture({ now: () => clock, readResources: () => measuredBuildUsage(100) });
+    try {
+      const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+      await waitFor(item.service, request.id, ['RUNNING']);
+      clock = 900_000; await resourceSample(item, request.id);
+      clock += 10_000; await resourceSample(item, request.id);
+      assert.equal(stallEvents(item, request.id).length, 1);
+      item.children.at(-1)[stream].emit('data', Buffer.alloc(0));
+      assert.equal(stallEvents(item, request.id, 'JOB_STALL_CLEARED').length, 0, 'empty output is not progress');
+      clock += 1_000; item.children.at(-1)[stream].emit('data', Buffer.from('Finished\n'));
+      const [cleared] = stallEvents(item, request.id, 'JOB_STALL_CLEARED');
+      assert.equal(cleared.reason, 'output'); assert.equal(cleared.quietMs, 0);
+      const status = (await call(item.service, command('STATUS', request.id))).result;
+      assert.equal(status.stalledAt, null); assert.equal(status.quietMs, 0);
+      clock += 899_999; await resourceSample(item, request.id);
+      assert.equal(stallEvents(item, request.id).length, 1);
+      clock += 1; await resourceSample(item, request.id);
+      clock += 10_000; await resourceSample(item, request.id);
+      assert.equal(stallEvents(item, request.id).length, 2, 'a later independent stall is reported');
+    } finally { await item.close(); }
+  }
+});
+
+test('CPU progress clears an existing stall before kill, then requires fresh confirmation', async () => {
+  let clock = 1_000; let cpu = 100;
+  const item = await fixture({ now: () => clock, readResources: () => measuredBuildUsage(cpu) });
+  try {
+    const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, request.id, ['RUNNING']);
+    clock += 900_000; await resourceSample(item, request.id);
+    clock += 10_000; await resourceSample(item, request.id);
+    assert.equal(stallEvents(item, request.id).length, 1);
+    clock = 2_701_000; cpu += 100; await resourceSample(item, request.id);
+    const [cleared] = stallEvents(item, request.id, 'JOB_STALL_CLEARED');
+    assert.equal(cleared.reason, 'cpu'); assert.equal(cleared.cpuDeltaMs, 100);
+    clock += 9_999; await resourceSample(item, request.id);
+    const status = (await call(item.service, command('STATUS', request.id))).result;
+    assert.equal(status.state, 'RUNNING'); assert.equal(status.stalledAt, null);
+    assert.equal(stallEvents(item, request.id).length, 1);
+  } finally { await item.close(); }
+});
+
+test('stall kill uses total quiet time, reaps child & releases queued BUILD slot', async () => {
+  let clock = 1_000;
+  const item = await fixture({ now: () => clock, readResources: () => measuredBuildUsage(100) });
+  try {
+    const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['test'])))).result;
+    await waitFor(item.service, request.id, ['RUNNING']);
+    const child = item.children.at(-1);
+    const queued = (await call(item.service, command('SUBMIT', message(item.other, ['check'])))).result;
+    await waitFor(item.service, queued.id, ['QUEUED']);
+    clock += 900_000; await resourceSample(item, request.id);
+    clock += 10_000; await resourceSample(item, request.id);
+    clock = 2_700_999; await resourceSample(item, request.id);
+    assert.equal((await call(item.service, command('STATUS', request.id))).result.state, 'RUNNING');
+    clock += 1; await resourceSample(item, request.id);
+    const result = (await call(item.service, command('WATCH', request.id))).result;
+    assert.equal(result.status, 'CANCELLED'); assert.equal(result.receipt.reason, 'stalled');
+    assert.equal(result.receipt.cancellation.source, 'STALL_WATCHDOG');
+    assert.equal(result.receipt.cancellation.reason, 'stalled');
+    assert.equal(result.receipt.reap.reaped, true); assert.equal(child.closed, true);
+    await waitFor(item.service, queued.id, ['RUNNING']);
+    assert.equal(item.children.length, 2);
+  } finally { await item.close(); }
+});
+
+test('stallQuietMs zero disables reporting & killing', async () => {
+  let clock = 1_000;
+  const item = await fixture({ bounds: { stallQuietMs: 0, stallKillMs: 1 }, now: () => clock, readResources: () => measuredBuildUsage(100) });
+  try {
+    const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, request.id, ['RUNNING']);
+    clock += 3_000_000; await resourceSample(item, request.id);
+    clock += 10_000; await resourceSample(item, request.id);
+    assert.equal(stallEvents(item, request.id).length, 0);
+    assert.equal((await call(item.service, command('STATUS', request.id))).result.state, 'RUNNING');
+  } finally { await item.close(); }
+});
+
+test('unavailable resources confirm a stall; stallKillMs zero keeps it report only', async () => {
+  for (const readResources of [() => ({ status: 'UNAVAILABLE', reason: 'native unavailable' }), () => { throw new Error('native query failed'); }]) {
+    let clock = 1_000;
+    const item = await fixture({ bounds: { stallKillMs: 0 }, now: () => clock, readResources });
+    try {
+      const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+      await waitFor(item.service, request.id, ['RUNNING']);
+      clock += 900_000; await resourceSample(item, request.id);
+      clock += 10_000; await resourceSample(item, request.id);
+      const [event] = stallEvents(item, request.id);
+      assert.equal(event.cpuDeltaMs, null);
+      assert.ok(['UNAVAILABLE', 'ERROR'].includes(event.processResources.status));
+      clock = 3_001_000; await resourceSample(item, request.id);
+      assert.equal(stallEvents(item, request.id).length, 1);
+      assert.equal((await call(item.service, command('STATUS', request.id))).result.state, 'RUNNING');
+    } finally { await item.close(); }
+  }
+});
+
+test('nested compiler jobs do not run the root stall watchdog', async () => {
+  let clock = 1_000; let cpu = 100;
+  const item = await fixture({ now: () => clock, readResources: (child) => measuredBuildUsage(child.pid === 301 ? ++cpu : 100) });
+  try {
+    const root = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, root.id, ['RUNNING']);
+    const rootChild = item.children.at(-1);
+    const nested = (await call(item.service, command('SUBMIT', compilerMessage(item.workspace, ['-vV'], {
+      execution: { mode: 'NESTED', parentId: root.id, capabilityToken: rootChild.environment.RIGHTKIT_PARENT_CAPABILITY_TOKEN }
+    })))).result;
+    await waitFor(item.service, nested.id, ['RUNNING']);
+    clock += 3_000_000; await resourceSample(item, nested.id);
+    clock += 10_000; await resourceSample(item, nested.id);
+    assert.equal(stallEvents(item, nested.id).length, 0);
+    assert.equal((await call(item.service, command('STATUS', nested.id))).result.state, 'RUNNING');
+  } finally { await item.close(); }
+});
+
+test('resident Cargo processes stay outside RUNNING stall policy', async () => {
+  let clock = 1_000;
+  const item = await fixture({ now: () => clock, readResources: () => measuredBuildUsage(100) });
+  try {
+    const request = (await call(item.service, command('SUBMIT', message(item.workspace, ['run'])))).result;
+    await waitFor(item.service, request.id, ['RUNNING']);
+    item.children.at(-1).stderr.emit('data', Buffer.from('Running `example`\n'));
+    await waitFor(item.service, request.id, ['RESIDENT']);
+    clock += 3_000_000; await resourceSample(item, request.id);
+    clock += 10_000; await resourceSample(item, request.id);
+    assert.equal(stallEvents(item, request.id).length, 0);
+    assert.equal((await call(item.service, command('STATUS', request.id))).result.state, 'RESIDENT');
+  } finally { await item.close(); }
+});
 
 test('short builds persist final CPU & committed-memory measurements with existing timings', async () => {
   let reads = 0; let cacheCpu = 0; let clock = 1000;
