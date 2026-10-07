@@ -125,14 +125,13 @@ fn setup() -> rightkit_ort::EnvironmentReport {
             let candidate = installed_runtime_candidate(&exe, "runtime").unwrap();
             let selection = configure_runtime([candidate]).unwrap();
             assert_eq!(selection.source, CandidateSource::Bundled);
-            let report = init_environment(
+            init_environment(
                 &selection,
                 &EnvironmentOptions {
                     global_pool: Some(GlobalPool::from_budget()),
                 },
             )
-            .expect("environment");
-            report
+            .expect("environment")
         })
         .clone()
 }

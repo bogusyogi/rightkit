@@ -78,7 +78,7 @@ mod child {
 
     #[test]
     fn bounded_reap_kills_a_child_that_ignores_sigterm_within_the_bound() {
-        let mut c = sh("trap '' TERM; sleep 60 & wait");
+        let c = sh("trap '' TERM; sleep 60 & wait");
         let mut child = c.spawn().unwrap();
         std::thread::sleep(Duration::from_millis(150));
         let t = Instant::now();

@@ -6,6 +6,8 @@
 //! `RIGHTKIT_VAD_ALLOW_MISSING_MODEL=1` to downgrade to a printed skip.
 use rightkit_vad::*;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::sync::OnceLock;
 
 fn init_ort_runtime() {
     #[cfg(target_os = "macos")]

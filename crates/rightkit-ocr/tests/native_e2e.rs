@@ -14,6 +14,8 @@ use rightkit_ocr::{
     is_backend_unavailable, worker, BackendPreference, Isolation, Ocr, OcrArtifactManifest,
     OcrBackend, OcrError, OcrLine, OcrOptions, OnnxConfig, WorkerCommand,
 };
+#[cfg(unix)]
+use std::time::Duration;
 
 const EXPECT: [&str; 3] = ["quarterly report 2026", "total due: 1234 usd", "page 7 of 12"];
 

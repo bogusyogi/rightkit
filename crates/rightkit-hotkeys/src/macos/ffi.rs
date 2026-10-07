@@ -228,8 +228,8 @@ pub const EVENT_HOTKEY_INVALID_ERR: i32 = -9879;
 
 #[link(name = "objc")]
 extern "C" {
-    pub fn objc_getClass(name: *const u8) -> *mut c_void;
-    pub fn sel_registerName(name: *const u8) -> *mut c_void;
+    pub fn objc_getClass(name: *const std::ffi::c_char) -> *mut c_void;
+    pub fn sel_registerName(name: *const std::ffi::c_char) -> *mut c_void;
     pub fn objc_msgSend();
 }
 

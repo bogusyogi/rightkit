@@ -414,7 +414,9 @@ mod visual {
         let (width, height) = (img.width() as usize, img.height() as usize);
         let pixels = img.into_raw();
         let gray = pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|pixel| {
                 let alpha = u16::from(pixel[3]);
                 let luminance = (u16::from(pixel[0]) * 77

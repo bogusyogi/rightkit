@@ -786,6 +786,7 @@ fn seat_failure(
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))] // Windows seat launcher only
 fn private_log_file(path: &Path) -> std::io::Result<std::fs::File> {
     if !path.exists() {
         write_owner_file(path, b"")?;
@@ -793,6 +794,7 @@ fn private_log_file(path: &Path) -> std::io::Result<std::fs::File> {
     OpenOptions::new().append(true).open(path)
 }
 
+#[cfg_attr(not(windows), allow(dead_code))] // Windows seat launcher only
 fn spawn_hidden_logged(
     command: &mut Command,
     stdout_path: &Path,
@@ -1371,11 +1373,13 @@ fn seat_command_args(
     }
 }
 
+#[cfg_attr(not(windows), allow(dead_code))] // Windows seat launcher only
 fn subprocess_path(path: &Path) -> String {
     let value = path.display().to_string();
     value.strip_prefix(r"\\?\").unwrap_or(&value).to_string()
 }
 
+#[cfg_attr(not(windows), allow(dead_code))] // Windows seat launcher only
 fn seat_prompt(room: &Room, seat: &SeatConfig) -> String {
     let devil = if seat.model.eq_ignore_ascii_case("mm")
         || seat.model.eq_ignore_ascii_case("minimax")

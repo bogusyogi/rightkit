@@ -23,6 +23,8 @@
 use rightkit_asr::longform::{self, LongFormOptions};
 use rightkit_asr::parakeet_core::{assemble_pieces, DetokPolicy};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use rightkit_asr::TimestampMode;
 
 fn wav(name: &str) -> Vec<f32> {
     let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name);

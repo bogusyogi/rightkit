@@ -6,6 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+#[cfg(not(windows))]
+use std::fs;
 
 pub const BACKGROUND_ARG: &str = "--background";
 

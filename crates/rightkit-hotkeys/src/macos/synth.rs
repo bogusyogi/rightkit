@@ -105,21 +105,21 @@ pub fn pump_run_loop(seconds: f64) {
     unsafe {
         type SendF = unsafe extern "C" fn(*mut c_void, *mut c_void, f64) -> *mut c_void;
         type SendP = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> *mut c_void;
-        type SendStr = unsafe extern "C" fn(*mut c_void, *mut c_void, *const u8) -> *mut c_void;
+        type SendStr = unsafe extern "C" fn(*mut c_void, *mut c_void, *const std::ffi::c_char) -> *mut c_void;
         type Next = unsafe extern "C" fn(*mut c_void, *mut c_void, u64, *mut c_void, *mut c_void, bool) -> *mut c_void;
         let m = objc_msgSend as unsafe extern "C" fn();
-        let date_class = objc_getClass(b"NSDate\0".as_ptr());
-        let string_class = objc_getClass(b"NSString\0".as_ptr());
-        let until = std::mem::transmute::<_, SendF>(m)(date_class, sel_registerName(b"dateWithTimeIntervalSinceNow:\0".as_ptr()), seconds);
-        let mode = std::mem::transmute::<_, SendStr>(m)(string_class, sel_registerName(b"stringWithUTF8String:\0".as_ptr()), b"kCFRunLoopDefaultMode\0".as_ptr());
-        let next = sel_registerName(b"nextEventMatchingMask:untilDate:inMode:dequeue:\0".as_ptr());
-        let send_event = sel_registerName(b"sendEvent:\0".as_ptr());
+        let date_class = objc_getClass(c"NSDate".as_ptr());
+        let string_class = objc_getClass(c"NSString".as_ptr());
+        let until = std::mem::transmute::<unsafe extern "C" fn(), SendF>(m)(date_class, sel_registerName(c"dateWithTimeIntervalSinceNow:".as_ptr()), seconds);
+        let mode = std::mem::transmute::<unsafe extern "C" fn(), SendStr>(m)(string_class, sel_registerName(c"stringWithUTF8String:".as_ptr()), c"kCFRunLoopDefaultMode".as_ptr());
+        let next = sel_registerName(c"nextEventMatchingMask:untilDate:inMode:dequeue:".as_ptr());
+        let send_event = sel_registerName(c"sendEvent:".as_ptr());
         loop {
-            let event = std::mem::transmute::<_, Next>(m)(app, next, u64::MAX, until, mode, true);
+            let event = std::mem::transmute::<unsafe extern "C" fn(), Next>(m)(app, next, u64::MAX, until, mode, true);
             if event.is_null() {
                 break;
             }
-            std::mem::transmute::<_, SendP>(m)(app, send_event, event);
+            std::mem::transmute::<unsafe extern "C" fn(), SendP>(m)(app, send_event, event);
         }
     }
 }
@@ -132,22 +132,22 @@ pub fn pump_run_loop(seconds: f64) {
 pub fn init_background_app() -> bool {
     use std::ffi::c_void;
     unsafe {
-        let class = objc_getClass(b"NSApplication\0".as_ptr());
+        let class = objc_getClass(c"NSApplication".as_ptr());
         if class.is_null() {
             return false;
         }
-        let shared: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
-            std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
-        let app = shared(class, sel_registerName(b"sharedApplication\0".as_ptr()));
+        type Shared = unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void;
+        let shared = std::mem::transmute::<unsafe extern "C" fn(), Shared>(objc_msgSend as unsafe extern "C" fn());
+        let app = shared(class, sel_registerName(c"sharedApplication".as_ptr()));
         if app.is_null() {
             return false;
         }
         // NSApplicationActivationPolicyAccessory = 1
-        let set_policy: unsafe extern "C" fn(*mut c_void, *mut c_void, isize) -> bool =
-            std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
-        let ok = set_policy(app, sel_registerName(b"setActivationPolicy:\0".as_ptr()), 1);
+        type SetPolicy = unsafe extern "C" fn(*mut c_void, *mut c_void, isize) -> bool;
+        let set_policy = std::mem::transmute::<unsafe extern "C" fn(), SetPolicy>(objc_msgSend as unsafe extern "C" fn());
+        let ok = set_policy(app, sel_registerName(c"setActivationPolicy:".as_ptr()), 1);
         // Finish launching without activating: installs the event queue the pump drains.
-        shared(app, sel_registerName(b"finishLaunching\0".as_ptr()));
+        shared(app, sel_registerName(c"finishLaunching".as_ptr()));
         APP_HOST.store(app as usize, std::sync::atomic::Ordering::SeqCst);
         ok
     }

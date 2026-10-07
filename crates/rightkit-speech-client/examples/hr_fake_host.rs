@@ -119,7 +119,9 @@ mod host {
                 }
             }
         });
-        let mut job: Option<(String, String, Instant, Option<(String, Option<String>)>)> = None; // rid, path, started, engine echo
+        // rid, path, started, engine echo
+        type Job = (String, String, Instant, Option<(String, Option<String>)>);
+        let mut job: Option<Job> = None;
         let mut last_progress = Instant::now();
         loop {
             match rx.recv_timeout(Duration::from_millis(50)) {

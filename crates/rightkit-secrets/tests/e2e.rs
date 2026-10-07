@@ -1,3 +1,9 @@
+#[cfg(target_os = "macos")]
+use rightkit_secrets::{migrate_between, Config, Error, Namespace, Store};
+#[cfg(target_os = "macos")]
+use std::process::{Command, Stdio};
+#[cfg(target_os = "macos")]
+use std::sync::Arc;
 
 #[cfg(target_os = "macos")]
 #[test]

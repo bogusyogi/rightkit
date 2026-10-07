@@ -13,6 +13,8 @@ use rightkit_asr::{
     Language, Transcriber, Whisper, WhisperModel, WhisperOptions,
 };
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::sync::OnceLock;
 
 #[cfg(target_os = "macos")]
 fn init_ort_runtime() {
