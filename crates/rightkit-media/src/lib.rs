@@ -242,6 +242,10 @@ pub struct Artifact {
     /// SHA-256 of the shipped binary. `None` only while the entry is pending.
     #[serde(default)]
     pub sha256: Option<String>,
+    /// Size in bytes of the shipped binary, when recorded. A file of any other size is
+    /// rejected as a digest mismatch before it is hashed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
     pub source_sha256: String,
     pub attribution: Attribution,
     pub required_configure_flags: Vec<String>,
@@ -619,6 +623,13 @@ pub fn resolve_ffmpeg(
 
 fn verify_resolved_path(artifact: &Artifact, path: &Path) -> Result<ResolvedFfmpeg, MediaError> {
     let expected = artifact.approved_sha256()?;
+    if let Some(size) = artifact.size {
+        if fs::metadata(path)?.len() != size {
+            return Err(MediaError::DigestMismatch {
+                path: path.to_owned(),
+            });
+        }
+    }
     let observed = sha256_file(path)?;
     if !observed.eq_ignore_ascii_case(expected) {
         return Err(MediaError::DigestMismatch {
@@ -976,6 +987,7 @@ mod tests {
             version: "7.1.5".into(),
             status: ArtifactStatus::Approved,
             sha256: Some(sha256.into()),
+            size: None,
             source_sha256: "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f"
                 .into(),
             attribution: Attribution {
@@ -1398,7 +1410,7 @@ mod tests {
     }
 
     #[test]
-    fn embedded_catalog_lists_ffprobe_and_the_pending_export_variant_with_commands() {
+    fn embedded_catalog_lists_ffprobe_and_the_export_ass_variant() {
         let catalog = ArtifactCatalog::embedded().unwrap();
         for arch in ["aarch64", "x86_64"] {
             let probe = catalog
@@ -1406,34 +1418,90 @@ mod tests {
                 .unwrap();
             assert_eq!(probe.version, "7.1.5");
             assert!(probe.sha256.is_some());
-            let export = catalog.by_id(&format!(
-                "ffmpeg-7.1.5-export-ass-macos-{}",
-                if arch == "aarch64" { "arm64" } else { arch }
-            ));
-            let export = export.expect("export variant entry");
-            assert_eq!(export.status, ArtifactStatus::Pending);
-            assert!(export.sha256.is_none());
-            let pending = export.pending.as_ref().unwrap();
-            assert!(pending
-                .commands
-                .iter()
-                .any(|c| c.contains("build-ffmpeg-macos.sh build")));
-            for flag in ["--enable-libass", "--disable-autodetect"] {
+            let export = catalog
+                .by_id(&format!(
+                    "ffmpeg-7.1.5-export-ass-macos-{}",
+                    if arch == "aarch64" { "arm64" } else { arch }
+                ))
+                .expect("export variant entry");
+            for flag in [
+                "--enable-libass",
+                "--enable-libfreetype",
+                "--enable-libharfbuzz",
+                "--disable-autodetect",
+            ] {
                 assert!(export.required_configure_flags.iter().any(|f| f == flag));
             }
+            assert_eq!(
+                export.attribution.license_spdx,
+                "LGPL-2.1-or-later AND FTL AND MIT-Modern-Variant AND ISC"
+            );
+            let names: Vec<_> = export
+                .attribution
+                .components
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect();
+            assert_eq!(names, ["freetype", "fribidi", "harfbuzz", "libass"]);
             assert!(export
                 .attribution
-                .license_spdx
-                .starts_with("LGPL-2.1-or-later AND FTL"));
-            assert!(matches!(
-                catalog.approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "macos", arch),
-                Err(MediaError::ArtifactPending { .. })
-            ));
+                .components
+                .iter()
+                .all(|c| c.source_sha256.is_some()));
         }
+        // arm64 was built, probed and burn-in tested; x86_64 was built but its probes
+        // could not run on the arm64 build host, so it stays pending and unresolvable.
+        let arm = catalog
+            .approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "macos", "aarch64")
+            .unwrap();
+        assert_eq!(arm.id, "ffmpeg-7.1.5-export-ass-macos-arm64");
+        assert_eq!(
+            arm.sha256.as_deref(),
+            Some("08f310879e64b348befa7c566c00aa5b6c67e9b64b082fa424f4a181ebd538b8")
+        );
+        assert_eq!(arm.size, Some(16_092_616));
+        assert!(arm.pending.is_none());
+        let intel = catalog
+            .by_id("ffmpeg-7.1.5-export-ass-macos-x86_64")
+            .unwrap();
+        assert_eq!(intel.status, ArtifactStatus::Pending);
+        assert!(intel.sha256.is_none());
+        assert!(intel
+            .pending
+            .as_ref()
+            .unwrap()
+            .commands
+            .iter()
+            .any(|c| c.contains("build-ffmpeg-macos.sh build")));
+        assert!(matches!(
+            catalog.approved_for(Tool::Ffmpeg, EXPORT_ASS_VARIANT, "macos", "x86_64"),
+            Err(MediaError::ArtifactPending { .. })
+        ));
         // Windows has no ffprobe artifact yet: no silent fallback to another platform.
         assert!(catalog
             .approved_for(Tool::Ffprobe, DECODE_VARIANT, "windows", "x86_64")
             .is_err());
+    }
+
+    #[test]
+    fn a_recorded_size_rejects_a_same_named_binary_of_another_length() {
+        let file = temp_file("sized-tool.bin", b"hello");
+        let mut artifact =
+            approved_artifact("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        let request = ResolutionRequest {
+            override_path: Some(file.clone()),
+            bundled_paths: vec![],
+            development_path: None,
+            allow_development_path: false,
+        };
+        artifact.size = Some(5);
+        assert!(resolve_ffmpeg(&artifact, &request).is_ok());
+        artifact.size = Some(6);
+        assert!(matches!(
+            resolve_ffmpeg(&artifact, &request),
+            Err(MediaError::DigestMismatch { .. })
+        ));
+        fs::remove_file(file).unwrap();
     }
 
     #[test]
