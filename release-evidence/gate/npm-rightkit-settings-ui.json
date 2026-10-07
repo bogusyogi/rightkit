@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "npm",
   "name": "@rightkit/settings-ui",
-  "version": "0.2.2",
-  "commit": "2c56e6a1ed9cd4cd3f90fbc24b1c50a11cda90ec",
-  "artifactSha256": "7838d6eb7889a162f7050b4c2b3912d42e1f067fb31e490fabb35b67f91f41a4",
+  "version": "0.2.3",
+  "commit": "8698b036d76cd99c72299ce8467419bfc7422db6",
+  "artifactSha256": "a294fd7b2986272bbc8ca3c067b0dcc142cccb97e7d042c5fca6c04df0b940e2",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
   "runs": [
@@ -13,14 +13,14 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "2c56e6a1ed9cd4cd3f90fbc24b1c50a11cda90ec",
+      "commit": "8698b036d76cd99c72299ce8467419bfc7422db6",
       "command": "pnpm exec vitest run (incl. real-Chrome e2e)",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T08:16:29Z",
-      "passed": 51,
+      "timestamp": "2026-10-07T11:13:31Z",
+      "passed": 66,
       "failed": 0
     }
   ]
