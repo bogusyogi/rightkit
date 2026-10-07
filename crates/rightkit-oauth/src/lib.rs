@@ -280,7 +280,7 @@ impl OAuthClient {
         if let Some(secret) = &self.config.client_secret { owned.push(("client_secret".into(), secret.expose().into())); }
         let refs: Vec<(&str, &str)> = owned.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let response = self.http.send(&Request::post(&self.config.token_url).form(&refs))
-            .map_err(|e| provider_or_http(e))?;
+            .map_err(provider_or_http)?;
         let value: serde_json::Value = response.json()?;
         parse_tokens(&value, old_refresh)
     }
@@ -399,7 +399,7 @@ fn random_urlsafe(bytes: usize) -> Result<String, OAuthError> {
 
 fn base64url(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::with_capacity((bytes.len() * 4 + 2) / 3);
+    let mut out = String::with_capacity((bytes.len() * 4).div_ceil(3));
     let mut i = 0;
     while i < bytes.len() {
         let a = bytes[i] as u32;

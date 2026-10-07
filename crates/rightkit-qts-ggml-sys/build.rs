@@ -270,7 +270,7 @@ fn have_command(name: &str) -> bool {
 }
 
 fn set_if_unset(key: &str, value: impl AsRef<std::ffi::OsStr>) {
-    if env::var_os(key).map_or(true, |v| v.is_empty()) {
+    if env::var_os(key).is_none_or(|v| v.is_empty()) {
         env::set_var(key, value);
     }
 }

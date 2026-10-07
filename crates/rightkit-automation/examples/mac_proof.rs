@@ -30,7 +30,7 @@ impl Run {
     }
 }
 
-fn find<'a>(s: &'a Snapshot, f: impl Fn(&Node) -> bool) -> Option<&'a Node> {
+fn find(s: &Snapshot, f: impl Fn(&Node) -> bool) -> Option<&Node> {
     s.root.find(&f)
 }
 

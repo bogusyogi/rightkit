@@ -294,10 +294,9 @@ impl<P: Platform> Automation<P> {
 
         // Tier 1: selection-exact native write.
         if opts.max_tier >= Tier::Semantic {
-            if baseline.is_some() && self.p.native_write_capable(&pin.editor) {
+            if let Some(b) = baseline.as_ref().filter(|_| self.p.native_write_capable(&pin.editor)) {
                 match self.p.native_write(&pin.editor, text) {
                     Ok(()) => {
-                        let b = baseline.as_ref().unwrap();
                         let ok = self.confirm_readback(&pin.editor, b, text, readback);
                         rec.attempts.push(Attempt { tier: Tier::Semantic, ok, detail: "selected-text write".into() });
                         step(rec, "native_write");
@@ -324,7 +323,7 @@ impl<P: Platform> Automation<P> {
                 Tier::InApp => {
                     let b = self.in_app_for(pin.pid);
                     match b {
-                        Some(b) => b.perform(pin.pid, &ev).map(|d| d),
+                        Some(b) => b.perform(pin.pid, &ev),
                         None => Err(Error::Unsupported("no in-app channel")),
                     }
                 }

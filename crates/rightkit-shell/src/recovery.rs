@@ -24,6 +24,9 @@ use serde_json::Value;
 use crate::broker::PathBroker;
 use crate::error::ShellError;
 
+/// Lists the file paths a parsed snapshot names.
+pub type PathExtractor = Arc<dyn Fn(&Value) -> Vec<String> + Send + Sync>;
+
 /// What a recovery store accepts and how it finds file paths inside a snapshot.
 #[derive(Clone)]
 pub struct RecoverySpec {
@@ -32,7 +35,7 @@ pub struct RecoverySpec {
     pub version: u64,
     pub max_bytes: usize,
     /// File paths named by a parsed snapshot (anything starting `untitled:` is ignored).
-    pub paths: Arc<dyn Fn(&Value) -> Vec<String> + Send + Sync>,
+    pub paths: PathExtractor,
 }
 
 impl RecoverySpec {

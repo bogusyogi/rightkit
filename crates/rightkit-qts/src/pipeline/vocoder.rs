@@ -407,6 +407,8 @@ fn parse_requested_execution_provider() -> Result<RequestedExecutionProvider, Qw
     }
 }
 
+// Which pushes exist depends on platform & features, so "push right after new" is target-specific.
+#[allow(clippy::vec_init_then_push)]
 fn default_auto_execution_provider_order() -> Vec<VocoderExecutionProvider> {
     let mut order = Vec::new();
 

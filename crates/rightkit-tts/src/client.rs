@@ -353,7 +353,7 @@ pub fn synthesize(text: &str, opts: &SynthOptions) -> Result<SynthResult, QtsErr
                     if raw.len() != samples * 2 {
                         return Err(QtsError::new("protocol", "chunk size mismatch"));
                     }
-                    let mut cp: Vec<i16> = raw.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+                    let mut cp: Vec<i16> = raw.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
                     trim_edge_silence(&mut cp);
                     pcm.extend_from_slice(&cp);
                     pcm.extend(wav::silence(c.pause_ms));

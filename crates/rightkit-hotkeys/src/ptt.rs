@@ -100,6 +100,12 @@ pub struct PttHandoff {
     abort: AtomicU64,
 }
 
+impl Default for PttHandoff {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PttHandoff {
     const IDLE: u8 = 0;
     const STARTING: u8 = 1;

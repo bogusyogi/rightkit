@@ -22,7 +22,6 @@
 //! audio fixtures and the real detokenizer fixture file.
 use rightkit_asr::longform::{self, LongFormOptions};
 use rightkit_asr::parakeet_core::{assemble_pieces, DetokPolicy};
-use rightkit_asr::TimestampMode;
 use std::path::{Path, PathBuf};
 
 fn wav(name: &str) -> Vec<f32> {

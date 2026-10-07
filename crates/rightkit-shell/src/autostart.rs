@@ -3,7 +3,6 @@
 //! `login_launch` covered it only for its own bundle). Autostart launches the normal app with
 //! `--background`; it never starts a second engine.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -86,6 +85,8 @@ pub fn linux_desktop_entry(name: &str, exe: &Path) -> String {
 
 /// Home directory for login entries. `RIGHTKIT_SHELL_HOME` redirects them (isolated QA runs and
 /// sandboxes must never write the real user's LaunchAgents / autostart / config).
+// Used by the macOS (LaunchAgents) and other-Unix (XDG autostart) paths; Windows uses the registry.
+#[cfg_attr(windows, allow(dead_code))]
 fn home() -> Option<PathBuf> {
     std::env::var_os("RIGHTKIT_SHELL_HOME")
         .filter(|v| !v.is_empty())
@@ -138,11 +139,11 @@ pub fn status(spec: &AutostartSpec) -> AutostartStatus {
         let enabled = reg(&["QUERY", key, "/v", &spec.app_id])
             .map(|o| o.status.success())
             .unwrap_or(false);
-        return AutostartStatus {
+        AutostartStatus {
             supported: true,
             enabled,
             entry: None,
-        };
+        }
     }
     #[cfg(not(windows))]
     {
@@ -184,7 +185,7 @@ pub fn set_enabled(spec: &AutostartSpec, enabled: bool) -> Result<AutostartStatu
         if !out.status.success() && enabled {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
         }
-        return Ok(status(spec));
+        Ok(status(spec))
     }
     #[cfg(not(windows))]
     {

@@ -97,6 +97,10 @@ pub mod windows {
     }
 
     /// Keeps interactive overlay child windows from activating their process on mouse-down.
+    ///
+    /// # Safety
+    /// Install only as the window procedure of a window whose original procedure was recorded in
+    /// `ORIGINAL_WNDPROCS`; Windows calls it with that window's handle and message arguments.
     pub unsafe extern "system" fn noactivate_wndproc(
         hwnd: HWND,
         message: u32,

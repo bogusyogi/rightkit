@@ -12,7 +12,7 @@ pub enum McpError {
     /// Refused by an admission hook or a recorded trust denial; nothing ran.
     Denied(String),
     /// Workspace server not yet approved; nothing was spawned or contacted.
-    NotApproved(PendingApproval),
+    NotApproved(Box<PendingApproval>),
     PoolFull(usize),
     Timeout,
     Closed,

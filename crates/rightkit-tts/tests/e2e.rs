@@ -1,4 +1,3 @@
-use rightkit_tts::{SystemTts, SystemTtsOptions};
 
 #[cfg(target_os = "macos")]
 #[test]

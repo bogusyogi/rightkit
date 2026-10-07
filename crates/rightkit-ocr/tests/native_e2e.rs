@@ -9,7 +9,6 @@
 //! top-left, "Total due: 1234 USD" mid-left, "Page 7 of 12" bottom-centre.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use rightkit_ocr::{
     is_backend_unavailable, worker, BackendPreference, Isolation, Ocr, OcrArtifactManifest,

@@ -8,6 +8,7 @@ pub const BOUNDARY_OPEN: &str = "<<<UNTRUSTED_CONTENT";
 pub const BOUNDARY_CLOSE: &str = "<<<END_UNTRUSTED_CONTENT";
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct WrapOptions {
     /// Truncate to this many bytes (on a UTF-8 boundary) with a marker. 0 = no limit.
     pub max_bytes: usize,
@@ -15,11 +16,6 @@ pub struct WrapOptions {
     pub block_on_injection: bool,
 }
 
-impl Default for WrapOptions {
-    fn default() -> Self {
-        Self { max_bytes: 0, block_on_injection: false }
-    }
-}
 
 /// Wrap text under default options.
 pub fn wrap_untrusted_web_text(source: &str, text: &str) -> String {

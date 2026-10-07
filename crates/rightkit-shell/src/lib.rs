@@ -76,6 +76,8 @@ type PresenceCallback = Arc<dyn Fn(&AppHandle<Wry>, PresenceState) + Send + Sync
 
 /// Everything the shell shares at runtime (managed Tauri state).
 pub struct ShellState {
+    // Read only by the macOS native-dispatch path.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) main_thread_id: std::thread::ThreadId,
     pub app_id: String,
     pub app_name: String,

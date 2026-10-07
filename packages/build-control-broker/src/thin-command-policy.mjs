@@ -55,7 +55,8 @@ const CARGO_BUILTINS = new Set([
 // managed tools. Tool provisioning is an operator path (stage, hash, register,
 // promote), so agent-initiated installs fail closed (v2.8 plan §11).
 const DENIED_CARGO_COMMANDS = new Map([
-  ['install', 'agent tool installation is denied; managed tools are digest-registered by the operator']
+  ['install', 'agent tool installation is denied; managed tools are digest-registered by the operator'],
+  ['uninstall', 'agent tool removal is denied; managed tools are digest-registered by the operator']
 ]);
 
 /** Command-class cost bucket for compile-capable roots (dual-host routing §5).
@@ -105,11 +106,20 @@ function assertLoginArgv(argv) {
   }
 }
 
+function assertNoArgvToken(command, argv) {
+  const end = argv.indexOf('--');
+  if (argv.slice(0, end < 0 ? argv.length : end).some((value) => value === '--token' || value.startsWith('--token='))) throw new DeniedThinCommandError('cargo', command, NO_ARGV_TOKEN);
+}
+
 function cargoCapability(command, argv) {
   if (DENIED_CARGO_COMMANDS.has(command)) throw new DeniedThinCommandError('cargo', command, DENIED_CARGO_COMMANDS.get(command));
   if (['--version', '-V', '-vV', 'version', 'help', 'locate-project', 'read-manifest'].includes(command)) return CONTROL;
   if (command === 'metadata' || command === 'tree') return hasFlag(argv, '--locked') || hasFlag(argv, '--frozen') ? ANALYSIS : WORKSPACE_WRITE;
   if (command === 'search') return ANALYSIS;
+  // Read-only queries: registry/manifest/config inspection, never a build or workspace write.
+  if (['info', 'pkgid', 'verify-project', 'report', 'config'].includes(command)) return ANALYSIS;
+  // Scaffolding writes new files into the workspace.
+  if (['new', 'init'].includes(command)) return WORKSPACE_WRITE;
   if (command === 'fetch') return hasFlag(argv, '--locked') || hasFlag(argv, '--frozen') ? ANALYSIS : WORKSPACE_WRITE;
   if (command === 'fix') return BUILD;
   if (command === 'fmt') return hasFlag(argv, '--check') ? ANALYSIS : WORKSPACE_WRITE;
@@ -117,13 +127,12 @@ function cargoCapability(command, argv) {
   if (command === 'clean') return ARTIFACT_WRITE;
   if (command === 'run') return CARGO_RUN;
   if (command === 'login') { assertLoginArgv(argv); return CREDENTIAL_LOGIN; }
+  // Registry account operations use the broker-managed credentials from `rightkit cargo login`.
+  if (command === 'logout') return CONTROL;
+  if (['owner', 'yank'].includes(command)) { assertNoArgvToken(command, argv); return CONTROL; }
   // `cargo package` verifies by compiling the packaged crate into target/package.
   if (command === 'package') return BUILD;
-  if (command === 'publish') {
-    const end = argv.indexOf('--');
-    if (argv.slice(0, end < 0 ? argv.length : end).some((value) => value === '--token' || value.startsWith('--token='))) throw new DeniedThinCommandError('cargo', 'publish', NO_ARGV_TOKEN);
-    return BUILD;
-  }
+  if (command === 'publish') { assertNoArgvToken(command, argv); return BUILD; }
   if (['build', 'check', 'test', 'bench', 'clippy', 'doc', 'rustc', 'rustdoc'].includes(command)) return BUILD;
   return null;
 }

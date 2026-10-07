@@ -341,7 +341,7 @@ export async function attachCargoLoginCredential(message, { read = readCredentia
   const login = cargoSubcommandIndex(argv);
   if (argv[login] !== 'login') {
     const end = argv.indexOf('--');
-    if (argv[login] === 'publish' && argv.slice(0, end < 0 ? argv.length : end).some((value) => value === '--token' || value.startsWith('--token='))) throw new TypeError(ARGV_TOKEN_REFUSAL);
+    if (['publish', 'owner', 'yank'].includes(argv[login]) && argv.slice(0, end < 0 ? argv.length : end).some((value) => value === '--token' || value.startsWith('--token='))) throw new TypeError(ARGV_TOKEN_REFUSAL);
     return message;
   }
   for (let index = login + 1; index < argv.length; index += 1) {

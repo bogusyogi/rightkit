@@ -29,7 +29,6 @@ pub use cpp::WhisperCpp;
 #[cfg(target_os = "macos")]
 pub use coreml::{ComputeUnits, WhisperCoreMl};
 pub use windowing::WHISPER_WINDOW_SAMPLES;
-pub(crate) use windowing::to_mono_16k;
 
 /// Recognition language: `Auto` detects on the first window and then locks the
 /// result for the rest of the call, so a transcript cannot flip language
@@ -171,11 +170,7 @@ impl Transcriber for Whisper {
             Language::Auto => None,
             Language::Code(c) => Some(c.clone()),
         };
-        let decoder: &mut dyn WindowDecoder = match &mut self.backend {
-            #[cfg(target_os = "macos")]
-            Backend::CoreMl(e) => e.as_mut(),
-            Backend::Cpp(e) => e,
-        };
+        let Backend::Cpp(decoder) = &mut self.backend;
         let (segments, lang) = windowing::transcribe_windowed(decoder, &audio, forced)?;
         self.detected = Some(lang);
         let text = segments

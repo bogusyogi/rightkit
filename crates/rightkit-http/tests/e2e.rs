@@ -274,7 +274,7 @@ fn truncated_stream_surfaces_error_not_clean_end() {
 #[test]
 fn sse_decoder_rejects_oversized_lines_and_handles_bom() {
     let mut d = SseDecoder::new(16);
-    assert!(d.push(&vec![b'x'; 40]).is_err());
+    assert!(d.push(&[b'x'; 40]).is_err());
     let mut d = SseDecoder::default();
     let evs = d.push(b"\xEF\xBB\xBFdata: bom\n\n").unwrap();
     assert_eq!(evs[0].data, "bom");

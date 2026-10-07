@@ -51,3 +51,12 @@ test('cargo login is a credential-stdin control command; publish builds; tokens 
   assert.throws(() => policy.classify('cargo', ['publish', '--token', 'test-token-value']), /never on the command line/);
   assert.throws(() => policy.classify('cargo', ['publish', '--token=test-token-value']), /never on the command line/);
 });
+
+test('cargo read-only queries, scaffolding, and registry account commands are registered', () => {
+  for (const command of ['info', 'pkgid', 'verify-project', 'report', 'config']) assert.equal(policy.classify('cargo', [command]).lane, 'ANALYSIS', command);
+  for (const command of ['new', 'init']) assert.equal(policy.classify('cargo', [command, 'x']).lane, 'WORKSPACE_WRITE', command);
+  for (const command of ['logout', 'owner', 'yank']) assert.equal(policy.classify('cargo', [command]).lane, 'CONTROL', command);
+  for (const command of ['owner', 'yank']) assert.throws(() => policy.classify('cargo', [command, '--token', 'test-token-value']), /never on the command line/);
+  assert.throws(() => policy.classify('cargo', ['uninstall', 'x']), (error) => error.code === 'RK_COMMAND_DENIED');
+  for (const command of ['outdated', 'update', 'package']) assert.ok(policy.classify('cargo', [command]), command);
+});

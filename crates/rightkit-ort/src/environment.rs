@@ -117,11 +117,6 @@ pub fn count_core_records(data: &[u8]) -> Option<usize> {
     (cores > 0).then_some(cores)
 }
 
-pub(crate) fn use_private_pools(reason: &str) {
-    PRIVATE_POOLS.store(true, Ordering::Release);
-    let _ = reason;
-}
-
 /// True once [`init_environment`] succeeded with a shared pool and no session
 /// has since fallen back to private pools.
 pub fn shared_pool_active() -> bool {

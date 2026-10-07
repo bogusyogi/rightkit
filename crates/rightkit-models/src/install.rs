@@ -304,7 +304,7 @@ impl Store {
                     authorization: opts.authorization.as_deref(),
                     cancelled,
                 },
-                |d, t| progress(d, t),
+                &mut *progress,
             )?;
             let len = fs::metadata(dest_path).map(|m| m.len()).unwrap_or(0);
             if f.bytes.is_some_and(|b| b != len) {

@@ -10,10 +10,9 @@
 //!   plus `RIGHTKIT_WHISPER_GGML` (ggml model, e.g. turbo q5_k ~574 MB).
 //! - VAD: `RIGHTKIT_VAD_MODEL` (Silero op15 ONNX, 2 MB).
 use rightkit_asr::{
-    transcribe_spans, Language, Transcriber, Whisper, WhisperModel, WhisperOptions,
+    Language, Transcriber, Whisper, WhisperModel, WhisperOptions,
 };
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 #[cfg(target_os = "macos")]
 fn init_ort_runtime() {
@@ -92,6 +91,8 @@ macro_rules! gate {
     };
 }
 
+// Only the macOS Core ML tests use it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn coreml_dir() -> Option<PathBuf> {
     first_existing(
         "RIGHTKIT_WHISPER_COREML_DIR",

@@ -149,11 +149,10 @@ impl GgufFile {
                 if info.size != element_count * std::mem::size_of::<f32>() {
                     return Err(Qwen3TtsError::InvalidTensor(name.into()));
                 }
-                raw.chunks_exact(4)
-                    .map(|chunk| {
-                        let bytes: [u8; 4] = chunk.try_into().expect("f32 chunk");
-                        f32::from_le_bytes(bytes)
-                    })
+                raw.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|bytes| f32::from_le_bytes(*bytes))
                     .collect()
             }
             sys::ggml_type_GGML_TYPE_F16 => {
@@ -161,9 +160,8 @@ impl GgufFile {
                     return Err(Qwen3TtsError::InvalidTensor(name.into()));
                 }
                 let mut out = Vec::with_capacity(element_count);
-                for chunk in raw.chunks_exact(2) {
-                    let bytes: [u8; 2] = chunk.try_into().expect("f16 chunk");
-                    let value = u16::from_le_bytes(bytes);
+                for bytes in raw.as_chunks::<2>().0 {
+                    let value = u16::from_le_bytes(*bytes);
                     out.push(unsafe { sys::ggml_fp16_to_fp32(value) });
                 }
                 out

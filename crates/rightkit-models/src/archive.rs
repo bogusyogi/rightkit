@@ -17,8 +17,8 @@ fn ex(msg: impl std::fmt::Display) -> Error {
 fn open_tar(archive: &Path) -> Result<tar::Archive<Box<dyn Read>>> {
     let mut file = fs::File::open(archive).map_err(|e| ex(format!("open {}: {e}", archive.display())))?;
     let mut magic = [0u8; 2];
-    let n = file.read(&mut magic).map_err(|e| ex(e))?;
-    let file = fs::File::open(archive).map_err(|e| ex(e))?;
+    let n = file.read(&mut magic).map_err(ex)?;
+    let file = fs::File::open(archive).map_err(ex)?;
     let reader: Box<dyn Read> = if n == 2 && magic == [0x1f, 0x8b] {
         Box::new(flate2::read::GzDecoder::new(file))
     } else {
@@ -45,25 +45,25 @@ pub fn extract_member(archive: &Path, member: &str, dest: &Path) -> Result<u64> 
     let tmp = dest.with_extension("extract-tmp");
     let _ = fs::remove_file(&tmp);
     let written = if is_zip(archive) {
-        let mut zip = zip::ZipArchive::new(fs::File::open(archive).map_err(|e| ex(e))?).map_err(|e| ex(e))?;
+        let mut zip = zip::ZipArchive::new(fs::File::open(archive).map_err(ex)?).map_err(ex)?;
         let mut entry = zip
             .by_name(member)
             .map_err(|e| ex(format!("{}: member {member}: {e}", archive.display())))?;
         if !entry.is_file() {
             return Err(ex(format!("member {member} is not a regular file")));
         }
-        let mut out = fs::File::create(&tmp).map_err(|e| ex(e))?;
-        std::io::copy(&mut entry, &mut out).map_err(|e| ex(e))?
+        let mut out = fs::File::create(&tmp).map_err(ex)?;
+        std::io::copy(&mut entry, &mut out).map_err(ex)?
     } else {
         let mut t = open_tar(archive)?;
         let mut found = None;
-        for entry in t.entries().map_err(|e| ex(e))? {
-            let mut entry = entry.map_err(|e| ex(e))?;
-            let path = entry.path().map_err(|e| ex(e))?.into_owned();
+        for entry in t.entries().map_err(ex)? {
+            let mut entry = entry.map_err(ex)?;
+            let path = entry.path().map_err(ex)?.into_owned();
             let same = path.to_string_lossy().trim_start_matches("./") == member;
             if same && entry.header().entry_type().is_file() {
-                let mut out = fs::File::create(&tmp).map_err(|e| ex(e))?;
-                found = Some(std::io::copy(&mut entry, &mut out).map_err(|e| ex(e))?);
+                let mut out = fs::File::create(&tmp).map_err(ex)?;
+                found = Some(std::io::copy(&mut entry, &mut out).map_err(ex)?);
                 break;
             }
         }
@@ -79,24 +79,24 @@ pub fn extract_member(archive: &Path, member: &str, dest: &Path) -> Result<u64> 
 /// Unpack a tar.gz whose members all live under one wrapper directory into
 /// `dest_dir` with the wrapper stripped (`--strip-components=1`).
 pub fn unpack_wrapped(archive: &Path, dest_dir: &Path) -> Result<()> {
-    fs::create_dir_all(dest_dir).map_err(|e| ex(e))?;
+    fs::create_dir_all(dest_dir).map_err(ex)?;
     let mut t = open_tar(archive)?;
     let mut saw = false;
     let mut wrapper: Option<std::ffi::OsString> = None;
-    for entry in t.entries().map_err(|e| ex(e))? {
-        let mut entry = entry.map_err(|e| ex(e))?;
-        let member = entry.path().map_err(|e| ex(e))?.into_owned();
+    for entry in t.entries().map_err(ex)? {
+        let mut entry = entry.map_err(ex)?;
+        let member = entry.path().map_err(ex)?.into_owned();
         if is_ignorable_apple_metadata(&member) {
             continue;
         }
         let Some(rel) = checked_member_path(&member, &mut wrapper).map_err(ex)? else { continue };
         let kind = entry.header().entry_type();
         if kind.is_dir() {
-            fs::create_dir_all(dest_dir.join(rel)).map_err(|e| ex(e))?;
+            fs::create_dir_all(dest_dir.join(rel)).map_err(ex)?;
         } else if kind.is_file() {
             let out = dest_dir.join(rel);
             if let Some(p) = out.parent() {
-                fs::create_dir_all(p).map_err(|e| ex(e))?;
+                fs::create_dir_all(p).map_err(ex)?;
             }
             entry.unpack(&out).map_err(|e| ex(format!("extract {}: {e}", member.display())))?;
         } else {

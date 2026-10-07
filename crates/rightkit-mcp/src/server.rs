@@ -77,7 +77,7 @@ impl AdmissionHook for ReadOnlyPolicy {
         Admission::Allow
     }
     fn expose(&self, tool: &ToolDescriptor) -> bool {
-        !self.blocked.iter().any(|b| *b == tool.name)
+        !self.blocked.contains(&tool.name)
     }
 }
 

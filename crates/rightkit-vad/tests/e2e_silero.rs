@@ -6,7 +6,6 @@
 //! `RIGHTKIT_VAD_ALLOW_MISSING_MODEL=1` to downgrade to a printed skip.
 use rightkit_vad::*;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 fn init_ort_runtime() {
     #[cfg(target_os = "macos")]
@@ -117,8 +116,8 @@ fn streaming_with_odd_callbacks_matches_batch_scores() {
     // Batch reference.
     let mut batch = load_model(&model);
     let mut ref_scores = Vec::new();
-    for c in audio.chunks_exact(FRAME_SAMPLES) {
-        ref_scores.push(batch.score(c.try_into().unwrap()).unwrap());
+    for c in audio.as_chunks::<FRAME_SAMPLES>().0 {
+        ref_scores.push(batch.score(c).unwrap());
     }
     // Streaming through awkward callback sizes (HeardRight chunking A/B pattern).
     let mut stream = FrameStream::new(load_model(&model), 0.5);

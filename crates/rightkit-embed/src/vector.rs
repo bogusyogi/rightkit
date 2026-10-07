@@ -236,8 +236,8 @@ fn decode(bytes: &[u8], dimension: usize) -> Result<Vec<f32>, ()> {
         return Err(());
     }
     let mut vector = Vec::with_capacity(dimension);
-    for chunk in bytes.chunks_exact(4) {
-        vector.push(f32::from_le_bytes(chunk.try_into().map_err(|_| ())?));
+    for chunk in bytes.as_chunks::<4>().0 {
+        vector.push(f32::from_le_bytes(*chunk));
     }
     if vector.iter().any(|value| !value.is_finite()) {
         return Err(());

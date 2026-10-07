@@ -69,8 +69,7 @@ impl<S: FrameScorer> FrameStream<S> {
         let tail = self.pending.split_off(complete);
         let frames = std::mem::replace(&mut self.pending, tail);
         let mut out = FrameVerdicts { scores: Vec::new(), speech: Vec::new() };
-        for frame in frames.chunks_exact(FRAME_SAMPLES) {
-            let frame: &[f32; FRAME_SAMPLES] = frame.try_into().expect("exact chunk");
+        for frame in frames.as_chunks::<FRAME_SAMPLES>().0 {
             match self.scorer.score(frame) {
                 Ok(score) => {
                     self.observed += 1;

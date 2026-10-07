@@ -425,7 +425,7 @@ test('cargo login sends the token as credentialStdin only; argv tokens are refus
   const read = async () => 'test-token-value';
   assert.equal((await attachCargoLoginCredential(login(['login']), { read })).credentialStdin, 'test-token-value');
   assert.equal((await attachCargoLoginCredential(login(['+stable', 'login', '--registry', 'crates-io']), { read })).credentialStdin, 'test-token-value');
-  for (const argv of [['login', 'test-token-value'], ['login', '--', 'x'], ['publish', '--token', 'test-token-value'], ['publish', '--token=test-token-value']]) {
+  for (const argv of [['login', 'test-token-value'], ['login', '--', 'x'], ['publish', '--token', 'test-token-value'], ['publish', '--token=test-token-value'], ['yank', '--token', 'test-token-value'], ['owner', '--token=test-token-value']]) {
     await assert.rejects(attachCargoLoginCredential(login(argv), { read: async () => { throw new Error('must not prompt'); } }), /never on the command line/);
   }
   const build = login(['build']); assert.equal(await attachCargoLoginCredential(build, { read }), build);

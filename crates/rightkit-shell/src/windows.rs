@@ -216,6 +216,8 @@ where
     }
 }
 
+// Dispatched to the main thread only on macOS.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn order_back_native(w: &WebviewWindow<Wry>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {

@@ -171,7 +171,8 @@ fn post_msg(h: HWND, msg: u32, w: usize, l: LPARAM) -> Result<()> {
 fn deepest_child_at(top: HWND, sx: i32, sy: i32) -> (HWND, i32, i32) {
     let mut cur = top;
     let mut pt = POINT { x: sx, y: sy };
-    unsafe { ScreenToClient(cur, &mut pt) };
+    // A failed conversion (stale window) leaves `pt` unchanged; the walk tolerates that.
+    let _ = unsafe { ScreenToClient(cur, &mut pt) };
     for _ in 0..8 {
         let child = unsafe { RealChildWindowFromPoint(cur, pt) };
         if child.0.is_null() || child == cur {
@@ -179,7 +180,7 @@ fn deepest_child_at(top: HWND, sx: i32, sy: i32) -> (HWND, i32, i32) {
         }
         cur = child;
         pt = POINT { x: sx, y: sy };
-        unsafe { ScreenToClient(cur, &mut pt) };
+        let _ = unsafe { ScreenToClient(cur, &mut pt) };
     }
     (cur, pt.x, pt.y)
 }
@@ -404,7 +405,7 @@ pub fn capture(window_id: u64, path: &std::path::Path) -> Result<()> {
         if !ok || rows == 0 {
             return Err(Error::Unsupported("PrintWindow failed"));
         }
-        for p in px.chunks_exact_mut(4) {
+        for p in px.as_chunks_mut::<4>().0 {
             p.swap(0, 2); // BGRA -> RGBA
             p[3] = 255;
         }

@@ -68,11 +68,13 @@ struct Breaker {
     cooling_until: Option<Instant>,
 }
 
+type Observer = Box<dyn Fn(&FailoverEvent) + Send + Sync>;
+
 pub struct FailoverChain {
     routes: Vec<Route>,
     policy: FailoverPolicy,
     breakers: Mutex<HashMap<String, Breaker>>,
-    observer: Option<Box<dyn Fn(&FailoverEvent) + Send + Sync>>,
+    observer: Option<Observer>,
 }
 
 impl FailoverChain {

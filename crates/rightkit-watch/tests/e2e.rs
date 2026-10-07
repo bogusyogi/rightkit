@@ -49,7 +49,7 @@ fn atomic_save_rename_over_original_surfaces_target_only() {
     fs::write(&target, "v1").unwrap();
     fs::write(&sibling, "x").unwrap();
     let (tx, rx) = mpsc::channel();
-    let _watch = FileSetWatcher::watch_default(&[target.clone()], move |changes| {
+    let _watch = FileSetWatcher::watch_default(std::slice::from_ref(&target), move |changes| {
         let _ = tx.send(changes);
     })
     .unwrap();
@@ -76,7 +76,7 @@ fn missing_target_created_then_deleted_reports_both() {
     let dir = TempDir::new().unwrap();
     let target = dir.path().join("saveas.txt");
     let (tx, rx) = mpsc::channel();
-    let _watch = FileSetWatcher::watch_default(&[target.clone()], move |c| {
+    let _watch = FileSetWatcher::watch_default(std::slice::from_ref(&target), move |c| {
         let _ = tx.send(c);
     })
     .unwrap();
@@ -108,7 +108,7 @@ fn revoked_grant_suppresses_emission() {
     let gate = granted.clone();
     let (tx, rx) = mpsc::channel();
     let _watch = FileSetWatcher::watch(
-        &[target.clone()],
+        std::slice::from_ref(&target),
         Duration::from_millis(80),
         Duration::from_secs(1),
         move |_: &Path| gate.load(Ordering::SeqCst),
@@ -185,9 +185,9 @@ fn rename_storm_collapses_to_net_state() {
         assert!(removed.contains(o) || !o.exists(), "original still believed alive: {o:?}");
     }
     // The storm of 360 renames must have been coalesced into a small number of batches.
-    assert!(batches >= 1 && batches <= 10, "storm produced {batches} batches");
-    for i in 0..N {
-        assert_eq!(fs::read_to_string(&finals[i]).unwrap(), format!("payload-{i}"));
+    assert!((1..=10).contains(&batches), "storm produced {batches} batches");
+    for (i, path) in finals.iter().enumerate().take(N) {
+        assert_eq!(fs::read_to_string(path).unwrap(), format!("payload-{i}"));
     }
     // Net truth: nothing reported `changed` that is gone by the end.
     let still_changed_but_gone: Vec<_> = changed.iter().filter(|p| !p.exists()).collect();

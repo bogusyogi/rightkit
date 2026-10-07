@@ -70,7 +70,7 @@ impl ConnectionPool {
                 TrustDecision::Denied => {
                     return Err(McpError::Denied(format!("server '{}' was denied for this configuration", e.name)))
                 }
-                TrustDecision::Pending => return Err(McpError::NotApproved(pending_for(ws, &e.name, &e.spec))),
+                TrustDecision::Pending => return Err(McpError::NotApproved(Box::new(pending_for(ws, &e.name, &e.spec)))),
             }
         }
         let key = Self::key(e);

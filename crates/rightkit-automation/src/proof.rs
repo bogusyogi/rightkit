@@ -52,7 +52,7 @@ pub fn collapse_line_break_runs(text: &str) -> String {
 /// doubled value collapses; unequal halves never do.
 pub fn collapse_exact_mirror(value: &str) -> Option<&str> {
     let mid = value.len() / 2;
-    (value.len() % 2 == 0 && value.is_char_boundary(mid))
+    (value.len().is_multiple_of(2) && value.is_char_boundary(mid))
         .then(|| value.split_at(mid))
         .filter(|(l, r)| !l.is_empty() && l == r)
         .map(|(l, _)| l)
