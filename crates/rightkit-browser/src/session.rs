@@ -1,6 +1,6 @@
 use crate::config::{
-    reject_real_browser_profile, resolve_executable, validate_extra_args, validate_profile_name,
-    LaunchOptions, ProfileSpec,
+    reject_real_browser_profile, resolve_executable, validate_extra_args, validate_profile_dir,
+    validate_profile_name, LaunchOptions, ProfileSpec,
 };
 use crate::error::{cdp, BrowserError, Result};
 use crate::page::BrowserPage;
@@ -14,6 +14,7 @@ use chromiumoxide::cdp::browser_protocol::browser::{
 };
 use futures::StreamExt;
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -28,7 +29,50 @@ const GRACE: Duration = Duration::from_secs(5);
 
 enum ProfileGuard {
     Temp(#[allow(dead_code)] tempfile::TempDir),
-    Named { _lock: std::fs::File },
+    Named {
+        _lock: std::fs::File,
+    },
+    /// Caller-owned directory: dropping this guard has no filesystem effects.
+    Existing,
+}
+
+fn prepare_profile(profile: &ProfileSpec) -> Result<(ProfileGuard, PathBuf, PathBuf)> {
+    match profile {
+        ProfileSpec::Temporary => {
+            let t = tempfile::tempdir()?;
+            let p = t.path().to_path_buf();
+            let dl = p.join("downloads");
+            Ok((ProfileGuard::Temp(t), p, dl))
+        }
+        ProfileSpec::Named { root, name } => {
+            validate_profile_name(name)?;
+            reject_real_browser_profile(root)?;
+            let dir = root.join(name);
+            std::fs::create_dir_all(&dir)?;
+            let lock = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(false)
+                .open(dir.join(".rightkit-browser.lock"))?;
+            match lock.try_lock() {
+                Ok(()) => {}
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    return Err(BrowserError::ProfileInUse(name.clone()))
+                }
+                Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
+            }
+            let dl = dir.join("rightkit-downloads");
+            Ok((ProfileGuard::Named { _lock: lock }, dir, dl))
+        }
+        ProfileSpec::Directory(path) => {
+            validate_profile_dir(path)?;
+            Ok((
+                ProfileGuard::Existing,
+                path.clone(),
+                path.join("rightkit-downloads"),
+            ))
+        }
+    }
 }
 
 /// One Chrome process with any number of pages.
@@ -61,34 +105,7 @@ impl BrowserSession {
     ) -> Result<Self> {
         validate_extra_args(&opts.extra_args)?;
         let exe = resolve_executable(&opts)?;
-        let (profile_guard, profile_dir, default_dl) = match &opts.profile {
-            ProfileSpec::Temporary => {
-                let t = tempfile::tempdir()?;
-                let p = t.path().to_path_buf();
-                let dl = p.join("downloads");
-                (ProfileGuard::Temp(t), p, dl)
-            }
-            ProfileSpec::Named { root, name } => {
-                validate_profile_name(name)?;
-                reject_real_browser_profile(root)?;
-                let dir = root.join(name);
-                std::fs::create_dir_all(&dir)?;
-                let lock = std::fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .truncate(false)
-                    .open(dir.join(".rightkit-browser.lock"))?;
-                match lock.try_lock() {
-                    Ok(()) => {}
-                    Err(std::fs::TryLockError::WouldBlock) => {
-                        return Err(BrowserError::ProfileInUse(name.clone()))
-                    }
-                    Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
-                }
-                let dl = dir.join("rightkit-downloads");
-                (ProfileGuard::Named { _lock: lock }, dir, dl)
-            }
-        };
+        let (profile_guard, profile_dir, default_dl) = prepare_profile(&opts.profile)?;
         let download_dir = opts.download_dir.clone().unwrap_or(default_dl);
         std::fs::create_dir_all(&download_dir)?;
 
@@ -105,7 +122,7 @@ impl BrowserSession {
             Some(PinProxy::start(guard.clone()).await?)
         };
 
-        let mut args: Vec<String> = [
+        let mut args: Vec<OsString> = [
             "--remote-debugging-port=0",
             "--no-first-run",
             "--no-default-browser-check",
@@ -131,13 +148,10 @@ impl BrowserSession {
             "--block-new-web-contents",
         ]
         .iter()
-        .map(|s| s.to_string())
+        .map(|s| OsString::from(*s))
         .collect();
-        args.push(format!("--user-data-dir={}", profile_dir.display()));
-        args.push(format!(
-            "--window-size={},{}",
-            opts.viewport.0, opts.viewport.1
-        ));
+        args.push(crate::proc::profile_arg(&profile_dir));
+        args.push(format!("--window-size={},{}", opts.viewport.0, opts.viewport.1).into());
         args.push(if opts.headless {
             "--headless=new".into()
         } else {
@@ -149,7 +163,7 @@ impl BrowserSession {
         if let Some(p) = &proxy {
             // Every connection, loopback included, goes through the pinning proxy;
             // Chrome itself resolves nothing but the proxy address.
-            args.push(format!("--proxy-server=http://{}", p.addr));
+            args.push(format!("--proxy-server=http://{}", p.addr).into());
             args.push("--proxy-bypass-list=<-loopback>".into());
             args.push("--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1".into());
             // Keep cross-site frames in the page process so interception covers them.
@@ -159,7 +173,7 @@ impl BrowserSession {
             args.push("--disable-quic".into());
         }
         for a in &opts.extra_args {
-            args.push(format!("--{}", a.trim_start_matches('-')));
+            args.push(format!("--{}", a.trim_start_matches('-')).into());
         }
         args.push("about:blank".into());
         let launch_timeout = opts.launch_timeout;
@@ -556,4 +570,86 @@ fn completed_files(dir: &Path) -> HashSet<PathBuf> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_dir_accepts_spaces_and_preserves_caller_directory_on_cleanup() {
+        let temp = tempfile::tempdir().unwrap();
+        let name = format!(".ScrapeRight profile's ü & (data) {}", "x".repeat(65));
+        assert!(validate_profile_name(&name).is_err());
+        let path = temp.path().join(name);
+        std::fs::create_dir(&path).unwrap();
+        let sentinel = path.join("Preferences");
+        std::fs::write(&sentinel, "caller data").unwrap();
+        let opts = LaunchOptions::default().profile_dir(&path);
+        assert_eq!(opts.profile, ProfileSpec::Directory(path.clone()));
+        let (guard, resolved, downloads) = prepare_profile(&opts.profile).unwrap();
+        assert!(matches!(&guard, ProfileGuard::Existing));
+        assert_eq!(resolved, path);
+        assert_eq!(downloads, path.join("rightkit-downloads"));
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 1);
+        // shutdown/cancel/Drop all release this same guard through Option::take.
+        let guard = StdMutex::new(Some(guard));
+        drop(guard.lock().unwrap().take());
+        drop(guard.lock().unwrap().take());
+        assert!(path.is_dir());
+        assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "caller data");
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn profile_dir_rejects_relative_missing_and_file_paths_without_creation() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing profile");
+        let file = temp.path().join("not a directory");
+        std::fs::write(&file, "keep").unwrap();
+        for (path, message) in [
+            (PathBuf::from("relative profile"), "must be absolute"),
+            (missing.clone(), "must exist"),
+            (file.clone(), "not a directory"),
+        ] {
+            let opts = LaunchOptions::default().profile_dir(path);
+            let err = match prepare_profile(&opts.profile) {
+                Ok(_) => panic!("invalid profile was accepted"),
+                Err(err) => err,
+            };
+            assert!(matches!(&err, BrowserError::Profile(_)));
+            assert!(err.to_string().contains(message), "{err}");
+        }
+        assert!(!missing.exists());
+        assert_eq!(std::fs::read_to_string(file).unwrap(), "keep");
+    }
+
+    #[test]
+    fn temporary_profile_still_uses_cleanup_guard() {
+        let opts = LaunchOptions::default();
+        assert_eq!(opts.profile, ProfileSpec::Temporary);
+        let (guard, path, downloads) = prepare_profile(&opts.profile).unwrap();
+        assert!(matches!(&guard, ProfileGuard::Temp(_)));
+        assert_eq!(downloads, path.join("downloads"));
+        assert!(path.is_dir());
+        drop(guard);
+        assert!(!path.exists());
+    }
+
+    // APFS (macOS) rejects non-UTF-8 file names with EILSEQ; Linux filesystems accept them.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn profile_dir_accepts_non_utf8_names() {
+        use std::os::unix::ffi::OsStringExt;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp
+            .path()
+            .join(OsString::from_vec(b"profile \xff".to_vec()));
+        std::fs::create_dir(&path).unwrap();
+        let opts = LaunchOptions::default().profile_dir(&path);
+        let (guard, resolved, _) = prepare_profile(&opts.profile).unwrap();
+        assert_eq!(resolved, path);
+        drop(guard);
+        assert!(path.is_dir());
+    }
 }

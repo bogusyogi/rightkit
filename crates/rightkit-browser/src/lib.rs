@@ -2,9 +2,10 @@
 //!
 //! * [`BrowserSession`] owns one Chrome process and any number of pages. Launch uses Chrome
 //!   for Testing ([`chrome_for_testing_path`]); the system browser only with
-//!   [`LaunchOptions::system_chrome`]. Shutdown and drop close gracefully (CDP
+//!   [`LaunchOptions::system_chrome`] or [`LaunchOptions::system_chrome_only`].
+//!   Shutdown and drop close gracefully (CDP
 //!   `Browser.close` / SIGTERM to the process group, bounded waits, SIGKILL last).
-//! * [`ProfileSpec`] selects a temporary or named persistent profile.
+//! * [`ProfileSpec`] selects a temporary, named persistent, or caller-owned directory profile.
 //! * Pointer and keyboard actions use real `Input.dispatch*Event` commands, so
 //!   `event.isTrusted`, `:hover`, focus, and default actions behave as for a user.
 //! * [`NetworkPolicy`] blocks loopback/link-local/private/reserved/`file:` targets
@@ -25,6 +26,7 @@ mod session;
 pub use config::{
     chrome_for_testing_candidates, chrome_for_testing_path, find_chrome, LaunchOptions,
     ProfileSpec, CHROME_FOR_TESTING_ENV, CHROME_FOR_TESTING_INSTALL_HINT,
+    CHROME_FOR_TESTING_ROOT_ENV,
 };
 pub use error::{BrowserError, Result};
 pub use page::{BrowserPage, ConsoleLine, Observation, ObservedNode, Rect, Target};
