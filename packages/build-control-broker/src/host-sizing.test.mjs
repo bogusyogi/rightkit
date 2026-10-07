@@ -12,7 +12,7 @@ test('Windows workstation (20 CPUs, 64 GiB) sizes builds from RAM, not fixed slo
   assert.equal(sizing.buildConcurrency, 2);
   assert.equal(sizing.gcFreeFloorBytes, Math.floor(3726 * GiB * 0.1));
   assert.equal(sizing.targetCacheCapBytes, 400 * GiB, 'a 3.7 TB volume still gets a bounded build budget');
-  assert.equal(sizing.compilerCacheMaxBytes, 60 * GiB);
+  assert.equal(sizing.compilerCacheMaxBytes, 150 * GiB);
 });
 
 test('Mac (12 CPUs, 24 GiB) gets the same rule: all CPUs, one full-width build fits', () => {
@@ -21,7 +21,7 @@ test('Mac (12 CPUs, 24 GiB) gets the same rule: all CPUs, one full-width build f
   assert.equal(sizing.compileBudgetUnits, 19);
   assert.equal(sizing.buildCostUnits, 12);
   assert.equal(sizing.buildConcurrency, 1);
-  assert.equal(sizing.compilerCacheMaxBytes, Math.floor(927 * GiB * 0.05));
+  assert.equal(sizing.compilerCacheMaxBytes, Math.floor(927 * GiB * 0.1));
   assert.equal(sizing.targetCacheCapBytes, Math.floor(927 * GiB * 0.15));
 });
 
