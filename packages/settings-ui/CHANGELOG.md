@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.2
+
+Update-stable seams so apps keep their own nav, update, licence and About UI. All additive; defaults render as in 0.2.1.
+
+### Added
+- `SettingsPanel`: `navFooter` (bottom of the nav), `navHeading` (`ReactNode | false`; takes precedence over `title`, `false` omits the heading), `renderNavItem(section, { active })` (replaces the content of each nav button; the button, `data-section-id`, keyboard navigation and click handling stay) and `hideNav` (no nav; select with `activeId`; adds `rk-settings--no-nav`). Nav buttons now carry `data-active="true"` on the active item (alongside `aria-current="page"` and `.is-active`).
+- Updates: `UpdatesClient = AutoUpdateClient | UpdatesAdapter`; function-style `UpdatesAdapter { check(); install(); status? }` (`status` seeds the display on mount, value or function). New exports `UpdatesControls` (the inner status/Install/Restart/Check controls, no Settings row, for embedding in another card; takes `client` or a shared `controller`) and `useUpdates(client)`.
+- `UpdatesLabels`: `sectionLabel`, `searchCheck`, `checking`, `installing` (in-flight button text; unset keeps the normal label) and `statusBadge`. Defaults unchanged (`checkNow` "Check now", `installUpdate` "Install update"); set them to "Check for Updates" / "Install and restart" as needed.
+- Licence: `LicenseOptions.client` is now the minimal `LicenseClientLike` (`activate`, `deactivate`, and `status()` or `load()`); `createLicenseClient()` still satisfies it. New `beforeDeactivate` hook, awaited before `client.deactivate()`; if it throws the deactivation is aborted and the error is shown.
+- About: `card` (replaces the default card; `panels` still render) and `render({ card, panels, info })` (replaces the whole section body).
+- Unit tests with jsdom + Testing Library (`src/slots.test.tsx`); devDependencies `jsdom`, `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`.
+
+### Fixed
+- A failed licence deactivation now shows its error in the Deactivate row (it was set but never rendered while the licence was active).
+
+### Changed
+- While an install runs, the update status is no longer replaced by "checking" (the Install button is disabled instead); the section shows the same controls otherwise.
+
 ## 0.2.1 — 2026-10-07
 
 - `ModelEntry.removable` (false hides Remove) and `ModelEntry.shared` (shared Orthic store model: "Shared" badge, never removable).

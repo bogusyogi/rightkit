@@ -1,4 +1,4 @@
-import type { Detector, DetectorHit } from "./types";
+import type { Detector, DetectorHit } from "./types.js";
 import type { DescriptionList } from "../remarkDefListAbbr.js";
 import { nodeText } from "./nodeText.js";
 

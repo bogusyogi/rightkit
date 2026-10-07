@@ -31,6 +31,13 @@ function readState(value: unknown): PersistedOnboardingState {
   };
 }
 
+/** Replace the acceptance in `state` with the one from the app's receipt (`undefined`: not accepted). */
+function withReceipt(state: PersistedOnboardingState, record: LegalAcceptanceRecord | undefined): PersistedOnboardingState {
+  const { legalAcceptance: _drop, eligibilityBasis: _basis, ...rest } = state;
+  void _drop; void _basis;
+  return record ? { ...rest, legalAccepted: true, eligibilityBasis: record.eligibilityBasis, legalAcceptance: record } : { ...rest, legalAccepted: false };
+}
+
 /** True when the stored acceptance satisfies the host's requirement. */
 export function isLegalAccepted(state: PersistedOnboardingState, requiredVersion?: string, custom?: (state: PersistedOnboardingState) => boolean): boolean {
   if (custom) return custom(state);
@@ -64,7 +71,7 @@ function TitleStrip({ titlebar, dragRegion }: { titlebar?: ReactNode; dragRegion
   return <div className="rk-onboarding__titlebar" data-testid="onboarding-titlebar" {...(dragRegion ? { "data-tauri-drag-region": "" } : {})}>{titlebar}</div>;
 }
 
-export function Onboarding({ settings, legal, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, modelsIntro, allowSkip = true, titlebar, dragRegion }: OnboardingProps) {
+export function Onboarding({ settings, legal, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt }: OnboardingProps) {
   const [state, setState] = useState<PersistedOnboardingState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +94,20 @@ export function Onboarding({ settings, legal, steps = [], permissions, models, l
     try { await persist(patch); return true; } catch { return false; }
   }, [persist]);
   const saveStep = useCallback(async (patch: Partial<PersistedOnboardingState>): Promise<void> => { await save(patch); }, [save]);
-  useEffect(() => { let live = true; void settings.load().then((snapshot) => { if (live) setState(readState(snapshot.values[KEY])); }, (e) => { if (live) setError(e instanceof Error ? e.message : String(e)); }); return () => { live = false; }; }, [settings]);
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const loaded = readState((await settings.load()).values[KEY]);
+        if (!legalReceipt) { if (live) setState(loaded); return; }
+        // The app's receipt is the source of truth for acceptance; an unreadable receipt counts as none.
+        let record: LegalAcceptanceRecord | undefined;
+        try { record = readAcceptance(await legalReceipt.read()); } catch { record = undefined; }
+        if (live) setState(withReceipt(loaded, record));
+      } catch (e) { if (live) setError(e instanceof Error ? e.message : String(e)); }
+    })();
+    return () => { live = false; };
+  }, [settings, legalReceipt]);
 
   const builtins = useMemo<OnboardingStep[]>(() => [
     { id: "legal", label: "Agreement", title: "Review agreement", skippable: false, render: () => <p className="rk-onboarding__muted">Agreement accepted.</p> },
@@ -129,10 +149,13 @@ export function Onboarding({ settings, legal, steps = [], permissions, models, l
   if (error && !state) return <div className={cx("rk-onboarding", className)}><p className="rk-onboarding__error" role="alert">{error}</p><Button onClick={() => window.location.reload()}>Retry</Button></div>;
   if (!state || !active) return <div className={cx("rk-onboarding", className)} aria-busy="true"><p className="rk-onboarding__muted">Loading setup…</p></div>;
   if (needsGate) {
-    if (!gateCleared) return <div className={cx("rk-onboarding", className)} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={dragRegion} /><p className="rk-onboarding__muted">Loading setup…</p></div>;
+    if (!gateCleared) return <div className={cx("rk-onboarding", className)} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><p className="rk-onboarding__muted">Loading setup…</p></div>;
     const reacceptance = activeState.legalAccepted || activeState.legalAcceptance !== undefined;
-    return <div className={cx("rk-onboarding rk-onboarding--legal", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={dragRegion} /><LegalGate {...legal} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
+    return <div className={cx("rk-onboarding rk-onboarding--legal", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><LegalGate {...legal} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
       const legalAcceptance: LegalAcceptanceRecord = { version: requiredVersion ?? "1", documentsHash: documentsHash ?? await hashDocuments(legal.documents), acceptedAt: new Date().toISOString(), eligibilityBasis };
+      if (legalReceipt) {
+        try { await legalReceipt.write(legalAcceptance); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; }
+      }
       const progress = reacceptance ? {} : { completed: ["legal"], currentStep: builtins.length > 1 ? 1 : 0 };
       await persist({ legalAccepted: true, eligibilityBasis, legalAcceptance, ...progress });
       if (!reacceptance && builtins.length === 1) await onComplete();

@@ -77,3 +77,13 @@ Errors, including synchronous throws, render `Couldn’t save your acceptance. T
 `preview/` is a local-only static harness (not published — excluded from `files`)
 that renders all five Right Suite apps, light-only, against their real brand
 tokens with the real Tanker wordmark font. See `preview/README.md`.
+
+## Content Security Policy
+
+Under a strict CSP (`style-src 'self'`, no `'unsafe-inline'`), import the stylesheet once:
+
+```ts
+import "@rightkit/legal-ui/legal-ui.css";
+```
+
+The gate detects it and injects no `<style>` element. Without it, the gate injects its layout at runtime, which requires `style-src 'unsafe-inline'`. The wordmark font loads via the FontFace API (needs `font-src` to allow the font URL).

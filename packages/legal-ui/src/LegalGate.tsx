@@ -108,6 +108,12 @@ function splitWordmark(appName: string): { base: string; suffix: string } {
 let styleInjected = false;
 function ensureStyle(): void {
   if (styleInjected || typeof document === "undefined") return;
+  // Apps that import "@rightkit/legal-ui/legal-ui.css" (required under a strict style-src CSP,
+  // which silently blocks injected <style> elements) need no injection.
+  if (typeof getComputedStyle === "function" && getComputedStyle(document.documentElement).getPropertyValue("--rk-legal-ui-css").trim() === "1") {
+    styleInjected = true;
+    return;
+  }
   styleInjected = true;
   const style = document.createElement("style");
   style.setAttribute("data-rightkit-legal-gate", "");
@@ -144,6 +150,13 @@ const injectedWordmarkFonts = new Set<string>();
 function ensureWordmarkFont(url: string): void {
   if (typeof document === "undefined" || injectedWordmarkFonts.has(url)) return;
   injectedWordmarkFonts.add(url);
+  // FontFace (CSSOM) is not subject to style-src, so this works under a strict CSP.
+  if (typeof FontFace === "function" && document.fonts) {
+    const face = new FontFace("Tanker", `url("${url}") format("woff2")`, { weight: "400", style: "normal", display: "swap" });
+    document.fonts.add(face);
+    void face.load().catch(() => {});
+    return;
+  }
   const style = document.createElement("style");
   style.setAttribute("data-rightkit-legal-gate-font", url);
   style.textContent = `@font-face { font-family: "Tanker"; src: url("${url}") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }`;

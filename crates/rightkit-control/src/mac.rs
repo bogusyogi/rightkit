@@ -1,6 +1,12 @@
 //! macOS backend: window discovery, per-pid input, Accessibility reads.
 //! All input goes through `CGEventPostToPid`; nothing here activates an app,
 //! moves the real cursor, or posts to the global HID tap.
+//!
+//! Reads (`windows`, `main_window`, `frontmost_*`, `accessibility_trusted`,
+//! `ax_dump`, `ax_find`, `ax_text`) are public. Every effect (input, AX
+//! actions, key-window changes, launch, capture) is reachable only through
+//! [`Gated`], which admits each call through an [`EffectGate`] (EFF-001), or
+//! through the explicitly named [`unsafe_ungated`] opt-in.
 #![allow(non_snake_case, non_camel_case_types, clippy::missing_safety_doc)]
 
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -211,7 +217,7 @@ fn pause(ms: u64) {
 }
 
 /// Real left click at global screen coords, delivered to `pid` only.
-pub fn click(pid: i32, win: u32, x: f64, y: f64) {
+pub(crate) fn click(pid: i32, win: u32, x: f64, y: f64) {
     mouse(pid, win, 5, x, y, 0); // move: arms hover/tracking areas
     pause(40);
     mouse(pid, win, 1, x, y, 1);
@@ -219,11 +225,11 @@ pub fn click(pid: i32, win: u32, x: f64, y: f64) {
     mouse(pid, win, 2, x, y, 1);
 }
 
-pub fn hover(pid: i32, win: u32, x: f64, y: f64) {
+pub(crate) fn hover(pid: i32, win: u32, x: f64, y: f64) {
     mouse(pid, win, 5, x, y, 0);
 }
 
-pub fn drag(pid: i32, win: u32, from: (f64, f64), to: (f64, f64), steps: u32) {
+pub(crate) fn drag(pid: i32, win: u32, from: (f64, f64), to: (f64, f64), steps: u32) {
     mouse(pid, win, 5, from.0, from.1, 0);
     pause(30);
     mouse(pid, win, 1, from.0, from.1, 1);
@@ -242,7 +248,7 @@ pub fn drag(pid: i32, win: u32, from: (f64, f64), to: (f64, f64), steps: u32) {
     mouse(pid, win, 2, to.0, to.1, 1);
 }
 
-pub fn scroll(pid: i32, win: u32, x: f64, y: f64, dy: i32) {
+pub(crate) fn scroll(pid: i32, win: u32, x: f64, y: f64, dy: i32) {
     mouse(pid, win, 5, x, y, 0);
     unsafe {
         let src = source();
@@ -258,7 +264,7 @@ pub fn scroll(pid: i32, win: u32, x: f64, y: f64, dy: i32) {
 }
 
 /// Type text as Unicode key events (layout independent).
-pub fn type_text(pid: i32, text: &str) {
+pub(crate) fn type_text(pid: i32, text: &str) {
     unsafe {
         let src = source();
         for ch in text.chars() {
@@ -279,7 +285,7 @@ pub fn type_text(pid: i32, text: &str) {
     }
 }
 
-pub fn key(pid: i32, keycode: u16, flags: u64) {
+pub(crate) fn key(pid: i32, keycode: u16, flags: u64) {
     unsafe {
         let src = source();
         for down in [true, false] {
@@ -457,7 +463,7 @@ pub fn ax_find(pid: i32, needle: &str, exact: bool) -> Option<Node> {
     found.or(fallback)
 }
 
-pub fn ax_press(node: &Node) -> bool {
+pub(crate) fn ax_press(node: &Node) -> bool {
     unsafe {
         let a = cfstr("AXPress");
         let rc = AXUIElementPerformAction(node.el as CFTypeRef, a);
@@ -471,7 +477,7 @@ pub fn ax_text(node: &Node) -> String {
 }
 
 /// Real-click an AX element's center, delivered to its owning pid.
-pub fn click_node(pid: i32, node: &Node) -> Result<(), String> {
+pub(crate) fn click_node(pid: i32, node: &Node) -> Result<(), String> {
     let (x, y, w, h) = node.frame.ok_or("element has no frame")?;
     let win = main_window(pid).ok_or("app has no window")?;
     click(pid, win.id, x + w / 2.0, y + h / 2.0);
@@ -482,7 +488,11 @@ pub fn click_node(pid: i32, node: &Node) -> Result<(), String> {
 
 /// Launch an app hidden and in the background (`open -g -j -n`), muted by env
 /// supplied by the caller. Returns the pid of the new instance.
-pub fn launch_hidden(app: &str, exe_name: &str, env: &[(String, String)]) -> Result<i32, String> {
+pub(crate) fn launch_hidden(
+    app: &str,
+    exe_name: &str,
+    env: &[(String, String)],
+) -> Result<i32, String> {
     let before: std::collections::HashSet<i32> = pids_named(exe_name).into_iter().collect();
     let mut cmd = Command::new("open");
     cmd.args(["-g", "-j", "-n"]);
@@ -517,7 +527,7 @@ fn pids_named(name: &str) -> Vec<i32> {
     .unwrap_or_default()
 }
 
-pub fn capture_window(win: u32, out: &str) -> bool {
+pub(crate) fn capture_window(win: u32, out: &str) -> bool {
     Command::new("screencapture")
         .args(["-x", "-o", "-l", &win.to_string(), out])
         .status()
@@ -528,7 +538,7 @@ pub fn capture_window(win: u32, out: &str) -> bool {
 /// Mark the app's window key/main *inside the app* via Accessibility, without
 /// activating the application (no frontmost change). Needed so AppKit/WKWebView
 /// accepts mouse clicks on an inactive app. Returns the AX status codes.
-pub fn ax_make_key(pid: i32, attrs: &[&str]) -> Vec<(String, i32)> {
+pub(crate) fn ax_make_key(pid: i32, attrs: &[&str]) -> Vec<(String, i32)> {
     unsafe {
         let root = app_root(pid);
         let w = attr(root, "AXFocusedWindow");
@@ -575,7 +585,7 @@ extern "C" {
 /// Post the "window became key" event records yabai uses for focus-without-raise.
 /// The front application and window order stay unchanged. Private API: returns
 /// false if SkyLight does not export the symbol on this macOS build.
-pub fn key_without_raise(pid: i32, win: u32) -> bool {
+pub(crate) fn key_without_raise(pid: i32, win: u32) -> bool {
     unsafe {
         let lib =
             CString::new("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight").unwrap();
@@ -605,5 +615,224 @@ pub fn key_without_raise(pid: i32, win: u32) -> bool {
             post(&psn, b.as_ptr());
         }
         true
+    }
+}
+
+// ---------- EFF-001 gated entry points ----------
+
+use crate::admission::{CancelToken, Effect, EffectGate, EffectKind, EffectRequest, ExecError};
+use std::sync::Arc;
+
+/// Every effectful macOS primitive, admitted through one [`EffectGate`]:
+/// validate → approval → execute → settle. A denial settles before the
+/// primitive runs (no event is posted, nothing is launched or written).
+/// Request params carry the payload (coordinates, text) for payload-bound
+/// approval; they are never emitted in events or settlements.
+#[derive(Debug, Clone)]
+pub struct Gated {
+    gate: Arc<EffectGate>,
+}
+
+impl Default for Gated {
+    fn default() -> Self {
+        Self::allow_all()
+    }
+}
+
+fn pid_target(pid: i32) -> String {
+    format!("pid:{pid}")
+}
+
+impl Gated {
+    pub fn new(gate: Arc<EffectGate>) -> Self {
+        Self { gate }
+    }
+    /// [`EffectGate::allow_all`]: unchanged behaviour, still settled.
+    pub fn allow_all() -> Self {
+        Self::new(Arc::new(EffectGate::allow_all()))
+    }
+    pub fn gate(&self) -> &Arc<EffectGate> {
+        &self.gate
+    }
+
+    /// Admit an arbitrary effect through this gate (used by the CLI for
+    /// composite commands such as "find then click").
+    pub fn admit<T>(
+        &self,
+        kind: EffectKind,
+        method: &str,
+        target: String,
+        params: String,
+        run: impl FnOnce() -> Result<T, String>,
+    ) -> Effect<T> {
+        let req = EffectRequest::new(kind, method, target).with_params(params);
+        self.gate
+            .admit(req, &CancelToken::new(), |_| run().map_err(ExecError::from))
+    }
+
+    pub fn click(&self, pid: i32, win: u32, x: f64, y: f64) -> Effect<()> {
+        let p = format!("{{\"window\":{win},\"x\":{x},\"y\":{y}}}");
+        self.admit(EffectKind::Input, "click", pid_target(pid), p, || {
+            click(pid, win, x, y);
+            Ok(())
+        })
+    }
+    pub fn hover(&self, pid: i32, win: u32, x: f64, y: f64) -> Effect<()> {
+        let p = format!("{{\"window\":{win},\"x\":{x},\"y\":{y}}}");
+        self.admit(EffectKind::Input, "hover", pid_target(pid), p, || {
+            hover(pid, win, x, y);
+            Ok(())
+        })
+    }
+    pub fn drag(
+        &self,
+        pid: i32,
+        win: u32,
+        from: (f64, f64),
+        to: (f64, f64),
+        steps: u32,
+    ) -> Effect<()> {
+        let p = format!(
+            "{{\"window\":{win},\"from\":[{},{}],\"to\":[{},{}],\"steps\":{steps}}}",
+            from.0, from.1, to.0, to.1
+        );
+        self.admit(EffectKind::Input, "drag", pid_target(pid), p, || {
+            drag(pid, win, from, to, steps);
+            Ok(())
+        })
+    }
+    pub fn scroll(&self, pid: i32, win: u32, x: f64, y: f64, dy: i32) -> Effect<()> {
+        let p = format!("{{\"window\":{win},\"x\":{x},\"y\":{y},\"dy\":{dy}}}");
+        self.admit(EffectKind::Input, "scroll", pid_target(pid), p, || {
+            scroll(pid, win, x, y, dy);
+            Ok(())
+        })
+    }
+    pub fn type_text(&self, pid: i32, text: &str) -> Effect<()> {
+        let p = format!("{{\"text\":\"{}\"}}", crate::json::esc(text));
+        self.admit(EffectKind::Input, "type", pid_target(pid), p, || {
+            type_text(pid, text);
+            Ok(())
+        })
+    }
+    pub fn key(&self, pid: i32, keycode: u16, flags: u64) -> Effect<()> {
+        let p = format!("{{\"keycode\":{keycode},\"flags\":{flags}}}");
+        self.admit(EffectKind::Input, "key", pid_target(pid), p, || {
+            key(pid, keycode, flags);
+            Ok(())
+        })
+    }
+    /// `AXPress`; the value is whether AX reported success.
+    pub fn ax_press(&self, node: &Node) -> Effect<bool> {
+        let p = format!("{{\"role\":\"{}\"}}", crate::json::esc(&node.role));
+        self.admit(EffectKind::Action, "press", "ax-node".into(), p, || {
+            Ok(ax_press(node))
+        })
+    }
+    pub fn click_node(&self, pid: i32, node: &Node) -> Effect<()> {
+        let p = format!("{{\"role\":\"{}\"}}", crate::json::esc(&node.role));
+        self.admit(EffectKind::Input, "click_node", pid_target(pid), p, || {
+            click_node(pid, node)
+        })
+    }
+    pub fn launch_hidden(
+        &self,
+        app: &str,
+        exe_name: &str,
+        env: &[(String, String)],
+    ) -> Effect<i32> {
+        let p = format!(
+            "{{\"app\":\"{}\",\"exe\":\"{}\",\"env\":{}}}",
+            crate::json::esc(app),
+            crate::json::esc(exe_name),
+            env.len()
+        );
+        self.admit(EffectKind::Process, "launch", app.to_string(), p, || {
+            launch_hidden(app, exe_name, env)
+        })
+    }
+    /// Window capture to `out`; settles `Failed` when `screencapture` fails.
+    pub fn capture_window(&self, win: u32, out: &str) -> Effect<()> {
+        let p = format!("{{\"out\":\"{}\"}}", crate::json::esc(out));
+        self.admit(
+            EffectKind::Capture,
+            "capture",
+            format!("window:{win}"),
+            p,
+            || {
+                capture_window(win, out)
+                    .then_some(())
+                    .ok_or_else(|| "screencapture failed".to_string())
+            },
+        )
+    }
+    pub fn ax_make_key(&self, pid: i32, attrs: &[&str]) -> Effect<Vec<(String, i32)>> {
+        let p = format!("{{\"attrs\":{}}}", attrs.len());
+        self.admit(EffectKind::Action, "make_key", pid_target(pid), p, || {
+            Ok(ax_make_key(pid, attrs))
+        })
+    }
+    /// Private SkyLight focus-without-raise; value is whether it was posted.
+    pub fn key_without_raise(&self, pid: i32, win: u32) -> Effect<bool> {
+        let p = format!("{{\"window\":{win}}}");
+        self.admit(
+            EffectKind::Action,
+            "key_without_raise",
+            pid_target(pid),
+            p,
+            || Ok(key_without_raise(pid, win)),
+        )
+    }
+}
+
+/// **Ungated** effectful primitives: these bypass [`EffectGate`] admission
+/// entirely: no validation, no host approval, no settlement, no events.
+///
+/// Use only where admission is provably handled by the caller (e.g. inside an
+/// executor already admitted by a gate) or in fixtures that drive a test app
+/// directly. Host-facing code must use [`Gated`]. Calling anything here is an
+/// explicit, greppable opt-out of EFF-001.
+pub mod unsafe_ungated {
+    use super::Node;
+
+    pub fn click(pid: i32, win: u32, x: f64, y: f64) {
+        super::click(pid, win, x, y)
+    }
+    pub fn hover(pid: i32, win: u32, x: f64, y: f64) {
+        super::hover(pid, win, x, y)
+    }
+    pub fn drag(pid: i32, win: u32, from: (f64, f64), to: (f64, f64), steps: u32) {
+        super::drag(pid, win, from, to, steps)
+    }
+    pub fn scroll(pid: i32, win: u32, x: f64, y: f64, dy: i32) {
+        super::scroll(pid, win, x, y, dy)
+    }
+    pub fn type_text(pid: i32, text: &str) {
+        super::type_text(pid, text)
+    }
+    pub fn key(pid: i32, keycode: u16, flags: u64) {
+        super::key(pid, keycode, flags)
+    }
+    pub fn ax_press(node: &Node) -> bool {
+        super::ax_press(node)
+    }
+    pub fn click_node(pid: i32, node: &Node) -> Result<(), String> {
+        super::click_node(pid, node)
+    }
+    pub fn launch_hidden(
+        app: &str,
+        exe_name: &str,
+        env: &[(String, String)],
+    ) -> Result<i32, String> {
+        super::launch_hidden(app, exe_name, env)
+    }
+    pub fn capture_window(win: u32, out: &str) -> bool {
+        super::capture_window(win, out)
+    }
+    pub fn ax_make_key(pid: i32, attrs: &[&str]) -> Vec<(String, i32)> {
+        super::ax_make_key(pid, attrs)
+    }
+    pub fn key_without_raise(pid: i32, win: u32) -> bool {
+        super::key_without_raise(pid, win)
     }
 }

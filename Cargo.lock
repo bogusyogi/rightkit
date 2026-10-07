@@ -4739,7 +4739,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-control"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-service",
  "serde_json",
@@ -4761,7 +4761,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-db"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc",
  "rightkit-fs",

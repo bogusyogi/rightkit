@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Badge, Button, Input, SegmentedControl, Toggle, createThemeStore, useMediaQuery, useShellOptional, type ThemeChoice, type ThemeStore } from "@rightkit/app-shell/react";
-import { isLicensed, tier as licenseTier, type StoredLicense, type createLicenseClient } from "@rightkit/license";
+import { isLicensed, tier as licenseTier, type StoredLicense } from "@rightkit/license";
 import type { LogsClient } from "@rightkit/logs";
 import { applyBrand, brandFromAccent } from "@rightkit/theme";
 import type { AutoUpdateClient, AutoUpdateStatus } from "@rightkit/updates";
@@ -134,8 +134,33 @@ export function appearanceSection(options: AppearanceOptions = {}): SettingsSect
 
 /* ---- Updates -------------------------------------------------------------------------------- */
 
+/**
+ * Function-style update client for apps that own their update plumbing (IPC commands, a private adapter) instead of
+ * `createAutoUpdateClient`. `check` / `install` resolve to the resulting status; the optional `status` seeds the display
+ * (e.g. the result of the startup check) when the controls mount.
+ */
+export interface UpdatesAdapter {
+  check(): Promise<AutoUpdateStatus>;
+  install(): Promise<AutoUpdateStatus>;
+  status?: AutoUpdateStatus | (() => AutoUpdateStatus | null | Promise<AutoUpdateStatus | null>);
+}
+
+export type UpdatesClient = AutoUpdateClient | UpdatesAdapter;
+
+interface NormalizedUpdates {
+  check(): Promise<AutoUpdateStatus>;
+  install(): Promise<AutoUpdateStatus>;
+  initial?: UpdatesAdapter["status"];
+}
+
+function normalizeUpdates(client: UpdatesClient): NormalizedUpdates {
+  if ("check" in client && typeof client.check === "function") return { check: () => client.check(), install: () => client.install(), initial: client.status };
+  const c = client as AutoUpdateClient;
+  return { check: () => c.checkOnce(), install: () => c.installAvailable() };
+}
+
 export interface UpdatesOptions {
-  client: AutoUpdateClient;
+  client: UpdatesClient;
   currentVersion: string;
   /** Called when an update is downloaded and the user chose to restart. */
   onRestart?: () => void | Promise<void>;
@@ -151,18 +176,32 @@ export interface UpdatesOptions {
 }
 
 export interface UpdatesLabels {
+  /** Nav label of the section. */
+  sectionLabel: string;
+  /** Search entry for the check row. */
+  searchCheck: string;
   version: (currentVersion: string) => string;
+  /** Check button ("Check now" by default; e.g. "Check for Updates"). */
   checkNow: string;
+  /** Install button ("Install update" by default; e.g. "Install and restart"). */
   installUpdate: string;
+  /** Shown on the check button while a check runs. Unset: the button keeps `checkNow`. */
+  checking?: string;
+  /** Shown on the install button while installing. Unset: the button keeps `installUpdate`. */
+  installing?: string;
   restartNow: string;
   proUpdate: string;
   autoInstall: string;
   autoInstallDescription: string;
   /** Replace the status sentence; receives the default text. */
   status: (status: AutoUpdateStatus, fallback: string) => string;
+  /** Replace the status badge text; receives the default (the status kind). */
+  statusBadge: (status: AutoUpdateStatus, fallback: string) => string;
 }
 
 const defaultUpdatesLabels: UpdatesLabels = {
+  sectionLabel: "Updates",
+  searchCheck: "Check for updates",
   version: (v) => `Version ${v}`,
   checkNow: "Check now",
   installUpdate: "Install update",
@@ -171,9 +210,11 @@ const defaultUpdatesLabels: UpdatesLabels = {
   autoInstall: "Install updates automatically",
   autoInstallDescription: "Patches install when the app is idle. Feature updates always ask first.",
   status: (_s, fallback) => fallback,
+  statusBadge: (_s, fallback) => fallback,
 };
 
-const updatesLabels = (o: UpdatesOptions): UpdatesLabels => ({ ...defaultUpdatesLabels, ...o.labels });
+const resolveUpdatesLabels = (labels?: Partial<UpdatesLabels>): UpdatesLabels => ({ ...defaultUpdatesLabels, ...labels });
+const updatesLabels = (o: UpdatesOptions): UpdatesLabels => resolveUpdatesLabels(o.labels);
 
 function statusLine(s: AutoUpdateStatus): { tone: "ok" | "warn" | "bad" | "neutral" | "accent"; text: string } {
   switch (s.kind) {
@@ -188,33 +229,107 @@ function statusLine(s: AutoUpdateStatus): { tone: "ok" | "warn" | "bad" | "neutr
   }
 }
 
-function UpdatesBody({ ctx, o }: { ctx: SettingsContext; o: UpdatesOptions }) {
+export interface UpdatesController {
+  status: AutoUpdateStatus;
+  /** True while a check or install is running (or the status is `checking` / `downloading`). */
+  busy: boolean;
+  /** Which action is in flight from this controller, if any. */
+  pending: "check" | "install" | null;
+  check(): Promise<void>;
+  install(): Promise<void>;
+}
+
+/** State machine behind the Updates controls; use it to build custom update UI around the same client. */
+export function useUpdates(client: UpdatesClient): UpdatesController {
   const [status, setStatus] = useState<AutoUpdateStatus>({ kind: "idle" });
-  const busy = status.kind === "checking" || status.kind === "downloading";
-  const run = useCallback(async (fn: () => Promise<AutoUpdateStatus>) => {
-    setStatus({ kind: "checking" });
+  const [pending, setPending] = useState<"check" | "install" | null>(null);
+  const clientRef = useRef(client);
+  clientRef.current = client;
+  useEffect(() => {
+    // Seed once on mount; a client recreated every render must not reset the status.
+    const initial = normalizeUpdates(clientRef.current).initial;
+    if (initial === undefined) return;
+    let live = true;
+    void Promise.resolve(typeof initial === "function" ? initial() : initial).then((s) => { if (live && s) setStatus(s); }, () => {});
+    return () => { live = false; };
+  }, []);
+  const run = useCallback(async (kind: "check" | "install") => {
+    const n = normalizeUpdates(clientRef.current);
+    setPending(kind);
+    setStatus((prev) => (kind === "check" ? { kind: "checking" } : prev));
     try {
-      setStatus(await fn());
+      setStatus(await (kind === "check" ? n.check() : n.install()));
     } catch (e) {
       setStatus({ kind: "error", message: errText(e) });
+    } finally {
+      setPending(null);
     }
   }, []);
+  const check = useCallback(() => run("check"), [run]);
+  const install = useCallback(() => run("install"), [run]);
+  const busy = pending !== null || status.kind === "checking" || status.kind === "downloading";
+  return { status, busy, pending, check, install };
+}
+
+export interface UpdatesControlsProps {
+  /** Update client. Omit when passing a `controller` from `useUpdates`. */
+  client?: UpdatesClient;
+  /** Share state with surrounding UI (e.g. to show the status elsewhere). */
+  controller?: UpdatesController;
+  onRestart?: () => void | Promise<void>;
+  upgradeHint?: ReactNode;
+  labels?: Partial<UpdatesLabels>;
+  /** Render the status sentence before the buttons. Default true. */
+  showStatus?: boolean;
+  /** Render the status badge. Default false. */
+  showBadge?: boolean;
+  className?: string;
+}
+
+function UpdatesControlsView({ c, o }: { c: UpdatesController; o: UpdatesControlsProps }) {
+  const L = resolveUpdatesLabels(o.labels);
+  const { status, busy, pending } = c;
+  const line = statusLine(status);
+  return (
+    <div className={o.className ? `rk-sr__buttons ${o.className}` : "rk-sr__buttons"} data-update-status={status.kind}>
+      {o.showStatus !== false ? <span className="rk-updates__status" role="status">{L.status(status, line.text)}</span> : null}
+      {o.showBadge ? <Badge tone={line.tone}>{L.statusBadge(status, status.kind.replace(/_/g, " "))}</Badge> : null}
+      {status.kind === "available" && !status.eligible && status.reason === "pro_required" && o.upgradeHint ? <span className="rk-updates__hint">{o.upgradeHint}</span> : null}
+      {status.kind === "available" && status.eligible ? (
+        <Button size="sm" variant="primary" disabled={busy} onClick={() => void c.install()}>{pending === "install" && L.installing ? L.installing : L.installUpdate}</Button>
+      ) : null}
+      {status.kind === "ready" && o.onRestart ? (
+        <Button size="sm" variant="primary" onClick={() => void o.onRestart?.()}>{L.restartNow}</Button>
+      ) : null}
+      <Button size="sm" variant="secondary" disabled={busy} onClick={() => void c.check()}>{pending === "check" && L.checking ? L.checking : L.checkNow}</Button>
+    </div>
+  );
+}
+
+function OwnedUpdatesControls({ client, o }: { client: UpdatesClient; o: UpdatesControlsProps }) {
+  return <UpdatesControlsView c={useUpdates(client)} o={o} />;
+}
+
+/**
+ * The inner update controls (status sentence, Install / Restart, Check) without the Settings row, for embedding inside another
+ * section's card. Pass a `client` (own state) or a shared `controller`.
+ */
+export function UpdatesControls(props: UpdatesControlsProps) {
+  if (props.controller) return <UpdatesControlsView c={props.controller} o={props} />;
+  if (!props.client) throw new Error("UpdatesControls needs a client or a controller");
+  return <OwnedUpdatesControls client={props.client} o={props} />;
+}
+
+function UpdatesBody({ ctx, o }: { ctx: SettingsContext; o: UpdatesOptions }) {
+  const controller = useUpdates(o.client);
+  const { status } = controller;
   const L = updatesLabels(o);
   const line = statusLine(status);
   const auto = ctx.values["updates.autoInstall"] === true;
   return (
     <SettingsGroup>
       <SettingRow id="updates.status" label={L.version(o.currentVersion)} description={<span role="status" data-update-status={status.kind}>{L.status(status, line.text)}</span>}>
-        <div className="rk-sr__buttons">
-          <Badge tone={line.tone}>{status.kind.replace(/_/g, " ")}</Badge>
-          {status.kind === "available" && status.eligible ? (
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => o.client.installAvailable())}>{L.installUpdate}</Button>
-          ) : null}
-          {status.kind === "ready" && o.onRestart ? (
-            <Button size="sm" variant="primary" onClick={() => void o.onRestart?.()}>{L.restartNow}</Button>
-          ) : null}
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void run(() => o.client.checkOnce())}>{L.checkNow}</Button>
-        </div>
+        <UpdatesControls controller={controller} onRestart={o.onRestart} labels={o.labels} showStatus={false} showBadge />
       </SettingRow>
       {status.kind === "available" && !status.eligible && status.reason === "pro_required" && o.upgradeHint ? (
         <SettingRow label={L.proUpdate} description={o.upgradeHint} />
@@ -229,16 +344,17 @@ function UpdatesBody({ ctx, o }: { ctx: SettingsContext; o: UpdatesOptions }) {
 }
 
 export function updatesSection(options: UpdatesOptions): SettingsSection {
+  const L = updatesLabels(options);
   return {
     id: "updates",
     icon: sectionIcons.updates,
-    label: "Updates",
+    label: L.sectionLabel,
     group: "General",
     order: 200,
     keywords: ["version", "upgrade", "release"],
     entries: [
-      { id: "updates.status", label: "Check for updates", keywords: ["version", "upgrade"] },
-      ...(options.supportsAutoInstall ? [{ id: "updates.auto", label: updatesLabels(options).autoInstall, keywords: ["auto", "patch"] }] : []),
+      { id: "updates.status", label: L.searchCheck, keywords: ["version", "upgrade"] },
+      ...(options.supportsAutoInstall ? [{ id: "updates.auto", label: L.autoInstall, keywords: ["auto", "patch"] }] : []),
     ],
     render: (ctx) => <UpdatesBody ctx={ctx} o={options} />,
   };
@@ -246,8 +362,21 @@ export function updatesSection(options: UpdatesOptions): SettingsSection {
 
 /* ---- Licence -------------------------------------------------------------------------------- */
 
+/**
+ * Minimal licence client. `createLicenseClient(...)` satisfies it; so does an app-private client (IPC commands, a native
+ * store). The current licence is read with `status()` (or `load()`, the name `createLicenseClient` uses); neither means "none".
+ */
+export interface LicenseClientLike {
+  activate(key: string): Promise<StoredLicense>;
+  deactivate(): Promise<unknown>;
+  status?(): Promise<StoredLicense | null>;
+  load?(): Promise<StoredLicense | null>;
+}
+
 export interface LicenseOptions {
-  client: ReturnType<typeof createLicenseClient>;
+  client: LicenseClientLike;
+  /** Awaited before `client.deactivate()` (e.g. suppress a bridge that would react to the licence going away). A throw aborts the deactivation and is shown. */
+  beforeDeactivate?: () => Promise<void> | void;
   graceDays?: number;
   purchaseUrl?: string;
   openExternal?: (url: string) => void | Promise<void>;
@@ -278,7 +407,8 @@ function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
   const grace = o.graceDays ?? 7;
   useEffect(() => {
     let live = true;
-    void o.client.load().then((l) => live && setLic(l));
+    const read = o.client.status ?? o.client.load;
+    if (read) void Promise.resolve(read.call(o.client)).then((l) => live && setLic(l ?? null), (e) => live && setNote(errText(e)));
     return () => {
       live = false;
     };
@@ -299,15 +429,17 @@ function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
         </div>
       </SettingRow>
       {active ? (
-        <SettingRow id="license.deactivate" label="Deactivate this device" description="Frees the seat so you can activate another device.">
+        <SettingRow id="license.deactivate" label="Deactivate this device" description={note ? <span role="alert">{note}</span> : "Frees the seat so you can activate another device."}>
           <ConfirmButton
             label="Deactivate"
             confirmLabel="Confirm deactivate"
             disabled={busy}
             onConfirm={() => {
               setBusy(true);
-              void o.client
-                .deactivate()
+              setNote(null);
+              void Promise.resolve()
+                .then(() => o.beforeDeactivate?.())
+                .then(() => o.client.deactivate())
                 .then(() => apply(null))
                 .catch((e) => setNote(errText(e)))
                 .finally(() => setBusy(false));
@@ -694,6 +826,19 @@ export interface AboutOptions {
   extra?: ReactNode;
   /** Full panels rendered below the About card, outside it. */
   panels?: ReactNode;
+  /** Replaces the About card (the default group, with its links, `extra` and copyright). `panels` still render below it. */
+  card?: ReactNode;
+  /**
+   * Replaces the whole section body. Receives the defaults so the app can reuse any piece: `card` (the default card, or the
+   * `card` option when set), `panels`, and the `info` line ("App 1.0.0 · build · platform").
+   */
+  render?: (defaults: AboutDefaults) => ReactNode;
+}
+
+export interface AboutDefaults {
+  card: ReactNode;
+  panels: ReactNode;
+  info: string;
 }
 
 export function aboutSection(o: AboutOptions): SettingsSection {
@@ -706,22 +851,29 @@ export function aboutSection(o: AboutOptions): SettingsSection {
     order: 900,
     keywords: ["version", "build", "licence", "credits"],
     entries: [{ id: "about.version", label: "Version", keywords: ["build"] }],
-    render: () => (
-      <>
-      <SettingsGroup>
-        <SettingRow id="about.version" label={o.appName} description={info}>
-          <Button size="sm" variant="ghost" onClick={() => void Promise.resolve((o.copy ?? ((t: string) => navigator.clipboard.writeText(t)))(info))}>Copy version info</Button>
-        </SettingRow>
-        {(o.links ?? []).map((l) => (
-          <SettingRow key={l.url} label={l.label}>
-            <Button size="sm" variant="ghost" onClick={() => void o.openExternal?.(l.url)}>Open</Button>
+    render: () => {
+      const defaultCard = (
+        <SettingsGroup>
+          <SettingRow id="about.version" label={o.appName} description={info}>
+            <Button size="sm" variant="ghost" onClick={() => void Promise.resolve((o.copy ?? ((t: string) => navigator.clipboard.writeText(t)))(info))}>Copy version info</Button>
           </SettingRow>
-        ))}
-        {o.extra}
-        {o.copyright ? <p className="rk-sg__desc">{o.copyright}</p> : null}
-      </SettingsGroup>
-      {o.panels}
-      </>
-    ),
+          {(o.links ?? []).map((l) => (
+            <SettingRow key={l.url} label={l.label}>
+              <Button size="sm" variant="ghost" onClick={() => void o.openExternal?.(l.url)}>Open</Button>
+            </SettingRow>
+          ))}
+          {o.extra}
+          {o.copyright ? <p className="rk-sg__desc">{o.copyright}</p> : null}
+        </SettingsGroup>
+      );
+      const card = o.card ?? defaultCard;
+      if (o.render) return <>{o.render({ card, panels: o.panels, info })}</>;
+      return (
+        <>
+          {card}
+          {o.panels}
+        </>
+      );
+    },
   };
 }

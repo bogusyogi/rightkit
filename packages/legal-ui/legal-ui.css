@@ -1,0 +1,27 @@
+/* @rightkit/legal-ui — layout for the locked-light legal gate. Import this file in apps with a
+   strict CSP (style-src 'self'): the gate then skips its runtime <style> injection. */
+:root { --rk-legal-ui-css: 1; }
+.rk-legal-gate a { color: inherit; text-decoration: underline; text-decoration-color: currentColor; text-underline-offset: 3px; opacity: 0.72; transition: opacity 120ms ease, color 120ms ease; }
+.rk-legal-gate a:hover { opacity: 1; }
+.rk-legal-gate button { font: inherit; cursor: pointer; }
+.rk-legal-gate button:disabled { cursor: not-allowed; }
+.rk-legal-gate input[type="radio"],
+.rk-legal-gate input[type="checkbox"] { accent-color: var(--rk-accent); width: 18px; height: 18px; flex: none; margin: 2px 0 0; }
+.rk-legal-gate a:focus-visible,
+.rk-legal-gate button:focus-visible,
+.rk-legal-gate input:focus-visible { outline: 2px solid var(--rk-accent); outline-offset: 3px; border-radius: 3px; }
+.rk-legal-gate__radio-row,
+.rk-legal-gate__checkbox-row { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.rk-legal-gate__agree:not(:disabled):hover { filter: brightness(1.06); }
+.rk-legal-gate__quit:hover { opacity: 1; text-decoration: underline; }
+.rk-legal-gate .rk-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+/* Two landscape rails: every Right Suite window is wider than it is tall, and
+   HeardRight's is only 660x400 — a single stacked column does not fit and would
+   scroll a contract. Left rail says who is asking; right rail is the decision. */
+.rk-legal-gate__body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 48px; align-items: start; width: 100%; max-width: 780px; flex: none; }
+.rk-legal-gate__rail { min-width: 0; }
+.rk-legal-gate__dba { grid-column: 1 / -1; }
+/* Below the two-rail threshold (narrow or resized-small windows) it stacks. */
+@media (max-width: 640px) {
+  .rk-legal-gate__body { grid-template-columns: minmax(0, 1fr); row-gap: 26px; max-width: 420px; }
+}

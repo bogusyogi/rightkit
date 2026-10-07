@@ -34,6 +34,10 @@ export function developmentEnvironment(env = process.env) {
       const pathKey = Object.keys(result).find((key) => key.toLowerCase() === "path") ?? "PATH";
       result[pathKey] = [agentBin, result[pathKey]].filter(Boolean).join(path.delimiter);
     }
+    // Same default as the agent-bin `rightkit` shim: children that run the managed client directly
+    // (resolveCommand("rightkit"), build scripts) must not lose the broker endpoint.
+    const socket = managedRoot && path.join(managedRoot, "broker.sock");
+    if (!result.RIGHTKIT_BUILD_BROKER_SOCKET && socket && existsSync(socket)) result.RIGHTKIT_BUILD_BROKER_SOCKET = socket;
   }
   return result;
 }
@@ -196,7 +200,7 @@ function execute(command, { root, env, dryRun, run, label }) {
   const args = (command.args ?? []).map(String);
   if (dryRun) return { cmd: command.cmd, args, cwd };
   const launch = resolveCommand(command.cmd, args, { root, env });
-  const result = run(launch.command, launch.args, { cwd, env, stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
+  const result = run(launch.command, launch.args, { cwd, env: launch.env ?? env, stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
   if (result.status !== 0) throw new Error(`development ${label} command failed (${result.status}): ${command.name ?? command.cmd}`);
 }
 export function resolveCommand(command, args, { root, env = process.env } = {}) {
@@ -205,7 +209,9 @@ export function resolveCommand(command, args, { root, env = process.env } = {}) 
   if (command === "rightkit") {
     const client = managedRuntimeClient(env);
     if (!client) throw new Error("installed RightKit runtime client is unavailable for development command");
-    return { command: process.execPath, args: [client, ...args] };
+    const socket = path.join(path.dirname(path.dirname(path.dirname(path.dirname(client)))), "broker.sock");
+    const childEnv = !env.RIGHTKIT_BUILD_BROKER_SOCKET && existsSync(socket) ? { ...env, RIGHTKIT_BUILD_BROKER_SOCKET: socket } : undefined;
+    return { command: process.execPath, args: [client, ...args], ...(childEnv ? { env: childEnv } : {}) };
   }
   return { command, args };
 }

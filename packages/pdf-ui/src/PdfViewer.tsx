@@ -28,7 +28,6 @@ import type {
   PdfViewerAdapters,
   Size,
 } from "./types.js";
-import "./styles.css";
 
 const PAGE_LOAD_TIMEOUT = 45_000;
 const MAX_TEXT = 2_000_000;

@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/doc-render",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

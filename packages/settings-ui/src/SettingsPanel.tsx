@@ -59,10 +59,26 @@ export function SectionFrame({ section, ctx }: { section: SettingsSection; ctx: 
   );
 }
 
+/** State passed to `renderNavItem`. */
+export interface NavItemState {
+  active: boolean;
+}
+
 export interface SettingsPanelProps {
   backend: SettingsBackend;
   sections: readonly SettingsSection[];
   title?: ReactNode;
+  /** Nav heading. Takes precedence over `title`; `false` omits the heading. */
+  navHeading?: ReactNode | false;
+  /** Rendered at the bottom of the nav (e.g. a "Version 1.2.3" line). */
+  navFooter?: ReactNode;
+  /**
+   * Replace the content of each nav button (icon, label, badge). The button itself stays, so keyboard navigation, `data-section-id`,
+   * `aria-current="page"` and `data-active="true"` (active item only) keep working; draw your own active marker from `state.active`.
+   */
+  renderNavItem?: (section: SettingsSection, state: NavItemState) => ReactNode;
+  /** Omit the nav entirely (the app embeds the sections in its own nav and selects with `activeId`). Search is unavailable. */
+  hideNav?: boolean;
   /** Controlled active section id. */
   activeId?: string;
   onActiveChange?: (id: string) => void;
@@ -78,7 +94,7 @@ export interface SettingsPanelProps {
  * Settings frame: grouped section nav with search on the left, the active section on the right.
  * Persistence is the backend's; sections receive a `SettingsContext` and never touch storage themselves.
  */
-export function SettingsPanel({ backend, sections, title = "Settings", activeId, onActiveChange, defaultActiveId, search = true, loading, className }: SettingsPanelProps) {
+export function SettingsPanel({ backend, sections, title = "Settings", navHeading, navFooter, renderNavItem, hideNav = false, activeId, onActiveChange, defaultActiveId, search = true, loading, className }: SettingsPanelProps) {
   const settings = useSettings(backend);
   const ctx: SettingsContext = settings;
   const ordered = useMemo(() => orderSections(sections.filter((s) => !s.visible || s.visible(ctx))), [sections, ctx]);
@@ -114,11 +130,12 @@ export function SettingsPanel({ backend, sections, title = "Settings", activeId,
     items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
   };
 
+  const heading = navHeading === undefined ? title : navHeading;
   let lastGroup: string | undefined;
   return (
-    <div className={cx("rk-settings", className)} data-testid="settings-panel">
-      <nav className="rk-settings__nav" aria-label={typeof title === "string" ? title : "Settings"} onKeyDown={onNavKey}>
-        <h2 className="rk-settings__title">{title}</h2>
+    <div className={cx("rk-settings", hideNav && "rk-settings--no-nav", className)} data-testid="settings-panel">
+      {hideNav ? null : <nav className="rk-settings__nav" aria-label={typeof heading === "string" ? heading : typeof title === "string" ? title : "Settings"} onKeyDown={onNavKey}>
+        {heading === false || heading === null ? null : <h2 className="rk-settings__title">{heading}</h2>}
         {search ? (
           <input
             className="rk-input rk-settings__search"
@@ -141,11 +158,16 @@ export function SettingsPanel({ backend, sections, title = "Settings", activeId,
                 data-section-id={section.id}
                 className={cx("rk-settings__item", active?.id === section.id && "is-active")}
                 aria-current={active?.id === section.id ? "page" : undefined}
+                data-active={active?.id === section.id ? "true" : undefined}
                 onClick={() => select(section.id, entryIds[0])}
               >
-                {section.icon ? <span className="rk-settings__icon" aria-hidden="true">{section.icon}</span> : null}
-                <span className="rk-settings__label">{section.label}</span>
-                {section.badge ? <span className="rk-settings__badge">{section.badge}</span> : null}
+                {renderNavItem ? renderNavItem(section, { active: active?.id === section.id }) : (
+                  <>
+                    {section.icon ? <span className="rk-settings__icon" aria-hidden="true">{section.icon}</span> : null}
+                    <span className="rk-settings__label">{section.label}</span>
+                    {section.badge ? <span className="rk-settings__badge">{section.badge}</span> : null}
+                  </>
+                )}
               </button>
               {query
                 ? (section.entries ?? [])
@@ -159,7 +181,8 @@ export function SettingsPanel({ backend, sections, title = "Settings", activeId,
             </div>
           );
         })}
-      </nav>
+        {navFooter ? <div className="rk-settings__navfooter">{navFooter}</div> : null}
+      </nav>}
       <div className="rk-settings__body" ref={content}>
         {settings.error ? (
           <div className="rk-settings__error" role="alert">
