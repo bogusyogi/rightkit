@@ -38,6 +38,21 @@ function baseProps(overrides: Partial<LegalGateProps> = {}): LegalGateProps {
 }
 
 describe("LegalGate", () => {
+  it("opens bundled documents through onOpen instead of a new window", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    render(<LegalGate {...baseProps({ documents: [{ title: "License", onOpen }] })} />);
+    const link = screen.getByRole("link", { name: "License" });
+    expect(link).not.toHaveAttribute("target");
+    await user.click(link);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders in the locked light colour scheme", () => {
+    const { container } = render(<LegalGate {...baseProps()} />);
+    expect((container.querySelector(".rk-legal-gate") as HTMLElement).style.colorScheme).toBe("light");
+  });
+
   it("keeps Agree disabled until a basis is chosen and the checkbox is ticked", async () => {
     const user = userEvent.setup();
     render(<LegalGate {...baseProps()} />);

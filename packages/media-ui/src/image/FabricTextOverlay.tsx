@@ -56,7 +56,7 @@ export function FabricTextOverlay({
     const releaseCensus = acquireResource(adapters, {
       kind: "fabric-canvas",
       estimatedBytes: imageSize.width * imageSize.height * 4,
-    });
+    }).release;
 
     const selectTarget = (target: FabricObject | undefined) => {
       const id = (target as TextboxWithId | undefined)?.mediaUiId ?? null;
@@ -107,6 +107,9 @@ export function FabricTextOverlay({
       const object = objects.get(layer.id);
       if (object) {
         object.set(layerToObject(layer, imageSize, interactive, fonts, accent));
+        // Words edited outside the canvas (inspector, undo) must reach the object; leave an in-progress edit alone.
+        const words = layer.text || "Text";
+        if (!object.isEditing && object.text !== words) object.set({ text: words });
         setTextboxEditingContainer(object, canvas.wrapperEl ?? hostEl.current);
         objects.delete(layer.id);
       } else {

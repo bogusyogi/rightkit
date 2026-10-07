@@ -10,7 +10,9 @@ export type Mode = "light" | "dark";
  * - `colors["brand-ink"]`    readable accent text on light surfaces; falls back to the action colour
  * - `colors["brand-soft"]`, `["brand-border"]`, `["brand-action-hover"]` carried through as CSS variables
  * - `dark`                   optional explicit dark values for any `brand-*` key
- * - `tokens`                 optional overrides of the flat suite colours per mode (surfaces, ink, status)
+ * - `tokens`                 optional overrides of the suite colours per mode (surfaces, ink, status), emitted as `--rk-<name>`
+ * - `wordmark`               the product name as written in the wordmark (e.g. "CutRight"); informational, never emitted as CSS
+ * - `wordmarkFont`           CSS font-family stack for the wordmark, emitted as `--rk-wordmark-font` (e.g. `"Tanker", sans-serif`)
  */
 export interface BrandFile {
   name: string;
@@ -20,6 +22,7 @@ export interface BrandFile {
   dark?: Record<string, string>;
   tokens?: { light?: Record<string, string>; dark?: Record<string, string> };
   wordmark?: string;
+  wordmarkFont?: string;
   logo?: { master?: string; tileBackground?: string; geometry?: string };
   usage?: Record<string, string>;
 }
@@ -77,8 +80,9 @@ export function parseBrand(input: unknown): BrandFile {
       }
     }
   }
-  if (input.wordmark !== undefined && (typeof input.wordmark !== "string" || /[;{}]/.test(input.wordmark))) {
-    throw new BrandError("wordmark: expected a plain font-family string");
+  if (input.wordmark !== undefined && typeof input.wordmark !== "string") throw new BrandError("wordmark: expected a string");
+  if (input.wordmarkFont !== undefined && (typeof input.wordmarkFont !== "string" || /[;{}]/.test(input.wordmarkFont))) {
+    throw new BrandError("wordmarkFont: expected a plain font-family string");
   }
   return input as unknown as BrandFile;
 }

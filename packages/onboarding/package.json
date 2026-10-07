@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/onboarding",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -24,15 +24,19 @@
     "*.css"
   ],
   "peerDependencies": {
-    "@rightkit/app-shell": ">=0.1.0 <1",
-    "@rightkit/legal-ui": ">=0.1.0",
+    "@rightkit/app-shell": ">=0.2.0 <1",
+    "@rightkit/legal-ui": ">=0.1.2 <1",
     "react": ">=18 <20"
   },
   "devDependencies": {
     "@rightkit/app-shell": "workspace:*",
     "@rightkit/legal-ui": "workspace:*",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "jsdom": "^25.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.0",

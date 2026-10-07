@@ -26,7 +26,7 @@ export function useDecodedImageSwap({
       kind: "image-decoded",
       documentPath,
       estimatedBytes: imageSize.width * imageSize.height * 4,
-    });
+    }).release;
   }, [adapters, documentPath, imageSize, shownSrc]);
 
   useEffect(() => {

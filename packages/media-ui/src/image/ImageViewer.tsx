@@ -67,6 +67,12 @@ export interface ImageViewerProps {
    * `printImage` adapter). Default "media-ui:print-image".
    */
   printEventName?: string;
+  /**
+   * Render the toolbar (`.rk-iv-toolbar`) into this element (via a portal)
+   * instead of inside the viewer, so hosts can place it in their own chrome.
+   * While it is null/undefined the toolbar stays inside the viewer.
+   */
+  toolbarContainer?: HTMLElement | null;
   adapters?: MediaAdapters;
 }
 
@@ -82,6 +88,7 @@ export function ImageViewer(props: ImageViewerProps) {
     onOpenSibling,
     readOnly = false,
     printEventName = "media-ui:print-image",
+    toolbarContainer,
   } = props;
   const adapters = useMediaAdapters(props.adapters);
   const displaySrc = displaySrcProp || src;
@@ -131,15 +138,26 @@ export function ImageViewer(props: ImageViewerProps) {
 
   // The viewer registers one resource; its edit recipe + history live in the
   // path-keyed store so it survives unmount while dirty.
-  const censusRef = useRef<(() => void) | null>(null);
+  const censusRef = useRef<ReturnType<typeof acquireResource> | null>(null);
+  const editedRef = useRef(edited);
+  editedRef.current = edited;
   useEffect(() => {
-    const release = acquireResource(adapters, { kind: "image-viewer", documentPath: path });
-    censusRef.current = release;
+    const handle = acquireResource(adapters, {
+      kind: "image-viewer",
+      documentPath: path,
+      dirty: editedRef.current,
+      stateExternalized: true,
+    });
+    censusRef.current = handle;
     return () => {
-      release();
+      handle.release();
       censusRef.current = null;
     };
   }, [adapters, path]);
+  // Dirty changes are pushed to the live handle; no re-acquire.
+  useEffect(() => {
+    censusRef.current?.update({ dirty: edited });
+  }, [edited]);
 
   // Hydrate from the store when the path changes (sibling paging replaces the viewer in place).
   useEffect(() => {
@@ -402,7 +420,7 @@ export function ImageViewer(props: ImageViewerProps) {
     const layer: TextLayer = {
       id,
       text: "Text",
-      fontFamily: fonts[0]?.id ?? DEFAULT_IMAGE_FONT_ID,
+      fontFamily: adapters.defaultFontId ?? fonts[0]?.id ?? DEFAULT_IMAGE_FONT_ID,
       x,
       y,
       width,
@@ -630,6 +648,7 @@ export function ImageViewer(props: ImageViewerProps) {
       selectedText={selectedText}
       selectedLayer={selectedLayer}
       adapters={adapters}
+      toolbarContainer={toolbarContainer}
       onTool={setActiveTool}
       onFit={fit}
       onActual={actual}

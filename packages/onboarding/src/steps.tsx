@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, Input, Badge } from "@rightkit/app-shell/react";
-import type { LicenseBackend, LicenseState, ModelsBackend, OnboardingStep, PermissionStatus, PermissionsBackend } from "./types.js";
+import type { LicenseBackend, ModelEntry, LicenseState, ModelsBackend, OnboardingStep, PermissionStatus, PermissionsBackend } from "./types.js";
 
 function ProgressBar({ value, label }: { value: number; label: string }) {
   const pct = Math.max(0, Math.min(1, value));
@@ -53,31 +53,54 @@ export function permissionsStep(backend: PermissionsBackend, options: { label?: 
   return { id: "permissions", label: options.label ?? "Permissions", title: options.title ?? "Allow what this app needs", description: options.description ?? "You can change these permissions later in System Settings.", skippable: true, render: () => <PermissionsBody backend={backend} /> };
 }
 
-function ModelsBody({ backend }: { backend: ModelsBackend }) {
-  const [models, setModels] = useState<import("./types.js").ModelEntry[]>([]);
+interface ModelsBodyProps { backend: ModelsBackend; onReady?: (ready: boolean) => void; autoStartDownload?: boolean; intro?: ReactNode }
+
+function ModelsBody({ backend, onReady, autoStartDownload, intro }: ModelsBodyProps) {
+  const [models, setModels] = useState<ModelEntry[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const reload = useCallback(() => backend.list().then(setModels, (e) => setError(e instanceof Error ? e.message : String(e))), [backend]);
+  const autoStarted = useRef(false);
+  const reload = useCallback(() => backend.list().then((list) => { setModels(list); setLoaded(true); }, (e) => setError(e instanceof Error ? e.message : String(e))), [backend]);
   useEffect(() => {
     void reload();
     if (!backend.subscribe) return;
     let off: (() => void) | undefined;
-    void backend.subscribe((entry) => setModels((current) => current.some((m) => m.id === entry.id) ? current.map((m) => m.id === entry.id ? entry : m) : [...current, entry])).then((unsubscribe) => { off = unsubscribe; });
-    return () => off?.();
+    let live = true;
+    void backend.subscribe((entry) => setModels((current) => current.some((m) => m.id === entry.id) ? current.map((m) => m.id === entry.id ? entry : m) : [...current, entry])).then((unsubscribe) => { if (live) off = unsubscribe; else unsubscribe(); });
+    return () => { live = false; off?.(); };
   }, [backend, reload]);
-  const action = (model: import("./types.js").ModelEntry) => {
-    setBusy(model.id); setError(null);
-    const request = model.state === "downloading" || model.state === "verifying" ? backend.cancel(model.id) : backend.install(model.id);
+  const hasInstalled = models.some((m) => m.state === "installed");
+  useEffect(() => { onReady?.(hasInstalled); }, [hasInstalled, onReady]);
+  const run = (id: string, request: Promise<void>) => {
+    setBusy(id); setError(null);
     void request.then(reload, (e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setBusy(null));
   };
+  useEffect(() => {
+    if (!autoStartDownload || !loaded || autoStarted.current) return;
+    autoStarted.current = true;
+    if (models.some((m) => m.state === "installed" || m.state === "downloading" || m.state === "verifying")) return;
+    const first = models.find((m) => m.state === "missing");
+    if (first) run(first.id, backend.install(first.id));
+    // run is intentionally omitted: it only closes over setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStartDownload, loaded, models, backend]);
   return (
     <div className="rk-onboarding__card" data-testid="onboarding-models">
+      {intro ? <div className="rk-onboarding__intro" data-testid="onboarding-models-intro">{intro}</div> : null}
       {error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}
       {models.map((model) => {
         const progress = model.progress ?? (model.state === "installed" ? 1 : 0);
+        const active = model.state === "downloading" || model.state === "verifying";
+        const cancel = backend.cancel;
         return <div className="rk-onboarding__row" key={model.id} data-model-id={model.id}>
-          <div className="rk-onboarding__grow"><strong>{model.label}</strong><p>{model.description ?? ""}{model.sizeBytes ? ` · ${formatBytes(model.sizeBytes)}` : ""}</p>{model.state === "downloading" || model.state === "verifying" ? <ProgressBar value={progress} label={`${model.label} download`} /> : null}</div>
-          <div className="rk-onboarding__row-actions"><Badge tone={model.state === "installed" ? "ok" : model.state === "error" ? "bad" : "neutral"}>{model.state}</Badge>{model.state !== "installed" && model.state !== "error" ? <Button size="sm" variant="secondary" disabled={busy === model.id} onClick={() => action(model)}>{model.state === "downloading" || model.state === "verifying" ? "Pause" : "Download"}</Button> : model.state === "error" ? <Button size="sm" variant="secondary" disabled={busy === model.id} onClick={() => action(model)}>Retry</Button> : null}</div>
+          <div className="rk-onboarding__grow"><strong>{model.label}</strong><p>{model.description ?? ""}{model.sizeBytes ? ` · ${formatBytes(model.sizeBytes)}` : ""}</p>{active ? <ProgressBar value={progress} label={`${model.label} download`} /> : null}</div>
+          <div className="rk-onboarding__row-actions"><Badge tone={model.state === "installed" ? "ok" : model.state === "error" ? "bad" : "neutral"}>{model.state}</Badge>
+            {model.state === "installed" ? null
+              : model.state === "error" ? <Button size="sm" variant="secondary" disabled={busy === model.id} onClick={() => run(model.id, backend.install(model.id))}>Retry</Button>
+              : active ? (cancel ? <Button size="sm" variant="secondary" disabled={busy === model.id} onClick={() => run(model.id, cancel.call(backend, model.id))}>Pause</Button> : null)
+              : <Button size="sm" variant="secondary" disabled={busy === model.id} onClick={() => run(model.id, backend.install(model.id))}>Download</Button>}
+          </div>
         </div>;
       })}
       {models.length === 0 && !error ? <p className="rk-onboarding__muted">No models available.</p> : null}
@@ -85,8 +108,23 @@ function ModelsBody({ backend }: { backend: ModelsBackend }) {
   );
 }
 
-export function modelsStep(backend: ModelsBackend, options: { label?: string; title?: string; description?: string } = {}): OnboardingStep {
-  return { id: "models", label: options.label ?? "Models", title: options.title ?? "Choose local models", description: options.description ?? "Downloads are verified before a model is activated.", skippable: true, render: () => <ModelsBody backend={backend} /> };
+export interface ModelsStepOptions {
+  label?: string; title?: string; description?: string;
+  /** Continue/Finish wait until at least one model is installed. Default false. */
+  required?: boolean;
+  /** Start downloading the first missing model when the step opens. Default false. */
+  autoStartDownload?: boolean;
+  /** App copy rendered at the top of the step. */
+  intro?: ReactNode;
+}
+
+export function modelsStep(backend: ModelsBackend, options: ModelsStepOptions = {}): OnboardingStep {
+  return {
+    id: "models", label: options.label ?? "Models", title: options.title ?? "Choose local models", description: options.description ?? "Downloads are verified before a model is activated.", skippable: true,
+    canContinue: options.required ? (ctx) => ctx.ready.models === true : undefined,
+    blockedHint: options.required ? "Download a model to continue." : undefined,
+    render: (ctx) => <ModelsBody backend={backend} onReady={ctx.setReady} autoStartDownload={options.autoStartDownload} intro={options.intro} />,
+  };
 }
 
 function LicenseBody({ backend }: { backend: LicenseBackend }) {

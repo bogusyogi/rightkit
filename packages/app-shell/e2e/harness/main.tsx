@@ -80,7 +80,7 @@ function Probe() {
         <Input id="typing" placeholder="type here (bare keys must not fire)" style={{ width: 260 }} />
       </div>
       <div id="row-a" className="rk-card" style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }} onContextMenu={(e) => rowMenu.open(e, "alpha.mp4")}>
-        <strong>alpha.mp4</strong><Badge tone="ok">ready</Badge><span style={{ color: "var(--ink-2)" }}>Right-click for the app-owned menu</span>
+        <strong>alpha.mp4</strong><Badge tone="ok">ready</Badge><span style={{ color: "var(--rk-ink-2)" }}>Right-click for the app-owned menu</span>
       </div>
       {rowMenu.element}
     </>
@@ -124,12 +124,12 @@ function CustomLayout() {
   const items: MenuItem[] = [{ id: "archive", label: "Archive", shortcut: "e", run: () => log("menu:archive") }, { id: "star", label: "Star", run: () => log("menu:star") }];
   return (
     <AppFrame platform={platform} className="custom">
-      <Titlebar platform={platform} windowControls={win} start={<strong style={{ marginLeft: 6 }}>Mail</strong>} title={null} end={<span id="custom-bar" style={{ color: "var(--ink-2)" }}>3 unread</span>} startWidth={150} />
+      <Titlebar platform={platform} windowControls={win} start={<strong style={{ marginLeft: 6 }}>Mail</strong>} title={null} end={<span id="custom-bar" style={{ color: "var(--rk-ink-2)" }}>3 unread</span>} startWidth={150} />
       <div className="rk-body" style={{ gap: 0 }}>
         <div style={{ width: 200, padding: "4px 0" }}><NavList groups={groups.slice(0, 1)} activeId={active} onNavigate={setActive} /></div>
         <Plane>
           <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", flex: 1, minHeight: 0 }}>
-            <div style={{ borderRight: ".5px solid var(--hairline)", padding: 8 }} onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}>
+            <div style={{ borderRight: ".5px solid var(--rk-hairline)", padding: 8 }} onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}>
               {["Welcome aboard", "Invoice 2041", "Lunch?"].map((s) => <div key={s} id={`mail-${s[0]}`} style={{ padding: "10px 12px", borderRadius: 8 }}>{s}</div>)}
             </div>
             <div style={{ padding: 24 }}><Probe /></div>

@@ -24,7 +24,10 @@ export interface LegalGateTheme {
 
 export interface LegalGateDocument {
   title: string;
-  url: string;
+  /** Hosted copy, opened in a new window. */
+  url?: string;
+  /** Opens a bundled copy (for apps without a published legal site). Takes precedence over `url`. */
+  onOpen?: () => void;
 }
 
 export interface LegalGateProps {
@@ -192,6 +195,8 @@ export function LegalGate({
 
   const rootStyle: CSSProperties = {
     ["--rk-accent" as string]: theme.accent,
+    // Locked light: native radios and checkboxes must not follow a dark app theme.
+    colorScheme: "light",
     background: theme.bg,
     color: theme.text,
     fontFamily: theme.fontBody,
@@ -297,8 +302,14 @@ export function LegalGate({
           <nav aria-label={`${appName} legal documents`}>
             <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
               {documents.map((document) => (
-                <li key={document.url}>
-                  <a href={document.url} target="_blank" rel="noreferrer" style={{ fontSize: 13.5 }}>
+                <li key={document.url ?? document.title}>
+                  <a
+                    href={document.onOpen ? "#" : document.url}
+                    target={document.onOpen ? undefined : "_blank"}
+                    rel={document.onOpen ? undefined : "noreferrer"}
+                    onClick={document.onOpen ? (event) => { event.preventDefault(); document.onOpen?.(); } : undefined}
+                    style={{ fontSize: 13.5 }}
+                  >
                     {document.title}
                   </a>
                 </li>

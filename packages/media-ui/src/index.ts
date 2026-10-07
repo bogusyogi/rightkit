@@ -5,7 +5,8 @@
 // ImageViewer/ImageEditor are extracted from ViewRight's image document stack.
 //
 // Styling: import "@rightkit/media-ui/styles.css" once; theme via the
-// --rk-media-* / --rk-iv-* custom properties (see styles.css :root defaults).
+// --rk-media-* / --rk-iv-* custom properties (set them on :root or any ancestor; see styles.css).
+// Image viewer/editor: import from "@rightkit/media-ui/image" (requires `fabric`).
 
 export {
   MediaAdaptersProvider,
@@ -14,18 +15,26 @@ export {
   type MediaFontOption,
   type ImageSavePayload,
   type ResourceRequest,
+  type ResourceHandle,
+  type ResourceHandleResult,
+  normalizeResourceHandle,
 } from "./adapters.js";
 
 export {
   MediaPlayer,
   mediaClock,
   mediaErrorMessage,
+  DEFAULT_MEDIA_PLAYER_LABELS,
+  DEFAULT_MEDIA_SPEEDS,
   type MediaPlayerProps,
+  type MediaPlayerLabels,
+  type MediaPlayerErrorContext,
   type MediaTrack,
 } from "./MediaPlayer.js";
+export type { IconName } from "./icons.js";
 
-export { ImageViewer, ImageEditor, type ImageViewerProps } from "./image/ImageViewer.js";
-export type { ImageTool } from "./image/ImageViewerToolbar.js";
+// ImageViewer / ImageEditor live in "@rightkit/media-ui/image" (they need the
+// optional `fabric` peer dependency); everything exported here is fabric-free.
 export {
   exportImageEdit,
   scaleEditToSource,

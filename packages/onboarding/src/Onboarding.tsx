@@ -3,30 +3,73 @@ import { LegalGate } from "@rightkit/legal-ui";
 import { Button } from "@rightkit/app-shell/react";
 import { cx } from "./ui.js";
 import { licenseStep, modelsStep, permissionsStep } from "./steps.js";
-import type { OnboardingProps, OnboardingStep, OnboardingStepContext, PersistedOnboardingState } from "./types.js";
+import type { LegalAcceptanceRecord, OnboardingProps, OnboardingStep, OnboardingStepContext, PersistedOnboardingState } from "./types.js";
 
 const KEY = "onboarding.state";
 const INITIAL: PersistedOnboardingState = { version: 1, currentStep: 0, completed: [], skipped: false, legalAccepted: false };
 
+function readAcceptance(value: unknown): LegalAcceptanceRecord | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const r = value as Partial<LegalAcceptanceRecord>;
+  if (typeof r.version !== "string" || typeof r.documentsHash !== "string" || typeof r.acceptedAt !== "string") return undefined;
+  if (r.eligibilityBasis !== "individual" && r.eligibilityBasis !== "enterprise") return undefined;
+  return { version: r.version, documentsHash: r.documentsHash, acceptedAt: r.acceptedAt, eligibilityBasis: r.eligibilityBasis };
+}
+
 function readState(value: unknown): PersistedOnboardingState {
   if (!value || typeof value !== "object") return INITIAL;
   const candidate = value as Partial<PersistedOnboardingState>;
+  const legalAcceptance = readAcceptance(candidate.legalAcceptance);
   return {
     version: 1,
     currentStep: typeof candidate.currentStep === "number" && candidate.currentStep >= 0 ? Math.floor(candidate.currentStep) : 0,
     completed: Array.isArray(candidate.completed) ? candidate.completed.filter((x): x is string => typeof x === "string") : [],
     skipped: candidate.skipped === true,
-    legalAccepted: candidate.legalAccepted === true,
-    eligibilityBasis: candidate.eligibilityBasis === "individual" || candidate.eligibilityBasis === "enterprise" ? candidate.eligibilityBasis : undefined,
+    legalAccepted: candidate.legalAccepted === true || legalAcceptance !== undefined,
+    eligibilityBasis: legalAcceptance?.eligibilityBasis ?? (candidate.eligibilityBasis === "individual" || candidate.eligibilityBasis === "enterprise" ? candidate.eligibilityBasis : undefined),
+    ...(legalAcceptance ? { legalAcceptance } : {}),
   };
+}
+
+/** True when the stored acceptance satisfies the host's requirement. */
+export function isLegalAccepted(state: PersistedOnboardingState, requiredVersion?: string, custom?: (state: PersistedOnboardingState) => boolean): boolean {
+  if (custom) return custom(state);
+  if (requiredVersion !== undefined) return state.legalAcceptance?.version === requiredVersion;
+  return state.legalAccepted;
+}
+
+/** FNV-1a fallback when SubtleCrypto is unavailable. */
+function fnv(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return `fnv1a:${h.toString(16).padStart(8, "0")}`;
+}
+
+async function hashDocuments(documents: readonly { title: string; url?: string }[]): Promise<string> {
+  const text = JSON.stringify(documents.map((d) => [d.title, d.url ?? ""]));
+  try {
+    const subtle = globalThis.crypto?.subtle;
+    if (subtle) {
+      const digest = await subtle.digest("SHA-256", new TextEncoder().encode(text));
+      return `sha256:${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+    }
+  } catch { /* fall through */ }
+  return fnv(text);
 }
 
 export function onboardingStateKey(): string { return KEY; }
 
-export function Onboarding({ settings, legal, steps = [], permissions, models, license, onComplete, onSkip, className }: OnboardingProps) {
+function TitleStrip({ titlebar, dragRegion }: { titlebar?: ReactNode; dragRegion?: boolean }) {
+  if (!titlebar && !dragRegion) return null;
+  return <div className="rk-onboarding__titlebar" data-testid="onboarding-titlebar" {...(dragRegion ? { "data-tauri-drag-region": "" } : {})}>{titlebar}</div>;
+}
+
+export function Onboarding({ settings, legal, steps = [], permissions, models, license, onComplete, onSkip, className, requiredVersion, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, modelsIntro, allowSkip = true, titlebar, dragRegion }: OnboardingProps) {
   const [state, setState] = useState<PersistedOnboardingState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [readyMap, setReadyMap] = useState<Record<string, boolean>>({});
+  const [gateCleared, setGateCleared] = useState(false);
   /** Persists a patch; throws when the settings backend rejects it. */
   const persist = useCallback(async (patch: Partial<PersistedOnboardingState>) => {
     setSaving(true); setError(null);
@@ -47,18 +90,31 @@ export function Onboarding({ settings, legal, steps = [], permissions, models, l
   useEffect(() => { let live = true; void settings.load().then((snapshot) => { if (live) setState(readState(snapshot.values[KEY])); }, (e) => { if (live) setError(e instanceof Error ? e.message : String(e)); }); return () => { live = false; }; }, [settings]);
 
   const builtins = useMemo<OnboardingStep[]>(() => [
-    { id: "legal", label: "Agreement", title: "Review agreement", skippable: false, render: () => null },
+    { id: "legal", label: "Agreement", title: "Review agreement", skippable: false, render: () => <p className="rk-onboarding__muted">Agreement accepted.</p> },
     ...(permissions ? [permissionsStep(permissions)] : []),
-    ...(models ? [modelsStep(models)] : []),
+    ...(models ? [modelsStep(models, { required: requireModel, autoStartDownload, intro: modelsIntro })] : []),
     ...(license ? [licenseStep(license)] : []),
     ...steps,
-  ], [license, models, permissions, steps]);
+  ], [license, models, permissions, steps, requireModel, autoStartDownload, modelsIntro]);
   const activeState = state ?? INITIAL;
+  const accepted = isLegalAccepted(activeState, requiredVersion, isAccepted);
+  const needsGate = state !== null && !accepted;
   // The agreement gate does not depend on the saved step: until it is accepted, the active step is the first.
-  const index = activeState.legalAccepted ? Math.min(activeState.currentStep, builtins.length - 1) : 0;
+  // Once accepted, the Agreement step (index 0) is never shown again when other steps exist.
+  const index = !accepted ? 0 : builtins.length > 1 ? Math.max(1, Math.min(activeState.currentStep, builtins.length - 1)) : 0;
   const active = builtins[index];
+  const activeId = active?.id ?? "";
+  const setReady = useCallback((ready: boolean) => setReadyMap((m) => m[activeId] === ready ? m : { ...m, [activeId]: ready }), [activeId]);
+  useEffect(() => {
+    if (!needsGate) { setGateCleared(false); return; }
+    if (gateCleared) return;
+    let live = true;
+    void (async () => { try { await beforeLegalGate?.(); } catch (e) { if (live) setError(e instanceof Error ? e.message : String(e)); } if (live) setGateCleared(true); })();
+    return () => { live = false; };
+  }, [needsGate, gateCleared, beforeLegalGate]);
 
-  const context: OnboardingStepContext = { state: activeState, settings, setState: saveStep, permissions, models, license };
+  const context: OnboardingStepContext = { state: activeState, settings, setState: saveStep, permissions, models, license, ready: readyMap, setReady };
+  const canContinue = active?.canContinue ? active.canContinue(context) : true;
   const runCallback = async (callback: (() => void | Promise<void>) | undefined) => {
     try { await callback?.(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
@@ -72,12 +128,20 @@ export function Onboarding({ settings, legal, steps = [], permissions, models, l
   };
   if (error && !state) return <div className={cx("rk-onboarding", className)}><p className="rk-onboarding__error" role="alert">{error}</p><Button onClick={() => window.location.reload()}>Retry</Button></div>;
   if (!state || !active) return <div className={cx("rk-onboarding", className)} aria-busy="true"><p className="rk-onboarding__muted">Loading setup…</p></div>;
-  if (!activeState.legalAccepted) {
-    return <div className={cx("rk-onboarding rk-onboarding--legal", className)} data-testid="onboarding-legal"><LegalGate {...legal} variant="first-run" onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => { await persist({ legalAccepted: true, eligibilityBasis, completed: ["legal"], currentStep: builtins.length > 1 ? 1 : 0 }); if (builtins.length === 1) await onComplete(); }} /></div>;
+  if (needsGate) {
+    if (!gateCleared) return <div className={cx("rk-onboarding", className)} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={dragRegion} /><p className="rk-onboarding__muted">Loading setup…</p></div>;
+    const reacceptance = activeState.legalAccepted || activeState.legalAcceptance !== undefined;
+    return <div className={cx("rk-onboarding rk-onboarding--legal", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={dragRegion} /><LegalGate {...legal} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
+      const legalAcceptance: LegalAcceptanceRecord = { version: requiredVersion ?? "1", documentsHash: documentsHash ?? await hashDocuments(legal.documents), acceptedAt: new Date().toISOString(), eligibilityBasis };
+      const progress = reacceptance ? {} : { completed: ["legal"], currentStep: builtins.length > 1 ? 1 : 0 };
+      await persist({ legalAccepted: true, eligibilityBasis, legalAcceptance, ...progress });
+      if (!reacceptance && builtins.length === 1) await onComplete();
+    }} /></div>;
   }
   const body: ReactNode = active.render(context);
   return <main className={cx("rk-onboarding", className)} data-testid="onboarding" data-step-id={active.id}>
-    <aside className="rk-onboarding__rail"><div className="rk-onboarding__brand">{legal.appName}</div><nav aria-label="Setup progress">{builtins.map((step, i) => <button key={step.id} type="button" className={cx("rk-onboarding__step", i === index && "is-active", activeState.completed.includes(step.id) && "is-done")} aria-current={i === index ? "step" : undefined} onClick={() => { if (i > 0 || activeState.legalAccepted) void save({ currentStep: i }); }}><span>{activeState.completed.includes(step.id) ? "✓" : i + 1}</span>{step.label}</button>)}</nav></aside>
-    <section className="rk-onboarding__main"><header><p className="rk-onboarding__eyebrow">Step {index + 1} of {builtins.length}</p><h1>{active.title}</h1>{active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}</header><div className="rk-onboarding__content">{body}</div>{error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}<footer><Button variant="ghost" disabled={saving} onClick={() => { void save({ currentStep: index, skipped: true }).then((ok) => ok ? runCallback(onSkip) : undefined); }}>Set up later</Button><span /><Button variant="secondary" disabled={index === 0 || saving} onClick={() => void save({ currentStep: index - 1 })}>Back</Button><Button variant="primary" disabled={saving} onClick={() => void markAndMove(index + 1, active.id)}>{index === builtins.length - 1 ? "Finish setup" : "Continue"}</Button></footer></section>
+    <TitleStrip titlebar={titlebar} dragRegion={dragRegion} />
+    <aside className="rk-onboarding__rail"><div className="rk-onboarding__brand">{legal.appName}</div><nav aria-label="Setup progress">{builtins.map((step, i) => <button key={step.id} type="button" className={cx("rk-onboarding__step", i === index && "is-active", activeState.completed.includes(step.id) && "is-done")} aria-current={i === index ? "step" : undefined} disabled={i === 0 && builtins.length > 1} onClick={() => { if (i > 0 && (i <= index || canContinue)) void save({ currentStep: i }); }}><span>{activeState.completed.includes(step.id) ? "✓" : i + 1}</span>{step.label}</button>)}</nav></aside>
+    <section className="rk-onboarding__main"><header><p className="rk-onboarding__eyebrow">Step {index + 1} of {builtins.length}</p><h1>{active.title}</h1>{active.description ? <p className="rk-onboarding__description">{active.description}</p> : null}</header><div className="rk-onboarding__content">{body}</div>{error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}<footer>{allowSkip ? <Button variant="ghost" disabled={saving} onClick={() => { void save({ currentStep: index, skipped: true }).then((ok) => ok ? runCallback(onSkip) : undefined); }}>Set up later</Button> : null}<span className="rk-onboarding__hint">{!canContinue && active.blockedHint ? active.blockedHint : null}</span><Button variant="secondary" disabled={index <= 1 || saving} onClick={() => void save({ currentStep: index - 1 })}>Back</Button><Button variant="primary" disabled={saving || !canContinue} onClick={() => void markAndMove(index + 1, active.id)}>{index === builtins.length - 1 ? "Finish setup" : "Continue"}</Button></footer></section>
   </main>;
 }

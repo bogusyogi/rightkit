@@ -113,7 +113,7 @@ export function requiredVars(brand: BrandFile, format: "suite" | "tailwind" = "s
     return { light: names, dark: [] };
   }
   const r = resolveBrand(brand);
-  const darkNames = ["--rk-brand-mark", "--rk-brand-ink", "--accent-ink"];
+  const darkNames = ["--rk-brand-mark", "--rk-brand-ink", "--rk-accent-ink"];
   const lightNames = ["--rk-brand", "--rk-brand-dark", ...darkNames, ...Object.keys(r.palette.light).filter((k) => k !== "brand" && k !== "brand-action").map((k) => `--rk-${k}`)];
   return { light: [...new Set(lightNames)], dark: darkNames };
 }

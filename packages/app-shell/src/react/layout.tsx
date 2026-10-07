@@ -60,13 +60,24 @@ const FUSE_PATH = "M12 0V12H0A12 12 0 0 0 12 0Z";
 
 /**
  * Antialiased 12px concave curves bridging the active row into the plane (SVG, not hard-stop
- * masks; ViewRight's `SidebarTabFuseCurves`). Put them inside any row that should fuse.
+ * masks; ViewRight's `SidebarTabFuseCurves`). Put them inside any `position: relative` row that should fuse.
+ * Positioning is inline, so they work without shell.css; pass `fill` (the joined surface colour) when shell.css is absent.
  */
-export function FuseCurves() {
+export function FuseCurves({ fill, size = 12 }: { fill?: string; size?: number } = {}) {
   return (
     <>
       {(["top", "bottom"] as const).map((edge) => (
-        <svg key={edge} className={`rk-fuse rk-fuse--${edge}`} data-rk-fuse={edge} aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 12 12">
+        <svg
+          key={edge}
+          className={`rk-fuse rk-fuse--${edge}`}
+          data-rk-fuse={edge}
+          aria-hidden="true"
+          focusable="false"
+          width={size}
+          height={size}
+          viewBox="0 0 12 12"
+          style={{ position: "absolute", right: 0, [edge]: -size, width: size, height: size, pointerEvents: "none", ...(edge === "bottom" ? { transform: "scaleY(-1)" } : {}), ...(fill ? { fill } : {}) }}
+        >
           <path d={FUSE_PATH} />
         </svg>
       ))}
@@ -336,7 +347,7 @@ export interface AppShellProps {
   sidebar?: ReactNode | false;
   /** Above the nav list, below the search. */
   sidebarTop?: ReactNode;
-  /** Bottom-left brand lockup. Colour the brand half with `var(--accent)`. */
+  /** Bottom-left brand lockup. Colour the brand half with `var(--rk-accent)`. */
   wordmark?: ReactNode;
   /** Controlled theme; omit to use the provider's theme store. */
   theme?: ThemeChoice;

@@ -19,7 +19,22 @@ export interface ResourceRequest {
   kind: string;
   documentPath?: string;
   estimatedBytes?: number;
+  /** True while the resource holds unsaved user edits. */
+  dirty?: boolean;
+  /** True when the resource's state survives release (e.g. kept in a host store). */
+  stateExternalized?: boolean;
 }
+
+/**
+ * What `acquireResource` may return: nothing, a plain release function
+ * (original contract), or a handle whose `update` receives later changes to
+ * `dirty` / `stateExternalized` so the host need not re-acquire.
+ */
+export interface ResourceHandle {
+  release: () => void;
+  update?: (next: Partial<ResourceRequest>) => void;
+}
+export type ResourceHandleResult = (() => void) | ResourceHandle | undefined;
 
 /**
  * App-coupling boundary for @rightkit/media-ui. Every field is optional; the
@@ -65,11 +80,16 @@ export interface MediaAdapters {
   /** Print a rendered PNG data URL; resolve false when printing isn't possible. */
   printImage?: (dataUrl: string) => Promise<boolean>;
   /** Resource accounting hook for large decoded images/canvases. */
-  acquireResource?: (desc: ResourceRequest) => (() => void) | undefined;
+  acquireResource?: (desc: ResourceRequest) => ResourceHandleResult;
   /** User-facing notification (toast). Defaults to no-op. */
   notify?: (message: string, severity: "info" | "error") => void;
   /** Diagnostic logging hook. */
   logError?: (tag: string) => void;
+  /**
+   * Font id (from `bundledFonts`) used for newly added text layers. Falls back
+   * to the first bundled font, then the package default.
+   */
+  defaultFontId?: string;
   /** Accent colour for interactive handles (default "#d9803f"). */
   accentColor?: string;
 }
@@ -96,9 +116,18 @@ export function useMediaAdapters(override?: MediaAdapters): MediaAdapters {
   return override ?? fromContext;
 }
 
+/** Normalize any adapter return value into a handle with a callable release/update. */
+export function normalizeResourceHandle(result: ResourceHandleResult): Required<ResourceHandle> {
+  if (typeof result === "function") return { release: result, update: () => {} };
+  return {
+    release: result?.release ?? (() => {}),
+    update: result?.update ?? (() => {}),
+  };
+}
+
 export function acquireResource(
   adapters: MediaAdapters,
   desc: ResourceRequest,
-): () => void {
-  return adapters.acquireResource?.(desc) ?? (() => {});
+): Required<ResourceHandle> {
+  return normalizeResourceHandle(adapters.acquireResource?.(desc));
 }

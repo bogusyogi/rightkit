@@ -18,6 +18,35 @@ Provenance: `MediaPlayer` merges ScrapeRight's `src/components/MediaPlayer.tsx`
 and GenRight's player; `ImageViewer`/`ImageEditor` port ViewRight's
 `src/documents/image/` stack (crop/rotate/text/fabric overlay, undo store).
 
+## Entry points and optional `fabric`
+
+The root entry (`@rightkit/media-ui`) holds the player, adapters and every pure
+helper (edit recipe, export math, crop math); it never imports `fabric`.
+`ImageViewer` / `ImageEditor` live in **`@rightkit/media-ui/image`** because the
+text overlay uses `fabric`, which is an *optional peer dependency*.
+
+- **Player-only apps** install nothing extra: no `fabric`, no native build approval.
+- **Image apps** add `fabric` (`^7.4`) themselves and, because `fabric` lists the
+  Node-only native addon `canvas` as an optional dependency (unused in the
+  browser), set pnpm `allowBuilds: { canvas: false }` in the workspace config.
+
+```ts
+import { MediaPlayer } from "@rightkit/media-ui";
+import { ImageViewer, ImageEditor } from "@rightkit/media-ui/image";
+```
+
+## Host seams
+
+All optional; defaults preserve prior behaviour.
+
+- `ImageViewer`: `toolbarContainer` portals `.rk-iv-toolbar` into a host element.
+- Adapters: `defaultFontId` (font for new text layers); `acquireResource` may
+  return a release function **or** `{ release, update }`; `update({ dirty,
+  stateExternalized })` is called when the edit state changes, instead of re-acquiring.
+- `MediaPlayer`: `showArtwork`, `showOpenOriginal`, `icons` (map by `IconName`),
+  `speeds` + `speedControl` (`"cycle"` | `"menu"`), `labels` (every string; see
+  `DEFAULT_MEDIA_PLAYER_LABELS`) and `renderError({ message, retry, openOriginal })`.
+
 ## Adapters
 
 No app imports: everything app-specific arrives through `MediaAdapters`, set
@@ -39,12 +68,13 @@ All fields optional — the components degrade cleanly without them:
 ## Theming
 
 `import "@rightkit/media-ui/styles.css"` once. Defaults are neutral slate;
-rebrand via `--rk-media-*` and `--rk-iv-*` custom properties, which fall back
-to common host variables (`--accent`, `--panel`, `--ink`, …) when present.
+rebrand via `--rk-media-*` and `--rk-iv-*` custom properties set on `:root` or any
+ancestor (active toolbar buttons: `--rk-iv-active-bg` / `--rk-iv-active-fg`). The
+only shared fallback is the suite accent `--rk-accent`; other app variables are never read.
 
 ## Status
 
-Internal during the shared-media gate — apps pin the published version only
-after it appears in `rightkit-versions.json`. Outcome coverage: `pnpm test`
+Listed in `rightkit-versions.json`; pin the exact version, and adopt only after your
+app's own e2e passes with it. Outcome coverage: `pnpm test`
 (pure contracts) and `pnpm test:browser` (headless-Chrome real playback,
 remux fallback, and export pixel round-trip).

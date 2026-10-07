@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 // Inline stroke icons — brand-neutral, no icon dependency for consumers.
 export function PlayIcon({ size = 16 }: { size?: number }) {
   return (
@@ -81,4 +82,43 @@ export function CaretRightIcon({ size = 18 }: { size?: number }) {
       <path d="M6 3l5 5-5 5" />
     </svg>
   );
+}
+
+export interface IconProps {
+  size?: number;
+}
+
+/** Name of every built-in icon; keys of the `icons` override map. */
+export type IconName =
+  | "play"
+  | "pause"
+  | "replay"
+  | "volume"
+  | "mute"
+  | "fullscreen"
+  | "external"
+  | "caretLeft"
+  | "caretRight";
+
+export const ICONS: Record<IconName, (props: IconProps) => ReactNode> = {
+  play: PlayIcon,
+  pause: PauseIcon,
+  replay: ReplayIcon,
+  volume: VolumeIcon,
+  mute: MuteIcon,
+  fullscreen: FullscreenIcon,
+  external: ExternalIcon,
+  caretLeft: CaretLeftIcon,
+  caretRight: CaretRightIcon,
+};
+
+/** Resolve an icon: a host override wins (any ReactNode, `null` hides it), else the built-in. */
+export function resolveIcon(
+  name: IconName,
+  overrides?: Partial<Record<IconName, ReactNode>>,
+  size?: number,
+): ReactNode {
+  if (overrides && Object.prototype.hasOwnProperty.call(overrides, name) && overrides[name] !== undefined)
+    return overrides[name];
+  return ICONS[name]({ size });
 }

@@ -92,7 +92,7 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
 
   it("applies an accent preset on top of the brand and saves only its id", async () => {
     await open("section=appearance");
-    const before = await page.eval<string>("getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()");
+    const before = await page.eval<string>("getComputedStyle(document.documentElement).getPropertyValue('--rk-accent').trim()");
     await page.click(".rk-swatch[aria-label='Teal']");
     await page.waitFor("getComputedStyle(document.documentElement).getPropertyValue('--rk-brand').trim().toUpperCase() === '#0C8A7B'");
     await waitHost(() => settingsOnDisk().values["appearance.accent"] === "teal");

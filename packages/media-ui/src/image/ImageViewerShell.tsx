@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import {
   useMemo,
   type PointerEvent as ReactPointerEvent,
@@ -66,6 +67,7 @@ interface ImageViewerShellProps extends ToolbarHandlers {
   selectedText: string | null;
   selectedLayer: TextLayer | null;
   adapters: MediaAdapters;
+  toolbarContainer?: HTMLElement | null;
   onPageSibling: (delta: number) => void;
   onWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -112,8 +114,7 @@ export function ImageViewerShell(props: ImageViewerShellProps) {
     [edit.flipX, edit.flipY, edit.rotation, view.zoom],
   );
 
-  return (
-    <div className="rk-iv">
+  const toolbar = (
       <ImageViewerToolbar
         tool={tool}
         readOnly={readOnly}
@@ -154,6 +155,11 @@ export function ImageViewerShell(props: ImageViewerShellProps) {
         onAdjustment={props.onAdjustment}
         onResize={props.onResize}
       />
+  );
+
+  return (
+    <div className="rk-iv">
+      {props.toolbarContainer ? createPortal(toolbar, props.toolbarContainer) : toolbar}
       <ImageViewerStage
         displayName={displayName}
         displaySrc={displaySrc}

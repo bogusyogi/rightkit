@@ -19,14 +19,14 @@ export function modeVars(brand: BrandFile, mode: Mode): Record<string, string> {
   if (mode === "light") {
     vars["--rk-brand"] = r.palette.light["brand-action"];
     vars["--rk-brand-dark"] = r.palette.dark["brand-action"];
-    if (brand.wordmark) vars["--rk-wordmark"] = brand.wordmark;
+    if (brand.wordmarkFont) vars["--rk-wordmark-font"] = brand.wordmarkFont;
   }
   vars["--rk-brand-mark"] = p.brand;
   for (const [key, value] of Object.entries(p)) {
     if (key === "brand" || key === "brand-action") continue;
     vars[`--rk-${key}`] = value;
   }
-  for (const [key, value] of Object.entries(r.overrides[mode])) vars[`--${key}`] = value;
+  for (const [key, value] of Object.entries(r.overrides[mode])) vars[`--rk-${key}`] = value;
   return vars;
 }
 

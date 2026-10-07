@@ -80,7 +80,12 @@ export interface SettingsEntry {
 
 export interface SettingsSection {
   id: string;
+  /** Nav label; also the default page heading and the text search matches. */
   label: string;
+  /** Pill rendered after the label in the nav (e.g. "FREE"). Not searched. */
+  badge?: ReactNode;
+  /** Page heading when it should differ from the nav label (defaults to `label`). */
+  heading?: ReactNode;
   /** Nav group heading; sections with the same group sit together. */
   group?: string;
   icon?: ReactNode;

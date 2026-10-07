@@ -12,5 +12,6 @@ import "@rightkit/app-shell/shell.css";
 import { AppShell, PageShell } from "@rightkit/app-shell/react";
 ```
 
-Brand colour is CSS only: `:root { --rk-brand: #7040c4; --rk-brand-dark: #9567f5; --rk-wordmark: "Tanker", sans-serif; }`.
+Brand colour is CSS only: `:root { --rk-brand: #7040c4; --rk-brand-dark: #9567f5; --rk-wordmark-font: "Tanker", sans-serif; }`.
+All tokens are `--rk-*` (`--rk-ink`, `--rk-accent`, `--rk-plane` ...) so the stylesheet never overwrites an app's own variables. Apps that want the old unprefixed names can opt in with `import "@rightkit/app-shell/suite-aliases.css"`.
 See `API.md` in the lane notes for the full reference and per-app migration. Tests: `pnpm test` runs real headless Chrome (muted) end to end.

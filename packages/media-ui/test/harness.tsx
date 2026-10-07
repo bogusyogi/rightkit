@@ -4,8 +4,8 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { StrictMode } from "react";
+import { ImageViewer } from "../src/image.js";
 import {
-  ImageViewer,
   MediaAdaptersProvider,
   MediaPlayer,
   exportImageEdit,

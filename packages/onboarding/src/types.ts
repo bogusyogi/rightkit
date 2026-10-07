@@ -45,7 +45,8 @@ export interface ModelEntry {
 export interface ModelsBackend {
   list(): Promise<ModelEntry[]>;
   install(id: string): Promise<void>;
-  cancel(id: string): Promise<void>;
+  /** Optional. The cancel/pause control is shown only when the backend supplies this. */
+  cancel?(id: string): Promise<void>;
   subscribe?(handler: (entry: ModelEntry) => void): Promise<() => void>;
 }
 
@@ -65,13 +66,27 @@ export interface LicenseBackend {
   openExternal?: (url: string) => void | Promise<void>;
 }
 
+export type EligibilityBasis = "individual" | "enterprise";
+
+/** Full record of one legal acceptance, persisted so version changes can re-prompt. */
+export interface LegalAcceptanceRecord {
+  version: string;
+  documentsHash: string;
+  /** UTC ISO-8601 timestamp (`Date#toISOString`). */
+  acceptedAt: string;
+  eligibilityBasis: EligibilityBasis;
+}
+
 export interface PersistedOnboardingState {
   version: 1;
   currentStep: number;
   completed: string[];
   skipped: boolean;
+  /** Legacy boolean, still written for older readers. Prefer `legalAcceptance`. */
   legalAccepted: boolean;
-  eligibilityBasis?: "individual" | "enterprise";
+  /** Legacy mirror of `legalAcceptance.eligibilityBasis`. */
+  eligibilityBasis?: EligibilityBasis;
+  legalAcceptance?: LegalAcceptanceRecord;
 }
 
 export interface OnboardingStepContext {
@@ -81,6 +96,10 @@ export interface OnboardingStepContext {
   permissions?: PermissionsBackend;
   models?: ModelsBackend;
   license?: LicenseBackend;
+  /** Readiness reported by steps via `setReady`, keyed by step id. */
+  ready: Readonly<Record<string, boolean>>;
+  /** Reports whether the active step is ready (used by `canContinue`). Stable per step. */
+  setReady: (ready: boolean) => void;
 }
 
 export interface OnboardingStep {
@@ -89,6 +108,10 @@ export interface OnboardingStep {
   title: string;
   description?: string;
   skippable?: boolean;
+  /** Continue/Finish stay disabled until this returns true. Default: always allowed. */
+  canContinue?: (context: OnboardingStepContext) => boolean;
+  /** Shown beside the disabled Continue/Finish button. */
+  blockedHint?: string;
   render: (context: OnboardingStepContext) => ReactNode;
 }
 
@@ -107,6 +130,26 @@ export interface OnboardingProps {
   onComplete: () => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
   className?: string;
+  /** Version the user must have accepted. A different (or missing) stored version re-prompts with `variant: "re-acceptance"`. */
+  requiredVersion?: string;
+  /** Custom acceptance check; takes precedence over `requiredVersion`. */
+  isAccepted?: (state: PersistedOnboardingState) => boolean;
+  /** Hash of the legal documents recorded with the acceptance. Default: hash of document titles and URLs. */
+  documentsHash?: string;
+  /** Runs (and is awaited) before the legal gate is shown, e.g. to resize or reveal the window. */
+  beforeLegalGate?: () => void | Promise<void>;
+  /** Require at least one downloaded model before Continue/Finish on the models step. Default false. */
+  requireModel?: boolean;
+  /** Start downloading the first missing model when the models step opens. Default false. */
+  autoStartDownload?: boolean;
+  /** App copy shown at the top of the models step. */
+  modelsIntro?: ReactNode;
+  /** Show "Set up later". Default true. */
+  allowSkip?: boolean;
+  /** Optional titlebar content rendered in a strip along the top. */
+  titlebar?: ReactNode;
+  /** Render a `data-tauri-drag-region` strip at the top. Default false. */
+  dragRegion?: boolean;
 }
 
 export type { LegalGateDocument, LegalGateTheme };

@@ -2,22 +2,16 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   type Ref,
   type SyntheticEvent,
 } from "react";
 import { useMediaAdapters, type MediaAdapters } from "./adapters.js";
-import {
-  ExternalIcon,
-  FullscreenIcon,
-  MuteIcon,
-  PauseIcon,
-  PlayIcon,
-  ReplayIcon,
-  VolumeIcon,
-} from "./icons.js";
+import { resolveIcon, type IconName } from "./icons.js";
 
 export interface MediaTrack {
   src: string;
@@ -54,13 +48,123 @@ export interface MediaPlayerProps {
   /** Optional action shown after a load failure (e.g. generate a proxy). */
   onProxy?: () => void;
   proxyLabel?: string;
+  /** Show the audio artwork / face panel (audio only). Default true. */
+  showArtwork?: boolean;
+  /** Show the "Open original" action (toolbar link and error-card button). Default true. */
+  showOpenOriginal?: boolean;
+  /** Replace any built-in icon (a `ReactNode`; `null` renders nothing). */
+  icons?: Partial<Record<IconName, ReactNode>>;
+  /** Selectable playback speeds. Default `DEFAULT_MEDIA_SPEEDS`. */
+  speeds?: number[];
+  /** "cycle" = one button stepping through `speeds`; "menu" = native `<select>`. Default "cycle". */
+  speedControl?: "cycle" | "menu";
+  /** Override any user-visible string. */
+  labels?: Partial<MediaPlayerLabels>;
+  /** Replace the error card entirely. */
+  renderError?: (ctx: MediaPlayerErrorContext) => ReactNode;
   adapters?: MediaAdapters;
+}
+
+export interface MediaPlayerErrorContext {
+  message: string;
+  retry: () => void;
+  openOriginal?: () => void;
+}
+
+/** Every user-visible / accessible string the player renders. */
+export interface MediaPlayerLabels {
+  mediaPlayer: string;
+  loading: string;
+  buffering: string;
+  converting: string;
+  play: string;
+  pause: string;
+  replay: string;
+  replayFromStart: string;
+  mute: string;
+  unmute: string;
+  seek: string;
+  volume: string;
+  playbackTime: string;
+  /** Prefix of the speed control's accessible name; the speed is appended ("Playback speed 1.5×"). */
+  playbackSpeed: string;
+  subtitles: string;
+  fullscreen: string;
+  exitFullscreen: string;
+  openOriginal: string;
+  openInDefaultPlayer: string;
+  errorTitle: string;
+  errorUnavailable: string;
+  errorOriginalUnchanged: string;
+  retry: string;
+  proxy: string;
+  errorUnsupported: string;
+  errorNetwork: string;
+  errorDecode: string;
+  errorLoad: string;
+  errorCompatCopy: string;
+  /** Prefix for runtime failures; the cause is appended. */
+  playbackFailed: string;
+  fullscreenFailed: string;
+}
+
+export const DEFAULT_MEDIA_PLAYER_LABELS: MediaPlayerLabels = {
+  mediaPlayer: "Media player",
+  loading: "Loading media…",
+  buffering: "Buffering…",
+  converting: "Preparing compatible playback copy…",
+  play: "Play",
+  pause: "Pause",
+  replay: "Replay",
+  replayFromStart: "Replay from start",
+  mute: "Mute",
+  unmute: "Unmute",
+  seek: "Seek",
+  volume: "Volume",
+  playbackTime: "Playback time",
+  playbackSpeed: "Playback speed",
+  subtitles: "Subtitles",
+  fullscreen: "Fullscreen",
+  exitFullscreen: "Exit fullscreen",
+  openOriginal: "Open original",
+  openInDefaultPlayer: "Open in default player",
+  errorTitle: "Preview failed",
+  errorUnavailable: "Media unavailable, corrupt or unsupported.",
+  errorOriginalUnchanged: "The original file is unchanged.",
+  retry: "Retry",
+  proxy: "Preview proxy",
+  errorUnsupported: "Unsupported codec or container for this platform player.",
+  errorNetwork: "Network error while loading media.",
+  errorDecode: "Could not decode this media file.",
+  errorLoad: "Could not load this media file.",
+  errorCompatCopy:
+    "Unsupported codec or corrupt media. Compatibility copy could not be decoded.",
+  playbackFailed: "Playback could not start:",
+  fullscreenFailed: "Fullscreen could not start:",
+};
+
+export const DEFAULT_MEDIA_SPEEDS: readonly number[] = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+/** Next speed after `current` in `speeds` (wraps; unknown current -> first). */
+export function nextMediaSpeed(speeds: readonly number[], current: number): number {
+  if (speeds.length === 0) return current;
+  return speeds[(speeds.indexOf(current) + 1) % speeds.length] ?? current;
+}
+
+/** Merge partial label overrides over the defaults (undefined values are ignored). */
+export function resolveMediaLabels(overrides?: Partial<MediaPlayerLabels>): MediaPlayerLabels {
+  const out = { ...DEFAULT_MEDIA_PLAYER_LABELS };
+  if (overrides)
+    for (const key of Object.keys(overrides) as (keyof MediaPlayerLabels)[]) {
+      const value = overrides[key];
+      if (typeof value === "string") out[key] = value;
+    }
+  return out;
 }
 
 // Only one playback at a time across all MediaPlayer instances on the page.
 let currentExclusive: HTMLMediaElement | null = null;
 
-const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const KEY_HANDLED = [
   " ", "k", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "m", "f", "r", "j", "l",
 ];
@@ -75,18 +179,21 @@ export function mediaClock(seconds: number): string {
     : `${minutes}:${rest}`;
 }
 
-export function mediaErrorMessage(el: HTMLMediaElement): string {
+export function mediaErrorMessage(
+  el: HTMLMediaElement,
+  labels: MediaPlayerLabels = DEFAULT_MEDIA_PLAYER_LABELS,
+): string {
   // HTMLMediaElement error codes are stable constants; compare numerically so
   // this also works where the MediaError global is absent (tests, pre-DOM).
   switch (el.error?.code) {
     case 4:
-      return "Unsupported codec or container for this platform player.";
+      return labels.errorUnsupported;
     case 2:
-      return "Network error while loading media.";
+      return labels.errorNetwork;
     case 3:
-      return "Could not decode this media file.";
+      return labels.errorDecode;
     default:
-      return "Could not load this media file.";
+      return labels.errorLoad;
   }
 }
 
@@ -119,8 +226,16 @@ export function MediaPlayer(props: MediaPlayerProps) {
     onOpenExternal,
     onProxy,
     proxyLabel,
+    showArtwork = true,
+    showOpenOriginal = true,
+    icons,
+    speedControl = "cycle",
+    renderError,
   } = props;
   const adapters = useMediaAdapters(props.adapters);
+  const labels = useMemo(() => resolveMediaLabels(props.labels), [props.labels]);
+  const speeds = props.speeds && props.speeds.length > 0 ? props.speeds : DEFAULT_MEDIA_SPEEDS;
+  const icon = (name: IconName, size?: number) => resolveIcon(name, icons, size);
 
   const element = useRef<HTMLMediaElement | null>(null);
   const container = useRef<HTMLDivElement | null>(null);
@@ -143,7 +258,7 @@ export function MediaPlayer(props: MediaPlayerProps) {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(() => (speeds.includes(1) ? 1 : (speeds[0] ?? 1)));
   const [retry, setRetry] = useState(0);
 
   const effectiveTracks: MediaTrack[] = (() => {
@@ -310,10 +425,10 @@ export function MediaPlayer(props: MediaPlayerProps) {
     } else {
       setError(
         attempted.current
-          ? "Unsupported codec or corrupt media. Compatibility copy could not be decoded."
+          ? labels.errorCompatCopy
           : element.current
-            ? mediaErrorMessage(element.current)
-            : "Could not load this media file.",
+            ? mediaErrorMessage(element.current, labels)
+            : labels.errorLoad,
       );
     }
     setStatus("error");
@@ -332,9 +447,9 @@ export function MediaPlayer(props: MediaPlayerProps) {
     try {
       await el.play();
     } catch (cause) {
-      setError(`Playback could not start: ${String(cause)}`);
+      setError(`${labels.playbackFailed} ${String(cause)}`);
     }
-  }, []);
+  }, [labels]);
 
   const seekTo = useCallback((t: number) => {
     const el = element.current;
@@ -355,8 +470,8 @@ export function MediaPlayer(props: MediaPlayerProps) {
     el.currentTime = 0;
     setTime(0);
     setEnded(false);
-    void el.play().catch((cause) => setError(`Playback could not start: ${String(cause)}`));
-  }, []);
+    void el.play().catch((cause) => setError(`${labels.playbackFailed} ${String(cause)}`));
+  }, [labels]);
 
   const fullscreen = useCallback(async () => {
     try {
@@ -396,9 +511,9 @@ export function MediaPlayer(props: MediaPlayerProps) {
       setNativeFullscreen(true);
       setError("");
     } catch (cause) {
-      setError(`Fullscreen could not start: ${String(cause)}`);
+      setError(`${labels.fullscreenFailed} ${String(cause)}`);
     }
-  }, [adapters, kind]);
+  }, [adapters, kind, labels]);
 
   const onKey = useCallback(
     (e: ReactKeyboardEvent) => {
@@ -458,9 +573,18 @@ export function MediaPlayer(props: MediaPlayerProps) {
   const cycleSpeed = () => {
     const el = element.current;
     if (!el) return;
-    const next = SPEEDS[(SPEEDS.indexOf(el.playbackRate) + 1) % SPEEDS.length] ?? 1;
-    el.playbackRate = next;
+    chooseSpeed(nextMediaSpeed(speeds, el.playbackRate));
+  };
+  const chooseSpeed = (next: number) => {
+    const el = element.current;
+    if (el) el.playbackRate = next;
     setSpeed(next);
+  };
+
+  const errorContext: MediaPlayerErrorContext = {
+    message: error || labels.errorUnavailable,
+    retry: doRetry,
+    openOriginal: showOpenOriginal ? onOpenExternal : undefined,
   };
 
   const events = {
@@ -513,6 +637,19 @@ export function MediaPlayer(props: MediaPlayerProps) {
     />
   ));
 
+  const audioElement = (
+    <audio
+      key={`${source}:${retry}`}
+      ref={attach}
+      preload="metadata"
+      autoPlay={autoPlay}
+      src={resolveSrc(source)}
+      {...events}
+    >
+      {trackElements}
+    </audio>
+  );
+
   const mediaElement =
     status !== "error" && status !== "converting" ? (
       kind === "video" ? (
@@ -531,27 +668,20 @@ export function MediaPlayer(props: MediaPlayerProps) {
         >
           {trackElements}
         </video>
-      ) : (
+      ) : showArtwork ? (
         <div
           className="rk-media-audio-face"
           onClick={() => void toggle()}
           role="button"
-          aria-label={playing ? "Pause" : "Play"}
+          aria-label={playing ? labels.pause : labels.play}
         >
           <span className="rk-media-audio-glyph" aria-hidden="true">
             &#9834;
           </span>
-          <audio
-            key={`${source}:${retry}`}
-            ref={attach}
-            preload="metadata"
-            autoPlay={autoPlay}
-            src={resolveSrc(source)}
-            {...events}
-          >
-            {trackElements}
-          </audio>
+          {audioElement}
         </div>
+      ) : (
+        audioElement
       )
     ) : null;
 
@@ -563,16 +693,16 @@ export function MediaPlayer(props: MediaPlayerProps) {
       tabIndex={0}
       onKeyDown={onKey}
       role="group"
-      aria-label={title ?? "Media player"}
+      aria-label={title ?? labels.mediaPlayer}
     >
       {mediaElement}
       {status !== "ready" && status !== "error" && (
         <p role="status" className="rk-media-status">
           {status === "converting"
-            ? "Preparing compatible playback copy…"
+            ? labels.converting
             : status === "buffering"
-              ? "Buffering…"
-              : "Loading media…"}
+              ? labels.buffering
+              : labels.loading}
         </p>
       )}
       {status !== "error" && (
@@ -580,28 +710,28 @@ export function MediaPlayer(props: MediaPlayerProps) {
           <button
             type="button"
             className="rk-media-btn"
-            aria-label={playing ? "Pause" : ended ? "Replay" : "Play"}
+            aria-label={playing ? labels.pause : ended ? labels.replay : labels.play}
             disabled={!enabled}
             onClick={() => (ended ? replay() : void toggle())}
           >
-            {playing ? <PauseIcon /> : ended ? <ReplayIcon /> : <PlayIcon />}
+            {playing ? icon("pause") : ended ? icon("replay") : icon("play")}
           </button>
           <button
             type="button"
             className="rk-media-btn"
-            aria-label="Replay from start"
+            aria-label={labels.replayFromStart}
             disabled={!enabled}
             onClick={replay}
           >
-            <ReplayIcon size={15} />
+            {icon("replay", 15)}
           </button>
-          <output className="rk-media-time" aria-label="Playback time">
+          <output className="rk-media-time" aria-label={labels.playbackTime}>
             {mediaClock(time)} / {mediaClock(duration)}
           </output>
           <input
             className="rk-media-seek"
             type="range"
-            aria-label="Seek"
+            aria-label={labels.seek}
             min={0}
             max={duration || 1}
             step={0.1}
@@ -617,17 +747,17 @@ export function MediaPlayer(props: MediaPlayerProps) {
           <button
             type="button"
             className="rk-media-btn"
-            aria-label={muted ? "Unmute" : "Mute"}
+            aria-label={muted ? labels.unmute : labels.mute}
             onClick={() => {
               if (element.current) element.current.muted = !muted;
             }}
           >
-            {muted || volume === 0 ? <MuteIcon /> : <VolumeIcon />}
+            {muted || volume === 0 ? icon("mute") : icon("volume")}
           </button>
           <input
             className="rk-media-vol"
             type="range"
-            aria-label="Volume"
+            aria-label={labels.volume}
             min={0}
             max={1}
             step={0.05}
@@ -639,19 +769,34 @@ export function MediaPlayer(props: MediaPlayerProps) {
               el.volume = Number(e.target.value);
             }}
           />
-          <button
-            type="button"
-            className="rk-media-btn rk-media-speed"
-            aria-label={`Playback speed ${speed}×`}
-            onClick={cycleSpeed}
-          >
-            {speed}×
-          </button>
+          {speedControl === "menu" ? (
+            <select
+              className="rk-media-btn rk-media-speed rk-media-speed-menu"
+              aria-label={`${labels.playbackSpeed} ${speed}×`}
+              value={speed}
+              onChange={(e) => chooseSpeed(Number(e.target.value))}
+            >
+              {(speeds.includes(speed) ? speeds : [speed, ...speeds]).map((value) => (
+                <option key={value} value={value}>
+                  {value}×
+                </option>
+              ))}
+            </select>
+          ) : (
+            <button
+              type="button"
+              className="rk-media-btn rk-media-speed"
+              aria-label={`${labels.playbackSpeed} ${speed}×`}
+              onClick={cycleSpeed}
+            >
+              {speed}×
+            </button>
+          )}
           {kind === "video" && effectiveTracks.length > 0 && (
             <button
               type="button"
               className="rk-media-btn"
-              aria-label="Subtitles"
+              aria-label={labels.subtitles}
               aria-pressed={captions}
               onClick={() => setCaptions(!captions)}
             >
@@ -663,24 +808,24 @@ export function MediaPlayer(props: MediaPlayerProps) {
               type="button"
               className="rk-media-btn"
               aria-label={
-                nativeFullscreen || elementFullscreen ? "Exit fullscreen" : "Fullscreen"
+                nativeFullscreen || elementFullscreen ? labels.exitFullscreen : labels.fullscreen
               }
               disabled={!enabled}
               onClick={() => void fullscreen()}
             >
-              <FullscreenIcon />
+              {icon("fullscreen")}
             </button>
           )}
-          {openUrl !== undefined || src ? (
+          {showOpenOriginal && (openUrl !== undefined || src) ? (
             <a
               className="rk-media-btn"
               href={openUrl ?? resolveSrc(src)}
               target="_blank"
               rel="noreferrer"
-              aria-label="Open original"
-              title="Open original"
+              aria-label={labels.openOriginal}
+              title={labels.openOriginal}
             >
-              <ExternalIcon />
+              {icon("external")}
             </a>
           ) : null}
         </div>
@@ -691,30 +836,35 @@ export function MediaPlayer(props: MediaPlayerProps) {
           {error}
         </p>
       )}
-      {status === "error" && (
-        <div className="rk-media-fallback" role="alert">
-          <b>Preview failed</b>
-          <span>{error || "Media unavailable, corrupt or unsupported."}</span>
-          <span className="rk-media-fallback-note">
-            The original file is unchanged.
-          </span>
-          <div className="rk-media-fallback-actions">
-            <button type="button" className="rk-media-btn" onClick={doRetry}>
-              Retry
-            </button>
-            {onProxy ? (
-              <button type="button" className="rk-media-btn" onClick={onProxy}>
-                {proxyLabel ?? "Preview proxy"}
+      {status === "error" &&
+        (renderError ? (
+          renderError(errorContext)
+        ) : (
+          <div className="rk-media-fallback" role="alert">
+            <b>{labels.errorTitle}</b>
+            <span>{errorContext.message}</span>
+            <span className="rk-media-fallback-note">{labels.errorOriginalUnchanged}</span>
+            <div className="rk-media-fallback-actions">
+              <button type="button" className="rk-media-btn" onClick={doRetry}>
+                {labels.retry}
               </button>
-            ) : null}
-            {onOpenExternal && (
-              <button type="button" className="rk-media-btn" onClick={onOpenExternal}>
-                <ExternalIcon /> Open in default player
-              </button>
-            )}
+              {onProxy ? (
+                <button type="button" className="rk-media-btn" onClick={onProxy}>
+                  {proxyLabel ?? labels.proxy}
+                </button>
+              ) : null}
+              {errorContext.openOriginal && (
+                <button
+                  type="button"
+                  className="rk-media-btn"
+                  onClick={errorContext.openOriginal}
+                >
+                  {icon("external")} {labels.openInDefaultPlayer}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        ))}
     </div>
   );
 }

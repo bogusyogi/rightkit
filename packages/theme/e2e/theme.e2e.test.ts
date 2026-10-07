@@ -18,7 +18,8 @@ const genright = {
   name: "GenRight",
   code: "GR",
   colors: { brand: "#9567F5", "brand-action": "#7040C4", "brand-action-hover": "#6034AA", "brand-soft": "#F2ECFE", "brand-ink": "#6234AD", "brand-border": "#CDB8FA" },
-  wordmark: '"Tanker", sans-serif',
+  wordmark: "GenRight",
+  wordmarkFont: '"Tanker", sans-serif',
 };
 const ember = { name: "HeardRight", code: "HR", colors: { brand: "#FF5630" } };
 const teal = { name: "Tealight", code: "TL", colors: { brand: "#0C6AA5" }, dark: { brand: "#4DB1F0" } };
@@ -48,8 +49,8 @@ describe("rightkit-theme CLI on real files", () => {
     expect(first.json).toMatchObject({ event: "brand_theme_synced", ok: true, brand: "GR", changed: true, contrastPass: true });
     const css = readFileSync(out, "utf8");
     // Light accent for controls is the action colour; dark accent is the logo violet lifted to AA on the elevated surface; accent-ink is chosen per mode.
-    expect(css).toMatch(/:root \{[^}]*--rk-brand: #7040C4;[^}]*--rk-brand-dark: #986BF5;[^}]*--rk-wordmark: "Tanker", sans-serif;/s);
-    expect(css).toMatch(/:root\[data-theme="dark"\] \{[^}]*--rk-brand-ink: #986BF5;[^}]*--accent-ink: #1A1208;/s);
+    expect(css).toMatch(/:root \{[^}]*--rk-brand: #7040C4;[^}]*--rk-brand-dark: #986BF5;[^}]*--rk-wordmark-font: "Tanker", sans-serif;/s);
+    expect(css).toMatch(/:root\[data-theme="dark"\] \{[^}]*--rk-brand-ink: #986BF5;[^}]*--rk-accent-ink: #1A1208;/s);
     expect(css).toMatch(/@media \(prefers-color-scheme: dark\) \{\s+:root:not\(\[data-theme="light"\]\) \{/);
     expect(css).toMatch(/@theme \{[^}]*--color-brand-action: #7040C4;/s);
     const again = run("generate", brand, "--out", out, "--format", "both");
@@ -106,12 +107,12 @@ describe("rightkit-theme CLI on real files", () => {
   });
 
   it("flags hard-coded colours outside approved contexts, with file and line", () => {
-    const css = write("app.css", [".a { color: var(--ink); }", ".b { color: #12ab34; }", ":root { --x: #abcdef; }", ".c { background: rgba(1,2,3,.4); } /* rightkit-theme: allow */", ".d { box-shadow: 0 0 1px #345; }"].join("\n"));
+    const css = write("app.css", [".a { color: var(--rk-ink); }", ".b { color: #12ab34; }", ":root { --x: #abcdef; }", ".c { background: rgba(1,2,3,.4); } /* rightkit-theme: allow */", ".d { box-shadow: 0 0 1px #345; }"].join("\n"));
     const r = run("tokens", css);
     expect(r.code).toBe(1);
     const findings = r.json.findings as Array<{ line: number; value: string }>;
     expect(findings.map((f) => [f.line, f.value])).toEqual([[2, "#12ab34"]]);
-    const clean = write("clean.css", ".a { color: var(--ink); }\n:root { --x: #abcdef; }\n");
+    const clean = write("clean.css", ".a { color: var(--rk-ink); }\n:root { --x: #abcdef; }\n");
     expect(run("tokens", clean).code).toBe(0);
   });
 });
@@ -129,7 +130,7 @@ describe.skipIf(!chrome)("generated brand CSS in real headless Chrome (muted), l
       <div class="row"><button class="rk-btn rk-btn--primary">Primary action</button><button class="rk-btn rk-btn--secondary">Secondary</button><span class="rk-badge rk-badge--accent">Accent</span>
       <button class="rk-toggle" role="switch" aria-checked="true"><span class="rk-toggle__knob"></span></button></div>
       <p class="link">Accent text link style</p>
-      <div class="sw"><i style="background:var(--rk-brand-mark)"></i><i style="background:var(--accent)"></i><i style="background:var(--rk-brand-soft,var(--accent-soft))"></i><i style="background:var(--rk-brand-border,var(--line))"></i></div>
+      <div class="sw"><i style="background:var(--rk-brand-mark)"></i><i style="background:var(--rk-accent)"></i><i style="background:var(--rk-brand-soft,var(--rk-accent-soft))"></i><i style="background:var(--rk-brand-border,var(--rk-line))"></i></div>
     </section>`;
 
   beforeAll(async () => {
@@ -146,18 +147,18 @@ describe.skipIf(!chrome)("generated brand CSS in real headless Chrome (muted), l
     const scoped = brands
       .map(([id]) => {
         const text = readFileSync(join(site, `${id}.css`), "utf8");
-        const root = /:root \{[^}]*\}/.exec(text)![0].replace(":root {", `#${id} {\n  --accent: var(--rk-brand); --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);`);
-        const dark = /:root\[data-theme="dark"\] \{[^}]*\}/.exec(text)![0].replace(':root[data-theme="dark"] {', `:root[data-theme="dark"] #${id} {\n  --accent: var(--rk-brand-dark); --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);`);
+        const root = /:root \{[^}]*\}/.exec(text)![0].replace(":root {", `#${id} {\n  --rk-accent: var(--rk-brand); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 14%, transparent);`);
+        const dark = /:root\[data-theme="dark"\] \{[^}]*\}/.exec(text)![0].replace(':root[data-theme="dark"] {', `:root[data-theme="dark"] #${id} {\n  --rk-accent: var(--rk-brand-dark); --rk-accent-soft: color-mix(in srgb, var(--rk-accent) 18%, transparent);`);
         return root + dark;
       })
       .join("\n");
     writeFileSync(
       join(site, "sheet.html"),
       `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="shell.css"><style>${scoped}
-         body{margin:0;background:var(--plane);color:var(--ink);font:14px system-ui;padding:24px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-         .brand{background:var(--elevated);border-radius:12px;box-shadow:var(--card);padding:16px}
+         body{margin:0;background:var(--rk-plane);color:var(--rk-ink);font:14px system-ui;padding:24px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+         .brand{background:var(--rk-elevated);border-radius:12px;box-shadow:var(--rk-card);padding:16px}
          .row{display:flex;gap:10px;align-items:center;margin:12px 0}
-         .link{color:var(--rk-brand-ink,var(--accent))} .sw{display:flex;gap:8px}.sw i{width:36px;height:36px;border-radius:8px;display:block;box-shadow:var(--card)}
+         .link{color:var(--rk-brand-ink,var(--rk-accent))} .sw{display:flex;gap:8px}.sw i{width:36px;height:36px;border-radius:8px;display:block;box-shadow:var(--rk-card)}
        </style><body>${brands.map(([id, b]) => sheet(b, id)).join("")}<script>window.__ready=true</script>`,
     );
     writeFileSync(
@@ -165,10 +166,10 @@ describe.skipIf(!chrome)("generated brand CSS in real headless Chrome (muted), l
       `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="shell.css">
        ${brands.map(([id]) => `<link rel="stylesheet" href="${id}.css" media="all" data-brand="${id}">`).join("")}
        <style>
-         body{margin:0;background:var(--plane);color:var(--ink);font:14px system-ui;padding:24px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-         .brand{background:var(--elevated);border-radius:12px;box-shadow:var(--card);padding:16px}
+         body{margin:0;background:var(--rk-plane);color:var(--rk-ink);font:14px system-ui;padding:24px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+         .brand{background:var(--rk-elevated);border-radius:12px;box-shadow:var(--rk-card);padding:16px}
          .row{display:flex;gap:10px;align-items:center;margin:12px 0}
-         .link{color:var(--rk-brand-ink,var(--accent))} .sw{display:flex;gap:8px}.sw i{width:36px;height:36px;border-radius:8px;display:block;box-shadow:var(--card)}
+         .link{color:var(--rk-brand-ink,var(--rk-accent))} .sw{display:flex;gap:8px}.sw i{width:36px;height:36px;border-radius:8px;display:block;box-shadow:var(--rk-card)}
        </style>
        <body><script>window.__ready=true</script>`,
     );
@@ -197,24 +198,24 @@ describe.skipIf(!chrome)("generated brand CSS in real headless Chrome (muted), l
   };
   const css = (name: string) => page.eval<string>(`getComputedStyle(document.documentElement).getPropertyValue(${JSON.stringify(name)}).trim()`);
 
-  it("applies the GenRight accent pair per mode through the shell's own --accent", async () => {
+  it("applies the GenRight accent pair per mode through the shell's own --rk-accent", async () => {
     await load("gr", "light", "light");
-    expect((await css("--accent")).toUpperCase()).toBe("#7040C4");
-    expect((await css("--accent-ink")).toUpperCase()).toBe("#FFFFFF");
+    expect((await css("--rk-accent")).toUpperCase()).toBe("#7040C4");
+    expect((await css("--rk-accent-ink")).toUpperCase()).toBe("#FFFFFF");
     await load("gr", "dark", "light");
-    expect((await css("--accent")).toUpperCase()).toBe("#986BF5");
-    expect((await css("--accent-ink")).toUpperCase()).toBe("#1A1208");
+    expect((await css("--rk-accent")).toUpperCase()).toBe("#986BF5");
+    expect((await css("--rk-accent-ink")).toUpperCase()).toBe("#1A1208");
   });
 
   it("follows the OS in system mode, and an explicit choice beats the OS", async () => {
     await load("gr", "system", "dark");
-    expect((await css("--accent")).toUpperCase()).toBe("#986BF5");
+    expect((await css("--rk-accent")).toUpperCase()).toBe("#986BF5");
     await load("gr", "system", "light");
-    expect((await css("--accent")).toUpperCase()).toBe("#7040C4");
+    expect((await css("--rk-accent")).toUpperCase()).toBe("#7040C4");
     await load("gr", "light", "dark");
-    expect((await css("--accent")).toUpperCase()).toBe("#7040C4");
+    expect((await css("--rk-accent")).toUpperCase()).toBe("#7040C4");
     await load("gr", "dark", "light");
-    expect((await css("--accent")).toUpperCase()).toBe("#986BF5");
+    expect((await css("--rk-accent")).toUpperCase()).toBe("#986BF5");
   });
 
   it("paints a primary button in the brand colour with legible text, and captures all brands in both modes", async () => {

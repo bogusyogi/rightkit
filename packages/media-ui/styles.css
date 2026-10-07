@@ -1,36 +1,38 @@
-/* @rightkit/media-ui — brand-neutral defaults. Apps restyle via the custom
-   properties below (and by overriding the rk-* rules). All colours default to
-   neutral slate so the components work un-themed. */
+/* @rightkit/media-ui — brand-neutral defaults. Apps restyle by setting the public
+   --rk-media-* / --rk-iv-* custom properties anywhere (:root or an ancestor) and by
+   overriding the rk-* rules. Public names are inputs only; this file never declares
+   them, so app values always win. The only shared fallback is the suite --rk-accent.
+   Internal --_rk* names are private and may change. */
 
 .rk-media {
-  --rk-media-accent: var(--accent, #6d7ff5);
-  --rk-media-fg: var(--label, #e8e8e8);
-  --rk-media-fg-dim: var(--label-2, #a8a8a8);
-  --rk-media-surface: var(--fill-2, rgba(127, 127, 127, 0.14));
-  --rk-media-danger: var(--danger, #d4536a);
-  --rk-media-muted: var(--muted, #8a8a8a);
+  --_rkmedia-accent: var(--rk-media-accent, var(--rk-accent, #6d7ff5));
+  --_rkmedia-fg: var(--rk-media-fg, #e8e8e8);
+  --_rkmedia-fg-dim: var(--rk-media-fg-dim, #a8a8a8);
+  --_rkmedia-surface: var(--rk-media-surface, rgba(127, 127, 127, 0.14));
+  --_rkmedia-danger: var(--rk-media-danger, #d4536a);
+  --_rkmedia-muted: var(--rk-media-muted, #8a8a8a);
   position: relative;
   border-radius: 10px;
   overflow: hidden;
   outline: none;
   max-width: 680px;
 }
-.rk-media:focus-visible { box-shadow: 0 0 0 2px var(--focus, var(--rk-media-accent)); }
+.rk-media:focus-visible { box-shadow: 0 0 0 2px var(--rk-focus, var(--_rkmedia-accent)); }
 .rk-media-video { display: block; width: 100%; max-height: 420px; background: #000; object-fit: contain; }
 .rk-media-audio { width: 100%; max-width: none; }
 .rk-media-audio-face {
   display: grid;
   place-items: center;
   height: 72px;
-  color: var(--rk-media-fg-dim);
+  color: var(--_rkmedia-fg-dim);
   cursor: default;
-  background: var(--rk-media-surface);
+  background: var(--_rkmedia-surface);
 }
 .rk-media-audio-face audio { display: none; }
 .rk-media-audio-glyph { font-size: 26px; }
 .rk-media.compact .rk-media-audio-face { height: 44px; }
 
-.rk-media-status { color: var(--rk-media-muted); font-size: 12px; padding: 8px 0; }
+.rk-media-status { color: var(--_rkmedia-muted); font-size: 12px; padding: 8px 0; }
 
 .rk-media-controls {
   display: flex;
@@ -39,8 +41,8 @@
   gap: 8px;
   padding: 6px 8px;
   font-size: 12px;
-  color: var(--rk-media-fg);
-  background: var(--rk-media-surface);
+  color: var(--_rkmedia-fg);
+  background: var(--_rkmedia-surface);
 }
 .rk-media-btn {
   display: inline-flex;
@@ -58,17 +60,18 @@
   text-decoration: none;
   padding: 0 4px;
 }
-.rk-media-btn:hover { background: var(--rk-media-surface); }
+.rk-media-btn:hover { background: var(--_rkmedia-surface); }
 .rk-media-btn:disabled { opacity: 0.45; cursor: default; }
 .rk-media-speed { min-width: 34px; font-size: 11px; }
+.rk-media-speed-menu { cursor: pointer; padding: 0 4px; }
 .rk-media-time {
   font: 11px ui-monospace, "SF Mono", Menlo, monospace;
-  color: var(--rk-media-fg-dim);
+  color: var(--_rkmedia-fg-dim);
   white-space: nowrap;
 }
-.rk-media-seek { flex: 1; min-width: 60px; accent-color: var(--rk-media-accent); }
-.rk-media-vol { width: 60px; accent-color: var(--rk-media-accent); }
-.rk-media-controls select { accent-color: var(--rk-media-accent); }
+.rk-media-seek { flex: 1; min-width: 60px; accent-color: var(--_rkmedia-accent); }
+.rk-media-vol { width: 60px; accent-color: var(--_rkmedia-accent); }
+.rk-media-controls select { accent-color: var(--_rkmedia-accent); }
 .rk-media-audio .rk-media-controls { flex-wrap: nowrap; gap: 6px; }
 .rk-media-audio .rk-media-seek { min-width: 0; }
 .rk-media-audio .rk-media-vol { width: 44px; }
@@ -80,18 +83,18 @@
 .rk-media-info {
   padding: 4px 10px 6px;
   font-size: 11px;
-  color: var(--rk-media-fg-dim);
-  background: var(--rk-media-surface);
+  color: var(--_rkmedia-fg-dim);
+  background: var(--_rkmedia-surface);
 }
-.rk-media-error { color: var(--rk-media-danger); font-size: 12px; overflow-wrap: anywhere; }
+.rk-media-error { color: var(--_rkmedia-danger); font-size: 12px; overflow-wrap: anywhere; }
 .rk-media-fallback {
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 12px 14px;
   border-radius: 9px;
-  background: var(--rk-media-surface);
-  color: var(--rk-media-fg-dim);
+  background: var(--_rkmedia-surface);
+  color: var(--_rkmedia-fg-dim);
   font-size: 12.5px;
 }
 .rk-media-fallback-note { font-size: 11.5px; }
@@ -119,19 +122,19 @@
 /* ── Image viewer / editor ─────────────────────────────────────────────── */
 
 .rk-iv {
-  --rk-iv-accent: var(--accent, #d9803f);
-  --rk-iv-bg: var(--ink, #171716);
-  --rk-iv-panel: var(--panel, #1f1f1e);
-  --rk-iv-line: var(--line, rgba(255, 255, 255, 0.09));
-  --rk-iv-fg: var(--paper, #ece9e2);
-  --rk-iv-fg-dim: var(--muted, #8f8c85);
+  --_rkiv-accent: var(--rk-iv-accent, var(--rk-accent, #d9803f));
+  --_rkiv-bg: var(--rk-iv-bg, #171716);
+  --_rkiv-panel: var(--rk-iv-panel, #1f1f1e);
+  --_rkiv-line: var(--rk-iv-line, rgba(255, 255, 255, 0.09));
+  --_rkiv-fg: var(--rk-iv-fg, #ece9e2);
+  --_rkiv-fg-dim: var(--rk-iv-fg-dim, #8f8c85);
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--rk-iv-bg);
+  background: var(--_rkiv-bg);
   font-size: 11px;
-  color: var(--rk-iv-fg-dim);
+  color: var(--_rkiv-fg-dim);
 }
 .rk-iv-empty {
   display: flex;
@@ -139,7 +142,7 @@
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  color: var(--rk-iv-fg-dim);
+  color: var(--_rkiv-fg-dim);
 }
 
 .rk-iv-toolbar { display: flex; flex-direction: column; flex-shrink: 0; }
@@ -154,36 +157,36 @@
   width: max-content;
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--rk-iv-line);
+  border: 1px solid var(--_rkiv-line);
   border-radius: 999px;
-  background: var(--rk-iv-panel);
+  background: var(--_rkiv-panel);
 }
 .rk-iv-btn {
   height: 28px;
   border: 0;
   border-radius: 6px;
   background: none;
-  color: var(--rk-iv-fg-dim);
+  color: var(--_rkiv-fg-dim);
   font-size: 11px;
   cursor: pointer;
   padding: 0 8px;
 }
-.rk-iv-btn:hover { color: var(--rk-iv-fg); background: var(--rk-iv-line); }
-.rk-iv-btn[data-active] { color: var(--rk-iv-accent); }
+.rk-iv-btn:hover { color: var(--_rkiv-fg); background: var(--_rkiv-line); }
+.rk-iv-btn[data-active] { color: var(--rk-iv-active-fg, var(--_rkiv-accent)); background: var(--rk-iv-active-bg, transparent); }
 .rk-iv-btn:disabled { opacity: 0.35; cursor: default; }
-.rk-iv-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--rk-iv-line); }
-.rk-iv-dim { color: var(--rk-iv-fg-dim); }
+.rk-iv-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--_rkiv-line); }
+.rk-iv-dim { color: var(--_rkiv-fg-dim); }
 .rk-iv-input {
   height: 28px;
-  border: 1px solid var(--rk-iv-line);
+  border: 1px solid var(--_rkiv-line);
   border-radius: 6px;
-  background: var(--rk-iv-bg);
-  color: var(--rk-iv-fg);
+  background: var(--_rkiv-bg);
+  color: var(--_rkiv-fg);
   padding: 0 8px;
   font-size: 12px;
   outline: none;
 }
-.rk-iv-input:focus { border-color: var(--rk-iv-accent); }
+.rk-iv-input:focus { border-color: var(--_rkiv-accent); }
 .rk-iv-input:disabled { opacity: 0.4; }
 .rk-iv-num { width: 96px; }
 .rk-iv-num-sm { width: 64px; }
@@ -195,14 +198,14 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-top: 1px solid var(--rk-iv-line);
-  background: var(--rk-iv-panel);
+  border-top: 1px solid var(--_rkiv-line);
+  background: var(--_rkiv-panel);
   padding: 8px 12px;
 }
 .rk-iv-panel-wrap { flex-wrap: wrap; row-gap: 8px; column-gap: 16px; }
 .rk-iv-field { display: flex; align-items: center; gap: 4px; }
-.rk-iv-color { height: 28px; border: 1px solid var(--rk-iv-line); background: var(--rk-iv-bg); padding: 0 8px; border-radius: 6px; }
-.rk-iv-swatch { position: relative; display: inline-block; height: 16px; width: 24px; overflow: hidden; border: 1px solid var(--rk-iv-line); }
+.rk-iv-color { height: 28px; border: 1px solid var(--_rkiv-line); background: var(--_rkiv-bg); padding: 0 8px; border-radius: 6px; }
+.rk-iv-swatch { position: relative; display: inline-block; height: 16px; width: 24px; overflow: hidden; border: 1px solid var(--_rkiv-line); }
 .rk-iv-swatch input[type="color"] {
   position: absolute; left: -4px; top: -4px; height: 28px; width: 32px;
   border: 0; padding: 0; background: transparent; cursor: pointer;
@@ -210,7 +213,7 @@
 .rk-iv-slider { display: flex; align-items: center; gap: 8px; }
 .rk-iv-slider-label { width: 80px; text-align: right; }
 .rk-iv-slider-value { width: 36px; text-align: right; }
-.rk-iv-range { width: 112px; accent-color: var(--rk-iv-accent); }
+.rk-iv-range { width: 112px; accent-color: var(--_rkiv-accent); }
 
 .rk-iv-stage {
   position: relative;
@@ -237,12 +240,12 @@
   position: absolute;
   bottom: 12px;
   pointer-events: none;
-  border: 1px solid var(--rk-iv-line);
+  border: 1px solid var(--_rkiv-line);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--rk-iv-panel) 90%, transparent);
+  background: color-mix(in srgb, var(--_rkiv-panel) 90%, transparent);
   padding: 4px 8px;
   font: 11px ui-monospace, monospace;
-  color: var(--rk-iv-fg-dim);
+  color: var(--_rkiv-fg-dim);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 .rk-iv-badge-left { left: 12px; }
@@ -257,10 +260,10 @@
   place-items: center;
   height: 40px;
   width: 40px;
-  border: 1px solid var(--rk-iv-line);
+  border: 1px solid var(--_rkiv-line);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--rk-iv-panel) 80%, transparent);
-  color: var(--rk-iv-fg-dim);
+  background: color-mix(in srgb, var(--_rkiv-panel) 80%, transparent);
+  color: var(--_rkiv-fg-dim);
   opacity: 0;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
@@ -272,4 +275,4 @@
 .rk-iv-sibling:focus-visible { opacity: 1; }
 .rk-iv-stage:hover .rk-iv-sibling:disabled { opacity: 0.3; }
 .rk-iv-sibling:disabled { opacity: 0; cursor: default; }
-.rk-iv-sibling:hover { background: var(--rk-iv-panel); color: var(--rk-iv-accent); }
+.rk-iv-sibling:hover { background: var(--_rkiv-panel); color: var(--_rkiv-accent); }

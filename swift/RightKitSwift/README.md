@@ -8,6 +8,7 @@ truth for the pieces every app would otherwise reimplement and let drift.
 | `RightKitLicense` | Verifies Ed25519 entitlement tokens against the same `contracts/license-v2.json` vector the Rust and TypeScript verifiers use, so a token accepted on one platform is accepted on all. |
 | `RightKitDiagnostics` | Bounded JSONL diagnostics with a privacy redactor (never logs keys, tokens, or device ids). |
 | `RightKitArtifacts` | Checksummed artifact install with staging, atomic replace, rollback, and archive-traversal/symlink/expansion guards. |
+| `RightKitUI` | Generic adaptive-glass surface primitive: regular/clear native Liquid Glass + ConcentricRectangle on iOS/macOS 26, material fallback on older OS versions, and opaque accessibility fallback. Product radii, colors, layout, motion, and behavior stay app-local. |
 
 ## Consuming it
 
@@ -23,7 +24,7 @@ edit of the pin, recorded in `rightkit-versions.json`.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.0"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.1"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -38,7 +39,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit-swift.git
-    exactVersion: "0.3.0"
+    exactVersion: "0.3.1"
 ```
 
 A clone of a consuming app resolves this straight from GitHub — no workspace

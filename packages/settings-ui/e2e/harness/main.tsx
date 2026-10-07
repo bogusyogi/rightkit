@@ -113,7 +113,7 @@ function App() {
       mergeSections(
         standardSections({
           appearance: { themeStore, accents: [{ id: "brand", label: "Brand", color: "#7040C4" }, { id: "teal", label: "Teal", color: "#0C8A7B" }, { id: "amber", label: "Amber", color: "#B25000" }] },
-          updates: { client: updates, currentVersion: "1.4.2", onRestart: () => void (document.title = "restarting") },
+          updates: { client: updates, supportsAutoInstall: true, currentVersion: "1.4.2", onRestart: () => void (document.title = "restarting") },
           models: { models: backends.models, title: "Speech models" },
           license: { client: license, purchaseUrl: "https://example.test/buy", openExternal: noop, tierLabels: { pro: "Pro" } },
           legal: { documents: [{ title: "Terms of Service", url: "https://example.test/terms" }, { title: "Privacy Policy", url: "https://example.test/privacy" }], acceptedAt: "2026-09-01T12:00:00Z", acceptedVersion: "2026-09", openExternal: noop, onReview: noop },

@@ -4,6 +4,7 @@ import { isLicensed, tier as licenseTier, type StoredLicense, type createLicense
 import type { LogsClient } from "@rightkit/logs";
 import { applyBrand, brandFromAccent } from "@rightkit/theme";
 import type { AutoUpdateClient, AutoUpdateStatus } from "@rightkit/updates";
+import { sectionIcons } from "./icons.js";
 import { ProgressBar, SettingRow, SettingsGroup, formatBytes } from "./primitives.js";
 import type { ModelEntry, ModelsBackend, SecretPresence, SecretRef, SecretsBackend, SettingsContext, SettingsSection } from "./types.js";
 
@@ -118,6 +119,7 @@ function AppearanceBody({ ctx, options }: { ctx: SettingsContext; options: Appea
 export function appearanceSection(options: AppearanceOptions = {}): SettingsSection {
   return {
     id: "appearance",
+    icon: sectionIcons.appearance,
     label: "Appearance",
     group: "General",
     order: 100,
@@ -139,7 +141,39 @@ export interface UpdatesOptions {
   onRestart?: () => void | Promise<void>;
   /** Shown for a Pro-only feature update on a Free licence. */
   upgradeHint?: ReactNode;
+  /**
+   * Whether the update client can install updates by itself (`createAutoUpdateClient({ shouldAutoInstall })` returning true
+   * for some tier). The "Install updates automatically" toggle is shown only when this is true. Default false.
+   */
+  supportsAutoInstall?: boolean;
+  /** Override any user-visible string. */
+  labels?: Partial<UpdatesLabels>;
 }
+
+export interface UpdatesLabels {
+  version: (currentVersion: string) => string;
+  checkNow: string;
+  installUpdate: string;
+  restartNow: string;
+  proUpdate: string;
+  autoInstall: string;
+  autoInstallDescription: string;
+  /** Replace the status sentence; receives the default text. */
+  status: (status: AutoUpdateStatus, fallback: string) => string;
+}
+
+const defaultUpdatesLabels: UpdatesLabels = {
+  version: (v) => `Version ${v}`,
+  checkNow: "Check now",
+  installUpdate: "Install update",
+  restartNow: "Restart now",
+  proUpdate: "Pro update",
+  autoInstall: "Install updates automatically",
+  autoInstallDescription: "Patches install when the app is idle. Feature updates always ask first.",
+  status: (_s, fallback) => fallback,
+};
+
+const updatesLabels = (o: UpdatesOptions): UpdatesLabels => ({ ...defaultUpdatesLabels, ...o.labels });
 
 function statusLine(s: AutoUpdateStatus): { tone: "ok" | "warn" | "bad" | "neutral" | "accent"; text: string } {
   switch (s.kind) {
@@ -165,28 +199,31 @@ function UpdatesBody({ ctx, o }: { ctx: SettingsContext; o: UpdatesOptions }) {
       setStatus({ kind: "error", message: errText(e) });
     }
   }, []);
+  const L = updatesLabels(o);
   const line = statusLine(status);
   const auto = ctx.values["updates.autoInstall"] === true;
   return (
     <SettingsGroup>
-      <SettingRow id="updates.status" label={`Version ${o.currentVersion}`} description={<span role="status" data-update-status={status.kind}>{line.text}</span>}>
+      <SettingRow id="updates.status" label={L.version(o.currentVersion)} description={<span role="status" data-update-status={status.kind}>{L.status(status, line.text)}</span>}>
         <div className="rk-sr__buttons">
           <Badge tone={line.tone}>{status.kind.replace(/_/g, " ")}</Badge>
           {status.kind === "available" && status.eligible ? (
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => o.client.installAvailable())}>Install update</Button>
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => o.client.installAvailable())}>{L.installUpdate}</Button>
           ) : null}
           {status.kind === "ready" && o.onRestart ? (
-            <Button size="sm" variant="primary" onClick={() => void o.onRestart?.()}>Restart now</Button>
+            <Button size="sm" variant="primary" onClick={() => void o.onRestart?.()}>{L.restartNow}</Button>
           ) : null}
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void run(() => o.client.checkOnce())}>Check now</Button>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void run(() => o.client.checkOnce())}>{L.checkNow}</Button>
         </div>
       </SettingRow>
       {status.kind === "available" && !status.eligible && status.reason === "pro_required" && o.upgradeHint ? (
-        <SettingRow label="Pro update" description={o.upgradeHint} />
+        <SettingRow label={L.proUpdate} description={o.upgradeHint} />
       ) : null}
-      <SettingRow id="updates.auto" label="Install updates automatically" description="Patches install when the app is idle. Feature updates always ask first.">
-        <Toggle label="Install updates automatically" checked={auto} onChange={(v) => void ctx.set("updates.autoInstall", v)} />
-      </SettingRow>
+      {o.supportsAutoInstall ? (
+        <SettingRow id="updates.auto" label={L.autoInstall} description={L.autoInstallDescription}>
+          <Toggle label={L.autoInstall} checked={auto} onChange={(v) => void ctx.set("updates.autoInstall", v)} />
+        </SettingRow>
+      ) : null}
     </SettingsGroup>
   );
 }
@@ -194,13 +231,14 @@ function UpdatesBody({ ctx, o }: { ctx: SettingsContext; o: UpdatesOptions }) {
 export function updatesSection(options: UpdatesOptions): SettingsSection {
   return {
     id: "updates",
+    icon: sectionIcons.updates,
     label: "Updates",
     group: "General",
     order: 200,
     keywords: ["version", "upgrade", "release"],
     entries: [
       { id: "updates.status", label: "Check for updates", keywords: ["version", "upgrade"] },
-      { id: "updates.auto", label: "Install updates automatically", keywords: ["auto", "patch"] },
+      ...(options.supportsAutoInstall ? [{ id: "updates.auto", label: updatesLabels(options).autoInstall, keywords: ["auto", "patch"] }] : []),
     ],
     render: (ctx) => <UpdatesBody ctx={ctx} o={options} />,
   };
@@ -215,6 +253,8 @@ export interface LicenseOptions {
   openExternal?: (url: string) => void | Promise<void>;
   /** Display names for tiers, e.g. `{ pro: "Pro" }`. Falls back to the tier string. */
   tierLabels?: Record<string, string>;
+  /** Plan / upsell panel rendered above the licence rows. */
+  planSlot?: ReactNode;
   /** Fired after activate/deactivate so the app can refresh its entitlements. */
   onChange?: (lic: StoredLicense | null) => void;
 }
@@ -319,6 +359,7 @@ function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
 export function licenseSection(options: LicenseOptions): SettingsSection {
   return {
     id: "license",
+    icon: sectionIcons.license,
     label: "Licence",
     group: "Account",
     order: 100,
@@ -327,7 +368,12 @@ export function licenseSection(options: LicenseOptions): SettingsSection {
       { id: "license.status", label: "Licence status", keywords: ["pro", "trial", "tier"] },
       { id: "license.activate", label: "Activate licence key", keywords: ["key"] },
     ],
-    render: (ctx) => <LicenseBody ctx={ctx} o={options} />,
+    render: (ctx) => (
+      <>
+        {options.planSlot}
+        <LicenseBody ctx={ctx} o={options} />
+      </>
+    ),
   };
 }
 
@@ -346,6 +392,7 @@ export interface LegalOptions {
 export function legalSection(o: LegalOptions): SettingsSection {
   return {
     id: "legal",
+    icon: sectionIcons.legal,
     label: "Legal",
     group: "Account",
     order: 200,
@@ -427,6 +474,7 @@ function DiagnosticsBody({ ctx, o }: { ctx: SettingsContext; o: DiagnosticsOptio
 export function diagnosticsSection(options: DiagnosticsOptions): SettingsSection {
   return {
     id: "diagnostics",
+    icon: sectionIcons.diagnostics,
     label: "Diagnostics",
     group: "Support",
     order: 100,
@@ -508,6 +556,7 @@ function ModelsBody({ o }: { o: ModelsOptions }) {
 export function modelsSection(options: ModelsOptions): SettingsSection {
   return {
     id: "models",
+    icon: sectionIcons.models,
     label: options.title ?? "Models",
     group: "General",
     order: 300,
@@ -620,6 +669,7 @@ function ApiKeysBody({ o, ctx }: { o: ApiKeysOptions; ctx: SettingsContext }) {
 export function apiKeysSection(options: ApiKeysOptions): SettingsSection {
   return {
     id: "api-keys",
+    icon: sectionIcons.apiKeys,
     label: "API keys",
     group: "Account",
     order: 300,
@@ -640,19 +690,24 @@ export interface AboutOptions {
   links?: ReadonlyArray<{ label: string; url: string }>;
   openExternal?: (url: string) => void | Promise<void>;
   copy?: (text: string) => void | Promise<void>;
+  /** Rows rendered inside the About card. */
   extra?: ReactNode;
+  /** Full panels rendered below the About card, outside it. */
+  panels?: ReactNode;
 }
 
 export function aboutSection(o: AboutOptions): SettingsSection {
   const info = [`${o.appName} ${o.version}`, o.build ? `build ${o.build}` : null, o.platform ?? null].filter(Boolean).join(" · ");
   return {
     id: "about",
+    icon: sectionIcons.about,
     label: "About",
     group: "Support",
     order: 900,
     keywords: ["version", "build", "licence", "credits"],
     entries: [{ id: "about.version", label: "Version", keywords: ["build"] }],
     render: () => (
+      <>
       <SettingsGroup>
         <SettingRow id="about.version" label={o.appName} description={info}>
           <Button size="sm" variant="ghost" onClick={() => void Promise.resolve((o.copy ?? ((t: string) => navigator.clipboard.writeText(t)))(info))}>Copy version info</Button>
@@ -665,6 +720,8 @@ export function aboutSection(o: AboutOptions): SettingsSection {
         {o.extra}
         {o.copyright ? <p className="rk-sg__desc">{o.copyright}</p> : null}
       </SettingsGroup>
+      {o.panels}
+      </>
     ),
   };
 }

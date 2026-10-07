@@ -49,6 +49,16 @@ export function revealSetting(root: ParentNode, id: string): boolean {
   return true;
 }
 
+/** The active section's article: heading (`heading` ?? `label`) plus its body. */
+export function SectionFrame({ section, ctx }: { section: SettingsSection; ctx: SettingsContext }) {
+  return (
+    <article className="rk-settings__section" aria-labelledby={`rk-sec-${section.id}`}>
+      <h1 id={`rk-sec-${section.id}`} className="rk-settings__h1">{section.heading ?? section.label}</h1>
+      {section.render(ctx)}
+    </article>
+  );
+}
+
 export interface SettingsPanelProps {
   backend: SettingsBackend;
   sections: readonly SettingsSection[];
@@ -134,7 +144,8 @@ export function SettingsPanel({ backend, sections, title = "Settings", activeId,
                 onClick={() => select(section.id, entryIds[0])}
               >
                 {section.icon ? <span className="rk-settings__icon" aria-hidden="true">{section.icon}</span> : null}
-                <span>{section.label}</span>
+                <span className="rk-settings__label">{section.label}</span>
+                {section.badge ? <span className="rk-settings__badge">{section.badge}</span> : null}
               </button>
               {query
                 ? (section.entries ?? [])
@@ -161,10 +172,7 @@ export function SettingsPanel({ backend, sections, title = "Settings", activeId,
         {!settings.loaded ? (
           <div className="rk-settings__loading" aria-busy="true">{loading ?? "Loading settings…"}</div>
         ) : active ? (
-          <article key={active.id} className="rk-settings__section" aria-labelledby={`rk-sec-${active.id}`}>
-            <h1 id={`rk-sec-${active.id}`} className="rk-settings__h1">{active.label}</h1>
-            {active.render(ctx)}
-          </article>
+          <SectionFrame key={active.id} section={active} ctx={ctx} />
         ) : null}
         <div className="rk-settings__saving" aria-live="polite">{settings.saving ? "Saving…" : ""}</div>
       </div>
