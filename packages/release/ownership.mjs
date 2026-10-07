@@ -1,6 +1,6 @@
 // RightKit ownership scan. Public exports retain the original findings-array API.
 import { spawnSync } from "./background-process.mjs";
-import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
+import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, resolveKeyLogTrust, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
 import { parse as parseToml } from "smol-toml";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -417,6 +417,7 @@ export function loadExceptions(root) { const file = path.join(root, EXCEPTIONS_F
 function enrollmentPending(trust, state) {
   if (state?.pending !== undefined) return state.pending;
   if (state?.enrolled !== undefined) return !state.enrolled;
+  if (trust?.rootFingerprint) return !Array.isArray(trust.ownershipKeys) || trust.ownershipKeys.length === 0;
   const keys = [trust?.hosts?.windows, trust?.hosts?.macos];
   return !keys.every((key) => key?.keyId && key.publicKeyPem && !trust.revokedKeyIds?.includes(key.keyId)) || keys[0]?.keyId === keys[1]?.keyId || keys[0]?.publicKeyPem === keys[1]?.publicKeyPem;
 }
@@ -474,17 +475,29 @@ export function checkApp(appRoot, manifest, options = {}) {
 function checkCommitted(appRoot, manifest, options, acquire) {
   let trustState = options.trust;
   if (!trustState) trustState = loadTrustedExternal();
-  const trust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
-  const requiredPaths = (trust?.provenance ?? []).flatMap((record) => record.paths ?? []);
+  let trust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
+  const requiredPaths = [...(trust?.provenance ?? []).flatMap((record) => record.paths ?? []), ...(trust?.rootFingerprint ? [".rightkit/ownership-keys.json"] : [])];
   const sourceHandle = options.source ?? acquire(appRoot, { expectedCommit: options.expectedCommit, expectedTree: options.expectedTree, requiredPaths });
   const committed = committedSourceDataForInternalUse(sourceHandle);
   if (!committed) throw new Error("committed ownership: supplied source handle was not acquired by trusted Git reader");
   if ((options.expectedCommit && committed.commit !== options.expectedCommit) || (options.expectedTree && committed.tree !== options.expectedTree)) throw new Error("committed ownership: source handle does not match expected commit/tree");
-  const relativeRoot = path.relative(committed.repositoryRoot, path.resolve(appRoot));
+  // Compare real paths: Git reports the resolved root (macOS /private/var/...), while callers
+  // may pass a symlinked spelling of the same directory (/var/..., /tmp/...).
+  const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
+  const relativeRoot = path.relative(real(committed.repositoryRoot), real(appRoot));
   if (relativeRoot === ".." || relativeRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeRoot)) throw new Error("committed ownership: scan root is outside committed repository");
   const pathPrefix = relativeRoot ? `${relativeRoot.split(path.sep).join("/")}/` : "";
   const repositoryIdentity = committed.origin ? canonicalRepositoryIdentity(committed.origin) : null;
   if (!repositoryIdentity) throw new Error("committed ownership: repository origin is missing or invalid");
+  let keyLogDigest, keyCheckpoint;
+  if (trust?.rootFingerprint) {
+    const keyLog = committed.entries.find((entry) => entry.rel === ".rightkit/ownership-keys.json");
+    const resolved = resolveKeyLogTrust(trust, keyLog?.bytes);
+    if (!resolved.ok) throw new Error(`committed ownership key log failed: ${resolved.problems.join("; ")}`);
+    trust = resolved.trust;
+    keyLogDigest = resolved.keyLogDigest;
+    keyCheckpoint = resolved.checkpoint;
+  }
   const location = { root: committed.repositoryRoot, prefix: pathPrefix, pathBase: "repository" };
   const inventory = committedFileInventory(appRoot, trust, location.prefix, committed);
   if (location.prefix && !committed.entries.some((entry) => entry.rel.startsWith(location.prefix))) {
@@ -505,9 +518,9 @@ function checkCommitted(appRoot, manifest, options, acquire) {
     scannedAt: new Date().toISOString(), catalogDigest: catalogDigest(manifest), catalogVersion: manifest.version ?? String(manifest.schema ?? "1"),
     scannerVersion: SCANNER_VERSION, contentDigests: scanned.contentDigests, coverage: scanned.coverage,
     pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance, exceptionDigest,
-    source: "committed-git-tree",
+    source: "committed-git-tree", ...(keyLogDigest ? { keyLogDigest, keyCheckpoint, rootFingerprint: trust.rootFingerprint } : {}),
   };
-  const result = evaluate(scanned.findings, exceptions, { ...options, trust, trustEnrollment: trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata });
+  const result = evaluate(scanned.findings, exceptions, { ...options, trust, trustEnrollment: trust?.rootFingerprint ? { enrolled: trust.ownershipKeys.length > 0, pending: trust.ownershipKeys.length === 0 } : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
   return { ok: !result.enrollmentPending && !result.violations.length && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
