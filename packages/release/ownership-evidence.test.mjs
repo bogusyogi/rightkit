@@ -98,6 +98,7 @@ test("release evidence binds scan to catalog, approvals, and immutable commit", 
     const options = { manifestPath: path.join(releaseRoot, "rightkit-ownership.json"), trustLoader: trusted(root) };
     const built = createOwnershipEvidenceForTest(root, { ...options, scanRoot: root });
     assert.equal(built.ok, true);
+    assert.equal(built.evidence.commit, git(root, "rev-parse", "HEAD"));
     assert.equal(built.evidence.visibility, "private");
     assert.equal(verifyOwnershipEvidenceForTest(built.evidence, root, { ...options, scanRoot: root }).ok, true);
 
@@ -130,6 +131,7 @@ test("protected evidence scans exact committed blobs & binds source tree", () =>
     writeFileSync(path.join(root, "source.rs"), "checkout bytes no longer contain marker\n");
     const checked = createCommittedOwnershipEvidenceForTest(root, { scanRoot: root, manifestPath: catalogPath, trustLoader: trusted(root) });
     assert.equal(checked.evidence.source, "committed-git-tree");
+    assert.equal(checked.evidence.commit, git(root, "rev-parse", "HEAD"));
     assert.ok(checked.evidence.tree);
     assert.equal(checked.result.metadata.tree, checked.evidence.tree);
     assert.deepEqual(checked.result.findings.map((finding) => finding.file), ["source.rs"]);
@@ -156,6 +158,8 @@ test("one-key enrollment produces clearly advisory evidence and retains backlog 
     const options = { manifestPath: path.join(releaseRoot, "rightkit-ownership.json"), trustLoader: trusted(root, { enrolled: false, oneKey: true }) };
     const pending = createOwnershipEvidenceForTest(root, {
       ...options,
+      committed: true,
+      allowPendingAdvisory: true,
       scanRoot: root,
       scan: (scanRoot, manifest) => ({
         ok: false, findings: [{ fingerprint: "pending-finding", file: "source.rs" }], violations: [{ fingerprint: "pending-finding", file: "source.rs" }],
@@ -167,6 +171,9 @@ test("one-key enrollment produces clearly advisory evidence and retains backlog 
     assert.equal(pending.enrollmentPending, true);
     assert.match(pending.warning, /^WARNING:/);
     assert.equal(pending.evidence.source, "enrollment-pending-advisory");
+    assert.equal(pending.evidence.commit, git(root, "rev-parse", "HEAD"));
+    assert.equal(pending.evidence.commit, pending.result.metadata.commit);
+    assert.equal(pending.evidence.tree, undefined);
     assert.equal(pending.evidence.trustEnrolled, false);
     assert.equal(pending.evidence.floorOk, true);
     assert.equal(pending.evidence.visibility, "private");
@@ -192,10 +199,27 @@ test("absent trust has advisory scan without fabricated registry binding", () =>
     });
     assert.equal(pending.ok, true);
     assert.equal(pending.evidence.source, "enrollment-pending-advisory");
+    assert.equal(pending.evidence.commit, git(root, "rev-parse", "HEAD"));
     assert.equal(pending.evidence.floorOk, false);
     assert.equal(pending.evidence.registrationDigest, null);
     assert.deepEqual(pending.evidence.registeredRoots, []);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("advisory evidence fails when scan source cannot produce a HEAD commit", () => {
+  const options = {
+    manifestPath: path.join(releaseRoot, "rightkit-ownership.json"),
+    trustLoader: trusted(".", { enrolled: false }),
+    committed: true,
+    allowPendingAdvisory: true,
+    scan: () => assert.fail("scan must not run without a source commit"),
+  };
+  for (const gitRunner of [
+    () => ({ status: 0, stdout: "\n" }),
+    () => ({ status: 128, stdout: "", stderr: "HEAD is unavailable" }),
+  ]) {
+    assert.throws(() => createOwnershipEvidenceForTest(".", { ...options, gitRunner }), /ownership evidence: (scan source did not produce a HEAD commit|git rev-parse HEAD failed)/);
+  }
 });
 
 test("pending trust registration and floor problems remain diagnostics", () => {
@@ -419,6 +443,10 @@ test("ordinary evidence uses committed key history for enrollment grace", () => 
     assert.equal(result.enrollmentPending, true);
     assert.equal(result.evidence.trustEnrolled, false);
     assert.equal(result.evidence.source, "enrollment-pending-advisory");
+    assert.equal(result.evidence.commit, git(fixture.root, "rev-parse", "HEAD"));
+    const committed = createCommittedOwnershipEvidenceForTest(fixture.root, fixture.options);
+    assert.equal(committed.evidence.source, "enrollment-pending-advisory");
+    assert.equal(committed.evidence.commit, result.evidence.commit);
     assert.equal(result.evidence.rootFingerprint, fixture.rootKey.record.keyId);
     assert.equal(result.evidence.keyCheckpoint.sequence, 0);
     assert.equal(result.evidence.keyLogDigest, sha256(Buffer.from(`${JSON.stringify(fixture.log)}\n`)));

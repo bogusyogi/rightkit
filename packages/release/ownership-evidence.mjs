@@ -41,7 +41,7 @@ function createEvidence(repoRoot, {
   let enrollmentPending = trustState.enrolled !== true;
   if (committed && enrollmentPending && !allowPendingAdvisory && !trustState.trust?.rootFingerprint) throw new Error("protected ownership evidence requires both distinct, unrevoked approval keys to be enrolled");
   // A valid protected registry with incomplete key enrollment can still drive
-  // a useful local backlog scan. It cannot produce a source binding or verify
+  // a useful local backlog scan. It cannot assert a protected source binding or verify
   // approval signatures, so this result is deliberately advisory.
   const useCommittedSource = committed && (!enrollmentPending || Boolean(trustState.trust?.rootFingerprint));
   if (useCommittedSource && requireCleanCheckout) assertCommittedCheckoutClean(root);
@@ -68,6 +68,7 @@ function createEvidence(repoRoot, {
   }
   if (useCommittedSource && requireCleanCheckout) assertCommittedCheckoutClean(root, { expectedCommit: source.commit, expectedTree: source.tree });
   const commit = useCommittedSource ? source.commit : git(root, ["rev-parse", "HEAD"], gitRunner);
+  if (!commit) throw new Error("ownership evidence: scan source did not produce a HEAD commit");
   const tree = useCommittedSource ? source.tree : git(root, ["rev-parse", `${commit}^{tree}`], gitRunner);
   const scannerVersion = SCANNER_VERSION;
   const catalogVersion = manifest.version ?? String(manifest.schema ?? "1");
@@ -154,7 +155,8 @@ function createEvidence(repoRoot, {
     schema: 1,
     repositoryIdentity: repositoryIdentity ? canonicalRepositoryIdentity(result.metadata?.repositoryIdentity) : null,
     source: enrollmentPending ? "enrollment-pending-advisory" : useCommittedSource ? "committed-git-tree" : "mutable-checkout-test-seam",
-    ...(enrollmentPending ? {} : { commit, tree }),
+    commit,
+    ...(enrollmentPending ? {} : { tree }),
     catalogDigest,
     catalogVersion,
     scannerVersion,

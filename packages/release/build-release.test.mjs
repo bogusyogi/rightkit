@@ -5,12 +5,47 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "./background-process.mjs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8");
 const stateMachine = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "release-state.mjs"), "utf8");
 const build = path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs");
+
+// Execute the production preflight guard without starting the CLI's build flow.
+function checkOwnershipCommit(evidence, commit) {
+  const start = source.indexOf('  const ownershipEvidence = preflight.find(');
+  const end = source.indexOf('  for (const check of preflight)', start);
+  assert.ok(start >= 0 && end > start, "ownership commit guard must exist before preflight diagnostics");
+  runInNewContext(source.slice(start, end), {
+    preflight: [{ name: "ownership", evidence }],
+    commit,
+    fail: (message) => { throw new Error(message); },
+  });
+}
+
+for (const evidenceSource of ["enrollment-pending-advisory", "committed-git-tree"]) {
+  test(`build rejects ${evidenceSource} evidence from a different commit`, () => {
+    const scanCommit = "a".repeat(40);
+    const releaseCommit = "b".repeat(40);
+    assert.throws(() => checkOwnershipCommit({ source: evidenceSource, commit: scanCommit }, releaseCommit), (error) => {
+      assert.ok(error.message.includes(`ownership scan commit ${scanCommit}`));
+      assert.ok(error.message.includes(`release commit ${releaseCommit}`));
+      assert.ok(error.message.includes(`right-release ownership at release commit ${releaseCommit}`));
+      return true;
+    });
+  });
+
+  test(`build accepts ${evidenceSource} evidence from the release commit`, () => {
+    const commit = "a".repeat(40);
+    assert.doesNotThrow(() => checkOwnershipCommit({ source: evidenceSource, commit }, commit));
+  });
+
+  test(`build rejects ${evidenceSource} evidence without a commit`, () => {
+    assert.throws(() => checkOwnershipCommit({ source: evidenceSource }, "b".repeat(40)), /ownership scan commit \(missing\).*right-release ownership/);
+  });
+}
 
 test("general build dry-run is filesystem-pure and never starts its package command", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "right-build-dry-run-"));
