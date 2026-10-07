@@ -104,6 +104,19 @@ export async function syncRightkitVersions({ check = false, fetchImpl = fetch, f
   return { changes, unpublished, copies, written: changes.length > 0 };
 }
 
+/** Record one just-published version (the registry index can lag the upload) and refresh the copies.
+ * Called by right-release after a verified cargo or npm publish; never fails the publish itself. */
+export function recordPublished({ registry, name, version }, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}
+`) } = {}) {
+  try {
+    const { versions: next, changes } = applyRegistryLatest(JSON.parse(readFileSync(file, "utf8")), [{ registry, name, version }]);
+    if (changes.length) writeFileSync(file, `${JSON.stringify(next, null, 2)}
+`);
+    const copies = syncConsumerCopies(root);
+    log(`[right-release] release feed: ${name} ${version} ${changes.length ? "staged" : "already current"}${copies.length ? `; refreshed ${copies.length} copies` : ""}; commit rightkit-versions.json and its copies`);
+  } catch (error) { log(`[right-release] release feed not updated (${error.message}); run node rightkit-sync.mjs`); }
+}
+
 /** The broker client and the session hook carry byte copies of the catalog and versions; keep them exact. */
 export function syncConsumerCopies(root = rightkitRoot) {
   const release = path.join(root, "packages", "release");
@@ -114,6 +127,7 @@ export function syncConsumerCopies(root = rightkitRoot) {
     ["rightkit-ownership.json", path.join(root, "packages", "build-control-policy", "src", "ownership-fingerprints.json")],
     ["rightkit-versions.json", path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json")],
     ["rightkit-drift.mjs", path.join(root, "packages", "build-control-policy", "src", "rightkit-drift.mjs")],
+    ["background-process.mjs", path.join(root, "packages", "build-control-policy", "src", "background-process.mjs")],
   ];
   const updated = [];
   for (const [source, target] of targets) {

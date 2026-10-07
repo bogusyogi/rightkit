@@ -13,6 +13,7 @@ const files = [
   'ownership-session-catalog.json',
   'ownership-session-versions.json',
   'rightkit-drift.mjs',
+  'background-process.mjs',
 ].sort();
 
 function rootFor(platform) {

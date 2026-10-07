@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import { enforcePublicationGate, defaultEvidencePath } from "./publication-gate.mjs";
+import { recordPublished } from "./rightkit-sync.mjs";
 
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.[^/]*)?|target(?:\/.*)?|node_modules(?:\/.*)?|[^/]+\.(?:p8|p12|pem|key))$/i;
 const SECRET_PATTERNS = [
@@ -139,6 +140,10 @@ function main() {
   const options = parseCargoPublishArgs(process.argv.slice(2));
   runCargoPublish(options);
   process.stdout.write(`[right-release] ${options.dryRun ? "validated" : "published"} ${options.crate}\n`);
+  if (!options.dryRun) {
+    const version = fs.readFileSync(path.join(options.workspaceRoot, "crates", options.crate, "Cargo.toml"), "utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+    if (version) recordPublished({ registry: "cargo", name: options.crate, version });
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {

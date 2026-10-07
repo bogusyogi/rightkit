@@ -3,7 +3,7 @@
 // published versions, and (with --apply) move them forward and refresh the lockfiles.
 // Self-contained (node: built-ins only) so the SessionStart hook can carry a byte copy of it.
 //   node rightkit-drift.mjs [--apply [--all]] [app-root]   (--all also adopts breaking bumps)
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

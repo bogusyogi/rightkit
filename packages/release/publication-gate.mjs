@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { recordPublished } from "./rightkit-sync.mjs";
 import { fileURLToPath } from "node:url";
 
 export const GATE_SCHEMA = 1;
@@ -158,7 +159,7 @@ export function publishGatedTarball({ name, version, tarball, evidencePath }, de
   for (;;) {
     const view = run("npm", ["view", `${name}@${version}`, "dist.shasum", "--prefer-online", "--registry", "https://registry.npmjs.org/"], { encoding: "utf8", windowsHide: true });
     const registry = (view.stdout ?? "").trim();
-    if (registry === sha1) { process.stdout.write(`[right-release] registry bytes verified for ${name}@${version} (shasum ${sha1})\n`); return; }
+    if (registry === sha1) { process.stdout.write(`[right-release] registry bytes verified for ${name}@${version} (shasum ${sha1})\n`); (deps.recordPublished ?? recordPublished)({ registry: "npm", name, version }); return; }
     if (registry && registry !== sha1) throw new Error(`registry shasum ${registry} != gated tarball ${sha1} for ${name}@${version}`);
     if (Date.now() > deadline) throw new Error(`${name}@${version} not visible on the registry after publish; verify later with npm view`);
     (deps.sleep ?? ((ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)))(15000);

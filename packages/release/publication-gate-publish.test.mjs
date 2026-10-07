@@ -48,7 +48,9 @@ test('publishGatedTarball refuses a non-gated tarball, never exposes the token, 
     }
     return { status: 0, stdout: `${sha1}\n` };
   };
-  publishGatedTarball(args, { readToken: () => 'SECRET', spawnSync: spawn, sleep: () => {} });
+  const recorded = [];
+  publishGatedTarball(args, { readToken: () => 'SECRET', spawnSync: spawn, sleep: () => {}, recordPublished: (entry) => recorded.push(entry) });
+  assert.deepEqual(recorded, [{ registry: 'npm', name: args.name, version: args.version }], 'verified publish feeds the release manifest');
   assert.equal(fs.existsSync(config), false, 'temp npmrc removed');
   assert.deepEqual(calls, ['publish', 'view']);
 
