@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { catalogDigest } from "./ownership.mjs";
-import { createOwnershipEvidenceForTest, verifyOwnershipEvidenceForTest } from "./ownership-evidence.mjs";
+import { createCommittedOwnershipEvidenceForTest, createOwnershipEvidenceForTest, verifyOwnershipEvidenceForTest } from "./ownership-evidence.mjs";
 
 const releaseRoot = path.dirname(fileURLToPath(import.meta.url));
 function trusted(root, { enrolled = true, protection = { ok: true }, roots = ["."] } = {}) {
@@ -61,6 +61,28 @@ test("release evidence binds scan to catalog, approvals, and immutable commit", 
     const rejected = verifyOwnershipEvidenceForTest(built.evidence, root, { ...options, scanRoot: root });
     assert.equal(rejected.ok, false);
     assert.match(rejected.reason, /commit changed after build/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("protected evidence scans exact committed blobs & binds source tree", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "rightkit-ownership-committed-evidence-"));
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.email", "test@example.invalid");
+    git(root, "config", "user.name", "test");
+    git(root, "remote", "add", "origin", "https://github.com/test/repo.git");
+    const catalogPath = path.join(root, "catalog.json");
+    writeFileSync(catalogPath, JSON.stringify({ schema: 1, version: "1", capabilities: [{ package: "sample", capability: "sample", fingerprints: [{ type: "source", id: "marker", pattern: "COMMITTED_ONLY_MARKER" }] }] }));
+    writeFileSync(path.join(root, "source.rs"), "fn owned() { COMMITTED_ONLY_MARKER; }\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "committed evidence");
+    writeFileSync(path.join(root, "source.rs"), "checkout bytes no longer contain marker\n");
+    const checked = createCommittedOwnershipEvidenceForTest(root, { scanRoot: root, manifestPath: catalogPath, trustLoader: trusted(root) });
+    assert.equal(checked.evidence.source, "committed-git-tree");
+    assert.ok(checked.evidence.tree);
+    assert.equal(checked.result.metadata.tree, checked.evidence.tree);
+    assert.deepEqual(checked.result.findings.map((finding) => finding.file), ["source.rs"]);
+    assert.equal(checked.evidence.scannerVersion, "2.1.0");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

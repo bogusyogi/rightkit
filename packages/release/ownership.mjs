@@ -4,6 +4,7 @@ import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, sha25
 import { parse as parseToml } from "smol-toml";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { acquireCommittedSource, committedSourceDataForInternalUse } from "./committed-source.mjs";
 import os from "node:os";
 import path from "node:path";
 
@@ -12,7 +13,7 @@ export const EXCEPTIONS_FILE = path.join(".rightkit", "ownership-exceptions.json
 const CODE_EXT = new Set([".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".swift", ".m", ".mm", ".c", ".cc", ".cpp", ".h", ".py", ".go", ".kt", ".java", ".cs"]);
 // Large installed stores are reported as unscanned; source-bearing trees are walked regardless of name.
 const OPAQUE_DIRS = new Set(["target", ".build", "DerivedData", "Pods"]);
-export const SCANNER_VERSION = "2.0.0";
+export const SCANNER_VERSION = "2.1.0";
 export const catalogDigest = (manifest) => sha256(manifest);
 const byteDigest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -57,14 +58,27 @@ function addDependency(out, ecosystem, name, file, details = {}) {
 }
 
 function cargoWorkspace(parsed) { return parsed.workspace?.dependencies ?? {}; }
-function parseCargo(parsed, file, out, workspace, root, coverage) {
+function resolveLocalPath(root, sourceFile, pathValue, coverage, display, inventory, reasonPrefix = "local-dependency", detail = "") {
+  if (!pathValue) return;
+  if (inventory?.committed) {
+    if (path.posix.isAbsolute(pathValue) || path.win32.isAbsolute(pathValue) || pathValue.includes("\\")) { coverage.push({ path: display, status: "unscanned", reason: `${reasonPrefix}-outside-repository${detail ? `:${detail}` : ""}` }); return; }
+    const relative = path.posix.normalize(path.posix.join(path.posix.dirname(sourceFile), pathValue));
+    if (relative === ".." || relative.startsWith("../") || path.posix.isAbsolute(relative)) { coverage.push({ path: display, status: "unscanned", reason: `${reasonPrefix}-outside-repository${detail ? `:${detail}` : ""}` }); return; }
+    const rel = `${inventory.pathPrefix ?? ""}${relative === "." ? "" : `${relative}/`}`.replace(/\/$/, "");
+    const exists = relative === "." || inventory.repositoryFiles.some((item) => item.rel === rel || item.rel.startsWith(`${rel}/`));
+    if (!exists) coverage.push({ path: display, status: "unscanned", reason: `${reasonPrefix}-path-unresolved${detail ? `:${detail}` : ""}` });
+    return;
+  }
+  const resolved = path.resolve(root, path.posix.dirname(sourceFile), pathValue);
+  try {
+    const rootReal = realpathSync(root), targetReal = realpathSync(resolved);
+    if (targetReal !== rootReal && !targetReal.startsWith(rootReal + path.sep)) coverage.push({ path: display, status: "unscanned", reason: `${reasonPrefix}-outside-repository${detail ? `:${detail}` : ""}` });
+  } catch { coverage.push({ path: display, status: "unscanned", reason: `${reasonPrefix}-path-unresolved${detail ? `:${detail}` : ""}` }); }
+}
+
+function parseCargo(parsed, file, out, workspace, root, coverage, inventory) {
   const pathSpec = (pathValue, sourceFile, display) => {
-    if (!pathValue) return;
-    const resolved = path.resolve(root, path.posix.dirname(sourceFile), pathValue);
-    try {
-      const rootReal = realpathSync(root), targetReal = realpathSync(resolved);
-      if (targetReal !== rootReal && !targetReal.startsWith(rootReal + path.sep)) coverage.push({ path: display, status: "unscanned", reason: "local-dependency-outside-repository" });
-    } catch { coverage.push({ path: display, status: "unscanned", reason: "local-dependency-path-unresolved" }); }
+    resolveLocalPath(root, sourceFile, pathValue, coverage, display, inventory);
   };
   const addTable = (table) => {
     if (!table || typeof table !== "object") return;
@@ -113,7 +127,7 @@ function scanFiles(root, visit, coverage, { includeNodeModules = false } = {}) {
   walk(rootReal, "");
 }
 
-function fileInventory(appRoot, trust, pathPrefix = "") {
+function fileInventory(appRoot, trust, pathPrefix = "", committed = null) {
   const files = [], coverage = [];
   const protectedPaths = new Set((trust?.provenance ?? []).flatMap((record) => (record.paths ?? []).map((p) => pathPrefix && p.startsWith(pathPrefix) ? p.slice(pathPrefix.length) : p)));
   scanFiles(appRoot, (rel, abs, size) => {
@@ -128,6 +142,41 @@ function fileInventory(appRoot, trust, pathPrefix = "") {
     files.push({ rel, abs, size, bytes, inNodeModules: rel.split("/").includes("node_modules") });
   }, coverage, { includeNodeModules: true });
   return { files, coverage };
+}
+
+function committedFileInventory(appRoot, trust, pathPrefix, committed) {
+  const prefix = pathPrefix ? `${pathPrefix.replace(/\/$/, "")}/` : "";
+  const repositoryFiles = committed.entries.filter((entry) => entry.type === "blob").map((entry) => ({ rel: entry.rel, size: entry.size, bytes: entry.bytes, mode: entry.mode }));
+  const files = [], coverage = committed.coverage.filter((entry) => !prefix || entry.path.startsWith(prefix)).map((entry) => ({ ...entry, path: prefix ? entry.path.slice(prefix.length) : entry.path }));
+  const protectedPaths = new Set((trust?.provenance ?? []).flatMap((record) => record.paths ?? []));
+  const reportedOpaque = new Set(), reportedNodeModules = new Set();
+  for (const entry of committed.entries) {
+    if (prefix && !entry.rel.startsWith(prefix)) continue;
+    const rel = prefix ? entry.rel.slice(prefix.length) : entry.rel;
+    if (!rel) continue;
+    if (entry.mode === "120000") { coverage.push({ path: rel, status: "unscanned", reason: "committed-symlink" }); continue; }
+    if (entry.mode === "160000" || entry.type === "commit") { coverage.push({ path: rel, status: "unscanned", reason: "committed-gitlink" }); continue; }
+    if (entry.type !== "blob") { coverage.push({ path: rel, status: "unscanned", reason: "committed-unsupported-entry" }); continue; }
+    const relevant = protectedPaths.has(entry.rel) || ["Cargo.toml", "package.json", "Package.swift", "ownership-exceptions.json"].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase());
+    const bytes = relevant ? entry.bytes : undefined;
+    if (relevant && !bytes) coverage.push({ path: rel, status: "unscanned", reason: "committed-blob-unavailable" });
+    const isExceptionFile = path.posix.basename(rel) === "ownership-exceptions.json";
+    const limit = CODE_EXT.has(path.posix.extname(rel).toLowerCase()) || protectedPaths.has(entry.rel) || isExceptionFile ? 2 * 1024 * 1024 : 64 * 1024 * 1024;
+    if (relevant && entry.size > limit) coverage.push({ path: rel, status: "unscanned", reason: isExceptionFile ? "committed-exceptions-over-2MiB" : protectedPaths.has(entry.rel) ? "protected-provenance-file-over-2MiB" : "source-file-over-2MiB" });
+    const parts = rel.split("/");
+    const nodeModulesAt = parts.indexOf("node_modules");
+    if (nodeModulesAt >= 0) {
+      const dir = parts.slice(0, nodeModulesAt + 1).join("/");
+      if (!reportedNodeModules.has(dir)) { coverage.push({ path: dir, status: "unscanned", reason: "node-modules-provenance-not-verified" }); reportedNodeModules.add(dir); }
+    }
+    const opaqueAt = parts.findIndex((part) => OPAQUE_DIRS.has(part));
+    if (opaqueAt >= 0) {
+      const dir = parts.slice(0, opaqueAt + 1).join("/");
+      if (!reportedOpaque.has(dir)) { coverage.push({ path: dir, status: "unscanned", reason: "installed-or-build-cache" }); reportedOpaque.add(dir); }
+    }
+    files.push({ rel, abs: path.join(appRoot, ...rel.split("/")), size: entry.size, bytes: entry.size <= limit ? bytes : undefined, inNodeModules: rel.split("/").includes("node_modules"), oid: entry.oid });
+  }
+  return { files, coverage, committed: true, pathPrefix, repositoryFiles, snapshotFiles: new Map(repositoryFiles.map((file) => [file.rel, file])) };
 }
 
 function dependenciesFromInventory(appRoot, inventory) {
@@ -164,7 +213,7 @@ function dependenciesFromInventory(appRoot, inventory) {
   const cargoFiles = files.filter((x) => path.posix.basename(x.rel) === "Cargo.toml");
   const workspaces = [];
   for (const x of cargoFiles) {
-    try { const parsed = parseToml(x.bytes.toString("utf8")); const deps = cargoWorkspace(parsed); if (Object.keys(deps).length) workspaces.push({ dir: path.posix.dirname(x.rel), deps }); }
+      try { const parsed = parseToml(x.bytes.toString("utf8")); const deps = cargoWorkspace(parsed); if (Object.keys(deps).length) workspaces.push({ dir: path.posix.dirname(x.rel), deps }); }
     catch { coverage.push({ path: x.rel, status: "unscanned", reason: "invalid-cargo-toml" }); }
   }
   for (const x of files) {
@@ -175,7 +224,7 @@ function dependenciesFromInventory(appRoot, inventory) {
     if (base === "Cargo.toml") {
       const dir = path.posix.dirname(rel);
       const workspace = workspaces.filter((x) => x.dir === "." || dir === x.dir || dir.startsWith(`${x.dir}/`)).sort((a, b) => b.dir.length - a.dir.length)[0] ?? { dir: ".", deps: {} };
-      try { parseCargo(parseToml(text), rel, deps, workspace, appRoot, coverage); }
+      try { parseCargo(parseToml(text), rel, deps, workspace, appRoot, coverage, inventory); }
       catch { coverage.push({ path: rel, status: "unscanned", reason: "invalid-cargo-toml" }); }
     }
     else if (base === "package.json") {
@@ -187,9 +236,7 @@ function dependenciesFromInventory(appRoot, inventory) {
         const isGit = /^(git\+|https?:.*\.git)/i.test(spec);
         addDependency(deps, "npm", alias ?? name, rel, { alias: alias ? name : undefined, local: !!localPath, source: localPath ? spec.split(":")[0] : isGit ? "git" : spec.startsWith("workspace:") ? "workspace" : undefined });
         if (localPath) {
-          const target = path.resolve(appRoot, path.posix.dirname(rel), localPath);
-          try { const base = realpathSync(appRoot), real = realpathSync(target); if (real !== base && !real.startsWith(base + path.sep)) coverage.push({ path: rel, status: "unscanned", reason: `local-npm-dependency-outside-repository:${name}` }); }
-          catch { coverage.push({ path: rel, status: "unscanned", reason: `local-npm-dependency-path-unresolved:${name}` }); }
+          resolveLocalPath(appRoot, rel, localPath, coverage, rel, inventory, "local-npm-dependency", name);
         } else if (isGit) coverage.push({ path: rel, status: "unscanned", reason: `git-npm-dependency-source:${name}` });
       }
     } else {
@@ -198,9 +245,7 @@ function dependenciesFromInventory(appRoot, inventory) {
         const id = arg.match(/name:\s*["']([^"']+)["']/)?.[1] ?? url?.replace(/\.git$/i, "").split("/").pop()?.toLowerCase() ?? pathDep?.split(/[\\/]/).pop();
         addDependency(deps, "swiftpm", id, rel, { local: !!pathDep, source: pathDep ? "path" : url });
         if (pathDep) {
-          const target = path.resolve(appRoot, path.posix.dirname(rel), pathDep);
-          try { const base = realpathSync(appRoot), real = realpathSync(target); if (real !== base && !real.startsWith(base + path.sep)) coverage.push({ path: rel, status: "unscanned", reason: `local-swift-dependency-outside-repository:${id}` }); }
-          catch { coverage.push({ path: rel, status: "unscanned", reason: `local-swift-dependency-path-unresolved:${id}` }); }
+          resolveLocalPath(appRoot, rel, pathDep, coverage, rel, inventory, "local-swift-dependency", id);
         }
       }
     }
@@ -255,6 +300,12 @@ function trustedProvenance(appRoot, inventory, trust, repositoryIdentity, covera
     const files = [];
     let safe = true;
     for (const rel of record.paths ?? []) {
+      if (inventory.committed) {
+        const snapshotFile = inventory.snapshotFiles.get(rel);
+        if (!snapshotFile?.bytes || snapshotFile.size > 2 * 1024 * 1024) { safe = false; break; }
+        files.push({ path: rel, content: snapshotFile.bytes });
+        continue;
+      }
       const filePath = path.resolve(repositoryRoot, ...rel.split("/"));
       const rootReal = realpathSync(repositoryRoot);
       if (!filePath.startsWith(rootReal + path.sep)) { safe = false; break; }
@@ -407,4 +458,59 @@ export function checkApp(appRoot, manifest, options = {}) {
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
   return { ok: !result.violations.length && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
+}
+
+function checkCommitted(appRoot, manifest, options, acquire) {
+  let trustState = options.trust;
+  if (!trustState) {
+    try { trustState = loadTrustedExternal(); }
+    catch (error) { trustState = { enrolled: false, pending: true, trust: null, error: error.message }; }
+  }
+  const trust = trustState && Object.prototype.hasOwnProperty.call(trustState, "trust") ? trustState.trust : trustState;
+  const requiredPaths = (trust?.provenance ?? []).flatMap((record) => record.paths ?? []);
+  const sourceHandle = options.source ?? acquire(appRoot, { expectedCommit: options.expectedCommit, expectedTree: options.expectedTree, requiredPaths });
+  const committed = committedSourceDataForInternalUse(sourceHandle);
+  if (!committed) throw new Error("committed ownership: supplied source handle was not acquired by trusted Git reader");
+  if ((options.expectedCommit && committed.commit !== options.expectedCommit) || (options.expectedTree && committed.tree !== options.expectedTree)) throw new Error("committed ownership: source handle does not match expected commit/tree");
+  const relativeRoot = path.relative(committed.repositoryRoot, path.resolve(appRoot));
+  if (relativeRoot === ".." || relativeRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeRoot)) throw new Error("committed ownership: scan root is outside committed repository");
+  const pathPrefix = relativeRoot ? `${relativeRoot.split(path.sep).join("/")}/` : "";
+  const repositoryIdentity = committed.origin ? canonicalRepositoryIdentity(committed.origin) : null;
+  if (!repositoryIdentity) throw new Error("committed ownership: repository origin is missing or invalid");
+  const location = { root: committed.repositoryRoot, prefix: pathPrefix, pathBase: "repository" };
+  const inventory = committedFileInventory(appRoot, trust, location.prefix, committed);
+  if (location.prefix && !committed.entries.some((entry) => entry.rel.startsWith(location.prefix))) {
+    inventory.coverage.push({ path: ".", status: "unscanned", reason: "registered-root-missing-from-committed-tree" });
+  }
+  const scanned = scanInternal(appRoot, manifest, { inventory, trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix });
+  const exceptionPath = [location.prefix.replace(/\/$/, ""), EXCEPTIONS_FILE.split(path.sep).join("/")].filter(Boolean).join("/");
+  const exceptionObject = committed.entries.find((entry) => entry.rel === exceptionPath);
+  const exceptionEntry = exceptionObject?.bytes;
+  let exceptions = [];
+  if (exceptionEntry && exceptionObject.size <= 2 * 1024 * 1024) {
+    try { exceptions = (JSON.parse(exceptionEntry.toString("utf8")).exceptions ?? []).map((entry, index) => ({ ...entry, index })); }
+    catch { scanned.coverage.push({ path: EXCEPTIONS_FILE.split(path.sep).join("/"), status: "unscanned", reason: "invalid-committed-exceptions-json" }); }
+  }
+  const exceptionDigest = exceptionEntry ? byteDigest(exceptionEntry) : exceptionObject ? sha256({ unavailableBlob: exceptionObject.oid, size: exceptionObject.size }) : sha256([]);
+  const metadata = {
+    repositoryIdentity, commit: committed.commit, tree: committed.tree, host: `${os.hostname()}/${process.platform}`,
+    scannedAt: new Date().toISOString(), catalogDigest: catalogDigest(manifest), catalogVersion: manifest.version ?? String(manifest.schema ?? "1"),
+    scannerVersion: SCANNER_VERSION, contentDigests: scanned.contentDigests, coverage: scanned.coverage,
+    pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance, exceptionDigest,
+    source: "committed-git-tree",
+  };
+  const result = evaluate(scanned.findings, exceptions, { ...options, trust, trustEnrollment: trustState?.pending !== undefined ? trustState : undefined, metadata });
+  const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
+  const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
+  return { ok: !result.violations.length && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
+}
+
+/** Protected production scan: acquire and inspect exact HEAD blobs without reading checkout contents. */
+export function checkCommittedApp(appRoot, manifest, options = {}) {
+  return checkCommitted(appRoot, manifest, options, acquireCommittedSource);
+}
+
+/** Explicit test-only seam for bounded Git process failures and fixtures. */
+export function checkCommittedAppForTest(appRoot, manifest, options = {}) {
+  return checkCommitted(appRoot, manifest, options, options.acquireCommittedSourceForTest ?? acquireCommittedSource);
 }

@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { catalogDigest as scanCatalogDigest, checkApp, MANIFEST_FILE, SCANNER_VERSION } from "./ownership.mjs";
+import { catalogDigest as scanCatalogDigest, checkApp, checkCommittedApp, MANIFEST_FILE, SCANNER_VERSION } from "./ownership.mjs";
+import { acquireCommittedSource, assertCommittedCheckoutClean } from "./committed-source.mjs";
 import { canonicalRepositoryIdentity, loadTrustedExternal, sha256, validateOwnershipFloor, verifyRepositoryRegistration } from "./ownership-approval.mjs";
 
 const digestFile = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -24,6 +25,8 @@ function createEvidence(repoRoot, {
   scan = checkApp,
   trustLoader = loadTrustedExternal,
   gitRunner = spawnSync,
+  committed = false,
+  requireCleanCheckout = false,
 } = {}) {
   const root = path.resolve(repoRoot);
   const manifestBytes = readFileSync(manifestPath);
@@ -31,8 +34,11 @@ function createEvidence(repoRoot, {
   const trustState = trustLoader();
   if (trustState.protection?.ok !== true) throw new Error("protected ownership trust location was not verified");
   if (!trustState.trust) throw new Error("protected ownership trust registry is missing");
-  const commit = git(root, ["rev-parse", "HEAD"], gitRunner);
-  const tree = git(root, ["rev-parse", `${commit}^{tree}`], gitRunner);
+  if (committed && requireCleanCheckout) assertCommittedCheckoutClean(root);
+  const source = committed ? acquireCommittedSource(root, { requiredPaths: (trustState.trust?.provenance ?? []).flatMap((record) => record.paths ?? []) }) : null;
+  if (committed && requireCleanCheckout) assertCommittedCheckoutClean(root, { expectedCommit: source.commit, expectedTree: source.tree });
+  const commit = committed ? source.commit : git(root, ["rev-parse", "HEAD"], gitRunner);
+  const tree = committed ? source.tree : git(root, ["rev-parse", `${commit}^{tree}`], gitRunner);
   const scannerVersion = SCANNER_VERSION;
   const catalogVersion = manifest.version ?? String(manifest.schema ?? "1");
   const catalogDigest = scanCatalogDigest(manifest);
@@ -40,7 +46,7 @@ function createEvidence(repoRoot, {
   // or catalog accepted by the protected registry. Pending key enrollment
   // remains a typed state while the protected floors still apply.
   const floor = validateOwnershipFloor(trustState.trust, { scannerVersion, catalogVersion, catalogDigest });
-  const origin = git(root, ["remote", "get-url", "origin"], gitRunner);
+  const origin = committed ? source.origin : git(root, ["remote", "get-url", "origin"], gitRunner);
   const repositoryIdentity = canonicalRepositoryIdentity(origin);
   const registrationCheck = verifyRepositoryRegistration(trustState.trust, repositoryIdentity);
   if (!registrationCheck.ok) throw new Error(registrationCheck.problems.join("; "));
@@ -54,7 +60,9 @@ function createEvidence(repoRoot, {
   // cannot omit sibling packages or engine source by narrowing scanRoot.
   const scans = registration.roots.map((registered) => {
     const absolute = registered === "." ? root : path.resolve(root, ...registered.split("/"));
-    const scanned = scan(absolute, manifest, { trust: trustState.trust, scannerVersion, catalogVersion });
+    const scanned = committed
+      ? checkCommittedApp(absolute, manifest, { trust: trustState.trust, expectedCommit: commit, expectedTree: tree, source })
+      : scan(absolute, manifest, { trust: trustState.trust, scannerVersion, catalogVersion });
     if (canonicalRepositoryIdentity(scanned.metadata?.repositoryIdentity) !== repositoryIdentity) throw new Error(`ownership evidence: scanner observed a different repository identity under ${registered}`);
     if (scanned.metadata?.commit !== commit) throw new Error(`ownership evidence: scanner observed a different source commit under ${registered}`);
     if (scanned.metadata?.catalogDigest !== catalogDigest) throw new Error(`ownership evidence: scanner observed a different catalog under ${registered}`);
@@ -66,7 +74,8 @@ function createEvidence(repoRoot, {
   const contentCoverage = scans.flatMap(({ scanned, prefix }) => (scanned.metadata?.coverage ?? []).map((entry) => rebase(entry, prefix)));
   const contentDigests = scans.flatMap(({ scanned, prefix }) => (scanned.metadata?.contentDigests ?? []).map((entry) => ({ ...entry, path: `${prefix}${entry.path}` }))).sort((a, b) => a.path.localeCompare(b.path));
   const contentDigest = sha256(contentDigests);
-  const approvals = scans.map(({ root: registered }) => {
+  const approvals = scans.map(({ root: registered, scanned }) => {
+    if (committed) return { root: registered, digest: scanned.metadata?.exceptionDigest ?? sha256([]) };
     const exceptionsPath = path.join(root, ...(registered === "." ? [] : registered.split("/")), ".rightkit", "ownership-exceptions.json");
     try { return { root: registered, digest: digestFile(exceptionsPath) }; }
     catch (error) { if (error?.code !== "ENOENT") throw error; return { root: registered, digest: sha256([]) }; }
@@ -81,7 +90,7 @@ function createEvidence(repoRoot, {
     covered: scans.flatMap(({ scanned, prefix }) => (scanned.covered ?? []).map((entry) => rebase(entry, prefix))),
     coverage: contentCoverage,
     metadata: {
-      repositoryIdentity, commit, catalogDigest, contentDigests, coverage: contentCoverage,
+      repositoryIdentity, commit, tree, catalogDigest, contentDigests, coverage: contentCoverage,
       pathBase: "repository", pathPrefix: "",
       roots: scans.map(({ root: registered, scanned }) => ({ root: registered, metadata: scanned.metadata })),
     },
@@ -89,6 +98,7 @@ function createEvidence(repoRoot, {
   const evidence = {
     schema: 1,
     repositoryIdentity: canonicalRepositoryIdentity(result.metadata?.repositoryIdentity),
+    source: committed ? "committed-git-tree" : "mutable-checkout-test-seam",
     commit,
     tree,
     catalogDigest,
@@ -108,12 +118,22 @@ function createEvidence(repoRoot, {
 
 /** Create scan evidence bound to committed source, catalog, and signed exceptions. */
 export function createOwnershipEvidence(repoRoot, scanRoot = repoRoot) {
-  return createEvidence(repoRoot, { scanRoot });
+  return createEvidence(repoRoot, { scanRoot, committed: true, requireCleanCheckout: true });
+}
+
+/** Alias spelling makes the immutable-source contract explicit at adapter boundaries. */
+export function createCommittedOwnershipEvidence(repoRoot, scanRoot = repoRoot) {
+  return createEvidence(repoRoot, { scanRoot, committed: true, requireCleanCheckout: true });
 }
 
 // Injection seam is deliberately named for tests and is not used by release commands.
 export function createOwnershipEvidenceForTest(repoRoot, options) {
   return createEvidence(repoRoot, options);
+}
+
+/** Test-only access to the production committed-tree evidence path. */
+export function createCommittedOwnershipEvidenceForTest(repoRoot, options = {}) {
+  return createEvidence(repoRoot, { ...options, committed: true });
 }
 
 /** Entry point for an OS-protected local hook/adapter on private repositories. */
@@ -137,7 +157,7 @@ function verifyEvidence(expected, repoRoot, _scanRoot, createCurrent) {
   let current;
   try { current = createCurrent(); }
   catch (error) { return { ok: false, reason: error.message }; }
-  for (const key of ["repositoryIdentity", "commit", "tree", "catalogDigest", "catalogVersion", "scannerVersion", "approvalsDigest", "visibility", "registrationDigest", "registeredRoots", "contentDigest"]) {
+  for (const key of ["repositoryIdentity", "source", "commit", "tree", "catalogDigest", "catalogVersion", "scannerVersion", "approvalsDigest", "visibility", "registrationDigest", "registeredRoots", "contentDigest"]) {
     const unchanged = key === "registeredRoots"
       ? JSON.stringify(expected[key]) === JSON.stringify(current.evidence[key])
       : expected[key] === current.evidence[key];
