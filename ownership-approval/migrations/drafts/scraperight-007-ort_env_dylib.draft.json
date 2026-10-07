@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/scraperight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "ort.env.dylib",
+    "paths": [
+      "scripts/sidecar-smoke.mjs"
+    ],
+    "occurrenceHashes": [
+      "80bed51d65f5d6cf1f76d763e410fc1d9741addc2f8d4c975a16cc6ee74d4f8f"
+    ],
+    "reason": "ScrapeRight still owns onnx-runtime; RightKit rightkit-ort is the target",
+    "owner": "ScrapeRight"
+  },
+  "signature": null
+}

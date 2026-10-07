@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/heardright",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "ort.env.dylib",
+    "paths": [
+      "tauri-app-next/src-tauri/src/platform_setup.rs"
+    ],
+    "occurrenceHashes": [
+      "10d4425eb17477485116767f39b6c6fdae0334b94343e98590d4b4bf96f13188",
+      "1d7f73098c5475aff6548eadb14a29a0410e3d325a82e6a7bc4d9124d63169dd",
+      "216d81877cf0713279b2842acfa8dade58d2dcfb28e03bdc3e4158d185306829",
+      "42c060e93b652e463ea37d379cbfc686306304c169fc7015197b82eea12c5b6d",
+      "82709056e1fdc7c9c86347a64f8b4ab03b5301724e6fd87280491bb4db375252"
+    ],
+    "reason": "HeardRight still owns onnx-runtime; RightKit rightkit-ort is the target",
+    "owner": "HeardRight"
+  },
+  "signature": null
+}

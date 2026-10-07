@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/mailright",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "oauth.endpoint.google",
+    "paths": [
+      "src-tauri/src/google.rs"
+    ],
+    "occurrenceHashes": [
+      "98f4c3383bc97cb892ff15846aca1aa493e55147bff63b3cb5e0dae1c6ede6c6"
+    ],
+    "reason": "MailRight still owns oauth-sign-in; RightKit rightkit-oauth is the target",
+    "owner": "MailRight"
+  },
+  "signature": null
+}

@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/heardright",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "shell.cargo.tauri-plugin-autostart",
+    "paths": [
+      "tauri-app-next/src-tauri/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "bec5fa43c6c7f7386af7674481c5316783c8ca28722c26fec51b7cb5d6029fc6"
+    ],
+    "reason": "HeardRight still owns desktop-shell; RightKit rightkit-shell is the target",
+    "owner": "HeardRight"
+  },
+  "signature": null
+}

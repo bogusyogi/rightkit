@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/viewright",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "watch.cargo.notify",
+    "paths": [
+      "src-tauri/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "582c72e1e6420bcca2533cde0bc54632763c994b400692ce217025bdcd39f1dd"
+    ],
+    "reason": "ViewRight still owns file-watching; RightKit rightkit-watch is the target",
+    "owner": "ViewRight"
+  },
+  "signature": null
+}

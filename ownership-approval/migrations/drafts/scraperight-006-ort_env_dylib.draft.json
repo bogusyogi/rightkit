@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/scraperight",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "ort.env.dylib",
+    "paths": [
+      "crates/ort_common/src/lib.rs"
+    ],
+    "occurrenceHashes": [
+      "012dd81d019cdb408cae298cf77b5a27ae8d748ac37b6ae21dfb12af7cf6775d",
+      "1768f6b909b1d92a80ed67f3dc8acf1729ee57f3b4cb63bec140baef46e0acc8",
+      "1b671d9c2a6df229c12ec1704591fc3176f4380a906d8f7730fcef8195aecb1e",
+      "3f562e0f7173a0f539b48f875dafe6c6ef42676b77067623aa7b09ca34c4b669",
+      "65f6a067bb301196cd98c5684fed55ea85e8b6761591db8d7d5030eb0c4bd206",
+      "96b8498937624a40e1f2218cbac59d76aae508ae304cd73f828fb038d0855361"
+    ],
+    "reason": "ScrapeRight still owns onnx-runtime; RightKit rightkit-ort is the target",
+    "owner": "ScrapeRight"
+  },
+  "signature": null
+}

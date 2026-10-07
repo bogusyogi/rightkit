@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/genright",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "db.cargo.rusqlite",
+    "paths": [
+      "crates/genright-gen/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "4480edec3d8b7326a40c5e1ea52b5bba5aa4d1749d8beb91d79a18f85232b6b6"
+    ],
+    "reason": "GenRight still owns sqlite-storage; RightKit rightkit-db is the target",
+    "owner": "GenRight"
+  },
+  "signature": null
+}

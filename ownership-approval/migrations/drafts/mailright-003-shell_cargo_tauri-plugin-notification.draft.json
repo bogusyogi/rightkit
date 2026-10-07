@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/mailright",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "shell.cargo.tauri-plugin-notification",
+    "paths": [
+      "src-tauri/Cargo.toml"
+    ],
+    "occurrenceHashes": [
+      "f1a2f9dadf57c27228595b1835a68d01cee95fd682c858ef696e59901fa42227"
+    ],
+    "reason": "MailRight still owns desktop-shell; RightKit rightkit-shell is the target",
+    "owner": "MailRight"
+  },
+  "signature": null
+}

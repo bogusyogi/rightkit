@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/heardright",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "process.api.kill-on-job-close",
+    "paths": [
+      "tauri-app-next/scripts/test-sidecar-lifecycle-contract.mjs"
+    ],
+    "occurrenceHashes": [
+      "2748290d499e54f932f8da9e3b579dcfe7b4024868cb4f75960c84508e115e30"
+    ],
+    "reason": "HeardRight still owns owned-processes; RightKit rightkit-process is the target",
+    "owner": "HeardRight"
+  },
+  "signature": null
+}

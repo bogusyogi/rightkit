@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/heardright",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "ort.env.dylib",
+    "paths": [
+      "tauri-app-next/heardright-engine/examples/kws_cleanup_replay.rs",
+      "tauri-app-next/heardright-engine/examples/kws_onset_replay.rs",
+      "tauri-app-next/heardright-engine/examples/openasr_controls.rs",
+      "tauri-app-next/heardright-engine/examples/win_parakeet_smoke.rs",
+      "tauri-app-next/heardright-engine/examples/windows_kws_control_replay.rs"
+    ],
+    "occurrenceHashes": [
+      "07986023f680cba0df0c01a54c4d8edaa1e5d42154bc6745435e84924a70bde9",
+      "0d7b3e7593162f11c5e38e79d7ee94ff684d51587eebe03f8d47df2c1ebefac1",
+      "10a02e67e235c3cbad57d5bda0654f92514b4362cf4b072db173a5481af1dadb",
+      "537b555dc96c60cdfe0acf23422afe7d4d4b7ad4caf6eb91be7f13a38d223dc9",
+      "619cecb80db8ffacf71db4e6bf930b2d18dce8e5fbc527d243cde40251edc233",
+      "a08de66cd6b5c920392a3e37da2c4e30f88513808cafb2a3cba3ff766786fab6",
+      "b7bc9bb1a07e7a6a58c8fa02a5ce97d0b23c81ee73c5bc6d4069664f50486aa2",
+      "ba54c7e6cc97455c24ab3b7126f95db8a39b246c09e1fad938f27e46e5f67845"
+    ],
+    "reason": "HeardRight still owns onnx-runtime; RightKit rightkit-ort is the target",
+    "owner": "HeardRight"
+  },
+  "signature": null
+}

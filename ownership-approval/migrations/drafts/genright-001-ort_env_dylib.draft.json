@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "payload": {
+    "repositoryIdentity": "https://github.com/bogusyogi/genright",
+    "catalogDigest": "4b2e883cd12a453c8561603d197520932bf9b700053d002e04c91c7d391a059d",
+    "fingerprint": "ort.env.dylib",
+    "paths": [
+      "crates/genright-qts/src/client.rs",
+      "crates/genright-qts/src/models.rs",
+      "crates/genright-qts/src/worker.rs"
+    ],
+    "occurrenceHashes": [
+      "2897a8f3886624934673ee5d5403fbf4c0d823f619e928680714ca7a5cc5849a",
+      "526f7f4d4a443dc441c772b6a71515916471d6209f4191653005aba2e7fa9d7c",
+      "e6da99a29d5d9eb0b4b7253229910958eb6af7d45b720fcb780f4ebb7b68e9ec",
+      "f6cb1cceadb6ba63d3197da1f4029f138bd572de327641212093dce9afbfe63c"
+    ],
+    "reason": "GenRight still owns onnx-runtime; RightKit rightkit-ort is the target",
+    "owner": "GenRight"
+  },
+  "signature": null
+}
