@@ -748,6 +748,42 @@ fn path_has_write_grant(path: &Path, sid: *mut c_void) -> bool {
     }
 }
 
+/// Whether `path`'s live DACL already lets ALL APPLICATION PACKAGES read and execute the
+/// object itself (Program Files, System32, and anything ACLed like them). Such paths need
+/// no lease, and the user usually could not re-ACL them anyway.
+fn packages_can_read(path: &Path) -> bool {
+    let Ok(packages) = LocalSid::parse(ALL_APP_PACKAGES_SID) else {
+        return false;
+    };
+    let mut wide_path = wide(path);
+    // SAFETY: as in apply_sid_path_entry; the descriptor is freed after the DACL is read.
+    unsafe {
+        let mut dacl = std::ptr::null_mut();
+        let mut descriptor = std::ptr::null_mut();
+        if GetNamedSecurityInfoW(
+            wide_path.as_mut_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut descriptor,
+        ) != 0
+        {
+            return false;
+        }
+        let covered = dacl_covers_grant(
+            dacl,
+            packages.0,
+            FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+            0,
+        );
+        LocalFree(descriptor);
+        covered
+    }
+}
+
 /// Process-wide reference counts of live ACL grants: one grant may back several concurrent
 /// commands, and the ACE is revoked only when the last of them ends.
 struct LeaseEntry {
@@ -1136,7 +1172,8 @@ impl AppContainerProfile {
             .iter()
             .filter_map(std::env::var_os)
             .any(|root| under(&root.to_string_lossy()));
-        if under(&system32) || program_files {
+        // The env check misses scrubbed environments; the live DACL is authoritative.
+        if under(&system32) || program_files || packages_can_read(&dir) {
             return Ok(());
         }
         let target = image_lease_target(program, &dir);
@@ -1770,6 +1807,16 @@ mod tests {
         assert!(entries
             .iter()
             .any(|e| e.starts_with("NODE_OPTIONS=--preserve-symlinks")));
+    }
+
+    #[test]
+    fn package_readable_dirs_are_detected_from_the_live_dacl() {
+        let system32 = PathBuf::from(system_root()).join("System32");
+        assert!(packages_can_read(&system32));
+        let private = std::env::temp_dir().join(format!("rk-private-{}", std::process::id()));
+        std::fs::create_dir_all(&private).unwrap();
+        assert!(!packages_can_read(&private));
+        std::fs::remove_dir_all(&private).unwrap();
     }
 
     #[test]
