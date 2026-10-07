@@ -12,6 +12,7 @@ import { adoptRepo } from "../adopt.mjs";
 import { runConformance } from "../ax/conformance.mjs";
 import { runScenarios, runMatrix } from "../ax/behavioral.mjs";
 import { runAdversarial } from "../ax/adversarial.mjs";
+import { assertOwnershipReviewPacket, buildOwnershipReviewPacket, readOwnershipReviewJson, validateOwnershipReviewReceipt, writeOwnershipReviewPacket } from "../ax/ownership-review.mjs";
 import { resolveArtifact } from "../ax/artifact.mjs";
 import { aggregateReport, gateExitCode, renderMarkdown, toSarif } from "../ax/report.mjs";
 import { runStaticChecks } from "../ax/static.mjs";
@@ -85,6 +86,34 @@ function requireManifest(repoPath) {
 async function main() {
   if (!first || first === "-h" || first === "--help") return printHelp();
   if (first === "--version" || first === "-v") { console.log(`right-ax ${PACKAGE_VERSION}`); return; }
+
+  if (first === "ownership-review") {
+    if (second === "prepare") {
+      const repoPath = resolveRepoPath(rest[0]?.startsWith("--") ? undefined : rest[0]);
+      const base = flag("base");
+      const head = flag("head");
+      if (!base || !head) usage("ownership-review prepare requires --base <commit> and --head <commit>");
+      const packet = buildOwnershipReviewPacket({ repoPath, base, head });
+      const output = flag("out");
+      if (output) writeOwnershipReviewPacket(path.resolve(output), packet);
+      else printJson(packet);
+      return;
+    }
+    if (second === "verify") {
+      const packetPath = flag("packet");
+      const receiptPath = flag("receipt");
+      if (!packetPath || !receiptPath) usage("ownership-review verify requires --packet <file> and --receipt <file>");
+      const packet = assertOwnershipReviewPacket(readOwnershipReviewJson(path.resolve(packetPath)));
+      const receipt = readOwnershipReviewJson(path.resolve(receiptPath));
+      const report = validateOwnershipReviewReceipt(packet, receipt);
+      printJson(report);
+      if (!report.valid) process.exitCode = 2;
+      return;
+    }
+    console.error("right-ax ownership-review: expected prepare or verify");
+    process.exitCode = 2;
+    return;
+  }
 
   if (first === "plugin") {
     const repoPath = resolveRepoPath(rest[0]?.startsWith("--") ? undefined : rest[0]);
@@ -234,6 +263,10 @@ Commands:
                                               Aggregate scorecard; gates and reports, never signs off
   adopt <repo-path> [--scenarios-dir] [--serve <program> [--serve-arg <argv>]...] [--dry-run]
                                               Infer and write .rightax.json from an existing harness
+  ownership-review prepare <repo-path> --base <commit> --head <commit> [--out <file>]
+                                              Prepare bounded, content/catalog-deduped advisory packet
+  ownership-review verify --packet <file> --receipt <file>
+                                              Validate supervised receipt; findings remain advisory
 
 Artifact roots are external clean-room directories, absolute or repo-relative paths resolving outside source repo.
 

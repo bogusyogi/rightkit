@@ -21,6 +21,33 @@ test("--help prints usage and exits 0", () => {
   assert.match(result.stdout, /right-ax <command> \[options\]/);
 });
 
+test("ownership-review prepare emits bounded packet without starting a provider", () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "right-ax-review-"));
+  const git = (...args) => {
+    const result = spawnSync("git", args, { cwd: repo, encoding: "utf8", windowsHide: true });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git("init", "-q");
+  git("config", "user.email", "test@example.invalid");
+  git("config", "user.name", "AX test");
+  const catalog = path.join(repo, "tools/rightkit/packages/release/rightkit-ownership.json");
+  mkdirSync(path.dirname(catalog), { recursive: true });
+  writeFileSync(catalog, JSON.stringify({ schema: 1, capabilities: [] }));
+  const source = path.join(repo, "src/example.mjs");
+  mkdirSync(path.dirname(source), { recursive: true });
+  writeFileSync(source, "export const value = 1;\n");
+  git("add", "."); git("commit", "-qm", "base"); const base = git("rev-parse", "HEAD");
+  writeFileSync(source, "export const value = 2;\n");
+  git("add", "."); git("commit", "-qm", "head"); const head = git("rev-parse", "HEAD");
+  const result = run(["ownership-review", "prepare", repo, "--base", base, "--head", head]);
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.state, "prepared");
+  assert.equal(packet.providerState.status, "not_started");
+  assert.equal(packet.advisoryOnly, true);
+});
+
 test("--version prints a version string", () => {
   const result = run(["--version"]);
   assert.equal(result.status, 0);

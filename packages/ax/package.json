@@ -13,6 +13,7 @@
     "./ax/conformance": "./ax/conformance.mjs",
     "./ax/behavioral": "./ax/behavioral.mjs",
     "./ax/adversarial": "./ax/adversarial.mjs",
+    "./ax/ownership-review": "./ax/ownership-review.mjs",
     "./ax/report": "./ax/report.mjs",
     "./plugin/scaffold": "./plugin/scaffold.mjs",
     "./plugin/validate": "./plugin/validate.mjs",
