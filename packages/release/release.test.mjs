@@ -168,14 +168,13 @@ function runDoctor(config, ...args) {
   });
 }
 
+// Until ownership trust enrollment completes, the doctor reports ownership as a
+// pending-enrollment WARN (ebeb6154), not a blocking FAIL.
 function assertDoctorBlockedOnlyByMissingOwnershipTrust(result) {
   const output = `${result.stdout}\n${result.stderr}`;
-  assert.notEqual(result.status, 0, output);
-  assert.match(output, /\[FAIL\] ownership: ownership evidence failed: protected ownership trust location was not verified/);
-  assert.match(result.stderr, /preflight found 1 blocking problem/);
-  const failures = output.match(/^\s+\[FAIL\].*$/gm) ?? [];
-  assert.equal(failures.length, 1, output);
-  assert.match(failures[0], /ownership/);
+  assert.equal(result.status, 0, output);
+  assert.match(output, /\[WARN\] ownership: WARNING: ownership approval enrollment is pending/);
+  assert.deepEqual(output.match(/^\s+\[FAIL\].*$/gm) ?? [], [], output);
 }
 
 test("accepts a tier-neutral internal build", () => {
@@ -711,8 +710,7 @@ test("doctor handles a real src-tauri target according to host Cargo ownership",
     assert.doesNotMatch(output, /cache migrate/i);
     assert.match(output, /target-bridge[\s\S]*broker-managed host, left untouched/i);
   } else {
-    assert.notEqual(result.status, 0);
-    assert.match(output, /\[FAIL\] ownership: ownership evidence failed: protected ownership trust location was not verified/);
+    assert.match(output, /\[WARN\] ownership: WARNING: ownership approval enrollment is pending/);
     assert.match(output, /target-bridge[\s\S]*real directory[\s\S]*cache migrate/i);
   }
 });

@@ -4,7 +4,7 @@
 //
 //   right-release ownership [--app <dir>] [--json]
 //   right-release ownership --write-manifest [--rightkit <tools/rightkit>]
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { aggregateOwnership, formatTable, MANIFEST_FILE } from "./ownership.mjs";
@@ -62,7 +62,14 @@ function failClosed(args, type, message, print = (value) => console.log(value)) 
   return 1;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Compare real paths: a symlinked spelling of this file (pnpm links, macOS /var -> /private/var)
+// must still run the command.
+const isEntry = (() => {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); }
+  catch { return path.resolve(process.argv[1]) === fileURLToPath(import.meta.url); }
+})();
+if (isEntry) {
   main(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
   }).catch((error) => {

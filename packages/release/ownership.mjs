@@ -294,7 +294,10 @@ function repositoryIdentityFor(root) {
 function scanRepositoryRoot(appRoot) {
   const result = spawnSync("git", ["-C", appRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
   if (result.status !== 0) return { root: path.resolve(appRoot), prefix: "", pathBase: "scan-root" };
-  const root = path.resolve(result.stdout.trim()), app = path.resolve(appRoot);
+  // Git prints the resolved root (macOS /private/var/...); resolve the app root the same way so a
+  // symlinked spelling (/var, /tmp) is not mistaken for a path outside the repository.
+  const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
+  const root = real(result.stdout.trim()), app = real(appRoot);
   const relative = path.relative(root, app);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { root: app, prefix: "", pathBase: "scan-root" };
   return { root, prefix: relative ? `${relative.split(path.sep).join("/")}/` : "", pathBase: "repository" };
@@ -316,8 +319,8 @@ function trustedProvenance(appRoot, inventory, trust, repositoryIdentity, covera
         files.push({ path: rel, content: snapshotFile.bytes });
         continue;
       }
-      const filePath = path.resolve(repositoryRoot, ...rel.split("/"));
       const rootReal = realpathSync(repositoryRoot);
+      const filePath = path.resolve(rootReal, ...rel.split("/"));
       if (!filePath.startsWith(rootReal + path.sep)) { safe = false; break; }
       try {
         let current = repositoryRoot, st;

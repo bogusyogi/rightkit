@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
@@ -56,7 +56,9 @@ function createEvidence(repoRoot, {
   const floor = trustState.trust
     ? validateOwnershipFloor(trustState.trust, { scannerVersion, catalogVersion, catalogDigest })
     : { ok: false, problems: ["protected ownership floor is unavailable until trust registry enrollment"] };
-  const requestedRoot = path.relative(root, scanRoot).replaceAll("\\", "/") || ".";
+  // Real paths on both sides: Git's root is resolved (macOS /private/var), callers may pass /var or /tmp.
+  const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
+  const requestedRoot = path.relative(real(root), real(scanRoot)).replaceAll("\\", "/") || ".";
   if (requestedRoot.startsWith("../") || requestedRoot === ".." || path.isAbsolute(requestedRoot)) throw new Error("ownership evidence scan root must be inside repository");
   const evidenceDiagnostics = [];
   let repositoryIdentity = null;

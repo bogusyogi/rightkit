@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "./background-process.mjs";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -75,7 +75,8 @@ function executableSource(source) {
 
 function pipelineScripts(root) {
   const repo = execFileSync("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true }).trim();
-  const prefix = path.relative(repo, root).replaceAll(path.sep, "/");
+  // Git prints the resolved root (macOS /private/var); compare against the resolved scan root.
+  const prefix = path.relative(realpathSync(repo), realpathSync(root)).replaceAll(path.sep, "/");
   const tracked = execFileSync("git", ["-C", repo, "ls-files", "-z"], { encoding: "utf8", windowsHide: true })
     .split("\0")
     .filter(Boolean);
@@ -90,7 +91,8 @@ function pipelineScripts(root) {
       ) && /\.(?:mjs|cjs|js|ts|ps1|sh|py)$/i.test(local)
         && !/(?:^|[.-])test(?:[.-]|$)/i.test(path.basename(local));
     })
-    .map((entry) => path.join(repo, entry))
+    // Rebuild paths from the caller's spelling of the root so labels stay workspace-relative.
+    .map((entry) => path.join(root, prefix ? entry.slice(prefix.length + 1) : entry))
     .filter((entry) => existsSync(entry));
 }
 

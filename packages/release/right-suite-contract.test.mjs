@@ -497,8 +497,8 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/onboarding": "0.2.3",
     "@rightkit/pdf-ui": "0.1.2",
     "@rightkit/platform-ui": "0.1.2",
-    "@rightkit/qa": "0.2.3",
-    "@rightkit/qa-chrome": "0.1.0",
+    "@rightkit/qa": "0.2.4",
+    "@rightkit/qa-chrome": "0.1.1",
     "@rightkit/release": "0.2.122",
     "@rightkit/settings-ui": "0.2.6",
     "@rightkit/shell": "0.1.0",
@@ -514,7 +514,8 @@ test("RightKit exposes one current version manifest", () => {
     "@rightkit/legal": ["0.3.0"],
     "@rightkit/license": ["0.1.6", "0.1.7"],
     "@rightkit/release": ["0.2.22", "0.2.29", "0.2.30", "0.2.31", "0.2.41", "0.2.42", "0.2.43", "0.2.44", "0.2.45", "0.2.46", "0.2.49", "0.2.50", "0.2.51", "0.2.53", "0.2.54", "0.2.55", "0.2.56", "0.2.61", "0.2.62", "0.2.63", "0.2.64", "0.2.65", "0.2.66", "0.2.67", "0.2.68", "0.2.69", "0.2.70", "0.2.71", "0.2.72", "0.2.73", "0.2.74", "0.2.75", "0.2.76", "0.2.82", "0.2.83", "0.2.91", "0.2.92", "0.2.94", "0.2.95", "0.2.96", "0.2.97", "0.2.98", "0.2.99", "0.2.104", "0.2.105", "0.2.106", "0.2.107", "0.2.108", "0.2.109", "0.2.110", "0.2.111", "0.2.112", "0.2.113", "0.2.114", "0.2.115", "0.2.116", "0.2.117", "0.2.118", "0.2.119", "0.2.120", "0.2.121"],
-    "@rightkit/qa": ["0.1.0", "0.2.0", "0.2.1", "0.2.2"],
+    "@rightkit/qa": ["0.1.0", "0.2.0", "0.2.1", "0.2.2", "0.2.3"],
+    "@rightkit/qa-chrome": ["0.1.0"],
     "@rightkit/app-shell": ["0.1.0", "0.2.0"],
     "@rightkit/media-ui": ["0.1.0", "0.2.0", "0.2.1", "0.2.2", "0.2.3", "0.2.4", "0.2.5"],
     "@rightkit/theme": ["0.1.0", "0.2.0"],
@@ -541,33 +542,39 @@ test("RightKit exposes one current version manifest", () => {
   assert.equal(versions.cargo["rightkit-logs"], "0.1.0");
   assert.equal(versions.cargo["rightkit-tauri"], "0.1.0");
     assert.deepEqual(versions.stagedCargo, {
-      "rightkit-automation": "0.1.0",
       "rightkit-audio": "0.1.0",
-    "rightkit-browser": "0.2.0",
-    "rightkit-cache": "0.1.0",
-    "rightkit-control": "0.1.5",
-    "rightkit-crash": "0.1.0",
-    "rightkit-db": "0.2.1",
-    "rightkit-framed-sidecar": "0.1.0",
-    "rightkit-fs": "0.1.0",
-    "rightkit-jobs": "0.2.1",
-    "rightkit-logs": "0.2.0",
-    "rightkit-media": "0.2.2",
-    "rightkit-models": "0.2.1",
-    "rightkit-pdf": "0.1.0",
-    "rightkit-playback": "0.1.0",
-    "rightkit-process": "0.2.1",
-    "rightkit-qa": "0.2.5",
-    "rightkit-sandbox": "0.1.0",
-    "rightkit-search": "0.1.0",
-    "rightkit-service": "0.1.0",
-    "rightkit-settings": "0.1.0",
-    "rightkit-shell": "0.1.0",
-    "rightkit-speech-client": "0.3.0",
-    "rightkit-sync": "0.1.0",
-    "rightkit-license": "0.1.3",
-    "rightkit-tauri": "0.1.1",
-  });
+      "rightkit-automation": "0.1.0",
+      "rightkit-browser": "0.2.0",
+      "rightkit-cache": "0.1.0",
+      "rightkit-control": "0.1.6",
+      "rightkit-crash": "0.1.0",
+      "rightkit-db": "0.2.1",
+      "rightkit-framed-sidecar": "0.1.0",
+      "rightkit-fs": "0.1.0",
+      "rightkit-http": "0.1.0",
+      "rightkit-jobs": "0.2.1",
+      "rightkit-license": "0.1.3",
+      "rightkit-logs": "0.2.0",
+      "rightkit-mcp": "0.1.1",
+      "rightkit-media": "0.2.2",
+      "rightkit-models": "0.2.1",
+      "rightkit-oauth": "0.2.0",
+      "rightkit-ort": "0.1.4",
+      "rightkit-pdf": "0.1.0",
+      "rightkit-playback": "0.1.0",
+      "rightkit-process": "0.2.1",
+      "rightkit-qa": "0.2.6",
+      "rightkit-sandbox": "0.1.0",
+      "rightkit-search": "0.1.0",
+      "rightkit-secrets": "0.1.0",
+      "rightkit-service": "0.1.0",
+      "rightkit-settings": "0.1.0",
+      "rightkit-shell": "0.1.0",
+      "rightkit-speech-client": "0.3.0",
+      "rightkit-sync": "0.1.0",
+      "rightkit-tauri": "0.1.1",
+      "rightkit-watch": "0.1.0"
+    });
   assert.deepEqual(versions.stagedSwift, { "rightkit-swift": { url: "https://github.com/bogusyogi/rightkit-swift.git", version: "0.3.1" } });
   getCurrentCargoVersionContract();
 });
@@ -727,7 +734,9 @@ for (const app of apps) {
     assert.equal(tauri.bundle.createUpdaterArtifacts, true);
 
     const { consumer, canonical } = getCurrentCargoVersionContract();
-    const rollout = new Map([...consumer].map(([name, version]) => [name, new Set([version, canonical.get(name)].filter(Boolean))]));
+    // Same allowance as the doctor (release.mjs buildAllowedVersions): published and staged crates.
+    const rollout = new Map([...new Set([...consumer.keys(), ...canonical.keys()])]
+      .map((name) => [name, new Set([consumer.get(name), canonical.get(name)].filter(Boolean))]));
     validateRightKitCargoContract(root, rollout, app.key);
 
     for (const localCopy of [
