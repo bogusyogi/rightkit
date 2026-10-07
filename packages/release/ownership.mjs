@@ -298,7 +298,10 @@ function scanRepositoryRoot(appRoot) {
   const commit = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(head ?? "") ? head : null;
   // Unborn repositories still print their root before HEAD resolution fails.
   if (!rootPath || !path.isAbsolute(rootPath)) return { root: path.resolve(appRoot), prefix: "", pathBase: "scan-root", commit };
-  const root = path.resolve(rootPath), app = path.resolve(appRoot);
+  // Git prints the resolved root (macOS /private/var/...); resolve the app root the same way so a
+  // symlinked spelling (/var, /tmp) is not mistaken for a path outside the repository.
+  const real = (p) => { try { return realpathSync(p); } catch { return path.resolve(p); } };
+  const root = real(rootPath), app = real(appRoot);
   const relative = path.relative(root, app);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { root: app, prefix: "", pathBase: "scan-root", commit };
   return { root, prefix: relative ? `${relative.split(path.sep).join("/")}/` : "", pathBase: "repository", commit };
@@ -320,8 +323,8 @@ function trustedProvenance(appRoot, inventory, trust, repositoryIdentity, covera
         files.push({ path: rel, content: snapshotFile.bytes });
         continue;
       }
-      const filePath = path.resolve(repositoryRoot, ...rel.split("/"));
       const rootReal = realpathSync(repositoryRoot);
+      const filePath = path.resolve(rootReal, ...rel.split("/"));
       if (!filePath.startsWith(rootReal + path.sep)) { safe = false; break; }
       try {
         let current = repositoryRoot, st;

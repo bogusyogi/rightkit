@@ -57,7 +57,8 @@ test("consumer copies are byte-exact and only rewritten when they differ", async
     for (const dir of ["release", "build-control-clients/src", "build-control-policy/src"]) await mkdir(path.join(root, "packages", dir), { recursive: true });
     await writeFile(path.join(root, "packages", "release", "rightkit-ownership.json"), '{"capabilities":[]}\n');
     await writeFile(path.join(root, "packages", "release", "rightkit-versions.json"), '{"schema":2}\n');
-    assert.equal(syncConsumerCopies(root).length, 5);
+    await writeFile(path.join(root, "packages", "release", "rightkit-drift.mjs"), "export {};\n");
+    assert.equal(syncConsumerCopies(root).length, 6);
     assert.equal(await readFile(path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json"), "utf8"), '{"schema":2}\n');
     assert.deepEqual(syncConsumerCopies(root), []);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -71,6 +72,7 @@ test("checked-in consumer copies match the canonical catalog and versions (run: 
     ["release/rightkit-ownership.json", "build-control-policy/src/ownership-session-catalog.json"],
     ["release/rightkit-ownership.json", "build-control-policy/src/ownership-fingerprints.json"],
     ["release/rightkit-versions.json", "build-control-policy/src/ownership-session-versions.json"],
+    ["release/rightkit-drift.mjs", "build-control-policy/src/rightkit-drift.mjs"],
   ];
   for (const [source, copy] of pairs) assert.equal(await readFile(path.join(packages, copy), "utf8"), await readFile(path.join(packages, source), "utf8"), `${copy} is stale`);
 });

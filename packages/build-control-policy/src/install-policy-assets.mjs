@@ -12,6 +12,7 @@ const files = [
   'ownership-fingerprints.json',
   'ownership-session-catalog.json',
   'ownership-session-versions.json',
+  'rightkit-drift.mjs',
 ].sort();
 
 function rootFor(platform) {

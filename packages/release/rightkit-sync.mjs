@@ -113,11 +113,12 @@ export function syncConsumerCopies(root = rightkitRoot) {
     ["rightkit-ownership.json", path.join(root, "packages", "build-control-policy", "src", "ownership-session-catalog.json")],
     ["rightkit-ownership.json", path.join(root, "packages", "build-control-policy", "src", "ownership-fingerprints.json")],
     ["rightkit-versions.json", path.join(root, "packages", "build-control-policy", "src", "ownership-session-versions.json")],
+    ["rightkit-drift.mjs", path.join(root, "packages", "build-control-policy", "src", "rightkit-drift.mjs")],
   ];
   const updated = [];
   for (const [source, target] of targets) {
     const bytes = readFileSync(path.join(release, source));
-    JSON.parse(bytes.toString("utf8"));
+    if (source.endsWith(".json")) JSON.parse(bytes.toString("utf8"));
     if (existsSync(target) && readFileSync(target).equals(bytes)) continue;
     writeFileSync(target, bytes);
     updated.push(path.relative(root, target).split(path.sep).join("/"));

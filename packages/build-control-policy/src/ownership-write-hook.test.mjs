@@ -97,3 +97,16 @@ test('normalized Claude paths and shell write targets protect exception records'
   assert.equal(ownershipWriteDecision({ tool_name: 'functions.exec', cwd: 'C:/repo', tool_input: { code: "await tools.exec_command({cmd: 'Set-Content .rightkit/ownership-exceptions.json {}'})" } }).hookSpecificOutput.permissionDecision, 'deny');
   assert.equal(ownershipWriteDecision({ tool_name: 'Write', tool_input: { file_path: 'C:/ProgramData/Orthic Labs/RightKit/ownership/trust.json', content: '{}' } }).hookSpecificOutput.permissionDecision, 'deny');
 });
+
+test('session start in a repository behind RightKit appends its drift and the adopt command', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises'); const { tmpdir } = await import('node:os'); const { execFileSync } = await import('node:child_process');
+  const repo = await mkdtemp(path.join(tmpdir(), 'rk-session-drift-')); try {
+    await writeFile(path.join(repo, 'package.json'), JSON.stringify({ dependencies: { '@rightkit/release': '0.0.1' } }));
+    execFileSync('git', ['-C', repo, 'init'], { stdio: 'ignore' }); execFileSync('git', ['-C', repo, 'add', '.'], { stdio: 'ignore' });
+    const context = ownershipSessionDecision({ cwd: repo }).hookSpecificOutput.additionalContext;
+    assert.ok(context.startsWith(ownershipLookup('--compact')));
+    assert.match(context, /@rightkit\/release 0\.0\.1 -> \d+\.\d+\.\d+/);
+    assert.match(context, /rightkit-drift\.mjs" --apply/);
+    assert.equal(ownershipSessionDecision({ cwd: tmpdir() }).hookSpecificOutput.additionalContext.includes('RightKit updates'), false);
+  } finally { await rm(repo, { recursive: true, force: true }); }
+});
