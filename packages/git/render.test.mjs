@@ -797,3 +797,17 @@ test("an unsafe or unknown release environment is rejected", () => {
   assert.equal(validateManifest(environmentManifest({ signing: "bad name!" })).valid, false);
   assert.equal(validateManifest(environmentManifest({ promotion: "x" })).valid, false);
 });
+
+test("ci.yml runs the RightKit ownership check only in repos that consume @rightkit/release", () => {
+  const manifest = structuredClone(FULL_MANIFEST);
+  const template = fs.readFileSync(path.join(templatesDir, "ci.yml"), "utf8");
+  const consumer = fs.mkdtempSync(path.join(packageRoot, ".tmp-ownership-"));
+  try {
+    fs.writeFileSync(path.join(consumer, "package.json"), JSON.stringify({ name: "app", devDependencies: { "@rightkit/release": "0.2.117" } }));
+    const withStep = renderTemplate(template, buildRenderContext(manifest, consumer));
+    assert.match(withStep, /check-network-boundary\.mjs\n      - run: node node_modules\/@rightkit\/release\/cli\/right-release\.mjs ownership\n/);
+    const without = renderTemplate(template, buildRenderContext(manifest, "/repos/widgets"));
+    assert.doesNotMatch(without, /right-release\.mjs ownership/);
+    assert.match(without, /check-network-boundary\.mjs\n/);
+  } finally { fs.rmSync(consumer, { recursive: true, force: true }); }
+});

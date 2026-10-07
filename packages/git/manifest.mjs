@@ -976,6 +976,22 @@ export function deriveProjectName(repoPath) {
  * Build the flat placeholder -> value map used by render.mjs, from a
  * validated manifest plus the target repo's derived project name.
  */
+/**
+ * CI step that fails on an app's own copy of a RightKit-owned capability, for repos that consume
+ * @rightkit/release (the same check `right-release doctor` and build preflight run). Empty for
+ * every other repo, so their rendered workflow is unchanged.
+ */
+export function ownershipStep(repoPath) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoPath, "package.json"), "utf8"));
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    if (!deps["@rightkit/release"]) return "";
+  } catch {
+    return "";
+  }
+  return "\n      - run: node node_modules/@rightkit/release/cli/right-release.mjs ownership";
+}
+
 export function buildRenderContext(manifest, repoPath) {
   const pm = parsePackageManager(manifest.packageManager);
   const projectName = deriveProjectName(repoPath);
@@ -1002,6 +1018,7 @@ export function buildRenderContext(manifest, repoPath) {
     WINDOWS_SIGNING_JOB: windowsSigningJob(manifest, pm, artifactPrefix),
     MACOS_SIGNING_JOB: macosSigningJob(manifest, pm, artifactPrefix),
     RELEASE_CHAIN_JOBS: releaseChainJobs(manifest, pm, artifactPrefix),
+    OWNERSHIP_STEP: ownershipStep(repoPath),
   };
 
   // Every key below is populated ONLY when its source manifest section is
