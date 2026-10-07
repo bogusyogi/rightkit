@@ -175,14 +175,17 @@ fn replace_file(tmp: &Path, dest: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::time::Duration;
 
     use super::*;
+    #[cfg(unix)]
     use crate::{
         resolve_ffmpeg, ArtifactStatus, Attribution, ResolutionRequest, ResolvedFfmpeg, Tool,
         DECODE_VARIANT,
     };
 
+    #[cfg(unix)]
     fn script_artifact(digest: &str, os: &str, arch: &str, tool: Tool) -> Artifact {
         Artifact {
             id: format!("{tool}-test-{os}-{arch}"),
@@ -233,6 +236,7 @@ mod tests {
         (path, script_artifact(&digest, os, arch, tool))
     }
 
+    #[cfg(unix)]
     fn resolve(path: &Path, artifact: &Artifact) -> ResolvedFfmpeg {
         resolve_ffmpeg(
             artifact,
