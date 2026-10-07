@@ -65,9 +65,11 @@ fn normalize(path: &Path) -> PathBuf {
         return canonical;
     }
     match (path.parent(), path.file_name()) {
-        (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => std::fs::canonicalize(parent)
-            .map(|p| p.join(name))
-            .unwrap_or_else(|_| path.to_path_buf()),
+        (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
+            std::fs::canonicalize(parent)
+                .map(|p| p.join(name))
+                .unwrap_or_else(|_| path.to_path_buf())
+        }
         _ => path.to_path_buf(),
     }
 }
@@ -102,7 +104,10 @@ fn run_debounce_loop(
 }
 
 fn mutating(event: &Event) -> bool {
-    matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_))
+    matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    )
 }
 
 /// Watches a set of files; dropping it stops the watch and joins the debounce thread.
@@ -175,7 +180,10 @@ impl FileSetWatcher {
                     let mut push = |canonical: &PathBuf, kind: FileChangeKind| {
                         if let Some(shown) = display.get(canonical) {
                             if grants.is_granted(canonical) {
-                                out.push(FileChange { path: shown.clone(), kind });
+                                out.push(FileChange {
+                                    path: shown.clone(),
+                                    kind,
+                                });
                             }
                         }
                     };
@@ -213,7 +221,10 @@ impl FileSetWatcher {
                 });
             })
             .map_err(notify::Error::io)?;
-        Ok(Self { watcher: Some(watcher), thread: Some(thread) })
+        Ok(Self {
+            watcher: Some(watcher),
+            thread: Some(thread),
+        })
     }
 
     /// Convenience with the donor defaults and no grant gating.
@@ -221,7 +232,13 @@ impl FileSetWatcher {
         paths: &[PathBuf],
         on_change: impl Fn(Vec<FileChange>) + Send + 'static,
     ) -> notify::Result<Self> {
-        Self::watch(paths, DEFAULT_DEBOUNCE, DEFAULT_MAX_WAIT, |_: &Path| true, on_change)
+        Self::watch(
+            paths,
+            DEFAULT_DEBOUNCE,
+            DEFAULT_MAX_WAIT,
+            |_: &Path| true,
+            on_change,
+        )
     }
 }
 
@@ -271,7 +288,11 @@ impl Default for DirWatchSet {
 
 impl DirWatchSet {
     pub fn new(cap: usize, quiet: Duration) -> Self {
-        Self { cap: cap.max(1), quiet, inner: Mutex::new(DirMap::default()) }
+        Self {
+            cap: cap.max(1),
+            quiet,
+            inner: Mutex::new(DirMap::default()),
+        }
     }
 
     pub fn len(&self) -> usize {

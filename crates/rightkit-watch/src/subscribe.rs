@@ -335,7 +335,6 @@ impl FileWatcherSubscriber {
                 .collect(),
         }
     }
-
 }
 
 impl FileWatcherSubscriber {
@@ -740,9 +739,6 @@ impl FileWatcher {
             subscriber.add_changed_paths(&changed_paths).await;
         }
     }
-
-
-
 }
 
 fn is_mutating_event(event: &Event) -> bool {

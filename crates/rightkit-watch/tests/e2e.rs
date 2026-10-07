@@ -64,10 +64,16 @@ fn atomic_save_rename_over_original_surfaces_target_only() {
     let batches = collect_until(&rx, |b| flat(b).iter().any(|c| c.path == target));
     let changes = flat(&batches);
     assert!(
-        changes.contains(&FileChange { path: target.clone(), kind: FileChangeKind::Changed }),
+        changes.contains(&FileChange {
+            path: target.clone(),
+            kind: FileChangeKind::Changed
+        }),
         "target change missing: {changes:?}"
     );
-    assert!(changes.iter().all(|c| c.path == target), "unwatched paths leaked: {changes:?}");
+    assert!(
+        changes.iter().all(|c| c.path == target),
+        "unwatched paths leaked: {changes:?}"
+    );
     assert_eq!(fs::read_to_string(&target).unwrap(), "v2 from atomic save");
 }
 
@@ -86,7 +92,9 @@ fn missing_target_created_then_deleted_reports_both() {
     let batches = collect_until(&rx, |b| {
         flat(b).iter().any(|c| c.kind == FileChangeKind::Changed)
     });
-    assert!(flat(&batches).iter().any(|c| c.path == target && c.kind == FileChangeKind::Changed));
+    assert!(flat(&batches)
+        .iter()
+        .any(|c| c.path == target && c.kind == FileChangeKind::Changed));
 
     std::thread::sleep(Duration::from_millis(400));
     fs::remove_file(&target).unwrap();
@@ -94,7 +102,9 @@ fn missing_target_created_then_deleted_reports_both() {
         flat(b).iter().any(|c| c.kind == FileChangeKind::Removed)
     });
     assert!(
-        flat(&batches).iter().any(|c| c.path == target && c.kind == FileChangeKind::Removed),
+        flat(&batches)
+            .iter()
+            .any(|c| c.path == target && c.kind == FileChangeKind::Removed),
         "deletion not reported: {batches:?}"
     );
 }
@@ -120,7 +130,10 @@ fn revoked_grant_suppresses_emission() {
     settle();
 
     fs::write(&target, "b").unwrap();
-    assert!(!collect_until(&rx, |b| !b.is_empty()).is_empty(), "granted change must arrive");
+    assert!(
+        !collect_until(&rx, |b| !b.is_empty()).is_empty(),
+        "granted change must arrive"
+    );
 
     granted.store(false, Ordering::SeqCst);
     std::thread::sleep(Duration::from_millis(400));
@@ -182,16 +195,25 @@ fn rename_storm_collapses_to_net_state() {
         assert!(f.exists());
     }
     for o in &originals {
-        assert!(removed.contains(o) || !o.exists(), "original still believed alive: {o:?}");
+        assert!(
+            removed.contains(o) || !o.exists(),
+            "original still believed alive: {o:?}"
+        );
     }
     // The storm of 360 renames must have been coalesced into a small number of batches.
-    assert!((1..=10).contains(&batches), "storm produced {batches} batches");
+    assert!(
+        (1..=10).contains(&batches),
+        "storm produced {batches} batches"
+    );
     for (i, path) in finals.iter().enumerate().take(N) {
         assert_eq!(fs::read_to_string(path).unwrap(), format!("payload-{i}"));
     }
     // Net truth: nothing reported `changed` that is gone by the end.
     let still_changed_but_gone: Vec<_> = changed.iter().filter(|p| !p.exists()).collect();
-    println!("transient names reported changed then gone: {}", still_changed_but_gone.len());
+    println!(
+        "transient names reported changed then gone: {}",
+        still_changed_but_gone.len()
+    );
 }
 
 #[test]
@@ -223,8 +245,13 @@ fn dir_watch_set_caps_evicts_oldest_and_unwatches() {
     fs::write(dirs[0].join("evicted.txt"), "x").unwrap();
     fs::write(dirs[4].join("live.txt"), "y").unwrap();
     let got = collect_until(&rx, |all| all.iter().any(|(i, _)| *i == 4));
-    assert!(got.iter().any(|(i, b)| *i == 4 && b.changed.iter().any(|p| p.ends_with("live.txt"))));
-    assert!(got.iter().all(|(i, _)| *i != 0), "evicted dir still emitting");
+    assert!(got
+        .iter()
+        .any(|(i, b)| *i == 4 && b.changed.iter().any(|p| p.ends_with("live.txt"))));
+    assert!(
+        got.iter().all(|(i, _)| *i != 0),
+        "evicted dir still emitting"
+    );
 
     set.unwatch(&dirs[4]);
     assert!(!set.is_watching(&dirs[4]));
@@ -240,7 +267,10 @@ async fn async_subscriber_scopes_and_requested_namespace() {
     fs::create_dir_all(root.join("a/deep")).unwrap();
     let watcher = Arc::new(FileWatcher::new().unwrap());
     let (sub, mut rx) = watcher.add_subscriber();
-    let _flat = sub.register_paths(vec![WatchPath { path: root.join("a"), recursive: false }]);
+    let _flat = sub.register_paths(vec![WatchPath {
+        path: root.join("a"),
+        recursive: false,
+    }]);
     settle();
 
     fs::write(root.join("a/deep/nested.txt"), "n").unwrap();
@@ -252,7 +282,10 @@ async fn async_subscriber_scopes_and_requested_namespace() {
             seen.extend(ev.paths);
         }
     }
-    assert!(seen.contains(&root.join("a/top.txt")), "missing top-level event: {seen:?}");
+    assert!(
+        seen.contains(&root.join("a/top.txt")),
+        "missing top-level event: {seen:?}"
+    );
     assert!(
         !seen.iter().any(|p| p.ends_with("nested.txt")),
         "non-recursive watch leaked nested event: {seen:?}"
@@ -279,14 +312,23 @@ async fn async_missing_path_fallback_follows_creation_and_drop_unregisters() {
             seen.extend(ev.paths);
         }
     }
-    assert!(seen.contains(&target), "event for target never delivered: {seen:?}");
+    assert!(
+        seen.contains(&target),
+        "event for target never delivered: {seen:?}"
+    );
 
     drop(reg);
     settle();
-    while tokio::time::timeout(Duration::from_millis(300), rx.recv()).await.is_ok() {}
+    while tokio::time::timeout(Duration::from_millis(300), rx.recv())
+        .await
+        .is_ok()
+    {}
     fs::write(&target, "after unregister").unwrap();
     let late = tokio::time::timeout(Duration::from_millis(1500), rx.recv()).await;
-    assert!(late.is_err(), "event delivered after registration dropped: {late:?}");
+    assert!(
+        late.is_err(),
+        "event delivered after registration dropped: {late:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -303,7 +345,10 @@ async fn async_ref_counting_keeps_watch_until_last_subscriber_leaves() {
     settle();
 
     fs::write(root.join("still.txt"), "alive").unwrap();
-    let ev = tokio::time::timeout(WAIT, rx_b.recv()).await.expect("B lost its watch").unwrap();
+    let ev = tokio::time::timeout(WAIT, rx_b.recv())
+        .await
+        .expect("B lost its watch")
+        .unwrap();
     assert!(ev.paths.iter().any(|p| p.ends_with("still.txt")));
 }
 
@@ -320,7 +365,10 @@ async fn debounced_receiver_collapses_a_write_burst() {
     for i in 0..40 {
         fs::write(root.join(format!("burst-{}.txt", i % 8)), format!("{i}")).unwrap();
     }
-    let first = tokio::time::timeout(WAIT, debounced.recv()).await.unwrap().unwrap();
+    let first = tokio::time::timeout(WAIT, debounced.recv())
+        .await
+        .unwrap()
+        .unwrap();
     // 8 distinct files, one batch, sorted and de-duplicated.
     let mut names: Vec<_> = first
         .paths
@@ -334,6 +382,14 @@ async fn debounced_receiver_collapses_a_write_burst() {
         s
     };
     names.dedup();
-    assert_eq!(first.paths.len(), sorted.len(), "duplicates in batch: {:?}", first.paths);
-    assert!(sorted.len() >= 6, "burst files missing from batch: {sorted:?}");
+    assert_eq!(
+        first.paths.len(),
+        sorted.len(),
+        "duplicates in batch: {:?}",
+        first.paths
+    );
+    assert!(
+        sorted.len() >= 6,
+        "burst files missing from batch: {sorted:?}"
+    );
 }

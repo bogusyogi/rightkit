@@ -74,7 +74,11 @@ impl ChangeCoalescer {
         }
         for path in &event.paths {
             self.touched.entry(path.clone()).or_insert(Touch {
-                first: if created { First::Created } else { First::Other },
+                first: if created {
+                    First::Created
+                } else {
+                    First::Other
+                },
             });
         }
         if let EventKind::Modify(ModifyKind::Name(RenameMode::Both)) = event.kind {
@@ -86,7 +90,11 @@ impl ChangeCoalescer {
 
     fn push_rename(&mut self, from: PathBuf, to: PathBuf) {
         // Collapse chains: a->b then b->c becomes a->c.
-        if let Some(entry) = self.renames.iter_mut().find(|(_, existing_to)| *existing_to == from) {
+        if let Some(entry) = self
+            .renames
+            .iter_mut()
+            .find(|(_, existing_to)| *existing_to == from)
+        {
             entry.1 = to;
         } else {
             self.renames.push((from, to));
