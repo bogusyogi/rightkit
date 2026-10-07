@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ort"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -19,8 +19,12 @@ session = ["dep:ort"]
 # to `ort/coreml` / `ort/directml` for consumers that name the provider explicitly.
 coreml = ["session", "ort/coreml"]
 directml = ["session", "ort/directml"]
+# f16 tensors (e.g. Parakeet f16 encoders): forwards ort/half and re-exports `half`, so apps
+# use rightkit_ort::half::f16 and never declare ort or half directly.
+half = ["session", "ort/half", "dep:half"]
 
 [dependencies]
+half = { version = "2", optional = true }
 # SUITE PIN: every Right Suite crate and app uses exactly this ort version.
 # See README.md "Version policy".
 ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic"] }
@@ -37,4 +41,4 @@ windows-sys = { version = "0.61.2", features = ["Win32_System_SystemInformation"
 
 [dev-dependencies]
 # E2E checks the real runtime file against the approved native-library catalog.
-rightkit-media = { path = "../rightkit-media", version = "=0.2.1" }
+rightkit-media = { path = "../rightkit-media", version = "=0.2.2" }
