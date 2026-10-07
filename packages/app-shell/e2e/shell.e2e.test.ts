@@ -111,6 +111,7 @@ describe.skipIf(!chrome)("app-shell in real headless Chrome (muted)", () => {
 
   it("dispatches registry shortcuts: mod chords, sequences, bare keys only outside fields, and the help overlay lists them live", async () => {
     await open("p=macos&t=light");
+    await page.waitFor("window.__rkReady === true");
     await page.press("s", ["meta"]);
     expect(await log()).toContain("shortcut:save");
     await page.press("g");

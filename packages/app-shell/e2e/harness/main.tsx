@@ -1,4 +1,4 @@
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AppFrame,
@@ -61,6 +61,12 @@ function Probe() {
     { id: "app.goto-inbox", chord: "g i", label: "Go to Inbox", group: "Navigation", run: () => log("shortcut:goto-inbox") },
     { id: "app.bare", chord: "x", label: "Bare key action", group: "Navigation", run: () => log("shortcut:bare") },
   ]);
+  // Signals that this commit's effects ran, including the provider's key listener (parent effects run after
+  // child effects, so a macrotask scheduled here fires after both). Slower hosts otherwise race the first key.
+  useEffect(() => {
+    const t = setTimeout(() => { (window as unknown as { __rkReady?: boolean }).__rkReady = true; });
+    return () => clearTimeout(t);
+  }, []);
   const rowMenu = useContextMenu<string>((row) => [
     { id: "open", label: `Open ${row}`, run: () => log(`menu:open:${row}`) },
     { id: "copy", label: "Copy", shortcut: "mod+c", run: () => log("menu:copy") },
