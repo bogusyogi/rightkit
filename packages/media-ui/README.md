@@ -42,10 +42,13 @@ All optional; defaults preserve prior behaviour.
 - `ImageViewer`: `toolbarContainer` portals only the capsule row (`.rk-iv-bar`) into a
   host element; the crop/adjust/text/resize panels stay in the viewer above the stage.
   `panelsContainer` optionally portals the panels elsewhere. `toolbarLabel` names the
-  capsule (`role="toolbar"`, default "Image tools"); it has arrow-key roving focus
-  (Left/Right/Home/End, one tab stop). Buttons act on mousedown without taking focus
-  and on keyboard/AT click only.
-- Adapters: `defaultFontId` (font for new text layers); `acquireResource` may
+  capsule (`role="toolbar"`, default "Image tools"). Buttons act on mousedown (any mouse
+  button) without taking focus, and on keyboard/AT click only. Every control is a Tab stop
+  by default; `rovingFocus` opts into arrow-key roving (Left/Right/Home/End, one tab stop).
+  `blockExportDuringSwap` (default off) unregisters save and ignores print while a sibling
+  image is still decoding.
+- Adapters: `defaultFontId` (font for new text layers and for layers with no font);
+  `fallbackFontStack` (final CSS fallback for image text, default `system-ui, sans-serif`); `acquireResource` may
   return a release function **or** `{ release, update }`; `update({ dirty,
   stateExternalized })` is called when the edit state changes, instead of re-acquiring.
 - `MediaPlayer`: `showArtwork`, `showOpenOriginal`, `icons` (map by `IconName`),

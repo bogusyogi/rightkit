@@ -134,8 +134,8 @@ describe("capsule toolbar semantics", () => {
     expect(b.getByRole("toolbar", { name: "Bild" })).toBeTruthy();
   });
 
-  it("roves: one tab stop, arrows/Home/End move focus, disabled skipped", () => {
-    const { getByRole } = render(<ImageViewerShell {...shellProps()} />);
+  it("opt-in rovingFocus: one tab stop, arrows/Home/End move focus, disabled skipped", () => {
+    const { getByRole } = render(<ImageViewerShell {...shellProps({ rovingFocus: true })} />);
     const bar = getByRole("toolbar");
     const items = () =>
       Array.from(bar.querySelectorAll<HTMLElement>("button, select")).filter(
@@ -166,8 +166,23 @@ describe("capsule toolbar semantics", () => {
     expect(document.activeElement).toBe(items()[0]);
   });
 
-  it("arrow keys leave the zoom select without changing its value", () => {
-    const { getByLabelText } = render(<ImageViewerShell {...shellProps()} />);
+  it("default: every enabled control is a Tab stop and arrow keys do nothing", () => {
+    const { getByRole } = render(<ImageViewerShell {...shellProps()} />);
+    const bar = getByRole("toolbar", { name: "Image tools" });
+    const controls = Array.from(bar.querySelectorAll<HTMLElement>("button, select"));
+    const enabled = controls.filter((el) => !(el as HTMLButtonElement).disabled);
+    expect(enabled.length).toBeGreaterThan(2);
+    for (const el of enabled) expect(el.tabIndex).toBe(0);
+    enabled[0]!.focus();
+    const notPrevented = fireEvent.keyDown(enabled[0]!, { key: "ArrowRight" });
+    expect(notPrevented).toBe(true);
+    expect(document.activeElement).toBe(enabled[0]);
+    fireEvent.keyDown(enabled[0]!, { key: "End" });
+    expect(document.activeElement).toBe(enabled[0]);
+  });
+
+  it("arrow keys leave the zoom select without changing its value (rovingFocus)", () => {
+    const { getByLabelText } = render(<ImageViewerShell {...shellProps({ rovingFocus: true })} />);
     const select = getByLabelText("Zoom percent") as HTMLSelectElement;
     select.focus();
     const ev = fireEvent.keyDown(select, { key: "ArrowRight" });
@@ -205,11 +220,18 @@ describe("button activation", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores non-primary mousedown and disabled buttons", () => {
+  it("any mouse button activates on mousedown, like ViewRight's TBtn", () => {
+    const run = vi.fn();
+    const { getByRole } = render(<TBtn onRun={run} title="Go" label="go" />);
+    fireEvent.mouseDown(getByRole("button"), { button: 2 });
+    expect(run).toHaveBeenCalledTimes(1);
+    fireEvent.mouseDown(getByRole("button"), { button: 1 });
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores disabled buttons", () => {
     const run = vi.fn();
     const { getByRole, rerender } = render(<TBtn onRun={run} title="Go" label="go" />);
-    fireEvent.mouseDown(getByRole("button"), { button: 2 });
-    expect(run).not.toHaveBeenCalled();
     rerender(<TBtn disabled onRun={run} title="Go" label="go" />);
     fireEvent.mouseDown(getByRole("button"), { button: 0 });
     fireEvent.click(getByRole("button"), { detail: 0 });

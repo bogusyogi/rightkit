@@ -4,7 +4,7 @@ import {
   type ImageSaveExtension,
   type ImageSavePayload,
 } from "./imageSave.js";
-import { fontCssForImageText } from "./imageFonts.js";
+import { fontCssForImageText, type ImageFontOptions } from "./imageFonts.js";
 import type { MediaFontOption } from "../adapters.js";
 
 export const MAX_EXPORT_CANVAS_PIXELS = 50_000_000;
@@ -288,6 +288,8 @@ export async function exportImageEdit(
   fonts: MediaFontOption[] = [],
   /** Pixel size of the image the recipe was authored against (the display variant). */
   editSpace?: { width: number; height: number } | null,
+  /** Default font id and fallback stack, so export matches the on-screen text. */
+  fontOptions: ImageFontOptions = {},
 ): Promise<ImageSavePayload> {
   const image = await loadImage(source);
   edit = scaleEditToSource(
@@ -314,7 +316,7 @@ export async function exportImageEdit(
   canvas.height = output.height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("could not create image export canvas");
-  await ensureTextFontsReady(edit.text, fonts);
+  await ensureTextFontsReady(edit.text, fonts, fontOptions);
 
   ctx.save();
   ctx.filter = cssFilterForAdjustments(edit.adjustments);
@@ -340,7 +342,7 @@ export async function exportImageEdit(
     ctx.save();
     ctx.filter = "none";
     const fontSize = Math.max(8, layer.size);
-    const font = fontCssForImageText(fonts, layer.fontFamily, fontSize, layer.bold);
+    const font = fontCssForImageText(fonts, layer.fontFamily, fontSize, layer.bold, fontOptions);
     const lines = wrapText(
       ctx,
       text,
@@ -373,6 +375,7 @@ export async function exportImageEdit(
 async function ensureTextFontsReady(
   text: TextLayer[],
   fonts: MediaFontOption[],
+  fontOptions: ImageFontOptions,
 ): Promise<void> {
   const fontSet = document.fonts;
   if (!fontSet?.load) return;
@@ -381,7 +384,7 @@ async function ensureTextFontsReady(
       .filter((layer) => layer.text.trim())
       .map((layer) =>
         fontSet
-          .load(fontCssForImageText(fonts, layer.fontFamily, layer.size, layer.bold))
+          .load(fontCssForImageText(fonts, layer.fontFamily, layer.size, layer.bold, fontOptions))
           .catch(() => undefined),
       ),
   );

@@ -50,9 +50,19 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
     private let lock = NSLock()
     private var _lastPath = ""
     private var _lastLicenseKey = ""
+    private var _lastBody: [String: String] = [:]
+    private var _requestCount = 0
+    private var _status = 200
 
     var lastPath: String { lock.withLock { _lastPath } }
     var lastLicenseKey: String { lock.withLock { _lastLicenseKey } }
+    var lastBody: [String: String] { lock.withLock { _lastBody } }
+    var requestCount: Int { lock.withLock { _requestCount } }
+    /// HTTP status every later response carries.
+    var status: Int {
+        get { lock.withLock { _status } }
+        set { lock.withLock { _status = newValue } }
+    }
 
     init(signingKey: Curve25519.Signing.PrivateKey, deviceID: String) async throws {
         self.signingKey = signingKey
@@ -117,7 +127,10 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
         lock.withLock {
             _lastPath = path
             _lastLicenseKey = json?["licenseKey"] as? String ?? ""
+            _lastBody = (json ?? [:]).compactMapValues { $0 as? String }
+            _requestCount += 1
         }
+        let status = self.status
         let payload: [String: Any] = [
             "v": 2, "id": "loopback-license", "app": "coderight", "tier": "pro",
             "features": ["routing"], "device_id": deviceID, "iat": 1_700_000_000, "exp": 2_000_000_000,
@@ -129,7 +142,7 @@ private final class LoopbackLicenseServer: @unchecked Sendable {
             "signedToken": token, "entitlements": ["v": 1, "tier": "pro", "features": ["routing"]],
         ]
         let bytes = try! JSONSerialization.data(withJSONObject: response, options: [.sortedKeys])
-        let header = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
+        let header = "HTTP/1.1 \(status) \(status == 200 ? "OK" : "Error")\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
         connection.send(content: Data(header.utf8) + bytes, completion: .contentProcessed { _ in connection.cancel() })
     }
 }
@@ -220,4 +233,91 @@ private func signedToken(_ key: Curve25519.Signing.PrivateKey, app: String = "co
     #expect(try await resolver(liveDevice: "device-b", record: copied).resolve() == nil)
     var revoked = copied; revoked.status = "revoked"
     #expect(try await resolver(liveDevice: "device-a", record: revoked).resolve() == nil)
+}
+
+// MARK: - Lease removal by original identity
+
+private final class DeviceIDProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    var count: Int { lock.withLock { calls } }
+    func read() -> String { lock.withLock { calls += 1 }; return "current-device-after-reset" }
+}
+
+private func leaseClient(server: LoopbackLicenseServer, store: InMemoryLicenseStore, probe: DeviceIDProbe) -> LicenseActivationClient {
+    LicenseActivationClient(
+        configuration: LicenseClientConfiguration(
+            app: "heardright", baseURL: server.baseURL.appendingPathComponent("v1/licenses/"),
+            deviceID: { probe.read() }
+        ),
+        store: store
+    )
+}
+
+private let currentActivation = StoredLicense(
+    status: "active", deviceId: "current-device-after-reset", activationToken: "current-token",
+    signedToken: "current-signed", leaseId: "current-lease"
+)
+
+@Test func removeLeaseByIdentitySendsOriginalHashAndKeepsLocalActivation() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    let store = InMemoryLicenseStore()
+    try await store.save(currentActivation)
+    let probe = DeviceIDProbe()
+    let client = leaseClient(server: server, store: store, probe: probe)
+
+    try await client.removeLease(deviceIdHash: "original-hash-from-old-identity", leaseId: "queued-lease-7")
+
+    #expect(server.lastPath.hasSuffix("/pro/heardright/devices/lease/remove"))
+    #expect(server.lastBody == [
+        "appKey": "heardright", "deviceIdHash": "original-hash-from-old-identity", "leaseId": "queued-lease-7",
+    ])
+    #expect(server.lastBody["deviceIdHash"] != LicenseActivationClient.deviceIDHash(currentActivation.deviceId))
+    #expect(probe.count == 0, "never derives identity from the current device")
+    #expect(await store.load() == currentActivation, "current local activation is untouched")
+}
+
+@Test func removeLeaseByIdentityPropagatesServerFailureWithoutTouchingStore() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    server.status = 503
+    let store = InMemoryLicenseStore()
+    try await store.save(currentActivation)
+    let client = leaseClient(server: server, store: store, probe: DeviceIDProbe())
+
+    await #expect(throws: LicenseError.self) {
+        try await client.removeLease(deviceIdHash: "original-hash", leaseId: "queued-lease")
+    }
+    #expect(server.requestCount == 1)
+    #expect(await store.load() == currentActivation)
+}
+
+@Test func removeLeaseByIdentityWorksWithNoStoredLicense() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    let store = InMemoryLicenseStore()
+    let client = leaseClient(server: server, store: store, probe: DeviceIDProbe())
+
+    try await client.removeLease(deviceIdHash: "original-hash", leaseId: "queued-lease")
+
+    #expect(server.lastBody["leaseId"] == "queued-lease")
+    #expect(await store.load() == nil, "no activation is created or removed")
+}
+
+@Test func currentRecordRemoveLeaseStillRemovesLocalActivation() async throws {
+    let server = try await LoopbackLicenseServer(signingKey: Curve25519.Signing.PrivateKey(), deviceID: "unused")
+    defer { server.stop() }
+    let store = InMemoryLicenseStore()
+    try await store.save(currentActivation)
+    let client = leaseClient(server: server, store: store, probe: DeviceIDProbe())
+
+    try await client.removeLease()
+
+    #expect(server.lastBody == [
+        "appKey": "heardright",
+        "deviceIdHash": LicenseActivationClient.deviceIDHash(currentActivation.deviceId),
+        "leaseId": "current-lease",
+    ])
+    #expect(await store.load() == nil)
 }

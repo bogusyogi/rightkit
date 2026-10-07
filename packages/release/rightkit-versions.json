@@ -23,12 +23,12 @@
     "@rightkit/legal-ui": "0.1.2",
     "@rightkit/license": "0.1.8",
     "@rightkit/logs": "0.1.4",
-    "@rightkit/media-ui": "0.2.1",
+    "@rightkit/media-ui": "0.2.2",
     "@rightkit/onboarding": "0.2.0",
     "@rightkit/pdf-ui": "0.1.0",
     "@rightkit/platform-ui": "0.1.2",
     "@rightkit/qa": "0.2.1",
-    "@rightkit/release": "0.2.113",
+    "@rightkit/release": "0.2.114",
     "@rightkit/settings-ui": "0.2.0",
     "@rightkit/shell": "0.1.0",
     "@rightkit/tauri": "0.1.1",
@@ -133,7 +133,8 @@
       "0.2.109",
       "0.2.110",
       "0.2.111",
-      "0.2.112"
+      "0.2.112",
+      "0.2.113"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -144,7 +145,8 @@
     ],
     "@rightkit/media-ui": [
       "0.1.0",
-      "0.2.0"
+      "0.2.0",
+      "0.2.1"
     ],
     "@rightkit/theme": [
       "0.1.0"

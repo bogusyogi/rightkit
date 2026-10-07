@@ -92,5 +92,6 @@ export {
   cssFontFamilyForImageText,
   fontCssForImageText,
   isBundledImageFontId,
+  type ImageFontOptions,
   DEFAULT_IMAGE_FONT_ID,
 } from "./image/imageFonts.js";

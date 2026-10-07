@@ -49,6 +49,14 @@ struct ParakeetCoreMLRuntime {
     let decoder: ParakeetCoreMLStage
     let joint: ParakeetCoreMLStage
     let timings: TimingsBox
+    /// Injected canonical conditioning; `nil` keeps the built-in Swift conditioning.
+    var conditioningProvider: ConditioningProvider? = nil
+    /// Injected canonical detokenization; `nil` keeps the built-in Swift parity port.
+    var detokenizationProvider: DetokenizationProvider? = nil
+
+    var conditioner: ASRConditioner {
+        ASRConditioner(provider: conditioningProvider, policy: options.conditioningPolicy)
+    }
 
     final class TimingsBox: @unchecked Sendable {
         private let lock = NSLock()
@@ -57,14 +65,20 @@ struct ParakeetCoreMLRuntime {
         func get() -> ParakeetTimings { lock.withLock { value } }
     }
 
-    static func loadInstalled(at modelDirectory: URL, options: ParakeetOptions = ParakeetOptions()) throws -> ParakeetCoreMLRuntime {
+    static func loadInstalled(
+        at modelDirectory: URL, options: ParakeetOptions = ParakeetOptions(),
+        conditioning: ConditioningProvider? = nil, detokenization: DetokenizationProvider? = nil
+    ) throws -> ParakeetCoreMLRuntime {
         guard CoreMLModelValidator.hasReadyMarker(at: modelDirectory) else {
             throw SpeechError.modelNotReady
         }
-        return try load(at: modelDirectory, options: options)
+        return try load(at: modelDirectory, options: options, conditioning: conditioning, detokenization: detokenization)
     }
 
-    static func load(at modelDirectory: URL, options: ParakeetOptions = ParakeetOptions()) throws -> ParakeetCoreMLRuntime {
+    static func load(
+        at modelDirectory: URL, options: ParakeetOptions = ParakeetOptions(),
+        conditioning: ConditioningProvider? = nil, detokenization: DetokenizationProvider? = nil
+    ) throws -> ParakeetCoreMLRuntime {
         let pipeline = try ParakeetPipelineConfig.load(from: modelDirectory)
         let vocabulary = try ParakeetVocabulary.load(from: modelDirectory, blankID: pipeline.blankID)
         let units = options.computeUnits
@@ -78,7 +92,9 @@ struct ParakeetCoreMLRuntime {
             contract: try ParakeetCoreMLContract.resolve(pipeline: pipeline, mel: mel, encoder: encoder, decoder: decoder, joint: joint),
             options: options,
             mel: mel, encoder: encoder, decoder: decoder, joint: joint,
-            timings: TimingsBox()
+            timings: TimingsBox(),
+            conditioningProvider: conditioning,
+            detokenizationProvider: detokenization
         )
     }
 
@@ -112,13 +128,13 @@ struct ParakeetCoreMLRuntime {
     }
 
     func transcribe(samples: [Float], vocabulary phrases: [String] = []) throws -> String {
-        let conditioned = AudioConditioning.conditionForASR(samples, policy: options.conditioningPolicy)
+        let conditioned = try conditioner.condition(samples)
         return try decodePaddedWindow(conditioned, bias: bias(for: phrases))
     }
 
     /// Decode one scheduled Static-15 window; the caller passes raw window samples by default.
     func transcribeStaticWindow(samples: [Float], vocabulary phrases: [String] = [], alreadyConditioned: Bool = false) throws -> String {
-        let input = alreadyConditioned ? samples : AudioConditioning.conditionForASR(samples, policy: options.conditioningPolicy)
+        let input = try conditioner.prepare(samples, alreadyConditioned: alreadyConditioned)
         return try decodeText(input, bias: bias(for: phrases))
     }
 
@@ -133,6 +149,15 @@ struct ParakeetCoreMLRuntime {
     ///   * lowercase article `a` -> insert a boundary   (`a24`   -> `a 24`)
     ///   * single capital letter -> keep the identifier (`A4`    -> `A4`)
     ///   * digit + digit         -> keep the number     (`1`+`3` -> `13`)
+    /// Routes one decode's selected piece stream through the injected canonical detokenizer when
+    /// present. The provider sees the complete selected stream (ids mapped to pieces, nothing
+    /// stripped); its error propagates rather than falling back to the Swift port below.
+    static func detokenize(ids: [Int], pieces: [String], provider: DetokenizationProvider?) throws -> String {
+        guard let provider else { return detokenize(ids: ids, pieces: pieces) }
+        let selected = ids.compactMap { pieces.indices.contains($0) ? pieces[$0] : nil }
+        return try provider(selected).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func detokenize(ids: [Int], pieces: [String]) -> String {
         var fullText = ""
         for id in stripMandatoryFillers(ids: ids, pieces: pieces) {

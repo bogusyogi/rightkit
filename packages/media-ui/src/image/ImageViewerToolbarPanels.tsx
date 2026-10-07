@@ -243,7 +243,10 @@ export function TextPanel({
             <option
               key={font}
               value={font}
-              style={{ fontFamily: cssFontFamilyForImageText(bundledFonts, font) }}
+              style={{ fontFamily: cssFontFamilyForImageText(bundledFonts, font, {
+                defaultFontId: adapters.defaultFontId,
+                fallbackStack: adapters.fallbackFontStack,
+              }) }}
             >
               {font}
             </option>

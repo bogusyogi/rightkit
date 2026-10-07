@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.2
+
+Image viewer defaults now match ViewRight; behaviours 0.2.1 added beyond it are opt-in.
+
+- `rovingFocus` (default `false`): arrow-key roving focus is off by default, so every
+  capsule control is its own Tab stop as in ViewRight. Set `true` for the 0.2.1 single tab
+  stop with Left/Right/Home/End. `role="toolbar"` and `toolbarLabel` apply either way.
+- Buttons now activate on mousedown for any mouse button (as ViewRight's TBtn); click still
+  runs only when `event.detail === 0`.
+- Fonts: `cssFontFamilyForImageText` / `fontCssForImageText` / `exportImageEdit` take an
+  optional options object `{ defaultFontId, fallbackStack }`; an empty font family resolves
+  through `defaultFontId`. New adapter `fallbackFontStack` (default
+  `"system-ui, sans-serif"`). Adapters `defaultFontId` and `fallbackFontStack` are applied to
+  on-screen text, export and print alike. A host passing
+  `fallbackFontStack: "'Inter', system-ui, sans-serif"` reproduces ViewRight exactly.
+- Save and print stay registered against the export source while a sibling decode is
+  in flight (ViewRight behaviour). `blockExportDuringSwap` (default `false`) enables the
+  0.2.1 guard that unregisters save and ignores print until the new image has decoded.
+
 ## 0.2.1
 
 Image viewer, all additive; 0.2.0 APIs unchanged.

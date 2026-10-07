@@ -90,6 +90,11 @@ export interface MediaAdapters {
    * to the first bundled font, then the package default.
    */
   defaultFontId?: string;
+  /**
+   * Final CSS fallback stack for image text (on-screen, export and print).
+   * Default "system-ui, sans-serif".
+   */
+  fallbackFontStack?: string;
   /** Accent colour for interactive handles (default "#d9803f"). */
   accentColor?: string;
 }

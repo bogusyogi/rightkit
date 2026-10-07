@@ -71,6 +71,7 @@ interface ImageViewerShellProps extends ToolbarHandlers {
   toolbarContainer?: HTMLElement | null;
   panelsContainer?: HTMLElement | null;
   toolbarLabel?: string;
+  rovingFocus?: boolean;
   onPageSibling: (delta: number) => void;
   onWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -119,6 +120,7 @@ export function ImageViewerShell(props: ImageViewerShellProps) {
 
   const toolbarProps: ImageViewerToolbarProps = {
     toolbarLabel: props.toolbarLabel,
+    rovingFocus: props.rovingFocus,
     tool,
     readOnly,
     zoomLabel: `${Math.round(view.zoom * 100)}%`,

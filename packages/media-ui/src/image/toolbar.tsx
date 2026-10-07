@@ -25,13 +25,12 @@ export function TBtn({
       aria-label={title}
       aria-pressed={active}
       disabled={disabled}
-      // Same activation contract as ViewRight's TBtn: act on mousedown with
-      // preventDefault so focus (and any selection) stays where it was.
+      // Same activation contract as ViewRight's TBtn: any mouse button acts on
+      // mousedown with preventDefault so focus (and any selection) stays where it was.
       onMouseDown={
         disabled
           ? undefined
           : (event) => {
-              if (event.button !== 0) return;
               event.preventDefault();
               event.stopPropagation();
               onRun();

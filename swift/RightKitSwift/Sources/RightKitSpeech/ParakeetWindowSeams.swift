@@ -53,7 +53,7 @@ extension ParakeetCoreMLRuntime {
 
     func decodeText(_ segment: [Float], bias: ASRVocabularyBias) throws -> String {
         let hits = try decodeTimed(segment, bias: bias, windowOffset: 0)
-        return Self.detokenize(ids: hits.map(\.0), pieces: vocabulary.pieces)
+        return try Self.detokenize(ids: hits.map(\.0), pieces: vocabulary.pieces, provider: detokenizationProvider)
     }
 
     static func quietCut(in samples: [Float], lo: Int, hi: Int) -> Int? {

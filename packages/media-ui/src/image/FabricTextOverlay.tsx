@@ -33,6 +33,10 @@ export function FabricTextOverlay({
   const onSelectRef = useRef(onSelect);
   const onChangeRef = useRef(onChange);
   const fonts = adapters.bundledFonts ?? [];
+  const fontOptions = {
+    defaultFontId: adapters.defaultFontId,
+    fallbackStack: adapters.fallbackFontStack,
+  };
   const accent = adapters.accentColor ?? "#d9803f";
 
   useEffect(() => {
@@ -106,7 +110,7 @@ export function FabricTextOverlay({
     for (const layer of text) {
       const object = objects.get(layer.id);
       if (object) {
-        object.set(layerToObject(layer, imageSize, interactive, fonts, accent));
+        object.set(layerToObject(layer, imageSize, interactive, fonts, accent, fontOptions));
         // Words edited outside the canvas (inspector, undo) must reach the object; leave an in-progress edit alone.
         const words = layer.text || "Text";
         if (!object.isEditing && object.text !== words) object.set({ text: words });
@@ -115,7 +119,7 @@ export function FabricTextOverlay({
       } else {
         const textbox = new Textbox(
           layer.text || "Text",
-          layerToObject(layer, imageSize, interactive, fonts, accent),
+          layerToObject(layer, imageSize, interactive, fonts, accent, fontOptions),
         ) as TextboxWithId;
         textbox.mediaUiId = layer.id;
         setTextboxEditingContainer(textbox, canvas.wrapperEl ?? hostEl.current);
@@ -131,7 +135,7 @@ export function FabricTextOverlay({
     syncing.current = false;
     canvas.requestRenderAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageSize, interactive, text]);
+  }, [imageSize, interactive, text, adapters.defaultFontId, adapters.fallbackFontStack]);
 
   useEffect(() => {
     const canvas = fabricCanvas.current;
@@ -180,6 +184,7 @@ function layerToObject(
   interactive: boolean,
   fonts: MediaFontOptionLike[],
   accent: string,
+  fontOptions: { defaultFontId?: string; fallbackStack?: string },
 ) {
   return {
     left: layer.x * image.width,
@@ -188,7 +193,7 @@ function layerToObject(
     originY: "center" as const,
     width: Math.max(32, layer.width),
     fontSize: Math.max(8, layer.size),
-    fontFamily: cssFontFamilyForImageText(fonts, layer.fontFamily),
+    fontFamily: cssFontFamilyForImageText(fonts, layer.fontFamily, fontOptions),
     fontWeight: layer.bold ? "700" : "400",
     fill: layer.color,
     angle: layer.angle,

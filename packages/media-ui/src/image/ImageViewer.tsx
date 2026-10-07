@@ -81,6 +81,16 @@ export interface ImageViewerProps {
   panelsContainer?: HTMLElement | null;
   /** Accessible name of the capsule toolbar (role="toolbar"). Default "Image tools". */
   toolbarLabel?: string;
+  /**
+   * Arrow-key roving focus in the capsule (one tab stop; Left/Right/Home/End).
+   * Default false: every control is its own Tab stop, as in ViewRight.
+   */
+  rovingFocus?: boolean;
+  /**
+   * Unregister save and ignore print while a sibling image is still decoding
+   * (`shownSrc !== displaySrc`). Default false: both stay bound to the export source.
+   */
+  blockExportDuringSwap?: boolean;
   adapters?: MediaAdapters;
 }
 
@@ -99,11 +109,18 @@ export function ImageViewer(props: ImageViewerProps) {
     toolbarContainer,
     panelsContainer,
     toolbarLabel,
+    rovingFocus = false,
+    blockExportDuringSwap = false,
   } = props;
   const adapters = useMediaAdapters(props.adapters);
   const displaySrc = displaySrcProp || src;
   const exportSrc = src || displaySrc;
   const fonts = adapters.bundledFonts ?? [];
+  const { defaultFontId, fallbackFontStack } = adapters;
+  const fontOptions = useMemo(
+    () => ({ defaultFontId, fallbackStack: fallbackFontStack }),
+    [defaultFontId, fallbackFontStack],
+  );
   const [shownSrc, setShownSrc] = useState(displaySrc);
   const frameRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
@@ -271,9 +288,9 @@ export function ImageViewer(props: ImageViewerProps) {
   useEffect(() => {
     if (!active || !adapters.printImage) return;
     const onPrint = (event: Event) => {
-      if (!exportSrc || shownSrc !== displaySrc) return;
+      if (!exportSrc || (blockExportDuringSwap && shownSrc !== displaySrc)) return;
       event.preventDefault();
-      void exportImageEdit(exportSrc, edit, "png", fonts, imageSize)
+      void exportImageEdit(exportSrc, edit, "png", fonts, imageSize, fontOptions)
         .then((payload) => {
           const blob = new Blob([payload.buffer], { type: payload.mime });
           return new Promise<string>((resolve, reject) => {
@@ -296,20 +313,43 @@ export function ImageViewer(props: ImageViewerProps) {
     };
     window.addEventListener(printEventName, onPrint);
     return () => window.removeEventListener(printEventName, onPrint);
-  }, [active, adapters, exportSrc, edit, fonts, printEventName, imageSize, shownSrc, displaySrc]);
+  }, [
+    active,
+    adapters,
+    exportSrc,
+    edit,
+    fonts,
+    fontOptions,
+    printEventName,
+    imageSize,
+    shownSrc,
+    displaySrc,
+    blockExportDuringSwap,
+  ]);
 
   useLayoutEffect(() => {
     if (!registerSave) return;
-    // While a new display image is still decoding the recipe belongs to the
+    // Opt-in: while a new display image is still decoding the recipe belongs to the
     // previous image; exporting then would render the wrong content.
-    if (!exportSrc || shownSrc !== displaySrc) {
+    if (!exportSrc || (blockExportDuringSwap && shownSrc !== displaySrc)) {
       registerSave(null);
       return;
     }
     const editSpace = imageSize;
-    registerSave((outputExt = "png") => exportImageEdit(exportSrc, edit, outputExt, fonts, editSpace));
+    registerSave((outputExt = "png") => exportImageEdit(exportSrc, edit, outputExt, fonts, editSpace, fontOptions),
+    );
     return () => registerSave(null);
-  }, [edit, exportSrc, registerSave, fonts, imageSize, shownSrc, displaySrc]);
+  }, [
+    edit,
+    exportSrc,
+    registerSave,
+    fonts,
+    fontOptions,
+    imageSize,
+    shownSrc,
+    displaySrc,
+    blockExportDuringSwap,
+  ]);
 
   const mutateEdit = useCallback(
     (fn: (current: ImageEdit) => ImageEdit) => {
@@ -661,6 +701,7 @@ export function ImageViewer(props: ImageViewerProps) {
       toolbarContainer={toolbarContainer}
       panelsContainer={panelsContainer}
       toolbarLabel={toolbarLabel}
+      rovingFocus={rovingFocus}
       onTool={setActiveTool}
       onFit={fit}
       onActual={actual}

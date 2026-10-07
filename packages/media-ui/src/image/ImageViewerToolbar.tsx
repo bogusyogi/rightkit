@@ -9,6 +9,8 @@ export type ImageTool = "view" | "crop" | "adjust" | "text" | "resize";
 export interface ImageViewerToolbarProps {
   /** Accessible name of the capsule toolbar. Default "Image tools". */
   toolbarLabel?: string;
+  /** Opt-in arrow-key roving focus (one tab stop). Default false: every control is a Tab stop. */
+  rovingFocus?: boolean;
   tool: ImageTool;
   /** Read mode — hides the edit/transform controls and tool panels; view + zoom stay. */
   readOnly?: boolean;
@@ -126,14 +128,15 @@ function rovingItems(root: HTMLElement): HTMLElement[] {
 }
 
 /**
- * Arrow-key roving focus over the capsule controls: one tab stop, Left/Right move,
+ * Opt-in arrow-key roving focus over the capsule controls: one tab stop, Left/Right move,
  * Home/End jump. Disabled controls are skipped. The tab stop follows focus.
  */
-function useRovingToolbar() {
+function useRovingToolbar(enabled: boolean) {
   const ref = useRef<HTMLDivElement>(null);
   const current = useRef<HTMLElement | null>(null);
   // Re-sync tabindex after every render: enabled/disabled sets change with props.
   useLayoutEffect(() => {
+    if (!enabled) return;
     const root = ref.current;
     if (!root) return;
     const items = rovingItems(root);
@@ -143,6 +146,7 @@ function useRovingToolbar() {
     }
   });
   const onFocus = (event: { target: EventTarget }) => {
+    if (!enabled) return;
     const root = ref.current;
     const target = (event.target as HTMLElement).closest?.(ROVING_ITEMS) as HTMLElement | null;
     if (!root || !target || !root.contains(target) || (target as HTMLButtonElement).disabled) return;
@@ -152,7 +156,7 @@ function useRovingToolbar() {
     }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!enabled || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
     const root = ref.current;
     if (!root) return;
     const items = rovingItems(root);
@@ -184,6 +188,7 @@ function useRovingToolbar() {
 /** The single capsule row (`.rk-iv-bar`). Portalable on its own. */
 export function ImageViewerCapsule({
   toolbarLabel = "Image tools",
+  rovingFocus = false,
   tool,
   readOnly = false,
   zoomLabel,
@@ -223,7 +228,7 @@ export function ImageViewerCapsule({
   onAdjustment,
   onResize,
 }: ImageViewerToolbarProps) {
-  const roving = useRovingToolbar();
+  const roving = useRovingToolbar(rovingFocus);
   return (
     <>
       {/* Single capsule row under any open tool panel; horizontal scroll inside, never wraps. */}

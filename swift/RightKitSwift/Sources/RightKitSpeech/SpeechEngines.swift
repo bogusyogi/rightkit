@@ -66,12 +66,22 @@ public final class ParakeetEngine: SpeechTranscribing, @unchecked Sendable {
 
     /// Loads an installed model directory (`pipeline.json`, `vocab.txt`, the four `*.mlmodelc` or
     /// `*.mlpackage` stages). Pass `requireReadyMarker: true` to demand a prior `validate(...)`.
-    public init(modelDirectory: URL, options: ParakeetOptions = ParakeetOptions(), requireReadyMarker: Bool = false) throws {
+    ///
+    /// `conditioning` and `detokenization` bind the product's canonical implementations (see
+    /// `ConditioningProvider` / `DetokenizationProvider`). Every decode path — file, samples,
+    /// blocking, static window and prime — routes through them, and their errors propagate.
+    /// Omitted, the built-in Swift conditioning and detokenizer parity port are used.
+    public init(
+        modelDirectory: URL, options: ParakeetOptions = ParakeetOptions(), requireReadyMarker: Bool = false,
+        conditioning: ConditioningProvider? = nil, detokenization: DetokenizationProvider? = nil
+    ) throws {
         self.modelDirectory = modelDirectory
         self.options = options
         runtime = requireReadyMarker
-            ? try ParakeetCoreMLRuntime.loadInstalled(at: modelDirectory, options: options)
-            : try ParakeetCoreMLRuntime.load(at: modelDirectory, options: options)
+            ? try ParakeetCoreMLRuntime.loadInstalled(
+                at: modelDirectory, options: options, conditioning: conditioning, detokenization: detokenization)
+            : try ParakeetCoreMLRuntime.load(
+                at: modelDirectory, options: options, conditioning: conditioning, detokenization: detokenization)
     }
 
     /// Vocabulary phrases (proper nouns, jargon) to bias the decode toward.
@@ -147,12 +157,59 @@ public struct ParakeetModelReport: Sendable, Equatable {
 public final class WhisperEngine: SpeechTranscribing, @unchecked Sendable {
     public var kind: SpeechEngineKind { .whisper }
     private let runtime: WhisperCoreMLRuntime
+    /// Admits one Core ML window at a time per engine and drains canceled work before the next.
+    private let executor = PredictionExecutor()
     /// `"en"`, any Whisper language code, or `"auto"` to detect on the first segment.
     public var language: String
 
-    public init(modelDirectory: URL, language: String = "en", computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws {
-        runtime = try WhisperCoreMLRuntime.loadInstalled(at: modelDirectory, computeUnits: computeUnits)
+    /// The AUTO-detect sentinel accepted as `languageToken`; never a real token id.
+    public static let autoLanguageToken: Int32 = WhisperCoreMLRuntime.autoLanguage
+
+    /// `conditioning` binds the product's canonical conditioning (see `ConditioningProvider`); every
+    /// decode path routes through it unless the caller passes `alreadyConditioned: true`, and its
+    /// errors propagate. Omitted, the built-in Swift conditioning is used.
+    public init(
+        modelDirectory: URL, language: String = "en", computeUnits: MLComputeUnits = .cpuAndNeuralEngine,
+        conditioning: ConditioningProvider? = nil
+    ) throws {
+        runtime = try WhisperCoreMLRuntime.loadInstalled(
+            at: modelDirectory, computeUnits: computeUnits, conditioning: conditioning)
         self.language = language
+    }
+
+    /// Language code (`"en"`, `"de"`, ...) to decoder token; `"auto"` returns `autoLanguageToken`.
+    /// A code the tokenizer does not know resolves to English, as `transcribe` always has.
+    public func languageToken(for language: String) -> Int32 {
+        runtime.languageToken(language)
+    }
+
+    /// Decoder token to language code; `"auto"` for `autoLanguageToken`, `nil` for a non-language token.
+    public func languageCode(for token: Int32) -> String? {
+        runtime.languageCode(token)
+    }
+
+    /// Decodes one Static-15 scheduler window (any length; longer input is cut at quiet points into
+    /// 15 s segments). Pass `autoLanguageToken` for the recording's first window and the returned
+    /// `resolvedLanguage` for the rest so AUTO detection runs once per recording.
+    ///
+    /// Cancellation — of the calling task or via `checkCancellation` — is checked before
+    /// conditioning, before each mel/encoder, between decoder token predictions and before the
+    /// result is published. A Core ML prediction already running cannot be interrupted: the call
+    /// waits for it to return before throwing, and the engine admits the next window only after,
+    /// so a canceled generation never overlaps the next one.
+    public func transcribeStaticWindow(
+        samples: [Float], languageToken: Int32,
+        alreadyConditioned: Bool,
+        checkCancellation: @escaping @Sendable () throws -> Void,
+        onPhase: @escaping @Sendable (_ name: String, _ elapsedMS: Int) -> Void
+    ) async throws -> WhisperWindowResult {
+        let runtime = runtime
+        return try await executor.run(checkCancellation: checkCancellation) { check in
+            try runtime.transcribeWindow(
+                samples: samples, languageToken: languageToken, alreadyConditioned: alreadyConditioned,
+                checkCancellation: check, onPhase: onPhase
+            )
+        }
     }
 
     public func transcribe(fileURL: URL) async throws -> String {
@@ -163,9 +220,11 @@ public final class WhisperEngine: SpeechTranscribing, @unchecked Sendable {
     public func transcribe(samples: [Float]) async throws -> String {
         let runtime = runtime
         let token = runtime.languageToken(language)
-        return try await Task.detached(priority: .userInitiated) {
+        // Same single-flight admission as static windows; whole-file decode keeps its historic
+        // run-to-completion semantics.
+        return try await executor.run(honorsCancellation: false) { _ in
             try runtime.transcribe(samples: samples, languageToken: token)
-        }.value
+        }
     }
 }
 
@@ -177,6 +236,9 @@ public struct SpeechEngineSelector: Sendable {
     public var parakeetModelDirectory: URL?
     public var whisperModelDirectory: URL?
     public var parakeetOptions = ParakeetOptions()
+    /// Canonical providers handed to every engine this selector builds.
+    public var conditioning: ConditioningProvider?
+    public var parakeetDetokenization: DetokenizationProvider?
 
     public init(parakeetModelDirectory: URL? = nil, whisperModelDirectory: URL? = nil) {
         self.parakeetModelDirectory = parakeetModelDirectory
@@ -204,10 +266,12 @@ public struct SpeechEngineSelector: Sendable {
         switch kind {
         case .parakeet:
             guard let dir = parakeetModelDirectory else { throw SpeechError.modelNotReady }
-            return try ParakeetEngine(modelDirectory: dir, options: parakeetOptions)
+            return try ParakeetEngine(
+                modelDirectory: dir, options: parakeetOptions,
+                conditioning: conditioning, detokenization: parakeetDetokenization)
         case .whisper:
             guard let dir = whisperModelDirectory else { throw SpeechError.modelNotReady }
-            return try WhisperEngine(modelDirectory: dir)
+            return try WhisperEngine(modelDirectory: dir, conditioning: conditioning)
         case .apple:
             return AppleSpeechEngine()
         }

@@ -40,10 +40,15 @@ struct WhisperCoreMLRuntime {
     private let encoder: ParakeetCoreMLStage
     private let decoder: ParakeetCoreMLStage
     private let tokenizer: WhisperTokenizer
+    /// Injected canonical conditioning, else the built-in Swift conditioning.
+    var conditioner = ASRConditioner(provider: nil)
 
     /// Loads `AudioEncoder`, `TextDecoder` and `tokenizer.json` from an installed Whisper Core ML
     /// directory (the HeardRight `whisper-multi` artifact layout).
-    static func loadInstalled(at modelDirectory: URL, computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws -> WhisperCoreMLRuntime {
+    static func loadInstalled(
+        at modelDirectory: URL, computeUnits: MLComputeUnits = .cpuAndNeuralEngine,
+        conditioning: ConditioningProvider? = nil
+    ) throws -> WhisperCoreMLRuntime {
         let tokenizerURL = modelDirectory.appendingPathComponent("tokenizer.json")
         guard FileManager.default.fileExists(atPath: tokenizerURL.path) else {
             throw SpeechError.missingFile("tokenizer.json")
@@ -51,7 +56,8 @@ struct WhisperCoreMLRuntime {
         return WhisperCoreMLRuntime(
             encoder: try ParakeetCoreMLStage.load(CoreMLModelValidator.stageURL(for: "AudioEncoder", in: modelDirectory), computeUnits: computeUnits),
             decoder: try ParakeetCoreMLStage.load(CoreMLModelValidator.stageURL(for: "TextDecoder", in: modelDirectory), computeUnits: computeUnits),
-            tokenizer: try WhisperTokenizer(tokenizerURL: tokenizerURL)
+            tokenizer: try WhisperTokenizer(tokenizerURL: tokenizerURL),
+            conditioner: ASRConditioner(provider: conditioning)
         )
     }
 
@@ -60,6 +66,16 @@ struct WhisperCoreMLRuntime {
             return Self.autoLanguage
         }
         return tokenizer.tokenID("<|\(language)|>").map(Int32.init) ?? Self.langEN
+    }
+
+    /// Inverse of `languageToken(_:)`: `"auto"` for the sentinel, the bare code (`"de"`) for a
+    /// language token, `nil` for anything that is not a language token.
+    func languageCode(_ token: Int32) -> String? {
+        if token == Self.autoLanguage { return "auto" }
+        guard (Self.langEN...Self.langLast).contains(token),
+              let raw = tokenizer.token(Int(token)),
+              raw.hasPrefix("<|"), raw.hasSuffix("|>") else { return nil }
+        return String(raw.dropFirst(2).dropLast(2))
     }
 
     func transcribe(audioURL: URL, languageToken: Int32 = Self.langEN) throws -> String {
@@ -79,28 +95,25 @@ struct WhisperCoreMLRuntime {
         languageToken: Int32 = Self.autoLanguage,
         alreadyConditioned: Bool = false
     ) throws -> (text: String, resolvedLanguage: Int32) {
-        let conditioned = alreadyConditioned ? samples : AudioConditioning.conditionForASR(samples)
-        var text = ""
-        var activeLanguage = languageToken
-        for range in Self.windowRanges(samples: conditioned) {
-            let segment = range.isEmpty ? [] : Array(conditioned[range])
-            let mel = try WhisperMelSpectrogram.logMel(windowedSamples: segment)
-            let result = try transcribeMel(mel: mel, languageToken: activeLanguage)
-            // Shared seam rule instead of a blind space: de-duplicates repeated
-            // boundary wording and still separates disjoint windows.
-            ParakeetCoreMLRuntime.appendWithOverlap(buffer: &text, next: result.text)
-            if languageToken == Self.autoLanguage {
-                activeLanguage = result.resolvedLanguage
-            }
-        }
-        // N0. Whisper has its own tokenizer, so it never passes through
-        // `ParakeetCoreMLRuntime.detokenize` where the piece-level strip lives —
-        // without this, Whisper dictation still carries every "uh" and "um" into
-        // AI polish. Same two words, same whole-word rule as every other path.
-        return (
-            text: ParakeetCoreMLRuntime.stripMandatoryFillers(text: text)
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            resolvedLanguage: activeLanguage
+        let result = try transcribeWindow(
+            samples: samples, languageToken: languageToken, alreadyConditioned: alreadyConditioned,
+            checkCancellation: {}, onPhase: { _, _ in }
+        )
+        return (text: result.text, resolvedLanguage: result.resolvedLanguage)
+    }
+
+    /// Instrumented, cancellable form of `transcribeStaticWindow`. Runs synchronously on the
+    /// caller's thread; `WhisperEngine.transcribeStaticWindow` owns the async/cancellation drain.
+    func transcribeWindow(
+        samples: [Float],
+        languageToken: Int32,
+        alreadyConditioned: Bool,
+        checkCancellation: () throws -> Void,
+        onPhase: (String, Int) -> Void
+    ) throws -> WhisperWindowResult {
+        try WhisperWindowPipeline.run(
+            stages: self, samples: samples, languageToken: languageToken,
+            alreadyConditioned: alreadyConditioned, checkCancellation: checkCancellation, onPhase: onPhase
         )
     }
 
@@ -109,23 +122,28 @@ struct WhisperCoreMLRuntime {
     }
 
     private func transcribeMel(mel: [Float], languageToken: Int32) throws -> (text: String, resolvedLanguage: Int32) {
+        let encoded = try encode(mel: mel)
+        let result = try decodeFromEncoded(encoded, languageToken: languageToken, timestamps: true)
+        return (try tokenizer.decode(result.tokens), result.resolvedLanguage)
+    }
+
+    func encode(mel: [Float]) throws -> MLMultiArray {
         guard mel.count == 128 * 3000 else {
             throw SpeechError.invalidMelShape(mel.count)
         }
-        let encoded = try encoder.predict(
+        return try encoder.predict(
             inputs: [
                 "melspectrogram_features": ParakeetCoreMLArray.float16(shape: [1, 128, 1, 3000], values: mel),
             ],
             outputName: "encoder_output_embeds"
         )
-        let result = try decodeFromEncoded(encoded, languageToken: languageToken, timestamps: true)
-        return (try tokenizer.decode(result.tokens), result.resolvedLanguage)
     }
 
     func decodeFromEncoded(
         _ encoded: MLMultiArray,
         languageToken: Int32,
-        timestamps: Bool
+        timestamps: Bool,
+        checkCancellation: () throws -> Void = {}
     ) throws -> (tokens: [Int], resolvedLanguage: Int32) {
         let shape = encoded.shape.map(\.intValue)
         guard shape == [1, 1280, 1, 1500] else {
@@ -161,6 +179,8 @@ struct WhisperCoreMLRuntime {
         try ParakeetCoreMLArray.setInt32(updateMask, at: 0, value: 1)
 
         for tokenIndex in 0..<(Self.kvMax - 1) {
+            // Between token predictions: a canceled window stops before the next Core ML call.
+            if tokenIndex > 0 { try checkCancellation() }
             if tokenIndex < initialPromptLength {
                 next = prompt[tokenIndex]
             }
@@ -370,5 +390,29 @@ struct WhisperCoreMLRuntime {
             bestValue = value
         }
         return bestIndex
+    }
+}
+
+extension WhisperCoreMLRuntime: WhisperWindowStages {
+    func condition(_ samples: [Float], alreadyConditioned: Bool) throws -> [Float] {
+        try conditioner.prepare(samples, alreadyConditioned: alreadyConditioned)
+    }
+
+    func logMel(_ segment: [Float]) throws -> [Float] {
+        try WhisperMelSpectrogram.logMel(windowedSamples: segment)
+    }
+
+    func encode(_ mel: [Float]) throws -> MLMultiArray {
+        try encode(mel: mel)
+    }
+
+    func decodeTokens(
+        _ encoded: MLMultiArray, languageToken: Int32, checkCancellation: () throws -> Void
+    ) throws -> (tokens: [Int], resolvedLanguage: Int32) {
+        try decodeFromEncoded(encoded, languageToken: languageToken, timestamps: true, checkCancellation: checkCancellation)
+    }
+
+    func text(_ tokens: [Int]) throws -> String {
+        try tokenizer.decode(tokens)
     }
 }

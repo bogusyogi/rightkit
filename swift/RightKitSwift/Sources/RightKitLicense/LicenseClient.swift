@@ -366,6 +366,17 @@ public struct LicenseActivationClient: Sendable {
         try await store.remove()
     }
 
+    /// Removes a lease by its original identity, for a durable pending-removal queue whose entry
+    /// must survive device-identity or account changes. Sends exactly `deviceIdHash` and `leaseId`
+    /// to the configured app's lease-removal endpoint: it never derives a hash from the current
+    /// device, never loads or substitutes the stored license, and never touches the local
+    /// activation. Returns only after the server accepted the removal; any failure throws, so the
+    /// caller acknowledges its queue entry on success alone.
+    public func removeLease(deviceIdHash: String, leaseId: String) async throws {
+        let payload = ["appKey": configuration.app, "deviceIdHash": deviceIdHash, "leaseId": leaseId]
+        _ = try await post(path: "../pro/\(configuration.app)/devices/lease/remove", payload: payload) as LicenseServerResponse
+    }
+
     public static func license(from body: LicenseServerResponse, deviceId: String, key: String?, activatedAt: String? = nil) -> StoredLicense {
         StoredLicense(status: body.status ?? (body.ok == true ? "active" : "invalid"), deviceId: deviceId, key: body.activationToken == nil ? key : nil, activationToken: body.activationToken, licenseId: body.licenseId, validUntil: body.validUntil, entitlements: body.entitlements, message: body.message, activatedAt: activatedAt ?? ISO8601DateFormatter().string(from: Date()), lastRefreshedAt: ISO8601DateFormatter().string(from: Date()), signedToken: body.signedToken, licenseKind: body.licenseKind, entitlementStage: body.entitlementStage, licenseIssuedAt: body.licenseIssuedAt, confirmationDueAt: body.confirmationDueAt)
     }
