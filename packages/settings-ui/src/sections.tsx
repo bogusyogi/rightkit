@@ -797,7 +797,11 @@ const FIT_TEXT: Record<NonNullable<ModelEntry["fit"]>["kind"], { tone: "ok" | "w
   estimated: { tone: "neutral", text: "Should fit" },
   unqualified: { tone: "warn", text: "Not tested here" },
   unsupported: { tone: "bad", text: "Too large for this device" },
+  // rightkit-models 0.2.0 remote-only classes: no local backend, so nothing to download.
+  rental_only: { tone: "neutral", text: "Runs on a rented GPU" },
+  api: { tone: "neutral", text: "Runs through an API" },
 };
+const NOT_LOCAL = new Set(["unsupported", "rental_only", "api"]);
 
 function ModelsBody({ o }: { o: ModelsOptions }) {
   const [entries, setEntries] = useState<ModelEntry[] | null>(null);
@@ -839,7 +843,7 @@ function ModelsBody({ o }: { o: ModelsOptions }) {
             ) : working ? (
               <Button size="sm" variant="ghost" onClick={() => void act(() => o.models.cancel(m.id))}>Cancel</Button>
             ) : (
-              <Button size="sm" variant="secondary" disabled={m.fit?.kind === "unsupported"} onClick={() => void act(() => o.models.install(m.id))}>
+              <Button size="sm" variant="secondary" disabled={NOT_LOCAL.has(m.fit?.kind ?? "")} onClick={() => void act(() => o.models.install(m.id))}>
                 {m.state === "error" ? "Retry" : "Download"}
               </Button>
             )}

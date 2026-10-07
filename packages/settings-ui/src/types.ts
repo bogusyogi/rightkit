@@ -30,7 +30,7 @@ export interface ModelEntry {
   revision?: string;
   active?: boolean;
   /** Hardware fit from `rightkit-models` (`FitKind`). */
-  fit?: { kind: "measured" | "estimated" | "unsupported" | "unqualified"; reasons?: string[] };
+  fit?: { kind: "measured" | "estimated" | "unsupported" | "unqualified" | "rental_only" | "api"; reasons?: string[] };
   /** `ErrorCode` from `rightkit-models` plus a human message. */
   error?: { code: string; message: string };
   /** False hides Remove (e.g. a model this app may not delete). Default true. */
