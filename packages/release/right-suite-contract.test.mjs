@@ -550,6 +550,7 @@ test("RightKit exposes one current version manifest", () => {
       "rightkit-crash": "0.1.0",
       "rightkit-db": "0.2.1",
       "rightkit-framed-sidecar": "0.1.0",
+      "rightkit-embed": "0.2.1",
       "rightkit-fs": "0.1.0",
       "rightkit-http": "0.1.0",
       "rightkit-jobs": "0.2.1",
