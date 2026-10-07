@@ -51,12 +51,18 @@ const DEFAULT_OUTPUT_BYTES = 8 * 1024 * 1024;
 const CANCELLATION_SOURCES = new Set(['USER_CANCEL', 'OPERATOR_CANCEL', 'CLIENT_SIGNAL', 'PARENT_CANCEL', 'BROKER_SHUTDOWN', 'DEADLINE', 'STORAGE_FLOOR', 'CONTAINMENT_FAILURE', 'RELEASE_PRIORITY_CANCEL', 'UNKNOWN']);
 const execFile = promisify(nodeExecFile);
 
-function cacheBuildProfile(shim, argv) {
+/** Cache profile for a broker job: 'release' (shipping; CARGO_INCREMENTAL=0 so every crate is
+ * sccache-eligible), 'release-iterate' (manifest incremental policy), or 'development'
+ * (dev/test/check: Cargo defaults, so workspace members compile incrementally while registry
+ * dependencies, which Cargo never builds incrementally, stay sccache-eligible). */
+export function cacheBuildProfile(shim, argv) {
   if (shim !== 'cargo') return 'release';
   const separator = argv.indexOf('--');
   const cargoArgv = separator < 0 ? argv : argv.slice(0, separator);
-  return cargoCohort({ argv: cargoArgv, profile: 'release' }).profile === 'release-iterate'
-    ? 'release-iterate' : 'release';
+  const subcommand = cargoArgv.find((value) => !value.startsWith('-') && !value.startsWith('+'));
+  const profile = cargoCohort({ argv: cargoArgv, profile: subcommand === 'bench' ? 'release' : 'development' }).profile;
+  if (profile === 'release-iterate') return 'release-iterate';
+  return profile === 'release' ? 'release' : 'development';
 }
 
 const integer = (value, fallback, minimum = 0) => {

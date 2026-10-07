@@ -138,12 +138,13 @@ export class ThinCache {
 
   async prepare({ layout, cargoBuildJobs = 4, repositoryRoot = null, workspaceRoot = null, jobId = null, profile = 'release' } = {}) {
     if (!layout?.target || !layout?.temp) throw new TypeError('workspace generation layout is required');
-    if (profile !== 'release' && profile !== 'release-iterate') throw new TypeError('profile must be release or release-iterate');
+    if (!['release', 'release-iterate', 'development'].includes(profile)) throw new TypeError('profile must be release, release-iterate or development');
     const base = Object.freeze({
       CARGO_HOME: this.#paths.cargoHome,
       CARGO_BUILD_JOBS: String(positive(cargoBuildJobs, 'cargoBuildJobs', 4)),
-      // Keep ordinary builds cacheable. Explicit iteration builds follow
-      // manifest incremental policy while dependencies still use sccache.
+      // Shipping builds stay fully sccache-cacheable. Iteration and development builds
+      // follow manifest/Cargo incremental policy: workspace members incremental, registry
+      // dependencies never incremental and therefore still served by sccache.
       ...(profile === 'release' ? { CARGO_INCREMENTAL: '0' } : {}),
       TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp
     });

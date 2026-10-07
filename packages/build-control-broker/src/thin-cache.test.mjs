@@ -81,7 +81,7 @@ test('release iteration leaves Cargo incremental policy to manifest while retain
 
 test('thin cache rejects unapproved iteration profiles', async () => {
   const { cache } = harness();
-  await assert.rejects(cache.prepare({ layout, profile: 'debug' }), /profile must be release or release-iterate/);
+  await assert.rejects(cache.prepare({ layout, profile: 'debug' }), /profile must be release, release-iterate or development/);
 });
 
 test('Windows cache clients use broker-owned TCP gateway', async () => {
@@ -234,4 +234,16 @@ test('disabled cache blocks build admission explicitly', async () => {
 
 test('numeric stats delta stays bounded to numeric fields', () => {
   assert.deepEqual(thinCacheStatsDelta({ a: 4, nested: { b: 8 }, counts: {} }, { a: 9, nested: { b: 10 }, counts: { Rust: 3 }, text: 'ignored' }), { a: 5, nested: { b: 2 }, counts: { Rust: 3 } });
+});
+
+test('development and test builds keep incremental; only shipping release disables it', async () => {
+  const { cacheBuildProfile } = await import('./thin-job-service.mjs');
+  assert.equal(cacheBuildProfile('cargo', ['test', '-p', 'coderight']), 'development');
+  assert.equal(cacheBuildProfile('cargo', ['check', '--all-targets']), 'development');
+  assert.equal(cacheBuildProfile('cargo', ['build', '--profile', 'dev']), 'development');
+  assert.equal(cacheBuildProfile('cargo', ['test', '--', '--release']), 'development', 'args after -- are the test binary\'s');
+  assert.equal(cacheBuildProfile('cargo', ['build', '--release']), 'release');
+  assert.equal(cacheBuildProfile('cargo', ['build', '--profile', 'release']), 'release');
+  assert.equal(cacheBuildProfile('cargo', ['bench']), 'release');
+  assert.equal(cacheBuildProfile('cargo', ['build', '--profile', 'release-iterate']), 'release-iterate');
 });

@@ -48,7 +48,7 @@ test('Cargo iteration cache mode follows profile flags before executable argumen
       [['build', '--profile', 'release-iterate'], 'release-iterate'],
       [['build', '--profile=release-iterate'], 'release-iterate'],
       [['build', '--release'], 'release'],
-      [['test', '--', '--profile=release-iterate'], 'release']
+      [['test', '--', '--profile=release-iterate'], 'development']
     ]) {
       const iterationRequest = (await call(item.service, command('SUBMIT', message(item.workspace, argv)))).result;
       await waitFor(item.service, iterationRequest.id, ['RUNNING']);
