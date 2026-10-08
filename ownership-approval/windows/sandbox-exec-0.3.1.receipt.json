@@ -1,0 +1,27 @@
+{
+    "schema": "rightkit-sandbox-exec-receipt.v1",
+    "crate": "rightkit-sandbox",
+    "crateVersion": "0.3.1",
+    "crateChecksum": "ab3ba52c4323f2c66bbb8e78643c59282c49a6b6190515fbd6844c144e86ceb7",
+    "crateSource": "https://static.crates.io/crates/rightkit-sandbox/rightkit-sandbox-0.3.1.crate (sha256 verified before extraction; shipped Cargo.lock used)",
+    "bin": "rightkit-sandbox-exec",
+    "target": "x86_64-pc-windows-msvc",
+    "build": {
+        "command": "rightkit cargo build --release --locked --bin rightkit-sandbox-exec",
+        "brokerRequest": "194c68d8-6a7e-4818-ab20-a897067a3216",
+        "host": "BOGUS-DELL (XPS 15 9530)",
+        "unsignedSha256": "e13662c8d274bbd58b9c4ec1a415e0be2190747061c0e3e1bd0d8355efe72d24"
+    },
+    "binarySha256": "5a6cad6a791e989aa25cd172b51d2205700221b39357d0f4528dcfcd63cd3a87",
+    "binarySizeBytes": 521168,
+    "signing": {
+        "tool": "right-release sign-windows (Azure Artifact Signing)",
+        "authenticode": "Valid",
+        "subject": "CN=Damned Ventures LLC",
+        "issuer": "Microsoft ID Verified CS EOC CA 04",
+        "certificateNotAfter": "2026-10-10T05:27:37",
+        "timestampPresent": true
+    },
+    "signerThumbprint": "92717997A19E2A478474A427B3714B25E9AA7920",
+    "signedAt": "2026-10-09"
+}
