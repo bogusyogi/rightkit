@@ -16,18 +16,27 @@
 //! - [`Run::retake`] replays a step's precondition into a new take and compares
 //!   postconditions. A differing postcondition is flagged, never spliced.
 //!
-//! Remote worker enrolment, discovery, bundle transfer and reconnect are a trait
-//! boundary only in [`transport`]. This crate performs no I/O beyond the journal
-//! file.
+//! Remote workers run over [`controller::ControllerLink`] (the controller side,
+//! which implements [`transport::WorkerTransport`]) and [`worker::WorkerEndpoint`]
+//! (the GUI worker). Enrolment uses a one-time code. Both sides then hold a
+//! device key. Each connection authenticates with that key and a fresh nonce
+//! pair, and every frame carries a MAC and a sequence number. The machine
+//! itself does no I/O beyond the journal file.
 
 pub mod clock;
+pub mod controller;
 pub mod driver;
 pub mod error;
 pub mod journal;
 pub mod machine;
+pub mod net;
+pub mod protocol;
 pub mod transport;
+pub mod wire;
+pub mod worker;
 
 pub use clock::{Clock, ManualClock, SystemClock};
+pub use controller::{Controller, ControllerLink, IssuedEnrolment, RemoteDriver};
 pub use driver::{
     CancelToken, DriverError, IdempotencyKey, Observation, ObservePolicy, Scenario, StepDriver,
     StepSpec,
@@ -35,3 +44,8 @@ pub use driver::{
 pub use error::{Error, Result};
 pub use journal::{Event, Journal, Record};
 pub use machine::{ExecContext, Lease, Phase, RetakeReport, Run, StepRef};
+pub use transport::{
+    BundleRef, Capability, EnrolmentRequest, ReconnectState, TransferReport, TransportError,
+    WorkerIdentity, WorkerTransport,
+};
+pub use worker::WorkerEndpoint;

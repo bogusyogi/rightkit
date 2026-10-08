@@ -14,5 +14,7 @@ name = "rightkit_scenario"
 path = "src/lib.rs"
 
 [dependencies]
+blake3 = "1.8.7"
+getrandom = "0.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

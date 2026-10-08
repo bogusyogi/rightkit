@@ -5529,6 +5529,8 @@ dependencies = [
 name = "rightkit-scenario"
 version = "0.0.0"
 dependencies = [
+ "blake3",
+ "getrandom 0.3.4",
  "serde",
  "serde_json",
 ]
