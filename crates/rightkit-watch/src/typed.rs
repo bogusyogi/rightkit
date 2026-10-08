@@ -7,6 +7,7 @@ use std::sync::mpsc::{self, RecvError, RecvTimeoutError, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::WatchEventRecord;
 use notify::event::{ModifyKind, RenameMode};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
@@ -65,7 +66,7 @@ pub enum WatchEvent {
 pub struct TypedWatcher {
     watcher: Option<RecommendedWatcher>,
     thread: Option<thread::JoinHandle<()>>,
-    rx: mpsc::Receiver<WatchEvent>,
+    rx: mpsc::Receiver<WatchEventRecord>,
 }
 
 impl TypedWatcher {
@@ -82,7 +83,7 @@ impl TypedWatcher {
         let (tx, rx) = mpsc::channel();
         let thread = thread::Builder::new()
             .name("rightkit-watch-typed".into())
-            .spawn(move || run(raw_rx, tx))
+            .spawn(move || run_translated(raw_rx, |record| tx.send(record).is_ok()))
             .map_err(|error| WatchError::Backend {
                 message: error.to_string(),
                 paths: vec![root],
@@ -96,15 +97,32 @@ impl TypedWatcher {
 
     /// Wait for a typed event. Backend failures arrive as events, not receive errors.
     pub fn recv(&self) -> Result<WatchEvent, RecvError> {
-        self.rx.recv()
+        self.rx.recv().map(|record| record.event)
     }
 
     /// Poll without blocking; Empty means there are no events ready yet.
     pub fn try_recv(&self) -> Result<WatchEvent, TryRecvError> {
-        self.rx.try_recv()
+        self.rx.try_recv().map(|record| record.event)
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Result<WatchEvent, RecvTimeoutError> {
+        self.rx.recv_timeout(timeout).map(|record| record.event)
+    }
+
+    /// Receive typed output with its original backend kind. Mixed typed/record
+    /// receive calls consume the same queue, with no duplicate delivery.
+    pub fn recv_record(&self) -> Result<WatchEventRecord, RecvError> {
+        self.rx.recv()
+    }
+
+    pub fn try_recv_record(&self) -> Result<WatchEventRecord, TryRecvError> {
+        self.rx.try_recv()
+    }
+
+    pub fn recv_record_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<WatchEventRecord, RecvTimeoutError> {
         self.rx.recv_timeout(timeout)
     }
 }
@@ -124,27 +142,40 @@ struct HalfRename {
     path: PathBuf,
     from: bool,
     deadline: Instant,
+    raw_kind: EventKind,
 }
 
 impl HalfRename {
-    fn degrade(self) -> WatchEvent {
-        if self.from {
+    fn degrade(self) -> WatchEventRecord {
+        let event = if self.from {
             WatchEvent::Delete(self.path)
         } else {
             WatchEvent::Create(self.path)
+        };
+        WatchEventRecord {
+            event,
+            raw_kind: Some(self.raw_kind),
         }
     }
 }
 
 #[derive(Default)]
-struct Translator {
+pub(crate) struct Translator {
     halves: HashMap<Option<usize>, HalfRename>,
     // inotify emits From, To, then Both with the same tracker. Suppress that echo.
     paired: HashMap<usize, (PathBuf, PathBuf, Instant)>,
 }
 
 impl Translator {
+    #[cfg(test)]
     fn expire(&mut self, now: Instant) -> Vec<WatchEvent> {
+        self.expire_records(now)
+            .into_iter()
+            .map(|record| record.event)
+            .collect()
+    }
+
+    pub(crate) fn expire_records(&mut self, now: Instant) -> Vec<WatchEventRecord> {
         self.paired.retain(|_, (_, _, deadline)| *deadline > now);
         let keys: Vec<_> = self
             .halves
@@ -158,7 +189,15 @@ impl Translator {
             .collect()
     }
 
+    #[cfg(test)]
     fn flush(&mut self) -> Vec<WatchEvent> {
+        self.flush_records()
+            .into_iter()
+            .map(|record| record.event)
+            .collect()
+    }
+
+    pub(crate) fn flush_records(&mut self) -> Vec<WatchEventRecord> {
         self.paired.clear();
         self.halves
             .drain()
@@ -166,25 +205,48 @@ impl Translator {
             .collect()
     }
 
-    fn next_deadline(&self) -> Option<Instant> {
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.halves.values().map(|half| half.deadline).min()
     }
 
     // Pure seam: injected time and backend results, no filesystem or sleeping.
+    #[cfg(test)]
     fn translate(&mut self, result: notify::Result<Event>, now: Instant) -> Vec<WatchEvent> {
-        let mut out = self.expire(now);
+        self.translate_records(result, now)
+            .into_iter()
+            .map(|record| record.event)
+            .collect()
+    }
+
+    pub(crate) fn translate_records(
+        &mut self,
+        result: notify::Result<Event>,
+        now: Instant,
+    ) -> Vec<WatchEventRecord> {
+        let mut out = self.expire_records(now);
         let event = match result {
             Ok(event) => event,
             Err(error) => {
-                out.extend(self.flush());
-                out.push(WatchEvent::Error(error.into()));
+                out.extend(self.flush_records());
+                out.push(WatchEventRecord {
+                    event: WatchEvent::Error(error.into()),
+                    raw_kind: None,
+                });
                 return out;
             }
         };
         if event.need_rescan() {
-            out.extend(self.flush());
-            out.push(WatchEvent::Overflow);
+            out.extend(self.flush_records());
+            out.push(WatchEventRecord {
+                event: WatchEvent::Overflow,
+                raw_kind: Some(event.kind),
+            });
         }
+        let event_kind = event.kind;
+        let record = |event| WatchEventRecord {
+            event,
+            raw_kind: Some(event_kind),
+        };
         let tracker = event.tracker();
         // Without a correlation ID, only adjacent complementary halves can pair.
         let complementary = matches!(
@@ -221,7 +283,7 @@ impl Translator {
                                 self.paired
                                     .insert(tracker, (from.clone(), to.clone(), now + RENAME_WAIT));
                             }
-                            out.push(WatchEvent::Rename { from, to });
+                            out.push(record(WatchEvent::Rename { from, to }));
                             continue;
                         }
                         out.push(old.degrade());
@@ -232,6 +294,7 @@ impl Translator {
                             path,
                             from,
                             deadline: now + RENAME_WAIT,
+                            raw_kind: event_kind,
                         },
                     );
                 }
@@ -248,20 +311,40 @@ impl Translator {
                         .and_then(|id| self.paired.get(&id))
                         .is_some_and(|(old_from, old_to, _)| old_from == from && old_to == to);
                     if !echo {
-                        out.push(WatchEvent::Rename {
+                        out.push(record(WatchEvent::Rename {
                             from: from.clone(),
                             to: to.clone(),
-                        });
+                        }));
                     }
                 } else {
                     // Malformed/unpaired "Both" still provides conservative path hints.
-                    out.extend(event.paths.into_iter().map(WatchEvent::Modify));
+                    out.extend(
+                        event
+                            .paths
+                            .into_iter()
+                            .map(|path| record(WatchEvent::Modify(path))),
+                    );
                 }
             }
-            EventKind::Create(_) => out.extend(event.paths.into_iter().map(WatchEvent::Create)),
-            EventKind::Remove(_) => out.extend(event.paths.into_iter().map(WatchEvent::Delete)),
+            EventKind::Create(_) => out.extend(
+                event
+                    .paths
+                    .into_iter()
+                    .map(|path| record(WatchEvent::Create(path))),
+            ),
+            EventKind::Remove(_) => out.extend(
+                event
+                    .paths
+                    .into_iter()
+                    .map(|path| record(WatchEvent::Delete(path))),
+            ),
             EventKind::Modify(_) | EventKind::Any => {
-                out.extend(event.paths.into_iter().map(WatchEvent::Modify));
+                out.extend(
+                    event
+                        .paths
+                        .into_iter()
+                        .map(|path| record(WatchEvent::Modify(path))),
+                );
             }
             EventKind::Access(_) | EventKind::Other => {}
         }
@@ -269,7 +352,15 @@ impl Translator {
     }
 }
 
+#[cfg(test)]
 fn run(rx: mpsc::Receiver<notify::Result<Event>>, tx: mpsc::Sender<WatchEvent>) {
+    run_translated(rx, |record| tx.send(record.event).is_ok());
+}
+
+fn run_translated(
+    rx: mpsc::Receiver<notify::Result<Event>>,
+    mut send: impl FnMut(WatchEventRecord) -> bool,
+) {
     let mut translator = Translator::default();
     loop {
         let result = match translator.next_deadline() {
@@ -277,17 +368,19 @@ fn run(rx: mpsc::Receiver<notify::Result<Event>>, tx: mpsc::Sender<WatchEvent>) 
             None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
         };
         let events = match result {
-            Ok(result) => translator.translate(result, Instant::now()),
-            Err(RecvTimeoutError::Timeout) => translator.expire(Instant::now()),
+            Ok(result) => translator.translate_records(result, Instant::now()),
+            Err(RecvTimeoutError::Timeout) => translator.expire_records(Instant::now()),
             Err(RecvTimeoutError::Disconnected) => {
-                for event in translator.flush() {
-                    let _ = tx.send(event);
+                for event in translator.flush_records() {
+                    if !send(event) {
+                        return;
+                    }
                 }
                 return;
             }
         };
         for event in events {
-            if tx.send(event).is_err() {
+            if !send(event) {
                 return;
             }
         }

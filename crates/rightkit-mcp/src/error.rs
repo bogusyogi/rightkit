@@ -24,6 +24,17 @@ pub enum McpError {
     NotApproved(Box<PendingApproval>),
     PoolFull(usize),
     Timeout,
+    /// Explicit per-call cancellation.
+    Cancelled,
+    /// Encoded response or frame exceeded configured byte budget.
+    ResponseTooLarge {
+        limit: usize,
+    },
+    /// Legacy SSE announced an endpoint outside configured origin policy.
+    CrossOriginEndpoint {
+        configured_origin: String,
+        endpoint_origin: String,
+    },
     Closed,
     Unauthorized,
     Collision {
@@ -54,6 +65,15 @@ impl fmt::Display for McpError {
             ),
             McpError::PoolFull(n) => write!(f, "connection pool full ({n} in use)"),
             McpError::Timeout => write!(f, "request timed out"),
+            McpError::Cancelled => write!(f, "request cancelled"),
+            McpError::ResponseTooLarge { limit } => write!(f, "response exceeded {limit} bytes"),
+            McpError::CrossOriginEndpoint {
+                configured_origin,
+                endpoint_origin,
+            } => write!(
+                f,
+                "SSE endpoint origin {endpoint_origin} differs from {configured_origin}"
+            ),
             McpError::Closed => write!(f, "connection closed"),
             McpError::Unauthorized => write!(f, "unauthorized"),
             McpError::Collision {

@@ -43,7 +43,7 @@ pub mod window_state;
 #[cfg(windows)]
 pub(crate) mod winapi {
     #[cfg(not(any(feature = "wv2-0_38", feature = "wv2-0_39")))]
-    compile_error!("on Windows enable `wv2-0_38` (Tauri 2.11, default) or `wv2-0_39` (Tauri 2.12)");
+    compile_error!("rightkit-shell on Windows needs `wv2-0_38` (Tauri 2.11, in default features) or `wv2-0_39` (Tauri 2.12); with default-features = false add one, e.g. features = [\"wv2-0_38\"]");
     #[cfg(all(feature = "wv2-0_38", not(feature = "wv2-0_39")))]
     pub use ::{webview2_com_038 as webview2_com, windows_061 as windows};
     #[cfg(feature = "wv2-0_39")]

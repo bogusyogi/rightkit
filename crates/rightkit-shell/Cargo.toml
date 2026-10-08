@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-shell"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
@@ -10,10 +10,10 @@ readme = "README.md"
 include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
-default = ["engine", "wv2-0_39"]
+default = ["engine", "wv2-0_38"]
 # Windows: which `windows` + `webview2-com` generation the app's Tauri resolves, so types cross the
-# boundary (Tauri 2.12 and a fresh resolve: 0.62/0.39, the default; Tauri 2.11: 0.61/0.38). An app
-# locked to Tauri 2.11 uses default-features = false, features = ["engine", "wv2-0_38"].
+# boundary (Tauri 2.11: 0.61/0.38, the default, which every Right Suite app locks; Tauri 2.12: 0.62/0.39).
+# An app on Tauri 2.12 uses default-features = false, features = ["engine", "wv2-0_39"].
 # Enabling both selects 0.39.
 wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
 wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]

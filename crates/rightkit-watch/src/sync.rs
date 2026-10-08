@@ -60,7 +60,7 @@ pub struct FileChange {
 
 /// Canonical spelling that also works for paths that do not exist (yet or any more):
 /// canonicalize the parent directory and re-attach the file name.
-fn normalize(path: &Path) -> PathBuf {
+pub(crate) fn normalize(path: &Path) -> PathBuf {
     if let Ok(canonical) = std::fs::canonicalize(path) {
         return canonical;
     }
@@ -114,6 +114,7 @@ fn mutating(event: &Event) -> bool {
 pub struct FileSetWatcher {
     watcher: Option<RecommendedWatcher>,
     thread: Option<thread::JoinHandle<()>>,
+    stop: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl FileSetWatcher {
@@ -224,7 +225,34 @@ impl FileSetWatcher {
         Ok(Self {
             watcher: Some(watcher),
             thread: Some(thread),
+            stop: None,
         })
+    }
+
+    /// Opt-in typed file-set stream. Parent directories are watched; records use
+    /// requested path spelling & grants are checked immediately before delivery.
+    /// Keep this handle alive. Dropping its receiver stops the worker & OS watch.
+    pub fn watch_with_options(
+        paths: &[PathBuf],
+        options: crate::WatchOptions,
+        grants: impl GrantCheck,
+    ) -> Result<(Self, crate::FileSetReceiver), crate::WatchError> {
+        let (thread, stop, receiver) = crate::options::start(paths, options, grants)?;
+        Ok((
+            Self {
+                watcher: None,
+                thread: Some(thread),
+                stop: Some(stop),
+            },
+            receiver,
+        ))
+    }
+
+    /// Whether this watch's worker has stopped, including receiver disconnect.
+    pub fn is_finished(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_none_or(|thread| thread.is_finished())
     }
 
     /// Convenience with the donor defaults and no grant gating.
@@ -244,6 +272,9 @@ impl FileSetWatcher {
 
 impl Drop for FileSetWatcher {
     fn drop(&mut self) {
+        if let Some(stop) = &self.stop {
+            stop.store(true, std::sync::atomic::Ordering::Release);
+        }
         // Dropping the watcher drops the event sender, which ends the debounce loop.
         self.watcher.take();
         if let Some(thread) = self.thread.take() {

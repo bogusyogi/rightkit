@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-watch"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing."

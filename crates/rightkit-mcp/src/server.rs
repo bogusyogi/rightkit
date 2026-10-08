@@ -1,8 +1,10 @@
 //! Server host: serves a [`ToolProvider`] over stdio and loopback HTTP with per-tool admission.
 
 use std::collections::HashSet;
+use std::future::{poll_fn, Future};
 use std::io::{BufRead, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -72,6 +74,15 @@ pub trait ToolProvider: Send + Sync {
         self.get_prompt(name, args)
             .map(|m| json!({"messages": m.iter().map(PromptMessage::to_value).collect::<Vec<_>>()}))
     }
+}
+
+/// Optional asynchronous raw request handler. `None` delegates to legacy dispatch.
+pub trait AsyncRequestHandler: Send + Sync {
+    fn handle<'a>(
+        &'a self,
+        request: &'a Value,
+        context: &'a RequestContext,
+    ) -> Pin<Box<dyn Future<Output = Option<Result<Value>>> + Send + 'a>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,6 +230,9 @@ struct Inner {
     admission: Option<Arc<dyn AdmissionHook>>,
     events: Option<EventSink>,
     options: ServerOptions,
+    async_handler: Option<Arc<dyn AsyncRequestHandler>>,
+    protocol_versions: Option<Vec<String>>,
+    response_limits: Option<crate::ResponseLimits>,
 }
 
 #[derive(Clone)]
@@ -242,6 +256,37 @@ fn rpc_error(id: &Value, code: i64, message: impl Into<String>) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into()}})
 }
 
+async fn join_options<'a, I>(futures: I) -> Vec<Value>
+where
+    I: IntoIterator<Item = Pin<Box<dyn Future<Output = Option<Value>> + Send + 'a>>>,
+{
+    let mut futures: Vec<_> = futures.into_iter().map(Some).collect();
+    let mut output = Vec::new();
+    poll_fn(|cx| {
+        let mut pending = false;
+        for slot in futures.iter_mut() {
+            let Some(future) = slot.as_mut() else {
+                continue;
+            };
+            match future.as_mut().poll(cx) {
+                std::task::Poll::Ready(value) => {
+                    *slot = None;
+                    if let Some(value) = value {
+                        output.push(value);
+                    }
+                }
+                std::task::Poll::Pending => pending = true,
+            }
+        }
+        if pending {
+            std::task::Poll::Pending
+        } else {
+            std::task::Poll::Ready(std::mem::take(&mut output))
+        }
+    })
+    .await
+}
+
 impl ServerHost {
     pub fn new(name: &str, version: &str, provider: Arc<dyn ToolProvider>) -> Self {
         ServerHost {
@@ -253,6 +298,9 @@ impl ServerHost {
                 admission: None,
                 events: None,
                 options: ServerOptions::default(),
+                async_handler: None,
+                protocol_versions: None,
+                response_limits: None,
             }),
         }
     }
@@ -267,6 +315,9 @@ impl ServerHost {
             admission: i.admission.clone(),
             events: i.events.clone(),
             options: i.options.clone(),
+            async_handler: i.async_handler.clone(),
+            protocol_versions: i.protocol_versions.clone(),
+            response_limits: i.response_limits,
         };
         f(&mut n);
         ServerHost { inner: Arc::new(n) }
@@ -278,6 +329,18 @@ impl ServerHost {
 
     pub fn with_options(self, options: ServerOptions) -> Self {
         self.rebuild(|i| i.options = options)
+    }
+
+    pub fn with_async_handler(self, handler: Arc<dyn AsyncRequestHandler>) -> Self {
+        self.rebuild(|i| i.async_handler = Some(handler))
+    }
+
+    pub fn with_protocol_versions(self, versions: Vec<String>) -> Self {
+        self.rebuild(|i| i.protocol_versions = Some(versions))
+    }
+
+    pub fn with_response_limits(self, limits: crate::ResponseLimits) -> Self {
+        self.rebuild(|i| i.response_limits = Some(limits))
     }
 
     /// Dispatch a parsed frame without transport I/O or HTTP session issuance.
@@ -297,6 +360,176 @@ impl ServerHost {
                 run: next_id("mcps"),
             },
         )
+    }
+
+    pub fn dispatch_checked(
+        &self,
+        request: &Value,
+        context: &RequestContext,
+    ) -> Result<Option<Value>> {
+        self.check_response(self.dispatch_with_context(request, context))
+    }
+
+    pub async fn dispatch_async(&self, request: &Value) -> Option<Value> {
+        self.dispatch_async_with_context(request, &RequestContext::default())
+            .await
+    }
+
+    pub async fn dispatch_async_with_context(
+        &self,
+        request: &Value,
+        context: &RequestContext,
+    ) -> Option<Value> {
+        let ctx = Ctx {
+            request: context.clone(),
+            run: next_id("mcps"),
+        };
+        if let Value::Array(items) = request {
+            return match self.inner.options.batch_policy {
+                BatchPolicy::Process => {
+                    let futures = items.iter().map(|item| {
+                        Box::pin(self.dispatch_async_one(item, &ctx))
+                            as Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>>
+                    });
+                    let replies = join_options(futures).await;
+                    if replies.is_empty() {
+                        None
+                    } else {
+                        Some(Value::Array(replies))
+                    }
+                }
+                BatchPolicy::Reject => Some(rpc_error(&Value::Null, -32600, "Invalid Request")),
+                BatchPolicy::Ignore => None,
+            };
+        }
+        self.dispatch_async_one(request, &ctx).await
+    }
+
+    pub async fn dispatch_checked_async(
+        &self,
+        request: &Value,
+        context: &RequestContext,
+    ) -> Result<Option<Value>> {
+        self.check_response(self.dispatch_async_with_context(request, context).await)
+    }
+
+    fn check_response(&self, response: Option<Value>) -> Result<Option<Value>> {
+        let Some(response) = response else {
+            return Ok(None);
+        };
+        if let Some(limits) = &self.inner.response_limits {
+            let bytes = serde_json::to_vec(&response)
+                .map_err(|e| McpError::Protocol(e.to_string()))?
+                .len();
+            let limit = limits.max_response_bytes.min(limits.max_frame_bytes);
+            if bytes > limit {
+                return Err(McpError::ResponseTooLarge { limit });
+            }
+        }
+        Ok(Some(response))
+    }
+
+    async fn dispatch_async_one(&self, msg: &Value, ctx: &Ctx) -> Option<Value> {
+        let method = msg.get("method").and_then(Value::as_str)?;
+        if method == "notifications/initialized"
+            && self.inner.options.initialized_policy == InitializedPolicy::Ignore
+        {
+            return None;
+        }
+        let id = match msg.get("id") {
+            Some(id) if !id.is_null() => id.clone(),
+            _ if self.inner.options.id_policy == IdPolicy::NullResponse => Value::Null,
+            _ => return None,
+        };
+        if let Some(handler) = &self.inner.async_handler {
+            if method == "tools/call" {
+                if let Some(denied) = self.admission_only(msg, ctx) {
+                    return Some(self.wrap_result(&id, denied));
+                }
+            }
+            if let Some(result) = handler.handle(msg, &ctx.request).await {
+                let result = if method == "tools/list" {
+                    result.map(|payload| self.filter_tools(payload))
+                } else {
+                    result
+                };
+                return Some(self.wrap_result(&id, result));
+            }
+            if method == "tools/call" {
+                let params = msg.get("params").cloned().unwrap_or(Value::Null);
+                return Some(self.wrap_result(&id, self.tools_call_inner(msg, &params, ctx, true)));
+            }
+        }
+        self.handle_one(msg, ctx)
+    }
+
+    fn wrap_result(&self, id: &Value, out: Result<Value>) -> Value {
+        match out {
+            Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
+            Err(McpError::ToolNotFound(n)) => rpc_error(id, -32602, format!("unknown: {n}")),
+            Err(McpError::Rpc { code, message }) => rpc_error(id, code, message),
+            Err(McpError::RpcWithData {
+                code,
+                message,
+                data,
+            }) => {
+                let mut r = rpc_error(id, code, message);
+                r["error"]["data"] = data;
+                r
+            }
+            Err(e) => rpc_error(id, -32603, e.to_string()),
+        }
+    }
+
+    fn admission_only(&self, request: &Value, ctx: &Ctx) -> Option<Result<Value>> {
+        let params = request.get("params").cloned().unwrap_or(Value::Null);
+        let hook = self.inner.admission.as_ref()?;
+        let Some(name) = params.get("name").and_then(Value::as_str) else {
+            return Some(Err(McpError::Rpc {
+                code: -32602,
+                message: "missing tool name".into(),
+            }));
+        };
+        let args = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let descriptor = self
+            .inner
+            .provider
+            .list()
+            .into_iter()
+            .find(|t| t.name == name);
+        let verdict = if descriptor.as_ref().is_some_and(|d| !hook.expose(d)) {
+            Admission::Deny(format!("tool '{name}' is not exposed"))
+        } else {
+            hook.admit(&AdmissionRequest {
+                tool: name,
+                args: &args,
+                descriptor: descriptor.as_ref(),
+                transport: ctx.request.transport,
+                session: ctx.request.session.as_deref(),
+            })
+        };
+        match verdict {
+            Admission::Allow => None,
+            Admission::Deny(reason) => {
+                let transport = match ctx.request.transport {
+                    ServerTransport::Stdio => "stdio",
+                    ServerTransport::Http { .. } => "http",
+                };
+                self.emit(
+                    LifecycleKind::Denied,
+                    &ctx.run,
+                    transport,
+                    reason.clone(),
+                    Some(name),
+                );
+                let mut result = ToolResult::error(format!("denied: {reason}"));
+                result.structured = Some(json!({"denied":true,"reason":reason}));
+                Some(Ok(result.to_value()))
+            }
+        }
     }
 
     /// Receives start/stop/crash (serving runs) and denied (admission, HTTP gates) events.
@@ -471,7 +704,7 @@ impl ServerHost {
         };
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
         let out = match method {
-            "initialize" => Ok(self.initialize(&params)),
+            "initialize" => self.initialize(&params),
             "ping" => Ok(json!({})),
             "tools/list" => self.tools_list(msg, ctx),
             "tools/call" => self.tools_call(msg, &params, ctx),
@@ -523,15 +756,61 @@ impl ServerHost {
         })
     }
 
-    fn initialize(&self, params: &Value) -> Value {
+    fn initialize(&self, params: &Value) -> Result<Value> {
         if let Some(result) = &self.inner.options.initialize_result {
-            return result.clone();
+            return Ok(result.clone());
         }
         let requested = params
             .get("protocolVersion")
             .and_then(Value::as_str)
             .unwrap_or("");
-        let version = if SUPPORTED_VERSIONS.contains(&requested) {
+        let configured = self.inner.protocol_versions.as_deref().unwrap_or(&[]);
+        if self.inner.protocol_versions.is_some()
+            && (configured.is_empty() || configured.iter().any(String::is_empty))
+        {
+            return Err(McpError::Rpc {
+                code: -32602,
+                message: "supported protocol versions must be nonempty".into(),
+            });
+        }
+        let version = if let Some(client_versions) = params
+            .get("supportedProtocolVersions")
+            .and_then(Value::as_array)
+        {
+            let candidates: Vec<&str> = if self.inner.protocol_versions.is_some() {
+                configured.iter().map(String::as_str).collect()
+            } else {
+                SUPPORTED_VERSIONS.to_vec()
+            };
+            let best = candidates
+                .into_iter()
+                .filter(|v| client_versions.iter().any(|c| c.as_str() == Some(*v)))
+                .max();
+            if let Some(best) = best {
+                best
+            } else if self.inner.protocol_versions.is_some() {
+                return Err(McpError::Rpc {
+                    code: -32602,
+                    message: "no common protocol version".into(),
+                });
+            } else if SUPPORTED_VERSIONS.contains(&requested) {
+                requested
+            } else {
+                PROTOCOL_VERSION
+            }
+        } else if self.inner.protocol_versions.is_some() {
+            if configured.iter().any(|v| v == requested) {
+                requested
+            } else if configured.iter().any(|v| v == PROTOCOL_VERSION) {
+                PROTOCOL_VERSION
+            } else {
+                configured
+                    .iter()
+                    .max()
+                    .map(String::as_str)
+                    .unwrap_or(PROTOCOL_VERSION)
+            }
+        } else if SUPPORTED_VERSIONS.contains(&requested) {
             requested
         } else {
             PROTOCOL_VERSION
@@ -552,11 +831,17 @@ impl ServerHost {
         if let Some(i) = &self.inner.instructions {
             r["instructions"] = json!(i);
         }
-        r
+        Ok(r)
     }
 
     fn tools_list(&self, request: &Value, ctx: &Ctx) -> Result<Value> {
-        let mut payload = self.inner.provider.list_tools(request, &ctx.request)?;
+        self.inner
+            .provider
+            .list_tools(request, &ctx.request)
+            .map(|payload| self.filter_tools(payload))
+    }
+
+    fn filter_tools(&self, mut payload: Value) -> Value {
         if let Some(hook) = &self.inner.admission {
             if let Some(tools) = payload.get_mut("tools").and_then(Value::as_array_mut) {
                 // Deserialize only for policy inspection; retain every raw field on output.
@@ -566,10 +851,20 @@ impl ServerHost {
                 });
             }
         }
-        Ok(payload)
+        payload
     }
 
     fn tools_call(&self, request: &Value, params: &Value, ctx: &Ctx) -> Result<Value> {
+        self.tools_call_inner(request, params, ctx, false)
+    }
+
+    fn tools_call_inner(
+        &self,
+        request: &Value,
+        params: &Value,
+        ctx: &Ctx,
+        admission_checked: bool,
+    ) -> Result<Value> {
         if params.get("name").and_then(Value::as_str).is_none() {
             if self.inner.admission.is_none() {
                 if let Some(result) = self.inner.provider.call_tool(request, &ctx.request) {
@@ -592,7 +887,7 @@ impl ServerHost {
             .list()
             .into_iter()
             .find(|t| t.name == name);
-        if let Some(hook) = &self.inner.admission {
+        if let Some(hook) = self.inner.admission.as_ref().filter(|_| !admission_checked) {
             let hidden = descriptor.as_ref().is_some_and(|d| !hook.expose(d));
             let verdict = if hidden {
                 Admission::Deny(format!("tool '{name}' is not exposed"))

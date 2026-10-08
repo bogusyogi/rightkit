@@ -43,7 +43,7 @@ pub struct McpEvent {
     pub pid: Option<u32>,
     /// Tool name for admission denials.
     pub tool: Option<String>,
-    /// `stdio` or `http`.
+    /// `stdio`, `http`, or opt-in legacy `sse`.
     pub transport: Option<&'static str>,
 }
 

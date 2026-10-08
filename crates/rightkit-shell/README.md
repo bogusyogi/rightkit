@@ -36,4 +36,4 @@ let cold = rightkit_shell::open_url::current_urls(); // arrived before any handl
 
 `Shell::builder(..).on_second_instance(|app, argv, cwd| ..)` replaces the default second-launch behaviour (event plus reveal of the main window); the callback owns focus. Arbitration is unchanged, and URLs on the forwarded argv still reach `open_url` handlers and `current_urls()` before the callback runs. Without a callback nothing changes.
 
-`windows` (`0.61`) and `webview2-com` (`0.38`) match Tauri 2.11's wry, so an app resolves one copy shared with Tauri and can pass `windows`/`webview2-com` types across the boundary (a wider range let Cargo pick 0.62/0.39 beside Tauri's copy, and `cast()` failed: E0599, found by MailRight).
+`windows`/`webview2-com` are feature-selected so they match the app's Tauri: `wv2-0_38` (0.61/0.38, Tauri 2.11, **default since 0.1.2**) or `wv2-0_39` (0.62/0.39, Tauri 2.12). A mismatch puts two copies beside Tauri's and `cast()` fails (E0599, found by MailRight). With `default-features = false`, add one of them, e.g. `features = ["wv2-0_38"]` (0.1.1 defaulted to `wv2-0_39`, which broke Tauri 2.11 apps; found by CodeRight).

@@ -4,15 +4,16 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use crate::advanced_http::AdvancedHttp;
 use crate::auth::AuthProvider;
+use crate::client_features::*;
 use crate::error::{McpError, Result};
 use crate::events::{emit, next_id, EventSink, LifecycleKind, McpEvent};
 use crate::types::*;
@@ -98,8 +99,8 @@ impl Lifecycle {
 type Pending = Arc<Mutex<HashMap<u64, Sender<Result<Value>>>>>;
 
 struct StdioConn {
-    child: Arc<Mutex<Child>>,
-    stdin: Arc<Mutex<ChildStdin>>,
+    child: Arc<Mutex<Box<dyn ProcessChild>>>,
+    stdin: Arc<Mutex<Box<dyn Write + Send>>>,
     pending: Pending,
     alive: Arc<AtomicBool>,
     /// Set before an intentional kill so the reader does not report a crash.
@@ -107,6 +108,8 @@ struct StdioConn {
     life: Lifecycle,
     pid: u32,
     next_id: AtomicU64,
+    active: Arc<Mutex<HashMap<u64, String>>>,
+    handlers: Arc<Mutex<HashMap<String, ElicitationHandler>>>,
 }
 
 struct HttpConn {
@@ -124,14 +127,69 @@ struct HttpConn {
 enum Conn {
     Stdio(StdioConn),
     Http(HttpConn),
+    AdvancedHttp(AdvancedHttp),
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+fn read_stdio_frame(
+    reader: &mut impl BufRead,
+    limits: Option<ResponseLimits>,
+) -> Result<Option<String>> {
+    let mut bytes = Vec::new();
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            if bytes.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+        let end = available.iter().position(|b| *b == b'\n').map(|p| p + 1);
+        let count = end.unwrap_or(available.len());
+        if let Some(limits) = limits {
+            let limit = limits.max_frame_bytes.min(limits.max_response_bytes);
+            if bytes.len().saturating_add(count) > limit {
+                return Err(McpError::ResponseTooLarge { limit });
+            }
+        }
+        bytes.extend_from_slice(&available[..count]);
+        reader.consume(count);
+        if end.is_some() {
+            break;
+        }
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|e| McpError::Protocol(e.to_string()))
+}
+
+fn client_reply(id: Value, result: Result<Value>) -> Value {
+    match result {
+        Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
+        Err(McpError::Rpc { code, message }) => {
+            json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
+        }
+        Err(McpError::RpcWithData {
+            code,
+            message,
+            data,
+        }) => json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message,"data":data}}),
+        Err(error) => {
+            json!({"jsonrpc":"2.0","id":id,"error":{"code":-32603,"message":error.to_string()}})
+        }
+    }
+}
+
 impl StdioConn {
-    fn spawn(server: &str, spec: &ServerSpec, events: &Option<EventSink>) -> Result<StdioConn> {
+    fn spawn(
+        server: &str,
+        spec: &ServerSpec,
+        events: &Option<EventSink>,
+        extensions: Option<&ClientExtensions>,
+    ) -> Result<StdioConn> {
         let ServerSpec::Stdio {
             command,
             args,
@@ -141,37 +199,53 @@ impl StdioConn {
         else {
             unreachable!()
         };
-        let mut cmd = Command::new(command);
-        cmd.args(args)
-            .envs(env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW: never flash a console from a GUI host
-        }
-        if let Some(c) = cwd {
-            cmd.current_dir(c);
-        }
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| McpError::Transport(format!("spawn '{command}': {e}")))?;
+        let launch = LaunchRequest {
+            program: command.clone(),
+            args: args.clone(),
+            env: env.clone(),
+            cwd: cwd.clone(),
+        };
+        let process = match extensions.and_then(|e| e.launcher.as_ref()) {
+            Some(launcher) => launcher.launch(&launch)?,
+            None => DefaultProcessLauncher.launch(&launch)?,
+        };
+        let LaunchedProcess {
+            child,
+            stdin,
+            stdout,
+        } = process;
         let pid = child.id();
         let life = Lifecycle::new(server, "stdio", events);
         life.emit(LifecycleKind::Start, "spawned stdio server", Some(pid));
-        let stdin = Arc::new(Mutex::new(child.stdin.take().ok_or(McpError::Closed)?));
-        let stdout = child.stdout.take().ok_or(McpError::Closed)?;
+        let stdin = Arc::new(Mutex::new(stdin));
         let child = Arc::new(Mutex::new(child));
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
         let closing = Arc::new(AtomicBool::new(false));
+        let active = Arc::new(Mutex::new(HashMap::<u64, String>::new()));
+        let handlers = Arc::new(Mutex::new(HashMap::new()));
+        if let Some(callback) = extensions.and_then(|e| e.elicitation.clone()) {
+            lock(&handlers).insert(life.session_id.clone(), callback);
+        }
+        let limits = extensions.map(|e| e.response_limits);
+        let (active2, handlers2) = (active.clone(), handlers.clone());
         let (p2, a2, w2) = (pending.clone(), alive.clone(), stdin.clone());
         let (c2, k2, l2) = (child.clone(), closing.clone(), life.clone());
         std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
+            let mut reader = BufReader::new(stdout);
+            loop {
+                let line = match read_stdio_frame(&mut reader, limits) {
+                    Ok(Some(line)) => line,
+                    Ok(None) => break,
+                    Err(error) => {
+                        if limits.is_some() {
+                            for (_, tx) in lock(&p2).drain() {
+                                let _ = tx.send(Err(error.clone()));
+                            }
+                        }
+                        break;
+                    }
+                };
                 let Ok(msg) = serde_json::from_str::<Value>(&line) else {
                     continue;
                 };
@@ -184,6 +258,75 @@ impl StdioConn {
                         }
                     }
                     (_, true) if msg.get("id").is_some() => {
+                        if msg["method"] == "elicitation/create"
+                            && (limits.is_some() || !lock(&handlers2).is_empty())
+                        {
+                            let params = msg.get("params").cloned().unwrap_or(Value::Null);
+                            // A request association wins; otherwise only one distinct
+                            // active session can safely receive an unassociated request.
+                            let related = params
+                                .pointer("/_meta/relatedRequestId")
+                                .or_else(|| params.get("relatedRequestId"));
+                            let related_id = related.and_then(|v| {
+                                v.as_u64()
+                                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                            });
+                            let session = {
+                                let calls = lock(&active2);
+                                if related.is_some() {
+                                    related_id.and_then(|id| calls.get(&id).cloned())
+                                } else {
+                                    let mut sessions = calls.values();
+                                    sessions
+                                        .next()
+                                        .filter(|first| sessions.all(|s| s == *first))
+                                        .cloned()
+                                }
+                            };
+                            let callback = session
+                                .as_ref()
+                                .and_then(|sid| lock(&handlers2).get(sid).cloned());
+                            let id = msg["id"].clone();
+                            if let (Some(session_id), Some(callback)) = (session, callback) {
+                                let (writer, calls) = (w2.clone(), active2.clone());
+                                let context = ElicitationContext {
+                                    server: l2.server.clone(),
+                                    session_id,
+                                };
+                                std::thread::spawn(move || {
+                                    let result = catch_unwind(AssertUnwindSafe(|| {
+                                        callback(&context, &params)
+                                    }))
+                                    .unwrap_or_else(|_| {
+                                        Err(McpError::Protocol(
+                                            "elicitation callback panicked".into(),
+                                        ))
+                                    });
+                                    let still_active = {
+                                        let calls = lock(&calls);
+                                        match related_id {
+                                            Some(id) => calls.get(&id) == Some(&context.session_id),
+                                            None => {
+                                                calls.values().any(|sid| sid == &context.session_id)
+                                            }
+                                        }
+                                    };
+                                    let reply = if still_active {
+                                        client_reply(id, result)
+                                    } else {
+                                        client_reply(id, Err(McpError::Cancelled))
+                                    };
+                                    let mut writer = lock(&writer);
+                                    let _ =
+                                        writeln!(writer, "{reply}").and_then(|_| writer.flush());
+                                });
+                            } else {
+                                let reply = json!({"jsonrpc":"2.0","id":id,"error":{"code":-32000,"message":"elicitation has no unambiguous active session"}});
+                                let mut writer = lock(&w2);
+                                let _ = writeln!(writer, "{reply}").and_then(|_| writer.flush());
+                            }
+                            continue;
+                        }
                         // Server-to-client request: answer ping, refuse the rest.
                         let id = msg["id"].clone();
                         let reply = if msg["method"] == "ping" {
@@ -191,7 +334,8 @@ impl StdioConn {
                         } else {
                             json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"method not supported by client"}})
                         };
-                        let _ = writeln!(lock(&w2), "{reply}");
+                        let mut writer = lock(&w2);
+                        let _ = writeln!(writer, "{reply}").and_then(|_| writer.flush());
                     }
                     _ => {}
                 }
@@ -233,6 +377,8 @@ impl StdioConn {
             life,
             pid,
             next_id: AtomicU64::new(1),
+            active,
+            handlers,
         })
     }
 
@@ -247,22 +393,140 @@ impl StdioConn {
     }
 
     fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
+        self.request_with_options(method, params, timeout, &CallOptions::default())
+    }
+
+    /// A blocked pipe write cannot be interrupted portably without retiring its
+    /// owning process. Waiting for a response leaves shared stdio intact.
+    fn send_cancellable(
+        &self,
+        message: Value,
+        cancellation: &CancellationToken,
+        timeout: Duration,
+    ) -> Result<()> {
+        if !self.alive.load(Ordering::SeqCst) {
+            return Err(McpError::Closed);
+        }
+        let writer = self.stdin.clone();
+        let (sender, receiver) = channel();
+        std::thread::spawn(move || {
+            let mut writer = lock(&writer);
+            let result = writeln!(writer, "{message}")
+                .and_then(|_| writer.flush())
+                .map_err(|_| McpError::Closed);
+            let _ = sender.send(result);
+        });
+        let started = Instant::now();
+        loop {
+            match receiver.try_recv() {
+                Ok(result) => return result,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => return Err(McpError::Closed),
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+            let error = if cancellation.is_cancelled() {
+                Some(McpError::Cancelled)
+            } else if started.elapsed() >= timeout {
+                Some(McpError::Timeout)
+            } else {
+                None
+            };
+            if let Some(error) = error {
+                self.closing.store(true, Ordering::SeqCst);
+                self.alive.store(false, Ordering::SeqCst);
+                let _ = lock(&self.child).kill();
+                return Err(error);
+            }
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok(result) => return result,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(McpError::Closed)
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
+    }
+
+    fn request_with_options(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        options: &CallOptions,
+    ) -> Result<Value> {
+        if options
+            .cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            return Err(McpError::Cancelled);
+        }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = channel();
         lock(&self.pending).insert(id, tx);
-        if let Err(e) = self.send(&json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
-        {
+        lock(&self.active).insert(
+            id,
+            options
+                .session_id
+                .clone()
+                .unwrap_or_else(|| self.life.session_id.clone()),
+        );
+        let started = Instant::now();
+        let message = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
+        let sent = match &options.cancellation {
+            Some(token) => self.send_cancellable(message, token, timeout),
+            None => self.send(&message),
+        };
+        if let Err(e) = sent {
             lock(&self.pending).remove(&id);
+            lock(&self.active).remove(&id);
             return Err(e);
         }
-        match rx.recv_timeout(timeout) {
-            Ok(r) => r,
-            Err(_) => {
-                lock(&self.pending).remove(&id);
-                let _ = self.send(&json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":id}}));
-                Err(McpError::Timeout)
+        let started = if options.cancellation.is_some() {
+            started
+        } else {
+            Instant::now()
+        };
+        let result = loop {
+            if options
+                .cancellation
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+            {
+                break Err(McpError::Cancelled);
+            }
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                break Err(McpError::Timeout);
+            }
+            match rx.recv_timeout(if options.cancellation.is_some() {
+                remaining.min(Duration::from_millis(10))
+            } else {
+                remaining
+            }) {
+                Ok(result) => break result,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    break Err(McpError::Closed)
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        };
+        lock(&self.pending).remove(&id);
+        lock(&self.active).remove(&id);
+        if matches!(result, Err(McpError::Timeout | McpError::Cancelled))
+            && (method != "initialize" || options.cancellation.is_none())
+        {
+            let notification = json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":id}});
+            if options.cancellation.is_some() {
+                let _ = self.send_cancellable(
+                    notification,
+                    &CancellationToken::new(),
+                    Duration::from_millis(200),
+                );
+            } else {
+                let _ = self.send(&notification);
             }
         }
+        result
     }
 }
 
@@ -437,12 +701,14 @@ impl Conn {
         match self {
             Conn::Stdio(s) => s.alive.load(Ordering::SeqCst),
             Conn::Http(_) => true,
+            Conn::AdvancedHttp(h) => h.alive(),
         }
     }
     fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
         match self {
             Conn::Stdio(s) => s.request(method, params, timeout),
             Conn::Http(h) => h.request(method, params),
+            Conn::AdvancedHttp(h) => h.request(method, params, &CallOptions::default()),
         }
     }
     fn notify(&self, method: &str) -> Result<()> {
@@ -450,6 +716,39 @@ impl Conn {
         match self {
             Conn::Stdio(s) => s.send(&msg),
             Conn::Http(h) => h.post(&msg, true).map(|_| ()),
+            Conn::AdvancedHttp(h) => h.notify(method),
+        }
+    }
+    fn request_with_options(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        options: &CallOptions,
+    ) -> Result<Value> {
+        match self {
+            Conn::Stdio(s) => s.request_with_options(method, params, timeout, options),
+            Conn::AdvancedHttp(h) => h.request(method, params, options),
+            Conn::Http(_) => Err(McpError::Config(
+                "per-call HTTP options require connect_with_extensions".into(),
+            )),
+        }
+    }
+    fn notify_with_options(
+        &self,
+        method: &str,
+        timeout: Duration,
+        options: &CallOptions,
+    ) -> Result<()> {
+        match self {
+            Conn::Stdio(s) => match &options.cancellation {
+                Some(token) => {
+                    s.send_cancellable(json!({"jsonrpc":"2.0","method":method}), token, timeout)
+                }
+                None => s.send(&json!({"jsonrpc":"2.0","method":method})),
+            },
+            Conn::AdvancedHttp(h) => h.notify_with_options(method, options),
+            Conn::Http(_) => self.notify(method),
         }
     }
 }
@@ -460,6 +759,7 @@ pub struct McpClient {
     opts: ClientOptions,
     conn: Mutex<Option<Arc<Conn>>>,
     version: Mutex<String>,
+    extensions: Option<ClientExtensions>,
 }
 
 impl McpClient {
@@ -471,9 +771,81 @@ impl McpClient {
             opts,
             conn: Mutex::new(None),
             version: Mutex::new(String::new()),
+            extensions: None,
         };
         c.ensure()?;
         Ok(c)
+    }
+
+    /// Opt into cancellable HTTP/SSE, custom launch, callbacks, versions & limits.
+    /// Existing ClientOptions/ServerSpec literals remain valid.
+    pub fn connect_with_extensions(
+        server_name: &str,
+        spec: ServerSpec,
+        opts: ClientOptions,
+        extensions: ClientExtensions,
+    ) -> Result<McpClient> {
+        if extensions
+            .protocol_versions
+            .as_ref()
+            .is_some_and(|versions| versions.is_empty() || versions.iter().any(String::is_empty))
+        {
+            return Err(McpError::Config(
+                "supported protocol versions must be nonempty".into(),
+            ));
+        }
+        let client = McpClient {
+            name: server_name.into(),
+            spec,
+            opts,
+            extensions: Some(extensions),
+            conn: Mutex::new(None),
+            version: Mutex::new(String::new()),
+        };
+        client.ensure()?;
+        Ok(client)
+    }
+
+    /// Current HTTP protocol session or stdio connection's local routing session.
+    pub fn session_id(&self) -> Result<Option<String>> {
+        let connection = self.ensure()?;
+        Ok(match connection.as_ref() {
+            Conn::Stdio(s) => Some(s.life.session_id.clone()),
+            Conn::Http(h) => lock(&h.session).clone(),
+            Conn::AdvancedHttp(h) => h.session_id(),
+        })
+    }
+
+    pub fn set_elicitation_handler(
+        &self,
+        session_id: &str,
+        handler: ElicitationHandler,
+    ) -> Result<()> {
+        let connection = self.ensure()?;
+        match connection.as_ref() {
+            Conn::Stdio(s) => {
+                lock(&s.handlers).insert(session_id.into(), handler);
+            }
+            Conn::AdvancedHttp(h) => h.set_elicitation_handler(session_id, handler),
+            Conn::Http(_) => {
+                return Err(McpError::Config(
+                    "HTTP elicitation requires connect_with_extensions".into(),
+                ))
+            }
+        }
+        Ok(())
+    }
+
+    pub fn clear_elicitation_handler(&self, session_id: &str) -> Result<()> {
+        let connection = self.ensure()?;
+        match connection.as_ref() {
+            Conn::Stdio(s) => {
+                lock(&s.handlers).remove(session_id);
+            }
+            Conn::AdvancedHttp(h) => h.clear_elicitation_handler(session_id),
+            Conn::Http(_) => {}
+        }
+        Ok(())
     }
 
     pub fn server_name(&self) -> &str {
@@ -485,32 +857,80 @@ impl McpClient {
     }
 
     fn open(&self) -> Result<Arc<Conn>> {
+        self.open_with_cancellation(None)
+    }
+
+    fn open_with_cancellation(&self, cancellation: Option<CancellationToken>) -> Result<Arc<Conn>> {
         let conn = match &self.spec {
             ServerSpec::Stdio { .. } => Conn::Stdio(StdioConn::spawn(
                 &self.name,
                 &self.spec,
                 &self.opts.on_event,
+                self.extensions.as_ref(),
             )?),
+            ServerSpec::Http { url } if self.extensions.is_some() => {
+                Conn::AdvancedHttp(AdvancedHttp::new(
+                    &self.name,
+                    url,
+                    &self.opts,
+                    self.extensions.as_ref().unwrap(),
+                )?)
+            }
             ServerSpec::Http { url } => Conn::Http(HttpConn::new(&self.name, url, &self.opts)),
         };
-        let init = conn.request(
-            "initialize",
-            json!({
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {"name": self.opts.client_name, "version": self.opts.client_version},
-            }),
-            self.opts.request_timeout,
-        )?;
+        let configured = self
+            .extensions
+            .as_ref()
+            .and_then(|e| e.protocol_versions.as_ref());
+        let preferred = configured
+            .and_then(|versions| versions.iter().max())
+            .map(String::as_str)
+            .unwrap_or(PROTOCOL_VERSION);
+        let mut params = json!({
+            "protocolVersion": preferred,
+            "capabilities": {},
+            "clientInfo": {"name": self.opts.client_name, "version": self.opts.client_version},
+        });
+        if let Some(versions) = configured {
+            params["supportedProtocolVersions"] = json!(versions);
+        }
+        if self
+            .extensions
+            .as_ref()
+            .is_some_and(|e| e.elicitation.is_some())
+        {
+            params["capabilities"]["elicitation"] = json!({"form":{},"url":{}});
+        }
+        let init_options = CallOptions {
+            cancellation,
+            ..Default::default()
+        };
+        let init = if init_options.cancellation.is_some() {
+            conn.request_with_options(
+                "initialize",
+                params,
+                self.opts.request_timeout,
+                &init_options,
+            )?
+        } else {
+            conn.request("initialize", params, self.opts.request_timeout)?
+        };
         let v = init
             .get("protocolVersion")
             .and_then(Value::as_str)
-            .unwrap_or(PROTOCOL_VERSION)
+            .unwrap_or(preferred)
             .to_string();
-        if !SUPPORTED_VERSIONS.contains(&v.as_str()) {
+        if !configured
+            .map(|versions| versions.contains(&v))
+            .unwrap_or_else(|| SUPPORTED_VERSIONS.contains(&v.as_str()))
+        {
             return Err(McpError::Protocol(format!(
                 "unsupported protocolVersion {v}"
             )));
+        }
+        if let Conn::AdvancedHttp(h) = &conn {
+            h.set_version(v.clone());
+            h.mark_started();
         }
         if let Conn::Http(h) = &conn {
             *lock(&h.version) = Some(v.clone());
@@ -518,7 +938,15 @@ impl McpClient {
             h.life
                 .emit(LifecycleKind::Start, "initialized http session", None);
         }
-        conn.notify("notifications/initialized")?;
+        if init_options.cancellation.is_some() {
+            conn.notify_with_options(
+                "notifications/initialized",
+                self.opts.request_timeout,
+                &init_options,
+            )?;
+        } else {
+            conn.notify("notifications/initialized")?;
+        }
         *lock(&self.version) = v;
         Ok(Arc::new(conn))
     }
@@ -536,6 +964,28 @@ impl McpClient {
         Ok(c)
     }
 
+    fn ensure_cancellable(&self, cancellation: &CancellationToken) -> Result<Arc<Conn>> {
+        let mut state = loop {
+            if cancellation.is_cancelled() {
+                return Err(McpError::Cancelled);
+            }
+            match self.conn.try_lock() {
+                Ok(guard) => break guard,
+                Err(std::sync::TryLockError::Poisoned(error)) => break error.into_inner(),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(Duration::from_millis(10))
+                }
+            }
+        };
+        if let Some(connection) = state.as_ref().filter(|connection| connection.alive()) {
+            return Ok(connection.clone());
+        }
+        *state = None;
+        let connection = self.open_with_cancellation(Some(cancellation.clone()))?;
+        *state = Some(connection.clone());
+        Ok(connection)
+    }
+
     fn request(&self, method: &str, params: Value) -> Result<Value> {
         let c = self.ensure()?;
         match c.request(method, params.clone(), self.opts.request_timeout) {
@@ -546,6 +996,38 @@ impl McpClient {
             }
             other => other,
         }
+    }
+
+    /// One raw JSON-RPC call with isolated headers/session & cancellation.
+    /// HTTP advanced I/O is selected through connect_with_extensions.
+    pub fn request_with_options(
+        &self,
+        method: &str,
+        params: Value,
+        options: &CallOptions,
+    ) -> Result<Value> {
+        if options
+            .cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            return Err(McpError::Cancelled);
+        }
+        let connection = match &options.cancellation {
+            Some(token) => self.ensure_cancellable(token)?,
+            None => self.ensure()?,
+        };
+        connection.request_with_options(method, params, self.opts.request_timeout, options)
+    }
+
+    pub fn call_tool_with_options(
+        &self,
+        name: &str,
+        args: Value,
+        options: &CallOptions,
+    ) -> Result<ToolResult> {
+        self.request_with_options("tools/call", json!({"name":name,"arguments":args}), options)
+            .map(|result| ToolResult::from_value(&result))
     }
 
     fn paged<T: serde::de::DeserializeOwned>(&self, method: &str, key: &str) -> Result<Vec<T>> {
