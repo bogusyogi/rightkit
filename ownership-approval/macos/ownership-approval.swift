@@ -14,7 +14,7 @@ private let keychainAccount = "approval-key"
 private let publicKeychainService = "com.orthiclabs.rightkit.ownership.public"
 private let publicKeychainAccount = "approval-public-key"
 private let ownershipBundleIdentifier = "com.orthiclabs.rightkit.ownership-approval"
-private let ownershipKeychainGroup = "6KLGD3LLKF.com.orthiclabs.rightkit.ownership-approval"
+private let ownershipTeamIdentifier = "6KLGD3LLKF"
 private let payloadKeys = [
   "repositoryIdentity", "catalogDigest", "fingerprint", "paths",
   "occurrenceHashes", "reason", "owner", "expires", "requestId", "trackingRef"
@@ -387,6 +387,83 @@ private func accessControl(privateKey: Bool) throws -> SecAccessControl {
   return control
 }
 
+// Storage ACL trusts only this currently running, correctly signed helper.
+private func signedHelperAccess() throws -> SecAccess {
+  var trusted: SecTrustedApplication?
+  guard SecTrustedApplicationCreateFromPath(nil, &trusted) == errSecSuccess, let trusted else {
+    throw ApprovalError.keychainPreflight("could not identify current signed helper for Keychain ACL")
+  }
+  var access: SecAccess?
+  let status = SecAccessCreate("RightKit ownership approval helper" as CFString, [trusted] as CFArray, &access)
+  guard status == errSecSuccess, let access else { throw ApprovalError.keychain(status) }
+  return access
+}
+
+private func requireSignedHelperIdentity() throws {
+  guard Bundle.main.bundleIdentifier == ownershipBundleIdentifier else {
+    throw ApprovalError.keychainPreflight("expected app bundle identifier \(ownershipBundleIdentifier)")
+  }
+  var code: SecStaticCode?
+  let path = Bundle.main.bundleURL as CFURL
+  guard SecStaticCodeCreateWithPath(path, SecCSFlags(), &code) == errSecSuccess, let code else {
+    throw ApprovalError.keychainPreflight("could not inspect signed helper code")
+  }
+  let requirementText = "anchor apple generic and identifier \"\(ownershipBundleIdentifier)\" and certificate leaf[subject.OU] = \"\(ownershipTeamIdentifier)\" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
+  var requirement: SecRequirement?
+  guard SecRequirementCreateWithString(requirementText as CFString, SecCSFlags(), &requirement) == errSecSuccess,
+        let requirement,
+        SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), requirement) == errSecSuccess else {
+    throw ApprovalError.keychainPreflight("helper signature must be valid Developer ID Team ID \(ownershipTeamIdentifier) with the expected designated identifier")
+  }
+}
+
+private func defaultUserKeychain() throws -> SecKeychain {
+  var keychain: SecKeychain?
+  let copied = SecKeychainCopyDefault(&keychain)
+  guard copied == errSecSuccess, let keychain else {
+    throw ApprovalError.keychainPreflight("default user Keychain is unavailable (OSStatus \(copied))")
+  }
+  var pathLength = UInt32(PATH_MAX)
+  var pathBytes = [Int8](repeating: 0, count: Int(pathLength))
+  let pathStatus = SecKeychainGetPath(keychain, &pathLength, &pathBytes)
+  guard pathStatus == errSecSuccess else { throw ApprovalError.keychainPreflight("cannot inspect default user Keychain (OSStatus \(pathStatus))") }
+  let path = String(cString: pathBytes)
+  guard path != "/Library/Keychains/System.keychain" else {
+    throw ApprovalError.keychainPreflight("default Keychain resolves to system Keychain; a user Keychain is required")
+  }
+  var state = SecKeychainStatus()
+  let status = SecKeychainGetStatus(keychain, &state)
+  guard status == errSecSuccess else { throw ApprovalError.keychainPreflight("default user Keychain unavailable (OSStatus \(status))") }
+  guard state & UInt32(kSecUnlockStateStatus) != 0 else { throw ApprovalError.keychainPreflight("default user Keychain is locked; unlock it in Keychain Access") }
+  return keychain
+}
+
+private func withKeychainInteractionDisabled<T>(_ operation: () throws -> T) throws -> T {
+  var previous = DarwinBoolean(false)
+  let readStatus = SecKeychainGetUserInteractionAllowed(&previous)
+  guard readStatus == errSecSuccess else { throw ApprovalError.keychainPreflight("cannot read Keychain interaction state (OSStatus \(readStatus))") }
+  _ = SecKeychainSetUserInteractionAllowed(false)
+  var current = DarwinBoolean(true)
+  let verifyStatus = SecKeychainGetUserInteractionAllowed(&current)
+  guard verifyStatus == errSecSuccess, !current.boolValue else {
+    _ = SecKeychainSetUserInteractionAllowed(previous.boolValue)
+    var restored = DarwinBoolean(!previous.boolValue)
+    let restoreStatus = SecKeychainGetUserInteractionAllowed(&restored)
+    guard restoreStatus == errSecSuccess, restored.boolValue == previous.boolValue else {
+      throw ApprovalError.keychainPreflight("could not restore Keychain interaction after disable failure (OSStatus \(restoreStatus))")
+    }
+    throw ApprovalError.keychainPreflight("could not disable Keychain interaction (OSStatus \(verifyStatus))")
+  }
+  let outcome = Result { try operation() }
+  _ = SecKeychainSetUserInteractionAllowed(previous.boolValue)
+  var restored = DarwinBoolean(!previous.boolValue)
+  let restoreStatus = SecKeychainGetUserInteractionAllowed(&restored)
+  guard restoreStatus == errSecSuccess, restored.boolValue == previous.boolValue else {
+    throw ApprovalError.keychainPreflight("could not restore Keychain interaction state (OSStatus \(restoreStatus))")
+  }
+  return try outcome.get()
+}
+
 private func authContext(reason: String) -> LAContext {
   let context = LAContext()
   context.localizedReason = reason
@@ -402,53 +479,148 @@ private func publicPEM(_ key: P256.Signing.PublicKey) -> String {
   "-----BEGIN PUBLIC KEY-----\n\(key.derRepresentation.base64EncodedString(options: Data.Base64EncodingOptions.lineLength64Characters))\n-----END PUBLIC KEY-----\n"
 }
 
-private func keychainQuery(returnData: Bool = false, context: LAContext? = nil) -> [String: Any] {
+private func keychainQuery(returnData: Bool = false) throws -> [String: Any] {
   var query: [String: Any] = [
     kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: keychainService,
     kSecAttrAccount as String: keychainAccount,
     kSecMatchLimit as String: kSecMatchLimitOne,
-    kSecUseDataProtectionKeychain as String: true
+    kSecMatchSearchList as String: [try defaultUserKeychain()]
   ]
-  if let group = ownershipKeychainAccessGroup() { query[kSecAttrAccessGroup as String] = group }
   if returnData { query[kSecReturnData as String] = true }
-  if let context {
-    query[kSecUseAuthenticationContext as String] = context
-  }
   return query
 }
 
-private func ownershipKeychainAccessGroup() -> String? {
-  guard Bundle.main.bundleIdentifier == ownershipBundleIdentifier else { return nil }
-  return ownershipKeychainGroup
-}
-
 // This query checks signing access without prompting or performing authentication.
-private func keychainPreflight() throws {
-  guard let group = ownershipKeychainAccessGroup() else {
-    throw ApprovalError.keychainPreflight("expected app-like bundle identifier \(ownershipBundleIdentifier)")
-  }
-  let context = LAContext()
-  context.interactionNotAllowed = true
+private func keychainPreflight(printPass: Bool = true) throws {
+  try requireSignedHelperIdentity()
+  let keychain = try defaultUserKeychain()
   let query: [String: Any] = [
     kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: keychainService,
     kSecAttrAccount as String: keychainAccount,
-    kSecAttrAccessGroup as String: group,
     kSecMatchLimit as String: kSecMatchLimitOne,
     kSecReturnData as String: true,
-    kSecUseDataProtectionKeychain as String: true,
-    kSecUseAuthenticationContext as String: context
+    kSecMatchSearchList as String: [keychain]
   ]
   var result: CFTypeRef?
-  let status = SecItemCopyMatching(query as CFDictionary, &result)
+  let status = try withKeychainInteractionDisabled { SecItemCopyMatching(query as CFDictionary, &result) }
   switch status {
-  case errSecSuccess, errSecItemNotFound, errSecInteractionNotAllowed:
-    print("Keychain preflight: PASS (data-protection group \(group) is available; no authentication performed).")
-  case errSecMissingEntitlement:
-    throw ApprovalError.keychainPreflight("signed helper lacks data-protection access to \(group); verify its embedded Developer ID profile authorizes this app ID, signing certificate and keychain access group")
+  case errSecSuccess, errSecItemNotFound:
+    if printPass { print("Keychain preflight: PASS (signed helper ACL + unlocked default user Keychain; no authentication performed).") }
   default:
     throw ApprovalError.keychainPreflight("SecItemCopyMatching returned OSStatus \(status)")
+  }
+}
+
+private func runStorageProbe(_ executable: String, arguments: [String]) throws -> (Int32, String) {
+  let process = Process()
+  process.executableURL = URL(fileURLWithPath: executable)
+  process.arguments = arguments
+  let output = Pipe()
+  process.standardOutput = output
+  process.standardError = output
+  let finished = DispatchSemaphore(value: 0)
+  process.terminationHandler = { _ in finished.signal() }
+  try process.run()
+  if finished.wait(timeout: .now() + 10) != .success {
+    process.terminate()
+    _ = finished.wait(timeout: .now() + 2)
+    throw ApprovalError.keychainPreflight("Keychain ACL child probe exceeded 10-second limit")
+  }
+  return (process.terminationStatus, String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+}
+
+private func keychainStorageReadProbe(keychainPath: String, service: String, account: String) throws {
+  try requireSignedHelperIdentity()
+  guard service.range(of: "^com\\.orthiclabs\\.rightkit\\.ownership\\.storage-probe\\.[0-9A-Fa-f-]{36}$", options: .regularExpression) != nil,
+        account.range(of: "^[0-9A-Fa-f-]{36}$", options: .regularExpression) != nil else {
+    throw ApprovalError.keychainPreflight("storage read probe accepts only UUID sentinel coordinates")
+  }
+  var keychain: SecKeychain?
+  let opened = SecKeychainOpen(keychainPath, &keychain)
+  guard opened == errSecSuccess, let keychain else { throw ApprovalError.keychain(opened) }
+  let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: service, kSecAttrAccount as String: account,
+    kSecMatchLimit as String: kSecMatchLimitOne, kSecReturnData as String: true,
+    kSecMatchSearchList as String: [keychain]]
+  var result: CFTypeRef?
+  let status = try withKeychainInteractionDisabled { SecItemCopyMatching(query as CFDictionary, &result) }
+  guard status == errSecSuccess, result is Data else { throw ApprovalError.keychain(status) }
+  print("READ_ALLOWED")
+}
+
+private func keychainStorageSelfTest(impostorPath: String, successorPath: String? = nil) throws {
+  try keychainPreflight(printPass: false)
+  let keychain = try defaultUserKeychain()
+  var pathLength = UInt32(PATH_MAX)
+  var pathBytes = [Int8](repeating: 0, count: Int(pathLength))
+  let pathStatus = SecKeychainGetPath(keychain, &pathLength, &pathBytes)
+  guard pathStatus == errSecSuccess else { throw ApprovalError.keychainPreflight("cannot identify default user Keychain for ACL probe") }
+  let service = "com.orthiclabs.rightkit.ownership.storage-probe.\(UUID().uuidString)"
+  let account = UUID().uuidString
+  let sentinel = Data(UUID().uuidString.utf8)
+  let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+    kSecAttrService as String: service, kSecAttrAccount as String: account,
+    kSecMatchSearchList as String: [keychain]]
+  var sentinelAdded = false
+  var sentinelRemoved = false
+  defer {
+    if sentinelAdded && !sentinelRemoved {
+      _ = try? withKeychainInteractionDisabled { SecItemDelete(base as CFDictionary) }
+    }
+  }
+  var add = base
+  add[kSecUseKeychain as String] = keychain
+  add[kSecAttrAccess as String] = try signedHelperAccess()
+  add[kSecValueData as String] = sentinel
+  let added = try withKeychainInteractionDisabled { SecItemAdd(add as CFDictionary, nil) }
+  guard added == errSecSuccess else { throw ApprovalError.keychain(added) }
+  sentinelAdded = true
+
+  var read = base
+  read[kSecMatchLimit as String] = kSecMatchLimitOne
+  read[kSecReturnData as String] = true
+  var ownResult: CFTypeRef?
+  let ownReadStatus = try withKeychainInteractionDisabled { SecItemCopyMatching(read as CFDictionary, &ownResult) }
+  guard ownReadStatus == errSecSuccess, (ownResult as? Data) == sentinel else {
+    throw ApprovalError.keychain(ownReadStatus)
+  }
+
+  let childArguments = [String(cString: pathBytes), service, account]
+  let (impostorStatus, foreignOutput) = try runStorageProbe(impostorPath, arguments: childArguments)
+  let sentinelText = String(decoding: sentinel, as: UTF8.self)
+  let acceptedDenials = [errSecInteractionNotAllowed, errSecAuthFailed].map { "DENIED:\($0)" }
+  let safeForeignOutput = String(foreignOutput.replacingOccurrences(of: sentinelText, with: "[sentinel]").prefix(500))
+  guard impostorStatus != 0, !foreignOutput.contains(sentinelText), !foreignOutput.contains("UNEXPECTED_READ") else {
+    throw ApprovalError.keychainPreflight("unrelated executable unexpectedly read signed-helper ACL sentinel (exit \(impostorStatus), output: \(safeForeignOutput))")
+  }
+  let trimmedForeignOutput = foreignOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard let recognizedDenial = acceptedDenials.first(where: { trimmedForeignOutput == "KEYCHAIN_UNLOCKED\n\($0)" }) else {
+    throw ApprovalError.keychainPreflight("unrelated executable denial needs classification (exit \(impostorStatus), expected \(acceptedDenials.joined(separator: " or ")), output: \(safeForeignOutput))")
+  }
+  var successorStatus: Int32?
+  if let successorPath {
+    let (status, output) = try runStorageProbe(successorPath,
+      arguments: ["--keychain-storage-read-probe"] + childArguments)
+    guard status == 0, output.trimmingCharacters(in: .whitespacesAndNewlines) == "READ_ALLOWED" else {
+      throw ApprovalError.keychainPreflight("same-identity updated helper did not read sentinel without interaction")
+    }
+    successorStatus = status
+  }
+
+  let deleted = try withKeychainInteractionDisabled { SecItemDelete(base as CFDictionary) }
+  guard deleted == errSecSuccess else { throw ApprovalError.keychain(deleted) }
+  sentinelRemoved = true
+  var afterDelete: CFTypeRef?
+  let verifyDelete = try withKeychainInteractionDisabled { SecItemCopyMatching(read as CFDictionary, &afterDelete) }
+  guard verifyDelete == errSecItemNotFound else {
+    throw ApprovalError.keychainPreflight("UUID sentinel remained after cleanup (OSStatus \(verifyDelete))")
+  }
+  if let successorStatus {
+    print("Keychain storage self-test: PASS (helper read; unrelated helper exited \(impostorStatus) with \(recognizedDenial); updated same-identity helper exited \(successorStatus) with READ_ALLOWED; UUID sentinel deleted and verified absent).")
+  } else {
+    print("Keychain storage self-test: PASS (helper read; unrelated helper exited \(impostorStatus) with \(recognizedDenial); UUID sentinel deleted and verified absent).")
   }
 }
 
@@ -460,26 +632,20 @@ private func publicKeyExport(_ key: P256.Signing.PublicKey) throws -> Data {
 private func persistPublicKey(_ key: P256.Signing.PublicKey) throws {
   var item: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: publicKeychainService, kSecAttrAccount as String: publicKeychainAccount,
-    kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-    kSecUseDataProtectionKeychain as String: true,
+    kSecAttrAccess as String: try signedHelperAccess(),
+    kSecUseKeychain as String: try defaultUserKeychain(),
     kSecValueData as String: try publicKeyExport(key)]
-  if let group = ownershipKeychainAccessGroup() { item[kSecAttrAccessGroup as String] = group }
-  let result = SecItemAdd(item as CFDictionary, nil)
+  let result = try withKeychainInteractionDisabled { SecItemAdd(item as CFDictionary, nil) }
   guard result == errSecSuccess else { throw ApprovalError.keychain(result) }
 }
 
 private func loadExistingPublicKey() throws -> (Data, P256.Signing.PublicKey) {
-  let context = LAContext()
-  context.interactionNotAllowed = true
   var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
     kSecAttrService as String: publicKeychainService, kSecAttrAccount as String: publicKeychainAccount,
     kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
-    kSecUseAuthenticationContext as String: context,
-    kSecUseDataProtectionKeychain as String: true]
-  if let group = ownershipKeychainAccessGroup() { query[kSecAttrAccessGroup as String] = group }
-  query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    kSecMatchSearchList as String: [try defaultUserKeychain()]]
   var result: CFTypeRef?
-  let status = SecItemCopyMatching(query as CFDictionary, &result)
+  let status = try withKeychainInteractionDisabled { SecItemCopyMatching(query as CFDictionary, &result) }
   guard status == errSecSuccess, let bytes = result as? Data else {
     if status == errSecItemNotFound { throw ApprovalError.notEnrolled }
     throw ApprovalError.keychain(status)
@@ -634,7 +800,7 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
     let expectedSigner = hex(SHA256.hash(data: publicKey.derRepresentation))
     guard payload["signerKeyId"] as? String == expectedSigner else { throw ApprovalError.invalidKeyLog("signer does not match the enrolled Mac key") }
     var result: CFTypeRef?
-    let code = SecItemCopyMatching(keychainQuery(returnData: true, context: context) as CFDictionary, &result)
+    let code = try withKeychainInteractionDisabled { SecItemCopyMatching(try keychainQuery(returnData: true) as CFDictionary, &result) }
     guard code == errSecSuccess, let data = result as? Data else {
       if code == errSecItemNotFound { throw ApprovalError.notEnrolled }; throw ApprovalError.keychain(code)
     }
@@ -659,9 +825,8 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
       let payload: [String: Any] = ["domain": "rightkit.ownership-key-log.v1", "rootFingerprint": signer, "sequence": 0, "previousHash": NSNull(), "operation": "root", "subject": record, "signerKeyId": signer]
       // The genesis signature is the sole authenticated operation for this new key.
       let signed = try signedKeyLog(payload, with: key)
-      var add: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: keychainService, kSecAttrAccount as String: keychainAccount, kSecValueData as String: key.dataRepresentation, kSecAttrAccessControl as String: try accessControl(privateKey: false), kSecUseDataProtectionKeychain as String: true]
-      if let group = ownershipKeychainAccessGroup() { add[kSecAttrAccessGroup as String] = group }
-      let added = SecItemAdd(add as CFDictionary, nil)
+      var add: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: keychainService, kSecAttrAccount as String: keychainAccount, kSecValueData as String: key.dataRepresentation, kSecAttrAccess as String: try signedHelperAccess(), kSecUseKeychain as String: try defaultUserKeychain()]
+      let added = try withKeychainInteractionDisabled { SecItemAdd(add as CFDictionary, nil) }
       if added == errSecDuplicateItem { throw ApprovalError.alreadyEnrolled }
       guard added == errSecSuccess else { throw ApprovalError.keychain(added) }
       try persistPublicKey(key.publicKey)
@@ -684,11 +849,10 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
         kSecAttrService as String: keychainService,
         kSecAttrAccount as String: keychainAccount,
         kSecValueData as String: privateKey.dataRepresentation,
-        kSecAttrAccessControl as String: try accessControl(privateKey: false),
-        kSecUseDataProtectionKeychain as String: true
+        kSecAttrAccess as String: try signedHelperAccess(),
+        kSecUseKeychain as String: try defaultUserKeychain()
       ]
-      if let group = ownershipKeychainAccessGroup() { add[kSecAttrAccessGroup as String] = group }
-      let result = SecItemAdd(add as CFDictionary, nil)
+      let result = try withKeychainInteractionDisabled { SecItemAdd(add as CFDictionary, nil) }
       if result == errSecDuplicateItem { throw ApprovalError.alreadyEnrolled }
       guard result == errSecSuccess else { throw ApprovalError.keychain(result) }
       try persistPublicKey(privateKey.publicKey)
@@ -738,7 +902,7 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
       guard SecureEnclave.isAvailable else { throw ApprovalError.unsupported }
       let context = authContext(reason: "Sign the reviewed RightKit ownership exception")
       var result: CFTypeRef?
-      let statusCode = SecItemCopyMatching(keychainQuery(returnData: true, context: context) as CFDictionary, &result)
+      let statusCode = try withKeychainInteractionDisabled { SecItemCopyMatching(try keychainQuery(returnData: true) as CFDictionary, &result) }
       guard statusCode == errSecSuccess, let protectedData = result as? Data else {
         if statusCode == errSecItemNotFound { throw ApprovalError.notEnrolled }
         throw ApprovalError.keychain(statusCode)
@@ -799,6 +963,16 @@ private struct OwnershipApproval {
       }
       return
     }
+    if arguments.count == 5, arguments[1] == "--keychain-storage-read-probe" {
+      do { try keychainStorageReadProbe(keychainPath: arguments[2], service: arguments[3], account: arguments[4]) }
+      catch { fputs("RightKit ownership Keychain read probe: \(error.localizedDescription)\n", stderr); exit(1) }
+      return
+    }
+    if (arguments.count == 3 || arguments.count == 4), arguments[1] == "--keychain-storage-self-test" {
+      do { try keychainStorageSelfTest(impostorPath: arguments[2], successorPath: arguments.count == 4 ? arguments[3] : nil) }
+      catch { fputs("RightKit ownership Keychain storage self-test: \(error.localizedDescription)\n", stderr); exit(1) }
+      return
+    }
     let mode: String
     let draft: URL?
     var output: URL?
@@ -821,7 +995,7 @@ private struct OwnershipApproval {
       mode = "--key-operation"; draft = URL(fileURLWithPath: arguments[2]).standardizedFileURL; output = URL(fileURLWithPath: arguments[4])
     } else if arguments.count == 3, arguments[1] == "--review" { mode = "--review"; draft = URL(fileURLWithPath: arguments[2]).standardizedFileURL }
     else {
-      fputs("Usage: ownership-approval --enroll [--out <absolute-public.json>] | --public-key --out <absolute-public.json> | --enroll-root --name <name> --out <absolute-event.json> | --key-operation <draft.json> --out <signed.json> | --review <unsigned-record.json> | --keychain-preflight | --crypto-self-test | --key-log-self-test\n", stderr)
+      fputs("Usage: ownership-approval --enroll [--out <absolute-public.json>] | --public-key --out <absolute-public.json> | --enroll-root --name <name> --out <absolute-event.json> | --key-operation <draft.json> --out <signed.json> | --review <unsigned-record.json> | --keychain-preflight | --keychain-storage-self-test <impostor-executable> [updated-helper] | --keychain-storage-read-probe <keychain> <service> <account> | --crypto-self-test | --key-log-self-test\n", stderr)
       exit(2)
     }
     if let output, !output.path.hasPrefix("/") { fputs("Output path must be absolute.\n", stderr); exit(2) }

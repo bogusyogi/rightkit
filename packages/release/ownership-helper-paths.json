@@ -5,7 +5,7 @@
     "sha256": "8d12e39ee6bac3bf8332df8dc61c74637e2eda6becbcc39746fe1ed5a1fe7ef6"
   },
   "macos": {
-    "path": "/Users/adrdsouza/.rightkit-managed/ownership-approval/macos/content-54224936edb74c9044dbaaa38a0773ee77acec21826237572b9b7c67a87b8ccc/ownership-approval",
-    "sha256": "54224936edb74c9044dbaaa38a0773ee77acec21826237572b9b7c67a87b8ccc"
+    "path": "/Users/adrdsouza/.rightkit-managed/ownership-approval/macos/content-2c30864bdb666a1ca1e4388ea7a3bc83cb985196d666b96cc30e1da7cd5b0e6b/RightKitOwnershipApproval.app/Contents/MacOS/ownership-approval",
+    "sha256": "2c30864bdb666a1ca1e4388ea7a3bc83cb985196d666b96cc30e1da7cd5b0e6b"
   }
 }
