@@ -75,6 +75,15 @@ pub fn arbitrate(
         Ok(s) => s,
         Err(e) => return Arbitration::Unavailable(e.to_string()),
     };
+    arbitrate_in_suite(&suite, app_id, version, on_second)
+}
+
+fn arbitrate_in_suite(
+    suite: &Suite,
+    app_id: &str,
+    version: &str,
+    on_second: Arc<dyn Fn(SecondInstance) + Send + Sync>,
+) -> Arbitration {
     let service = service_name(app_id);
     let cfg = ServiceConfig::new(
         &service,
@@ -83,7 +92,7 @@ pub fn arbitrate(
         version,
         Allowlist::new().allow(app_id, [METHOD]),
     );
-    match host(&suite, cfg, Arc::new(Forward { on_second })) {
+    match host(suite, cfg, Arc::new(Forward { on_second })) {
         Ok(hosted) => Arbitration::Primary(hosted),
         Err(HostError::Held(_)) => {
             let argv: Vec<String> = std::env::args().collect();
@@ -92,7 +101,7 @@ pub fn arbitrate(
                 .unwrap_or_default();
             // The incumbent may be mid-startup: retry briefly before giving up.
             for _ in 0..20 {
-                match Client::connect(&suite, &service, app_id)
+                match Client::connect(suite, &service, app_id)
                     .and_then(|c| c.call(METHOD, json!({"argv": argv, "cwd": cwd})))
                 {
                     Ok(_) => return Arbitration::Secondary,
@@ -102,5 +111,73 @@ pub fn arbitrate(
             Arbitration::Unavailable("live instance did not accept the forwarded launch".into())
         }
         Err(e) => Arbitration::Unavailable(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn arbitration_forwards_secondary_launch_and_releases_primary_guard() {
+        let suite = Suite::per_run_temp("shell-instance").unwrap();
+        let (tx, rx) = mpsc::channel();
+        let primary = match arbitrate_in_suite(
+            &suite,
+            "test-shell",
+            "1.0.0",
+            Arc::new(move |second| {
+                tx.send(second).unwrap();
+            }),
+        ) {
+            Arbitration::Primary(hosted) => hosted,
+            _ => panic!("first launch must host arbitration"),
+        };
+        // Arbitration checks process identity, so the secondary must be a separate process.
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "instance::tests::secondary_process",
+                "--nocapture",
+            ])
+            .env("RK_SHELL_INSTANCE_TEST_ROOT", suite.root())
+            .stdout(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(child.success());
+        let forwarded = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(forwarded
+            .argv
+            .iter()
+            .any(|arg| arg == "instance::tests::secondary_process"));
+        assert_eq!(
+            forwarded.cwd,
+            std::env::current_dir().unwrap().to_string_lossy()
+        );
+        drop(primary);
+        assert!(matches!(
+            arbitrate_in_suite(&suite, "test-shell", "1.0.0", Arc::new(|_| {})),
+            Arbitration::Primary(_)
+        ));
+    }
+
+    #[test]
+    fn secondary_process() {
+        let Some(root) = std::env::var_os("RK_SHELL_INSTANCE_TEST_ROOT") else {
+            return;
+        };
+        let suite = Suite::at(std::path::PathBuf::from(root)).unwrap();
+        assert!(matches!(
+            arbitrate_in_suite(
+                &suite,
+                "test-shell",
+                "1.0.0",
+                Arc::new(|_| panic!("secondary callback must not run"))
+            ),
+            Arbitration::Secondary
+        ));
     }
 }

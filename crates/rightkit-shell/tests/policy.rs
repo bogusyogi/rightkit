@@ -6,7 +6,46 @@ use rightkit_shell::nav::{external_scheme_allowed, origin_of, WindowOpenDecision
 use rightkit_shell::recovery::{ensure_cache_dir, CacheDirOutcome};
 use rightkit_shell::window_state::{restoreable_state, MonitorSnapshot, WindowState};
 use rightkit_shell::{b64, instance, watchdog, NavDecision, NavPolicy};
+use rightkit_shell::{HardeningScript, Shell};
+use tauri::plugin::Plugin;
 use tauri::Url;
+
+#[test]
+fn full_plugin_preserves_all_frame_default_and_supports_top_frame_or_off() {
+    let default = Shell::builder("test-shell").build().plugin();
+    let script = default.initialization_script_2().unwrap();
+    assert!(!script.for_main_frame_only);
+    assert!(script.script.contains("root.__rkShell"));
+    assert!(!script.script.contains("window.top !== window.self"));
+
+    let top = Shell::builder("test-shell")
+        .hardening_script(HardeningScript::TopFrameOnly)
+        .build()
+        .plugin();
+    let script = top.initialization_script_2().unwrap();
+    assert!(script.for_main_frame_only);
+    // WebView2 injects into child frames too: return before any DOM hardening runs.
+    assert!(script
+        .script
+        .starts_with("if (window.top !== window.self) { return; }"));
+    assert!(script.script.contains("root.__rkShell"));
+
+    let off = Shell::builder("test-shell")
+        .hardening_script(HardeningScript::Off)
+        .build()
+        .plugin();
+    assert!(off.initialization_script_2().is_none());
+}
+
+#[test]
+fn single_instance_plugin_has_no_hardening_script_even_with_full_shell_defaults() {
+    let plugin = Shell::builder("test-single-instance")
+        .build()
+        .single_instance_plugin(|_app, _argv, _cwd| {});
+    assert_eq!(plugin.name(), "rightkit-single-instance");
+    assert!(plugin.initialization_script_2().is_none());
+    assert!(plugin.initialization_script().is_none());
+}
 
 fn url(s: &str) -> Url {
     Url::parse(s).unwrap()

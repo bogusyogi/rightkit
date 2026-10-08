@@ -62,7 +62,7 @@ use tauri::{AppHandle, Manager, Wry};
 
 pub use broker::PathBroker;
 pub use error::ShellError;
-pub use harden::{Devtools, Hardening};
+pub use harden::{Devtools, Hardening, HardeningScript};
 pub use menu::{MenuEntry, MenuGroup, MenuSpec};
 pub use nav::{NavDecision, NavPolicy};
 pub use opener::{ExternalOpener, SystemOpener};
@@ -132,6 +132,7 @@ pub struct ShellBuilder {
     app_name: String,
     main_label: String,
     hardening: Hardening,
+    hardening_script: HardeningScript,
     nav: NavPolicy,
     opener: Arc<dyn ExternalOpener>,
     single_instance: bool,
@@ -168,6 +169,7 @@ impl Shell {
             app_name: app_id.to_owned(),
             main_label: "main".into(),
             hardening: Hardening::default(),
+            hardening_script: HardeningScript::default(),
             nav: NavPolicy::default(),
             opener: Arc::new(SystemOpener),
             single_instance: true,
@@ -204,6 +206,12 @@ impl ShellBuilder {
     }
     pub fn hardening(mut self, h: Hardening) -> Self {
         self.hardening = h;
+        self
+    }
+    /// Select DOM script injection scope for the full plugin (default: all frames).
+    /// Native hardening & navigation policy still apply when the script is off.
+    pub fn hardening_script(mut self, scope: HardeningScript) -> Self {
+        self.hardening_script = scope;
         self
     }
     pub fn nav_policy(mut self, p: NavPolicy) -> Self {
@@ -325,6 +333,48 @@ impl ShellBuilder {
 }
 
 impl Shell {
+    /// Install single-instance arbitration only. Add this plugin FIRST.
+    /// Only the builder's app_id is used; arbitration is always enabled.
+    /// The callback receives forwarded argv & cwd and owns all second-launch behavior.
+    /// No script, navigation policy, window state, presence loop or ShellState is installed.
+    /// Keep using the app's own invoke handler; `handler!` requires the full shell.
+    pub fn single_instance_plugin(
+        self,
+        on_second_instance: impl Fn(&AppHandle<Wry>, &[String], &str) + Send + Sync + 'static,
+    ) -> TauriPlugin<Wry> {
+        let app_id = self.cfg.app_id;
+        PluginBuilder::<Wry>::new("rightkit-single-instance")
+            .setup(move |app, _api| {
+                let handle = app.clone();
+                let version = app.package_info().version.to_string();
+                let arbitration = instance::arbitrate(
+                    &app_id,
+                    &version,
+                    Arc::new(move |second| {
+                        on_second_instance(&handle, &second.argv, &second.cwd);
+                    }),
+                );
+                match arbitration {
+                    instance::Arbitration::Primary(hosted) => {
+                        app.manage(SingleInstanceGuard(Mutex::new(Some(hosted))));
+                    }
+                    instance::Arbitration::Secondary => std::process::exit(0),
+                    instance::Arbitration::Unavailable(why) => {
+                        eprintln!("rightkit-shell: single-instance unavailable: {why}");
+                    }
+                }
+                Ok(())
+            })
+            .on_event(|app, event| {
+                if matches!(event, tauri::RunEvent::Exit) {
+                    if let Some(guard) = app.try_state::<SingleInstanceGuard>() {
+                        guard.0.lock().unwrap_or_else(|e| e.into_inner()).take();
+                    }
+                }
+            })
+            .build()
+    }
+
     /// The single Tauri plugin that installs the whole shell. Add it FIRST so single-instance
     /// arbitration runs before any other plugin does work.
     pub fn plugin(self) -> TauriPlugin<Wry> {
@@ -332,7 +382,7 @@ impl Shell {
         let nav = Arc::new(cfg.nav.clone());
         let opener = Arc::clone(&cfg.opener);
         let hardening = cfg.hardening.clone();
-        let script = cfg.hardening.script();
+        let script_scope = cfg.hardening_script;
         let (nav_hook, opener_hook) = (Arc::clone(&nav), Arc::clone(&opener));
         let hardening_for_views = hardening.clone();
         let show_on_ready = cfg.show_on_ready;
@@ -340,7 +390,6 @@ impl Shell {
         let stream = cfg.stream.clone();
 
         let mut plugin = PluginBuilder::<Wry>::new("rightkit-shell")
-            .js_init_script_on_all_frames(script)
             .on_navigation(move |_webview, url| match nav_hook.decide(url) {
                 NavDecision::Allow => true,
                 NavDecision::External { url } => {
@@ -375,6 +424,16 @@ impl Shell {
                 let app = app.clone();
                 setup(&app, cfg, nav, opener)
             });
+        plugin = match script_scope {
+            HardeningScript::AllFrames => plugin.js_init_script_on_all_frames(hardening.script()),
+            // WebView2 injects even main-frame-only scripts into child frames. Guard the body
+            // as well as requesting native main-frame scope (WKWebView honors that scope).
+            HardeningScript::TopFrameOnly => plugin.js_init_script(format!(
+                "if (window.top !== window.self) {{ return; }}\n{}",
+                hardening.script()
+            )),
+            HardeningScript::Off => plugin,
+        };
         if let Some((scheme, policy)) = stream {
             plugin = plugin.register_asynchronous_uri_scheme_protocol(
                 scheme,
@@ -389,6 +448,8 @@ impl Shell {
         plugin.build()
     }
 }
+
+struct SingleInstanceGuard(Mutex<Option<rightkit_service::Hosted>>);
 
 fn setup(
     app: &AppHandle<Wry>,

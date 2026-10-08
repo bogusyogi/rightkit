@@ -10,6 +10,51 @@ Filesystem watching for Right Suite apps (see `API.md` in the lane folder for th
 
 Licensed MIT OR Apache-2.0.
 
+## Also (0.3.1)
+
+`DirWatchSet::with_options(cap, recursive, WatchOptions)` exposes the same policy
+as file-set streams: `max_wait: None` for trailing quiet only, `Some(duration)`
+for a forced deadline, `coalesce: false` for immediate backend hints, kind
+filters, tolerated arm failures, discard on disconnect & snapshot reconciliation.
+
+```rust
+use std::{path::Path, time::Duration};
+use rightkit_watch::{DirWatchSet, EventFilter, WatchEventKind, WatchOptions};
+
+let dirs = DirWatchSet::with_options(32, false, WatchOptions {
+    quiet: Duration::from_millis(200),
+    max_wait: None,
+    coalesce: false,
+    reconcile: false,
+    discard_on_disconnect: true,
+    filter: EventFilter::new([WatchEventKind::Create, WatchEventKind::Modify]),
+    ..WatchOptions::default()
+});
+dirs.watch_records(Path::new("."), |records| println!("{records:?}"))?;
+```
+
+`watch_records` delivers typed categories, raw backend kinds & errors/overflow
+that bypass filters. Uncoalesced records preserve duplicate hints & turn rename
+halves into Delete/Create. `watch` retains its sorted, duplicate-free
+`ChangeBatch` callback; it logs gaps instead of exposing typed diagnostics.
+Callbacks run on worker threads & must not synchronously unwatch their own set.
+
+Legacy `new`, `with_recursive` & `default` keep coalescing on, strict arming,
+all mutation kinds, `max_wait = Some(quiet * 10)`, flushing on disconnect & no
+snapshot reconciliation. Explicit options use `WatchOptions` defaults instead.
+Enabled directory reconciliation captures root/child existence, including
+descendants only in recursive mode, then rescans on batches & gaps. It does not
+follow directory symlinks or detect content changes without backend hints.
+Snapshot failures report errors without treating unreadable trees as deleted.
+Tolerated registration failures arrive as Error records without automatic retries;
+watcher creation, snapshot startup & thread failures still return `Err`.
+Unwatch, eviction, set drop & backend disconnect discard pending mutations when
+requested, otherwise flush. Callback APIs have no separate consumer disconnect.
+
+Directory tests inject events for duplicate delivery, net filtering, snapshot
+reconciliation, recursion & discard/flush; native tests cover strict/tolerated
+arming, callback delivery, idempotence & capacity eviction.
+
 ## Also (0.2.0)
 
 Existing APIs remain source-compatible. New APIs let consumers handle native hints

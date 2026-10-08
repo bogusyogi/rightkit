@@ -13,14 +13,16 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::coalesce::{ChangeBatch, ChangeCoalescer};
+use crate::{WatchEvent, WatchEventRecord, WatchOptions};
 
 /// Trailing quiet window for document watches.
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(100);
@@ -286,6 +288,7 @@ impl Drop for FileSetWatcher {
 struct DirWatch {
     watcher: RecommendedWatcher,
     thread: thread::JoinHandle<()>,
+    stop: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -297,6 +300,7 @@ struct DirMap {
 impl DirMap {
     fn remove(&mut self, key: &Path) {
         if let Some(watch) = self.map.remove(key) {
+            watch.stop.store(true, Ordering::Release);
             drop(watch.watcher);
             let _ = watch.thread.join();
         }
@@ -307,7 +311,7 @@ impl DirMap {
 /// Capped set of directory watches. Non-recursive unless explicitly opted in.
 pub struct DirWatchSet {
     cap: usize,
-    quiet: Duration,
+    options: WatchOptions,
     recursive: bool,
     inner: Mutex<DirMap>,
 }
@@ -325,9 +329,25 @@ impl DirWatchSet {
 
     /// Creates a watch set with an explicit recursion mode. The cap counts roots.
     pub fn with_recursive(cap: usize, quiet: Duration, recursive: bool) -> Self {
+        Self::with_options(
+            cap,
+            recursive,
+            WatchOptions {
+                quiet,
+                max_wait: Some(quiet * 10),
+                // Legacy directory watches resolve touched paths only.
+                reconcile: false,
+                ..WatchOptions::default()
+            },
+        )
+    }
+
+    /// Creates a watch set using the same delivery policy as file-set streams.
+    /// `WatchOptions::default()` enables snapshot reconciliation; legacy constructors do not.
+    pub fn with_options(cap: usize, recursive: bool, options: WatchOptions) -> Self {
         Self {
             cap: cap.max(1),
-            quiet,
+            options,
             recursive,
             inner: Mutex::new(DirMap::default()),
         }
@@ -357,6 +377,41 @@ impl DirWatchSet {
         dir: &Path,
         on_change: impl Fn(ChangeBatch) + Send + 'static,
     ) -> notify::Result<()> {
+        self.watch_records(dir, move |records| {
+            let mut batch = ChangeBatch::default();
+            for record in records {
+                match record.event {
+                    WatchEvent::Create(path) | WatchEvent::Modify(path) => batch.changed.push(path),
+                    WatchEvent::Delete(path) => batch.removed.push(path),
+                    WatchEvent::Rename { from, to } => {
+                        batch.changed.push(to.clone());
+                        batch.removed.push(from.clone());
+                        batch.renamed.push(crate::Rename { from, to });
+                    }
+                    WatchEvent::Error(error) => tracing::warn!(%error, "directory watch gap"),
+                    WatchEvent::Overflow => tracing::warn!("directory watch overflow"),
+                }
+            }
+            batch.changed.sort();
+            batch.changed.dedup();
+            batch.removed.sort();
+            batch.removed.dedup();
+            if !batch.is_empty() {
+                on_change(batch);
+            }
+        })
+    }
+
+    /// Watch a directory with typed batches, backend provenance & unfiltered gap diagnostics.
+    /// With coalescing off, each backend hint is delivered immediately without deduplication.
+    /// Tolerated arm failures emit Error records; they do not retry registration.
+    /// Unwatch, eviction & set drop flush pending records unless discard is enabled.
+    /// Callbacks run on the watch thread; they must not synchronously unwatch their own set.
+    pub fn watch_records(
+        &self,
+        dir: &Path,
+        on_change: impl Fn(Vec<WatchEventRecord>) + Send + 'static,
+    ) -> notify::Result<()> {
         let key = normalize(dir);
         let mut guard = self.lock();
         if guard.map.contains_key(&key) {
@@ -372,36 +427,59 @@ impl DirWatchSet {
                 None => break,
             }
         }
-        let (tx, rx) = mpsc::channel::<Event>();
+        let (tx, rx) = mpsc::channel();
+        let backend_tx = tx.clone();
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-            if let Ok(mut event) = res {
-                if mutating(&event) {
-                    event.paths = event.paths.iter().map(|p| normalize(p)).collect();
-                    let _ = tx.send(event);
-                }
-            }
+            let _ = backend_tx.send(res);
         })?;
-        watcher.watch(
+        if let Err(mut error) = watcher.watch(
             &key,
             if self.recursive {
                 RecursiveMode::Recursive
             } else {
                 RecursiveMode::NonRecursive
             },
+        ) {
+            if !self.options.tolerate_arm_failures {
+                return Err(error);
+            }
+            if error.paths.is_empty() {
+                error.paths.push(key.clone());
+            }
+            let _ = tx.send(Err(error));
+        }
+        drop(tx);
+        let delivery = crate::options::Delivery::directory(
+            key.clone(),
+            self.recursive,
+            self.options.clone(),
+            |_: &Path| true,
         )?;
-        let quiet = self.quiet;
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
         let thread = thread::Builder::new()
             .name("rightkit-watch-dir".into())
             .spawn(move || {
-                run_debounce_loop(rx, quiet, quiet * 10, |coalescer| {
-                    let batch = coalescer.drain();
-                    if !batch.is_empty() {
-                        on_change(batch);
-                    }
-                });
+                crate::options::run_callback(
+                    rx,
+                    |records| {
+                        on_change(records);
+                        true
+                    },
+                    delivery,
+                    &worker_stop,
+                    &AtomicBool::new(true),
+                );
             })
             .map_err(notify::Error::io)?;
-        guard.map.insert(key.clone(), DirWatch { watcher, thread });
+        guard.map.insert(
+            key.clone(),
+            DirWatch {
+                watcher,
+                thread,
+                stop,
+            },
+        );
         guard.order.push_back(key);
         Ok(())
     }
@@ -433,5 +511,42 @@ mod tests {
         assert!(!DirWatchSet::default().recursive);
         assert!(!DirWatchSet::new(1, DEFAULT_DEBOUNCE).recursive);
         assert!(DirWatchSet::with_recursive(1, DEFAULT_DEBOUNCE, true).recursive);
+    }
+
+    #[test]
+    fn directory_legacy_policy_keeps_quiet_times_ten_and_no_snapshot() {
+        let quiet = Duration::from_millis(37);
+        for set in [
+            DirWatchSet::new(0, quiet),
+            DirWatchSet::with_recursive(2, quiet, true),
+        ] {
+            assert_eq!(set.options.quiet, quiet);
+            assert_eq!(set.options.max_wait, Some(quiet * 10));
+            assert!(set.options.coalesce);
+            assert!(!set.options.reconcile);
+            assert!(!set.options.tolerate_arm_failures);
+            assert!(!set.options.discard_on_disconnect);
+            assert!(set
+                .options
+                .filter
+                .accepts(&WatchEvent::Create("file".into())));
+            assert!(set.cap >= 1);
+        }
+    }
+
+    #[test]
+    fn directory_options_are_kept_without_overriding_caller_policy() {
+        let options = WatchOptions {
+            max_wait: None,
+            coalesce: false,
+            tolerate_arm_failures: true,
+            discard_on_disconnect: true,
+            filter: crate::EventFilter::new([crate::WatchEventKind::Delete]),
+            ..WatchOptions::default()
+        };
+        let set = DirWatchSet::with_options(3, true, options.clone());
+        assert_eq!(set.options, options);
+        assert!(set.recursive);
+        assert_eq!(set.cap, 3);
     }
 }
