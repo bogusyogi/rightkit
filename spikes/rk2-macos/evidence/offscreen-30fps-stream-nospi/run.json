@@ -1,0 +1,454 @@
+{
+ "label": "offscreen-30fps-stream-nospi",
+ "state": "offscreen",
+ "fps": 30,
+ "seconds": 20.0,
+ "mode": "stream",
+ "frontmost_before": {
+  "asn": "ASN:0x0-0xf00f:",
+  "info": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 696 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "info_initial": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 400,
+   "y": 222
+  },
+  "isMiniaturized": false,
+  "isVisible": false,
+  "occlusionState": 8192,
+  "onAnyScreen": true,
+  "pid": 73238,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2768
+ },
+ "display_union_appkit": [
+  0,
+  0,
+  1600,
+  900
+ ],
+ "placement_target": [
+  3600,
+  300
+ ],
+ "pre_visibility_force": "none",
+ "info_placed": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 73238,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2768
+ },
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "info_before_capture": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 73238,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2768
+ },
+ "page_before_capture": {
+  "counter": "FRAME 000000",
+  "focus": false,
+  "vis": "hidden"
+ },
+ "page_before_capture_2": {
+  "counter": "FRAME 000000",
+  "vis": "hidden"
+ },
+ "sck_list": {
+  "ok": true,
+  "windows": [
+   {
+    "active": true,
+    "frame": {
+     "h": 600,
+     "w": 800,
+     "x": 3600,
+     "y": 0
+    },
+    "isOnScreen": true,
+    "layer": 0,
+    "pid": 73238,
+    "title": "RK2 Fixture",
+    "windowID": 2768
+   },
+   {
+    "active": false,
+    "frame": {
+     "h": 500,
+     "w": 500,
+     "x": 0,
+     "y": 400
+    },
+    "isOnScreen": false,
+    "layer": 0,
+    "pid": 73238,
+    "title": "",
+    "windowID": 2769
+   }
+  ]
+ },
+ "capture_started_seen": true,
+ "first_frame_seen": true,
+ "helper_exit": 0,
+ "helper_lines": [
+  "{\"arrival_uptime_ns\":39327288517333,\"event\":\"first_accepted_frame\",\"latency_ms\":0.84875,\"pts_host_s\":39327.287668582998}",
+  "{\"anchor0\":{\"host_clock_s\":39327.248257083003,\"uptime_ns\":39327248256541},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":true,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":true,\"sck_layer\":0,\"start_call_uptime_ns\":39327248258791,\"start_return_uptime_ns\":39327291830583,\"width\":800,\"windowID\":2768}",
+  "{\"event\":\"summary_written\",\"path\":\"\\/Volumes\\/D\\/claude\\/tools\\/rightkit\\/spikes\\/rk2-macos\\/evidence\\/offscreen-30fps-stream-nospi\\/summary.json\"}"
+ ],
+ "inputs": [
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 6,
+   "caller_send_ns": 39333297970083,
+   "caller_recv_ns": 39333480225000,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click input",
+   "method": "click",
+   "offset_s": 14,
+   "caller_send_ns": 39341294670333,
+   "caller_recv_ns": 39341474490625,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "type",
+   "method": "type",
+   "offset_s": 15.5,
+   "caller_send_ns": 39342799230333,
+   "caller_recv_ns": 39342932235875,
+   "result": {
+    "ok": true
+   }
+  }
+ ],
+ "clock0": {
+  "epoch_ms": 1791480765464.206,
+  "uptime_ns": 39327047960833
+ },
+ "clock1": {
+  "epoch_ms": 1791480785786.5032,
+  "uptime_ns": 39347370269416
+ },
+ "page_log": [
+  {
+   "counter": 0,
+   "epochMs": 1791480761910,
+   "kind": "load",
+   "step": 1
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480764008,
+   "fps": 0.47619047619047616,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480766009,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480768058,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480771721,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480771833,
+   "kind": "click:next",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480773820,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480779714,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480779771,
+   "kind": "focus:input",
+   "step": 2
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781220,
+   "key": "h",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781222,
+   "kind": "input",
+   "step": 2,
+   "value": 1
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781232,
+   "key": "e",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781233,
+   "kind": "input",
+   "step": 2,
+   "value": 2
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781243,
+   "key": "l",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781243,
+   "kind": "input",
+   "step": 2,
+   "value": 3
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781251,
+   "key": "l",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781251,
+   "kind": "input",
+   "step": 2,
+   "value": 4
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781261,
+   "key": "o",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781263,
+   "kind": "input",
+   "step": 2,
+   "value": 5
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781270,
+   "key": " ",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781270,
+   "kind": "input",
+   "step": 2,
+   "value": 6
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781278,
+   "key": "r",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781279,
+   "kind": "input",
+   "step": 2,
+   "value": 7
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781289,
+   "key": "k",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781289,
+   "kind": "input",
+   "step": 2,
+   "value": 8
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781298,
+   "key": "2",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480781298,
+   "kind": "input",
+   "step": 2,
+   "value": 9
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480782659,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791480785839,
+   "fps": 0,
+   "kind": "raf-rate",
+   "step": 2
+  }
+ ],
+ "info_after": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 73238,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 2768
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}

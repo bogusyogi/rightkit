@@ -1,0 +1,15 @@
+[package]
+name = "rk2-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone workspace: never enters the RightKit workspace build.
+[workspace]
+
+[build-dependencies]
+tauri-build = "2"
+
+[dependencies]
+tauri = "2"
+rightkit-control = { path = "../../../crates/rightkit-control", features = ["tauri-plugin"] }

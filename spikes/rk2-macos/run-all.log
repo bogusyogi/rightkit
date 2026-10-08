@@ -1,0 +1,197 @@
+INFO {'appHidden': False, 'backingScale': 1, 'contentLayout': {'h': 568, 'w': 800, 'x': 0, 'y': 0}, 'frame': {'h': 600, 'w': 800, 'x': 3600, 'y': 300}, 'isMiniaturized': False, 'isVisible': True, 'occlusionState': 8192, 'onAnyScreen': False, 'pid': 69525, 'screens': [{'h': 900, 'scale': 1, 'w': 1600, 'x'
+{
+ "label": "offscreen-30fps-stream",
+ "error": null,
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "capture_started_seen": true,
+ "first_frame_seen": true,
+ "helper_exit": 0,
+ "helper_lines": [
+  "{\"arrival_uptime_ns\":39196558431125,\"event\":\"first_accepted_frame\",\"latency_ms\":2.512,\"pts_host_s\":39196.555919124999}",
+  "{\"anchor0\":{\"host_clock_s\":39196.512087832998,\"uptime_ns\":39196512087333},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":true,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":true,\"sck_layer\":0,\"start_call_uptime_ns\":39196512089500,\"start_return_uptime_ns\":39196561432625,\"width\":800,\"windowID\":2732}",
+  "{\"event\":\"summary_written\",\"path\":\"\\/Volumes\\/D\\/claude\\/tools\\/rightkit\\/spikes\\/rk2-macos\\/evidence\\/offscreen-30fps-stream\\/summary.json\"}"
+ ],
+ "frontmost_before": {
+  "asn": "ASN:0x0-0xf60f6:",
+  "info": "[ NULL ]  ASN:0x0-0xf60f6: (in front)      bundleID=\"com.apple.Safari\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 78290 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0xf00f:",
+  "info": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 696 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}
+INFO {'appHidden': False, 'backingScale': 1, 'contentLayout': {'h': 568, 'w': 800, 'x': 0, 'y': 0}, 'frame': {'h': 600, 'w': 800, 'x': 3600, 'y': 300}, 'isMiniaturized': False, 'isVisible': True, 'occlusionState': 8192, 'onAnyScreen': False, 'pid': 70430, 'screens': [{'h': 900, 'scale': 1, 'w': 1600, 'x'
+{
+ "label": "offscreen-60fps-stream",
+ "error": null,
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "capture_started_seen": true,
+ "first_frame_seen": true,
+ "helper_exit": 0,
+ "helper_lines": [
+  "{\"arrival_uptime_ns\":39261963210000,\"event\":\"first_accepted_frame\",\"latency_ms\":0.75320900000000002,\"pts_host_s\":39261.962456791}",
+  "{\"anchor0\":{\"host_clock_s\":39261.924077083,\"uptime_ns\":39261924076666},\"event\":\"capture_started\",\"fps\":60,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":true,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":true,\"sck_layer\":0,\"start_call_uptime_ns\":39261924078583,\"start_return_uptime_ns\":39261966985583,\"width\":800,\"windowID\":2748}",
+  "{\"event\":\"summary_written\",\"path\":\"\\/Volumes\\/D\\/claude\\/tools\\/rightkit\\/spikes\\/rk2-macos\\/evidence\\/offscreen-60fps-stream\\/summary.json\"}"
+ ],
+ "frontmost_before": {
+  "asn": "ASN:0x0-0xf00f:",
+  "info": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 696 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0xf00f:",
+  "info": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 696 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}
+INFO {'appHidden': False, 'backingScale': 1, 'contentLayout': {'h': 568, 'w': 800, 'x': 0, 'y': 0}, 'frame': {'h': 600, 'w': 800, 'x': 3600, 'y': 300}, 'isMiniaturized': False, 'isVisible': True, 'occlusionState': 8192, 'onAnyScreen': False, 'pid': 73238, 'screens': [{'h': 900, 'scale': 1, 'w': 1600, 'x'
+{
+ "label": "offscreen-30fps-stream-nospi",
+ "error": null,
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "capture_started_seen": true,
+ "first_frame_seen": true,
+ "helper_exit": 0,
+ "helper_lines": [
+  "{\"arrival_uptime_ns\":39327288517333,\"event\":\"first_accepted_frame\",\"latency_ms\":0.84875,\"pts_host_s\":39327.287668582998}",
+  "{\"anchor0\":{\"host_clock_s\":39327.248257083003,\"uptime_ns\":39327248256541},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":true,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":true,\"sck_layer\":0,\"start_call_uptime_ns\":39327248258791,\"start_return_uptime_ns\":39327291830583,\"width\":800,\"windowID\":2768}",
+  "{\"event\":\"summary_written\",\"path\":\"\\/Volumes\\/D\\/claude\\/tools\\/rightkit\\/spikes\\/rk2-macos\\/evidence\\/offscreen-30fps-stream-nospi\\/summary.json\"}"
+ ],
+ "frontmost_before": {
+  "asn": "ASN:0x0-0xf00f:",
+  "info": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 696 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}
+INFO {'appHidden': False, 'backingScale': 1, 'contentLayout': {'h': 568, 'w': 800, 'x': 0, 'y': 0}, 'frame': {'h': 600, 'w': 800, 'x': 3600, 'y': 300}, 'isMiniaturized': False, 'isVisible': True, 'occlusionState': 8192, 'onAnyScreen': False, 'pid': 74776, 'screens': [{'h': 900, 'scale': 1, 'w': 1600, 'x'
+{
+ "label": "occluded-30fps-stream",
+ "error": null,
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "capture_started_seen": true,
+ "first_frame_seen": true,
+ "helper_exit": 0,
+ "helper_lines": [
+  "{\"arrival_uptime_ns\":39356706526083,\"event\":\"first_accepted_frame\",\"latency_ms\":1.105542,\"pts_host_s\":39356.705420541002}",
+  "{\"anchor0\":{\"host_clock_s\":39356.663878541003,\"uptime_ns\":39356663878041},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":true,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":true,\"sck_layer\":0,\"start_call_uptime_ns\":39356663880041,\"start_return_uptime_ns\":39356710733750,\"width\":800,\"windowID\":2776}",
+  "{\"event\":\"summary_written\",\"path\":\"\\/Volumes\\/D\\/claude\\/tools\\/rightkit\\/spikes\\/rk2-macos\\/evidence\\/occluded-30fps-stream\\/summary.json\"}"
+ ],
+ "frontmost_before": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}
+INFO {'appHidden': True, 'backingScale': 1, 'contentLayout': {'h': 568, 'w': 800, 'x': 0, 'y': 0}, 'frame': {'h': 600, 'w': 800, 'x': 3600, 'y': 300}, 'isMiniaturized': False, 'isVisible': False, 'occlusionState': 8192, 'onAnyScreen': False, 'pid': 76629, 'screens': [{'h': 900, 'scale': 1, 'w': 1600, 'x'
+*** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: 'Invalid number value (infinite) in JSON write'
+*** First throw call stack:
+(
+	0   CoreFoundation                      0x0000000184635d0c __exceptionPreprocess + 176
+	1   libobjc.A.dylib                     0x00000001840a6bbc objc_exception_throw + 88
+	2   Foundation                          0x0000000185cdc1f0 -[_NSJSONWriter resizeTemporaryBuffer:] + 0
+	3   Foundation                          0x0000000185cdb7ec ___writeJSONObject_block_invoke + 412
+	4   Foundation                          0x0000000185cdb26c _writeJSONObject + 936
+	5   Foundation                          0x0000000185cdb7ec ___writeJSONObject_block_invoke + 412
+	6   Foundation                          0x0000000185cdb26c _writeJSONObject + 936
+	7   Foundation                          0x0000000185e90014 -[_NSJSONWriter dataWithRootObject:options:] + 104
+	8   Foundation                          0x0000000185cdaa98 +[NSJSONSerialization dataWithJSONObject:options:error:] + 112
+	9   rk2-capture                         0x0000000104181c38 $s4main6recordyySDyS2SGF + 13092
+	10  rk2-capture                         0x0000000104189e1c $s4mainyyYbcfU_TA + 164
+	11  rk2-capture                         0x0000000104183d04 $sIegh_IeyBh_TR + 28
+	12  Foundation                          0x0000000185e43148 __NSThread__block_start__ + 76
+	13  libsystem_pthread.dylib             0x0000000184508a58 _pthread_start + 116
+	14  libsystem_pthread.dylib             0x0000000184503c44 thread_start + 8
+)
+libc++abi: terminating due to uncaught exception of type NSException
+{
+ "label": "apphidden-30fps-stream",
+ "error": null,
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "capture_started_seen": true,
+ "first_frame_seen": false,
+ "helper_exit": -6,
+ "helper_lines": [
+  "{\"anchor0\":{\"host_clock_s\":39422.801217790999,\"uptime_ns\":39422801217250},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":false,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":false,\"sck_layer\":0,\"start_call_uptime_ns\":39422801219500,\"start_return_uptime_ns\":39422848177833,\"width\":800,\"windowID\":2787}"
+ ],
+ "frontmost_before": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}
+INFO {'appHidden': False, 'backingScale': 1, 'contentLayout': {'h': 568, 'w': 800, 'x': 0, 'y': 0}, 'frame': {'h': 600, 'w': 800, 'x': 3600, 'y': 300}, 'isMiniaturized': True, 'isVisible': False, 'occlusionState': 8192, 'onAnyScreen': False, 'pid': 77790, 'screens': [{'h': 900, 'scale': 1, 'w': 1600, 'x'
+*** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: 'Invalid number value (infinite) in JSON write'
+*** First throw call stack:
+(
+	0   CoreFoundation                      0x0000000184635d0c __exceptionPreprocess + 176
+	1   libobjc.A.dylib                     0x00000001840a6bbc objc_exception_throw + 88
+	2   Foundation                          0x0000000185cdc1f0 -[_NSJSONWriter resizeTemporaryBuffer:] + 0
+	3   Foundation                          0x0000000185cdb7ec ___writeJSONObject_block_invoke + 412
+	4   Foundation                          0x0000000185cdb26c _writeJSONObject + 936
+	5   Foundation                          0x0000000185cdb7ec ___writeJSONObject_block_invoke + 412
+	6   Foundation                          0x0000000185cdb26c _writeJSONObject + 936
+	7   Foundation                          0x0000000185e90014 -[_NSJSONWriter dataWithRootObject:options:] + 104
+	8   Foundation                          0x0000000185cdaa98 +[NSJSONSerialization dataWithJSONObject:options:error:] + 112
+	9   rk2-capture                         0x00000001043b5c38 $s4main6recordyySDyS2SGF + 13092
+	10  rk2-capture                         0x00000001043bde1c $s4mainyyYbcfU_TA + 164
+	11  rk2-capture                         0x00000001043b7d04 $sIegh_IeyBh_TR + 28
+	12  Foundation                          0x0000000185e43148 __NSThread__block_start__ + 76
+	13  libsystem_pthread.dylib             0x0000000184508a58 _pthread_start + 116
+	14  libsystem_pthread.dylib             0x0000000184503c44 thread_start + 8
+)
+libc++abi: terminating due to uncaught exception of type NSException
+{
+ "label": "minimized-30fps-stream",
+ "error": null,
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "capture_started_seen": true,
+ "first_frame_seen": false,
+ "helper_exit": -6,
+ "helper_lines": [
+  "{\"anchor0\":{\"host_clock_s\":39489.475105083002,\"uptime_ns\":39489475104666},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":false,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":false,\"sck_layer\":0,\"start_call_uptime_ns\":39489475106625,\"start_return_uptime_ns\":39489511859916,\"width\":800,\"windowID\":2796}"
+ ],
+ "frontmost_before": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}
+INFO {'appHidden': False, 'backingScale': 1, 'contentLayout': {'h': 568, 'w': 800, 'x': 0, 'y': 0}, 'frame': {'h': 600, 'w': 800, 'x': 3600, 'y': 300}, 'isMiniaturized': False, 'isVisible': True, 'occlusionState': 8192, 'onAnyScreen': False, 'pid': 78535, 'screens': [{'h': 900, 'scale': 1, 'w': 1600, 'x'
+{
+ "label": "offscreen-30fps-file",
+ "error": null,
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "capture_started_seen": true,
+ "first_frame_seen": false,
+ "helper_exit": 0,
+ "helper_lines": [
+  "{\"anchor0\":{\"host_clock_s\":39554.815693958,\"uptime_ns\":39554815693500},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"file\",\"scale\":1,\"sck_active\":true,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":true,\"sck_layer\":0,\"start_call_uptime_ns\":39554815698833,\"start_return_uptime_ns\":39554865915458,\"width\":800,\"windowID\":2812}",
+  "{\"event\":\"summary_written\",\"path\":\"\\/Volumes\\/D\\/claude\\/tools\\/rightkit\\/spikes\\/rk2-macos\\/evidence\\/offscreen-30fps-file\\/summary.json\"}"
+ ],
+ "frontmost_before": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0x11011:",
+  "info": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 698 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}
+ALLDONE

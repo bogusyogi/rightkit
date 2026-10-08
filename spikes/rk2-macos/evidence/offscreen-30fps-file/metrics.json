@@ -1,0 +1,81 @@
+{
+ "label": "offscreen-30fps-file",
+ "frames_callbacks": null,
+ "frames_complete": null,
+ "frames_idle": null,
+ "frames_blank_status": null,
+ "decoded_frames": 443,
+ "file_bytes": 694175,
+ "analyzer": "{\"frames\":443,\"ok\":true,\"reader_status\":2}",
+ "black_frames_luma_lt_15": 0,
+ "strip_valid_frames": 443,
+ "max_foreign_magenta_samples": 0,
+ "frames_with_magenta_gt_20": 0,
+ "animated_frame_intervals": 281,
+ "animated_intervals_counter_advanced": 144,
+ "pct_intervals_advanced": 51.2,
+ "resampled_ticks": 286,
+ "pct_ticks_advanced": 50.3,
+ "intervals_by_page_rate": {
+  "page60": {
+   "intervals": 281,
+   "advanced": 144,
+   "pct": 51.2
+  },
+  "throttled": {
+   "intervals": 0,
+   "advanced": 0,
+   "pct": null
+  }
+ },
+ "first_throttled_pts_s": null,
+ "page_raf_rate_samples": [
+  56,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60
+ ],
+ "counter_first_last": [
+  218,
+  840
+ ],
+ "distinct_counter_values": 306,
+ "ocr_samples_stable": 30,
+ "ocr_step_correct": 13,
+ "step_recovery": [
+  {
+   "step": 2,
+   "post_enc_s": 39561.004,
+   "ocr_first_seen_enc_s": null,
+   "latency_ms": null
+  }
+ ],
+ "inputs": [
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 10.250041,
+   "dispatch_ms": 10.331666,
+   "complete_ms": 154.045666,
+   "caller_recv_ms": 184.034083,
+   "send_enc_pts_s": 39560.871,
+   "admit_enc_pts_s": 39560.881,
+   "complete_enc_pts_s": 39561.025
+  }
+ ],
+ "foreground_changes": [],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.0,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -0.014
+}
