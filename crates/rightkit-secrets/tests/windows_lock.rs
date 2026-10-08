@@ -1,6 +1,8 @@
 #![cfg(windows)]
 
-use rightkit_secrets::{system_backend, Config, Interaction, Namespace, Store, UNIVERSAL_GUARD_ENV};
+use rightkit_secrets::{
+    system_backend, Config, Interaction, Namespace, Store, UNIVERSAL_GUARD_ENV,
+};
 use std::io::Write;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -125,13 +127,13 @@ fn child_get_or_create() {
         Err(_) => panic!("invalid child role"),
     };
     assert!(index < 8, "unknown child index");
-    let service = std::env::var("RIGHTKIT_SECRETS_LOCK_NAMESPACE").expect("missing child namespace");
+    let service =
+        std::env::var("RIGHTKIT_SECRETS_LOCK_NAMESPACE").expect("missing child namespace");
     let dir = std::path::PathBuf::from(
         std::env::var_os("RIGHTKIT_SECRETS_LOCK_DIR").expect("missing child directory"),
     );
-    let store = Store::open(
-        Config::new(Namespace::new(service).unwrap()).timeout(Duration::from_secs(20)),
-    );
+    let store =
+        Store::open(Config::new(Namespace::new(service).unwrap()).timeout(Duration::from_secs(20)));
     assert!(!store.guard_active(), "child must use OS credentials");
     std::fs::write(dir.join(format!("ready-{index}")), b"ready").unwrap();
     let mut start = String::new();
