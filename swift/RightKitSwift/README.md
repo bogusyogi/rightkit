@@ -119,6 +119,49 @@ else throws `LicenseScopeError.unsupportedEntitlementScope`). Since 0.3.5 `activ
 anything is stored: an unsupported scope throws `LicenseScopeError` and storage is untouched
 (`renewLease` throws instead of returning the current record).
 
+## RightKitAppleCredentials (0.3.8)
+
+`SecurityAppleCredentialBackend` adds two APIs on platforms with Security.framework;
+existing store/backend methods and `AppleCredentialBackend` conformers remain source compatible.
+
+```swift
+let backend = SecurityAppleCredentialBackend(accessGroup: "6KLGD3LLKF.app.scraperight.shared")
+let service = "app.scraperight.shared.credentials"
+let probe = backend.probeStatus(service: service, account: "pro.bridge", scope: nil)
+switch probe {
+case .available, .notFound: break // Keychain query is usable, even without an item.
+case .missingEntitlement: break // Report missing keychain-access-groups entitlement.
+case .interactionNotAllowed: break // Query could not complete without interaction.
+case let .failure(status): print("Keychain status: \(status)")
+}
+let rawStatus = probe.rawStatus // Original OSStatus, including -34018 for missing entitlement.
+
+// Explicit "forget everywhere" only: deletes synchronized copies on other devices too.
+let outcomes = backend.deleteAnyScope(service: service, account: "pro.bridge")
+let succeeded = outcomes.allSatisfy(\.succeeded)
+for outcome in outcomes {
+    print(outcome.scope.rawValue, outcome.rawStatus, outcome.succeeded)
+}
+```
+
+- `probeStatus(service:account:scope:) -> CredentialProbe` probes the supplied identity in the
+  data-protection Keychain. `.synced` and `.device` preserve strict Boolean sync matching;
+  omitted/nil scope uses `kSecAttrSynchronizableAny`. It requests no secret bytes, uses
+  `kSecUseAuthenticationUISkip` and an `LAContext` with `interactionNotAllowed = true`, and
+  preserves the raw status. Authentication-protected items are skipped, so `.notFound` does
+  not prove no protected item exists. [Apple authentication-skip documentation](https://developer.apple.com/documentation/security/ksecuseauthenticationuiskip).
+- `deleteAnyScope(service:account:) -> [CredentialDeletionOutcome]` attempts every location
+  without stopping on failure. `.dataProtection` sweeps synchronizable and device-only items
+  with `kSecAttrSynchronizableAny`, preserving the configured access group. On macOS,
+  `.legacyFile` also sweeps matching service/account items in the legacy file Keychain search
+  list; it omits access group and synchronization attributes because legacy Keychains use
+  ACLs. Other Apple platforms return only `.dataProtection`. Each outcome retains its
+  `rawStatus`; `succeeded` accepts `errSecSuccess` and `errSecItemNotFound`. Deletion is not
+  atomic across locations; inspect all outcomes before reporting complete cleanup.
+
+0.3.8 adds passive raw-status probing and all-location deletion. `status()`, `exists`,
+strict scoped `delete`, and `AppleCredentialStore.deleteEverywhere` retain their behavior.
+
 ## Consuming it
 
 Swift has no public package registry like npmjs.com or crates.io (Apple is
@@ -133,7 +176,7 @@ edit of the pin, recorded in `rightkit-versions.json`.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.7"),
+    .package(url: "https://github.com/bogusyogi/rightkit-swift.git", exact: "0.3.8"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -148,7 +191,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit-swift.git
-    exactVersion: "0.3.7"
+    exactVersion: "0.3.8"
 ```
 
 A clone of a consuming app resolves this straight from GitHub — no workspace

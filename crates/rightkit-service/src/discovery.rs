@@ -274,7 +274,7 @@ impl SpawnClaim {
 
 /// Open `path` and take a non-blocking exclusive lock. `Ok(None)` = held elsewhere.
 #[cfg(unix)]
-fn try_lock_exclusive(path: &Path) -> io::Result<Option<std::fs::File>> {
+pub(crate) fn try_lock_exclusive(path: &Path) -> io::Result<Option<std::fs::File>> {
     use std::io::Write;
     use std::os::unix::io::AsRawFd;
     let mut f = std::fs::OpenOptions::new()
@@ -306,7 +306,7 @@ fn try_lock_exclusive(path: &Path) -> io::Result<Option<std::fs::File>> {
 /// the handle on process death. Not compiled on this host; std-only API
 /// (`OpenOptionsExt::share_mode`), checked by reasoning against its docs.
 #[cfg(windows)]
-fn try_lock_exclusive(path: &Path) -> io::Result<Option<std::fs::File>> {
+pub(crate) fn try_lock_exclusive(path: &Path) -> io::Result<Option<std::fs::File>> {
     use std::io::Write;
     use std::os::windows::fs::OpenOptionsExt;
     match std::fs::OpenOptions::new()

@@ -1,4 +1,4 @@
-use crate::discovery::record_process_matches;
+use crate::discovery::{record_process_matches, try_lock_exclusive};
 use crate::error::{ServiceError, ERROR_NOT_ALLOWED};
 use crate::record::*;
 use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
@@ -98,7 +98,7 @@ pub struct ServiceConfig {
     pub version: String,
     pub allowlist: Allowlist,
     pub frame_limit: usize,
-    /// How long a higher-ranked host waits for the incumbent to release.
+    /// Deadline for election, endpoint publication, or a higher-ranked takeover.
     pub takeover_timeout: Duration,
     /// How long the incumbent lets in-flight requests reach a boundary.
     pub handoff_grace: Duration,
@@ -180,6 +180,8 @@ struct Shared {
     cfg: ServiceConfig,
     handler: Arc<dyn Handler>,
     listener: Listener,
+    // Held until endpoint cleanup completes; kernel releases it on process death.
+    election: Mutex<Option<std::fs::File>>,
     record: ServiceRecord,
     stop: AtomicBool,
     handoff: Arc<AtomicBool>,
@@ -215,6 +217,10 @@ impl Shared {
         for (_, close) in self.conns.lock().unwrap_or_else(|e| e.into_inner()).drain() {
             close();
         }
+        self.election
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         self.event(ServiceEvent::Released);
         self.released_cv.notify_all();
     }
@@ -278,13 +284,19 @@ pub fn host(
     let me = std::process::id();
     let deadline = Instant::now() + cfg.takeover_timeout;
     let mut requested = false;
-    loop {
+    let lock_path = dir.join("election.lock");
+    let endpoint = cfg
+        .endpoint
+        .clone()
+        .unwrap_or_else(|| endpoint_for(suite, &cfg.service));
+    let mut backoff = Duration::from_millis(5);
+    let (listener, election) = loop {
+        // Never unlink the lock file: every contender must lock the same inode.
+        // A loser can observe the incumbent, but only the owner can discard stale
+        // discovery or bind. Retain ownership through publication and shutdown.
+        let election = try_lock_exclusive(&lock_path)?;
         match read_record(suite, &cfg.service) {
-            Some(rec)
-                if rec.pid != me
-                    && record_process_matches(&rec)
-                    && probe_endpoint(&rec.endpoint) =>
-            {
+            Some(rec) if record_process_matches(&rec) && probe_endpoint(&rec.endpoint) => {
                 let their = resolve_rank(&cfg, &rec.role, rec.rank);
                 if their == RANK_UNKNOWN || cfg.rank >= their {
                     return Err(HostError::Held(rec));
@@ -302,39 +314,29 @@ pub fn host(
                     )?;
                     requested = true;
                 }
-                if Instant::now() >= deadline {
-                    let _ = std::fs::remove_file(takeover_path(suite, &cfg.service));
-                    return Err(HostError::TakeoverTimeout);
-                }
-                std::thread::sleep(Duration::from_millis(25));
             }
-            Some(_) => {
-                // Stale (dead endpoint) or our own leftover: discard.
+            _ if election.is_some() => {
+                // PID generation and endpoint checks rejected the old record.
+                // Only the elected process may remove it or a dead Unix socket.
                 let _ = std::fs::remove_file(record_path(suite, &cfg.service));
-            }
-            None => break,
-        }
-    }
-    let endpoint = cfg
-        .endpoint
-        .clone()
-        .unwrap_or_else(|| endpoint_for(suite, &cfg.service));
-    let listener = loop {
-        match Listener::bind(&endpoint) {
-            Ok(listener) => break listener,
-            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-                if let Some(rec) = read_record(suite, &cfg.service) {
-                    return Err(HostError::Held(rec));
+                match Listener::bind(&endpoint) {
+                    Ok(listener) => break (listener, election.unwrap()),
+                    // A legacy host may have bound without publishing yet, or a
+                    // Windows incumbent may still be closing its pipe handles.
+                    Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {}
+                    Err(e) => return Err(HostError::Io(e)),
                 }
-                // A handing-off incumbent removes its record before its pipe instances finish
-                // closing; on Windows the name stays taken for that moment. Wait it out.
-                if !cfg!(windows) || Instant::now() >= deadline {
-                    return Err(HostError::Io(e));
-                }
-                std::thread::sleep(Duration::from_millis(25));
             }
-            Err(e) => return Err(HostError::Io(e)),
+            _ => {} // Winner is between lock acquisition and record publication.
         }
+        drop(election);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            clear_takeover_if_owner(suite, &cfg.service, me);
+            return Err(HostError::TakeoverTimeout);
+        }
+        std::thread::sleep(backoff.min(remaining));
+        backoff = (backoff * 2).min(Duration::from_millis(50));
     };
     let record = ServiceRecord {
         protocol_major: PROTOCOL_MAJOR,
@@ -349,10 +351,13 @@ pub fn host(
         started_ms: now_ms(),
         process_started_ms: crate::discovery::own_start_ms().unwrap_or(0),
     };
-    write_atomic(
+    if let Err(e) = write_atomic(
         &record_path(suite, &cfg.service),
         &serde_json::to_vec_pretty(&record).unwrap_or_default(),
-    )?;
+    ) {
+        listener.cleanup();
+        return Err(HostError::Io(e));
+    }
     if read_takeover(suite, &cfg.service).is_some_and(|t| t.pid == me) {
         let _ = std::fs::remove_file(takeover_path(suite, &cfg.service));
     }
@@ -361,6 +366,7 @@ pub fn host(
         cfg,
         handler,
         listener,
+        election: Mutex::new(Some(election)),
         record,
         stop: AtomicBool::new(false),
         handoff: Arc::new(AtomicBool::new(false)),
@@ -376,13 +382,21 @@ pub fn host(
         rank: shared.cfg.rank,
     });
     let s = shared.clone();
-    std::thread::Builder::new()
+    if let Err(e) = std::thread::Builder::new()
         .name("rk-svc-accept".into())
-        .spawn(move || accept_loop(s))?;
+        .spawn(move || accept_loop(s))
+    {
+        shared.release();
+        return Err(HostError::Io(e));
+    }
     let s = shared.clone();
-    std::thread::Builder::new()
+    if let Err(e) = std::thread::Builder::new()
         .name("rk-svc-takeover".into())
-        .spawn(move || takeover_monitor(s))?;
+        .spawn(move || takeover_monitor(s))
+    {
+        shared.release();
+        return Err(HostError::Io(e));
+    }
     Ok(Hosted { shared })
 }
 

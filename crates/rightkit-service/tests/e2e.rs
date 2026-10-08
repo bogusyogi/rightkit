@@ -550,3 +550,152 @@ fn competing_recoverer_processes_yield_exactly_one_owner_and_killed_owner_is_rec
         }
     }
 }
+
+fn race_bin() -> PathBuf {
+    let exe = std::env::current_exe().unwrap();
+    exe.parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples")
+        .join(if cfg!(windows) {
+            "svc_race.exe"
+        } else {
+            "svc_race"
+        })
+}
+
+fn spawn_racer(suite: &Suite, go: &std::path::Path, marker: &std::path::Path, id: &str) -> Host {
+    let mut child = Command::new(race_bin())
+        .args([
+            suite.root().to_str().unwrap(),
+            "demo",
+            go.to_str().unwrap(),
+            id,
+            marker.to_str().unwrap(),
+        ])
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn race racer (build examples with cargo test)");
+    let out = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for l in BufReader::new(out).lines().map_while(Result::ok) {
+            let _ = tx.send(l);
+        }
+    });
+    Host { child, lines: rx }
+}
+
+/// Start `ids` racers at the same instant. Returns the racers and the index of the one
+/// that printed `OWNER`; every other racer must print `FORWARDED`.
+fn race(suite: &Suite, marker: &std::path::Path, ids: &[&str]) -> (Vec<Host>, usize) {
+    let go = marker.join("go");
+    let racers: Vec<Host> = ids
+        .iter()
+        .map(|id| spawn_racer(suite, &go, marker, id))
+        .collect();
+    std::thread::sleep(Duration::from_millis(500)); // every racer is waiting for the go file
+    std::fs::write(&go, "go").unwrap();
+    let lines: Vec<String> = racers.iter().map(|r| r.line(30)).collect();
+    let owners: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.starts_with("OWNER"))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(
+        owners.len(),
+        1,
+        "exactly one primary among racers: {lines:?}"
+    );
+    for (i, l) in lines.iter().enumerate() {
+        if i != owners[0] {
+            assert_eq!(
+                l,
+                &format!("FORWARDED {}", ids[i]),
+                "loser {i} forwards its payload"
+            );
+        }
+    }
+    (racers, owners[0])
+}
+
+#[test]
+fn eight_simultaneous_launches_elect_one_primary_and_forward_the_rest() {
+    let (d, suite) = setup();
+    let ids = ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7"];
+    let (mut racers, owner_idx) = race(&suite, d.path(), &ids);
+    let mut forwarded: Vec<String> = Vec::new();
+    for (i, r) in racers.iter_mut().enumerate() {
+        if i == owner_idx {
+            continue;
+        }
+        let status = r.child.wait().unwrap();
+        assert!(status.success(), "loser {i} must exit cleanly");
+        forwarded.push(ids[i].to_string());
+    }
+    assert_eq!(forwarded.len(), 7);
+    // Every loser's payload reached the single primary exactly once.
+    let mut received: Vec<String> = std::fs::read_to_string(d.path().join("received"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    received.sort();
+    forwarded.sort();
+    assert_eq!(received, forwarded);
+    // Release the primary and check it shuts down cleanly.
+    std::fs::write(d.path().join("stop"), b"1").unwrap();
+    let owner = &mut racers[owner_idx];
+    assert!(owner.child.wait().unwrap().success());
+}
+
+#[test]
+fn stale_record_with_dead_pid_is_replaced_without_waiting_for_takeover() {
+    let (d, suite) = setup();
+    let mut a = Host::start(suite.root(), "headless", 2, d.path());
+    assert!(a.line(20).starts_with("READY"));
+    let rec = read_record(&suite, "demo").unwrap();
+    a.child.kill().unwrap();
+    a.child.wait().unwrap();
+    // Leave the socket file and rewrite the record as if its owner died long ago.
+    let mut stale = serde_json::to_value(&rec).unwrap();
+    stale["pid"] = json!(4_000_000_000u64);
+    stale["process_started_ms"] = json!(1);
+    std::fs::write(record_path(&suite, "demo"), stale.to_string()).unwrap();
+    let started = Instant::now();
+    let b = Host::start(suite.root(), "cutright", 3, d.path());
+    assert!(
+        b.line(5).starts_with("READY"),
+        "a dead-pid record must not hold the service"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "takeover of a stale record must not wait for the deadline"
+    );
+    let now = read_record(&suite, "demo").unwrap();
+    assert_eq!(now.role, "cutright");
+    assert_ne!(now.pid, 4_000_000_000u32);
+}
+
+#[test]
+fn dead_primary_is_taken_over_by_a_simultaneous_race_with_one_winner() {
+    let (d, suite) = setup();
+    let mut a = Host::start(suite.root(), "headless", 2, d.path());
+    assert!(a.line(20).starts_with("READY"));
+    a.child.kill().unwrap();
+    a.child.wait().unwrap();
+    let ids = ["s0", "s1", "s2", "s3"];
+    let (mut racers, owner_idx) = race(&suite, d.path(), &ids);
+    let mut forwarded = 0;
+    for (i, r) in racers.iter_mut().enumerate() {
+        if i != owner_idx {
+            assert!(r.child.wait().unwrap().success(), "loser {i} exits cleanly");
+            forwarded += 1;
+        }
+    }
+    assert_eq!(forwarded, 3);
+    std::fs::write(d.path().join("stop"), b"1").unwrap();
+    assert!(racers[owner_idx].child.wait().unwrap().success());
+}

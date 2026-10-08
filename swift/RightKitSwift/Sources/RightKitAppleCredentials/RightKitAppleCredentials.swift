@@ -2,6 +2,7 @@ import Foundation
 
 #if canImport(Security)
 import Security
+import LocalAuthentication
 #endif
 
 /// The two Keychain locations used by RightKit credential continuity.
@@ -158,6 +159,54 @@ public final class AppleCredentialStore: Sendable {
 }
 
 #if canImport(Security)
+/// Raw result of a passive Keychain query. `.notFound` still proves the query was usable.
+public enum CredentialProbe: Equatable, Sendable {
+    case available
+    case notFound
+    case missingEntitlement
+    case interactionNotAllowed
+    case failure(OSStatus)
+
+    public init(rawStatus: OSStatus) {
+        switch rawStatus {
+        case errSecSuccess: self = .available
+        case errSecItemNotFound: self = .notFound
+        case errSecMissingEntitlement: self = .missingEntitlement
+        case errSecInteractionNotAllowed: self = .interactionNotAllowed
+        default: self = .failure(rawStatus)
+        }
+    }
+
+    public var rawStatus: OSStatus {
+        switch self {
+        case .available: return errSecSuccess
+        case .notFound: return errSecItemNotFound
+        case .missingEntitlement: return errSecMissingEntitlement
+        case .interactionNotAllowed: return errSecInteractionNotAllowed
+        case let .failure(status): return status
+        }
+    }
+}
+
+/// Keychain locations swept by `deleteAnyScope`; synchronizable and local items share one sweep.
+public enum CredentialDeletionScope: String, Sendable {
+    case dataProtection
+    case legacyFile
+}
+
+public struct CredentialDeletionOutcome: Equatable, Sendable {
+    public let scope: CredentialDeletionScope
+    public let rawStatus: OSStatus
+
+    public init(scope: CredentialDeletionScope, rawStatus: OSStatus) {
+        self.scope = scope
+        self.rawStatus = rawStatus
+    }
+
+    /// Deleting an absent item is successful, but its original status remains available.
+    public var succeeded: Bool { rawStatus == errSecSuccess || rawStatus == errSecItemNotFound }
+}
+
 /// Security.framework implementation. Queries explicitly disable UI interaction.
 public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unchecked Sendable {
     private let accessGroup: String?
@@ -221,6 +270,30 @@ public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unch
         return .failure(.keychainStatus(status))
     }
 
+    func probeQuery(_ service: String, _ account: String, _ scope: AppleCredentialScope?) -> [String: Any] {
+        var query = base(service, account)
+        if let scope {
+            query[kSecAttrSynchronizable as String] = scope == .synced
+        } else {
+            query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+        }
+        query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUISkip
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        query[kSecUseAuthenticationContext as String] = context
+        query[kSecReturnData as String] = false
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return query
+    }
+
+    /// Probes the caller's service/account without requesting secret bytes or presenting UI.
+    /// A nil scope matches either synchronizable or device-only items in the data-protection Keychain.
+    /// Items requiring authentication are skipped, so `.notFound` does not exclude protected items.
+    public func probeStatus(service: String, account: String, scope: AppleCredentialScope? = nil) -> CredentialProbe {
+        let query = probeQuery(service, account, scope)
+        return CredentialProbe(rawStatus: SecItemCopyMatching(query as CFDictionary, nil))
+    }
+
     public func write(_ data: Data, service: String, account: String, scope: AppleCredentialScope) -> Result<Void, AppleCredentialError> {
         var item = scoped(service, account, scope)
         item[kSecValueData as String] = data
@@ -252,6 +325,40 @@ public final class SecurityAppleCredentialBackend: AppleCredentialBackend, @unch
         let query = scoped(service, account, scope)
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound ? .success(()) : .failure(.keychainStatus(status))
+    }
+
+    func deletionQuery(_ service: String, _ account: String, _ scope: CredentialDeletionScope) -> [String: Any] {
+        var query = base(service, account)
+        switch scope {
+        case .dataProtection:
+            query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+        case .legacyFile:
+            query[kSecUseDataProtectionKeychain as String] = false
+            // Legacy file Keychains use ACLs, not access groups or synchronizable attributes.
+            query.removeValue(forKey: kSecAttrAccessGroup as String)
+        }
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        query[kSecUseAuthenticationContext as String] = context
+        return query
+    }
+
+    /// Explicit deletion sweeps both sync states, plus legacy file Keychains on macOS.
+    /// Every location is attempted even if another fails; absent items count as success.
+    /// Legacy items match service/account only because file Keychains do not support access groups.
+    public func deleteAnyScope(service: String, account: String) -> [CredentialDeletionOutcome] {
+        deleteAnyScope(service: service, account: account, deleteItem: { SecItemDelete($0) })
+    }
+
+    func deleteAnyScope(service: String, account: String, deleteItem: (CFDictionary) -> OSStatus) -> [CredentialDeletionOutcome] {
+        var scopes: [CredentialDeletionScope] = [.dataProtection]
+#if os(macOS)
+        scopes.append(.legacyFile)
+#endif
+        return scopes.map { scope in
+            let query = deletionQuery(service, account, scope)
+            return CredentialDeletionOutcome(scope: scope, rawStatus: deleteItem(query as CFDictionary))
+        }
     }
 }
 #else
