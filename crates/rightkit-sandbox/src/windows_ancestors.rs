@@ -70,6 +70,20 @@ unsafe extern "system" {
         len: *mut u32,
     ) -> i32;
     fn RegCloseKey(key: *mut c_void) -> i32;
+    fn InitializeSecurityDescriptor(descriptor: *mut c_void, revision: u32) -> i32;
+    fn SetSecurityDescriptorDacl(
+        descriptor: *mut c_void,
+        present: i32,
+        dacl: *mut c_void,
+        defaulted: i32,
+    ) -> i32;
+    fn GetSecurityDescriptorControl(
+        descriptor: *mut c_void,
+        control: *mut u16,
+        revision: *mut u32,
+    ) -> i32;
+    fn SetSecurityDescriptorControl(descriptor: *mut c_void, mask: u16, bits: u16) -> i32;
+    fn SetFileSecurityW(path: *const u16, information: u32, descriptor: *mut c_void) -> i32;
 }
 
 fn ancestor_error(path: &Path, error: io::Error) -> SandboxError {
@@ -454,21 +468,45 @@ fn write_dacl(path: &Path, aces: &[Vec<u8>], revision: u8) -> io::Result<()> {
             return Err(io::Error::last_os_error());
         }
     }
-    let status = unsafe {
-        SetNamedSecurityInfoW(
-            wide(path).as_mut_ptr(),
-            SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            acl,
-            std::ptr::null_mut(),
-        )
+    // SetNamedSecurityInfo/SetSecurityInfo re-propagate inheritable ACEs through the whole
+    // subtree (e.g. an entire user profile below C:\Users\<name>) on every write. Ancestor
+    // ACEs are non-inheritable & inherited ACEs are written back verbatim, so write the DACL
+    // in place with SetFileSecurityW, keeping the protected/auto-inherited control bits.
+    const SE_DACL_AUTO_INHERITED: u16 = 0x0400;
+    const SE_DACL_PROTECTED: u16 = 0x1000;
+    let current = DaclSnapshot::read(path)?;
+    let (mut control, mut sd_revision) = (0u16, 0u32);
+    if unsafe { GetSecurityDescriptorControl(current.descriptor, &mut control, &mut sd_revision) }
+        == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    // AUTO_INHERIT_REQ makes the kernel keep AUTO_INHERITED for this object only; it never
+    // walks descendants (that propagation lives in the advapi Set*SecurityInfo layer).
+    const SE_DACL_AUTO_INHERIT_REQ: u16 = 0x0100;
+    let keep = SE_DACL_AUTO_INHERITED | SE_DACL_PROTECTED;
+    let request = if control & SE_DACL_AUTO_INHERITED != 0 {
+        SE_DACL_AUTO_INHERIT_REQ
+    } else {
+        0
     };
-    if status == 0 {
+    // Absolute SECURITY_DESCRIPTOR is 40 bytes on 64-bit; over-allocate, 8-byte aligned.
+    let mut descriptor = [0u64; 8];
+    let sd = descriptor.as_mut_ptr().cast();
+    let ok = unsafe {
+        InitializeSecurityDescriptor(sd, 1) != 0
+            && SetSecurityDescriptorDacl(sd, 1, acl, 0) != 0
+            && SetSecurityDescriptorControl(
+                sd,
+                keep | SE_DACL_AUTO_INHERIT_REQ,
+                (control & keep) | request,
+            ) != 0
+            && SetFileSecurityW(wide(path).as_ptr(), DACL_SECURITY_INFORMATION, sd) != 0
+    };
+    if ok {
         Ok(())
     } else {
-        Err(io::Error::from_raw_os_error(status as i32))
+        Err(io::Error::last_os_error())
     }
 }
 

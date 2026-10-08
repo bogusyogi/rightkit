@@ -697,3 +697,79 @@ fn junction_chain_resolves_physical_ancestors_and_skips_drive_root() {
     assert!(!physical.contains(&link));
     std::fs::remove_dir(link).unwrap();
 }
+
+fn dacl_control(path: &Path) -> u16 {
+    let snapshot = DaclSnapshot::read(path).unwrap();
+    let (mut control, mut revision) = (0u16, 0u32);
+    assert_ne!(
+        unsafe { GetSecurityDescriptorControl(snapshot.descriptor, &mut control, &mut revision) },
+        0
+    );
+    control
+}
+
+#[test]
+fn write_dacl_keeps_control_bits_and_leaves_descendants_untouched() {
+    // An inheriting (unprotected) parent above a deep subtree: the in-place write must not
+    // re-propagate into descendants, & must keep SE_DACL_AUTO_INHERITED / SE_DACL_PROTECTED.
+    let root = std::env::temp_dir().join(format!("rk-write-dacl-{}", std::process::id()));
+    let leaf = root.join("a").join("b").join("c");
+    std::fs::create_dir_all(&leaf).unwrap();
+    for i in 0..200 {
+        std::fs::write(leaf.join(format!("f{i}")), b"x").unwrap();
+    }
+    let parent = physical_path(&root.join("a")).unwrap();
+    let leaf_before = DaclSnapshot::read(&leaf).unwrap().aces().unwrap();
+    let control_before = dacl_control(&parent) & 0x1400;
+    let sid = LocalSid::parse("S-1-15-2-1-2-3-4-5-6-7").unwrap();
+    let snapshot = DaclSnapshot::read(&parent).unwrap();
+    let mut aces = snapshot.aces().unwrap();
+    let index = aces
+        .iter()
+        .position(|a| a[1] & INHERITED_ACE != 0)
+        .unwrap_or(aces.len());
+    aces.insert(index, allow_ace(&sid));
+    write_dacl(&parent, &aces, snapshot.revision()).unwrap();
+    assert!(allows_ancestor(&DaclSnapshot::read(&parent).unwrap(), &sid).unwrap());
+    assert_eq!(dacl_control(&parent) & 0x1400, control_before);
+    assert_eq!(
+        DaclSnapshot::read(&leaf).unwrap().aces().unwrap(),
+        leaf_before
+    );
+    aces.remove(index);
+    write_dacl(&parent, &aces, snapshot.revision()).unwrap();
+    assert!(!allows_ancestor(&DaclSnapshot::read(&parent).unwrap(), &sid).unwrap());
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+/// Real-profile smoke: BestEffort lease for a workspace below the user's temp dir (ancestors
+/// include C:\Users\<name>, AppData, Local). Run explicitly: `--ignored real_profile`.
+#[test]
+#[ignore]
+fn real_profile_best_effort_lease_is_fast_and_cleans_up() {
+    let workspace = std::env::temp_dir().join(format!("rk-real-lease-{}", std::process::id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    let sid = "S-1-15-2-1-2-3-4-5-6-8";
+    let started = std::time::Instant::now();
+    let lease =
+        AppContainerAncestorLease::acquire_with(&workspace, sid, AncestorLeasePolicy::BestEffort)
+            .unwrap();
+    let acquired = started.elapsed();
+    eprintln!("acquire {acquired:?}, unleasable {:?}", lease.unleasable());
+    let chain = ancestor_chain(&workspace).unwrap();
+    let local = LocalSid::parse(sid).unwrap();
+    drop(lease);
+    let released = started.elapsed();
+    eprintln!("release total {released:?}");
+    for path in &chain {
+        let explicit = DaclSnapshot::read(path)
+            .unwrap()
+            .aces()
+            .unwrap()
+            .into_iter()
+            .any(|ace| ace == allow_ace(&local));
+        assert!(!explicit, "lease ACE left on {}", path.display());
+    }
+    assert!(released < std::time::Duration::from_secs(5));
+    std::fs::remove_dir_all(&workspace).unwrap();
+}
