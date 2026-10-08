@@ -35,7 +35,7 @@ function gitEnv(env = process.env, platform = process.platform) {
 }
 
 function runGit(root, args, { encoding = "buffer", maxBuffer = 4 * 1024 * 1024, timeout = COMMAND_TIMEOUT_MS, runner = spawnSync, env = gitEnv(), input } = {}) {
-  const result = runner(nativeGitPath(), ["-C", root, "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", `core.hooksPath=${os.devNull}`, ...args], {
+  const result = runner(nativeGitPath(), ["-C", root, "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", `core.hooksPath=${os.devNull}`, "-c", `safe.directory=${root}`, ...args], {
     encoding, env, windowsHide: true, maxBuffer, timeout, ...(input ? { input } : {}),
   });
   if (result?.error || result?.status !== 0) throw new Error(`committed ownership: git ${args[0] ?? "command"} failed${result?.error?.code ? ` (${result.error.code})` : ""}`);
@@ -118,7 +118,7 @@ function acquire(root, { expectedCommit, expectedTree, requiredPaths = [], runne
   const text = (args) => runGit(root, args, { encoding: "utf8", runner, env }).trim();
   const repositoryRoot = path.resolve(text(["rev-parse", "--show-toplevel"]));
   const pathPrefix = text(["rev-parse", "--show-prefix"]).replaceAll("\\", "/");
-  const originResult = runner(nativeGitPath(), ["-C", repositoryRoot, "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", `core.hooksPath=${os.devNull}`, "config", "--get", "remote.origin.url"], {
+  const originResult = runner(nativeGitPath(), ["-C", repositoryRoot, "--no-replace-objects", "-c", "core.fsmonitor=false", "-c", `core.hooksPath=${os.devNull}`, "-c", `safe.directory=${repositoryRoot}`, "config", "--get", "remote.origin.url"], {
     encoding: "utf8", env, windowsHide: true, maxBuffer: 4 * 1024 * 1024, timeout: COMMAND_TIMEOUT_MS,
   });
   const origin = originResult?.status === 0 ? String(originResult.stdout).trim() : null;

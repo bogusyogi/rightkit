@@ -7,6 +7,7 @@ import { sha256 } from "./ownership-approval.mjs";
 
 const MAX_LIST_BYTES = 32 * 1024 * 1024;
 const MAX_BLOB_BATCH_BYTES = 256 * 1024 * 1024;
+const BLOB_CHUNK_BYTES = 32 * 1024 * 1024;
 const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 const CACHE_LIMIT = 128 * 1024 * 1024;
 const blobCache = new Map();
@@ -43,10 +44,37 @@ function decodePath(bytes) {
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
+function gitBlobSizes(root, repositoryRoot, oids) {
+  const lines = runGit(root, repositoryRoot, ["cat-file", "--batch-check"], { input: Buffer.from(`${oids.join("\n")}\n`) }).toString("ascii").split("\n");
+  if (lines.pop() !== "" || lines.length !== oids.length) throw new Error("ownership inventory: malformed Git blob size response");
+  return lines.map((line, index) => {
+    const [oid, type, sizeText] = line.split(" "), size = Number(sizeText);
+    if (oid !== oids[index] || type !== "blob" || !Number.isSafeInteger(size) || size < 0 || size > MAX_BLOB_BATCH_BYTES) throw new Error("ownership inventory: invalid Git blob");
+    return size;
+  });
+}
+
+// Chunk by blob size so a whole-repository read never exceeds one spawn's output buffer.
 function readGitBlobs(root, repositoryRoot, oids) {
   if (!oids.length) return new Map();
+  const sizes = gitBlobSizes(root, repositoryRoot, oids), result = new Map();
+  let chunk = [], chunkBytes = 0;
+  const flush = () => {
+    for (const [oid, bytes] of readGitBlobChunk(root, repositoryRoot, chunk, chunkBytes)) result.set(oid, bytes);
+    chunk = []; chunkBytes = 0;
+  };
+  oids.forEach((oid, index) => {
+    const cost = sizes[index] + 128;
+    if (chunk.length && chunkBytes + cost > BLOB_CHUNK_BYTES) flush();
+    chunk.push(oid); chunkBytes += cost;
+  });
+  if (chunk.length) flush();
+  return result;
+}
+
+function readGitBlobChunk(root, repositoryRoot, oids, expectedBytes) {
   const input = Buffer.from(`${oids.join("\n")}\n`);
-  const output = runGit(root, repositoryRoot, ["cat-file", "--batch"], { input, maxBuffer: MAX_BLOB_BATCH_BYTES });
+  const output = runGit(root, repositoryRoot, ["cat-file", "--batch"], { input, maxBuffer: Math.min(MAX_BLOB_BATCH_BYTES, expectedBytes + 1024 * 1024) });
   const result = new Map(); let offset = 0;
   for (const expected of oids) {
     const lineEnd = output.indexOf(0x0a, offset);
