@@ -93,3 +93,61 @@ cd .. && ./run-all.sh        # python3 run.py <offscreen|occluded|apphidden|mini
 ```
 (`tools/rightkit` workspace `cargo` is currently broken by the empty `crates/rightkit-align` directory, unrelated to this spike; both spike crates are standalone workspaces.)
 Fixture: `spikes/rk2-macos/fixture-app` (Tauri 2 + rightkit-control `tauri-plugin`, step id, 24-bit frame-counter strip, 7 s animated and 3 s static per 10 s, page input log). Helper: `spikes/rk2-macos/helper/main.swift` (`list`, `zorder`, `record`, `analyze`).
+
+## rAF investigation (2026-10-09): root cause found, fixed with a public API
+
+**Root cause: App Nap throttles the WebKit CVDisplayLink.** The fixture is a non-frontmost app with no window that AppKit considers visible (occlusion state 8192), so macOS App Naps it about 27 to 30 s after process launch. App Nap does not slow timers here (a 16 ms `setInterval` stayed at 50/s and a `MessageChannel`/`setTimeout(0)` loop kept running at tens of thousands per second throughout), but it cuts display-link callbacks to about 10 Hz. A bare `CVDisplayLink` I added inside the fixture process showed the same cut (about 61 callbacks/s to about 13/s at about 30 s) while the activity-holding run kept 61/s. WebKit paces `requestAnimationFrame` from that display link, so rAF falls from 60 to 10 to 14 Hz while `visibilityState` stays `visible`. The earlier "random 17 to 47 s" was launch-relative: with the window ordered only at launch+30 s the page was already throttled at its first sample (`preplace30`). Earlier "NSProcessInfo activity did not help" did not reproduce: held from fixture startup or at placement it held 60 Hz in every run below.
+
+**Fix: hold `-[NSProcessInfo beginActivityWithOptions:reason:]` with `NSActivityUserInitiatedAllowingIdleSystemSleep` (0x00EFFFFF) for the life of the hosting app.** Public API, no private SPI. `NSActivityLatencyCritical` alone and `NSActivityBackground` do not help; the user-initiated bit is the one that matters. The `latencyCritical` bit used in the first try is not required. Starting the activity after the drop recovers rAF within 2 s (`late_napoff`, started at 45 s, 60 Hz from 46 s), so it is also safe to apply late. It must live in the process that owns the window (rightkit-control's embedded path can do this; an uncooperating third-party app cannot be fixed from outside).
+
+All runs: fixture off-screen at x=3600, `_setWindowOcclusionDetectionEnabled:NO` applied, page-only measurement (single read at the end unless noted), rAF counted in the page every 2 s (1 s in the monitor).
+
+| # | Hypothesis / change | Measured rAF (Hz over time) | Verdict |
+|---|---|---|---|
+| 1 | Baseline: SPI only, no polling, 120 s (x3), polled every 3 s (x1), 70 s with `sample` | 60 until 26 to 30 s, then 9 to 14 for the rest; 5 of 5 dropped | Reproduces, launch-relative |
+| 2 | Process throttling / timer coalescing (16 ms interval, MessageChannel loop sampled with the rAF) | timers flat at 50/s and loop at tens of thousands/s while rAF fell to about 11 | Not process or timer throttling; display link only |
+| 3 | Re-`orderFrontRegardless` at 20 s | still dropped at 27 s | No effect |
+| 4 | `WKPreferences` `_setPageVisibilityBasedProcessSuppressionEnabled:NO`, `_setHiddenPageDOMTimerThrottlingEnabled:NO`, `_setDOMTimersThrottlingEnabled:NO`, `_setAppNapEnabled:NO` (all on the live preferences, accepted) | dropped at 26 s | Does not help (and none are needed) |
+| 5 | Delay `place` to launch+30 s | page already at 10 to 13 Hz at first sample | Drop is launch-relative, not window-relative |
+| 6 | `NSAppSleepDisabled=YES` via process-scoped `registerDefaults` (in-memory, nothing written), 120 s | 60 Hz for all 120 s, 3 runs (one with 3 s polling) | Fixes it, but undocumented key; not needed |
+| 7 | `beginActivity` `UserInitiatedAllowingIdleSystemSleep` + `LatencyCritical`, 120 s | 60 Hz for all 120 s, 4 runs | Fixes it |
+| 8 | `UserInitiatedAllowingIdleSystemSleep` only, 90 s | 60 Hz for 90 s | Fixes it; this is the minimal option |
+| 9 | `LatencyCritical` only / `Background` only, 90 s | dropped at 26 s | Insufficient |
+| 10 | Activity started late (45 s, after the drop) | 10 to 14 Hz 27 to 45 s, 60 Hz from 46 s on | Recovers |
+| 11 | Window occlusion state over time (polled `occlusionState` every 3 s) | constant 8192 (not visible), no flipping | Not the cause |
+| 12 | WebKit `inactiveSchedulingPolicy=.none`, process-pool or screen-nil fallbacks | `policy` was earlier shown ineffective; the `CVDisplayLink` fires at 60 Hz on the active display regardless of `screen == nil`, so screen-nil binding is not the cause | Not the cause |
+| 13 | `CADisplayLink` from `-[NSWindow displayLinkWithTarget:selector:]` / `-[NSView ...]` | never fired (0 callbacks) in either state | Not usable off-screen; not required |
+| 14 | RunningBoard log (`log stream` for the WebContent pid) | stream produced no events for the fixture in this session | Inconclusive; superseded by the measured result |
+
+Not run: `LSAppNapIsDisabled` Info.plist (the fixture runs as a bare binary because `.app` copies stopped creating their window; hypothesis 6 is the same App Nap switch via defaults); `_setVisibleOverride`-style WebKit SPI and `_setThrottleStateForTesting:` (unneeded once the display link is fixed, listed as the untested items in the open defect above).
+
+### Re-run of the spike criterion with the fix
+
+`RK2_NAP` default is now on in `run.py` (`nap_off` command with the default options before `place`; `RK2_NAP=off` restores the old behaviour); evidence in `*-napfix` dirs, the old defective runs are kept.
+
+| Run | Frames | Black | OCR step id correct | Counter advanced, whole run | rAF samples | First throttled | Foreign magenta |
+|---|---|---|---|---|---|---|---|
+| offscreen 30 fps, 60 s (`offscreen-30fps-stream-napfix`) | 1760 | 0 | 277/277 | 1085/1085 = 100.0% | 60 Hz throughout | none | 0 |
+| offscreen 60 fps, 60 s (`offscreen-60fps-stream-napfix`) | 3343 | 0 | 432/432 | 2079/2083 = 99.8% | 60 Hz throughout | none | 0 |
+| occluded 30 fps, 120 s (`occluded-30fps-stream-napfix`) | 3521 | 0 | 394/394 | 2165/2165 = 100.0% | 60 Hz for 120 s | none | 0 |
+
+The "counter advances in at least 95% of intervals for 60 s" criterion **passes** for off-screen-visible at 30 and 60 fps and for occluded (120 s). Page-only 120 s holds also passed (hypotheses 6 to 8 above). The earlier 52 to 58% whole-run figure came entirely from the post-throttle segment.
+
+### Decision table update (macOS)
+
+| Visibility state | Verdict now |
+|---|---|
+| Off-screen-visible | **Supported.** Defect closed. Fixture-side requirements: constrain override (class-scoped), `_setWindowOcclusionDetectionEnabled:NO` before first order, **hold an NSProcessInfo `UserInitiatedAllowingIdleSystemSleep` activity in the hosting process** |
+| Occluded (off-screen overlap) | **Supported**, R12 still 0 foreign pixels, rAF 60 Hz for 120 s |
+| App-hidden, minimized, no-SPI, direct-to-file | unchanged (unsupported or unsuitable) |
+
+### Private SPI and release risk
+
+- `-[WKWebView _setWindowOcclusionDetectionEnabled:]` is still the only private SPI (the rAF fix adds none). It is an underscore-prefixed method on a public class: App Store review rejects non-public API use, but notarized Developer ID distribution (Sparkle/GitHub or R2) does not check for it. Risk is breakage, not rejection: it is called through `respondsToSelector:` and reported if missing (the fixture says `spi selector missing`), and the failure mode is loud (page goes hidden, rAF 0, grey frames). Pin it to a qualification test on each macOS major, gating `launch_offscreen`.
+- The constrain override replaces `constrainFrameRect:toScreen:` (public, overridden by `class_replaceMethod` on the window class), which is a runtime-swizzle, not private API, but affects every window of that class in the process; keep it scoped to the Tao window class of the driven app.
+- `beginActivity` is public. Holding it costs idle-system-sleep permission only (the options allow idle sleep); it does keep the app out of App Nap for as long as the driven session lasts, so release it when the session ends.
+- If the SPI must go: the app-owned render-surface fallback (below) removes the occlusion SPI but not the need for an activity.
+
+### Fallback assessment (not needed now, kept as the exit)
+
+If WebKit ever stops honouring the occlusion override: render the page into an app-owned surface (WKWebView `takeSnapshot` is too slow for 30 to 60 fps; the realistic route is hosting the webview in a `NSView` backed by a layer rendered with `CARenderer` or a `WKWebView` inside a window forced onto a virtual display, with the helper reading an `IOSurface`). Effort estimate (agentic wall-clock, Mac only): about 1 to 2 h for a prototype with `CALayer` render-to-`IOSurface` and rAF measurement, 3 to 5 h to productize it into `launch_offscreen` with the helper reading the shared surface and parity tests (clock mapping, OCR, R12). Not recommended while the current path passes.

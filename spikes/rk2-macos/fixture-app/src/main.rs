@@ -44,6 +44,11 @@ mod nat {
         fn class_replaceMethod(c: *mut c_void, s: *const c_void, imp: *const c_void, types: *const c_char) -> *mut c_void;
         fn class_getInstanceMethod(c: *mut c_void, s: *const c_void) -> *mut c_void;
         fn method_getTypeEncoding(m: *mut c_void) -> *const c_char;
+        pub fn class_copyMethodList(c: *mut c_void, n: *mut u32) -> *mut *mut c_void;
+        pub fn method_getName(m: *mut c_void) -> *const c_void;
+        pub fn sel_getName(s: *const c_void) -> *const c_char;
+        pub fn class_getSuperclass(c: *mut c_void) -> *mut c_void;
+        pub fn free(p: *mut c_void);
     }
     extern "C" fn unconstrained(_: *mut c_void, _: *const c_void, r: Rect, _: *mut c_void) -> Rect { r }
     /// Per-window subclass whose constrainFrameRect:toScreen: is the identity (same technique as rightkit-control set_viewport),
@@ -75,6 +80,10 @@ mod nat {
     }
     /// tao's sendEvent: walks the window class's superclass, so the override must be scoped: restore the original class.
     pub unsafe fn restore_class(w: *mut c_void, base: *mut c_void) { if !base.is_null() { object_setClass(w, base); } }
+    pub unsafe fn objc_getClass_pub(n: *const c_char) -> *mut c_void { objc_getClass(n) }
+    pub unsafe fn objc_allocateClassPair_pub(s: *mut c_void, n: *const c_char, e: usize) -> *mut c_void { objc_allocateClassPair(s, n, e) }
+    pub unsafe fn class_addMethod_pub(c: *mut c_void, s: *const c_void, i: *const c_void, t: *const c_char) -> bool { class_addMethod(c, s, i, t) }
+    pub unsafe fn objc_registerClassPair_pub(c: *mut c_void) { objc_registerClassPair(c) }
     pub fn msg_ptr() -> *const c_void { objc_msgSend as *const c_void }
     pub unsafe fn sel(n: &std::ffi::CStr) -> *const c_void { sel_registerName(n.as_ptr()) }
     pub unsafe fn class(n: &std::ffi::CStr) -> *mut c_void { objc_getClass(n.as_ptr()) }
@@ -130,6 +139,51 @@ mod nat {
             out.push(format!(r#"{{"x":{},"y":{},"w":{},"h":{},"scale":{}}}"#, r.x, r.y, r.w, r.h, dbl(s, c"backingScaleFactor")));
         }
         format!("[{}]", out.join(","))
+    }
+}
+
+
+#[cfg(target_os = "macos")]
+mod dl {
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    pub static CV_COUNT: AtomicU64 = AtomicU64::new(0);
+    pub static CA_COUNT: AtomicU64 = AtomicU64::new(0);
+    #[link(name = "CoreVideo", kind = "framework")]
+    extern "C" {
+        fn CVDisplayLinkCreateWithActiveCGDisplays(out: *mut *mut c_void) -> i32;
+        fn CVDisplayLinkSetOutputCallback(l: *mut c_void, cb: extern "C" fn(*mut c_void, *const c_void, *const c_void, u64, *mut u64, *mut c_void) -> i32, ctx: *mut c_void) -> i32;
+        fn CVDisplayLinkStart(l: *mut c_void) -> i32;
+    }
+    extern "C" fn cv_cb(_: *mut c_void, _: *const c_void, _: *const c_void, _: u64, _: *mut u64, _: *mut c_void) -> i32 { CV_COUNT.fetch_add(1, Ordering::Relaxed); 0 }
+    pub unsafe fn start_cv() -> i32 {
+        let mut l: *mut c_void = std::ptr::null_mut();
+        let r = CVDisplayLinkCreateWithActiveCGDisplays(&mut l); if r != 0 { return r; }
+        CVDisplayLinkSetOutputCallback(l, cv_cb, std::ptr::null_mut()); CVDisplayLinkStart(l)
+    }
+    extern "C" fn ca_tick(_: *mut c_void, _: *const c_void, _: *mut c_void) { CA_COUNT.fetch_add(1, Ordering::Relaxed); }
+    /// CADisplayLink from NSWindow/NSView displayLinkWithTarget:selector: (macOS 14+) on the main run loop, common modes.
+    pub unsafe fn start_ca(owner: *mut c_void, target_is_view: bool) -> String {
+        use super::nat::*;
+        let _ = target_is_view;
+        let cname = c"Rk2DLTarget";
+        let mut cls = objc_getClass_pub(cname.as_ptr());
+        if cls.is_null() {
+            cls = objc_allocateClassPair_pub(class(c"NSObject"), cname.as_ptr(), 0);
+            class_addMethod_pub(cls, sel(c"tick:"), ca_tick as *const c_void, c"v@:@".as_ptr());
+            objc_registerClassPair_pub(cls);
+        }
+        let f0: unsafe extern "C" fn(*mut c_void, *const c_void) -> *mut c_void = std::mem::transmute(msg_ptr());
+        let tgt = f0(f0(cls, sel(c"alloc")), sel(c"init"));
+        let f2: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void, *const c_void) -> *mut c_void = std::mem::transmute(msg_ptr());
+        let link = f2(owner, sel(c"displayLinkWithTarget:selector:"), tgt, sel(c"tick:"));
+        if link.is_null() { return "nil link".into(); }
+        let rl = f0(class(c"NSRunLoop"), sel(c"mainRunLoop"));
+        let f3: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void, *mut c_void) = std::mem::transmute(msg_ptr());
+        let mk: unsafe extern "C" fn(*mut c_void, *const c_void, *const std::ffi::c_char) -> *mut c_void = std::mem::transmute(msg_ptr());
+        let mode = mk(class(c"NSString"), sel(c"stringWithUTF8String:"), c"kCFRunLoopCommonModes".as_ptr());
+        f3(link, sel(c"addToRunLoop:forMode:"), rl, mode);
+        "ok".into()
     }
 }
 
@@ -190,6 +244,24 @@ fn main() {
     // Spike fixture only: never raise the macOS "quit unexpectedly" dialog on a shared desktop. A fatal signal exits
     // silently (no ReportCrash). Process-scoped; no global CrashReporter setting is touched.
     unsafe { for s in [11, 10, 6, 4, 8] { signal(s, quiet_exit); } }
+    // RK2_REGDEFAULTS="Key=1,Key2=0": process-scoped NSUserDefaults registration (registration domain, never persisted).
+    #[cfg(target_os = "macos")]
+    if let Ok(spec) = std::env::var("RK2_REGDEFAULTS") { unsafe {
+        use std::ffi::c_void;
+        let dict_new: unsafe extern "C" fn(*mut c_void, *const c_void) -> *mut c_void = std::mem::transmute(nat::msg_ptr());
+        let set: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void, *mut c_void) = std::mem::transmute(nat::msg_ptr());
+        let num_b: unsafe extern "C" fn(*mut c_void, *const c_void, bool) -> *mut c_void = std::mem::transmute(nat::msg_ptr());
+        let str_u: unsafe extern "C" fn(*mut c_void, *const c_void, *const std::ffi::c_char) -> *mut c_void = std::mem::transmute(nat::msg_ptr());
+        let reg: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void) = std::mem::transmute(nat::msg_ptr());
+        let d = dict_new(dict_new(nat::class(c"NSMutableDictionary"), nat::sel(c"alloc")), nat::sel(c"init"));
+        for kv in spec.split(',') { if let Some((k, v)) = kv.split_once('=') {
+            let ck = std::ffi::CString::new(k).unwrap();
+            let ks = str_u(nat::class(c"NSString"), nat::sel(c"stringWithUTF8String:"), ck.as_ptr());
+            let vs = num_b(nat::class(c"NSNumber"), nat::sel(c"numberWithBool:"), v == "1");
+            set(d, nat::sel(c"setObject:forKey:"), vs, ks);
+        } }
+        reg(nat::obj(nat::class(c"NSUserDefaults"), c"standardUserDefaults"), nat::sel(c"registerDefaults:"), d);
+    } }
     if let Ok(p) = std::env::var("RK2_LOG") {
         if let Ok(f) = std::fs::OpenOptions::new().create(true).append(true).open(p) { let _ = LOG.set(Mutex::new(f)); }
     }
@@ -285,18 +357,90 @@ fn main() {
             Ok(format!("\"{r}\""))
         })
         // nap_off: hold an NSProcessInfo activity (user-initiated + latency-critical) so App Nap / timer coalescing cannot throttle the page.
-        .command("nap_off", |a, _| {
-            on_main(a, |_| unsafe {
+        .command("nap_off", |a, b| {
+            // opts: decimal NSActivityOptions override (default user-initiated-allowing-idle-sleep | latency-critical)
+            let opts: u64 = rightkit_control::json::str_field(b, "opts").and_then(|v| v.parse().ok()).unwrap_or(0x00EF_FFFF | 0xFF_0000_0000);
+            on_main(a, move |_| unsafe {
                 use std::ffi::c_void;
                 let pi = nat::obj(nat::class(c"NSProcessInfo"), c"processInfo");
                 let mk: unsafe extern "C" fn(*mut c_void, *const c_void, *const std::ffi::c_char) -> *mut c_void = std::mem::transmute(nat::msg_ptr());
                 let reason = mk(nat::class(c"NSString"), nat::sel(c"stringWithUTF8String:"), c"rk2 spike capture".as_ptr());
                 let begin: unsafe extern "C" fn(*mut c_void, *const c_void, u64, *mut c_void) -> *mut c_void = std::mem::transmute(nat::msg_ptr());
-                let act = begin(pi, nat::sel(c"beginActivityWithOptions:reason:"), 0x00EF_FFFF | 0xFF_0000_0000, reason);
+                let act = begin(pi, nat::sel(c"beginActivityWithOptions:reason:"), opts, reason);
                 let retain: unsafe extern "C" fn(*mut c_void, *const c_void) -> *mut c_void = std::mem::transmute(nat::msg_ptr());
                 retain(act, nat::sel(c"retain"));
             })?;
             Ok("\"activity held\"".into())
+        })
+        // ---- rAF investigation (spike) ----
+        // oc {target,sel,argk,argv}: send one message to window|contentview|webview|prefs|config|app|procinfo|layer|screen; argk none|bool|int|str.
+        .command("oc", |a, b| {
+            use tauri::Manager;
+            use std::ffi::{c_void, CString};
+            let target = rightkit_control::json::str_field(b, "target").unwrap_or_default();
+            let sel = rightkit_control::json::str_field(b, "sel").ok_or("sel")?;
+            let argk = rightkit_control::json::str_field(b, "argk").unwrap_or_else(|| "none".into());
+            let argv = rightkit_control::json::str_field(b, "argv").unwrap_or_default();
+            let win = a.get_webview_window("main").ok_or("no window")?;
+            let (tx, rx) = std::sync::mpsc::channel();
+            win.with_webview(move |pv| unsafe {
+                let wk = pv.inner();
+                let w = nat::obj(wk, c"window");
+                let cv = nat::obj(w, c"contentView");
+                let cfg = nat::obj(wk, c"configuration");
+                let t: *mut c_void = match target.as_str() {
+                    "window" => w, "contentview" => cv, "webview" => wk, "config" => cfg,
+                    "prefs" => nat::obj(cfg, c"preferences"),
+                    "app" => nat::obj(nat::class(c"NSApplication"), c"sharedApplication"),
+                    "procinfo" => nat::obj(nat::class(c"NSProcessInfo"), c"processInfo"),
+                    "layer" => nat::obj(cv, c"layer"),
+                    "screen" => nat::obj(w, c"screen"),
+                    _ => std::ptr::null_mut(),
+                };
+                if t.is_null() { let _ = tx.send("target null".to_string()); return; }
+                let csel = CString::new(sel.clone()).unwrap();
+                let s = nat::sel(&csel);
+                let responds: unsafe extern "C" fn(*mut c_void, *const c_void, *const c_void) -> bool = std::mem::transmute(nat::msg_ptr());
+                if !responds(t, nat::sel(c"respondsToSelector:"), s) { let _ = tx.send(format!("{sel}: not implemented")); return; }
+                let r: i64 = match argk.as_str() {
+                    "bool" => { let f: unsafe extern "C" fn(*mut c_void, *const c_void, bool) -> i64 = std::mem::transmute(nat::msg_ptr()); f(t, s, argv == "1" || argv == "true") }
+                    "int" => { let f: unsafe extern "C" fn(*mut c_void, *const c_void, i64) -> i64 = std::mem::transmute(nat::msg_ptr()); f(t, s, argv.parse().unwrap_or(0)) }
+                    "dbl" => { let f: unsafe extern "C" fn(*mut c_void, *const c_void, f64) -> i64 = std::mem::transmute(nat::msg_ptr()); f(t, s, argv.parse().unwrap_or(0.0)) }
+                    "nil" => { let f: unsafe extern "C" fn(*mut c_void, *const c_void, *mut c_void) -> i64 = std::mem::transmute(nat::msg_ptr()); f(t, s, std::ptr::null_mut()) }
+                    _ => { let f: unsafe extern "C" fn(*mut c_void, *const c_void) -> i64 = std::mem::transmute(nat::msg_ptr()); f(t, s) }
+                };
+                let _ = tx.send(format!("{target}.{sel} -> {r}"));
+            }).map_err(|e| e.to_string())?;
+            let r = rx.recv_timeout(std::time::Duration::from_secs(10)).map_err(|e| e.to_string())?;
+            Ok(format!("\"{r}\""))
+        })
+        // dump {cls,filter}: list instance method names of an ObjC class containing filter (comma separated, any match).
+        .command("dump", |_a, b| {
+            use std::ffi::{c_void, CString, CStr};
+            let cls = rightkit_control::json::str_field(b, "cls").ok_or("cls")?;
+            let filt: Vec<String> = rightkit_control::json::str_field(b, "filter").unwrap_or_default().to_lowercase().split(',').map(|s| s.to_string()).collect();
+            let mut out = vec![];
+            unsafe {
+                let c = nat::class(&CString::new(cls).unwrap());
+                if c.is_null() { return Ok("\"class missing\"".into()); }
+                let mut n: u32 = 0;
+                let ms = nat::class_copyMethodList(c, &mut n);
+                for i in 0..n as usize {
+                    let nm = CStr::from_ptr(nat::sel_getName(nat::method_getName(*ms.add(i)))).to_string_lossy().to_string();
+                    let l = nm.to_lowercase();
+                    if filt.iter().any(|f| !f.is_empty() && l.contains(f.as_str())) { out.push(nm); }
+                }
+                nat::free(ms as *mut c_void);
+            }
+            Ok(format!("\"{}\"", out.join(" ")))
+        })
+        // win_ids: how the window server sees it
+        .command("cvdl_start", |_a, _| Ok(format!("\"{}\"", unsafe { dl::start_cv() })))
+        .command("dl_counts", |_a, _| Ok(format!("{{\"cv\":{},\"ca\":{}}}", dl::CV_COUNT.load(std::sync::atomic::Ordering::Relaxed), dl::CA_COUNT.load(std::sync::atomic::Ordering::Relaxed))))
+        .command("cadl_start", |a, b| {
+            let kind = rightkit_control::json::str_field(b, "kind").unwrap_or_default();
+            let r = on_main(a, move |w| unsafe { let o = if kind == "view" { nat::obj(w, c"contentView") } else { w }; dl::start_ca(o, kind == "view") })?;
+            Ok(format!("\"{r}\""))
         })
         .command("order_front", |a, _| { on_main(a, |w| unsafe { nat::send_nil(w, c"orderFrontRegardless") })?; win_info(a) })
         .command("order_out", |a, _| { on_main(a, |w| unsafe { nat::send_nil(w, c"orderOut:") })?; win_info(a) })

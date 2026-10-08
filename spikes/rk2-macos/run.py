@@ -55,7 +55,7 @@ def excl_all(): return ",".join(str(p) for p in ALLPIDS)
 
 def run(state, fps, seconds, mode="stream"):
     PRE = os.environ.get("RK2_PRE", "spi")
-    label = f"{state}-{fps}fps-{mode}" + ("" if PRE == "spi" else "-nospi") + ("-noinput" if os.environ.get("RK2_NOINPUT") else "")
+    label = f"{state}-{fps}fps-{mode}" + ("" if PRE == "spi" else "-nospi") + ("-noinput" if os.environ.get("RK2_NOINPUT") else "") + os.environ.get("RK2_LABEL_SUFFIX", "")
     out = os.path.join(EVID, label); shutil.rmtree(out, ignore_errors=True); os.makedirs(out)
     tmp = tempfile.mkdtemp(prefix="rk2run.", dir=SCRATCH)
     suite = os.path.join(tmp, "suite")
@@ -83,6 +83,8 @@ def run(state, fps, seconds, mode="stream"):
     rep["display_union_appkit"] = union; rep["placement_target"] = [px, py]
     rep["pre_visibility_force"] = PRE
     if PRE == "spi": rep["vis_force_result"] = fx.cmd("vis_force", mode="spi")
+    # rAF investigation fix: hold a public NSProcessInfo activity so App Nap cannot throttle the display link (RK2_NAP=off for the old behaviour)
+    if os.environ.get("RK2_NAP", "on") != "off": rep["nap_off_result"] = fx.cmd("nap_off", opts=os.environ.get("RK2_NAP_OPTS", ""))
     info = fx.cmd("place", x=px, y=py); rep["info_placed"] = info
     f = info["frame"]; disjoint = all(f["x"] >= s["x"] + s["w"] or f["x"] + f["w"] <= s["x"] or f["y"] >= s["y"] + s["h"] or f["y"] + f["h"] <= s["y"] for s in scr)
     rep["placement_outside_all_displays"] = disjoint; rep["backing_scale"] = info["backingScale"]
