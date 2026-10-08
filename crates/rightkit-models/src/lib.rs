@@ -12,6 +12,7 @@
 //! Brand-neutral: callers choose the store root and lock-holder name.
 
 mod alias;
+mod archive_core;
 #[cfg(feature = "rightapps")]
 pub mod rightapps;
 #[cfg(feature = "rightapps")]

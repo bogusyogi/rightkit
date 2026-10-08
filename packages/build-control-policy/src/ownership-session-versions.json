@@ -271,7 +271,7 @@
     "rightkit-logs": "0.2.0",
     "rightkit-mcp": "0.5.1",
     "rightkit-media": "0.2.4",
-    "rightkit-models": "0.2.5",
+    "rightkit-models": "0.2.6",
     "rightkit-oauth": "0.3.0",
     "rightkit-ort": "0.2.1",
     "rightkit-pdf": "0.2.0",
@@ -376,7 +376,8 @@
       "0.2.1",
       "0.2.2",
       "0.2.3",
-      "0.2.4"
+      "0.2.4",
+      "0.2.5"
     ],
     "rightkit-audio": [
       "0.1.0",

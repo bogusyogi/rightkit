@@ -6,6 +6,7 @@
 //! on failure. A deterministic aside name lets the next startup recover from a
 //! kill in the narrow rename window.
 
+use crate::archive_core::{self, Compression};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -34,35 +35,36 @@ pub fn install_tar_gz(
     let _ = fs::remove_dir_all(&staging);
     fs::create_dir_all(&staging).map_err(|err| format!("create {}: {err}", staging.display()))?;
 
-    let result = unpack_checked(archive, &staging).and_then(|()| {
-        let dest = dest_root.join(installed_name);
-        // Never delete `dest` before the replacement is in place: a crash or a
-        // failed rename between the two would leave no model at all. Move the
-        // existing install aside, commit the new one, and only then drop the
-        // aside copy; restore it if the commit fails.
-        let aside = dest
-            .exists()
-            .then(|| previous_aside_path(dest_root, installed_name));
-        if let Some(aside) = aside.as_ref() {
-            let _ = fs::remove_dir_all(aside);
-            fs::rename(&dest, aside)
-                .map_err(|err| format!("stage previous {}: {err}", dest.display()))?;
-        }
-        match fs::rename(&staging, &dest) {
-            Ok(()) => {
-                if let Some(aside) = aside.as_ref() {
-                    let _ = fs::remove_dir_all(aside);
-                }
-                Ok(())
+    let result =
+        archive_core::unpack_wrapped(archive, Compression::Gzip, &staging).and_then(|()| {
+            let dest = dest_root.join(installed_name);
+            // Never delete `dest` before the replacement is in place: a crash or a
+            // failed rename between the two would leave no model at all. Move the
+            // existing install aside, commit the new one, and only then drop the
+            // aside copy; restore it if the commit fails.
+            let aside = dest
+                .exists()
+                .then(|| previous_aside_path(dest_root, installed_name));
+            if let Some(aside) = aside.as_ref() {
+                let _ = fs::remove_dir_all(aside);
+                fs::rename(&dest, aside)
+                    .map_err(|err| format!("stage previous {}: {err}", dest.display()))?;
             }
-            Err(err) => {
-                if let Some(aside) = aside.as_ref() {
-                    let _ = fs::rename(aside, &dest);
+            match fs::rename(&staging, &dest) {
+                Ok(()) => {
+                    if let Some(aside) = aside.as_ref() {
+                        let _ = fs::remove_dir_all(aside);
+                    }
+                    Ok(())
                 }
-                Err(format!("install {}: {err}", dest.display()))
+                Err(err) => {
+                    if let Some(aside) = aside.as_ref() {
+                        let _ = fs::rename(aside, &dest);
+                    }
+                    Err(format!("install {}: {err}", dest.display()))
+                }
             }
-        }
-    });
+        });
 
     if result.is_err() {
         let _ = fs::remove_dir_all(&staging);
@@ -119,122 +121,6 @@ pub fn cleanup_staging_dirs(dest_root: &Path) {
             let _ = fs::remove_dir_all(entry.path());
         }
     }
-}
-
-fn unpack_checked(archive: &Path, staging: &Path) -> Result<(), String> {
-    let file =
-        fs::File::open(archive).map_err(|err| format!("open {}: {err}", archive.display()))?;
-    let decoder = flate2::read::GzDecoder::new(file);
-    let mut archive = tar::Archive::new(decoder);
-    archive.set_preserve_ownerships(false);
-    archive.set_preserve_permissions(false);
-    archive.set_unpack_xattrs(false);
-
-    let mut saw_member = false;
-    let mut wrapper: Option<std::ffi::OsString> = None;
-    let entries = archive
-        .entries()
-        .map_err(|err| format!("read archive: {err}"))?;
-    for entry in entries {
-        let mut entry = entry.map_err(|err| format!("read archive entry: {err}"))?;
-        let member = entry
-            .path()
-            .map_err(|err| format!("read archive path: {err}"))?
-            .into_owned();
-        if is_ignorable_apple_metadata(&member) {
-            continue;
-        }
-        let Some(rel) = checked_member_path(&member, &mut wrapper)? else {
-            // The wrapper dir entry itself (`<wrapper>/`): nothing to unpack.
-            continue;
-        };
-        let kind = entry.header().entry_type();
-        if kind.is_dir() {
-            fs::create_dir_all(staging.join(rel))
-                .map_err(|err| format!("create extracted dir: {err}"))?;
-        } else if kind.is_file() {
-            let out = staging.join(rel);
-            if let Some(parent) = out.parent() {
-                fs::create_dir_all(parent).map_err(|err| format!("create extracted dir: {err}"))?;
-            }
-            entry
-                .unpack(&out)
-                .map_err(|err| format!("extract {}: {err}", member.display()))?;
-        } else {
-            return Err(format!(
-                "unsupported archive member type at {}",
-                member.display()
-            ));
-        }
-        saw_member = true;
-    }
-    if !saw_member {
-        return Err("archive was empty".to_string());
-    }
-    Ok(())
-}
-
-/// `--strip-components=1` with hardening: every member must be `<wrapper>/<path…>`
-/// where `<wrapper>` is one consistent normal dir name and `<path…>` contains
-/// only normal components — `..`, roots, prefixes, and alternate wrappers all
-/// reject. The wrapper entry itself maps to `None` (skipped).
-fn checked_member_path(
-    path: &Path,
-    wrapper: &mut Option<std::ffi::OsString>,
-) -> Result<Option<PathBuf>, String> {
-    let mut components = path.components();
-    let first = match components.next() {
-        Some(Component::Normal(part)) => part,
-        _ => {
-            return Err(format!(
-                "archive member escapes model dir: {}",
-                path.display()
-            ))
-        }
-    };
-    match wrapper {
-        Some(w) if w != first => {
-            return Err(format!(
-                "archive member escapes model dir: {}",
-                path.display()
-            ))
-        }
-        None => *wrapper = Some(first.to_os_string()),
-        _ => {}
-    }
-    let mut out = PathBuf::new();
-    for component in components {
-        match component {
-            Component::Normal(part) => out.push(part),
-            Component::CurDir => {}
-            _ => {
-                return Err(format!(
-                    "archive member escapes model dir: {}",
-                    path.display()
-                ))
-            }
-        }
-    }
-    if out.as_os_str().is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(out))
-}
-
-fn is_ignorable_apple_metadata(path: &Path) -> bool {
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => {
-                let name = part.to_string_lossy();
-                if name == "__MACOSX" || name.starts_with("._") {
-                    return true;
-                }
-            }
-            Component::CurDir => {}
-            _ => return false,
-        }
-    }
-    false
 }
 
 fn validate_dir_name(name: &str) -> Result<(), String> {
