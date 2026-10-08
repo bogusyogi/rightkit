@@ -1,38 +1,61 @@
 //! Safe filesystem state for Right Suite apps.
 //!
 //! - [`atomic`]: temp + `fsync` + rename replacement, streaming writer, crash-orphan sweep.
-//! - [`lock`]: OS advisory cross-process locks with owner/stale reporting.
+//!   [`atomic_write`] is the one-call entry point.
+//! - [`lock`]: OS advisory cross-process locks with owner/stale reporting. Two primitives:
+//!   [`FileLock::acquire`] / [`FileLock::try_acquire`] take the exclusive lock, and
+//!   [`FileLock::acquire_shared`] takes a shared (reader) lock.
+//! - [`digest`] (feature `digest`): SHA-256 of bytes or files, and lowercase hex.
 //! - [`private`]: owner-only files and directories (0600/0700, Windows DACL).
 //! - [`state`]: [`StateDir`], a descriptor-pinned state directory (`O_NOFOLLOW`, fd-relative
 //!   `*at` operations) that a swapped or symlinked path cannot redirect.
-//! - [`identity`]: stable file identity across renames and atomic replacement.
+//! - [`identity`] (feature `json`): stable file identity across renames and atomic replacement.
 //! - [`clone`]: macOS `clonefile(2)` with `CLONE_NOFOLLOW`; never falls back to a byte copy.
 
+#[cfg(feature = "fs")]
 pub mod atomic;
+#[cfg(feature = "fs")]
 pub mod clone;
+#[cfg(feature = "digest")]
+pub mod digest;
+#[cfg(feature = "fs")]
 pub mod error;
+#[cfg(feature = "json")]
 pub mod identity;
+#[cfg(feature = "lock")]
 pub mod lock;
+#[cfg(feature = "fs")]
 pub mod netfs;
+#[cfg(feature = "fs")]
 pub mod private;
+#[cfg(feature = "fs")]
 pub mod state;
 
+#[cfg(feature = "fs")]
 pub use atomic::{
     atomic_write, atomic_write_private, atomic_write_with, sweep_stale_temps, AtomicOptions,
     AtomicWriter,
 };
+#[cfg(feature = "fs")]
 pub use clone::{clone_file_nofollow, CloneError};
+#[cfg(feature = "fs")]
 pub use error::{FsError, Result};
+#[cfg(feature = "json")]
 pub use identity::{FileKey, IdentityStore, Resolution, StableId, Tracked};
+#[cfg(feature = "lock")]
 pub use lock::{with_lock, FileLock, LockOptions, LockOwner};
+#[cfg(feature = "fs")]
 pub use netfs::is_network_filesystem;
+#[cfg(feature = "fs")]
 pub use private::{
     create_private_new, ensure_private_dir, restrict_owner_only, sweep_owner_only,
     write_private_file, write_private_text,
 };
+#[cfg(feature = "fs")]
 pub use state::{EntryKind, EntryStat, StateDir};
 
 /// Whether process `pid` currently exists.
+#[cfg(feature = "fs")]
 pub fn process_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {

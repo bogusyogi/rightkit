@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Peer contract change: `react-image-crop` (`^11.1.2`) moved from a regular dependency to an optional peer. Only the `@rightkit/media-ui/image` entry imports it. Apps that import `@rightkit/media-ui/image` must add `react-image-crop` `^11.1.2` to their own dependencies. Root-entry-only apps need no change.
+
 ## 0.2.6 — 2026-10-07
 
 - Test-only: the real-browser e2e harness launches Chrome for Testing through `@rightkit/qa/chrome` (`RIGHTKIT_CHROME_FOR_TESTING` overrides; skips with install instructions when missing, never regular Chrome) and closes gracefully (CDP `Browser.close`, SIGTERM, SIGKILL last) with its temp profile removed. No runtime change.

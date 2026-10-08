@@ -24,8 +24,8 @@ pub use eval::{
     FRAME_SCHEMA,
 };
 pub use model::{
-    AssetRef, Canvas, Clip, Composition, Content, CursorSample, CursorSprite, Layer, MotionBlur,
-    Pattern, Point, Rect, Rgba, Shadow, Stop, Style, Timing, Transform, SCHEMA,
+    AssetRef, Canvas, ClickShape, Clip, Composition, Content, CursorSample, CursorSprite, Layer,
+    MotionBlur, Pattern, Point, Rect, Rgba, Shadow, Stop, Style, Timing, Transform, SCHEMA,
 };
 pub use track::{sample, Easing, Keyframe, Lerp, Track};
 pub use validate::validate;

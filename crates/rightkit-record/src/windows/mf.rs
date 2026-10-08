@@ -12,13 +12,14 @@ use ::windows::Win32::Media::MediaFoundation::{
     IMFActivate, IMFAttributes, IMFByteStream, IMFMediaType, IMFSinkWriter, MFCreateAttributes,
     MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL,
     MFMediaType_Video, MFNominalRange_16_235, MFShutdown, MFStartup, MFTEnumEx,
-    MFT_FRIENDLY_NAME_Attribute, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_NV12,
-    MFVideoInterlace_Progressive, MFVideoTransferMatrix_BT709, MFSTARTUP_FULL,
-    MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG, MFT_ENUM_FLAG_ASYNCMFT, MFT_ENUM_FLAG_HARDWARE,
-    MFT_ENUM_FLAG_SORTANDFILTER, MFT_ENUM_FLAG_SYNCMFT, MFT_REGISTER_TYPE_INFO, MF_MT_AVG_BITRATE,
-    MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE,
-    MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_YUV_MATRIX,
-    MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_VERSION,
+    MFT_FRIENDLY_NAME_Attribute, MFTranscodeContainerType_FMPEG4, MFVideoFormat_H264,
+    MFVideoFormat_HEVC, MFVideoFormat_NV12, MFVideoInterlace_Progressive,
+    MFVideoTransferMatrix_BT709, MFSTARTUP_FULL, MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG,
+    MFT_ENUM_FLAG_ASYNCMFT, MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER,
+    MFT_ENUM_FLAG_SYNCMFT, MFT_REGISTER_TYPE_INFO, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE,
+    MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO,
+    MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_YUV_MATRIX,
+    MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_TRANSCODE_CONTAINERTYPE, MF_VERSION,
 };
 use ::windows::Win32::System::Com::CoTaskMemFree;
 use serde_json::{json, Value};
@@ -106,12 +107,21 @@ impl Mp4Writer {
         let encoder = select_encoder(codec, subtype)?;
 
         let mut attributes: Option<IMFAttributes> = None;
-        unsafe { MFCreateAttributes(&mut attributes, 1) }
+        unsafe { MFCreateAttributes(&mut attributes, 2) }
             .map_err(|e| setup_error("MFCreateAttributes", e))?;
         let attributes =
             attributes.ok_or_else(|| setup_error("MFCreateAttributes", "no attribute store"))?;
         unsafe { attributes.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1) }
             .map_err(|e| setup_error("enable hardware transforms", e))?;
+        // R14: fragmented MP4 (moof/mdat pairs), so a helper killed mid-take leaves a file that
+        // plays up to its last whole fragment. Mechanical counterpart of the macOS segment writer.
+        unsafe {
+            attributes.SetGUID(
+                &MF_TRANSCODE_CONTAINERTYPE,
+                &MFTranscodeContainerType_FMPEG4,
+            )
+        }
+        .map_err(|e| setup_error("fragmented MP4 container", e))?;
 
         let wide: Vec<u16> = path
             .as_os_str()

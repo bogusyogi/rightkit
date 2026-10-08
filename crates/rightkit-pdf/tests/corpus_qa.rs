@@ -1,3 +1,5 @@
+#![cfg(feature = "edit")]
+
 //! Real-world PDF corpus QA harness (test-only, `#[ignore]` — run explicitly):
 //!
 //! ```sh

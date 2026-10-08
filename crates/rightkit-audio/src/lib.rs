@@ -19,6 +19,7 @@ pub mod chain;
 pub mod ducking;
 pub mod error;
 pub mod filter;
+#[cfg(feature = "capture")]
 pub mod lifecycle;
 pub mod measure;
 pub mod preset;

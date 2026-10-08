@@ -6,6 +6,8 @@
 //! `RIGHTKIT_ORT_TEST_DYLIB` (ONNX Runtime >= 1.20 for GatherBlockQuantized).
 //! Without both it reports a skip.
 
+#![cfg(all(feature = "inference", feature = "vector"))]
+
 use rightkit_embed::{cosine_similarity, Embedder, EmbedderConfig, EMBEDDINGGEMMA2_MODEL_ID};
 
 /// Environment first; managed runners filter ambient variables, so the same

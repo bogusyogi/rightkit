@@ -1,4 +1,9 @@
 import type { AutoUpdateClient } from '@rightkit/updates';
+import {
+  RIGHTKIT_LOGS_CLEAR_COMMAND,
+  RIGHTKIT_LOGS_COLLECT_COMMAND,
+  RIGHTKIT_LOGS_WRITE_COMMAND,
+} from '@rightkit/logs';
 
 export type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -15,9 +20,9 @@ export const standardRightKitTauriCommands = {
     delete: 'secure_update_license_delete',
   },
   logs: {
-    write: 'rightkit_logs_write',
-    collect: 'rightkit_logs_collect',
-    clear: 'rightkit_logs_clear',
+    write: RIGHTKIT_LOGS_WRITE_COMMAND,
+    collect: RIGHTKIT_LOGS_COLLECT_COMMAND,
+    clear: RIGHTKIT_LOGS_CLEAR_COMMAND,
   },
   diagnostics: {
     collect: 'collect_diagnostics',
@@ -152,16 +157,16 @@ const heardRightCommands = {
     delete: 'secure_license_delete',
   },
   logs: {
-    write: 'rightkit_logs_write',
-    collect: 'rightkit_logs_collect',
-    clear: 'rightkit_logs_clear',
+    write: RIGHTKIT_LOGS_WRITE_COMMAND,
+    collect: RIGHTKIT_LOGS_COLLECT_COMMAND,
+    clear: RIGHTKIT_LOGS_CLEAR_COMMAND,
   },
-  diagnostics: { collect: 'rightkit_logs_collect', clear: 'rightkit_logs_clear' },
+  diagnostics: { collect: RIGHTKIT_LOGS_COLLECT_COMMAND, clear: RIGHTKIT_LOGS_CLEAR_COMMAND },
 } as const satisfies RightKitTauriCommands;
 
 const codeRightCommands = {
   ...standardRightKitTauriCommands,
-  diagnostics: { collect: 'rightkit_logs_collect', clear: 'rightkit_logs_clear' },
+  diagnostics: { collect: RIGHTKIT_LOGS_COLLECT_COMMAND, clear: RIGHTKIT_LOGS_CLEAR_COMMAND },
 } as const satisfies RightKitTauriCommands;
 
 /** Canonical inventory of the native command contracts currently exposed by each core app. */

@@ -1,17 +1,29 @@
 //! Shared text-to-speech runtime.
 //!
-//! `system` provides a no-model OS voice backend (`say` on macOS and SAPI on
-//! Windows). `engine` adds the vendored Qwen3-TTS QTS worker. Both return PCM
-//! WAV plus a word-timed manifest that can be passed to `rightkit-transcript`.
+//! Feature boundaries (see `Cargo.toml`):
+//! - `system`: no-model OS voice backend (`say` on macOS, SAPI on Windows) with a
+//!   word-timed manifest that can be passed to `rightkit-transcript`.
+//! - `client`: QTS worker client (spawn, chunking, model manifest verification).
+//! - `engine`: the vendored Qwen3-TTS worker (`worker`, binary `rightkit-tts-worker`); implies `client`.
+//!
+//! `wav` and the sample-rate constants are always available.
 
-pub mod chunk;
-pub mod client;
-pub mod models;
-pub mod protocol;
-pub mod system;
 pub mod wav;
 
-pub use client::{QtsError, QtsClient, SynthOptions, SynthResult};
+#[cfg(feature = "client")]
+pub mod chunk;
+#[cfg(feature = "client")]
+pub mod client;
+#[cfg(feature = "client")]
+pub mod models;
+#[cfg(feature = "client")]
+pub mod protocol;
+#[cfg(feature = "system")]
+pub mod system;
+
+#[cfg(feature = "client")]
+pub use client::{QtsClient, QtsError, SynthOptions, SynthResult};
+#[cfg(feature = "system")]
 pub use system::{chunk_sentences, SentenceChunk, SystemTts, SystemTtsError, SystemTtsManifest, SystemTtsOptions, SystemTtsResult, SystemTtsSegment};
 
 #[cfg(feature = "engine")]

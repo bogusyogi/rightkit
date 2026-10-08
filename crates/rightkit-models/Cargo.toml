@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-models"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -20,13 +20,13 @@ default = []
 rightapps = ["dep:ed25519-dalek", "dep:base64", "dep:url", "dep:chrono"]
 
 [dependencies]
+rightkit-fs = { version = "0.3", path = "../rightkit-fs", default-features = false, features = ["digest"] }
 ed25519-dalek = { version = "2", optional = true }
 base64 = { version = "0.22", optional = true }
 url = { version = "2", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.11"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 tar = "0.4"
 flate2 = "1"
@@ -35,6 +35,8 @@ getrandom = "0.3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+# Independent SHA-256 reference for tests (the crate itself hashes via rightkit-fs).
+sha2 = "0.11"
 tempfile = "3"
 # Mock HTTP server (Range, dropped connections) for the end-to-end download
 # tests. rightkit-qa does not depend on rightkit-models, so this is no publish

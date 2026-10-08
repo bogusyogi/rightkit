@@ -27,6 +27,7 @@ pub mod clock;
 pub mod error;
 pub mod fake;
 pub mod hash;
+pub mod media;
 pub mod plan;
 pub mod process;
 pub mod protocol;
@@ -59,10 +60,13 @@ pub use backend::{
 pub use bundle::{Phase, Recovered};
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use error::{Code, RecordError, Result};
+pub use media::{probe_mp4, MediaProbe, RecoveredMedia};
 pub use plan::{PixelMasking, ScenarioSpec, ScenarioStep, StartRequest, TargetSpec};
 pub use process::{serve_backend, ProcessBackend};
 pub use reader::{BundleReader, SourceFrame, StepSpan};
 pub use recorder::{Doctor, Outcome, Recorder, StateSupport, Status};
-pub use redact::{FieldMode, RedactionPolicy};
+pub use redact::{
+    FieldMode, FixedKeySource, HashKey, KeyHandle, KeySource, RedactionPolicy, SecretsKeySource,
+};
 pub use support::Support;
 pub use verify::{VerifyOptions, VerifyReport};

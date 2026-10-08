@@ -2,8 +2,6 @@
 //! tamper-evident boundary that declares it data, never instructions.
 //! Ported from CodeRight `browser_fetch::wrap_untrusted_web_text`.
 
-use sha2::{Digest, Sha256};
-
 pub const BOUNDARY_OPEN: &str = "<<<UNTRUSTED_CONTENT";
 pub const BOUNDARY_CLOSE: &str = "<<<END_UNTRUSTED_CONTENT";
 
@@ -33,7 +31,7 @@ pub fn wrap_untrusted_web_text_with(source: &str, text: &str, opts: &WrapOptions
             signals.join(", ")
         );
     }
-    let hash = hex(&Sha256::digest(body.as_bytes()));
+    let hash = rightkit_fs::digest::sha256_bytes(body.as_bytes());
     let label = clean_label(source);
     let flag = if signals.is_empty() {
         String::new()
@@ -106,8 +104,4 @@ pub fn injection_signals(text: &str) -> Vec<&'static str> {
         }
     }
     out
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

@@ -17,6 +17,7 @@ use serde_json::{json, Map, Value};
 
 use crate::backend::{track_file, track_id, TrackOutput};
 use crate::hash::file_hash;
+use crate::media::{probe_mp4, RecoveredMedia};
 
 pub const SCENARIO_FILE: &str = "scenario.json";
 pub const EVENTS_FILE: &str = "events.ndjson";
@@ -193,6 +194,8 @@ pub struct Finalized {
     pub reason: Option<String>,
     /// The first schema problem in the final manifest, if any.
     pub manifest_problem: Option<String>,
+    /// What a non-complete take's media still plays, when it plays.
+    pub media: Option<RecoveredMedia>,
 }
 
 /// Seals a take. Writes clock.json (the clock map and frame table), then the
@@ -263,7 +266,39 @@ pub fn finalize(
     };
     let mut status = status;
     let mut reason = non_complete_reason(status, reason);
-    let mut manifest = manifest(&parts, status, reason.as_deref());
+
+    // A take that did not end cleanly keeps whatever media the helper left. The
+    // helper writes a fragmented MP4, so the file plays up to its last whole
+    // fragment. Check that, and record how much it holds. A file that does not
+    // play makes the take explicitly invalid.
+    let mut media = None;
+    let mut media_note = None;
+    if status != BundleStatus::Complete && dir.join(MEDIA_FILE).exists() {
+        match probe_mp4(&dir.join(MEDIA_FILE)) {
+            Ok(probe) => {
+                let recovered = RecoveredMedia {
+                    samples: probe.samples,
+                    duration_ms: probe.duration_ms,
+                    accepted_frames: frames.len() as u64,
+                };
+                media_note = Some(format!(
+                    "recovered_media frames={}/{} duration_ms={}",
+                    recovered.samples, recovered.accepted_frames, recovered.duration_ms
+                ));
+                media = Some(recovered);
+            }
+            Err(problem) => {
+                status = BundleStatus::Invalid;
+                let note = format!("media_unplayable: {problem}");
+                reason = Some(append_note(reason.as_deref(), &note));
+            }
+        }
+    }
+    let manifest_reason = match (&reason, &media_note) {
+        (Some(base), Some(note)) => Some(append_note(Some(base), note)),
+        _ => reason.clone(),
+    };
+    let mut manifest = manifest(&parts, status, manifest_reason.as_deref());
     let mut problem = check(&manifest);
     if status == BundleStatus::Complete && problem.is_some() {
         status = BundleStatus::Invalid;
@@ -273,6 +308,7 @@ pub fn finalize(
         )));
         manifest = manifest_for(&parts, status, reason.as_deref());
         problem = check(&manifest);
+        media = None;
     }
     write_json(&dir.join(MANIFEST_FILE), &manifest)?;
     remove_if_exists(&dir.join(STATE_FILE))?;
@@ -286,7 +322,28 @@ pub fn finalize(
             reason
         },
         manifest_problem: problem,
+        media,
     })
+}
+
+/// `base; note`, within the reason budget. The note is kept whole; the base gives way.
+fn append_note(base: Option<&str>, note: &str) -> String {
+    let room = MAX_REASON_BYTES.saturating_sub(note.len() + 2);
+    match base {
+        Some(base) => format!("{}; {note}", truncate_to(base, room)),
+        None => truncate(note),
+    }
+}
+
+fn truncate_to(text: &str, limit: usize) -> &str {
+    if text.len() <= limit {
+        return text;
+    }
+    let mut end = limit;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 fn manifest_for(parts: &Parts, status: BundleStatus, reason: Option<&str>) -> Value {
@@ -461,6 +518,8 @@ pub struct Recovered {
     pub bundle_id: String,
     pub status: BundleStatus,
     pub reason: Option<String>,
+    /// What the stale take's media still plays, when it plays.
+    pub media: Option<RecoveredMedia>,
 }
 
 /// Seals every live take under `roots` whose heartbeat is older than
@@ -502,6 +561,7 @@ pub fn recover_stale(
                 bundle_id: state.bundle_id.clone(),
                 status: done.status,
                 reason: done.reason,
+                media: done.media,
             });
         }
     }

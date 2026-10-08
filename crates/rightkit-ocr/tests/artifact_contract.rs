@@ -1,3 +1,5 @@
+#![cfg(feature = "onnx")]
+
 use rightkit_ocr::{OcrArtifactManifest, OcrError, OcrProvenance};
 use sha2::{Digest, Sha256};
 

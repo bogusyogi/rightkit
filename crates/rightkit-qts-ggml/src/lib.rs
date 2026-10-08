@@ -1,4 +1,8 @@
-//! Minimal wrappers around [`ggml_sys`]. Expand as the TTS stack needs more surface area.
+//! **Deprecated.** This crate is kept published so existing consumers keep building.
+//! `rightkit-qts` now depends on `rightkit-qts-ggml-sys` (library `ggml_sys`) directly.
+//! Depend on `rightkit-qts-ggml-sys` instead of this facade; no new API will be added here.
+//!
+//! Minimal wrappers around `ggml_sys`. Expand as the TTS stack needs more surface area.
 
 pub use ggml_sys as sys;
 

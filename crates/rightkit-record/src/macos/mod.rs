@@ -127,6 +127,11 @@ impl MacBackend {
         }
     }
 
+    /// The helper's process id. Tests use it to kill the helper mid-take.
+    pub fn helper_pid(&self) -> u32 {
+        self.child.id()
+    }
+
     /// The helper's recent stderr, for diagnostics.
     pub fn helper_stderr(&self) -> String {
         self.stderr.snapshot()

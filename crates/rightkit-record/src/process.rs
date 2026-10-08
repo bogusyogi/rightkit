@@ -395,7 +395,7 @@ mod tests {
     }
 
     fn request(out: PathBuf) -> StartRequest {
-        StartRequest::new(
+        let mut request = StartRequest::new(
             TargetSpec {
                 app_id: "cutright".into(),
                 window_id: 4242,
@@ -418,7 +418,10 @@ mod tests {
                 }],
             },
             out,
-        )
+        );
+        request.key_source =
+            crate::redact::KeyHandle::new(crate::redact::FixedKeySource::new([0x5a; 32]));
+        request
     }
 
     /// Serves `backend` on a thread over two pipes and connects a `ProcessBackend` to it.

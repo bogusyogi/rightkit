@@ -5,8 +5,8 @@ use std::collections::HashSet;
 
 use crate::error::CompositionError;
 use crate::model::{
-    AssetRef, Clip, Composition, Content, Layer, MotionBlur, Pattern, Point, Rect, Rgba, Shadow,
-    Stop, Style, Transform, SCHEMA,
+    AssetRef, ClickShape, Clip, Composition, Content, Layer, MotionBlur, Pattern, Point, Rect,
+    Rgba, Shadow, Stop, Style, Transform, SCHEMA,
 };
 use crate::track::{Easing, Keyframe};
 
@@ -62,9 +62,10 @@ fn check_layer(
         Content::Video { .. } | Content::Still { .. } => (true, true, true),
         Content::Webcam { .. } => (true, true, true),
         Content::Cursor { .. } => (false, false, true),
-        Content::Background { .. } | Content::Badge { .. } | Content::Caption { .. } => {
-            (false, false, false)
-        }
+        Content::Background { .. }
+        | Content::Badge { .. }
+        | Content::Caption { .. }
+        | Content::ClickEffect { .. } => (false, false, false),
     };
     if !transform_ok && !layer.transform.is_empty() {
         return Err(invalid(
@@ -188,6 +189,80 @@ fn check_layer(
             check_rect(layer, rect, "caption rect")?;
             check_style(layer, style)?;
         }
+        Content::ClickEffect {
+            anchor,
+            effect,
+            style,
+            duration_ms,
+            easing,
+            ..
+        } => {
+            check_point_unit(layer, *anchor, "click anchor")?;
+            check_style(layer, style)?;
+            if *duration_ms == 0 {
+                return Err(invalid(layer, "click effect duration must be positive"));
+            }
+            check_easing_params(layer, easing)?;
+            check_click_shape(layer, effect)?;
+        }
+    }
+    Ok(())
+}
+
+fn spring_params_ok(stiffness: f64, damping: f64, mass: f64) -> bool {
+    stiffness.is_finite()
+        && stiffness > 0.0
+        && mass.is_finite()
+        && mass > 0.0
+        && damping.is_finite()
+        && damping >= 0.0
+}
+
+fn check_click_shape(layer: &Layer, shape: &ClickShape) -> Result<(), CompositionError> {
+    let positive = |v: f64| v.is_finite() && v > 0.0;
+    let non_negative = |v: f64| v.is_finite() && v >= 0.0;
+    let ok = match *shape {
+        ClickShape::Ripple {
+            max_radius,
+            stroke_width,
+        } => positive(max_radius) && positive(stroke_width),
+        ClickShape::Highlight {
+            half_width,
+            half_height,
+            grow,
+            corner_radius,
+        } => {
+            positive(half_width)
+                && positive(half_height)
+                && non_negative(grow)
+                && non_negative(corner_radius)
+        }
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(invalid(
+            layer,
+            "click shape sizes must be finite, positive where required, and non-negative otherwise",
+        ))
+    }
+}
+
+/// Spring parameters must describe a physical oscillator. Other easings
+/// carry no parameters to check here.
+fn check_easing_params(layer: &Layer, easing: &Easing) -> Result<(), CompositionError> {
+    if let Easing::Spring {
+        stiffness,
+        damping,
+        mass,
+    } = *easing
+    {
+        if !spring_params_ok(stiffness, damping, mass) {
+            return Err(invalid(
+                layer,
+                "spring needs finite stiffness > 0, mass > 0 and damping >= 0",
+            ));
+        }
     }
     Ok(())
 }
@@ -221,6 +296,19 @@ fn check_track<T>(
             if !x_ok || !y1.is_finite() || !y2.is_finite() {
                 return Err(format!(
                     "{name} keyframe at {} ms has invalid bezier control points",
+                    keyframe.at_ms
+                ));
+            }
+        }
+        if let Easing::Spring {
+            stiffness,
+            damping,
+            mass,
+        } = keyframe.easing
+        {
+            if !spring_params_ok(stiffness, damping, mass) {
+                return Err(format!(
+                    "{name} keyframe at {} ms has invalid spring parameters",
                     keyframe.at_ms
                 ));
             }

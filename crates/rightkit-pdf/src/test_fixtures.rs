@@ -7,9 +7,11 @@
 
 use lopdf::{dictionary, Document, Object, Stream};
 
+#[cfg(feature = "fonts")]
 pub(crate) fn be16(v: u16) -> [u8; 2] {
     v.to_be_bytes()
 }
+#[cfg(feature = "fonts")]
 pub(crate) fn be32(v: u32) -> [u8; 4] {
     v.to_be_bytes()
 }
@@ -116,11 +118,13 @@ pub(crate) fn build_one_page_pdf(content_ops: &[u8]) -> Document {
 }
 
 /// Same fixture serialized to bytes (for save-path tests that need on-disk form).
+#[cfg(feature = "edit")]
 pub(crate) fn build_one_page_pdf_bytes(content_ops: &[u8]) -> Vec<u8> {
     pdf_bytes(&build_one_page_pdf(content_ops))
 }
 
 /// Serialize a fixture document the way every caller previously inlined.
+#[cfg(feature = "edit")]
 pub(crate) fn pdf_bytes(doc: &Document) -> Vec<u8> {
     let mut doc = doc.clone();
     let mut out = Vec::new();
@@ -132,6 +136,7 @@ pub(crate) fn pdf_bytes(doc: &Document) -> Vec<u8> {
 /// that binary-search the directory (e.g. `subsetter::Face::table`, unlike the more lenient
 /// `ttf-parser`) silently miss an out-of-order table — this was the source of a real bug where
 /// `subsetter::subset` saw no `glyf`/`CFF`/`CFF2` table and returned `UnknownKind`.
+#[cfg(feature = "fonts")]
 pub(crate) fn build_sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
     let mut tables = tables.to_vec();
     tables.sort_by_key(|(tag, _)| *tag);
@@ -178,6 +183,7 @@ pub(crate) fn build_sfnt(tables: &[([u8; 4], Vec<u8>)]) -> Vec<u8> {
 /// `is_subsetting_allowed` to behave correctly. OS/2 is version 2 because real `ttf-parser` only
 /// honors the `fsType` restriction bits when `version >= 2`, and `Table::parse` requires
 /// `data.len() >= 96` — a shorter or v0 table silently reports everything allowed.
+#[cfg(feature = "fonts")]
 pub(crate) fn build_test_ttf(fs_type: u16, chars: &[(char, u16)], advance: u16) -> Vec<u8> {
     let num_glyphs = chars.iter().map(|(_, g)| *g).max().unwrap_or(0) + 1;
 

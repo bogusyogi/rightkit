@@ -520,3 +520,85 @@ fn window_hidden_or_minimized_mid_take_quarantines_with_its_own_reason() {
 fn read_capture(out: &std::path::Path) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(out.join("capture.json")).unwrap()).unwrap()
 }
+
+#[test]
+fn helper_death_records_what_the_media_still_plays() {
+    let scratch = Scratch::new("recovered-media");
+    let mut backend = FakeBackend::macos();
+    let mut batch = ready_and_frames(3);
+    batch.push(HelperEvent::Exited);
+    backend.push(batch);
+    let (mut rec, out) = start_take(backend, &scratch);
+    rec.pump().unwrap();
+    let outcome = rec.record_stop().unwrap();
+    assert_eq!(outcome.status, BundleStatus::PartialQuarantined);
+    // The reason is the failure; the recovered figures ride in the manifest and the outcome.
+    assert_eq!(outcome.reason.as_deref(), Some("helper_lost"));
+    let media = outcome.recovered_media.expect("playable media is recorded");
+    assert_eq!(media.samples, 30);
+    assert_eq!(media.accepted_frames, 3);
+    assert_eq!(media.duration_ms, 30 * 33);
+    let manifest = read_manifest(&out);
+    let reason = manifest["reason"].as_str().unwrap();
+    assert!(
+        reason.starts_with("helper_lost; recovered_media frames=30/3 duration_ms=990"),
+        "{reason}"
+    );
+    // The bundle reader sees the same accepted frames the media note compares against.
+    let reader = rightkit_record::BundleReader::open(&out).unwrap();
+    assert_eq!(reader.frames().len() as u64, media.accepted_frames);
+    assert!(rec
+        .bundle_verify(&out, &VerifyOptions::default())
+        .unwrap()
+        .ok());
+}
+
+#[test]
+fn media_that_does_not_play_makes_the_take_explicitly_invalid() {
+    let scratch = Scratch::new("unplayable-media");
+    let mut backend = FakeBackend::macos();
+    let mut batch = ready_and_frames(3);
+    batch.push(HelperEvent::Exited);
+    backend.push(batch);
+    let (mut rec, out) = start_take(backend, &scratch);
+    // The helper died before it wrote one whole fragment: only a header is on disk.
+    let bytes = rightkit_record::media::synthetic_fragmented_mp4(30, 33, 30);
+    let moof_at = bytes.windows(4).position(|w| w == b"moof").unwrap() - 4;
+    std::fs::write(out.join("clean.mp4"), &bytes[..moof_at]).unwrap();
+    rec.pump().unwrap();
+    let outcome = rec.record_stop().unwrap();
+    assert_eq!(outcome.status, BundleStatus::Invalid, "{outcome:?}");
+    assert!(outcome
+        .reason
+        .as_deref()
+        .unwrap()
+        .contains("media_unplayable"));
+    assert_eq!(outcome.recovered_media, None);
+}
+
+#[test]
+fn a_stale_take_is_recovered_with_its_media_duration() {
+    let scratch = Scratch::new("stale-media");
+    let out = scratch.bundle("stale");
+    {
+        let mut backend = FakeBackend::macos();
+        backend.push(ready_and_frames(3));
+        let mut rec = recorder(backend, T0);
+        rec.record_start(request(out.clone())).unwrap();
+        rec.pump().unwrap();
+        // The process dies here: no stop, and the media is cut inside its last fragment.
+        let bytes = rightkit_record::media::synthetic_fragmented_mp4(60, 33, 30);
+        std::fs::write(out.join("clean.mp4"), &bytes[..bytes.len() - 10]).unwrap();
+    }
+    let (_rec, recovered) = rightkit_record::Recorder::open(
+        FakeBackend::macos(),
+        rightkit_record::ManualClock::new(T0 + 60_000),
+        std::slice::from_ref(&scratch.path().to_path_buf()),
+        30_000,
+    )
+    .unwrap();
+    assert_eq!(recovered.len(), 1);
+    let media = recovered[0].media.expect("media recovered");
+    assert_eq!(media.samples, 30, "the torn second fragment is not counted");
+    assert_eq!(media.duration_ms, 990);
+}

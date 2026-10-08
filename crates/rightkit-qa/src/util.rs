@@ -1,5 +1,4 @@
 //! Shared error type and small helpers.
-use sha2::{Digest, Sha256};
 use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -49,7 +48,7 @@ pub fn now_ms() -> u128 {
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    rightkit_fs::digest::sha256_bytes(bytes)
 }
 
 pub fn new_id() -> String {

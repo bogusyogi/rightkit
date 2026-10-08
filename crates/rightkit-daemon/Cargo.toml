@@ -1,0 +1,39 @@
+[package]
+name = "rightkit-daemon"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Daemon host capability for the Right Suite: HTTPS listener, device enrolment and signed requests, OAuth callback and signed webhook route classes, bounded blake3-keyed resumable uploads, compare-and-swap mutations, durable state and lifecycle events."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bogusyogi/claude"
+publish = false
+
+[features]
+default = ["oauth"]
+# Adapter that delegates OAuth callbacks to rightkit-oauth's server flow.
+oauth = ["dep:rightkit-oauth"]
+
+[dependencies]
+rightkit-contracts = { path = "../rightkit-contracts", version = "0.1.0" }
+rightkit-oauth = { path = "../rightkit-oauth", version = "0.3.0", default-features = false, features = ["server"], optional = true }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "service", "server-graceful"] }
+ring = "0.17"
+blake3 = "1"
+base64 = "0.22"
+rustls-pki-types = { version = "1", features = ["std"] }
+url = "2.5"
+subtle = "2.6"
+
+[dev-dependencies]
+rightkit-http = { path = "../rightkit-http", version = "0.2.0", features = ["testing"] }
+rightkit-oauth = { path = "../rightkit-oauth", version = "0.3.0", default-features = false, features = ["server"] }
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+rcgen = "0.13"

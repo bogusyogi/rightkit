@@ -1,6 +1,6 @@
 //! Client for the RightKitAppleCredentials Swift helper (the synchronizable iCloud Keychain
 //! cannot be reached from Rust). One JSON request line on stdin, one JSON response line on
-//! stdout, then the helper exits; wire-compatible with HeardRight/ScrapeRight helpers.
+//! stdout, then the helper exits.
 //! Secret values appear only on the stdin pipe and in the returned [`Secret`]; they are never
 //! placed in an error.
 

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qts"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/adrdsouza/claude"
@@ -13,10 +13,10 @@ name = "qts"
 
 [features]
 default = []  # GenRight: backends are selected by genright-qts features
-metal = ["rightkit-qts-ggml/metal"]
-vulkan = ["rightkit-qts-ggml/vulkan"]
-blas = ["rightkit-qts-ggml/blas"]
-native = ["rightkit-qts-ggml/native"]
+metal = ["rightkit-qts-ggml-sys/metal"]
+vulkan = ["rightkit-qts-ggml-sys/vulkan"]
+blas = ["rightkit-qts-ggml-sys/blas"]
+native = ["rightkit-qts-ggml-sys/native"]
 acl = ["ort/acl"]
 armnn = ["ort/armnn"]
 azure = ["ort/azure"]
@@ -38,7 +38,7 @@ webgpu = ["ort/webgpu"]
 xnnpack = ["ort/xnnpack"]
 
 [dependencies]
-rightkit-qts-ggml = { path = "../rightkit-qts-ggml", version = "0.1.0", default-features = false }
+rightkit-qts-ggml-sys = { path = "../rightkit-qts-ggml-sys", version = "0.1.0", default-features = false }
 thiserror = "2"
 rand = "0.10"
 hound = "3.5.1"

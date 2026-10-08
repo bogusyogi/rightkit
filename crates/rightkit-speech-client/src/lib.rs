@@ -221,18 +221,53 @@ pub fn clear_takeover_if_ours(suite_root: &Path) {
     }
 }
 
-/// Spawn `<engine_path> --speech-service` detached, then wait up to `wait` for
-/// a live `service.json`.
-pub fn start_installed_heardright(
+/// How to launch an installed engine as a speech host. The caller supplies it: the arguments
+/// and environment are that engine's own contract, not this crate's.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EngineLaunch {
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+impl EngineLaunch {
+    /// Launch with `args` and no extra environment.
+    pub fn new<I, S>(args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            args: args.into_iter().map(Into::into).collect(),
+            env: Vec::new(),
+        }
+    }
+
+    /// Add one environment variable for the launched engine.
+    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.push((key.into(), value.into()));
+        self
+    }
+
+    /// HeardRight's installed-engine launch: `--speech-service` on the Parakeet backend
+    /// (the engine takes the shared model lease only there). The default for [`plan_host`]'s
+    /// installed-engine path.
+    pub fn heardright() -> Self {
+        Self::new(["--speech-service"]).env("HR_ASR_BACKEND", "parakeet-tdt")
+    }
+}
+
+/// Spawn `engine_path` detached with the caller's `launch`, then wait up to `wait` for a live
+/// `service.json`.
+pub fn start_installed_engine(
     suite_root: &Path,
     engine_path: &Path,
+    launch: &EngineLaunch,
     wait: Duration,
 ) -> Result<(), ClientError> {
     use std::process::{Command, Stdio};
     let mut cmd = Command::new(engine_path);
-    // The engine takes the shared model lease only on the Parakeet backend.
-    cmd.arg("--speech-service")
-        .env("HR_ASR_BACKEND", "parakeet-tdt")
+    cmd.args(&launch.args)
+        .envs(launch.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -259,6 +294,20 @@ pub fn start_installed_heardright(
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// Spawn `<engine_path> --speech-service` detached, then wait up to `wait` for a live
+/// `service.json`. Deprecated: call [`start_installed_engine`] with an explicit [`EngineLaunch`].
+#[deprecated(
+    since = "0.3.1",
+    note = "use start_installed_engine with an EngineLaunch; this is HeardRight's launch preset"
+)]
+pub fn start_installed_heardright(
+    suite_root: &Path,
+    engine_path: &Path,
+    wait: Duration,
+) -> Result<(), ClientError> {
+    start_installed_engine(suite_root, engine_path, &EngineLaunch::heardright(), wait)
 }
 
 // ---------------------------------------------------------------------------
@@ -832,7 +881,13 @@ pub fn transcribe_via_service_with(
             HostPlan::UseRunning => {}
             HostPlan::StartInstalledHeardRight(engine) => {
                 opts.report(Progress::StartingHost);
-                if start_installed_heardright(suite_root, &engine, Duration::from_secs(60)).is_err()
+                if start_installed_engine(
+                    suite_root,
+                    &engine,
+                    &EngineLaunch::heardright(),
+                    Duration::from_secs(60),
+                )
+                .is_err()
                 {
                     return Err(ClientError::NoService);
                 }

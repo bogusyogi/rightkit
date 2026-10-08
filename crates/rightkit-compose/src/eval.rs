@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::CompositionError;
 use crate::model::{
-    AssetRef, Clip, Composition, Content, CursorSample, CursorSprite, Layer, Pattern, Point, Rect,
-    Rgba, Style, Timing, Transform,
+    AssetRef, ClickShape, Clip, Composition, Content, CursorSample, CursorSprite, Layer, Pattern,
+    Point, Rect, Rgba, Style, Timing, Transform,
 };
-use crate::track::{sample, Keyframe};
+use crate::track::{sample, Easing, Keyframe};
 use crate::validate::validate;
 
 pub const FRAME_SCHEMA: &str = "rightkit.frame.v1";
@@ -97,6 +97,22 @@ pub enum Payload {
     Caption {
         text: String,
         rect_px: Rect,
+        style: Style,
+    },
+    /// Expanding ring. `alpha` is 0 before onset and after completion; the
+    /// layer's own opacity is applied separately.
+    Ripple {
+        center_px: Point,
+        radius_px: f64,
+        stroke_px: f64,
+        alpha: f64,
+        style: Style,
+    },
+    /// Rounded box that grows and fades. `alpha` is 0 outside the animation.
+    Highlight {
+        rect_px: Rect,
+        corner_radius_px: f64,
+        alpha: f64,
         style: Style,
     },
 }
@@ -247,6 +263,99 @@ fn payload_at(composition: &Composition, layer: &Layer, t_ms: u64, canvas: (f64,
             rect_px: to_px(*rect, width, height),
             style: *style,
         },
+        Content::ClickEffect {
+            anchor,
+            effect,
+            style,
+            onset_ms,
+            duration_ms,
+            easing,
+        } => click_payload(
+            *anchor,
+            *effect,
+            *style,
+            (*onset_ms, *duration_ms, *easing),
+            local,
+            (width, height),
+        ),
+    }
+}
+
+/// Animation progress of a click effect at a layer-local time. Returns
+/// `None` before onset; `Some((eased, linear))` while running and `None`
+/// once the animation has completed.
+fn click_progress(
+    onset_ms: u64,
+    duration_ms: u64,
+    easing: Easing,
+    local: u64,
+) -> Option<(f64, f64)> {
+    if local < onset_ms {
+        return None;
+    }
+    let elapsed = local - onset_ms;
+    if elapsed >= duration_ms {
+        return None;
+    }
+    let linear = elapsed as f64 / duration_ms as f64;
+    Some((easing.apply_over(linear, duration_ms as f64), linear))
+}
+
+fn click_payload(
+    anchor: Point,
+    effect: ClickShape,
+    style: Style,
+    (onset_ms, duration_ms, easing): (u64, u64, Easing),
+    local: u64,
+    canvas: (f64, f64),
+) -> Payload {
+    let (width, height) = canvas;
+    let min_side = width.min(height);
+    let centre = Point {
+        x: anchor.x * width,
+        y: anchor.y * height,
+    };
+    let progress = click_progress(onset_ms, duration_ms, easing, local);
+    match effect {
+        ClickShape::Ripple {
+            max_radius,
+            stroke_width,
+        } => {
+            let (radius_px, alpha) = match progress {
+                Some((eased, linear)) => (max_radius * min_side * eased, 1.0 - linear),
+                None => (0.0, 0.0),
+            };
+            Payload::Ripple {
+                center_px: centre,
+                radius_px,
+                stroke_px: stroke_width * min_side,
+                alpha,
+                style,
+            }
+        }
+        ClickShape::Highlight {
+            half_width,
+            half_height,
+            grow,
+            corner_radius,
+        } => {
+            let (scale, alpha) = match progress {
+                Some((eased, linear)) => (1.0 + grow * eased, 1.0 - linear),
+                None => (1.0, 0.0),
+            };
+            let (hw, hh) = (half_width * scale * width, half_height * scale * height);
+            Payload::Highlight {
+                rect_px: Rect {
+                    x: centre.x - hw,
+                    y: centre.y - hh,
+                    width: 2.0 * hw,
+                    height: 2.0 * hh,
+                },
+                corner_radius_px: corner_radius * min_side,
+                alpha,
+                style,
+            }
+        }
     }
 }
 

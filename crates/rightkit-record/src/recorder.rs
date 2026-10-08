@@ -29,10 +29,11 @@ use crate::bundle::{
 use crate::clock::{iso8601_utc, Clock, SystemClock};
 use crate::error::{io_err, Code, RecordError, Result};
 use crate::hash::is_blake3_text;
+use crate::media::RecoveredMedia;
 use crate::plan::{
     masking_json, scenario_json, target_json, validate as validate_request, StartRequest,
 };
-use crate::redact::RedactionPolicy;
+use crate::redact::{HashKey, RedactionPolicy};
 use crate::support::{support, Support};
 use crate::verify::{bundle_verify as verify_bundle, VerifyOptions, VerifyReport};
 
@@ -55,6 +56,8 @@ pub struct Outcome {
     pub reason: Option<String>,
     /// The first manifest problem, if the sealed manifest does not validate.
     pub manifest_problem: Option<String>,
+    /// For a take that did not end cleanly: what its media still plays.
+    pub recovered_media: Option<RecoveredMedia>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +105,7 @@ struct Session {
     writer: Option<Writer>,
     phase: Phase,
     redaction: RedactionPolicy,
+    hash_key: Option<HashKey>,
     host_ns_at_start: u64,
     epoch: u32,
     ready: bool,
@@ -126,7 +130,7 @@ impl Session {
     fn encode(&mut self, mut event: RecordEvent) -> std::result::Result<Value, String> {
         event.session_id = self.bundle_id.clone();
         event.seq = self.writer().events_written;
-        self.redaction.apply(&mut event);
+        self.redaction.apply(&mut event, self.hash_key.as_ref());
         let mut value = serde_json::to_value(&event).map_err(|e| e.to_string())?;
         strip_nulls(&mut value);
         validate(Contract::RecordEvent, &value).map_err(|e| e.to_string())?;
@@ -234,6 +238,14 @@ impl<B: Backend, C: Clock> Recorder<B, C> {
             )
         })?;
 
+        // The key is read before anything is created: a take whose hashes cannot be
+        // keyed is refused, not written with weaker ones.
+        let hash_key = if request.redaction.needs_key() {
+            Some(request.key_source.0.key()?)
+        } else {
+            None
+        };
+
         fs::create_dir_all(&request.out).map_err(|e| io_err("create bundle directory", &e))?;
         if self.backend.permission() == Permission::Denied {
             return Err(RecordError::new(
@@ -266,7 +278,7 @@ impl<B: Backend, C: Clock> Recorder<B, C> {
             geometry_epochs: Vec::new(),
             clock: None,
         };
-        let scenario = scenario_json(&request.scenario, &request.redaction);
+        let scenario = scenario_json(&request.scenario, &request.redaction, hash_key.as_ref());
         let writer = Writer::create(&request.out, state, &scenario)
             .map_err(|e| io_err("create bundle files", &e))?;
         let mut session = Session {
@@ -275,6 +287,7 @@ impl<B: Backend, C: Clock> Recorder<B, C> {
             writer: Some(writer),
             phase: Phase::Starting,
             redaction: request.redaction.clone(),
+            hash_key,
             host_ns_at_start: 0,
             epoch: 0,
             ready: false,
@@ -649,6 +662,7 @@ impl<B: Backend, C: Clock> Recorder<B, C> {
                     status: done.status,
                     reason: done.reason,
                     manifest_problem: done.manifest_problem,
+                    recovered_media: done.media,
                 };
                 session.phase = Phase::from_status(done.status);
                 session.writer = None;

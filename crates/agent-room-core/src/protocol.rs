@@ -122,6 +122,8 @@ impl ProtocolError {
         }
     }
 
+    /// HTTP-facing errors only; the server is the sole caller.
+    #[cfg(feature = "http")]
     pub(crate) fn external(code: &'static str, detail: impl Into<String>) -> Self {
         Self::new(code, detail)
     }

@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::backend::Codec;
 use crate::error::{Code, RecordError, Result};
-use crate::redact::RedactionPolicy;
+use crate::redact::{HashKey, KeyHandle, RedactionPolicy};
 
 /// How the frame pixels are protected before encoding.
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +59,9 @@ pub struct StartRequest {
     pub visibility: VisibilityState,
     pub masking: PixelMasking,
     pub redaction: RedactionPolicy,
+    /// Where the per-installation key for `hash` fields comes from. Read only when
+    /// the policy hashes a field. Defaults to the OS credential store.
+    pub key_source: KeyHandle,
     /// The bundle directory to create. It must not exist.
     pub out: PathBuf,
     pub dependencies: Vec<Dependency>,
@@ -79,6 +82,7 @@ impl StartRequest {
             visibility: VisibilityState::OffScreenVisible,
             masking: PixelMasking::Declared(Vec::new()),
             redaction: RedactionPolicy::strict(),
+            key_source: KeyHandle::system(),
             out: out.into(),
             dependencies: Vec::new(),
         }
@@ -151,7 +155,11 @@ pub fn validate(request: &StartRequest) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn scenario_json(spec: &ScenarioSpec, redaction: &RedactionPolicy) -> Value {
+pub(crate) fn scenario_json(
+    spec: &ScenarioSpec,
+    redaction: &RedactionPolicy,
+    key: Option<&HashKey>,
+) -> Value {
     let steps: Vec<Value> = spec
         .steps
         .iter()
@@ -167,7 +175,7 @@ pub(crate) fn scenario_json(spec: &ScenarioSpec, redaction: &RedactionPolicy) ->
     json!({
         "scenarioId": spec.scenario_id,
         "steps": steps,
-        "redaction": redaction.to_json(),
+        "redaction": redaction.to_json_with_key(key),
     })
 }
 

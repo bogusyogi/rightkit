@@ -35,12 +35,32 @@ pub enum Easing {
         x2: f64,
         y2: f64,
     },
+    /// Step response of a damped mass-spring released from rest, travelling
+    /// from 0 to 1 over the segment. The segment's real duration is the
+    /// physical time base: `t = u * span_ms / 1000` seconds. The damping ratio
+    /// is `damping / (2 * sqrt(stiffness * mass))`. A ratio of 1 or more never
+    /// overshoots.
+    Spring {
+        /// Spring constant; must be positive.
+        stiffness: f64,
+        /// Non-negative viscous damping coefficient.
+        damping: f64,
+        /// Positive mass.
+        mass: f64,
+    },
 }
 
 impl Easing {
-    /// Maps linear progress `u` in 0..=1 to eased progress. `Hold` never
-    /// reaches this function from [`sample`]; it returns 0 for completeness.
+    /// Maps linear progress `u` in 0..=1 to eased progress over a 1000 ms
+    /// segment. `Hold` never reaches this function from [`sample`]; it returns
+    /// 0 for completeness. Use [`Easing::apply_over`] to supply the real span.
     pub fn apply(self, u: f64) -> f64 {
+        self.apply_over(u, 1000.0)
+    }
+
+    /// Maps linear progress `u` in 0..=1 to eased progress over a segment of
+    /// `span_ms`. Only [`Easing::Spring`] depends on the span.
+    pub fn apply_over(self, u: f64, span_ms: f64) -> f64 {
         match self {
             Easing::Linear => u,
             Easing::Hold => 0.0,
@@ -54,8 +74,37 @@ impl Easing {
                 }
             }
             Easing::CubicBezier { x1, y1, x2, y2 } => bezier_ease(x1, y1, x2, y2, u),
+            Easing::Spring {
+                stiffness,
+                damping,
+                mass,
+            } => spring_step(stiffness, damping, mass, u * span_ms / 1000.0),
         }
     }
+}
+
+/// Step response of `m x'' + c x' + k x = k` from rest, at time `t` seconds.
+///
+/// The closed forms are exact, so sampling is deterministic and needs no
+/// integrator. Critically damped and overdamped responses are clamped to
+/// 0..=1, so floating-point error cannot overshoot them.
+fn spring_step(stiffness: f64, damping: f64, mass: f64, t: f64) -> f64 {
+    let omega = (stiffness / mass).sqrt();
+    let zeta = damping / (2.0 * (stiffness * mass).sqrt());
+    if (zeta - 1.0).abs() < 1e-12 {
+        return (1.0 - (1.0 + omega * t) * (-omega * t).exp()).clamp(0.0, 1.0);
+    }
+    if zeta < 1.0 {
+        let damped = omega * (1.0 - zeta * zeta).sqrt();
+        let decay = (-zeta * omega * t).exp();
+        return 1.0 - decay * ((damped * t).cos() + (zeta * omega / damped) * (damped * t).sin());
+    }
+    // Overdamped: two real roots, both negative.
+    let root = omega * (zeta * zeta - 1.0).sqrt();
+    let s1 = -zeta * omega + root;
+    let s2 = -zeta * omega - root;
+    let x = 1.0 + (s2 * (s1 * t).exp() - s1 * (s2 * t).exp()) / (s1 - s2);
+    x.clamp(0.0, 1.0)
 }
 
 /// Types that can be interpolated between two keyframes.
@@ -114,7 +163,7 @@ pub fn sample<T: Lerp>(track: &[Keyframe<T>], local_ms: u64) -> Option<T> {
     }
     let span = (b.at_ms - a.at_ms) as f64;
     let u = (local_ms - a.at_ms) as f64 / span;
-    Some(T::lerp(a.value, b.value, a.easing.apply(u)))
+    Some(T::lerp(a.value, b.value, a.easing.apply_over(u, span)))
 }
 
 fn bezier_coord(p1: f64, p2: f64, s: f64) -> f64 {

@@ -12,9 +12,9 @@ pub const UNIVERSAL_GUARD_ENV: &str = "RIGHTKIT_NO_KEYCHAIN";
 /// What a tripped guard does. Neither touches the OS credential store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuardMode {
-    /// Swap in a process-wide in-memory store (GenRight `GENRIGHT_NO_KEYCHAIN`).
+    /// Swap in a process-wide in-memory store (e.g. an app guard such as `MYAPP_NO_KEYCHAIN`).
     Memory,
-    /// Every operation fails with [`Error::Guarded`] (CodeRight `CODERIGHT_DISABLE_OS_KEYCHAIN`).
+    /// Every operation fails with [`Error::Guarded`] (e.g. an app guard such as `MYAPP_DISABLE_OS_KEYCHAIN`).
     Deny,
 }
 
@@ -41,7 +41,7 @@ impl Config {
             backend: None,
         }
     }
-    /// App-specific guard variable names, e.g. `GENRIGHT_NO_KEYCHAIN`. A guard is tripped by a
+    /// App-specific guard variable names, e.g. `MYAPP_NO_KEYCHAIN`. A guard is tripped by a
     /// variable that is set to anything except empty/`0`/`false`/`off`/`no`.
     pub fn guard_env(mut self, name: impl Into<String>) -> Self {
         self.guard_envs.push(name.into());
@@ -273,7 +273,7 @@ impl Store {
     }
 
     /// Get-or-create a random key (SQLCipher DB key etc.), returned as standard base64 text
-    /// (HeardRight/MailRight compatible). A read failure is NEVER treated as absence: only an
+    /// (compatible with the `<prefix>/<account>` shape). A read failure is NEVER treated as absence: only an
     /// authoritative "absent" mints, and creation is add-if-absent so concurrent processes adopt
     /// the winner's key. Returns the key and whether this call created it.
     pub fn get_or_create_key(&self, account: &str, bytes: usize) -> Result<(Secret, bool)> {

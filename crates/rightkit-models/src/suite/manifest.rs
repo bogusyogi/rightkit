@@ -3,9 +3,7 @@
 //! exact files to re-download when it is not.
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::suite::paths::manifest_path;
@@ -345,22 +343,12 @@ pub fn safe_rel_path(path: &str) -> Option<PathBuf> {
 pub fn sha256_file(path: &Path) -> Result<String, String> {
     let mut file =
         fs::File::open(path).map_err(|e| format!("open {} for hashing: {e}", path.display()))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 1 << 16];
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|e| format!("hash {}: {e}", path.display()))?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buffer[..count]);
-    }
-    Ok(hex_digest(&hasher.finalize()))
+    rightkit_fs::digest::sha256_reader(&mut file)
+        .map_err(|e| format!("hash {}: {e}", path.display()))
 }
 
 pub fn hex_digest(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    rightkit_fs::digest::hex(bytes)
 }
 
 /// Live trusted readiness for managed entries & compatible external copies.

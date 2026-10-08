@@ -14,23 +14,27 @@ name = "rightkit_tts"
 path = "src/lib.rs"
 
 [features]
-default = ["system"]
-system = []
-engine = ["dep:qts"]
+# `system` = OS voice backend (say / SAPI) and word-timed transcript. `client` = QTS worker
+# client (process spawn, chunking, model manifest verification). `engine` = vendored
+# Qwen3-TTS worker, which implies `client`. Default keeps both pre-existing surfaces.
+default = ["system", "client"]
+system = ["dep:rightkit-transcript"]
+client = ["dep:rightkit-process", "dep:sha2", "dep:serde", "dep:serde_json"]
+engine = ["client", "dep:qts", "dep:libc"]
 metal = ["engine", "qts/metal"]
 vulkan = ["engine", "qts/vulkan"]
 
 [dependencies]
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-sha2 = "0.10"
+serde = { version = "1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "1.0.150", optional = true }
+sha2 = { version = "0.10", optional = true }
 thiserror = "2"
-rightkit-process = { version = "0.3.0", path = "../rightkit-process" }
-rightkit-transcript = { version = "0.0.0", path = "../rightkit-transcript" }
+rightkit-process = { version = "0.3.0", path = "../rightkit-process", optional = true }
+rightkit-transcript = { version = "0.0.0", path = "../rightkit-transcript", optional = true }
 qts = { package = "rightkit-qts", version = "0.2.0", path = "../rightkit-qts", optional = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { version = "0.2", optional = true }
 
 [[bin]]
 name = "rightkit-tts-worker"

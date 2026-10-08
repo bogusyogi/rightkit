@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- **Cargo features.** `digest` (sha2), `fs` (libc, thiserror: atomic, private, state, netfs, clone, error), `lock` (nix, on top of `fs`), and `json` (serde, on top of `lock`: identity ledger, owner records, clonefile binary). All are on by default. `rightkit-db` uses `features = ["fs"]`. Digest-only callers use `features = ["digest"]`; fs adds neither libc nor nix to their trees.
+- **`digest` module (new).** `sha256_bytes`, `sha256_reader`, `sha256_file`, `sha256_file_with_len` (bytes hashed, for indexers), and `hex`. File digests stream in 64 KiB chunks. Output is lowercase hex, identical to the copies it replaces.
+- **Documented primitives.** `atomic_write` and the two lock primitives, `FileLock::acquire` (exclusive) and `FileLock::acquire_shared`, are unchanged in behaviour and now documented as the shared entry points.
+- Without `json`, locks behave the same but write no owner record, so `recovered_stale` is `None` and `current_owner` returns `None`.
+
 ## 0.2.0 — unpublished
 
 - **File locks no longer look busy after a fork (Unix).** `FileLock` used `flock` through

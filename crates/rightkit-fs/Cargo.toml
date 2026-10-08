@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-fs"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps."
@@ -14,15 +14,46 @@ include = ["src/**", "tests/**", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 [[bin]]
 name = "rightkit-clonefile"
 path = "src/bin/rightkit-clonefile.rs"
+required-features = ["json"]
+
+# The e2e suite exercises the identity ledger, which needs `json`.
+[[test]]
+name = "e2e"
+path = "tests/e2e.rs"
+required-features = ["json"]
+
+[[test]]
+name = "clone"
+path = "tests/clone.rs"
+required-features = ["fs"]
+
+[[test]]
+name = "lock_spawn"
+path = "tests/lock_spawn.rs"
+required-features = ["lock"]
+
+[features]
+default = ["fs", "lock", "json", "digest"]
+# Atomic writes, owner-only files, StateDir, netfs, clonefile, and the error type. Pulls
+# libc (unix) and thiserror. `db` uses this layer and no more.
+fs = ["dep:libc", "dep:thiserror"]
+# Cross-process locks. Pulls nix (unix) on top of `fs`.
+lock = ["fs", "dep:nix"]
+# Owner records for locks, the identity ledger, and the clonefile diagnostics binary. The
+# identity ledger uses locks, so `json` implies `lock`.
+json = ["lock", "dep:serde", "dep:serde_json"]
+# `digest` module: streaming and in-memory SHA-256, lowercase hex. No other dependency.
+digest = ["dep:sha2"]
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.11", optional = true }
+thiserror = { version = "2", optional = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
-nix = { version = "=0.30.1", default-features = false, features = ["fs"] }
+libc = { version = "0.2", optional = true }
+nix = { version = "=0.30.1", default-features = false, features = ["fs"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"

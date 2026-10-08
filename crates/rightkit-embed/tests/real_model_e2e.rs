@@ -1,4 +1,4 @@
-#![cfg(target_os = "macos")]
+#![cfg(all(target_os = "macos", feature = "inference", feature = "vector"))]
 
 use rightkit_embed::{Embedder, EmbedderConfig, VectorStore, EMBEDDINGGEMMA_MODEL_ID};
 

@@ -8,7 +8,8 @@ use rightkit_contracts::types::record_event::{EventKind, PolicyRef, RecordEvent}
 use rightkit_contracts::types::record_session::{Surface, SurfaceKind};
 use rightkit_record::fake::FakeBackend;
 use rightkit_record::{
-    ManualClock, Recorder, RedactionPolicy, ScenarioSpec, ScenarioStep, StartRequest, TargetSpec,
+    FixedKeySource, KeyHandle, ManualClock, Recorder, RedactionPolicy, ScenarioSpec, ScenarioStep,
+    StartRequest, TargetSpec,
 };
 
 pub type Rec = Recorder<FakeBackend, ManualClock>;
@@ -83,7 +84,16 @@ pub fn surface() -> Surface {
     }
 }
 
+/// The fixed key every test take hashes under, so no test touches the OS credential store.
+pub const TEST_KEY: [u8; 32] = [0x5a; 32];
+
 pub fn request(out: PathBuf) -> StartRequest {
+    let mut request = start_request(out);
+    request.key_source = KeyHandle::new(FixedKeySource::new(TEST_KEY));
+    request
+}
+
+fn start_request(out: PathBuf) -> StartRequest {
     StartRequest::new(
         TargetSpec {
             app_id: "cutright".into(),

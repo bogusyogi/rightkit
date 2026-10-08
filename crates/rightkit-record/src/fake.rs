@@ -119,8 +119,13 @@ impl Backend for FakeBackend {
                 return Err(RecordError::new(Code::PermissionDenied, "prompt declined"));
             }
         }
-        fs::write(plan.out_dir.join(MEDIA_FILE), b"fake-media-bytes")
-            .map_err(|e| RecordError::new(Code::Io, e.to_string()))?;
+        // One second of structurally valid fragmented MP4, so a quarantined take
+        // has media the recovery check accepts.
+        fs::write(
+            plan.out_dir.join(MEDIA_FILE),
+            crate::media::synthetic_fragmented_mp4(30, 33, 30),
+        )
+        .map_err(|e| RecordError::new(Code::Io, e.to_string()))?;
         for kind in &plan.audio {
             let path = plan.out_dir.join(track_file(*kind));
             fs::create_dir_all(path.parent().expect("track paths have a parent"))

@@ -92,7 +92,7 @@ test("generation validates owner metadata, code scope & qualified block tier", (
 
 test("availability distinguishes registry, staging & Swift owner alias", () => {
   const availability = ownershipAvailability({ package: "rightkit-qa" }, versions);
-  assert.deepEqual(availability.map(({ version, state }) => [version, state]), [["0.2.12", "registry-recorded"], ["0.2.13", "staged-unverified"]]);
+  assert.deepEqual(availability.map(({ version, state }) => [version, state]), [["0.2.12", "registry-recorded"], ["0.2.14", "staged-unverified"]]);
   assert.deepEqual(ownershipAvailability({ package: "RightKitSwift" }, versions).map(({ version, state }) => [version, state]), [["0.1.1", "registry-pinned"], ["0.3.1", "staged-unverified"]]);
   assert.deepEqual(ownershipAvailability({ package: "rightkit-asr" }, versions), []);
 });

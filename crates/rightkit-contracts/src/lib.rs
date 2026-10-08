@@ -77,7 +77,8 @@ impl Contract {
     /// The highest version of this contract that this build understands.
     pub fn supported_version(self) -> Version {
         match self {
-            Contract::RecordSession | Contract::RecordEvent => Version::new(1, 1, 0),
+            Contract::RecordEvent => Version::new(1, 2, 0),
+            Contract::RecordSession => Version::new(1, 1, 0),
             _ => Version::new(1, 0, 0),
         }
     }

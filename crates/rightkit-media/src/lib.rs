@@ -14,7 +14,6 @@ use std::{
 
 use rightkit_process::OwnedCommand;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 // Runner / probe / progress / cancel / loudness modules (media-runner lane). Kept in
 // separate files so the catalog lane's edits to this file stay independent.
@@ -643,17 +642,7 @@ fn verify_resolved_path(artifact: &Artifact, path: &Path) -> Result<ResolvedFfmp
 }
 
 pub fn sha256_file(path: &Path) -> Result<String, MediaError> {
-    let mut file = fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(rightkit_fs::digest::sha256_file(path)?)
 }
 
 pub fn validate_build_probe(

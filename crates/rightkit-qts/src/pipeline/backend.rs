@@ -4,7 +4,7 @@ use std::ffi::CStr;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use qts_ggml::sys;
+use ggml_sys as sys;
 
 use crate::Qwen3TtsError;
 

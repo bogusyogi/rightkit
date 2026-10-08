@@ -1,6 +1,6 @@
 {
   "contract": "record-event",
-  "contractVersion": "1.2.0",
+  "contractVersion": "1.3.0",
   "sessionId": "bundle.export-flow-0001",
   "seq": 0,
   "kind": "session_start",

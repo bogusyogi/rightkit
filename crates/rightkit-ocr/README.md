@@ -10,7 +10,12 @@ The public API is in `src/lib.rs`: `OcrEngine::load` and `OcrEngine::load_with_m
 
 ## Features
 
-None. The crate has no Cargo features. Platform backends are selected by `cfg` (see Platform support).
+| Feature | Default | Pulls in | Effect |
+|---|---|---|---|
+| `native` | on | macOS `objc2`, `objc2-foundation`, `objc2-core-graphics`, `objc2-vision`, `objc2-core-foundation`; Windows `windows` | Apple Vision (macOS) or Windows.Media.Ocr (Windows). Without it, the native backend reports unavailable. |
+| `onnx` | on | `ort` (`load-dynamic`; Windows adds `directml`), `rightkit-ort`, `sha2` | Verified two-stage ONNX fallback (`OcrEngine`, `OcrArtifactManifest`). Without it, `Onnx` and fallback requests return `BackendUnavailable`. |
+
+`--no-default-features` keeps the types, the worker protocol and the `rightkit-ocr` binary, with no OCR backend. Platform backends are still selected by `cfg` (see Platform support).
 
 The crate also ships a `rightkit-ocr` binary (`src/bin/rightkit-ocr.rs`).
 

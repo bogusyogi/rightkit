@@ -5,7 +5,7 @@
 //   node fixtures/ownership/generate.mjs --check   fail on drift, write nothing
 // Volatile values are pinned: the clock is faked, `host` is replaced, temp paths become <ROOT>,
 // the scanner policy digest is a constant, git commits use a fixed identity and dates.
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../../background-process.mjs";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";

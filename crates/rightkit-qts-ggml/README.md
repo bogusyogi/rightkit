@@ -1,5 +1,7 @@
 # rightkit-qts-ggml
 
+> **Deprecated.** Depend on [`rightkit-qts-ggml-sys`](../rightkit-qts-ggml-sys) directly instead. `rightkit-qts` already does. This crate stays published for existing consumers, gets no new API, and receives only compatibility fixes.
+
 Thin safe wrappers over `rightkit-qts-ggml-sys` for `rightkit-qts`. It is vendored from QTS v0.2.0 (see [PINNED.md](PINNED.md)). The library name is `qts_ggml`. The crate exposes only the wrapper surface the TTS stack needs, and its crate docs say it grows as that stack needs more of ggml. It is consumed through `rightkit-qts` and `rightkit-tts`. Apps should not depend on it directly.
 
 **Use it** only as a dependency of `rightkit-qts`.
@@ -21,7 +23,7 @@ The default feature set is empty. The CPU backend is always built.
 
 Feature availability follows `rightkit-qts-ggml-sys`. `metal` is effective on Apple targets only.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`; see [PINNED.md](PINNED.md) for the upstream pin.
+Published version: see `INDEX.md` at the repository root. Release history is in [CHANGELOG.md](CHANGELOG.md); see [PINNED.md](PINNED.md) for the upstream pin.
 
 ## Example
 

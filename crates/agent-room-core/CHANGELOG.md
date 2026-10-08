@@ -2,6 +2,10 @@
 
 ## 0.3.0 — unpublished
 
+- Add the `http` Cargo feature (default on). It gates the `server` module and the `room` bin, which
+  own the axum, tokio and tokio-stream dependencies. `default-features = false` gives a library with
+  no HTTP stack; the default build is unchanged.
+
 - Breaking: unauthenticated joins are observer-only. A seat whose role is in `auth::AUTHORITY_ROLES`
   (`human`, `moderator`, `implementer`) requires a host-minted, seat-bound bootstrap token. Without one,
   the join fails with `seat_unavailable`. Observer-class roles still claim without a token.

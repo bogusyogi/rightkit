@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::track::Track;
+use crate::track::{Easing, Track};
 
 /// Schema identifier written into every composition document.
 pub const SCHEMA: &str = "rightkit.composition.v1";
@@ -185,6 +185,41 @@ pub enum Content {
         text: String,
         rect: Rect,
         style: Style,
+    },
+    /// Click feedback anchored at a canvas point. The layer's timing bounds
+    /// when it can appear; `onset_ms` and `duration_ms` time the animation
+    /// inside that window (layer-local times).
+    ClickEffect {
+        anchor: Point,
+        effect: ClickShape,
+        style: Style,
+        onset_ms: u64,
+        duration_ms: u64,
+        /// Easing of the animation progress from onset to completion.
+        #[serde(default = "ease_out")]
+        easing: Easing,
+    },
+}
+
+fn ease_out() -> Easing {
+    Easing::EaseOut
+}
+
+/// The drawn form of a click effect.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "shape", rename_all = "snake_case")]
+pub enum ClickShape {
+    /// A ring that expands from zero radius to `max_radius` while fading out.
+    /// Both fields are fractions of the shorter canvas side.
+    Ripple { max_radius: f64, stroke_width: f64 },
+    /// A rounded box centred on the anchor. Its half-extents (canvas fractions)
+    /// grow by `(1 + grow)` times while it fades out.
+    Highlight {
+        half_width: f64,
+        half_height: f64,
+        grow: f64,
+        /// Fraction of the shorter canvas side.
+        corner_radius: f64,
     },
 }
 

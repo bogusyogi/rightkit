@@ -1,11 +1,9 @@
-use std::io::Read;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use rightkit_db::rusqlite::{self, params, params_from_iter, Connection, OptionalExtension, Row};
 use rightkit_db::{column_exists, write_txn, DbOptions, DurabilityProfile};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use time::macros::format_description;
 use time::OffsetDateTime;
 
@@ -1500,20 +1498,7 @@ fn artifact_row(r: &Row) -> rusqlite::Result<Artifact> {
 }
 
 fn hash_file(path: &Path) -> JobResult<(String, u64)> {
-    let mut f = std::fs::File::open(path)?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    let mut total = 0u64;
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-        total += n as u64;
-    }
-    let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    Ok((hex, total))
+    Ok(rightkit_fs::digest::sha256_file_with_len(path)?)
 }
 
 fn db_to_sqlite(e: rightkit_db::DbError) -> rusqlite::Error {

@@ -20,9 +20,9 @@ include = [
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "api-24", "load-dynamic"] }
-rightkit-ort = { version = "0.2.0", path = "../rightkit-ort" }
-sha2 = "0.10"
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic"] }
+rightkit-ort = { version = "0.2.0", path = "../rightkit-ort", optional = true }
+sha2 = { version = "0.10", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -30,16 +30,24 @@ serde_json = "1"
 name = "rightkit-ocr"
 path = "src/bin/rightkit-ocr.rs"
 
+[features]
+# Default keeps both backends: the OS-native engine and the verified ONNX fallback.
+default = ["native", "onnx"]
+# OS-native backend: Apple Vision (macOS) or Windows.Media.Ocr (Windows). Pulls the objc2 / windows bindings.
+native = ["dep:objc2", "dep:objc2-foundation", "dep:objc2-core-graphics", "dep:objc2-vision", "dep:objc2-core-foundation", "dep:windows"]
+# Two-stage ONNX fallback (det + rec) through ort and rightkit-ort, with SHA-256 artifact verification.
+onnx = ["dep:ort", "dep:rightkit-ort", "dep:sha2"]
+
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSError", "NSDictionary", "NSValue", "NSGeometry"] }
-objc2-core-graphics = { version = "0.3", features = ["CGImage", "CGColorSpace", "CGDataProvider"] }
-objc2-vision = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "VNRequest", "VNRequestHandler", "VNRecognizeTextRequest", "VNObservation", "VNTypes", "VNError"] }
-objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSArray", "NSError", "NSDictionary", "NSValue", "NSGeometry"] }
+objc2-core-graphics = { version = "0.3", optional = true, features = ["CGImage", "CGColorSpace", "CGDataProvider"] }
+objc2-vision = { version = "0.3", optional = true, default-features = false, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "VNRequest", "VNRequestHandler", "VNRecognizeTextRequest", "VNObservation", "VNTypes", "VNError"] }
+objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
 
 [target.'cfg(windows)'.dependencies]
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "api-24", "load-dynamic", "directml"] }
-windows = { version = "0.62", features = ["Foundation", "Foundation_Collections", "Globalization", "Graphics_Imaging", "Media_Ocr", "Security_Cryptography", "Storage_Streams"] }
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic", "directml"] }
+windows = { version = "0.62", optional = true, features = ["Foundation", "Foundation_Collections", "Globalization", "Graphics_Imaging", "Media_Ocr", "Security_Cryptography", "Storage_Streams"] }
 
 [dev-dependencies]
 base64 = "0.22"

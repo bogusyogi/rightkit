@@ -24,7 +24,9 @@ Do not use it for general chat, for hosted or multi-machine rooms, or as a produ
 
 ## Cargo features
 
-None. The crate has no `[features]` table.
+- `http` (default): the `server` module (axum HTTP and SSE host) and the `room` bin. Library-only users
+  opt out with `agent-room-core = { ..., default-features = false }`; that drops axum, tokio and
+  tokio-stream from the dependency tree.
 
 ## Usage
 

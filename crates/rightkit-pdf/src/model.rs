@@ -661,6 +661,7 @@ pub enum PdfEditCommand {
 
 /// Returns commands that remain active after collapsing OCR corrections by line identity. The
 /// last correction for a line wins; all existing command kinds retain their original order.
+#[cfg(any(feature = "edit", test))]
 pub(crate) fn effective_pdf_edit_commands(commands: &[PdfEditCommand]) -> Vec<&PdfEditCommand> {
     use std::collections::HashMap;
 

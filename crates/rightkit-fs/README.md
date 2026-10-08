@@ -20,22 +20,14 @@ Do not use it as a substitute for a database transaction. It guards single files
 
 ## Cargo features
 
-None. The crate has no `[features]` table. A `rightkit-clonefile` binary is included (`src/bin/rightkit-clonefile.rs`). Unix-only dependencies: `libc` and `nix` (`fs` feature).
+All features are on by default. Opt out with `default-features = false` and name only what you use.
 
-## Usage
+- `digest`: `digest` module (`sha256_bytes`, `sha256_reader`, `sha256_file`, `sha256_file_with_len`, `hex`). Depends only on `sha2`.
+- `fs`: atomic writes, owner-only files, `StateDir`, netfs checks, clonefile, and the error type. Depends on `libc` (unix) and `thiserror`.
+- `lock`: cross-process locks (`FileLock`, `with_lock`). Depends on `fs` and `nix` (unix).
+- `json`: identity ledger (`IdentityStore`), lock owner records, and the `rightkit-clonefile` binary. Depends on `lock`, `serde`, and `serde_json`.
 
-Taken from the imports and calls in `tests/e2e.rs`:
-
-```rust
-use rightkit_fs::{atomic_write, FileLock, LockOptions, StateDir};
-
-let dir = StateDir::create(path)?;
-atomic_write(&file_path, bytes)?;
-
-let _lock = FileLock::acquire(&lock_path, &LockOptions::default())?;
-```
-
-`atomic_write` takes a path and bytes. `StateDir::open` and `StateDir::create` take a path, and `StateDir::read` takes a child name and a byte limit. See `src/atomic.rs`, `src/state.rs` and `src/lock.rs` for the full signatures.
+Without `json`, locks write no owner file, so `recovered_stale` and `current_owner` return `None`. The lock itself behaves the same. `rightkit-db` uses `features = ["fs"]`. Digest-only callers use `features = ["digest"]`.
 
 ## Platform support
 

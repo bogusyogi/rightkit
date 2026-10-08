@@ -13,13 +13,14 @@
 
 mod native;
 mod router;
+#[cfg(feature = "onnx")]
 mod support;
 mod types;
 pub mod worker;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "native"))]
 pub use native::vision;
-#[cfg(windows)]
+#[cfg(all(windows, feature = "native"))]
 pub use native::win_native;
 pub use native::{canary_png, native_backend};
 pub use router::{BackendPreference, Isolation, Ocr, OcrOptions, OcrResult, OnnxConfig};
@@ -29,14 +30,21 @@ pub use types::{
 };
 pub use worker::WorkerCommand;
 
+#[cfg(feature = "onnx")]
 use image::{imageops, RgbImage};
+#[cfg(feature = "onnx")]
 use ort::{session::Session, value::Tensor};
+#[cfg(feature = "onnx")]
 use rightkit_ort::ProviderDiagnostic;
+#[cfg(feature = "onnx")]
 use sha2::{Digest, Sha256};
 use std::fmt;
-use std::path::{Path, PathBuf};
-#[cfg(test)]
+#[cfg(feature = "onnx")]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(all(test, feature = "onnx"))]
 use support::ctc_greedy_decode;
+#[cfg(feature = "onnx")]
 use support::{
     build_session, crop_box, ctc_greedy_decode_scored, dedup_boxes, det_chw_data, det_net_size,
     extract_boxes, group_into_lines, load_image, load_vocab, rec_chw_data, BBox, DET_BAND_OVERLAP,
@@ -123,6 +131,7 @@ impl OcrArtifactManifest {
         }
     }
 
+    #[cfg(feature = "onnx")]
     pub fn validate_model_dir(&self, model_dir: &Path) -> Result<VerifiedOcrArtifacts, OcrError> {
         self.validate_metadata()?;
         if !model_dir.is_absolute() {
@@ -225,6 +234,7 @@ impl From<String> for OcrError {
     }
 }
 
+#[cfg(feature = "onnx")]
 fn verify_artifact(root: &Path, name: &str, expected: &str) -> Result<PathBuf, OcrError> {
     let path = root.join(name);
     let canonical = path
@@ -247,6 +257,7 @@ fn verify_artifact(root: &Path, name: &str, expected: &str) -> Result<PathBuf, O
     Ok(canonical)
 }
 
+#[cfg(feature = "onnx")]
 pub fn ocr_image_with_manifest(
     path: &Path,
     model_dir: &Path,
@@ -259,7 +270,7 @@ pub fn ocr_image_with_manifest(
 
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "onnx"))]
 mod tests;
 // OcrEngine — load once, reuse across slides
 // ---------------------------------------------------------------------------
@@ -268,6 +279,7 @@ mod tests;
 ///
 /// Build once on a dedicated worker thread; reuse across slides.
 /// DirectML sessions are GPU-state-bound — keep on the same thread.
+#[cfg(feature = "onnx")]
 pub struct OcrEngine {
     det: Session,
     rec: Session,
@@ -279,6 +291,7 @@ pub struct OcrEngine {
     provider_diagnostics: Vec<ProviderDiagnostic>,
 }
 
+#[cfg(feature = "onnx")]
 impl OcrEngine {
     /// Load using the currently characterized manifest. This deliberately
     /// fails closed until its conflicting model provenance label is resolved.

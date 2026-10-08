@@ -23,34 +23,58 @@ pub struct InstalledApp {
     pub source: String,
 }
 
-/// Known app table supplied by the product. Keeping it caller-visible makes
-/// discovery reusable by products with a smaller or extended suite.
-pub const KNOWN_APPS: &[(&str, &str)] = &[
+/// The original Right Suite table. Deprecated: the crate hard-coded one product
+/// suite's names. Products pass their own `(app name, engine executable)` registry to
+/// [`discover_apps_in`]. Kept with identical contents so existing callers behave the same
+/// in this release.
+#[deprecated(
+    since = "0.1.2",
+    note = "pass your own (app, engine) registry to discover_apps_in"
+)]
+pub const KNOWN_APPS: &[(&str, &str)] = SUITE_APPS;
+
+/// Built-in table behind the deprecated [`KNOWN_APPS`] and [`discover_apps`].
+const SUITE_APPS: &[(&str, &str)] = &[
     ("HeardRight", "heardright-engine"),
     ("ScrapeRight", "scraperight-engine"),
     ("GenRight", "genright-engine"),
     ("CutRight", "cutright-engine"),
 ];
 
-pub fn discover_apps() -> Vec<InstalledApp> {
+/// Discover installed apps from the caller's `(app bundle or display name, engine executable)`
+/// registry. The first complete match per app wins.
+pub fn discover_apps_in(registry: &[(&str, &str)]) -> Vec<InstalledApp> {
     #[cfg(target_os = "macos")]
     {
-        let mut roots = vec![PathBuf::from("/Applications")];
-        if let Some(home) = std::env::var_os("HOME") {
-            roots.push(PathBuf::from(home).join("Applications"));
-        }
-        discover_macos(&roots, KNOWN_APPS)
+        discover_macos(&default_macos_roots(), registry)
     }
     #[cfg(windows)]
     {
-        discover_windows(&read_windows_uninstall_entries(), KNOWN_APPS, |p| {
+        discover_windows(&read_windows_uninstall_entries(), registry, |p| {
             Path::new(p).is_file()
         })
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     {
+        let _ = registry;
         Vec::new()
     }
+}
+
+#[cfg(target_os = "macos")]
+fn default_macos_roots() -> Vec<PathBuf> {
+    let mut roots = vec![PathBuf::from("/Applications")];
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(PathBuf::from(home).join("Applications"));
+    }
+    roots
+}
+
+/// Discover the built-in Right Suite apps. Deprecated: use [`discover_apps_in`].
+#[deprecated(since = "0.1.2", note = "use discover_apps_in with your own registry")]
+pub fn discover_apps() -> Vec<InstalledApp> {
+    #[allow(deprecated)]
+    discover_apps_in(KNOWN_APPS)
 }
 
 /// Scan roots in order; first complete bundle wins per app.
@@ -504,28 +528,25 @@ mod tests {
     #[test]
     fn mac_discovery_uses_known_bundle_and_first_root() {
         let d = tempfile::tempdir().unwrap();
-        let bundle = d.path().join("GenRight.app/Contents/MacOS");
+        let bundle = d.path().join("DemoApp.app/Contents/MacOS");
         fs::create_dir_all(&bundle).unwrap();
-        fs::write(bundle.join("genright-engine"), b"engine").unwrap();
+        fs::write(bundle.join("demo-engine"), b"engine").unwrap();
         fs::write(
-            d.path().join("GenRight.app/Contents/Info.plist"),
+            d.path().join("DemoApp.app/Contents/Info.plist"),
             b"<key>CFBundleShortVersionString</key><string>1.2</string>",
         )
         .unwrap();
-        let apps = discover_macos(
-            &[d.path().to_path_buf()],
-            &[("GenRight", "genright-engine")],
-        );
+        let apps = discover_macos(&[d.path().to_path_buf()], &[("DemoApp", "demo-engine")]);
         assert_eq!(apps[0].version.as_deref(), Some("1.2"));
     }
 
     #[test]
     fn registry_parser_and_windows_projection_are_deterministic() {
-        let text = "HKEY_CURRENT_USER\\x\n    DisplayName    REG_SZ    GenRight\n    InstallLocation    REG_SZ    C:\\Apps\\GenRight\n    DisplayVersion    REG_SZ    2.0\n";
+        let text = "HKEY_CURRENT_USER\\x\n    DisplayName    REG_SZ    DemoApp\n    InstallLocation    REG_SZ    C:\\Apps\\DemoApp\n    DisplayVersion    REG_SZ    2.0\n";
         let rows = parse_reg_query(text);
         assert_eq!(rows.len(), 1);
-        let apps = discover_windows(&rows, &[("GenRight", "genright-engine")], |p| {
-            p.ends_with("genright-engine.exe")
+        let apps = discover_windows(&rows, &[("DemoApp", "demo-engine")], |p| {
+            p.ends_with("demo-engine.exe")
         });
         assert_eq!(apps[0].version.as_deref(), Some("2.0"));
     }

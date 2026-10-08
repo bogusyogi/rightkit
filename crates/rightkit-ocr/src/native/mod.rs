@@ -4,14 +4,16 @@ use image::RgbImage;
 
 use crate::types::{OcrBackend, OcrLine};
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "native"))]
 pub mod vision;
-#[cfg(windows)]
+#[cfg(all(windows, feature = "native"))]
 pub mod win_native;
 
-/// The native backend for this OS, if any.
+/// The native backend for this OS, if compiled in (`native` feature) and supported.
 pub const fn native_backend() -> Option<OcrBackend> {
-    if cfg!(target_os = "macos") {
+    if !cfg!(feature = "native") {
+        None
+    } else if cfg!(target_os = "macos") {
         Some(OcrBackend::Vision)
     } else if cfg!(windows) {
         Some(OcrBackend::WindowsMedia)
@@ -23,15 +25,15 @@ pub const fn native_backend() -> Option<OcrBackend> {
 /// Recognize with the native backend, including macOS's blank-page health
 /// self-check (an empty Vision result is disambiguated before returning).
 pub fn recognize(img: &RgbImage) -> Result<Vec<OcrLine>, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "native"))]
     {
         vision::recognize(img)
     }
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "native"))]
     {
         win_native::recognize(img)
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(not(all(any(target_os = "macos", windows), feature = "native")))]
     {
         let _ = img;
         Err(format!(
@@ -44,11 +46,11 @@ pub fn recognize(img: &RgbImage) -> Result<Vec<OcrLine>, String> {
 /// Exactly one native request, no in-process canary. Used by the isolated
 /// worker so a poisoned process never runs the health check itself.
 pub fn recognize_once(img: &RgbImage) -> Result<Vec<OcrLine>, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "native"))]
     {
         vision::recognize_once(img)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(all(target_os = "macos", feature = "native")))]
     {
         recognize(img)
     }

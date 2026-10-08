@@ -14,6 +14,39 @@ and reports frames, geometry, losses and failures as `HelperEvent`s.
 - `process`: `ProcessBackend`, the core's `Backend` over a helper's stdio, and `serve_backend`, which lets a helper serve any `Backend`.
 - `windows` (Windows only): Windows.Graphics.Capture and Media Foundation capture for one HWND.
 
+## Recoverable media (R14)
+
+The helpers write a fragmented MP4, so a helper killed mid-take leaves `clean.mp4` playable up to its
+last whole fragment (about half a second plus encoder latency is lost). macOS runs `AVAssetWriter` in segment mode
+(`outputFileTypeProfile = .mpeg4AppleHLS`, 0.5 s segments) and appends and fsyncs each segment itself,
+because `movieFragmentInterval` has no effect on a file-URL MP4 writer (measured). Windows sets
+`MF_TRANSCODE_CONTAINERTYPE = MFTranscodeContainerType_FMPEG4` on the sink writer (`src/windows/mf.rs`,
+unverified on Windows).
+
+When a take ends `quarantined` or is recovered from a stale state, the core probes the media
+structurally (`media::probe_mp4`: ftyp, moov, and every complete `moof`/`mdat` pair; a fragment whose
+`mdat` is cut short does not count). Playable media is kept and its figures are appended to the manifest
+reason (`helper_lost; recovered_media frames=118/149 duration_ms=4006`) and returned as
+`Outcome::recovered_media` / `Recovered::media`. Media that does not play ends the take `invalid` with
+`media_unplayable`. The `accepted` count is the bundle reader's frame table.
+
+## Redaction hashes
+
+A `hash` field stores HMAC-SHA256 keyed by a per-installation secret that never enters the bundle. The
+secret lives in the OS credential store (`rightkit-secrets`, service `dev.rightkit.record`, account
+`record.redaction-key.v1`, minted on first use). `StartRequest::key_source` (a `KeySource`) supplies it;
+tests inject `FixedKeySource`. A take that hashes a field and cannot read the key is refused before
+anything is written. The bundle records only the key id (`scenario.json` `redaction.keyId`, plus
+`hashAlgorithm`), and each hashed event carries `saltId` `hmac-sha256:<keyId>`. Equal values hash equal
+within an installation. Digests are written `hmac-sha256:<64 hex>` (record-event contract 1.2), and
+`bundle_verify` requires the digest prefix to match the `saltId` algorithm (`hmac-sha256:` or, for legacy
+`label:` salts, `blake3:`).
+
+Migration: bundles written before this change carry label-salted digests (`saltId` `label:<field>`, no
+key id). They still read and verify; `bundle_verify` reports them in `VerifyReport::warnings` as weak
+redaction (anyone can confirm a guessed value). New bundles never use label salts. Existing digests
+cannot be re-keyed: the plaintext is gone.
+
 ## Helpers
 
 - `rightkit-record-helper capture ...`: a one-shot Windows take that prints a JSON summary.

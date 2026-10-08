@@ -1,3 +1,5 @@
+#![cfg(feature = "vector")]
+
 use rightkit_embed::{cosine_similarity, VectorStore};
 
 #[test]

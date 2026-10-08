@@ -36,10 +36,14 @@ mod transport;
 
 pub use client::{Client, RetryPolicy, DEFAULT_DEADLINE};
 pub use discovery::{
-    adopt_or_spawn, discover_apps, discover_macos, discover_windows, parse_plist_string,
+    adopt_or_spawn, discover_apps_in, discover_macos, discover_windows, parse_plist_string,
     parse_reg_query, record_process_matches, resolve_install_dir, wait_for_claim_winner,
-    AdoptOrSpawn, InstalledApp, SpawnClaim, SpawnClaimError, UninstallEntry, KNOWN_APPS,
+    AdoptOrSpawn, InstalledApp, SpawnClaim, SpawnClaimError, UninstallEntry,
 };
+// Deprecated items stay exported for existing callers; their deprecation is reported at the
+// caller's own use site, not on this re-export.
+#[allow(deprecated)]
+pub use discovery::{discover_apps, KNOWN_APPS};
 pub use error::{
     ServiceError, ERROR_CONNECTION_CLOSED, ERROR_HOST_HANDOFF, ERROR_NOT_ALLOWED, ERROR_TIMEOUT,
     ERROR_UNAVAILABLE,

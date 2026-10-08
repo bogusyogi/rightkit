@@ -101,7 +101,7 @@ pub enum FileMigration {
     StoreUnavailable,
 }
 
-/// CodeRight's one-way plaintext-file migration (`~/.coderight/<provider>.key`).
+/// One-way migration of a legacy plaintext key file (e.g. `~/.myapp/<provider>.key`).
 pub fn migrate_plaintext_file(store: &Store, account: &str, path: &Path) -> Result<FileMigration> {
     let raw = match std::fs::read(path) {
         Ok(b) => Secret::from_bytes(b),

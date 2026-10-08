@@ -1,6 +1,8 @@
 //! End-to-end audio coverage against real files, FFmpeg, and (when available) a
 //! named loopback input device.  No test routes audio to speakers.
 
+#![cfg(feature = "capture")]
+
 use std::{
     path::{Path, PathBuf},
     time::Duration,

@@ -44,7 +44,7 @@ operation with its own outcome.
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `getrandom` (pinned `=0.2.17`) and `rightkit-license`.
+None. The crate has no Cargo features. Dependencies: `getrandom` 0.3 and `rightkit-license`.
 
 ## Platform support
 

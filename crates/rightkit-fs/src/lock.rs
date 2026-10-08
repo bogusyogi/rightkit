@@ -11,10 +11,16 @@
 //! The lock file itself is never deleted: removing it after unlock lets a second process lock
 //! the old inode while a third creates and locks a new one for the same path.
 //!
+//! Owner records are JSON, so they need the `json` feature. Without it, `acquire` writes no
+//! owner file, `recovered_stale` is always `None`, and `current_owner` returns `None`. The lock
+//! itself behaves the same either way.
+//!
 //! Consolidates CutRight project/model-store/qa locks and CodeRight `DaemonDbLock`.
 
+#[cfg(feature = "json")]
 use crate::atomic::atomic_write;
 use crate::error::{FsError, Result};
+#[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};
 #[cfg(not(unix))]
 use std::fs::TryLockError;
@@ -22,7 +28,8 @@ use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "json", derive(Serialize, Deserialize))]
 pub struct LockOwner {
     pub pid: u32,
     pub hostname: String,
@@ -129,28 +136,29 @@ fn open_lock_file(path: &Path) -> Result<File> {
 }
 
 impl FileLock {
-    /// Exclusive lock; waits up to `options.timeout`.
+    /// Exclusive lock, the first of the two lock primitives. Waits up to `options.timeout`
+    /// (`Duration::ZERO` tries once), then records this process as owner in `<path>.owner`.
+    /// Returns `FsError::Locked` (with the owner) or `FsError::LockTimeout` when busy.
     pub fn acquire(path: &Path, options: &LockOptions) -> Result<Self> {
         let file = lock_with_retry(path, options, Mode::Exclusive)?;
-        let owner_path = owner_path_for(path);
-        let recovered_stale = read_owner(&owner_path);
-        let record = serde_json::to_vec_pretty(&LockOwner::current(&options.label))
-            .expect("owner serializes");
-        atomic_write(&owner_path, &record)?;
+        let recovered_stale = read_owner(&owner_path_for(path));
+        let owner_path = record_owner(path, &options.label)?;
         Ok(Self {
             file,
             path: path.to_path_buf(),
-            owner_path: Some(owner_path),
+            owner_path,
             recovered_stale,
         })
     }
 
-    /// Fail immediately when busy.
+    /// Exclusive lock, failing immediately when busy. Shorthand for `acquire` with default options.
     pub fn try_acquire(path: &Path) -> Result<Self> {
         Self::acquire(path, &LockOptions::default())
     }
 
-    /// Shared (reader) lock: many readers, excluded by a writer. No owner record.
+    /// Shared lock, the second primitive: any number of shared holders may coexist, and an
+    /// exclusive holder excludes them all. Waits up to `options.timeout`. Writes no owner
+    /// record, so `recovered_stale` is always `None`.
     pub fn acquire_shared(path: &Path, options: &LockOptions) -> Result<Self> {
         let file = lock_with_retry(path, options, Mode::Shared)?;
         Ok(Self {
@@ -375,8 +383,28 @@ pub fn with_lock<T>(path: &Path, options: &LockOptions, f: impl FnOnce() -> T) -
     Ok(f())
 }
 
+/// Writes the owner record for the exclusive holder of `lock_path`, returning its path.
+#[cfg(feature = "json")]
+fn record_owner(lock_path: &Path, label: &str) -> Result<Option<PathBuf>> {
+    let owner_path = owner_path_for(lock_path);
+    let record = serde_json::to_vec_pretty(&LockOwner::current(label)).expect("owner serializes");
+    atomic_write(&owner_path, &record)?;
+    Ok(Some(owner_path))
+}
+
+#[cfg(not(feature = "json"))]
+fn record_owner(_lock_path: &Path, _label: &str) -> Result<Option<PathBuf>> {
+    Ok(None)
+}
+
+#[cfg(feature = "json")]
 fn read_owner(path: &Path) -> Option<LockOwner> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
+#[cfg(not(feature = "json"))]
+fn read_owner(_path: &Path) -> Option<LockOwner> {
+    None
 }
 
 pub fn hostname() -> String {

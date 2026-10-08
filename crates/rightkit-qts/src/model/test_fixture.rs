@@ -1,5 +1,5 @@
 //! Tiny local GGUF fixtures; no model artifacts or network access.
-use qts_ggml::sys;
+use ggml_sys as sys;
 use std::ffi::CString;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};

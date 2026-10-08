@@ -9,6 +9,8 @@
 //! cosine >= 0.9999 and max absolute element difference <= 2e-3 (Q4 kernels
 //! pick different accumulation paths for different shapes; the math is equal).
 
+#![cfg(all(feature = "inference", feature = "vector"))]
+
 use std::time::Instant;
 
 use rightkit_embed::{cosine_similarity, Embedder, EmbedderConfig, ExecutionProvider};

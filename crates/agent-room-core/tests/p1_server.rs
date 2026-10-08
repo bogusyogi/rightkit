@@ -1,3 +1,5 @@
+#![cfg(feature = "http")]
+
 use agent_room_core::protocol::{Phase, Room, RoomConfig, SeatConfig};
 use agent_room_core::server::{router, ServerState};
 use axum::body::{to_bytes, Body};

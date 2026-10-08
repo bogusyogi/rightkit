@@ -13,19 +13,23 @@
 //! | `font`    | bundled + system font catalog, subsetting, ToUnicode              |
 //! | `compose` | sparse-write composition of edit commands onto fresh bytes        |
 //! | `save`    | candidate verification, single-use save tokens, commit resolution |
-//! | `commit`  | atomic on-disk write for a resolved save token                    |
+//! | `commit`  | (feature `edit`) atomic on-disk write for a resolved save token   |
 //! | `merge`   | (feature `merge`) merge PDFs, select/reorder pages                |
 //! | `extract` | (feature `extract`) text extraction, whole-document and per page  |
 
+#[cfg(feature = "edit")]
 pub mod commit;
+#[cfg(feature = "edit")]
 pub mod compose;
 #[cfg(feature = "extract")]
 pub mod extract;
+#[cfg(feature = "fonts")]
 pub mod font;
 pub mod inspect;
 #[cfg(feature = "merge")]
 pub mod merge;
 pub mod model;
+#[cfg(feature = "edit")]
 pub mod save;
 #[cfg(test)]
 mod test_fixtures;

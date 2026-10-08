@@ -16,7 +16,12 @@ Do not use it to fetch models, and do not use it to pick a model at run time. Mo
 
 ## Cargo features
 
-None. The crate has no `[features]` table. Accelerator support is compiled by `rightkit-ort` for each target OS. Dependencies include `ort` (`load-dynamic`), `rightkit-ort`, `rusqlite` (no default features), and `tokenizers` (`onig`).
+| Feature | Default | Pulls in | Effect |
+|---|---|---|---|
+| `inference` | on | `ort` (`load-dynamic`), `rightkit-ort`, `tokenizers` (`onig`), `sha2`, `serde_json` | `Embedder`, `EmbedderConfig`, `ExecutionProvider`, `truncate_and_normalize`. |
+| `vector` | on | `rusqlite` (no default features) | `VectorStore` (persistent cosine store) and `cosine_similarity`. |
+
+`--no-default-features --features vector` builds the store without `ort` or `tokenizers`. Accelerator support is still compiled by `rightkit-ort` for each target OS.
 
 ## Usage
 

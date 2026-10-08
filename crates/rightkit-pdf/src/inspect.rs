@@ -326,6 +326,7 @@ impl TextStateFont for BuiltFont {
 /// Returns `None` for a 2-byte Identity-H CID resource (`ExactOperandPatch` never touches that
 /// codespace — ambiguous byte-width splicing there is a `LocalTextObjectRewrite`-only concern) or
 /// when any character of `text` has no byte in this font's encoding that decodes back to it.
+#[cfg(feature = "edit")]
 pub(crate) fn simple_font_identity_bytes(
     doc: &Document,
     page_id: ObjectId,

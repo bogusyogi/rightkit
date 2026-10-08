@@ -11,7 +11,7 @@ Catalog capability: `content-contracts`. Not published (`publish = false`).
 | `content-brief` | `content-brief.v1.schema.json` | 1.0.0 |
 | `delivery-envelope` | `delivery-envelope.v1.schema.json` | 1.0.0 |
 | `record-session` | `record-session.v1.schema.json` | 1.1.0 |
-| `record-event` | `record-event.v1.schema.json` | 1.1.0 |
+| `record-event` | `record-event.v1.schema.json` | 1.2.0 |
 | `demo-plan` | `demo-plan.v1.schema.json` | 1.0.0 |
 | `daemon-api` | `daemon-api.v1.schema.json` | 1.0.0 |
 
@@ -73,4 +73,5 @@ Published version: not published. See [INDEX.md](../../INDEX.md). No CHANGELOG.m
 Minor changes in this crate:
 
 - `record-event` 1.1.0 adds the event kinds `session_start`, `session_end` and `frame_dropped`, and the `frameDropped` object (`count`, `intervalMs`, `reason` one of `backpressure`, `encoder`, `capture_gap`, `unknown`), required for `frame_dropped`. 1.0.0 documents remain valid.
+- `record-event` 1.2.0 accepts `hmac-sha256:<64 lowercase hex>` as a hash `digest` beside `blake3:<64 lowercase hex>`; `saltId` names the key (`hmac-sha256:<keyId>`). 1.0.0 and 1.1.0 documents remain valid.
 - `record-session` 1.1.0 adds `on_screen_visible` to `capture.visibilityState`. 1.0.0 documents remain valid.

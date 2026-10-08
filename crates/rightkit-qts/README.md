@@ -10,10 +10,10 @@ Native Qwen3-TTS inference for Right Suite apps: GGUF and GGML talker and code-p
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `metal` | off | `rightkit-qts-ggml/metal` | ggml Metal backend (Apple targets). |
-| `vulkan` | off | `rightkit-qts-ggml/vulkan` | ggml Vulkan backend. |
-| `blas` | off | `rightkit-qts-ggml/blas` | ggml BLAS backend. |
-| `native` | off | `rightkit-qts-ggml/native` | Builds ggml for the host CPU. |
+| `metal` | off | `rightkit-qts-ggml-sys/metal` | ggml Metal backend (Apple targets). |
+| `vulkan` | off | `rightkit-qts-ggml-sys/vulkan` | ggml Vulkan backend. |
+| `blas` | off | `rightkit-qts-ggml-sys/blas` | ggml BLAS backend. |
+| `native` | off | `rightkit-qts-ggml-sys/native` | Builds ggml for the host CPU. |
 | `acl`, `armnn`, `azure`, `cann`, `coreml`, `cuda`, `directml`, `migraphx`, `nnapi`, `nvrtx`, `onednn`, `openvino`, `qnn`, `rknpu`, `tensorrt`, `tvm`, `vitis`, `webgpu`, `xnnpack` | off | `ort/<name>` | Execution-provider features for the vocoder's ONNX Runtime session. Each forwards to the same-named `ort` feature. |
 
 The default feature set is empty. The ONNX Runtime dependency is pinned to `=2.0.0-rc.13` with `load-dynamic` and API 24 (see `Cargo.toml`).

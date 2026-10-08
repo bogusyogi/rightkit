@@ -4,9 +4,10 @@ import CoreVideo
 import Foundation
 import RecordWire
 import ScreenCaptureKit
+import UniformTypeIdentifiers
 
 /// One take: a window-scoped `SCStream` whose frame callback hands frames to a bounded queue; a
-/// worker hashes each frame's raw pixels, appends it to an `AVAssetWriter` MP4 (`clean.mp4`), and
+/// worker hashes each frame's raw pixels, appends it to an `AVAssetWriter` fragmented MP4 (`clean.mp4`), and
 /// reports `ready` / `frame` / `dropped` events. The callback never hashes, encodes or writes.
 ///
 /// Clock: sample PTS is the host clock, the same clock as `CLOCK_UPTIME_RAW` on Apple silicon
@@ -17,6 +18,12 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
     static let mediaFile = "clean.mp4"
     private static let queueCapacity = 3
     private static let monitorInterval: TimeInterval = 0.25
+    /// Fragment length of the MP4. `AVAssetWriter` ignores `movieFragmentInterval` for file output
+    /// (measured: the file stays `ftyp`/`mdat`/`moov`), so the writer runs in segment mode and
+    /// `SegmentSink` appends each init/media segment to `clean.mp4` and fsyncs it. A helper killed
+    /// mid-take leaves `ftyp`, `moov` and every whole `moof`/`mdat` pair: it plays up to the last
+    /// segment, and about this much (plus encoder latency) is lost.
+    static let fragmentInterval = CMTime(seconds: 0.5, preferredTimescale: 600)
 
     private let plan: StartPlan
     private let window: SCWindow
@@ -26,6 +33,7 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
     private let height: Int
     private let mediaURL: URL
     private let writer: AVAssetWriter
+    private let sink: SegmentSink
     private let input: AVAssetWriterInput
     private var stream: SCStream?
     private let sampleQueue = DispatchQueue(label: "rightkit.record.samples", qos: .userInteractive)
@@ -51,7 +59,7 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
     private var lastHostNs: UInt64 = 0
 
     private init(plan: StartPlan, window: SCWindow, width: Int, height: Int, mediaURL: URL,
-                 writer: AVAssetWriter, input: AVAssetWriterInput, emit: @escaping (HelperEvent) -> Void) {
+                 writer: AVAssetWriter, sink: SegmentSink, input: AVAssetWriterInput, emit: @escaping (HelperEvent) -> Void) {
         self.plan = plan
         self.window = window
         self.ownerPid = window.owningApplication?.processID ?? 0
@@ -59,6 +67,7 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
         self.height = height
         self.mediaURL = mediaURL
         self.writer = writer
+        self.sink = sink
         self.input = input
         self.emit = emit
         self.frameIntervalMs = 1000.0 / Double(plan.fps)
@@ -118,9 +127,9 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
             throw HelperError.outExists("\(mediaURL.path) already exists")
         }
 
-        let (writer, input) = try makeWriter(url: mediaURL, codec: plan.codec, width: width, height: height, fps: Int(plan.fps))
+        let (writer, sink, input) = try makeWriter(url: mediaURL, codec: plan.codec, width: width, height: height, fps: Int(plan.fps))
         let session = CaptureSession(plan: plan, window: window, width: width, height: height,
-                                     mediaURL: mediaURL, writer: writer, input: input, emit: emit)
+                                     mediaURL: mediaURL, writer: writer, sink: sink, input: input, emit: emit)
         let hostNsAtStart = try session.beginCapture()
         let info = StartInfo(
             hostNsAtStart: hostNsAtStart, width: UInt32(width), height: UInt32(height), scale: plan.scale,
@@ -134,7 +143,7 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
         return rounded + (rounded & 1)
     }
 
-    private static func makeWriter(url: URL, codec: Codec, width: Int, height: Int, fps: Int) throws -> (AVAssetWriter, AVAssetWriterInput) {
+    private static func makeWriter(url: URL, codec: Codec, width: Int, height: Int, fps: Int) throws -> (AVAssetWriter, SegmentSink, AVAssetWriterInput) {
         let bitrate = max(1_000_000, Int(Double(width * height) * Double(fps) * 0.15))
         let settings: [String: Any] = [
             AVVideoCodecKey: codec == .hevc ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
@@ -143,14 +152,20 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: bitrate,
                 AVVideoExpectedSourceFrameRateKey: fps,
-                AVVideoMaxKeyFrameIntervalKey: fps * 2,
+                AVVideoMaxKeyFrameIntervalKey: max(1, fps / 2),  // one key frame per segment: segments cut on key frames
                 AVVideoAllowFrameReorderingKey: false,
             ] as [String: Any],
         ]
         let writer: AVAssetWriter
-        do { writer = try AVAssetWriter(url: url, fileType: .mp4) } catch {
+        let sink: SegmentSink
+        do { sink = try SegmentSink(url: url) } catch {
             throw HelperError.io("cannot create \(url.path): \(error.localizedDescription)")
         }
+        writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
+        writer.outputFileTypeProfile = .mpeg4AppleHLS
+        writer.preferredOutputSegmentInterval = fragmentInterval
+        writer.initialSegmentStartTime = .zero
+        writer.delegate = sink
         guard writer.canApply(outputSettings: settings, forMediaType: .video) else {
             throw HelperError.codecUnavailable("\(codec.rawValue) at \(width)x\(height) is not available on this Mac")
         }
@@ -159,10 +174,11 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
         guard writer.canAdd(input) else { throw HelperError.codecUnavailable("the writer refused the \(codec.rawValue) input") }
         writer.add(input)
         guard writer.startWriting() else {
+            sink.close()
             try? FileManager.default.removeItem(at: url)
             throw HelperError.codecUnavailable("the \(codec.rawValue) encoder could not start: \(writer.error?.localizedDescription ?? "unknown")")
         }
-        return (writer, input)
+        return (writer, sink, input)
     }
 
     /// Starts the stream and the worker. Returns the host time just before capture began.
@@ -220,6 +236,7 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private func discardMedia() {
         writer.cancelWriting()
+        sink.close()
         try? FileManager.default.removeItem(at: mediaURL)
     }
 
@@ -438,9 +455,46 @@ final class CaptureSession: NSObject, SCStreamOutput, SCStreamDelegate {
             writer.finishWriting { semaphore.signal() }
             if semaphore.wait(timeout: .now() + 60) != .success {
                 writer.cancelWriting()
+                sink.close()
                 return Finished(clean: false)
             }
         }
-        return Finished(clean: drained && !broken && writer.status == .completed)
+        sink.close()
+        return Finished(clean: drained && !broken && writer.status == .completed && !sink.failed)
+    }
+}
+
+/// Receives the writer's segments and appends them to the media file, fsyncing each one so a
+/// SIGKILL leaves every segment already delivered. Delegate callbacks arrive on a writer queue.
+final class SegmentSink: NSObject, AVAssetWriterDelegate {
+    private let lock = NSLock()
+    private var handle: FileHandle?
+    private(set) var failed = false
+
+    init(url: URL) throws {
+        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+            throw HelperError.io("cannot create \(url.path)")
+        }
+        handle = try FileHandle(forWritingTo: url)
+    }
+
+    func assetWriter(_ writer: AVAssetWriter, didOutputSegmentData segmentData: Data,
+                     segmentType: AVAssetSegmentType, segmentReport: AVAssetSegmentReport?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let handle, !failed else { return }
+        do {
+            try handle.write(contentsOf: segmentData)
+            try handle.synchronize()
+        } catch {
+            failed = true
+        }
+    }
+
+    func close() {
+        lock.lock()
+        try? handle?.close()
+        handle = nil
+        lock.unlock()
     }
 }

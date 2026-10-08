@@ -23,9 +23,9 @@ The client exposes `license.get/set/delete`, `device.getOrCreate`, `logs.write/c
 
 | Dependency | Range | Note |
 |---|---|---|
-| `@rightkit/updates` | `0.2.4` (exact, published) | Used only for a type (`AutoUpdateClient`) |
+| `@rightkit/logs` | `^0.1.4` | Runtime import of the `rightkit_logs_*` command-name constants |
 
-Peer dependencies: none.
+Peer dependencies: `@rightkit/updates` `^0.2.5`, used only as a type (`AutoUpdateClient`). Install it alongside this package in the app.
 
 ## Example
 
@@ -42,5 +42,4 @@ const deviceId = await native.device.getOrCreate();
 
 ## Known issues
 
-- `@rightkit/updates` is a regular dependency but is used only as a type. It is pinned exactly to `0.2.4`, which is older than the current `0.2.5`. Consumers that also install `@rightkit/updates` get two copies. The `updates` field is the one place where this shows (npm audit 2026-10-08, tauri finding 1). The planned fix moves it to a peer.
-- The command names `rightkit_logs_write`, `rightkit_logs_collect` and `rightkit_logs_clear` are repeated here instead of imported from `@rightkit/logs` (npm audit 2026-10-08, logs finding 1).
+- None open.

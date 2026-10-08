@@ -138,7 +138,7 @@ where
     }
 
     pub fn get_or_create(&self) -> Result<String, StorageError> {
-        self.get_or_create_with_rng(getrandom::getrandom)
+        self.get_or_create_with_rng(getrandom::fill)
     }
 
     fn get_or_create_with_rng<E>(

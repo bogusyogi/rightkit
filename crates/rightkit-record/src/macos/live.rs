@@ -174,6 +174,8 @@ fn request(out: PathBuf, fixture: &Fixture, codec: Codec) -> StartRequest {
         },
         out,
     );
+    request.key_source =
+        crate::redact::KeyHandle::new(crate::redact::FixedKeySource::new([0x5a; 32]));
     request.fps = 30;
     request.codec = codec;
     request
@@ -403,4 +405,148 @@ fn a_short_hevc_take_seals_and_verifies() {
 fn a_live_capture_of_the_off_screen_fixture_seals_a_verified_bundle() {
     // 30 seconds of H.264 at 30 fps through the core recorder: sealed `complete` and bundle_verify ok.
     record_and_verify(Codec::H264, seconds("RK_RECORD_LIVE_SECONDS", 30), "live30");
+}
+
+fn media_tool(name: &str) -> PathBuf {
+    ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+        .iter()
+        .map(|dir| Path::new(dir).join(name))
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from(name))
+}
+
+/// R14: the helper is killed with SIGKILL about five seconds into a take. The fragmented MP4 it
+/// leaves must decode, the take must quarantine (never `complete`), and recovery must record the
+/// duration the media still plays.
+#[test]
+#[ignore = "needs the helper, Screen Recording permission and ffprobe/ffmpeg; see the module docs"]
+fn a_sigkilled_helper_leaves_quarantined_media_that_decodes() {
+    let fixture = Fixture::launch();
+    let scratch = Scratch::new("sigkill");
+    let bundle = scratch.0.join("take");
+    let backend = MacBackend::launch(&helper()).expect("launch the helper");
+    assert_eq!(
+        backend.permission(),
+        Permission::Granted,
+        "the helper identity needs Screen Recording permission"
+    );
+    let (mut recorder, _) = Recorder::open(backend, SystemClock, &[], 30_000).unwrap();
+    recorder
+        .record_start(request(bundle.clone(), &fixture, Codec::H264))
+        .expect("start the take");
+
+    let began = Instant::now();
+    while began.elapsed() < Duration::from_secs(5) {
+        thread::sleep(Duration::from_millis(100));
+        let status = recorder.record_status().expect("status");
+        assert!(
+            status.failure.is_none(),
+            "take failed early: {:?}",
+            status.failure
+        );
+    }
+    let pid = recorder.backend().helper_pid();
+    let killed = Command::new("/bin/kill")
+        .args(["-KILL", &pid.to_string()])
+        .status()
+        .expect("run kill");
+    assert!(killed.success(), "kill -KILL {pid} failed");
+
+    // The core sees the helper's pipe close and ends the take.
+    assert!(
+        wait_for(Duration::from_secs(10), || {
+            recorder
+                .record_status()
+                .map(|s| s.outcome.is_some())
+                .unwrap_or(false)
+        }),
+        "the core never noticed the helper's death"
+    );
+    let outcome = recorder.record_stop().expect("outcome");
+    eprintln!("sigkill: {outcome:?}");
+    assert_eq!(
+        outcome.status,
+        BundleStatus::PartialQuarantined,
+        "{outcome:?}"
+    );
+    assert_eq!(outcome.reason.as_deref(), Some("helper_lost"));
+
+    let media = outcome
+        .recovered_media
+        .expect("the quarantined media must be playable and recorded");
+    assert!(
+        media.duration_ms >= 4_000,
+        "recovered only {} ms of media",
+        media.duration_ms
+    );
+    let report = recorder
+        .bundle_verify(&bundle, &VerifyOptions::default())
+        .expect("verify");
+    assert!(report.ok(), "bundle_verify problems: {:?}", report.problems);
+
+    // The bundle reader's frame table is what the media is compared against.
+    let reader = crate::reader::BundleReader::open(&bundle).expect("open the quarantined bundle");
+    assert!(reader.frames().len() as u64 >= media.samples);
+
+    // Independent decode: ffmpeg must read every frame without error, and ffprobe must agree
+    // with the recovered figures.
+    let clip = bundle.join("clean.mp4");
+    let decode = Command::new(media_tool("ffmpeg"))
+        .args(["-v", "error", "-i"])
+        .arg(&clip)
+        .args(["-fps_mode", "passthrough", "-f", "null", "-"])
+        .output()
+        .expect("run ffmpeg");
+    assert!(
+        decode.status.success()
+            && !String::from_utf8_lossy(&decode.stderr).contains("Invalid data")
+            && !String::from_utf8_lossy(&decode.stderr).contains("error while decoding"),
+        "ffmpeg could not decode the killed take's media: {}",
+        String::from_utf8_lossy(&decode.stderr)
+    );
+    let probe = Command::new(media_tool("ffprobe"))
+        .args([
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames:format=duration",
+            "-of",
+            "json",
+        ])
+        .arg(&clip)
+        .output()
+        .expect("run ffprobe");
+    assert!(
+        probe.status.success(),
+        "{}",
+        String::from_utf8_lossy(&probe.stderr)
+    );
+    let info: Value = serde_json::from_slice(&probe.stdout).unwrap();
+    let decoded_frames: u64 = info["streams"][0]["nb_read_frames"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let seconds: f64 = info["format"]["duration"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    eprintln!(
+        "sigkill: decoded {decoded_frames} frames, {seconds:.2} s; core recovered {} frames, {} ms of {} accepted",
+        media.samples, media.duration_ms, media.accepted_frames
+    );
+    assert!(seconds >= 4.0, "media decodes only {seconds} s");
+    // The fixture draws irregularly, so only a loose frame floor is meaningful.
+    assert!(
+        decoded_frames >= 4 * 10,
+        "only {decoded_frames} frames decode"
+    );
+    assert_eq!(
+        decoded_frames, media.samples,
+        "the structural probe and the decoder must count the same frames"
+    );
 }

@@ -38,7 +38,7 @@ import "@rightkit/media-ui/styles.css";
 // </MediaAdaptersProvider>
 ```
 
-Image apps add `fabric` and import `ImageViewer` or `ImageEditor` from `@rightkit/media-ui/image`. Because `fabric` lists the native `canvas` addon as an optional dependency, a pnpm workspace may need `allowBuilds: { canvas: false }`.
+Image apps add `fabric` and `react-image-crop` and import `ImageViewer` or `ImageEditor` from `@rightkit/media-ui/image`. Because `fabric` lists the native `canvas` addon as an optional dependency, a pnpm workspace may need `allowBuilds: { canvas: false }`.
 
 Adapters are all optional: `resolveSrc`, `preparePlayback`, `cancelPlayback`, `setFullscreen`, `listImageSiblings`, `listSystemFonts`, `bundledFonts`, `saveImage`, `printImage`, `acquireResource`, `notify`, `logError`.
 
@@ -46,4 +46,4 @@ Theme with `--rk-media-*` and `--rk-iv-*` custom properties on `:root` or an anc
 
 ## Known issues
 
-- `react-image-crop` (`^11.1.2`) is a regular dependency, so every consumer installs it, even consumers that only use the root entry. It is imported only under `./image` (`src/image/ImageCropTool.tsx`, `src/image/ImageViewerStage.tsx`). Moving it to an optional peer is pending (npm audit 2026-10-08, media-ui finding 3).
+- None open. `react-image-crop` (`^11.1.2`) is an optional peer since 0.3.0. It is imported only under `./image` (lazily, from `src/image/ImageViewerStage.tsx`). Image-viewer apps must install it alongside `fabric`; player-only apps need neither.

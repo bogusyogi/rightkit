@@ -1,4 +1,5 @@
-#[cfg(target_os = "macos")]
+#![cfg(all(target_os = "macos", feature = "system"))]
+
 use rightkit_tts::{SystemTts, SystemTtsOptions};
 
 #[cfg(target_os = "macos")]

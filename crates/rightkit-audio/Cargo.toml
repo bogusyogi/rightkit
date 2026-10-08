@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-audio"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared audio for Right Suite apps: typed FFmpeg filter graphs, loudness gates, room tone, ducking, WAV I/O, and cpal capture with resample/downmix/recovery."
@@ -13,8 +13,9 @@ include = ["src/**", "tests/**", "presets/**", "README.md", "LICENSE-MIT", "LICE
 
 [features]
 default = ["capture"]
-# Live microphone capture (cpal + rubato + ringbuf). Off for pure filter-graph consumers.
-capture = ["dep:cpal", "dep:rubato", "dep:ringbuf"]
+# Live microphone capture (cpal + rubato + ringbuf), the macOS CoreAudio device probe,
+# and the Windows endpoint/power lifecycle adapter. Off for pure filter-graph consumers.
+capture = ["dep:cpal", "dep:rubato", "dep:ringbuf", "dep:objc2-core-audio", "dep:objc2-core-foundation", "dep:windows", "dep:windows-core"]
 
 [dependencies]
 rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
@@ -28,11 +29,11 @@ ringbuf = { version = "0.5", optional = true }
 tracing = "0.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-core-audio = "0.3.2"
-objc2-core-foundation = "0.3.2"
+objc2-core-audio = { version = "0.3.2", optional = true }
+objc2-core-foundation = { version = "0.3.2", optional = true }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = [
+windows = { version = "0.62.2", optional = true, features = [
   "Win32_Foundation",
   "Win32_Media_Audio",
   "Win32_System_Com",
@@ -40,7 +41,7 @@ windows = { version = "0.62.2", features = [
   "Win32_System_Power",
   "Win32_UI_WindowsAndMessaging",
 ] }
-windows-core = "0.62.2"
+windows-core = { version = "0.62.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

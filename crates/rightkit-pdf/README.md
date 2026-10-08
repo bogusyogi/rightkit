@@ -10,8 +10,12 @@ Product-neutral PDF engine for Right Suite apps. It owns PDF inspection, composi
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
+| `fonts` | on | `fontdb`, `ttf-parser`, `subsetter`, `wuff` | Font catalog, parsing and subsetting (`src/font.rs`). |
+| `edit` | on | `getrandom`, implies `fonts` | Compose, staged save and atomic commit (`src/compose.rs`, `src/save.rs`, `src/commit.rs`). |
 | `merge` | on | none (built on `lopdf`, which is always a dependency) | Page merge and selection (`src/merge.rs`). |
 | `extract` | off | `pdf-extract` | Whole-document and per-page text extraction (`src/extract.rs`). |
+
+Inspection (`src/inspect.rs`, `src/model.rs`) is always compiled. `--no-default-features` gives inspection only.
 
 ## Platform support
 

@@ -1,12 +1,11 @@
 # Versions & build matrix
 
-## ggml (Git submodule)
+## ggml (vendored files)
 
-- **Path**: `crates/qts_ggml_sys/vendor/ggml` → [ggml-org/ggml](https://github.com/ggml-org/ggml).
-- **Pinned release**: **v0.9.8** (gitlink `2fb6431f67dd505584a9fefe94fd2866b944c85f`).
-- **Clone**: `git submodule update --init --recursive` (or clone with `git clone --recurse-submodules …`).
-- **Bump**: `cd crates/qts_ggml_sys/vendor/ggml && git fetch origin && git checkout <tag> && cd ../../../.. && git add crates/qts_ggml_sys/vendor/ggml && git commit`.
-- **Reported version** (upstream `CMakeLists.txt` at this pin): **0.9.8**.
+- **Path**: `crates/rightkit-qts-ggml-sys/vendor/ggml`. The ggml sources are plain files committed in this repository. This is not a Git submodule.
+- **Upstream**: [ggml-org/ggml](https://github.com/ggml-org/ggml), commit `2fb6431f67dd505584a9fefe94fd2866b944c85f`, release **v0.9.8**, MIT (`vendor/ggml/LICENSE`).
+- **Reported version** (`vendor/ggml/CMakeLists.txt` at this vendoring): **0.9.8**.
+- **Bump**: fetch the new upstream tag in a separate checkout, copy its ggml tree over `vendor/ggml`, update the commit and version above in this file and in `PINNED.md`, then rebuild with `rightkit cargo test -p rightkit-qts-ggml-sys`.
 
 ## `ggml-sys` Cargo features → CMake
 

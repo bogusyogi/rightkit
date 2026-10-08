@@ -3,6 +3,7 @@
 //! and `RIGHTKIT_OCR_ORT_RUNTIME` (absolute path to the platform ONNX Runtime
 //! library). Without both the test reports SKIPPED and passes, so the default
 //! suite stays model-free; the gate evidence run must set them.
+#![cfg(feature = "onnx")]
 
 use base64::Engine;
 use rightkit_ocr::{OcrArtifactManifest, OcrEngine};

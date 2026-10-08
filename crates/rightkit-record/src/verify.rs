@@ -16,8 +16,8 @@ use crate::bundle::{
     STATE_FILE, TRACKS_DIR,
 };
 use crate::error::{Code, RecordError, Result};
-use crate::hash::{file_hash, is_blake3_text};
-use crate::redact::{FieldMode, RedactionPolicy, FIELDS};
+use crate::hash::{file_hash, is_blake3_text, HMAC_PREFIX, PREFIX};
+use crate::redact::{FieldMode, RedactionPolicy, FIELDS, KEYED_SALT_PREFIX, LEGACY_SALT_PREFIX};
 
 #[derive(Debug, Clone, Default)]
 pub struct VerifyOptions {
@@ -30,6 +30,10 @@ pub struct VerifyReport {
     pub dir: PathBuf,
     pub status: Option<BundleStatus>,
     pub problems: Vec<String>,
+    /// Findings that do not fail the bundle. A bundle written before keyed
+    /// hashing is readable but weak: its digests are label-salted, so a guess can
+    /// be confirmed by anyone.
+    pub warnings: Vec<String>,
 }
 
 impl VerifyReport {
@@ -57,6 +61,7 @@ pub fn bundle_verify(dir: &Path, options: &VerifyOptions) -> Result<VerifyReport
         dir: dir.to_path_buf(),
         status: None,
         problems: Vec::new(),
+        warnings: Vec::new(),
     };
     let manifest = match read_json(&dir.join(MANIFEST_FILE)) {
         Ok(manifest) => manifest,
@@ -138,10 +143,16 @@ pub fn bundle_verify(dir: &Path, options: &VerifyOptions) -> Result<VerifyReport
         check_scenario(&manifest, scenario, &files, &mut report.problems);
     }
 
+    let key_id = scenario
+        .as_ref()
+        .and_then(|s| s.pointer("/redaction/keyId"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
     match read_lines_strict(&dir.join(EVENTS_FILE)) {
         Ok(events) => {
             if let Some(policy) = &policy {
-                check_events(&manifest, &events, policy, &mut report.problems);
+                let hashes = check_events(&manifest, &events, policy, &mut report.problems);
+                check_hashes(policy, &hashes, key_id.as_deref(), &mut report);
             }
         }
         Err(problem) => report.problems.push(problem),
@@ -278,12 +289,73 @@ fn read_lines_strict(path: &Path) -> std::result::Result<Vec<Value>, String> {
     Ok(events)
 }
 
+/// The `(event, saltId, digest)` the stored hash fields carry, in event order.
+type SaltIds = Vec<(usize, String, String)>;
+
+/// Hashes must be keyed by a per-installation key whose id the scenario records.
+/// A legacy label-salted hash is accepted and reported as weak. Plaintext is
+/// refused by `check_events`, and a `hash` field never carries a `value`.
+fn check_hashes(
+    policy: &RedactionPolicy,
+    salts: &SaltIds,
+    key_id: Option<&str>,
+    report: &mut VerifyReport,
+) {
+    let mut legacy = 0usize;
+    for (position, salt, digest) in salts {
+        let algorithm_prefix = if salt.starts_with(KEYED_SALT_PREFIX) {
+            Some(HMAC_PREFIX)
+        } else if salt.starts_with(LEGACY_SALT_PREFIX) {
+            Some(PREFIX)
+        } else {
+            None
+        };
+        if let Some(expected) = algorithm_prefix {
+            if !digest.starts_with(expected) {
+                report.problems.push(format!(
+                    "event {position}: hash digest prefix does not match its saltId algorithm \
+                     (saltId '{salt}' requires '{expected}')"
+                ));
+            }
+        }
+        if let Some(id) = salt.strip_prefix(KEYED_SALT_PREFIX) {
+            match key_id {
+                None => report.problems.push(format!(
+                    "event {position}: keyed hash but scenario.json records no key id"
+                )),
+                Some(recorded) if recorded != id => report.problems.push(format!(
+                    "event {position}: hash key id {id} is not the recorded key id {recorded}"
+                )),
+                Some(_) => {}
+            }
+        } else if salt.starts_with(LEGACY_SALT_PREFIX) {
+            legacy += 1;
+        } else {
+            report
+                .problems
+                .push(format!("event {position}: unknown hash salt '{salt}'"));
+        }
+    }
+    if legacy > 0 {
+        report.warnings.push(format!(
+            "weak redaction: {legacy} hashed field(s) are label-salted (written before keyed hashing); \
+             anyone can confirm a guessed value"
+        ));
+    }
+    if policy.needs_key() && key_id.is_none() && salts.is_empty() {
+        report.warnings.push(
+            "weak redaction: the policy hashes fields but scenario.json records no key id".into(),
+        );
+    }
+}
+
 fn check_events(
     manifest: &Value,
     events: &[Value],
     policy: &RedactionPolicy,
     problems: &mut Vec<String>,
-) {
+) -> SaltIds {
+    let mut salts: SaltIds = Vec::new();
     let declared = manifest.pointer("/events/count").and_then(Value::as_u64);
     if declared != Some(events.len() as u64) {
         problems.push("event count does not match the manifest".into());
@@ -316,6 +388,23 @@ fn check_events(
             else {
                 continue;
             };
+            if stored == "hash" {
+                match field_value(event, field)
+                    .and_then(|v| v.get("saltId"))
+                    .and_then(Value::as_str)
+                {
+                    Some(salt) => {
+                        let digest = field_value(event, field)
+                            .and_then(|v| v.get("digest"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        salts.push((position, salt.to_string(), digest.to_string()));
+                    }
+                    None => problems.push(format!(
+                        "event {position}: hash field {field} has no saltId"
+                    )),
+                }
+            }
             match (policy.mode(field), stored) {
                 (FieldMode::Omit, "full" | "hash") => problems.push(format!(
                     "event {position}: omit field {field} has a destination ({stored})"
@@ -368,6 +457,7 @@ fn check_events(
             problems.push("first frame event does not match the readiness marker".into());
         }
     }
+    salts
 }
 
 fn field_value<'a>(event: &'a Value, field: &str) -> Option<&'a Value> {

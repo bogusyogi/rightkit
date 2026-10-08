@@ -4,11 +4,11 @@ use crate::error::{Error, Result};
 /// macOS always uses (service = namespace service, account = account).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowsTarget {
-    /// `"{prefix}/{account}"` (prefix defaults to the service). HeardRight/MailRight shape:
-    /// prefix `HeardRight`, account `SQLCipher/DBKey`.
+    /// `"{prefix}/{account}"` (prefix defaults to the service). `<prefix>/<account>` shape:
+    /// prefix `MyApp`, account `SQLCipher/DBKey`.
     Slash { prefix: Option<String> },
-    /// `"{account}.{service}"`: what the `keyring` crate writes on Windows (GenRight,
-    /// CodeRight, ScrapeRight, CutRight). Reads and migrates their existing items in place.
+    /// `"{account}.{service}"`: what the `keyring` crate writes on Windows (keyring-based apps).
+    /// Reads and migrates their existing items in place.
     KeyringCompat,
 }
 
@@ -47,7 +47,7 @@ pub(crate) fn check_account(account: &str) -> Result<()> {
 
 impl Namespace {
     /// `service` is frozen per app (changing it orphans every stored item): use the bundle
-    /// identifier, e.g. `app.orthiclabs.genright`.
+    /// identifier, e.g. `app.example.myapp`.
     pub fn new(service: impl Into<String>) -> Result<Self> {
         let service = service.into();
         check("namespace", &service)?;

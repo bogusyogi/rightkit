@@ -1,3 +1,5 @@
+#![cfg(feature = "edit")]
+
 //! End-to-end PDF engine tests on real files: Chrome-produced fixtures (Type0 subset fonts),
 //! the bundled Source Serif 4 embed path, atomic commit to disk, and (macOS) CoreGraphics
 //! rasterization via the OS `sips` tool for visual verification.

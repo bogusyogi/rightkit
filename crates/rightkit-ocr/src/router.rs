@@ -9,13 +9,23 @@
 use std::path::{Path, PathBuf};
 
 use image::RgbImage;
+#[cfg(feature = "onnx")]
 use rightkit_ort::{configure_runtime, CandidateSource, RuntimeCandidate};
 use serde::Serialize;
 
 use crate::native;
 use crate::types::{decode_encoded, is_backend_unavailable, OcrBackend, OcrLine};
 use crate::worker::WorkerCommand;
-use crate::{OcrArtifactManifest, OcrEngine, OcrError};
+#[cfg(feature = "onnx")]
+use crate::OcrEngine;
+use crate::{OcrArtifactManifest, OcrError};
+
+/// The loaded ONNX engine slot. Without the `onnx` feature it is uninhabited, so the
+/// slot is always `None` and no ONNX runtime code is compiled in.
+#[cfg(feature = "onnx")]
+type OnnxSlot = OcrEngine;
+#[cfg(not(feature = "onnx"))]
+type OnnxSlot = std::convert::Infallible;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendPreference {
@@ -115,7 +125,8 @@ impl OcrResult {
 /// then kept warm.
 pub struct Ocr {
     options: OcrOptions,
-    onnx: Option<OcrEngine>,
+    #[cfg_attr(not(feature = "onnx"), allow(dead_code))]
+    onnx: Option<OnnxSlot>,
 }
 
 impl Ocr {
@@ -225,6 +236,18 @@ impl Ocr {
         }
     }
 
+    #[cfg(not(feature = "onnx"))]
+    fn run_onnx(
+        &mut self,
+        _img: &RgbImage,
+        _fallback_reason: Option<String>,
+    ) -> Result<OcrResult, OcrError> {
+        Err(OcrError::BackendUnavailable(
+            "ONNX fallback not compiled in: rebuild rightkit-ocr with the `onnx` feature".into(),
+        ))
+    }
+
+    #[cfg(feature = "onnx")]
     fn run_onnx(
         &mut self,
         img: &RgbImage,
