@@ -1,6 +1,6 @@
 //! Opt-in HTTP I/O. Persistent runtime owns legacy SSE & cancellable sockets.
 use crate::auth::AuthProvider;
-use crate::client::ClientOptions;
+use crate::client::{rpc_outcome, ClientOptions};
 use crate::client_features::*;
 use crate::events::{emit, next_id, EventSink, LifecycleKind, McpEvent};
 use crate::{McpError, Result};
@@ -23,6 +23,7 @@ struct WireContext {
     session: String,
     override_session: bool,
     override_auth: bool,
+    cancellation: Option<CancellationToken>,
 }
 struct Pending {
     context: WireContext,
@@ -39,6 +40,9 @@ impl Drop for LegacySession {
     fn drop(&mut self) {
         self.reader.abort();
         for (_, pending) in lock(&self.pending).drain() {
+            if let Some(token) = &pending.context.cancellation {
+                token.cancel();
+            }
             let _ = pending.sender.send(Err(McpError::Closed));
         }
     }
@@ -47,7 +51,6 @@ struct Shared {
     server: String,
     url: String,
     client: reqwest::Client,
-    timeout: Duration,
     auth: Option<Arc<dyn AuthProvider>>,
     extensions: ClientExtensions,
     session: Mutex<Option<String>>,
@@ -123,6 +126,7 @@ impl Shared {
             session,
             override_session,
             override_auth,
+            cancellation: Some(CancellationToken::new()),
         })
     }
     fn adopt_session(&self, response: &reqwest::Response, context: &mut WireContext) {
@@ -233,6 +237,8 @@ impl Shared {
                     let callback_context = ElicitationContext {
                         server: self.server.clone(),
                         session_id: context.session.clone(),
+                        wire_request_id: id.clone(),
+                        call_cancellation: context.cancellation.clone(),
                     };
                     let params = message.get("params").cloned().unwrap_or(Value::Null);
                     tokio::task::spawn_blocking(move || {
@@ -254,6 +260,15 @@ impl Shared {
                 code: -32601,
                 message: "method not supported by client".into(),
             }),
+        };
+        let result = if context
+            .cancellation
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            Err(McpError::Cancelled)
+        } else {
+            result
         };
         self.send(endpoint, &reply(id.clone(), result), context)
             .await
@@ -279,7 +294,7 @@ impl AdvancedHttp {
             .resolve_endpoint(url, url)?;
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(options.request_timeout)
+            .connect_timeout(options.connect_timeout.unwrap_or(options.request_timeout))
             .build()
             .map_err(transport_error)?;
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -296,7 +311,6 @@ impl AdvancedHttp {
                 server: server.into(),
                 url: url.into(),
                 client,
-                timeout: options.request_timeout,
                 auth: options.auth.clone(),
                 extensions: extensions.clone(),
                 session: Mutex::new(None),
@@ -406,6 +420,9 @@ impl AdvancedHttp {
                 shared.event(LifecycleKind::Crash, "legacy SSE stream ended unexpectedly")
             }));
             for (_, pending) in lock(&pending2).drain() {
+                if let Some(token) = &pending.context.cancellation {
+                    token.cancel();
+                }
                 let _ = pending.sender.send(Err(error.clone()));
             }
         })
@@ -506,6 +523,7 @@ impl AdvancedHttp {
         params: Value,
         options: &CallOptions,
         notification: bool,
+        timeout: Duration,
     ) -> Result<Value> {
         if options
             .cancellation
@@ -522,10 +540,8 @@ impl AdvancedHttp {
         }
         let route = Mutex::new(None);
         let result = {
-            let operation = tokio::time::timeout(
-                self.shared.timeout,
-                self.perform(&message, id, &context, &route),
-            );
+            let operation =
+                tokio::time::timeout(timeout, self.perform(&message, id, &context, &route));
             tokio::pin!(operation);
             if let Some(token) = &options.cancellation {
                 tokio::select! { biased; _ = token.cancelled() => Err(McpError::Cancelled), result = &mut operation => result.unwrap_or(Err(McpError::Timeout)) }
@@ -533,6 +549,14 @@ impl AdvancedHttp {
                 operation.await.unwrap_or(Err(McpError::Timeout))
             }
         }; // Drop in-flight send/read before notification.
+        if matches!(
+            result,
+            Err(McpError::Cancelled | McpError::Timeout | McpError::Closed)
+        ) {
+            if let Some(token) = &context.cancellation {
+                token.cancel();
+            }
+        }
         if let Some(id) = id {
             if matches!(result, Err(McpError::Cancelled | McpError::Timeout)) {
                 if let Some(session) = self.legacy.lock().await.as_ref() {
@@ -557,16 +581,18 @@ impl AdvancedHttp {
         &self,
         method: &str,
         params: Value,
+        timeout: Duration,
         options: &CallOptions,
     ) -> Result<Value> {
-        self.block_on(self.call(method, params, options, false))?
+        self.block_on(self.call(method, params, options, false, timeout))?
     }
-    pub(crate) fn notify(&self, method: &str) -> Result<()> {
-        self.block_on(self.call(method, json!({}), &CallOptions::default(), true))?
-            .map(|_| ())
-    }
-    pub(crate) fn notify_with_options(&self, method: &str, options: &CallOptions) -> Result<()> {
-        self.block_on(self.call(method, json!({}), options, true))?
+    pub(crate) fn notify_with_options(
+        &self,
+        method: &str,
+        timeout: Duration,
+        options: &CallOptions,
+    ) -> Result<()> {
+        self.block_on(self.call(method, json!({}), options, true, timeout))?
             .map(|_| ())
     }
     pub(crate) fn set_version(&self, version: String) {
@@ -639,25 +665,6 @@ async fn bounded_body(response: reqwest::Response, limit: usize) -> Result<Vec<u
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
-}
-fn rpc_outcome(message: &Value) -> Result<Value> {
-    if let Some(error) = message.get("error") {
-        let code = error.get("code").and_then(Value::as_i64).unwrap_or(-32603);
-        let message = error
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        return Err(match error.get("data") {
-            Some(data) => McpError::RpcWithData {
-                code,
-                message,
-                data: data.clone(),
-            },
-            None => McpError::Rpc { code, message },
-        });
-    }
-    Ok(message.get("result").cloned().unwrap_or(Value::Null))
 }
 fn reply(id: Value, result: Result<Value>) -> Value {
     match result {
@@ -832,9 +839,17 @@ where
                         let mut contexts = calls.values().map(|call| &call.context);
                         match contexts.next() {
                             Some(first) if contexts.all(|other| other.session == first.session) => {
-                                Some(first.clone())
+                                let mut context = first.clone();
+                                if calls.len() != 1 {
+                                    context.cancellation = None;
+                                }
+                                Some(context)
                             }
-                            None => Some(stream_context.clone()),
+                            None => {
+                                let mut context = stream_context.clone();
+                                context.cancellation = None;
+                                Some(context)
+                            }
                             _ => None,
                         }
                     }

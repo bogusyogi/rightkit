@@ -226,6 +226,154 @@ fn public_ancestor_lease_is_send_and_sync() {
 }
 
 #[test]
+fn ancestor_mutex_name_is_stable_sha256_and_case_normalized() {
+    let expected = r"Local\rightkit-ancestor-lease-3bb9cd2245aafb1983cf9144df94f7304827054b115bf3146ae11c1b15bafa38";
+    for path in [
+        r"C:\Temp\Ancestor",
+        r"\\?\c:\TEMP\ANCESTOR",
+        "c:/temp/ancestor/",
+    ] {
+        for sid in ["S-1-15-2-123", "s-1-15-2-123"] {
+            assert_eq!(ancestor_mutex_name(Path::new(path), sid).unwrap(), expected);
+        }
+    }
+    assert_ne!(
+        ancestor_mutex_name(Path::new(r"C:\Temp\Other"), "S-1-15-2-123").unwrap(),
+        expected
+    );
+    assert_ne!(
+        ancestor_mutex_name(Path::new(r"C:\Temp\Ancestor"), "S-1-15-2-124").unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn strict_lease_reports_no_unleasable_ancestors() {
+    let tree = TempChain::new();
+    let chain = tree.chain();
+    let (_, sid) = tree.profile();
+    let lease = AppContainerAncestorLease {
+        _lease: AncestorLease::acquire_chain(&chain, &sid, &[], &write_dacl).unwrap(),
+    };
+    assert!(lease.unleasable().is_empty());
+    assert_eq!(lease._lease.keys.len(), chain.len());
+}
+
+#[test]
+fn best_effort_records_denied_ancestor_and_leases_before_and_after_it() {
+    let tree = TempChain::new();
+    let child = tree.workspace.join("child");
+    std::fs::create_dir(&child).unwrap();
+    let chain: Vec<_> = ancestor_chain(&child)
+        .unwrap()
+        .into_iter()
+        .take_while(|path| path.starts_with(&tree.root))
+        .collect();
+    assert_eq!(chain.len(), 3);
+    let (_, sid) = tree.profile();
+    let before: Vec<_> = chain.iter().map(|path| aces(path)).collect();
+    let editor = |path: &Path, entries: &[Vec<u8>], revision: u8| {
+        if path == chain[1].as_path() {
+            Err(io::Error::from_raw_os_error(5))
+        } else {
+            write_dacl(path, entries, revision)
+        }
+    };
+    let lease = AppContainerAncestorLease {
+        _lease: AncestorLease::acquire_chain_with(
+            &chain,
+            &sid,
+            &[],
+            &editor,
+            crate::AncestorLeasePolicy::BestEffort,
+        )
+        .unwrap(),
+    };
+    let skipped: &[crate::UnleasableAncestor] = lease.unleasable();
+    assert_eq!(skipped.len(), 1);
+    assert_eq!(skipped[0].path, chain[1]);
+    assert_eq!(skipped[0].win32_error, 5);
+    assert_eq!(lease._lease.keys.len(), 2);
+    {
+        let live = registry().lock().unwrap_or_else(|e| e.into_inner());
+        assert!(!live.contains_key(&key(&chain[1], &sid)));
+    }
+    for (index, path) in chain.iter().enumerate() {
+        assert_eq!(sid_aces(path, &sid).len(), usize::from(index != 1));
+        assert_eq!(ancestor_mutex_exists(path, &sid).unwrap(), index != 1);
+    }
+    drop(lease);
+    for (path, original) in chain.iter().zip(before) {
+        assert_eq!(aces(path), original);
+        assert!(!ancestor_mutex_exists(path, &sid).unwrap());
+    }
+}
+
+#[test]
+fn best_effort_verification_denial_removes_only_failed_addition() {
+    let tree = TempChain::new();
+    let chain = tree.chain();
+    let (_, sid) = tree.profile();
+    add_ace(&chain[0], &sid, ANCESTOR_ACCESS, 0, ACCESS_DENIED_ACE_TYPE);
+    let denied_before = aces(&chain[0]);
+    let lease = AppContainerAncestorLease {
+        _lease: AncestorLease::acquire_chain_with(
+            &chain,
+            &sid,
+            &[],
+            &write_dacl,
+            AncestorLeasePolicy::BestEffort,
+        )
+        .unwrap(),
+    };
+    assert_eq!(lease.unleasable().len(), 1);
+    assert_eq!(lease.unleasable()[0].path, chain[0]);
+    assert_eq!(lease.unleasable()[0].win32_error, 5);
+    assert_eq!(aces(&chain[0]), denied_before);
+    assert!(!ancestor_mutex_exists(&chain[0], &sid).unwrap());
+    assert_eq!(sid_aces(&chain[1], &sid).len(), 1);
+    {
+        let live = registry().lock().unwrap_or_else(|e| e.into_inner());
+        assert!(!live.contains_key(&key(&chain[0], &sid)));
+    }
+    drop(lease);
+    assert_eq!(aces(&chain[0]), denied_before);
+    assert!(sid_aces(&chain[1], &sid).is_empty());
+}
+
+#[test]
+fn best_effort_non_access_failure_still_rolls_back() {
+    let tree = TempChain::new();
+    let chain = tree.chain();
+    let (_, sid) = tree.profile();
+    let before: Vec<_> = chain.iter().map(|path| aces(path)).collect();
+    let editor = |path: &Path, entries: &[Vec<u8>], revision: u8| {
+        if path == chain[1].as_path() {
+            Err(io::Error::from_raw_os_error(87))
+        } else {
+            write_dacl(path, entries, revision)
+        }
+    };
+    assert!(matches!(
+        AncestorLease::acquire_chain_with(
+            &chain,
+            &sid,
+            &[],
+            &editor,
+            AncestorLeasePolicy::BestEffort,
+        ),
+        Err(SandboxError::AncestorAccess {
+            win32_error: 87,
+            ..
+        })
+    ));
+    for (path, original) in chain.iter().zip(before) {
+        assert_eq!(aces(path), original);
+        assert!(!ancestor_mutex_exists(path, &sid).unwrap());
+    }
+}
+
+#[test]
 fn public_ancestor_lease_rejects_invalid_sid_before_path_access() {
     for sid in [
         "",
@@ -242,6 +390,15 @@ fn public_ancestor_lease_rejects_invalid_sid_before_path_access() {
             ),
             "{sid:?}"
         );
+        for policy in [AncestorLeasePolicy::Strict, AncestorLeasePolicy::BestEffort] {
+            assert!(
+                matches!(
+                    crate::AppContainerAncestorLease::acquire_with(Path::new(""), sid, policy),
+                    Err(SandboxError::InvalidPolicy(_))
+                ),
+                "{sid:?} {policy:?}"
+            );
+        }
     }
 }
 
@@ -278,14 +435,19 @@ fn idempotent_reacquire_preserves_live_aces_until_last_guard() {
     let owned = vec![sid.clone()];
     let first = AncestorLease::acquire_chain(&chain, &sid, &owned, &write_dacl).unwrap();
     let second = AncestorLease::acquire_chain(&chain, &sid, &owned, &write_dacl).unwrap();
+    for path in &chain {
+        assert!(ancestor_mutex_exists(path, &sid).unwrap());
+    }
     assert_eq!(sweep_test_chain(&chain, &owned), 0);
     drop(first);
     for path in &chain {
         assert_eq!(sid_aces(path, &sid).len(), 1);
+        assert!(ancestor_mutex_exists(path, &sid).unwrap());
     }
     drop(second);
     for path in &chain {
         assert!(sid_aces(path, &sid).is_empty());
+        assert!(!ancestor_mutex_exists(path, &sid).unwrap());
     }
     let third = AncestorLease::acquire_chain(&chain, &sid, &owned, &write_dacl).unwrap();
     drop(third);
@@ -393,6 +555,35 @@ fn stale_sweep_removes_only_verified_crate_profile_sids() {
 }
 
 #[test]
+fn stale_sweep_preserves_external_mutex_until_its_handle_closes() {
+    // Exercise both ownership schemes through their shared sweep implementation.
+    for prefix in [PROFILE_PREFIX, "coderight.sandbox.workspace."] {
+        let tree = TempChain::new();
+        let chain = tree.chain();
+        let name = format!("{prefix}{:016x}", fnv1a(&lexical_path_key(&tree.workspace)));
+        let sid = sid_string(derive_sid(&name).unwrap().0).unwrap();
+        let owned = vec![owned_mapping(&name, &sid, prefix).unwrap().unwrap()];
+        for path in &chain {
+            add_ace(path, &sid, ANCESTOR_ACCESS, 0, ACCESS_ALLOWED_ACE_TYPE);
+        }
+        // No ancestor registry entry: this handle simulates another process's lease.
+        let mutex = AncestorMutex::create(&chain[0], &sid).unwrap();
+        {
+            let live = registry().lock().unwrap_or_else(|e| e.into_inner());
+            assert!(!live.contains_key(&key(&chain[0], &sid)));
+        }
+        assert_eq!(sweep_test_chain(&chain, &owned), chain.len() - 1);
+        assert_eq!(sid_aces(&chain[0], &sid).len(), 1);
+        assert!(sid_aces(&chain[1], &sid).is_empty());
+        assert_eq!(sweep_test_chain(&chain, &owned), 0);
+        drop(mutex);
+        assert!(!ancestor_mutex_exists(&chain[0], &sid).unwrap());
+        assert_eq!(sweep_test_chain(&chain, &owned), 1);
+        assert!(sid_aces(&chain[0], &sid).is_empty());
+    }
+}
+
+#[test]
 fn all_application_packages_grant_skips_uneditable_ancestor() {
     let tree = TempChain::new();
     let chain = tree.chain();
@@ -409,10 +600,16 @@ fn all_application_packages_grant_skips_uneditable_ancestor() {
     let editor = |_: &Path, _: &[Vec<u8>], _: u8| -> io::Result<()> {
         panic!("already granted ancestor must not be edited")
     };
-    let lease = AncestorLease::acquire_chain(&chain, &sid, &[], &editor).unwrap();
-    assert!(lease.keys.is_empty());
-    for path in &chain {
-        assert!(sid_aces(path, &sid).is_empty());
+    for policy in [AncestorLeasePolicy::Strict, AncestorLeasePolicy::BestEffort] {
+        let lease = AppContainerAncestorLease {
+            _lease: AncestorLease::acquire_chain_with(&chain, &sid, &[], &editor, policy).unwrap(),
+        };
+        assert!(lease._lease.keys.is_empty());
+        assert!(lease.unleasable().is_empty());
+        for path in &chain {
+            assert!(sid_aces(path, &sid).is_empty());
+            assert!(!ancestor_mutex_exists(path, &sid).unwrap());
+        }
     }
 }
 
@@ -448,6 +645,7 @@ fn uneditable_ancestor_reports_typed_path_and_win32_code_and_rolls_back() {
             sid_aces(path, &sid).is_empty(),
             "partial acquisition must roll back"
         );
+        assert!(!ancestor_mutex_exists(path, &sid).unwrap());
     }
 }
 

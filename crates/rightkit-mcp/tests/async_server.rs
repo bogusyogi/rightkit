@@ -43,15 +43,18 @@ async fn async_handler_preserves_string_and_large_numeric_ids() {
         assert_eq!(reply["id"], id);
         assert_eq!(reply["result"]["idSeen"], id);
     }
-    // Parsing & writing retain numeric spelling, including exponent notation &
-    // integers outside IEEE-754/u64 precision, without numeric reconstruction.
-    for spelling in ["1e+2", "90071992547409931234567890", "-9223372036854775808"] {
-        let request: Value = serde_json::from_str(&format!(
-            "{{\"id\":{spelling},\"method\":\"tools/call\",\"params\":{{\"name\":\"x\"}}}}"
-        ))
-        .unwrap();
-        let reply = host.dispatch_async(&request).await.unwrap();
-        assert_eq!(reply["id"].to_string(), spelling);
+    #[cfg(feature = "exact-json-ids")]
+    {
+        // Parsing & writing retain numeric spelling, including exponent notation &
+        // integers outside IEEE-754/u64 precision, without numeric reconstruction.
+        for spelling in ["1e+2", "90071992547409931234567890", "-9223372036854775808"] {
+            let request: Value = serde_json::from_str(&format!(
+                "{{\"id\":{spelling},\"method\":\"tools/call\",\"params\":{{\"name\":\"x\"}}}}"
+            ))
+            .unwrap();
+            let reply = host.dispatch_async(&request).await.unwrap();
+            assert_eq!(reply["id"].to_string(), spelling);
+        }
     }
 }
 

@@ -168,6 +168,332 @@ fn handshake(request: &Seen, stream: &mut TcpStream) -> bool {
     }
 }
 
+fn response_for_mode(id: &Value, mode: &str) -> Value {
+    match mode {
+        "missing-version" => json!({"id":id,"result":null}),
+        "wrong-version" => json!({"jsonrpc":"1.0","id":id,"result":null}),
+        "missing-result" => json!({"jsonrpc":"2.0","id":id}),
+        "error-missing-version" => json!({"id":id,"error":{"code":-32601,"message":"bad"}}),
+        _ => json!({"jsonrpc":"2.0","id":id,"result":null}),
+    }
+}
+
+#[test]
+fn strict_responses_cover_plain_http_advanced_http_and_http_sse() {
+    for transport in ["plain-json", "advanced-json", "advanced-sse"] {
+        let mode = Arc::new(Mutex::new(String::new()));
+        let response_mode = mode.clone();
+        let fixture = Fixture::start(move |request, mut stream| {
+            if handshake(&request, &mut stream) {
+                return;
+            }
+            let response = response_for_mode(&request.body["id"], &response_mode.lock().unwrap());
+            if transport == "advanced-sse" {
+                sse_head(&mut stream);
+                sse_message(&mut stream, &response);
+            } else {
+                json_reply(&mut stream, &response, None);
+            }
+        });
+        let spec = ServerSpec::Http {
+            url: fixture.url.clone(),
+        };
+        let client = if transport == "plain-json" {
+            McpClient::connect("fixture", spec, ClientOptions::default()).unwrap()
+        } else {
+            McpClient::connect_with_extensions(
+                "fixture",
+                spec,
+                ClientOptions::default(),
+                ClientExtensions::default(),
+            )
+            .unwrap()
+        };
+        for invalid in [
+            "missing-version",
+            "wrong-version",
+            "missing-result",
+            "error-missing-version",
+        ] {
+            *mode.lock().unwrap() = invalid.into();
+            assert!(
+                matches!(client.ping(), Err(McpError::Protocol(_))),
+                "{transport}: {invalid}"
+            );
+        }
+        *mode.lock().unwrap() = "null-result".into();
+        client.ping().unwrap();
+        client.close();
+    }
+}
+
+#[test]
+fn strict_responses_cover_persistent_legacy_sse() {
+    let output = Arc::new(Mutex::new(None::<TcpStream>));
+    let stream_output = output.clone();
+    let fixture = Fixture::start(move |request, mut stream| {
+        if request.verb == "GET" {
+            let mut output = stream_output.lock().unwrap();
+            sse_head(&mut stream);
+            stream
+                .write_all(b"event: endpoint\ndata: /messages\n\n")
+                .unwrap();
+            stream.flush().unwrap();
+            *output = Some(stream);
+            return;
+        }
+        accepted(&mut stream);
+        if request.body.get("id").is_none() {
+            return;
+        }
+        let response = if request.body["method"] == "initialize" {
+            json!({"jsonrpc":"2.0","id":request.body["id"],"result":{"protocolVersion":"2025-03-26","capabilities":{}}})
+        } else {
+            response_for_mode(
+                &request.body["id"],
+                request.body["params"]["mode"].as_str().unwrap(),
+            )
+        };
+        sse_message(stream_output.lock().unwrap().as_mut().unwrap(), &response);
+    });
+    let client = client(
+        &fixture.url,
+        ClientExtensions {
+            legacy_sse: true,
+            ..Default::default()
+        },
+    );
+    for invalid in [
+        "missing-version",
+        "wrong-version",
+        "missing-result",
+        "error-missing-version",
+    ] {
+        assert!(matches!(
+            client.request_with_options("ping", json!({"mode":invalid}), &CallOptions::default()),
+            Err(McpError::Protocol(_))
+        ));
+    }
+    assert_eq!(
+        client
+            .request_with_options(
+                "ping",
+                json!({"mode":"null-result"}),
+                &CallOptions::default()
+            )
+            .unwrap(),
+        Value::Null
+    );
+    client.close();
+    output.lock().unwrap().take();
+}
+
+#[test]
+fn insecure_origin_constructor_enables_cross_origin_legacy_posts() {
+    let output = Arc::new(Mutex::new(None::<TcpStream>));
+    let stream_output = output.clone();
+    let destination = Fixture::start(move |request, mut stream| {
+        accepted(&mut stream);
+        if request.body.get("id").is_some() {
+            let result = if request.body["method"] == "initialize" {
+                json!({"protocolVersion":"2025-03-26","capabilities":{}})
+            } else {
+                Value::Null
+            };
+            sse_message(
+                stream_output.lock().unwrap().as_mut().unwrap(),
+                &json!({"jsonrpc":"2.0","id":request.body["id"],"result":result}),
+            );
+        }
+    });
+    let destination_url = destination.url.clone();
+    let announced_output = output.clone();
+    let fixture = Fixture::start(move |request, mut stream| {
+        assert_eq!(request.verb, "GET");
+        let mut output = announced_output.lock().unwrap();
+        sse_head(&mut stream);
+        write!(stream, "event: endpoint\ndata: {destination_url}\n\n").unwrap();
+        stream.flush().unwrap();
+        *output = Some(stream);
+    });
+    let client = client(
+        &fixture.url,
+        ClientExtensions {
+            legacy_sse: true,
+            endpoint_origin_policy: EndpointOriginPolicy::allow_any_origin_insecure(),
+            ..Default::default()
+        },
+    );
+    client.ping().unwrap();
+    assert_eq!(destination.seen.lock().unwrap().len(), 3);
+    assert!(fixture
+        .seen
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|request| request.verb == "GET"));
+    client.close();
+    output.lock().unwrap().take();
+}
+
+#[test]
+fn cold_http_cancel_covers_endpoint_discovery_initialize_and_initialized() {
+    for phase in [
+        "legacy-endpoint",
+        "initialize-headers",
+        "initialize-body",
+        "initialized",
+    ] {
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let fixture = Fixture::start(move |request, mut stream| {
+            let blocked = match phase {
+                "legacy-endpoint" => request.verb == "GET",
+                "initialized" => request.body["method"] == "notifications/initialized",
+                _ => request.body["method"] == "initialize",
+            };
+            if blocked {
+                if phase == "legacy-endpoint" {
+                    sse_head(&mut stream);
+                } else if phase == "initialize-body" {
+                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n{").unwrap();
+                    stream.flush().unwrap();
+                }
+                ready_tx.send(()).unwrap();
+                let mut byte = [0];
+                let _ = stream.read(&mut byte);
+                return;
+            }
+            assert!(handshake(&request, &mut stream));
+        });
+        let token = CancellationToken::new();
+        let cancelled = token.clone();
+        let url = fixture.url.clone();
+        let call = thread::spawn(move || {
+            McpClient::connect_with_extensions_cancellable(
+                "fixture",
+                ServerSpec::Http { url },
+                ClientOptions::default().connect_timeout(Duration::from_secs(5)),
+                ClientExtensions {
+                    legacy_sse: phase == "legacy-endpoint",
+                    ..Default::default()
+                },
+                &cancelled,
+            )
+        });
+        ready_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        let started = Instant::now();
+        token.cancel();
+        assert!(
+            matches!(call.join().unwrap(), Err(McpError::Cancelled)),
+            "{phase}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(!fixture
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|request| { request.body["method"] == "notifications/cancelled" }));
+    }
+}
+
+#[test]
+fn http_connect_timeout_does_not_replace_request_timeout() {
+    for advanced in [false, true] {
+        let fixture = Fixture::start(|request, mut stream| {
+            if request.body["method"] == "initialize" || request.body["method"] == "ping" {
+                thread::sleep(Duration::from_millis(250));
+            }
+            if handshake(&request, &mut stream) {
+                return;
+            }
+            // Request timeout may close socket before delayed response is written.
+            let response = json!({"jsonrpc":"2.0","id":request.body["id"],"result":null});
+            let body = response.to_string();
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        });
+        let options = ClientOptions {
+            request_timeout: Duration::from_millis(100),
+            ..Default::default()
+        }
+        .connect_timeout(Duration::from_secs(5));
+        let spec = ServerSpec::Http {
+            url: fixture.url.clone(),
+        };
+        let client = if advanced {
+            McpClient::connect_with_extensions(
+                "fixture",
+                spec,
+                options,
+                ClientExtensions::default(),
+            )
+            .unwrap()
+        } else {
+            McpClient::connect("fixture", spec, options).unwrap()
+        };
+        assert!(matches!(client.ping(), Err(McpError::Timeout)));
+        client.close();
+    }
+}
+
+#[test]
+fn http_elicitation_context_exposes_numeric_id_and_call_cancellation() {
+    let fixture = Fixture::start(|request, mut stream| {
+        if handshake(&request, &mut stream) {
+            return;
+        }
+        if request.body["method"] == "ask" {
+            sse_head(&mut stream);
+            sse_message(
+                &mut stream,
+                &json!({"jsonrpc":"2.0","id":123,"method":"elicitation/create","params":{"message":"cancel me"}}),
+            );
+            let mut byte = [0];
+            let _ = stream.read(&mut byte);
+        } else {
+            assert_eq!(request.body["method"], "notifications/cancelled");
+            accepted(&mut stream);
+        }
+    });
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let client = Arc::new(client(
+        &fixture.url,
+        ClientExtensions {
+            elicitation: Some(Arc::new(move |context, _| {
+                assert_eq!(context.request_id(), &json!(123));
+                let cancellation = context.cancellation().expect("originating call signal");
+                ready_tx.send(()).unwrap();
+                let deadline = Instant::now() + Duration::from_secs(3);
+                while !cancellation.is_cancelled() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                observed_tx.send(cancellation.is_cancelled()).unwrap();
+                Ok(json!({"action":"cancel"}))
+            })),
+            ..Default::default()
+        },
+    ));
+    let token = CancellationToken::new();
+    let cancelled = token.clone();
+    let caller = client.clone();
+    let call = thread::spawn(move || {
+        caller.request_with_options(
+            "ask",
+            json!({}),
+            &CallOptions {
+                cancellation: Some(cancelled),
+                ..Default::default()
+            },
+        )
+    });
+    ready_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    token.cancel();
+    assert!(matches!(call.join().unwrap(), Err(McpError::Cancelled)));
+    assert!(observed_rx.recv_timeout(Duration::from_secs(3)).unwrap());
+    client.close();
+}
+
 #[test]
 fn per_call_session_and_case_insensitive_header_overrides_reach_wire_without_adoption() {
     let fixture = Fixture::start(|request, mut stream| {

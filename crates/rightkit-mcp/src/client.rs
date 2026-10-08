@@ -34,6 +34,8 @@ pub enum ServerSpec {
 #[derive(Clone)]
 pub struct ClientOptions {
     pub request_timeout: Duration,
+    /// Total spawn/connect & initialize budget; None retains request_timeout behavior.
+    pub connect_timeout: Option<Duration>,
     pub auth: Option<Arc<dyn AuthProvider>>,
     pub client_name: String,
     pub client_version: String,
@@ -45,6 +47,7 @@ impl Default for ClientOptions {
     fn default() -> Self {
         Self {
             request_timeout: Duration::from_secs(60),
+            connect_timeout: None,
             auth: None,
             client_name: "rightkit-mcp".into(),
             client_version: env!("CARGO_PKG_VERSION").into(),
@@ -54,6 +57,12 @@ impl Default for ClientOptions {
 }
 
 impl ClientOptions {
+    /// Sets spawn/connect & handshake timeout independently of per-request timeout.
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        self.connect_timeout = Some(timeout);
+        self
+    }
+
     pub fn on_event(mut self, f: impl Fn(&McpEvent) + Send + Sync + 'static) -> Self {
         self.on_event = Some(Arc::new(f));
         self
@@ -98,6 +107,131 @@ impl Lifecycle {
 
 type Pending = Arc<Mutex<HashMap<u64, Sender<Result<Value>>>>>;
 
+struct ActiveCall {
+    session_id: String,
+    cancellation: CancellationToken,
+}
+
+// Own a launched child until its connection takes over, including abandoned launches.
+struct PendingLaunch(Option<LaunchedProcess>);
+
+impl Drop for PendingLaunch {
+    fn drop(&mut self) {
+        if let Some(mut process) = self.0.take() {
+            let _ = process.child.kill();
+            let _ = process.child.wait();
+        }
+    }
+}
+
+fn launch_cancellable(
+    request: LaunchRequest,
+    launcher: Option<Arc<dyn ProcessLauncher>>,
+    cancellation: &CancellationToken,
+    timeout: Duration,
+) -> Result<LaunchedProcess> {
+    if cancellation.is_cancelled() {
+        return Err(McpError::Cancelled);
+    }
+    if timeout.is_zero() {
+        return Err(McpError::Timeout);
+    }
+    let (sender, receiver) = channel();
+    let cancelled = cancellation.clone();
+    std::thread::spawn(move || {
+        let result = if cancelled.is_cancelled() {
+            Err(McpError::Cancelled)
+        } else {
+            match launcher {
+                Some(launcher) => launcher.launch(&request),
+                None => DefaultProcessLauncher.launch(&request),
+            }
+            .map(|process| PendingLaunch(Some(process)))
+        };
+        // Failed send (or unread queued result) drops PendingLaunch & reaps child.
+        let _ = sender.send(result);
+    });
+    let started = Instant::now();
+    loop {
+        if cancellation.is_cancelled() {
+            return Err(McpError::Cancelled);
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Err(McpError::Timeout);
+        }
+        match receiver.recv_timeout(remaining.min(Duration::from_millis(10))) {
+            Ok(result) => {
+                let mut process = result?;
+                if cancellation.is_cancelled() {
+                    return Err(McpError::Cancelled);
+                }
+                if started.elapsed() >= timeout {
+                    return Err(McpError::Timeout);
+                }
+                return Ok(process.0.take().unwrap());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(McpError::Transport("process launcher stopped".into()));
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+    }
+}
+
+const STDIO_PREFIX_LIMIT: usize = 64 * 1024;
+
+#[derive(Default)]
+struct StdioStartup {
+    seen_rpc: bool,
+    skipped: usize,
+}
+
+impl StdioStartup {
+    fn remaining_prefix(&self) -> Option<usize> {
+        (!self.seen_rpc).then(|| STDIO_PREFIX_LIMIT - self.skipped)
+    }
+
+    fn parse(&mut self, line: &str) -> Result<Option<Value>> {
+        let parsed = serde_json::from_str::<Value>(line);
+        let (mut message, mut skipped) = match parsed {
+            Ok(message) => (Some(message), 0),
+            Err(_) if self.seen_rpc => return Ok(None),
+            Err(_) => match line.find('{') {
+                Some(offset) => match serde_json::from_str::<Value>(&line[offset..]) {
+                    Ok(message) => (Some(message), offset),
+                    Err(_) => (None, line.len()),
+                },
+                None => (None, line.len()),
+            },
+        };
+        if !self.seen_rpc
+            && message.as_ref().is_some_and(|message| {
+                message.get("id").is_none() && message.get("method").is_none()
+            })
+        {
+            message = None;
+            skipped = line.len();
+        }
+        self.skipped = self.skipped.saturating_add(skipped);
+        if self.skipped > STDIO_PREFIX_LIMIT {
+            return Err(McpError::StdioPrefixTooLarge {
+                limit: STDIO_PREFIX_LIMIT,
+            });
+        }
+        if let Some(message) = &message {
+            if message.get("jsonrpc").and_then(Value::as_str) == Some("2.0")
+                && (message.get("method").and_then(Value::as_str).is_some()
+                    || (message.get("id").is_some()
+                        && (message.get("result").is_some() || message.get("error").is_some())))
+            {
+                self.seen_rpc = true;
+            }
+        }
+        Ok(message)
+    }
+}
+
 struct StdioConn {
     child: Arc<Mutex<Box<dyn ProcessChild>>>,
     stdin: Arc<Mutex<Box<dyn Write + Send>>>,
@@ -108,7 +242,8 @@ struct StdioConn {
     life: Lifecycle,
     pid: u32,
     next_id: AtomicU64,
-    active: Arc<Mutex<HashMap<u64, String>>>,
+    active: Arc<Mutex<HashMap<u64, ActiveCall>>>,
+    terminal_error: Arc<Mutex<Option<McpError>>>,
     handlers: Arc<Mutex<HashMap<String, ElicitationHandler>>>,
 }
 
@@ -137,6 +272,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 fn read_stdio_frame(
     reader: &mut impl BufRead,
     limits: Option<ResponseLimits>,
+    prefix_remaining: Option<usize>,
 ) -> Result<Option<String>> {
     let mut bytes = Vec::new();
     loop {
@@ -149,6 +285,19 @@ fn read_stdio_frame(
         }
         let end = available.iter().position(|b| *b == b'\n').map(|p| p + 1);
         let count = end.unwrap_or(available.len());
+        if let Some(remaining) = prefix_remaining {
+            if !bytes.contains(&b'{') {
+                let prefix = available[..count]
+                    .iter()
+                    .position(|b| *b == b'{')
+                    .unwrap_or(count);
+                if bytes.len().saturating_add(prefix) > remaining {
+                    return Err(McpError::StdioPrefixTooLarge {
+                        limit: STDIO_PREFIX_LIMIT,
+                    });
+                }
+            }
+        }
         if let Some(limits) = limits {
             let limit = limits.max_frame_bytes.min(limits.max_response_bytes);
             if bytes.len().saturating_add(count) > limit {
@@ -189,6 +338,8 @@ impl StdioConn {
         spec: &ServerSpec,
         events: &Option<EventSink>,
         extensions: Option<&ClientExtensions>,
+        cancellation: &CancellationToken,
+        timeout: Duration,
     ) -> Result<StdioConn> {
         let ServerSpec::Stdio {
             command,
@@ -205,10 +356,12 @@ impl StdioConn {
             env: env.clone(),
             cwd: cwd.clone(),
         };
-        let process = match extensions.and_then(|e| e.launcher.as_ref()) {
-            Some(launcher) => launcher.launch(&launch)?,
-            None => DefaultProcessLauncher.launch(&launch)?,
-        };
+        let process = launch_cancellable(
+            launch,
+            extensions.and_then(|e| e.launcher.clone()),
+            cancellation,
+            timeout,
+        )?;
         let LaunchedProcess {
             child,
             stdin,
@@ -222,7 +375,8 @@ impl StdioConn {
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
         let closing = Arc::new(AtomicBool::new(false));
-        let active = Arc::new(Mutex::new(HashMap::<u64, String>::new()));
+        let active = Arc::new(Mutex::new(HashMap::<u64, ActiveCall>::new()));
+        let terminal_error = Arc::new(Mutex::new(None));
         let handlers = Arc::new(Mutex::new(HashMap::new()));
         if let Some(callback) = extensions.and_then(|e| e.elicitation.clone()) {
             lock(&handlers).insert(life.session_id.clone(), callback);
@@ -231,23 +385,28 @@ impl StdioConn {
         let (active2, handlers2) = (active.clone(), handlers.clone());
         let (p2, a2, w2) = (pending.clone(), alive.clone(), stdin.clone());
         let (c2, k2, l2) = (child.clone(), closing.clone(), life.clone());
+        let terminal2 = terminal_error.clone();
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
+            let mut startup = StdioStartup::default();
             loop {
-                let line = match read_stdio_frame(&mut reader, limits) {
-                    Ok(Some(line)) => line,
-                    Ok(None) => break,
+                let message = read_stdio_frame(&mut reader, limits, startup.remaining_prefix())
+                    .and_then(|line| match line {
+                        Some(line) => startup.parse(&line).map(|message| (true, message)),
+                        None => Ok((false, None)),
+                    });
+                let msg = match message {
+                    Ok((true, Some(message))) => message,
+                    Ok((true, None)) => continue,
+                    Ok((false, _)) => break,
                     Err(error) => {
-                        if limits.is_some() {
-                            for (_, tx) in lock(&p2).drain() {
-                                let _ = tx.send(Err(error.clone()));
-                            }
+                        *lock(&terminal2) = Some(error.clone());
+                        a2.store(false, Ordering::SeqCst);
+                        for (_, tx) in lock(&p2).drain() {
+                            let _ = tx.send(Err(error.clone()));
                         }
                         break;
                     }
-                };
-                let Ok(msg) = serde_json::from_str::<Value>(&line) else {
-                    continue;
                 };
                 let has_method = msg.get("method").is_some();
                 match (msg.get("id").and_then(Value::as_u64), has_method) {
@@ -271,16 +430,32 @@ impl StdioConn {
                                 v.as_u64()
                                     .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
                             });
-                            let session = {
+                            let (session, cancellation) = {
                                 let calls = lock(&active2);
                                 if related.is_some() {
-                                    related_id.and_then(|id| calls.get(&id).cloned())
+                                    match related_id.and_then(|id| calls.get(&id)) {
+                                        Some(call) => (
+                                            Some(call.session_id.clone()),
+                                            Some(call.cancellation.clone()),
+                                        ),
+                                        None => (None, None),
+                                    }
                                 } else {
-                                    let mut sessions = calls.values();
-                                    sessions
-                                        .next()
-                                        .filter(|first| sessions.all(|s| s == *first))
-                                        .cloned()
+                                    let mut values = calls.values();
+                                    match values.next() {
+                                        Some(first)
+                                            if values.all(|call| {
+                                                call.session_id == first.session_id
+                                            }) =>
+                                        {
+                                            (
+                                                Some(first.session_id.clone()),
+                                                (calls.len() == 1)
+                                                    .then(|| first.cancellation.clone()),
+                                            )
+                                        }
+                                        _ => (None, None),
+                                    }
                                 }
                             };
                             let callback = session
@@ -292,6 +467,8 @@ impl StdioConn {
                                 let context = ElicitationContext {
                                     server: l2.server.clone(),
                                     session_id,
+                                    wire_request_id: id.clone(),
+                                    call_cancellation: cancellation,
                                 };
                                 std::thread::spawn(move || {
                                     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -305,10 +482,12 @@ impl StdioConn {
                                     let still_active = {
                                         let calls = lock(&calls);
                                         match related_id {
-                                            Some(id) => calls.get(&id) == Some(&context.session_id),
-                                            None => {
-                                                calls.values().any(|sid| sid == &context.session_id)
-                                            }
+                                            Some(id) => calls.get(&id).is_some_and(|call| {
+                                                call.session_id == context.session_id
+                                            }),
+                                            None => calls
+                                                .values()
+                                                .any(|call| call.session_id == context.session_id),
                                         }
                                     };
                                     let reply = if still_active {
@@ -364,6 +543,9 @@ impl StdioConn {
             // Publish this connection's crash before EOF wakes a caller that can reconnect.
             // A panicking sink must not prevent pending requests from being released.
             a2.store(false, Ordering::SeqCst);
+            for call in lock(&active2).values() {
+                call.cancellation.cancel();
+            }
             for (_, tx) in lock(&p2).drain() {
                 let _ = tx.send(Err(McpError::Closed));
             }
@@ -378,13 +560,16 @@ impl StdioConn {
             pid,
             next_id: AtomicU64::new(1),
             active,
+            terminal_error,
             handlers,
         })
     }
 
     fn send(&self, msg: &Value) -> Result<()> {
         if !self.alive.load(Ordering::SeqCst) {
-            return Err(McpError::Closed);
+            return Err(lock(&self.terminal_error)
+                .clone()
+                .unwrap_or(McpError::Closed));
         }
         let mut w = lock(&self.stdin);
         writeln!(w, "{msg}")
@@ -405,7 +590,9 @@ impl StdioConn {
         timeout: Duration,
     ) -> Result<()> {
         if !self.alive.load(Ordering::SeqCst) {
-            return Err(McpError::Closed);
+            return Err(lock(&self.terminal_error)
+                .clone()
+                .unwrap_or(McpError::Closed));
         }
         let writer = self.stdin.clone();
         let (sender, receiver) = channel();
@@ -465,10 +652,13 @@ impl StdioConn {
         lock(&self.pending).insert(id, tx);
         lock(&self.active).insert(
             id,
-            options
-                .session_id
-                .clone()
-                .unwrap_or_else(|| self.life.session_id.clone()),
+            ActiveCall {
+                session_id: options
+                    .session_id
+                    .clone()
+                    .unwrap_or_else(|| self.life.session_id.clone()),
+                cancellation: CancellationToken::new(),
+            },
         );
         let started = Instant::now();
         let message = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
@@ -478,7 +668,9 @@ impl StdioConn {
         };
         if let Err(e) = sent {
             lock(&self.pending).remove(&id);
-            lock(&self.active).remove(&id);
+            if let Some(call) = lock(&self.active).remove(&id) {
+                call.cancellation.cancel();
+            }
             return Err(e);
         }
         let started = if options.cancellation.is_some() {
@@ -511,7 +703,14 @@ impl StdioConn {
             }
         };
         lock(&self.pending).remove(&id);
-        lock(&self.active).remove(&id);
+        if let Some(call) = lock(&self.active).remove(&id) {
+            if matches!(
+                result,
+                Err(McpError::Timeout | McpError::Cancelled | McpError::Closed)
+            ) {
+                call.cancellation.cancel();
+            }
+        }
         if matches!(result, Err(McpError::Timeout | McpError::Cancelled))
             && (method != "initialize" || options.cancellation.is_none())
         {
@@ -533,6 +732,9 @@ impl StdioConn {
 impl Drop for StdioConn {
     fn drop(&mut self) {
         self.closing.store(true, Ordering::SeqCst);
+        for call in lock(&self.active).values() {
+            call.cancellation.cancel();
+        }
         let mut c = lock(&self.child);
         let _ = c.kill();
         let _ = c.wait();
@@ -542,18 +744,29 @@ impl Drop for StdioConn {
     }
 }
 
-fn rpc_outcome(msg: &Value) -> Result<Value> {
+pub(crate) fn rpc_outcome(msg: &Value) -> Result<Value> {
+    if msg.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return Err(McpError::Protocol("response jsonrpc must be 2.0".into()));
+    }
     if let Some(e) = msg.get("error") {
-        return Err(McpError::Rpc {
-            code: e.get("code").and_then(Value::as_i64).unwrap_or(-32603),
-            message: e
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .into(),
+        let code = e.get("code").and_then(Value::as_i64).unwrap_or(-32603);
+        let message = e
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        return Err(match e.get("data") {
+            Some(data) => McpError::RpcWithData {
+                code,
+                message,
+                data: data.clone(),
+            },
+            None => McpError::Rpc { code, message },
         });
     }
-    Ok(msg.get("result").cloned().unwrap_or(Value::Null))
+    msg.get("result")
+        .cloned()
+        .ok_or_else(|| McpError::Protocol("response is missing result".into()))
 }
 
 impl HttpConn {
@@ -578,10 +791,22 @@ impl HttpConn {
     }
 
     /// POST one message. Returns (status, body, content-type, session header).
-    fn post(&self, body: &Value, retry_auth: bool) -> Result<(u16, String, String)> {
+    fn post(
+        &self,
+        body: &Value,
+        retry_auth: bool,
+        timeout: Duration,
+    ) -> Result<(u16, String, String)> {
+        if timeout.is_zero() {
+            return Err(McpError::Timeout);
+        }
+        let started = Instant::now();
         let mut req = self
             .agent
             .post(&self.url)
+            .config()
+            .timeout_global(Some(timeout))
+            .build()
             .header("Content-Type", "application/json")
             .header("Accept", "application/json, text/event-stream");
         if let Some(s) = lock(&self.session).as_deref() {
@@ -595,9 +820,10 @@ impl HttpConn {
                 req = req.header("Authorization", &format!("Bearer {}", tok.expose()));
             }
         }
-        let mut resp = req
-            .send(body.to_string().as_str())
-            .map_err(|e| McpError::Transport(e.to_string()))?;
+        let mut resp = req.send(body.to_string().as_str()).map_err(|e| match e {
+            ureq::Error::Timeout(_) => McpError::Timeout,
+            other => McpError::Transport(other.to_string()),
+        })?;
         let status = resp.status().as_u16();
         let ct = resp
             .headers()
@@ -618,16 +844,22 @@ impl HttpConn {
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
         let mut text = String::new();
-        let _ = resp
-            .body_mut()
+        resp.body_mut()
             .as_reader()
             .take(16 * 1024 * 1024)
-            .read_to_string(&mut text);
+            .read_to_string(&mut text)
+            .map_err(|error| {
+                if started.elapsed() >= timeout {
+                    McpError::Timeout
+                } else {
+                    McpError::Transport(error.to_string())
+                }
+            })?;
         if status == 401 {
             if retry_auth {
                 if let Some(a) = &self.auth {
                     if a.on_unauthorized(&self.server, www.as_deref())? {
-                        return self.post(body, false);
+                        return self.post(body, false, timeout.saturating_sub(started.elapsed()));
                     }
                 }
             }
@@ -644,11 +876,12 @@ impl HttpConn {
         Ok((status, text, ct))
     }
 
-    fn request(&self, method: &str, params: Value) -> Result<Value> {
+    fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (status, text, ct) = self.post(
             &json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}),
             true,
+            timeout,
         )?;
         if !(200..300).contains(&status) {
             let snippet: String = text.chars().take(300).collect();
@@ -707,16 +940,8 @@ impl Conn {
     fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
         match self {
             Conn::Stdio(s) => s.request(method, params, timeout),
-            Conn::Http(h) => h.request(method, params),
-            Conn::AdvancedHttp(h) => h.request(method, params, &CallOptions::default()),
-        }
-    }
-    fn notify(&self, method: &str) -> Result<()> {
-        let msg = json!({"jsonrpc":"2.0","method":method});
-        match self {
-            Conn::Stdio(s) => s.send(&msg),
-            Conn::Http(h) => h.post(&msg, true).map(|_| ()),
-            Conn::AdvancedHttp(h) => h.notify(method),
+            Conn::Http(h) => h.request(method, params, timeout),
+            Conn::AdvancedHttp(h) => h.request(method, params, timeout, &CallOptions::default()),
         }
     }
     fn request_with_options(
@@ -728,7 +953,7 @@ impl Conn {
     ) -> Result<Value> {
         match self {
             Conn::Stdio(s) => s.request_with_options(method, params, timeout, options),
-            Conn::AdvancedHttp(h) => h.request(method, params, options),
+            Conn::AdvancedHttp(h) => h.request(method, params, timeout, options),
             Conn::Http(_) => Err(McpError::Config(
                 "per-call HTTP options require connect_with_extensions".into(),
             )),
@@ -747,8 +972,10 @@ impl Conn {
                 }
                 None => s.send(&json!({"jsonrpc":"2.0","method":method})),
             },
-            Conn::AdvancedHttp(h) => h.notify_with_options(method, options),
-            Conn::Http(_) => self.notify(method),
+            Conn::AdvancedHttp(h) => h.notify_with_options(method, timeout, options),
+            Conn::Http(h) => h
+                .post(&json!({"jsonrpc":"2.0","method":method}), true, timeout)
+                .map(|_| ()),
         }
     }
 }
@@ -778,13 +1005,33 @@ impl McpClient {
     }
 
     /// Opt into cancellable HTTP/SSE, custom launch, callbacks, versions & limits.
-    /// Existing ClientOptions/ServerSpec literals remain valid.
+    /// New options can be supplied through builders or Default.
     pub fn connect_with_extensions(
         server_name: &str,
         spec: ServerSpec,
         opts: ClientOptions,
         extensions: ClientExtensions,
     ) -> Result<McpClient> {
+        Self::connect_with_extensions_cancellable(
+            server_name,
+            spec,
+            opts,
+            extensions,
+            &CancellationToken::new(),
+        )
+    }
+
+    /// Opens a cold connection with cancellation across launch, initialize & initialized; abort returns Cancelled & tears down transport.
+    pub fn connect_with_extensions_cancellable(
+        server_name: &str,
+        spec: ServerSpec,
+        opts: ClientOptions,
+        extensions: ClientExtensions,
+        cancellation: &CancellationToken,
+    ) -> Result<McpClient> {
+        if cancellation.is_cancelled() {
+            return Err(McpError::Cancelled);
+        }
         if extensions
             .protocol_versions
             .as_ref()
@@ -802,7 +1049,7 @@ impl McpClient {
             conn: Mutex::new(None),
             version: Mutex::new(String::new()),
         };
-        client.ensure()?;
+        client.ensure_cancellable(cancellation)?;
         Ok(client)
     }
 
@@ -861,12 +1108,31 @@ impl McpClient {
     }
 
     fn open_with_cancellation(&self, cancellation: Option<CancellationToken>) -> Result<Arc<Conn>> {
+        let cancellation = cancellation.unwrap_or_default();
+        let started = Instant::now();
+        let budget = self
+            .opts
+            .connect_timeout
+            .unwrap_or(self.opts.request_timeout);
+        let remaining = || -> Result<Duration> {
+            if cancellation.is_cancelled() {
+                return Err(McpError::Cancelled);
+            }
+            let timeout = budget.saturating_sub(started.elapsed());
+            if timeout.is_zero() {
+                return Err(McpError::Timeout);
+            }
+            Ok(timeout)
+        };
+        remaining()?;
         let conn = match &self.spec {
             ServerSpec::Stdio { .. } => Conn::Stdio(StdioConn::spawn(
                 &self.name,
                 &self.spec,
                 &self.opts.on_event,
                 self.extensions.as_ref(),
+                &cancellation,
+                remaining()?,
             )?),
             ServerSpec::Http { url } if self.extensions.is_some() => {
                 Conn::AdvancedHttp(AdvancedHttp::new(
@@ -902,18 +1168,13 @@ impl McpClient {
             params["capabilities"]["elicitation"] = json!({"form":{},"url":{}});
         }
         let init_options = CallOptions {
-            cancellation,
+            cancellation: Some(cancellation.clone()),
             ..Default::default()
         };
-        let init = if init_options.cancellation.is_some() {
-            conn.request_with_options(
-                "initialize",
-                params,
-                self.opts.request_timeout,
-                &init_options,
-            )?
+        let init = if matches!(&conn, Conn::Http(_)) {
+            conn.request("initialize", params, remaining()?)?
         } else {
-            conn.request("initialize", params, self.opts.request_timeout)?
+            conn.request_with_options("initialize", params, remaining()?, &init_options)?
         };
         let v = init
             .get("protocolVersion")
@@ -938,15 +1199,8 @@ impl McpClient {
             h.life
                 .emit(LifecycleKind::Start, "initialized http session", None);
         }
-        if init_options.cancellation.is_some() {
-            conn.notify_with_options(
-                "notifications/initialized",
-                self.opts.request_timeout,
-                &init_options,
-            )?;
-        } else {
-            conn.notify("notifications/initialized")?;
-        }
+        conn.notify_with_options("notifications/initialized", remaining()?, &init_options)?;
+        remaining()?;
         *lock(&self.version) = v;
         Ok(Arc::new(conn))
     }
@@ -1084,5 +1338,90 @@ impl McpClient {
     }
     pub fn close(&self) {
         *lock(&self.conn) = None;
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn startup_prefix_budget_is_cumulative_and_allows_exact_boundary() {
+        let mut startup = StdioStartup::default();
+        assert!(startup
+            .parse(&"x".repeat(STDIO_PREFIX_LIMIT - 3))
+            .unwrap()
+            .is_none());
+        let response = r#"{"jsonrpc":"2.0","id":1,"result":null}"#;
+        assert_eq!(
+            startup.parse(&format!("abc{response}")).unwrap().unwrap()["id"],
+            1
+        );
+        assert!(startup.seen_rpc);
+        assert!(startup.parse(&format!("late{response}")).unwrap().is_none());
+
+        let mut startup = StdioStartup::default();
+        startup.parse(&"x".repeat(STDIO_PREFIX_LIMIT - 3)).unwrap();
+        assert!(matches!(
+            startup.parse(&format!("abcd{response}")),
+            Err(McpError::StdioPrefixTooLarge {
+                limit: STDIO_PREFIX_LIMIT
+            })
+        ));
+    }
+
+    #[test]
+    fn unterminated_prefix_is_bounded_before_reading_whole_frame() {
+        let mut input = Cursor::new(vec![b'x'; STDIO_PREFIX_LIMIT + 1]);
+        assert!(matches!(
+            read_stdio_frame(&mut input, None, Some(STDIO_PREFIX_LIMIT)),
+            Err(McpError::StdioPrefixTooLarge {
+                limit: STDIO_PREFIX_LIMIT
+            })
+        ));
+    }
+
+    #[test]
+    fn startup_only_stops_recovery_after_valid_jsonrpc_message() {
+        let mut startup = StdioStartup::default();
+        startup.parse(r#"{"banner":"JSON but not RPC"}"#).unwrap();
+        assert!(!startup.seen_rpc);
+        let request = r#"{"jsonrpc":"2.0","id":"server-id","method":"ping"}"#;
+        assert!(startup
+            .parse(&format!("banner{request}"))
+            .unwrap()
+            .is_some());
+        assert!(startup.seen_rpc);
+    }
+
+    #[test]
+    fn response_decoding_checks_version_before_errors_and_preserves_null() {
+        for response in [
+            json!({"id":1,"result":null}),
+            json!({"jsonrpc":"1.0","id":1,"result":null}),
+            json!({"jsonrpc":2.0,"id":1,"result":null}),
+            json!({"jsonrpc":"2.0","id":1}),
+            json!({"id":1,"error":{"code":-32601,"message":"bad"}}),
+        ] {
+            assert!(matches!(rpc_outcome(&response), Err(McpError::Protocol(_))));
+        }
+        assert_eq!(
+            rpc_outcome(&json!({"jsonrpc":"2.0","id":1,"result":null})).unwrap(),
+            Value::Null
+        );
+        assert!(matches!(
+            rpc_outcome(&json!({"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"bad"}})),
+            Err(McpError::Rpc { code: -32601, .. })
+        ));
+        assert!(matches!(
+            rpc_outcome(
+                &json!({"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"bad","data":null}})
+            ),
+            Err(McpError::RpcWithData {
+                data: Value::Null,
+                ..
+            })
+        ));
     }
 }

@@ -1,4 +1,11 @@
 //! Shared MCP client and server host for Right Suite apps. See API.md.
+//!
+//! `ClientOptions::connect_timeout` configures spawn/connect & initialize independently of requests.
+//! `McpClient::connect_with_extensions_cancellable` aborts cold handshakes with `McpError::Cancelled`.
+//! `McpError::StdioPrefixTooLarge` reports skipped startup output exceeding 64 KiB.
+//! Responses require `jsonrpc: "2.0"` & either `error` or `result` (including null).
+//! `EndpointOriginPolicy::allow_any_origin_insecure` explicitly opts into unrestricted HTTP(S) origins.
+//! `ElicitationContext::request_id` exposes original wire id; `cancellation` observes originating call cancellation.
 
 mod advanced_http;
 pub mod auth;

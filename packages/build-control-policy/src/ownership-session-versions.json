@@ -247,7 +247,7 @@
     "rightkit-jobs": "0.2.2",
     "rightkit-license": "0.1.3",
     "rightkit-logs": "0.2.0",
-    "rightkit-mcp": "0.3.0",
+    "rightkit-mcp": "0.3.1",
     "rightkit-media": "0.2.3",
     "rightkit-models": "0.2.2",
     "rightkit-oauth": "0.2.1",
@@ -259,7 +259,7 @@
     "rightkit-qts": "0.2.1",
     "rightkit-qts-ggml": "0.1.0",
     "rightkit-qts-ggml-sys": "0.1.0",
-    "rightkit-sandbox": "0.2.2",
+    "rightkit-sandbox": "0.2.3",
     "rightkit-search": "0.1.0",
     "rightkit-secrets": "0.1.0",
     "rightkit-service": "0.1.0",
@@ -366,7 +366,8 @@
     ],
     "rightkit-mcp": [
       "0.1.1",
-      "0.2.0"
+      "0.2.0",
+      "0.3.0"
     ],
     "rightkit-media": [
       "0.2.2"
@@ -390,7 +391,8 @@
     "rightkit-sandbox": [
       "0.1.0",
       "0.2.0",
-      "0.2.1"
+      "0.2.1",
+      "0.2.2"
     ],
     "rightkit-shell": [
       "0.1.0",

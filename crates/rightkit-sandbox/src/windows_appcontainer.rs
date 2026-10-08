@@ -19,7 +19,7 @@ use crate::{EnvPolicy, NetworkPolicy, SandboxCommand, SandboxError, SandboxPolic
 mod ancestors;
 pub use ancestors::{
     sweep_stale_appcontainer_ancestor_aces, sweep_stale_appcontainer_ancestor_aces_for_owner,
-    AppContainerAncestorLease,
+    AncestorLeasePolicy, AppContainerAncestorLease, UnleasableAncestor,
 };
 use ancestors::{AncestorLease, PROFILE_PREFIX};
 use std::collections::{BTreeMap, HashMap};

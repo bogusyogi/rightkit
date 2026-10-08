@@ -10,6 +10,27 @@ const INHERITED_ACE: u8 = 0x10;
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn GetFinalPathNameByHandleW(handle: *mut c_void, path: *mut u16, len: u32, flags: u32) -> u32;
+    fn CreateMutexW(attributes: *const c_void, initial_owner: i32, name: *const u16)
+        -> *mut c_void;
+    fn OpenMutexW(access: u32, inherit: i32, name: *const u16) -> *mut c_void;
+}
+
+#[link(name = "bcrypt")]
+unsafe extern "system" {
+    fn BCryptHash(
+        algorithm: *mut c_void,
+        secret: *const u8,
+        secret_len: u32,
+        input: *const u8,
+        input_len: u32,
+        output: *mut u8,
+        output_len: u32,
+    ) -> i32;
+}
+
+#[link(name = "ntdll")]
+unsafe extern "system" {
+    fn RtlNtStatusToDosError(status: i32) -> u32;
 }
 
 #[link(name = "advapi32")]
@@ -456,6 +477,89 @@ struct AncestorEntry {
     path: PathBuf,
     sid_text: String,
     ace: Vec<u8>,
+    _mutex: AncestorMutex,
+}
+
+/// Paths supplied here come from physical_path; normalize case & separators once.
+fn ancestor_mutex_name(path: &Path, sid: &str) -> io::Result<String> {
+    let input = format!(
+        "{}|{}",
+        lexical_path_key(path).to_lowercase(),
+        sid.to_ascii_uppercase()
+    );
+    let input_len = u32::try_from(input.len()).map_err(|_| io::Error::from_raw_os_error(87))?;
+    let mut digest = [0u8; 32];
+    let status = unsafe {
+        BCryptHash(
+            0x41usize as *mut c_void, // BCRYPT_SHA256_ALG_HANDLE (pseudo-handle)
+            std::ptr::null(),
+            0,
+            input.as_ptr(),
+            input_len,
+            digest.as_mut_ptr(),
+            digest.len() as u32,
+        )
+    };
+    if status < 0 {
+        return Err(io::Error::from_raw_os_error(
+            unsafe { RtlNtStatusToDosError(status) } as i32,
+        ));
+    }
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(format!(r"Local\rightkit-ancestor-lease-{hex}"))
+}
+
+// Handle ownership is independent of threads; no waits or mutex ownership are used.
+struct AncestorMutex(usize);
+impl Drop for AncestorMutex {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.0 as *mut c_void) };
+    }
+}
+impl AncestorMutex {
+    fn create(path: &Path, sid: &str) -> io::Result<Self> {
+        let name = wide(ancestor_mutex_name(path, sid)?);
+        let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+        if handle.is_null() {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(Self(handle as usize))
+        }
+    }
+}
+
+fn ancestor_mutex_exists(path: &Path, sid: &str) -> io::Result<bool> {
+    let name = wide(ancestor_mutex_name(path, sid)?);
+    let handle = unsafe { OpenMutexW(0x0010_0000, 0, name.as_ptr()) }; // SYNCHRONIZE
+    if !handle.is_null() {
+        drop(AncestorMutex(handle as usize));
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(2) => Ok(false), // ERROR_FILE_NOT_FOUND alone proves no holder.
+        Some(5) => Ok(true),  // ERROR_ACCESS_DENIED still proves existence.
+        _ => Err(error),
+    }
+}
+
+fn cleanup_ancestor(entry: &AncestorEntry) {
+    let result = (|| {
+        let snapshot = DaclSnapshot::read(&entry.path)?;
+        let mut aces = snapshot.aces()?;
+        if let Some(index) = aces.iter().position(|ace| *ace == entry.ace) {
+            aces.remove(index);
+            write_dacl(&entry.path, &aces, snapshot.revision())?;
+        }
+        Ok::<_, io::Error>(())
+    })();
+    if let Err(error) = result {
+        eprintln!(
+            "rightkit-sandbox: ancestor ACE cleanup failed for {} ({}) : {error}",
+            entry.path.display(),
+            entry.sid_text
+        );
+    }
 }
 fn registry() -> &'static Mutex<HashMap<String, AncestorEntry>> {
     static REGISTRY: OnceLock<Mutex<HashMap<String, AncestorEntry>>> = OnceLock::new();
@@ -479,22 +583,30 @@ fn sweep_chain(
     let mut removed = 0;
     for path in chain {
         let snapshot = DaclSnapshot::read(path).map_err(|e| ancestor_error(path, e))?;
-        let mut aces = snapshot.aces().map_err(|e| ancestor_error(path, e))?;
-        let before = aces.len();
-        aces.retain(|ace| {
-            let Some((kind, flags, _, trustee)) = basic_ace(ace) else {
-                return true;
-            };
-            if kind != ACCESS_ALLOWED_ACE_TYPE || flags & INHERITED_ACE != 0 {
-                return true;
+        let original = snapshot.aces().map_err(|e| ancestor_error(path, e))?;
+        let before = original.len();
+        let mut aces = Vec::with_capacity(before);
+        for ace in original {
+            let mut stale = false;
+            if let Some((ACCESS_ALLOWED_ACE_TYPE, flags, _, trustee)) = basic_ace(&ace) {
+                if flags & INHERITED_ACE == 0 {
+                    for (text, sid) in &owned {
+                        let k = key(path, text);
+                        if !live.contains_key(&k)
+                            && !grants.contains_key(&k)
+                            && unsafe { EqualSid(trustee, sid.0) } != 0
+                        {
+                            stale = !ancestor_mutex_exists(path, text)
+                                .map_err(|e| ancestor_error(path, e))?;
+                            break;
+                        }
+                    }
+                }
             }
-            !owned.iter().any(|(text, sid)| {
-                let k = key(path, text);
-                !live.contains_key(&k)
-                    && !grants.contains_key(&k)
-                    && unsafe { EqualSid(trustee, sid.0) } != 0
-            })
-        });
+            if !stale {
+                aces.push(ace);
+            }
+        }
         if aces.len() != before {
             editor(path, &aces, snapshot.revision()).map_err(|e| ancestor_error(path, e))?;
             removed += before - aces.len();
@@ -505,8 +617,9 @@ fn sweep_chain(
 
 /// Remove stale explicit allow ACEs belonging to registered `rightkit.sandbox.` profiles
 /// from physical ancestors of `path` (excluding `path`). Returns removed ACE count.
-/// Live leases in this process & unrelated SIDs are preserved. Paths must exist.
-/// Do not sweep while another process using this crate has live sandbox children.
+/// Live leases in this process & other processes in the same logon session (`Local\`
+/// mutex namespace), plus unrelated SIDs, are preserved. Paths must exist.
+/// Crashed holders become sweepable when their kernel handles close.
 pub fn sweep_stale_appcontainer_ancestor_aces(path: &Path) -> Result<usize, SandboxError> {
     sweep_stale_appcontainer_ancestor_aces_for_owner(path, PROFILE_PREFIX)
 }
@@ -516,8 +629,9 @@ pub fn sweep_stale_appcontainer_ancestor_aces(path: &Path) -> Result<usize, Sand
 /// Prefixes require at least two nonempty lowercase ASCII letter/digit/hyphen segments,
 /// separated by '.', ending with '.', within 2..=64 bytes. Ownership requires a 16-hex
 /// suffix & a derived SID matching its persisted mapping. Paths must exist.
-/// Live leases in this process & unrelated SIDs are preserved.
-/// Do not sweep while another process using these profiles has live sandbox children.
+/// Live leases in this process & other processes in the same logon session (`Local\`
+/// mutex namespace), plus unrelated SIDs, are preserved.
+/// Crashed holders become sweepable when their kernel handles close.
 pub fn sweep_stale_appcontainer_ancestor_aces_for_owner(
     path: &Path,
     owner_prefix: &str,
@@ -531,6 +645,22 @@ pub fn sweep_stale_appcontainer_ancestor_aces_for_owner(
     sweep_chain(&chain, &owned, &live, &grants, &write_dacl)
 }
 
+/// Ancestor acquisition behavior when access cannot be granted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AncestorLeasePolicy {
+    /// Fail & roll back if any ancestor cannot be leased.
+    Strict,
+    /// Record ancestors denied DACL writes or verification & lease remaining ancestors.
+    BestEffort,
+}
+
+/// An ancestor skipped because its DACL could not grant access.
+#[derive(Debug, Clone)]
+pub struct UnleasableAncestor {
+    pub path: PathBuf,
+    pub win32_error: u32,
+}
+
 /// Grants traverse (SYNCHRONIZE | READ_ATTRIBUTES | LIST_DIRECTORY) on physical ancestors
 /// of `path` (excluding `path`) for the given AppContainer SID for the lease lifetime.
 pub struct AppContainerAncestorLease {
@@ -539,7 +669,20 @@ pub struct AppContainerAncestorLease {
 
 impl AppContainerAncestorLease {
     /// Acquire an ancestor lease for a parseable `S-1-15-2-` SID (case-insensitive).
+    /// Uses [`AncestorLeasePolicy::Strict`].
     pub fn acquire(path: &Path, appcontainer_sid: &str) -> Result<Self, SandboxError> {
+        Self::acquire_with(path, appcontainer_sid, AncestorLeasePolicy::Strict)
+    }
+
+    /// Acquire with an explicit ancestor policy.
+    /// BestEffort traversal through skipped ancestors relies on the token's bypass-traverse
+    /// privilege. Directory listing there can fail, including upward git repository discovery;
+    /// surface skipped paths to callers (e.g. via `GIT_CEILING_DIRECTORIES`) rather than abort.
+    pub fn acquire_with(
+        path: &Path,
+        appcontainer_sid: &str,
+        policy: AncestorLeasePolicy,
+    ) -> Result<Self, SandboxError> {
         let text = appcontainer_sid.to_ascii_uppercase();
         if !text.starts_with("S-1-15-2-") || text.contains('\0') {
             return Err(SandboxError::InvalidPolicy(
@@ -551,8 +694,13 @@ impl AppContainerAncestorLease {
         // Canonical text shares refcounts with backend leases & sweep ownership keys.
         let text = sid_string(sid.0)?;
         Ok(Self {
-            _lease: AncestorLease::acquire(path, &text)?,
+            _lease: AncestorLease::acquire_with(path, &text, policy)?,
         })
+    }
+
+    /// Ancestors skipped under BestEffort; Strict leases always return an empty slice.
+    pub fn unleasable(&self) -> &[UnleasableAncestor] {
+        &self._lease.unleasable
     }
 }
 
@@ -563,31 +711,106 @@ const _: fn() = || {
 
 pub(super) struct AncestorLease {
     keys: Vec<String>,
+    unleasable: Vec<UnleasableAncestor>,
 }
 impl AncestorLease {
     pub(super) fn acquire(path: &Path, sid_text: &str) -> Result<Self, SandboxError> {
-        Self::acquire_chain(
+        Self::acquire_with(path, sid_text, AncestorLeasePolicy::Strict)
+    }
+
+    fn acquire_with(
+        path: &Path,
+        sid_text: &str,
+        policy: AncestorLeasePolicy,
+    ) -> Result<Self, SandboxError> {
+        Self::acquire_chain_with(
             &ancestor_chain(path)?,
             sid_text,
             &owned_profile_sids(PROFILE_PREFIX)?,
             &write_dacl,
+            policy,
         )
     }
 
+    #[cfg(test)]
     fn acquire_chain(
         chain: &[PathBuf],
         sid_text: &str,
         owned: &[String],
         editor: &DaclEditor<'_>,
     ) -> Result<Self, SandboxError> {
+        Self::acquire_chain_with(chain, sid_text, owned, editor, AncestorLeasePolicy::Strict)
+    }
+
+    fn record_unleasable(
+        &mut self,
+        path: &Path,
+        sid: &LocalSid,
+        policy: AncestorLeasePolicy,
+        error: &SandboxError,
+    ) -> Result<bool, SandboxError> {
+        if policy == AncestorLeasePolicy::BestEffort {
+            if let SandboxError::AncestorAccess { win32_error, .. } = error {
+                if io::Error::from_raw_os_error(*win32_error as i32).kind()
+                    == io::ErrorKind::PermissionDenied
+                {
+                    let current = DaclSnapshot::read(path).map_err(|e| ancestor_error(path, e))?;
+                    if !allows_ancestor(&current, sid).map_err(|e| ancestor_error(path, e))? {
+                        self.unleasable.push(UnleasableAncestor {
+                            path: path.to_path_buf(),
+                            win32_error: *win32_error,
+                        });
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    fn acquire_chain_with(
+        chain: &[PathBuf],
+        sid_text: &str,
+        owned: &[String],
+        editor: &DaclEditor<'_>,
+        policy: AncestorLeasePolicy,
+    ) -> Result<Self, SandboxError> {
         let sid = LocalSid::parse(sid_text)?;
-        let mut lease = Self { keys: Vec::new() };
+        let mut lease = Self {
+            keys: Vec::new(),
+            unleasable: Vec::new(),
+        };
         let result = (|| {
             let mut live = registry().lock().unwrap_or_else(|e| e.into_inner());
             let grants = lease_registry().lock().unwrap_or_else(|e| e.into_inner());
             let _acl = ACL_GRANT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-            sweep_chain(chain, owned, &live, &grants, editor)?;
+            if policy == AncestorLeasePolicy::Strict {
+                sweep_chain(chain, owned, &live, &grants, editor)?;
+            }
             for path in chain {
+                if policy == AncestorLeasePolicy::BestEffort {
+                    // Only sweep writes may be skipped; reads & mutex failures stay fatal.
+                    let sweep_write_failed = std::cell::Cell::new(false);
+                    let swept = sweep_chain(
+                        std::slice::from_ref(path),
+                        owned,
+                        &live,
+                        &grants,
+                        &|path, aces, revision| {
+                            let result = editor(path, aces, revision);
+                            sweep_write_failed.set(result.is_err());
+                            result
+                        },
+                    );
+                    if let Err(error) = swept {
+                        if sweep_write_failed.get()
+                            && lease.record_unleasable(path, &sid, policy, &error)?
+                        {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                }
                 let k = key(path, sid_text);
                 if let Some(entry) = live.get_mut(&k) {
                     entry.count += 1;
@@ -606,7 +829,16 @@ impl AncestorLease {
                     .position(|a| a[1] & INHERITED_ACE != 0)
                     .unwrap_or(aces.len());
                 aces.insert(index, ace.clone());
-                editor(path, &aces, snapshot.revision()).map_err(|e| ancestor_error(path, e))?;
+                // Create before writing so a failed liveness proof cannot leave an untracked ACE.
+                let mutex =
+                    AncestorMutex::create(path, sid_text).map_err(|e| ancestor_error(path, e))?;
+                if let Err(error) = editor(path, &aces, snapshot.revision()) {
+                    let error = ancestor_error(path, error);
+                    if lease.record_unleasable(path, &sid, policy, &error)? {
+                        continue;
+                    }
+                    return Err(error);
+                }
                 live.insert(
                     k.clone(),
                     AncestorEntry {
@@ -614,15 +846,28 @@ impl AncestorLease {
                         path: path.clone(),
                         sid_text: sid_text.into(),
                         ace,
+                        _mutex: mutex,
                     },
                 );
                 lease.keys.push(k);
-                let after = DaclSnapshot::read(path).map_err(|e| ancestor_error(path, e))?;
-                if !allows_ancestor(&after, &sid).map_err(|e| ancestor_error(path, e))? {
-                    return Err(SandboxError::AncestorAccess {
-                        path: path.clone(),
-                        win32_error: 5,
-                    });
+                let verified = (|| {
+                    let after = DaclSnapshot::read(path).map_err(|e| ancestor_error(path, e))?;
+                    if !allows_ancestor(&after, &sid).map_err(|e| ancestor_error(path, e))? {
+                        return Err(SandboxError::AncestorAccess {
+                            path: path.clone(),
+                            win32_error: 5,
+                        });
+                    }
+                    Ok(())
+                })();
+                if let Err(error) = verified {
+                    if lease.record_unleasable(path, &sid, policy, &error)? {
+                        let k = lease.keys.pop().unwrap();
+                        let entry = live.remove(&k).unwrap();
+                        cleanup_ancestor(&entry);
+                        continue;
+                    }
+                    return Err(error);
                 }
             }
             Ok(())
@@ -645,22 +890,7 @@ impl Drop for AncestorLease {
                 continue;
             }
             let entry = live.remove(&k).unwrap();
-            let result = (|| {
-                let snapshot = DaclSnapshot::read(&entry.path)?;
-                let mut aces = snapshot.aces()?;
-                if let Some(index) = aces.iter().position(|ace| *ace == entry.ace) {
-                    aces.remove(index);
-                    write_dacl(&entry.path, &aces, snapshot.revision())?;
-                }
-                Ok::<_, io::Error>(())
-            })();
-            if let Err(error) = result {
-                eprintln!(
-                    "rightkit-sandbox: ancestor ACE cleanup failed for {} ({}) : {error}",
-                    entry.path.display(),
-                    entry.sid_text
-                );
-            }
+            cleanup_ancestor(&entry);
         }
     }
 }

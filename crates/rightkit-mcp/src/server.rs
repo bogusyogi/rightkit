@@ -1081,7 +1081,25 @@ fn respond(
     head.push_str("\r\n");
     s.write_all(head.as_bytes())?;
     s.write_all(body.as_bytes())?;
-    s.flush()
+    s.flush()?;
+    graceful_close(s);
+    Ok(())
+}
+
+/// Early gate responses (401/403/404/405) leave the request body unread; closing a socket
+/// with unread input sends RST on Windows, which can discard the response before the client
+/// reads it. Half-close, then drain bounded input so the peer sees FIN after the response.
+fn graceful_close(s: &mut TcpStream) {
+    let _ = s.shutdown(std::net::Shutdown::Write);
+    let _ = s.set_read_timeout(Some(Duration::from_millis(250)));
+    let mut buf = [0u8; 8192];
+    let mut drained = 0usize;
+    while drained < MAX_BODY {
+        match s.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => drained += n,
+        }
+    }
 }
 
 const MAX_HEAD: usize = 64 * 1024;

@@ -1,4 +1,4 @@
-//! Opt-in client features; existing `ClientOptions` & `ServerSpec` remain unchanged.
+//! Opt-in client features with builder methods & defaulted options.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -12,16 +12,24 @@ use serde_json::Value;
 use crate::{McpError, Result};
 
 /// Shared cancellation handle. Cancellation is permanent & wakes every waiter.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct CancellationToken {
     inner: Arc<CancellationState>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct CancellationState {
     cancelled: AtomicBool,
     notify: tokio::sync::Notify,
 }
+
+impl PartialEq for CancellationToken {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl Eq for CancellationToken {}
 
 impl CancellationToken {
     pub fn new() -> Self {
@@ -67,13 +75,21 @@ impl Default for ResponseLimits {
     }
 }
 
-/// Only configured origin & explicit allow-list entries may receive SSE POSTs.
+/// Only configured origin & explicit allow-list entries may receive SSE POSTs by default.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EndpointOriginPolicy {
+    /// Explicit origin allow-list; "*" is reserved for allow_any_origin_insecure().
     pub allowed_origins: Vec<String>,
 }
 
 impl EndpointOriginPolicy {
+    /// INSECURE: permits any HTTP(S) endpoint origin, potentially exposing bearer tokens; never enabled by default.
+    pub fn allow_any_origin_insecure() -> Self {
+        Self {
+            allowed_origins: vec!["*".into()],
+        }
+    }
+
     pub fn resolve_endpoint(&self, configured: &str, announced: &str) -> Result<String> {
         fn parse(value: &str) -> Result<url::Url> {
             let url = url::Url::parse(value)
@@ -100,6 +116,10 @@ impl EndpointOriginPolicy {
         if configured_origin != endpoint_origin {
             let mut allowed = false;
             for entry in &self.allowed_origins {
+                if entry == "*" {
+                    allowed = true;
+                    continue;
+                }
                 if parse(entry)?.origin() == endpoint.origin() {
                     allowed = true;
                 }
@@ -217,11 +237,27 @@ impl ProcessLauncher for DefaultProcessLauncher {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ElicitationContext {
     pub server: String,
     /// Protocol HTTP session or caller's stdio session; never another active call's session.
     pub session_id: String,
+    /// Original JSON-RPC request id, retaining string or numeric wire representation.
+    pub wire_request_id: Value,
+    /// Originating call's cancellation signal, if that call can be identified unambiguously.
+    pub call_cancellation: Option<CancellationToken>,
+}
+
+impl ElicitationContext {
+    /// Returns elicitation's original wire request id.
+    pub fn request_id(&self) -> &Value {
+        &self.wire_request_id
+    }
+
+    /// Returns originating call's shared cancellation signal; None means no unambiguous originating call.
+    pub fn cancellation(&self) -> Option<&CancellationToken> {
+        self.call_cancellation.as_ref()
+    }
 }
 
 /// Receives original elicitation params & returns complete MCP elicitation result.

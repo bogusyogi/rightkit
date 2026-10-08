@@ -9,7 +9,12 @@
 //!
 //! Windows APIs:
 //! * `AppContainerAncestorLease::acquire(path, appcontainer_sid)` leases physical ancestor traverse access until drop.
-//! * `sweep_stale_appcontainer_ancestor_aces_for_owner(path, owner_prefix)` sweeps stale ancestor ACEs for derivation-verified owner profiles.
+//! * `AppContainerAncestorLease::acquire_with(path, sid, AncestorLeasePolicy::BestEffort)`
+//!   reports denied ancestors via `unleasable()`; skipped traversal relies on bypass-traverse
+//!   privilege & upward listing may need `GIT_CEILING_DIRECTORIES`.
+//! * `sweep_stale_appcontainer_ancestor_aces_for_owner(path, owner_prefix)` sweeps stale
+//!   ancestor ACEs for derivation-verified owner profiles, preserving mutex-backed live
+//!   leases within the same logon session (`Local\`).
 
 mod denial;
 mod error;
@@ -39,5 +44,5 @@ pub use spawn::{Sandbox, SandboxOutput, SandboxedChild};
 #[cfg(windows)]
 pub use windows_appcontainer::{
     sweep_stale_appcontainer_ancestor_aces, sweep_stale_appcontainer_ancestor_aces_for_owner,
-    AppContainerAncestorLease,
+    AncestorLeasePolicy, AppContainerAncestorLease, UnleasableAncestor,
 };

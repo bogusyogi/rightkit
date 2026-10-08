@@ -24,8 +24,12 @@ pub enum McpError {
     NotApproved(Box<PendingApproval>),
     PoolFull(usize),
     Timeout,
-    /// Explicit per-call cancellation.
+    /// Explicit call or connection-handshake cancellation.
     Cancelled,
+    /// Stdio startup discarded more than its fixed 64 KiB prefix budget.
+    StdioPrefixTooLarge {
+        limit: usize,
+    },
     /// Encoded response or frame exceeded configured byte budget.
     ResponseTooLarge {
         limit: usize,
@@ -66,6 +70,9 @@ impl fmt::Display for McpError {
             McpError::PoolFull(n) => write!(f, "connection pool full ({n} in use)"),
             McpError::Timeout => write!(f, "request timed out"),
             McpError::Cancelled => write!(f, "request cancelled"),
+            McpError::StdioPrefixTooLarge { limit } => {
+                write!(f, "stdio startup prefix exceeded {limit} bytes")
+            }
             McpError::ResponseTooLarge { limit } => write!(f, "response exceeded {limit} bytes"),
             McpError::CrossOriginEndpoint {
                 configured_origin,
