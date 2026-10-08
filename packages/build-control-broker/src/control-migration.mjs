@@ -81,14 +81,8 @@ export async function migrateControlPlane({ oldRoot, controlRoot, dataRoot, node
     if (info?.isSymbolicLink()) throw new Error(`control entry must not be a symlink: ${name}`);
     if (info) entries.push(name);
   }
-  const legacySigning = join(home, 'Library', 'Application Support', 'Orthic Labs', 'shared', 'signing-agent');
-  let signingSource = null;
-  if (!entries.includes('signing-agent')) {
-    const info = await lstat(legacySigning).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
-    if (info?.isSymbolicLink()) throw new Error('legacy signing-agent state must not be a symlink');
-    if (info) { entries.push('signing-agent'); signingSource = legacySigning; }
-  }
-  const copies = entries.map((name) => ({ from: name === 'signing-agent' && signingSource ? signingSource : join(oldRoot, name), to: join(controlRoot, name) }));
+  // The signing agent stays at its internal Orthic Labs path (resolveManagedRoots().signingAgent).
+  const copies = entries.filter((name) => name !== 'signing-agent').map((name) => ({ from: join(oldRoot, name), to: join(controlRoot, name) }));
   const plist = renderPlist({ nodePath: next.nodePath, brokerScript: join(controlRoot, 'runtime-current', 'build-control-broker', 'src', 'broker.mjs'), configPath: roots.configPath, home });
   if (apply) {
     // Migration expects an inactive destination. Never merge or clobber state.
