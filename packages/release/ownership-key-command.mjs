@@ -5,10 +5,8 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog, verifyKeyRequest } from "./ownership-key-log.mjs";
-import { canonicalRepositoryIdentity, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
+import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
-import { managedRuntimeClient } from "./managed-cargo.mjs";
-import { verifyProtectedFileManifest } from "../../ownership-approval/adapters/package-manifest.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const LOG = ".rightkit/ownership-keys.json";
@@ -259,49 +257,51 @@ function validateNative(out, expectedHost = platform) {
   if (out.keyId !== `${expectedHost === "windows" ? "win" : "mac"}-${fingerprint}`) throw new Error("native helper key id does not match its public key");
   return { keyId: fingerprint, publicKeyPem: out.publicKeyPem, platform: expectedHost };
 }
-function elevate(run, requestPath, digest, { runtimeClient = managedRuntimeClient({}, process.platform), modulePath = fileURLToPath(import.meta.url), nodeExe = process.execPath, audit = (target) => approvalTestOnly.protectedLocation(target, process.platform) } = {}) {
-  let child, wrapper, installedNode;
+function elevate(run, requestPath, digest, { modulePath = fileURLToPath(import.meta.url), nodeExe = process.execPath, hostPlatform = process.platform, audit = (target) => approvalTestOnly.protectedLocation(target, hostPlatform) } = {}) {
+  let child, wrapper, currentNode;
   const refuse = (message) => { throw Object.assign(new Error(`RK_OWNERSHIP_ELEVATION_UNPROTECTED: ${message}`), { code: "RK_OWNERSHIP_ELEVATION_UNPROTECTED", type: "RK_OWNERSHIP_ELEVATION_UNPROTECTED" }); };
   try {
-    if (!runtimeClient) refuse("installer-owned runtime-current root is unavailable");
-    const currentRoot = path.dirname(path.dirname(path.dirname(runtimeClient)));
-    const root = realpathSync(currentRoot);
-    const installedModule = path.join(root, "release", "ownership-key-command.mjs");
-    const same = (left, right) => process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
-    if (!same(realpathSync(modulePath), installedModule)) refuse("current module is outside installer-owned runtime-current root");
-    const protection = audit(root);
-    if (protection?.ok !== true) refuse((protection?.problems ?? ["installed root protection is unavailable"]).join("; "));
-    const manifestPath = path.join(root, "ownership", "adapters", "adapter-files.json");
-    const manifestProtection = audit(manifestPath);
-    if (manifestProtection?.ok !== true) refuse("installer-owned manifest is unprotected");
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    const inventory = verifyProtectedFileManifest(root, manifestPath);
-    if (!inventory.ok) refuse(`installer-owned manifest ${manifestPath}: ${inventory.problems.join("; ")}`);
-    for (const entry of manifest.files) {
-      const protection = audit(path.join(root, ...entry.path.split("/")));
-      if (protection?.ok !== true) refuse(`installer-owned input is unprotected: ${entry.path}`);
+    if (!path.isAbsolute(requestPath) || !HEX.test(digest ?? "")) refuse("request path or SHA-256 is malformed");
+    const requestStat = lstatSync(requestPath);
+    if (!requestStat.isFile() || requestStat.isSymbolicLink() || (hostPlatform === "win32" && (requestStat.attributes & 0x400)) || requestStat.size > 2 * 1024 * 1024) refuse("request must be a bounded regular non-linked file");
+    if (sha(readFileSync(requestPath)) !== digest) refuse("request bytes do not match pinned SHA-256");
+    const trustPath = DEFAULT_TRUST_PATH[hostPlatform];
+    if (!trustPath) refuse(`ownership trust path is unavailable for ${hostPlatform}`);
+    const trustDirectory = path.dirname(trustPath);
+    for (const target of [trustDirectory, trustPath]) {
+      try {
+        const stat = lstatSync(target);
+        if (stat.isSymbolicLink() || (hostPlatform === "win32" && (stat.attributes & 0x400))) refuse(`protected trust path is linked: ${target}`);
+        if (target === trustDirectory && !stat.isDirectory()) refuse("protected trust location is not a directory");
+        if (target === trustPath && !stat.isFile()) refuse("protected trust file is not a regular file");
+      } catch (error) { if (error.code !== "ENOENT") throw error; }
     }
-    child = path.join(root, "release", "ownership-key-trust.mjs");
-    wrapper = path.join(root, "release", "ownership-key-authority.mjs");
-    installedNode = realpathSync(nodeExe);
-    for (const target of [installedModule, child, wrapper, installedNode]) {
-      const relative = path.relative(root, target).replaceAll("\\", "/");
-      if (!relative || relative.startsWith("../") || path.isAbsolute(relative) || lstatSync(target).isSymbolicLink() || !same(realpathSync(target), target)) refuse(`elevated input is outside protected root or linked: ${target}`);
-      const entries = manifest.files.filter((entry) => entry.path === relative && entry.type === "file");
-      if (entries.length !== 1 || !HEX.test(entries[0].sha256 ?? "") || sha(readFileSync(target)) !== entries[0].sha256) refuse(`installed manifest digest missing or mismatched: ${target}`);
+    const protectedTarget = existsSync(trustPath) ? trustPath : existsSync(trustDirectory) ? trustDirectory : null;
+    if (protectedTarget) {
+      const protection = audit(protectedTarget);
+      if (protection?.ok !== true) refuse((protection?.problems ?? ["protected trust location is unprotected"]).join("; "));
+    }
+    const source = realpathSync(modulePath);
+    const sourceDir = path.dirname(source);
+    child = path.join(sourceDir, "ownership-key-trust.mjs");
+    wrapper = path.join(sourceDir, "ownership-key-authority.mjs");
+    currentNode = realpathSync(nodeExe);
+    for (const target of [source, child, wrapper, currentNode]) {
+      const stat = lstatSync(target);
+      if (!stat.isFile() || stat.isSymbolicLink() || (hostPlatform === "win32" && (stat.attributes & 0x400)) || realpathSync(target) !== target) refuse(`elevated input must be a regular non-linked file: ${target}`);
     }
   } catch (error) {
     if (error?.code === "RK_OWNERSHIP_ELEVATION_UNPROTECTED") throw error;
     refuse(`installed ownership elevation cannot be verified: ${error.message}`);
   }
   const args = [wrapper, "--trust-script", child, "--request", requestPath, "--sha256", digest];
-  if (process.platform === "win32") {
-    const invocation = buildWindowsElevationInvocation(installedNode, child, requestPath, digest, wrapper);
+  if (hostPlatform === "win32") {
+    const invocation = buildWindowsElevationInvocation(currentNode, child, requestPath, digest, wrapper);
     const r = run(invocation.parentExecutable, invocation.parentArgs);
     if (r.status !== 0) throw new Error("elevated trust update failed or was cancelled");
   } else {
     let r;
-    try { r = run("/usr/bin/sudo", ["-k", installedNode, ...args], { stdio: "inherit", env: { ...process.env, NODE_OPTIONS: "", NODE_PATH: "" } }); }
+    try { r = run("/usr/bin/sudo", ["-k", currentNode, ...args], { stdio: "inherit", env: { ...process.env, NODE_OPTIONS: "", NODE_PATH: "" } }); }
     finally { try { run("/usr/bin/sudo", ["-K"], { stdio: "inherit" }); } catch {} }
     if (r.status !== 0) throw new Error("elevated trust update failed or was cancelled");
   }

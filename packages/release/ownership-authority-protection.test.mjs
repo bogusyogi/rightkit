@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { __testOnly as approval, canonicalJson } from "./ownership-approval.mjs";
 import { __testOnly as command } from "./ownership-key-command.mjs";
 import { keyFingerprint } from "./ownership-key-log.mjs";
-import { createProtectedFileManifest } from "../../ownership-approval/adapters/package-manifest.mjs";
 
 test("prefixed & uppercase key IDs normalize for revocation, enrollment & authority", () => {
   const keys = Object.fromEntries(["windows", "macos"].map((host) => {
@@ -78,53 +76,55 @@ test("every adapter awk mutating-ACL audit rejects non-root writesecurity & chow
   }
 });
 
-function installedFixture() {
+function checkoutFixture() {
   const directory = mkdtempSync(path.join(tmpdir(), "rk-elevation-"));
-  const root = path.join(directory, "runtime-current");
-  for (const dir of ["release", "runtime", "build-control-clients/src", "ownership/adapters"]) mkdirSync(path.join(root, dir), { recursive: true });
-  for (const relative of ["release/ownership-key-command.mjs", "release/ownership-key-trust.mjs", "release/ownership-key-authority.mjs", "runtime/node.exe", "build-control-clients/src/rightkit.mjs"]) writeFileSync(path.join(root, relative), "installer-owned fixture\n");
-  const manifestPath = path.join(root, "ownership/adapters/adapter-files.json");
-  writeFileSync(manifestPath, JSON.stringify(createProtectedFileManifest(root)));
-  return { directory, root, manifestPath, options: { modulePath: path.join(root, "release/ownership-key-command.mjs"), nodeExe: path.join(root, "runtime/node.exe"), runtimeClient: path.join(root, "build-control-clients/src/rightkit.mjs"), audit: () => ({ ok: true }) } };
+  const root = path.join(directory, "checkout");
+  mkdirSync(root, { recursive: true });
+  for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs"]) writeFileSync(path.join(root, name), "checkout fixture\n");
+  const requestPath = path.join(directory, "request.json");
+  writeFileSync(requestPath, JSON.stringify({ schema: 1, fixture: true }));
+  const digest = createHash("sha256").update(readFileSync(requestPath)).digest("hex");
+  return { directory, root, requestPath, digest, options: { modulePath: path.join(root, "ownership-key-command.mjs"), nodeExe: process.execPath, audit: () => ({ ok: true }) } };
 }
 const typedRefusal = (error) => error.code === "RK_OWNERSHIP_ELEVATION_UNPROTECTED" && error.type === error.code;
-test("elevation refuses development checkout, missing manifest, missing digest & digest mismatch before launch", () => {
-  const fixture = installedFixture();
+test("elevation refuses missing request, malformed or mismatched digest & linked sibling before launch", (t) => {
+  const fixture = checkoutFixture();
   let calls = 0;
   const run = () => { calls++; return { status: 0 }; };
-  const elevate = (options = fixture.options) => command.elevate(run, path.join(fixture.directory, "request.json"), "a".repeat(64), options);
+  const elevate = (requestPath = fixture.requestPath, digest = fixture.digest, options = fixture.options) => command.elevate(run, requestPath, digest, options);
   try {
-    assert.throws(() => elevate({ ...fixture.options, modulePath: fileURLToPath(new URL("./ownership-key-command.mjs", import.meta.url)) }), (error) => typedRefusal(error) && /outside installer-owned/.test(error.message));
-    const manifest = readFileSync(fixture.manifestPath);
-    rmSync(fixture.manifestPath);
-    assert.throws(() => elevate(), typedRefusal);
-    writeFileSync(fixture.manifestPath, manifest);
-    const changed = JSON.parse(manifest);
-    changed.files = changed.files.filter((entry) => entry.path !== "release/ownership-key-trust.mjs");
-    writeFileSync(fixture.manifestPath, JSON.stringify(changed));
-    assert.throws(() => elevate(), typedRefusal);
-    writeFileSync(fixture.manifestPath, manifest);
-    writeFileSync(path.join(fixture.root, "release/ownership-key-trust.mjs"), "mutated elevated code\n");
-    assert.throws(() => elevate(), (error) => typedRefusal(error) && /ownership-key-trust\.mjs/.test(error.message));
+    assert.throws(() => elevate(path.join(fixture.directory, "missing.json")), typedRefusal);
+    assert.throws(() => elevate(fixture.requestPath, ""), typedRefusal);
+    assert.throws(() => elevate(fixture.requestPath, "a".repeat(64)), (error) => typedRefusal(error) && /SHA-256/.test(error.message));
+    const linked = path.join(fixture.root, "ownership-key-trust.mjs");
+    const original = `${linked}.original`;
+    rmSync(linked);
+    writeFileSync(original, "linked target\n");
+    try { symlinkSync(original, linked, "file"); }
+    catch { t.skip("file symlink creation unavailable"); return; }
+    assert.throws(() => elevate(), (error) => typedRefusal(error) && /non-linked file/.test(error.message));
     assert.equal(calls, 0);
   } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
 });
 
-test("verified installed elevation passes absolute trust path & checkpoint wrapper", () => {
-  const fixture = installedFixture();
+test("checkout elevation dispatches both trust updater & authority wrapper", () => {
+  const fixture = checkoutFixture();
   const calls = [];
   try {
-    command.elevate((exe, args) => { calls.push({ exe, args }); return { status: 0 }; }, path.join(fixture.directory, "request.json"), "a".repeat(64), fixture.options);
+    command.elevate((exe, args, options) => { calls.push({ exe, args, options }); return { status: 0 }; }, fixture.requestPath, fixture.digest, fixture.options);
+    const elevation = calls.find(({ exe, args }) => exe === "/usr/bin/sudo" ? args[0] === "-k" : /powershell\.exe$/i.test(exe));
+    assert.ok(elevation);
     if (process.platform === "win32") {
-      const parent = Buffer.from(calls[0].args.at(-1), "base64").toString("utf16le");
+      const parent = Buffer.from(elevation.args.at(-1), "base64").toString("utf16le");
       assert.ok(parent.includes("$env:NODE_OPTIONS=$null; $env:NODE_PATH=$null;"));
       const encoded = parent.match(/-EncodedCommand ([A-Za-z0-9+/=]+)/)[1];
       const child = Buffer.from(encoded, "base64").toString("utf16le");
-      assert.ok(child.includes(path.join(fixture.root, "release/ownership-key-trust.mjs")));
-      assert.ok(child.includes(path.join(fixture.root, "release/ownership-key-authority.mjs")));
+      assert.ok(child.includes(path.join(fixture.root, "ownership-key-trust.mjs")));
+      assert.ok(child.includes(path.join(fixture.root, "ownership-key-authority.mjs")));
       assert.ok(child.includes("--trust-script"));
     } else {
-      assert.ok(calls[0].args.includes(path.join(realpathSync(fixture.root), "release/ownership-key-trust.mjs")));
+      assert.ok(elevation.args.includes(path.join(realpathSync(fixture.root), "ownership-key-trust.mjs")));
+      assert.ok(elevation.args.includes(path.join(realpathSync(fixture.root), "ownership-key-authority.mjs")));
       assert.equal(calls.at(-1).args[0], "-K");
     }
   } finally { rmSync(fixture.directory, { recursive: true, force: true }); }

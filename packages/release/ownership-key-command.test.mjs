@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { generateKeyPairSync, sign as signBytes } from "node:crypto";
+import { createHash, generateKeyPairSync, sign as signBytes } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog } from "./ownership-key-log.mjs";
 import { prepareTrustUpdate } from "./ownership-key-trust.mjs";
@@ -249,6 +249,82 @@ test("elevated Windows launch has one PowerShell child and safely quotes paths",
   assert.equal((call.childScript.match(/node\.exe/g) ?? []).length, 1);
   assert.equal(call.parentExecutable, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
   assert.equal(call.parentArgs[1], "-EncodedCommand");
+});
+
+test("explicit elevation accepts checkout sources and launches once with a pinned request and clean Node environment", { skip: ceremonyOptions.skip }, () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-elevation-"));
+  try {
+    const source = path.join(dir, "ownership-key-command.mjs");
+    const child = path.join(dir, "ownership-key-trust.mjs");
+    const wrapper = path.join(dir, "ownership-key-authority.mjs");
+    const request = path.join(dir, "request.json");
+    for (const file of [source, child, wrapper]) writeFileSync(file, "// fixture\n");
+    writeFileSync(request, "{}\n");
+    const digest = createHash("sha256").update(readFileSync(request)).digest("hex");
+    const calls = [];
+    const audit = (target) => {
+      assert.match(target, /ownership(?:[\\/]trust\.json)?$/);
+      return { ok: true, problems: [] };
+    };
+    __testOnly.elevate((...args) => { calls.push(args); return { status: 0, stdout: "", stderr: "" }; }, request, digest, { modulePath: source, nodeExe: process.execPath, audit });
+    const elevationCalls = calls.filter(([command, args]) => command !== "/usr/bin/sudo" || !args.includes("-K"));
+    assert.equal(elevationCalls.length, 1);
+    if (process.platform === "darwin") {
+      const [command, args, options] = elevationCalls[0];
+      assert.equal(command, "/usr/bin/sudo");
+      assert.equal(args[0], "-k");
+      assert.equal(args[1], realpathSync(process.execPath));
+      assert.equal(args[2], wrapper);
+      assert.deepEqual({ NODE_OPTIONS: options.env.NODE_OPTIONS, NODE_PATH: options.env.NODE_PATH }, { NODE_OPTIONS: "", NODE_PATH: "" });
+    } else {
+      assert.match(elevationCalls[0][0], /powershell\.exe$/i);
+      assert.equal(elevationCalls[0][1][0], "-NoProfile");
+      assert.equal(elevationCalls[0][1][1], "-EncodedCommand");
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("cancelled OS elevation fails closed", { skip: ceremonyOptions.skip }, () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-elevation-cancel-"));
+  try {
+    const source = path.join(dir, "ownership-key-command.mjs");
+    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs"]) writeFileSync(path.join(dir, name), "// fixture\n");
+    const request = path.join(dir, "request.json"); writeFileSync(request, "{}\n");
+    const digest = createHash("sha256").update(readFileSync(request)).digest("hex");
+    assert.throws(() => __testOnly.elevate(() => ({ status: 1, stdout: "", stderr: "cancelled" }), request, digest, { modulePath: source, nodeExe: process.execPath, audit: () => ({ ok: true }) }), /failed or was cancelled/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("request digest mismatch fails before any OS elevation", { skip: ceremonyOptions.skip }, () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-elevation-digest-"));
+  try {
+    const source = path.join(dir, "ownership-key-command.mjs");
+    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs"]) writeFileSync(path.join(dir, name), "// fixture\n");
+    const request = path.join(dir, "request.json"); writeFileSync(request, "{}\n");
+    let calls = 0;
+    assert.throws(() => __testOnly.elevate(() => { calls++; return { status: 0 }; }, request, "c".repeat(64), { modulePath: source, nodeExe: process.execPath, audit: () => ({ ok: true }) }), /request bytes do not match pinned SHA-256/);
+    assert.equal(calls, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("macOS elevation uses one sudo prompt, hardened environment, and credential cleanup", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-elevation-mac-"));
+  try {
+    const source = path.join(dir, "ownership-key-command.mjs");
+    for (const name of ["ownership-key-command.mjs", "ownership-key-trust.mjs", "ownership-key-authority.mjs"]) writeFileSync(path.join(dir, name), "// fixture\n");
+    const request = path.join(dir, "request.json"); writeFileSync(request, "{}\n");
+    const digest = createHash("sha256").update(readFileSync(request)).digest("hex");
+    const calls = [];
+    __testOnly.elevate((...args) => { calls.push(args); return { status: 0, stdout: "", stderr: "" }; }, request, digest, {
+      modulePath: source, nodeExe: process.execPath, hostPlatform: "darwin", audit: () => ({ ok: true }),
+    });
+    assert.equal(calls.filter(([command, args]) => command === "/usr/bin/sudo" && args[0] === "-k").length, 1);
+    assert.equal(calls.filter(([command, args]) => command === "/usr/bin/sudo" && args[0] === "-K").length, 1);
+    const [, args, options] = calls.find(([command, args]) => command === "/usr/bin/sudo" && args[0] === "-k");
+    assert.equal(args[1], realpathSync(process.execPath));
+    assert.equal(args[2], path.join(dir, "ownership-key-authority.mjs"));
+    assert.deepEqual({ NODE_OPTIONS: options.env.NODE_OPTIONS, NODE_PATH: options.env.NODE_PATH }, { NODE_OPTIONS: "", NODE_PATH: "" });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("reparse metadata parents fail before native authorization or external writes", ceremonyOptions, async (t) => {
