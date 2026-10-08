@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,4 +21,5 @@ export async function syncOwnershipCatalog({ source = sourceRoot, output = outpu
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await syncOwnershipCatalog();
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) await syncOwnershipCatalog();

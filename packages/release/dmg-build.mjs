@@ -1,6 +1,6 @@
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { backgroundAlias, dmgDSStore } from "./dmg-layout.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
@@ -110,7 +110,8 @@ export function parseDmgArguments(args) {
   return options;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try { buildDmg(parseDmgArguments(process.argv.slice(2))); }
   catch (error) { console.error(`right-release dmg: [${error.code ?? "DMG_BUILD_FAILED"}] ${error.message}`); process.exitCode = 1; }
 }

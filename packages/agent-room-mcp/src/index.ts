@@ -1,6 +1,7 @@
+import { resolve } from "node:path";
 import readline from "node:readline";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { chmodSync, existsSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 export const TOOL_NAMES = [
   "room_join", "room_status", "room_post", "room_raise", "room_contest",
@@ -227,7 +228,8 @@ async function runStdio() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+const realOrSelf = (file: string) => { try { return realpathSync(file); } catch { return resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   runStdio().catch((error) => {
     process.stderr.write(`${String(error)}\n`);
     process.exitCode = 1;

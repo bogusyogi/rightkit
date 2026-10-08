@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
@@ -140,7 +140,8 @@ function parseArgs(argv) {
   return { apps, evidencePath };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try {
     const evidence = await verifyStandaloneClones(parseArgs(process.argv.slice(2)));
     for (const app of evidence.apps) process.stdout.write(`[standalone] ${app.key} ${app.revision.slice(0, 12)} install+doctor passed\n`);

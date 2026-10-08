@@ -4,7 +4,7 @@
 // Self-contained (node: built-ins only) so the SessionStart hook can carry a byte copy of it.
 //   node rightkit-drift.mjs [--apply [--all]] [app-root]   (--all also adopts breaking bumps)
 import { spawnSync } from "./background-process.mjs";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -102,7 +102,8 @@ export function formatDrift(drift) {
   return [`RightKit updates available (${drift.length}):`, ...drift.map((d) => `- ${d.name} ${d.current} -> ${d.latest}${d.breaking ? " (breaking)" : ""} (${d.file})`)].join("\n");
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2); const apply = args.includes("--apply");
   const root = path.resolve(args.find((arg) => !arg.startsWith("--")) ?? process.cwd());
   try {

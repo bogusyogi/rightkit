@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { scanCrateForSecrets } from "./publish-cargo.mjs";
 import { enforcePublicationGate, defaultEvidencePath } from "./publication-gate.mjs";
@@ -158,7 +159,8 @@ export function runSwiftPublish(options, execute = spawnSync) {
   return { name, version, published: !options.dryRun };
 }
 
-if (process.argv[1]?.endsWith("publish-swift.mjs")) {
+const realOrSelf = (file) => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try {
     const options = parseSwiftPublishArgs(process.argv.slice(2));
     const packageDir = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1")), "../../swift/RightKitSwift");

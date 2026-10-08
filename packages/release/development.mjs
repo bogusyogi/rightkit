@@ -3,7 +3,7 @@ import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 import { acquireManagedRunLease, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
@@ -281,6 +281,7 @@ export async function main(args = process.argv.slice(2)) {
   return result;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   main().catch((error) => { console.error(`right-release dev: ${error.code ? `[${error.code}] ` : ""}${error.message}`); process.exitCode = 1; });
 }

@@ -68,7 +68,8 @@ function validate() {
   return result;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try { validate(); }
   catch (error) { process.stderr.write(`migration draft validation failed: ${error.message}\n`); process.exitCode = 1; }
 }

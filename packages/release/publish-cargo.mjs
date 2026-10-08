@@ -178,7 +178,8 @@ async function main() {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+const realOrSelf = (file) => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   main().catch((error) => {
     process.stderr.write(`right-release publish cargo: ${error.code ? `[${error.code}] ` : ""}${error.message}\n`);
     process.exitCode = 1;

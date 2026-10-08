@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   applyCachePrune,
   inspectCache,
@@ -87,6 +87,7 @@ function rejectUnknown(args, allowed) { for (const arg of args) if (!allowed.has
 function platformFrom(env) { return env.RIGHT_RELEASE_PLATFORM || (process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform); }
 function findRepoRoot(start) { let current = path.resolve(start); for (;;) { if (existsSync(path.join(current, ".git"))) return current; const parent = path.dirname(current); if (parent === current) throw new Error(`cache migrate could not find Git repository for ${start}`); current = parent; } }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   runCacheCommand().catch((error) => { console.error(error.message); process.exitCode = 2; });
 }

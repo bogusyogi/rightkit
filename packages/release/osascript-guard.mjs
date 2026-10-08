@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { spawnSync } from "./background-process.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +15,8 @@ export function automationDenied({ parentPid = process.ppid, run = spawnSync, ca
   return error;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const error = automationDenied({ caller: process.argv[2] === "--caller" ? process.argv[3] : undefined });
   console.error(JSON.stringify({ event: "mac-automation-denied", code: error.code, caller: error.caller,
     parentPid: error.parentPid, message: error.message }));

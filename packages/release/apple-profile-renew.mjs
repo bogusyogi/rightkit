@@ -1,7 +1,7 @@
 import { createHash, createPrivateKey, randomUUID, sign, X509Certificate } from "node:crypto";
-import { constants, copyFileSync, existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { constants, copyFileSync, existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { notarytoolAuthArgs } from "./notary-auth.mjs";
 
@@ -215,6 +215,7 @@ export async function main(args = process.argv.slice(2), options = {}) {
   return renewAppleProfile({ ...options, root: path.dirname(absolute), config: loaded.default ?? loaded.config ?? loaded, profilePath, dryRun });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   main().catch((error) => { console.error(`right-release apple profile renew: [${error.code ?? "APPLE_PROFILE_FAILED"}] ${error instanceof AppleProfileRenewError ? error.message : "Renewal failed; check app configuration & local file access."}`); process.exitCode = 1; });
 }

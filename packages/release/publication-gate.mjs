@@ -178,7 +178,8 @@ function readKeychainToken(run) {
   return token;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+const realOrSelf = (file) => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try { runNpmPreflight(process.argv.slice(2)); } catch (error) {
     process.stderr.write(`right-release publish npm: ${error.message}\n`); process.exitCode = 1;
   }

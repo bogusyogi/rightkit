@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { execFile as childExecFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { constants, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { constants, mkdirSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
 import { copyFile, mkdir, open, readFile, realpath } from 'node:fs/promises';
 import { availableParallelism as cpuCount, totalmem } from 'node:os';
 import { dirname, join, resolve, win32 } from 'node:path';
@@ -53,11 +53,12 @@ export function ensureRemoteRoutingRoots(externalRoot) {
 export function isDirectMain({ moduleUrl = import.meta.url, argv1 = process.argv[1], platform = process.platform } = {}) {
   if (typeof argv1 !== 'string' || !argv1) return false;
   const modulePath = decodeURIComponent(new URL(moduleUrl).pathname);
+  const realOrSelf = (file) => { try { return realpathSync(file); } catch { return platform === 'win32' ? win32.resolve(file) : resolve(file); } };
   if (platform === 'win32') {
     const normalize = (value) => win32.normalize(value.replace(/^\/(?=[A-Za-z]:)/, '')).toLowerCase();
-    return normalize(modulePath) === normalize(win32.resolve(argv1));
+    return normalize(realOrSelf(modulePath.replace(/^\/(?=[A-Za-z]:)/, ''))) === normalize(realOrSelf(argv1));
   }
-  return resolve(modulePath) === resolve(argv1);
+  return realOrSelf(modulePath) === realOrSelf(argv1);
 }
 
 export async function sha256File(path) { return createHash('sha256').update(await readFile(path)).digest('hex'); }

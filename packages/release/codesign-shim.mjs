@@ -35,7 +35,8 @@ export async function runCodesignShim(argv, { cwd = process.cwd(), env = process
   return result;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try {
     // Only the managed shell wrapper invokes this entry: session detection was
     // already performed by right-release before selecting its wrapper directory.

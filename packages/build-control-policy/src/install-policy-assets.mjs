@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { resolveManagedRoots } from '../../release/managed-roots.mjs';
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -77,7 +78,8 @@ export async function installPolicyAssets({ root = rootFor(process.platform) } =
   return Object.freeze({ digest, installRoot, writeHook: join(src, 'ownership-write-hook-cli.mjs'), sessionHook: join(src, 'ownership-session-hook-cli.mjs') });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const result = await installPolicyAssets();
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

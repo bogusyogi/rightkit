@@ -164,7 +164,8 @@ function readAuthority(trust, { file, audit = auditPath } = {}) {
 export const __testOnly = Object.freeze({ MAX_LOG_BYTES, checkpointPath, readAuthority, persistCheckpoint });
 
 // Wrapper preserves the existing updater's elevation, request digest, lock & policy checks.
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try {
     if (process.argv.length !== 8 || process.argv[2] !== "--trust-script" || process.argv[4] !== "--request" || process.argv[6] !== "--sha256") throw new Error("usage: ownership-key-authority.mjs --trust-script <installed-script> --request <absolute-json> --sha256 <digest>");
     const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "ownership-key-trust.mjs");

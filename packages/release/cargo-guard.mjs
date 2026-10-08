@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -254,7 +254,8 @@ export async function runCargoGuard(args, { env = process.env, policyOptions = {
   return runLight(cargo, args, env);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
   if (args[0] === "--check-hook-base64") {
     try { checkHookInput(Buffer.from(args[1] ?? "", "base64url").toString("utf8")); }

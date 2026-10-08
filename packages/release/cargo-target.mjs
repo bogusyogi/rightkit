@@ -9,6 +9,7 @@
 // (see cargo-contract.mjs) remains a separate, cache-policy-only decision:
 // whether Cache V2's lease/slot/prune/floor machinery should run at all, not
 // where the target directory lives.
+import { realpathSync } from "node:fs";
 import { execFileSync } from "./background-process.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import path from "node:path";
@@ -38,7 +39,8 @@ export function resolveTargetRoot(manifestPath, options = {}) {
   return path.resolve(directory);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const manifestPath = process.argv[2];
   if (!manifestPath) {
     console.error("usage: cargo-target.mjs <path-to-Cargo.toml>");

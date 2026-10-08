@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -88,7 +88,8 @@ function scanProtected(appRoot, options, createEvidence) {
 export function scanOwnership(appRoot) { return scanProtected(appRoot, {}, () => createOwnershipEvidence(appRoot)); }
 export function scanOwnershipForTest(appRoot, options) { return scanProtected(appRoot, options, () => createOwnershipEvidenceForTest(appRoot, options)); }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try {
     const [appRoot, manifestPath, mode] = process.argv.slice(2);
     if (!appRoot || !manifestPath || path.resolve(manifestPath) !== catalogPath || mode && mode !== "--inputs") throw new TypeError("app root & installed protected catalog path are required");

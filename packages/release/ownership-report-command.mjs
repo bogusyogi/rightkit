@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "./background-process.mjs";
@@ -81,7 +81,8 @@ export async function main(args, io = {}) {
   return report.apps.some((app) => app.status === "blocked" || app.status === "unscanned" || app.rows.some((row) => row.status === "blocked" || row.status === "unscanned")) ? 1 : 0;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try { process.exitCode = await main(process.argv.slice(2)); }
   catch (error) { console.error(`[right-release] ownership report: ${error.message}`); process.exitCode = 1; }
 }

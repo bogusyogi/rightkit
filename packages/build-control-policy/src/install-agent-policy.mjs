@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { resolveManagedRoots } from '../../release/managed-roots.mjs';
 import { readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -70,7 +71,8 @@ export async function installAgentPolicyHooks({ home = homedir(), platform = pro
   return Object.freeze({ ...assets, claudePath, codexPath, nodePath });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const result = await installAgentPolicyHooks();
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
