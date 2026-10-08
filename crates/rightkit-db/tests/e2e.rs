@@ -218,7 +218,7 @@ fn corrupt_plain_database_is_quarantined_without_deletion() {
     assert!(outcome.conn.is_autocommit());
 }
 
-#[cfg(feature = "sqlcipher")]
+#[cfg(feature = "cipher")]
 #[test]
 fn sqlcipher_rekey_and_candidate_recovery_round_trip() {
     use zeroize::Zeroizing;

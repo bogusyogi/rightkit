@@ -8,9 +8,11 @@
 //! planting a symlink at a child name) cannot redirect anything. Donor: Cockpit
 //! `core/src/store.rs` (pinned descriptor, tested against swaps).
 //!
-//! Non-unix targets use a path-based fallback that refuses symlinks and reparse points on each
-//! operation. Cockpit's NT handle-relative Windows implementation has not been ported or
-//! verified here; it remains the reference when a Windows host is available.
+//! Windows walks components without following reparse points, then retains a directory handle
+//! without delete sharing. Child opens use `NtCreateFile` relative to that handle; publication
+//! and removal use handle-based rename/disposition. New entries have an owner-only DACL at
+//! creation. Reparse-point children are refused, including removal. Other targets retain a
+//! path-based fallback.
 
 use crate::atomic::TEMP_MARKER;
 use crate::error::{FsError, Result};
@@ -20,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
+#[cfg(not(windows))]
 const MAX_NAME: usize = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,10 +46,13 @@ pub struct EntryStat {
 /// Entry names are single path components: no separators, no NUL, not `.`/`..`.
 pub fn validate_name(name: &str) -> Result<()> {
     let bad = name.is_empty()
-        || name.len() > MAX_NAME
         || name == "."
         || name == ".."
         || name.bytes().any(|b| b == b'/' || b == b'\\' || b == 0);
+    #[cfg(not(windows))]
+    let bad = bad || name.len() > MAX_NAME;
+    #[cfg(windows)]
+    let bad = bad || !sys::valid_component(name);
     if bad {
         return Err(FsError::BadName(name.to_string()));
     }
@@ -200,7 +206,12 @@ impl StateDir {
     fn create_temp(&self, name: &str) -> Result<(String, File)> {
         for attempt in 0..32u32 {
             let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let temp = format!(".{name}{TEMP_MARKER}{}-{n}-{attempt}", std::process::id());
+            // Bound the Windows prefix independently of the public 255 UTF-16-unit name.
+            #[cfg(windows)]
+            let prefix: String = name.chars().take(64).collect();
+            #[cfg(not(windows))]
+            let prefix = name;
+            let temp = format!(".{prefix}{TEMP_MARKER}{}-{n}-{attempt}", std::process::id());
             match self.dir.create_new(&temp) {
                 Ok(file) => return Ok((temp, file)),
                 Err(FsError::AlreadyExists(_)) => continue,
@@ -210,7 +221,8 @@ impl StateDir {
         Err(FsError::AlreadyExists(self.path.join(name)))
     }
 
-    /// Remove a file (a symlink is removed itself, never followed). Missing is `Ok(false)`.
+    /// Remove a file. Unix removes a symlink itself; Windows refuses reparse points.
+    /// Missing is `Ok(false)`.
     pub fn remove(&self, name: &str) -> Result<bool> {
         validate_name(name)?;
         match self.dir.unlink(name) {
@@ -612,7 +624,11 @@ mod sys {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+#[path = "state/windows.rs"]
+mod sys;
+
+#[cfg(not(any(unix, windows)))]
 mod sys {
     use super::{EntryKind, EntryStat};
     use crate::error::{FsError, Result};

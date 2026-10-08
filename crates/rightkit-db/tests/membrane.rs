@@ -450,7 +450,7 @@ fn hooks_allow_cancellation_through_returned_connection() {
     );
 }
 
-#[cfg(feature = "sqlcipher")]
+#[cfg(feature = "cipher")]
 #[test]
 fn keyed_restore_and_in_memory_work_with_minimal_opens() {
     let dir = tempfile::tempdir().unwrap();

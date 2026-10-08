@@ -119,7 +119,7 @@ pub fn quarantine_database(db: &Path) -> Result<PathBuf> {
 /// connection still reads. The caller stages the new key in its credential store *before* calling
 /// this and promotes it after; an interruption between is recovered with
 /// [`DbOptions::open_writer_with_key_candidates`].
-#[cfg(feature = "sqlcipher")]
+#[cfg(feature = "cipher")]
 pub fn rekey(conn: &Connection, new_key: &str) -> Result<()> {
     crate::validate_key(Some(new_key))?;
     let statement = Zeroizing::new(format!("PRAGMA rekey = '{new_key}';"));

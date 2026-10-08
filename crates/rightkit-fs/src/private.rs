@@ -251,7 +251,7 @@ fn current_process_token_user(path: &Path) -> crate::error::Result<Vec<usize>> {
 }
 
 #[cfg(windows)]
-fn current_process_sid_string(path: &Path) -> crate::error::Result<String> {
+pub(crate) fn current_process_sid_string(path: &Path) -> crate::error::Result<String> {
     use std::ffi::c_void;
     #[link(name = "advapi32")]
     unsafe extern "system" {

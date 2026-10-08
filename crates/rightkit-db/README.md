@@ -11,10 +11,21 @@ Use `write_txn()` for
 any transaction that may write; it starts `BEGIN IMMEDIATE` so read-then-write
 work cannot fail with an unretryable stale snapshot.
 
-Plain SQLite is the default feature. SQLCipher consumers must disable defaults:
+## Features
+
+- `bundled` (default): bundled plain SQLite.
+- `sqlcipher`: SQLCipher with vendored OpenSSL.
+- `sqlcipher-system`: SQLCipher with system crypto (CommonCrypto on Apple,
+  libcrypto elsewhere).
+- `cipher`: internal gate enabled by either SQLCipher feature; do not enable directly.
+- `hooks`: exposes rusqlite hooks for cancellation.
+
+SQLCipher consumers must disable defaults & choose exactly one provider feature.
+Both expose identical keyed-open & `rekey` APIs; enabling both is a compile error.
+Keep provider choice compatible with existing encrypted databases:
 
 ```toml
-rightkit-db = { version = "=0.3.0", default-features = false, features = ["sqlcipher"] }
+rightkit-db = { version = "=0.3.1", default-features = false, features = ["sqlcipher"] }
 ```
 
 Choose `DurabilityProfile::Full` for user mutations that cannot be reconstructed
@@ -57,7 +68,7 @@ and `DurabilityProfile::Normal` for rebuildable indexes or telemetry. The
   retries are bounded by options' timeout.
 - Optional `hooks = ["rusqlite/hooks"]` exposes `progress_handler()` for
   cancellation through returned connections & existing `rightkit_db::rusqlite`
-  re-export. Default `bundled` & optional `sqlcipher` features stay unchanged.
+  re-export.
   `rusqlite` remains a caret requirement (`0.40.1`), compatible with consumers
   resolving `0.40.2`.
 
