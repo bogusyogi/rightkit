@@ -227,29 +227,60 @@ fn best_effort_reports_real_assignment_failure_without_failing_spawn() {
     use std::os::windows::io::AsHandle;
     // A process handle is valid and duplicable, but cannot be used as a job.
     // This deterministically fails assignment without requiring special host jobs.
-    let not_a_job = process_handle_that_is_not_a_job();
-    let mut command = sleeper();
-    command.windows_job(not_a_job.as_handle()).unwrap();
-    command.job_assignment_mode(JobAssignmentMode::BestEffort);
-    let mut child = command.spawn().unwrap();
-    let _stdout = read_ready(&mut child);
-    assert!(!child.job_assignment_failures().is_empty());
-    assert_eq!(
-        child.job_assignment_failures()[0].stage,
-        "caller job assignment"
-    );
-    assert!(child.try_wait().unwrap().is_none());
+    for allowlisted in [false, true] {
+        let not_a_job = process_handle_that_is_not_a_job();
+        let mut command = sleeper();
+        if allowlisted {
+            use rightkit_process::{WindowsSpawnConfig, WindowsStdio};
+            command
+                .inherit_handles_only([])
+                .windows_spawn_config(WindowsSpawnConfig {
+                    stdin: WindowsStdio::Piped,
+                    stdout: WindowsStdio::Piped,
+                    stderr: WindowsStdio::Piped,
+                    ..Default::default()
+                });
+        }
+        command.windows_job(not_a_job.as_handle()).unwrap();
+        command.job_assignment_mode(JobAssignmentMode::BestEffort);
+        let mut child = command.spawn().unwrap();
+        let _stdout = read_ready(&mut child);
+        assert!(!child.job_assignment_failures().is_empty());
+        assert_eq!(
+            child.job_assignment_failures()[0].stage,
+            "caller job assignment"
+        );
+        assert_eq!(child.job_assignment_failures()[0].raw_os_error(), Some(6));
+        assert_eq!(
+            child.job_assignment_failures()[0].error.raw_os_error(),
+            Some(6)
+        );
+        assert!(child.try_wait().unwrap().is_none());
+    }
 }
 
 #[cfg(windows)]
 #[test]
 fn strict_assignment_failure_is_still_fatal() {
     use std::os::windows::io::AsHandle;
-    let not_a_job = process_handle_that_is_not_a_job();
-    let mut command = sleeper();
-    command.windows_job(not_a_job.as_handle()).unwrap();
-    command.partial_spawn_cleanup_timeout(Duration::from_secs(5));
-    assert!(command.spawn().is_err());
+    for allowlisted in [false, true] {
+        let not_a_job = process_handle_that_is_not_a_job();
+        let mut command = sleeper();
+        if allowlisted {
+            use rightkit_process::{WindowsSpawnConfig, WindowsStdio};
+            command
+                .inherit_handles_only([])
+                .windows_spawn_config(WindowsSpawnConfig {
+                    stdin: WindowsStdio::Piped,
+                    stdout: WindowsStdio::Piped,
+                    stderr: WindowsStdio::Piped,
+                    ..Default::default()
+                });
+        }
+        command.windows_job(not_a_job.as_handle()).unwrap();
+        command.partial_spawn_cleanup_timeout(Duration::from_secs(5));
+        assert_eq!(command.spawn().unwrap_err().raw_os_error(), Some(6));
+    }
 }
 
 #[cfg(windows)]

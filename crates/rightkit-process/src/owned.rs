@@ -3,11 +3,15 @@ use std::{
     ffi::OsStr,
     io,
     num::NonZeroU32,
-    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus},
+    process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus},
     sync::{Arc, Mutex, MutexGuard},
     thread,
     time::{Duration, Instant, SystemTime},
 };
+#[cfg(unix)]
+type PlatformChild = std::process::Child;
+#[cfg(windows)]
+type PlatformChild = crate::spawn_windows::WindowsChild;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum JobAssignmentMode {
@@ -55,6 +59,21 @@ pub struct JobAssignmentFailure {
     pub stage: &'static str,
     pub error: io::Error,
 }
+impl JobAssignmentFailure {
+    pub fn raw_os_error(&self) -> Option<i32> {
+        self.error.raw_os_error()
+    }
+}
+
+/// Borrowed OS handle/fd value; keep it valid until spawn returns.
+#[cfg(windows)]
+pub type RawHandleOrFd = std::os::windows::io::RawHandle;
+#[cfg(unix)]
+pub type RawHandleOrFd = std::os::fd::RawFd;
+#[cfg(windows)]
+type InheritedValue = usize;
+#[cfg(unix)]
+type InheritedValue = RawHandleOrFd;
 
 #[derive(Debug)]
 pub struct OwnedCommand {
@@ -65,6 +84,13 @@ pub struct OwnedCommand {
     unix_containment: UnixContainment,
     // None preserves the existing unbounded partial-spawn reap.
     partial_spawn_cleanup_timeout: Option<Duration>,
+    inherited_handles: Option<Vec<InheritedValue>>,
+    #[cfg(windows)]
+    windows_spawn_config: Option<crate::WindowsSpawnConfig>,
+    #[cfg(windows)]
+    windows_spawn_config_auto: bool,
+    #[cfg(windows)]
+    env_cleared: bool,
 }
 #[cfg(windows)]
 type CallerJob = Option<std::os::windows::io::OwnedHandle>;
@@ -73,7 +99,16 @@ type CallerJob = Option<std::convert::Infallible>;
 
 impl OwnedCommand {
     pub fn new(program: impl AsRef<OsStr>) -> Self {
-        Self::from_command(Command::new(program))
+        let command = Self::from_command(Command::new(program));
+        #[cfg(windows)]
+        let command = {
+            let mut command = command;
+            // Fresh Commands have known inherited stdio/environment defaults.
+            command.windows_spawn_config = Some(crate::WindowsSpawnConfig::default());
+            command.windows_spawn_config_auto = true;
+            command
+        };
+        command
     }
     /// GUI/service children are hidden on Windows by default.
     pub fn from_command(command: Command) -> Self {
@@ -84,10 +119,43 @@ impl OwnedCommand {
             job_assignment: JobAssignmentMode::Strict,
             unix_containment: UnixContainment::ProcessGroup,
             partial_spawn_cleanup_timeout: None,
+            inherited_handles: None,
+            #[cfg(windows)]
+            windows_spawn_config: None,
+            #[cfg(windows)]
+            windows_spawn_config_auto: false,
+            #[cfg(windows)]
+            env_cleared: false,
         }
     }
     pub fn command_mut(&mut self) -> &mut Command {
+        #[cfg(windows)]
+        if self.windows_spawn_config_auto {
+            // A mutable std Command can change settings with no stable getter.
+            self.windows_spawn_config = None;
+        }
         &mut self.command
+    }
+    /// Inherit only these handles/fds plus configured stdio; values stay caller-owned.
+    pub fn inherit_handles_only(
+        &mut self,
+        handles: impl IntoIterator<Item = RawHandleOrFd>,
+    ) -> &mut Self {
+        #[cfg(windows)]
+        let handles = handles.into_iter().map(|handle| handle as usize).collect();
+        #[cfg(unix)]
+        let handles = handles.into_iter().collect();
+        self.inherited_handles = Some(handles);
+        self
+    }
+    /// Supply opaque stdio/environment/raw-arg settings for native allowlisted spawns.
+    /// Required after from_command/command_mut when inherit_handles_only is set.
+    /// Ordinary std spawns ignore it; fresh new() Commands have known defaults.
+    #[cfg(windows)]
+    pub fn windows_spawn_config(&mut self, config: crate::WindowsSpawnConfig) -> &mut Self {
+        self.windows_spawn_config = Some(config);
+        self.windows_spawn_config_auto = false;
+        self
     }
     /// Clear environment, then copy only named variables set in this process.
     pub fn env_allowlist<I, S>(&mut self, keys: I) -> &mut Self
@@ -100,6 +168,10 @@ impl OwnedCommand {
             .filter_map(|k| std::env::var_os(k.as_ref()).map(|v| (k.as_ref().to_os_string(), v)))
             .collect();
         self.command.env_clear();
+        #[cfg(windows)]
+        {
+            self.env_cleared = true;
+        }
         for (k, v) in kept {
             self.command.env(k, v);
         }
@@ -169,6 +241,11 @@ impl OwnedCommand {
         {
             use std::os::unix::process::CommandExt;
             let session = detached || self.unix_containment == UnixContainment::Session;
+            let inheritance = self
+                .inherited_handles
+                .take()
+                .map(crate::process_unix::Inheritance::new)
+                .transpose()?;
             // Only async-signal-safe libc calls run between fork and exec.
             unsafe {
                 self.command.pre_exec(move || {
@@ -178,10 +255,12 @@ impl OwnedCommand {
                         nix::libc::setpgid(0, 0)
                     };
                     if result < 0 {
-                        Err(io::Error::last_os_error())
-                    } else {
-                        Ok(())
+                        return Err(io::Error::last_os_error());
                     }
+                    if let Some(inheritance) = &inheritance {
+                        inheritance.apply()?;
+                    }
+                    Ok(())
                 });
             }
         }
@@ -192,7 +271,27 @@ impl OwnedCommand {
         #[cfg(windows)]
         let _ = self.unix_containment;
         let spawned_at = SystemTime::now();
+        #[cfg(unix)]
         let child = self.command.spawn()?;
+        #[cfg(windows)]
+        let child: PlatformChild = match self.inherited_handles.as_deref() {
+            None => self.command.spawn()?.into(),
+            Some(handles) => {
+                let config = self.windows_spawn_config.take().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput,
+                        "allowlisted Windows spawn requires windows_spawn_config for opaque Command settings")
+                })?;
+                crate::spawn_windows::spawn(
+                    &self.command,
+                    config,
+                    handles,
+                    detached,
+                    self.windows_hidden,
+                    self.env_cleared,
+                    self.partial_spawn_cleanup_timeout,
+                )?
+            }
+        };
         let pid = child.id();
         if let Some(captured) = captured_pid {
             captured.store(pid, std::sync::atomic::Ordering::SeqCst);
@@ -229,8 +328,14 @@ impl OwnedCommand {
                 &mut owned.job,
                 &mut owned.assignment_failures,
             )?;
-            crate::process_windows::resume(pid)?;
         }
+        #[cfg(windows)]
+        partial
+            .child
+            .as_ref()
+            .expect("partial child is present")
+            .child()
+            .resume(detached)?;
         if fail_after_spawn {
             return Err(io::Error::other("injected post-spawn wrapping failure"));
         }
@@ -262,7 +367,7 @@ pub const DEFAULT_ENV_ALLOWLIST: &[&str] = &[
 
 #[derive(Debug)]
 pub struct OwnedChild {
-    child: Arc<Mutex<Child>>,
+    child: Arc<Mutex<PlatformChild>>,
     handle: ProcessHandle,
     // Captured before any wait can reap the direct child.
     pid: u32,
@@ -288,9 +393,10 @@ impl OwnedChild {
     pub fn id(&self) -> u32 {
         self.pid
     }
-    /// Borrow std Child, including stdio, wait and try_wait. Release this guard
+    /// Borrow child state, including stdio, wait and try_wait. Windows uses a
+    /// native view with std pipe types for both spawn paths. Release this guard
     /// before another accessor or exit reader; it holds the shared reap lock.
-    pub fn child(&self) -> MutexGuard<'_, Child> {
+    pub fn child(&self) -> MutexGuard<'_, PlatformChild> {
         lock_child(&self.child)
     }
     pub fn take_stdin(&mut self) -> Option<ChildStdin> {
@@ -318,8 +424,8 @@ impl OwnedChild {
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         self.child().try_wait()
     }
-    // Preserve std Child::wait's stdin-close behavior without holding the
-    // shared reap lock across a blocking wait.
+    // Preserve std Child::wait's stdin-close behavior. ProcessHandle performs
+    // native blocking waits & keeps Unix reap results in std's shared cache.
     pub fn wait(&mut self) -> io::Result<ExitStatus> {
         drop(self.child().stdin.take());
         self.handle.wait()
@@ -496,7 +602,7 @@ impl Drop for PartialChild {
         }
     }
 }
-fn cleanup_direct(child: Arc<Mutex<Child>>, timeout: Option<Duration>) {
+pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<Duration>) {
     let _ = lock_child(&child).kill();
     let Some(timeout) = timeout else {
         let _ = lock_child(&child).wait();
