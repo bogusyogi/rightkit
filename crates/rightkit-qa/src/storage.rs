@@ -675,7 +675,7 @@ fn pid_live(pid: u32) -> bool {
             .args(["/FI", &format!("PID eq {pid}")])
             .creation_flags(0x0800_0000)
             .output();
-        return match output {
+        match output {
             Ok(x) if x.status.success() => {
                 let wanted = pid.to_string();
                 !String::from_utf8_lossy(&x.stdout)
@@ -684,7 +684,7 @@ fn pid_live(pid: u32) -> bool {
                     .all(|line| line.split_whitespace().next() != Some(wanted.as_str()))
             }
             _ => true,
-        };
+        }
     }
     #[cfg(not(any(unix, windows)))]
     {

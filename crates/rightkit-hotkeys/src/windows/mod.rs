@@ -4,23 +4,27 @@
 //! Windows target is installed); it is covered by the cross-platform contract in `API.md` and must be
 //! verified by the Windows agent (`win` host) before an app adopts it.
 
+use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
-use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::Input::KeyboardAndMouse::{
+use windows_sys::Win32::Foundation::{GetLastError, HINSTANCE, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
     MOD_SHIFT, MOD_WIN,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
+use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
     HC_ACTION, KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_QUIT,
     WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
+
+/// `ERROR_HOTKEY_ALREADY_REGISTERED`.
+const ERROR_HOTKEY_ALREADY_REGISTERED: u32 = 1409;
 
 use crate::chord::{Chord, Modifier};
 
@@ -51,8 +55,8 @@ fn slot() -> &'static Mutex<Option<Handler>> {
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
-        let info = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
-        let message = wparam.0 as u32;
+        let info = &*(lparam as *const KBDLLHOOKSTRUCT);
+        let message = wparam as u32;
         let down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
         let up = message == WM_KEYUP || message == WM_SYSKEYUP;
         if down || up {
@@ -61,15 +65,25 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 let event = KeyEvent {
                     vk: info.vkCode,
                     down,
-                    injected: info.flags.0 & LLKHF_INJECTED != 0,
+                    injected: info.flags & LLKHF_INJECTED != 0,
                 };
                 if handler(&event) == HookDecision::Swallow {
-                    return LRESULT(1);
+                    return 1;
                 }
             }
         }
     }
-    CallNextHookEx(None, code, wparam, lparam)
+    CallNextHookEx(null_mut(), code, wparam, lparam)
+}
+
+/// Formats a Win32 error code the way `std` renders OS errors.
+fn os_error_message(code: u32) -> String {
+    std::io::Error::from_raw_os_error(code as i32).to_string()
+}
+
+/// Formats the calling thread's last Win32 error. Call only immediately after a failed Win32 call.
+fn last_os_error_message() -> String {
+    os_error_message(unsafe { GetLastError() })
 }
 
 #[derive(Debug)]
@@ -101,17 +115,16 @@ impl LowLevelKeyboardHook {
         let thread = thread::Builder::new()
             .name("rightkit-ll-keyboard-hook".into())
             .spawn(move || unsafe {
-                let module = GetModuleHandleW(None).map(|m| HINSTANCE(m.0)).ok();
-                match SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), module, 0) {
-                    Ok(hook) => {
-                        let _ = tx.send(Ok(GetCurrentThreadId()));
-                        let mut msg = MSG::default();
-                        while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
-                        let _ = UnhookWindowsHookEx(hook);
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(e.to_string()));
-                    }
+                // A null module handle is passed through unchanged, matching the previous `None` fallback.
+                let module: HINSTANCE = GetModuleHandleW(null());
+                let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), module, 0);
+                if hook.is_null() {
+                    let _ = tx.send(Err(last_os_error_message()));
+                } else {
+                    let _ = tx.send(Ok(GetCurrentThreadId()));
+                    let mut msg = MSG::default();
+                    while GetMessageW(&mut msg, null_mut(), 0, 0) != 0 {}
+                    let _ = UnhookWindowsHookEx(hook);
                 }
             })
             .map_err(|e| HookError::Install(e.to_string()))?;
@@ -130,7 +143,7 @@ impl LowLevelKeyboardHook {
 impl Drop for LowLevelKeyboardHook {
     fn drop(&mut self) {
         unsafe {
-            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0);
         }
         if let Some(t) = self.thread.take() {
             let _ = t.join();
@@ -181,7 +194,7 @@ impl GlobalHotkeys {
                 let mut msg = MSG::default();
                 loop {
                     while let Ok((chord, reply)) = cmd_rx.try_recv() {
-                        let mut mods = MOD_NOREPEAT;
+                        let mut mods: HOT_KEY_MODIFIERS = MOD_NOREPEAT;
                         for m in &chord.modifiers {
                             mods |= match m {
                                 Modifier::Ctrl => MOD_CONTROL,
@@ -191,28 +204,35 @@ impl GlobalHotkeys {
                             };
                         }
                         let id = next_id;
-                        let result = match RegisterHotKey(None, id, HOT_KEY_MODIFIERS(mods.0), chord.key.windows_vk() as u32) {
-                            Ok(()) => {
-                                next_id += 1;
-                                ids.push(id);
-                                Ok(id)
-                            }
-                            Err(e) if e.code().0 as u32 & 0xFFFF == 1409 => {
+                        let registered =
+                            RegisterHotKey(null_mut(), id, mods, chord.key.windows_vk() as u32) != 0;
+                        let result = if registered {
+                            next_id += 1;
+                            ids.push(id);
+                            Ok(id)
+                        } else {
+                            // Read the error immediately after the failing call.
+                            let code = GetLastError();
+                            if code == ERROR_HOTKEY_ALREADY_REGISTERED {
                                 Err(RegisterError::Conflict { chord: chord.canonical() })
+                            } else {
+                                Err(RegisterError::Os {
+                                    chord: chord.canonical(),
+                                    message: os_error_message(code),
+                                })
                             }
-                            Err(e) => Err(RegisterError::Os { chord: chord.canonical(), message: e.to_string() }),
                         };
                         let _ = reply.send(result);
                     }
-                    if stop2.load(Ordering::SeqCst) || !GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                    if stop2.load(Ordering::SeqCst) || GetMessageW(&mut msg, null_mut(), 0, 0) == 0 {
                         break;
                     }
                     if msg.message == WM_HOTKEY {
-                        on_hotkey(msg.wParam.0 as i32);
+                        on_hotkey(msg.wParam as i32);
                     }
                 }
                 for id in ids {
-                    let _ = UnregisterHotKey(None, id);
+                    let _ = UnregisterHotKey(null_mut(), id);
                 }
             })
             .map_err(|e| e.to_string())?;
@@ -227,7 +247,7 @@ impl GlobalHotkeys {
             .map_err(|_| RegisterError::Os { chord: chord.canonical(), message: "loop stopped".into() })?;
         // Wake the loop so it drains the command queue.
         unsafe {
-            let _ = PostThreadMessageW(self.thread_id, 0x0400, WPARAM(0), LPARAM(0));
+            let _ = PostThreadMessageW(self.thread_id, 0x0400, 0, 0);
         }
         rx.recv().unwrap_or_else(|_| {
             Err(RegisterError::Os { chord: chord.canonical(), message: "loop stopped".into() })
@@ -239,7 +259,7 @@ impl Drop for GlobalHotkeys {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         unsafe {
-            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0);
         }
         if let Some(t) = self.thread.take() {
             let _ = t.join();
