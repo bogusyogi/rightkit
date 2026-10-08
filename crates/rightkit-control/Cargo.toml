@@ -38,6 +38,10 @@ webview2_com_039 = { package = "webview2-com", version = "0.39", optional = true
 name = "rightkit_control"
 path = "src/lib.rs"
 
+[[example]]
+name = "offscreen_fixture_win"
+required-features = ["wv2-0_38"]
+
 [[bin]]
 name = "rightkit-control"
 path = "src/bin/rightkit-control.rs"

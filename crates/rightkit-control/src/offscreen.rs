@@ -306,7 +306,7 @@ pub trait WindowOps {
     fn backing_scale(&self) -> Result<f64, OffscreenError>;
     fn is_visible(&self) -> Result<bool, OffscreenError>;
     fn is_miniaturized(&self) -> Result<bool, OffscreenError>;
-    /// Checks before any move (Windows: refuse a hidden or minimized window).
+    /// Checks before any move (Windows: refuse a minimized window or one owned by another process).
     fn precheck(&self) -> Result<(), OffscreenError> {
         Ok(())
     }

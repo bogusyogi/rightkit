@@ -2,8 +2,9 @@
 //! lead's host, for the Windows lead to build and qualify).
 //!
 //! Raw user32/kernel32 FFI (no `windows` crate generation coupling).
-//! - `SetWindowPos` to off-monitor virtual-screen coordinates while the window stays
-//!   visible. Never `SW_HIDE`, never minimize; a hidden or minimized window is refused.
+//! - `SetWindowPos` to off-monitor virtual-screen coordinates, then `ShowWindow(SW_SHOWNOACTIVATE)`:
+//!   a window hidden at start is moved off-screen while still hidden and shown without activation,
+//!   matching macOS (never on a display). A minimized window is refused; `SW_HIDE` is restore-only.
 //! - EcoQoS / efficiency-mode opt-out: `SetProcessInformation(ProcessPowerThrottling)`
 //!   with ControlMask = EXECUTION_SPEED, StateMask = 0 (the App Nap analogue), reset to
 //!   system-managed (ControlMask = 0) at session end.
@@ -36,6 +37,7 @@ const SWP_NOSIZE: u32 = 0x0001;
 const SWP_NOZORDER: u32 = 0x0004;
 const SWP_NOACTIVATE: u32 = 0x0010;
 const SW_HIDE: i32 = 0;
+const SW_SHOWNOACTIVATE: i32 = 4;
 const PROCESS_POWER_THROTTLING_CURRENT_VERSION: u32 = 1;
 const PROCESS_POWER_THROTTLING_EXECUTION_SPEED: u32 = 1;
 const PROCESS_POWER_THROTTLING_CLASS: i32 = 4; // ProcessPowerThrottling
@@ -138,9 +140,6 @@ impl WindowOps for WinWindow {
         if self.is_miniaturized()? {
             return Err(OffscreenError::WindowMiniaturized);
         }
-        if !self.is_visible()? {
-            return Err(OffscreenError::WindowHidden);
-        }
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(self.0, &mut pid) };
         if pid != std::process::id() {
@@ -168,8 +167,16 @@ impl WindowOps for WinWindow {
         }
         Ok(())
     }
+    /// Called after `set_origin`, so the window becomes visible only once it is off every display.
+    /// `SW_SHOWNOACTIVATE` does not activate or change the foreground window.
     fn show(&mut self) -> Result<(), OffscreenError> {
-        Ok(()) // already visible (prechecked); SetWindowPos without SWP_NOACTIVATE-breaking flags keeps it so
+        unsafe { ShowWindow(self.0, SW_SHOWNOACTIVATE) }; // previous visibility, not success
+        if !self.is_visible()? {
+            return Err(OffscreenError::Native(
+                "ShowWindow(SW_SHOWNOACTIVATE) left the window hidden".to_string(),
+            ));
+        }
+        Ok(())
     }
     /// Hide before moving back, like macOS `orderOut:`, so the restore never flashes the
     /// recording window onto a display. The window stays hidden after the session.
