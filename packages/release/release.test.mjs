@@ -169,12 +169,14 @@ function runDoctor(config, ...args) {
   });
 }
 
-function assertDoctorWarnsPendingOwnershipEnrollment(result) {
+// Fixture repos have no enrolled protected trust (and no origin), so ownership must fail
+// closed; every other doctor check must still pass.
+function assertDoctorFailsClosedOnlyOnOwnership(result) {
   const output = `${result.stdout}\n${result.stderr}`;
-  assert.equal(result.status, 0, output);
-  assert.match(output, /\[WARN\] ownership: WARNING: ownership approval enrollment is pending/);
-  assert.match(output, /diagnostic finding\/problem\(s\) retained/);
-  assert.doesNotMatch(output, /^\s+\[(?:FAIL|ERROR)\] ownership\b/gm);
+  assert.notEqual(result.status, 0, output);
+  assert.match(output, /^\s*\[FAIL\] ownership: /m);
+  const otherFailures = output.split(/\r?\n/).filter((line) => /^\s*\[(?:FAIL|ERROR)\] /.test(line) && !/^\s*\[FAIL\] ownership: /.test(line));
+  assert.deepEqual(otherFailures, [], output);
 }
 
 test("accepts a tier-neutral internal build", () => {
@@ -684,7 +686,7 @@ test("doctor accepts an exact crates.io RightKit pin with benign Cargo config", 
     cargoConfig: `[net]\nretry = 2\n[registries.private]\nindex = "https://example.test/index"`,
   });
   const result = runDoctor(config);
-  assertDoctorWarnsPendingOwnershipEnrollment(result);
+  assertDoctorFailsClosedOnlyOnOwnership(result);
   assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /forbidden RightKit Cargo override/);
 });
 
@@ -698,7 +700,7 @@ test("doctor rejects a selected target with missing or empty buildInputs.include
 
 test("doctor passes a clean selected target", () => {
   const result = runDoctor(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }));
-  assertDoctorWarnsPendingOwnershipEnrollment(result);
+  assertDoctorFailsClosedOnlyOnOwnership(result);
   assert.match(result.stdout, /\[ok\s+\] target-bridge:/);
   // Derived from the version manifest, not hardcoded: a literal here has to be
   // hand-edited on every bump and fails the suite when someone forgets.
@@ -712,7 +714,7 @@ test("doctor handles a real src-tauri target according to host Cargo ownership",
   const result = runDoctor(config);
   const output = `${result.stdout}\n${result.stderr}`;
   if (brokerManagedHost(process.env)) {
-    assertDoctorWarnsPendingOwnershipEnrollment(result);
+    assertDoctorFailsClosedOnlyOnOwnership(result);
     assert.doesNotMatch(output, /cache migrate/i);
     assert.match(output, /target-bridge[\s\S]*broker-managed host, left untouched/i);
   } else {
@@ -728,7 +730,7 @@ test("doctor permits unrelated dirt", () => {
   mkdirSync(path.join(root, "notes"));
   writeFileSync(path.join(root, "notes", "scratch.md"), "unrelated\n");
   const result = runDoctor(config);
-  assertDoctorWarnsPendingOwnershipEnrollment(result);
+  assertDoctorFailsClosedOnlyOnOwnership(result);
   assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /dirty files can change the packaged app/);
 });
 
@@ -788,7 +790,7 @@ test("doctor scopes Cargo inspection to the configured app inside a monorepo", (
     siblingCargoManifest: `[package]\nname = "archived-copy"\nversion = "0.0.0"\n[dependencies]\nrightkit-license = { path = "../../rightkit-license" }`,
   });
   const result = runDoctor(config);
-  assertDoctorWarnsPendingOwnershipEnrollment(result);
+  assertDoctorFailsClosedOnlyOnOwnership(result);
   assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /forbidden RightKit Cargo override|archived-workspace/);
 });
 
