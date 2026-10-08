@@ -15,7 +15,13 @@ pub struct VadConfig {
 
 impl Default for VadConfig {
     fn default() -> Self {
-        Self { threshold: 0.5, neg_threshold: 0.35, min_speech_ms: 100, min_silence_ms: 120, pad_ms: 30 }
+        Self {
+            threshold: 0.5,
+            neg_threshold: 0.35,
+            min_speech_ms: 100,
+            min_silence_ms: 120,
+            pad_ms: 30,
+        }
     }
 }
 
@@ -23,7 +29,9 @@ impl VadConfig {
     fn validate(&self) -> Result<()> {
         let ok = |v: f32| v.is_finite() && (0.0..=1.0).contains(&v);
         if !ok(self.threshold) || !ok(self.neg_threshold) || self.neg_threshold > self.threshold {
-            return Err(crate::Error::Input("thresholds must be in [0,1] with neg_threshold <= threshold".into()));
+            return Err(crate::Error::Input(
+                "thresholds must be in [0,1] with neg_threshold <= threshold".into(),
+            ));
         }
         Ok(())
     }
@@ -63,7 +71,11 @@ pub fn detect(scorer: &mut dyn FrameScorer, samples: &[f32], cfg: &VadConfig) ->
         frame[..chunk.len()].copy_from_slice(chunk);
         scores.push(scorer.score(&frame)?);
     }
-    Ok(scores_to_spans(&scores, cfg, samples.len() as u64 * 1000 / SAMPLE_RATE as u64))
+    Ok(scores_to_spans(
+        &scores,
+        cfg,
+        samples.len() as u64 * 1000 / SAMPLE_RATE as u64,
+    ))
 }
 
 /// Turn per-frame scores into padded, merged spans.
@@ -133,9 +145,16 @@ pub fn energy_scores(samples: &[f32]) -> Vec<f32> {
         .iter()
         .zip(&levels)
         .map(|(frame, &level)| {
-            let crossings = frame.windows(2).filter(|w| (w[0] >= 0.0) != (w[1] >= 0.0)).count();
+            let crossings = frame
+                .windows(2)
+                .filter(|w| (w[0] >= 0.0) != (w[1] >= 0.0))
+                .count();
             let zcr = crossings as f32 / frame.len().max(1) as f32;
-            if level > floor && !(zcr > 0.35 && level < floor * 2.0) { 1.0 } else { 0.0 }
+            if level > floor && !(zcr > 0.35 && level < floor * 2.0) {
+                1.0
+            } else {
+                0.0
+            }
         })
         .collect()
 }
@@ -155,7 +174,11 @@ pub struct ChunkConfig {
 
 impl Default for ChunkConfig {
     fn default() -> Self {
-        Self { merge_gap_ms: 300, max_chunk_ms: 30_000, min_chunk_ms: 200 }
+        Self {
+            merge_gap_ms: 300,
+            max_chunk_ms: 30_000,
+            min_chunk_ms: 200,
+        }
     }
 }
 
@@ -166,7 +189,10 @@ pub fn chunk_spans(spans: &[Span], cfg: &ChunkConfig, scores: Option<&[f32]>) ->
     let mut merged: Vec<Span> = Vec::new();
     for &s in spans {
         match merged.last_mut() {
-            Some(p) if s.start_ms.saturating_sub(p.end_ms) < cfg.merge_gap_ms && s.end_ms - p.start_ms <= max => {
+            Some(p)
+                if s.start_ms.saturating_sub(p.end_ms) < cfg.merge_gap_ms
+                    && s.end_ms - p.start_ms <= max =>
+            {
                 p.end_ms = s.end_ms
             }
             _ => merged.push(s),
@@ -187,10 +213,16 @@ pub fn chunk_spans(spans: &[Span], cfg: &ChunkConfig, scores: Option<&[f32]>) ->
                 })
                 .filter(|c| *c > start && *c < hard + FRAME_MS)
                 .unwrap_or(hard);
-            out.push(Span { start_ms: start, end_ms: cut });
+            out.push(Span {
+                start_ms: start,
+                end_ms: cut,
+            });
             start = cut;
         }
-        out.push(Span { start_ms: start, end_ms: s.end_ms });
+        out.push(Span {
+            start_ms: start,
+            end_ms: s.end_ms,
+        });
     }
     out.retain(|s| s.len_ms() >= cfg.min_chunk_ms);
     out

@@ -17,19 +17,17 @@ mod support;
 mod types;
 pub mod worker;
 
+#[cfg(target_os = "macos")]
+pub use native::vision;
+#[cfg(windows)]
+pub use native::win_native;
 pub use native::{canary_png, native_backend};
-pub use router::{
-    BackendPreference, Isolation, Ocr, OcrOptions, OcrResult, OnnxConfig,
-};
+pub use router::{BackendPreference, Isolation, Ocr, OcrOptions, OcrResult, OnnxConfig};
 pub use types::{
     decode_encoded, is_backend_unavailable, OcrBackend, OcrLine, OcrRect, MACOS_VISION_UNAVAILABLE,
     MAX_PIXELS, OCR_UNSUPPORTED_PLATFORM, WINDOWS_OCR_UNAVAILABLE,
 };
 pub use worker::WorkerCommand;
-#[cfg(target_os = "macos")]
-pub use native::vision;
-#[cfg(windows)]
-pub use native::win_native;
 
 use image::{imageops, RgbImage};
 use ort::{session::Session, value::Tensor};
@@ -211,7 +209,10 @@ impl fmt::Display for OcrError {
             Self::Runtime(message) => write!(f, "OCR runtime error: {message}"),
             Self::BackendUnavailable(message) => write!(f, "OCR backend unavailable: {message}"),
             Self::NoFallbackConfigured(message) => {
-                write!(f, "OCR native backend unavailable and no ONNX fallback configured: {message}")
+                write!(
+                    f,
+                    "OCR native backend unavailable and no ONNX fallback configured: {message}"
+                )
             }
         }
     }

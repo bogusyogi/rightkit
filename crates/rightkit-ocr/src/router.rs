@@ -238,7 +238,10 @@ impl Ocr {
                 configure_runtime([RuntimeCandidate::new(rt.clone(), CandidateSource::Explicit)])
                     .map_err(|e| OcrError::Runtime(format!("ONNX runtime: {e:?}")))?;
             }
-            self.onnx = Some(OcrEngine::load_with_manifest(&cfg.model_dir, &cfg.manifest)?);
+            self.onnx = Some(OcrEngine::load_with_manifest(
+                &cfg.model_dir,
+                &cfg.manifest,
+            )?);
         }
         let lines = self.onnx.as_mut().expect("loaded above").run_lines(img)?;
         Ok(OcrResult {

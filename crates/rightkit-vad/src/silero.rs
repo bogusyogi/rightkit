@@ -19,7 +19,10 @@ impl Default for SileroOptions {
     /// Field-proven HeardRight defaults: one thread each, CPU only, graph
     /// optimisation disabled (tiny per-frame model; dispatch dominates).
     fn default() -> Self {
-        Self { intra_threads: 1, inter_threads: 1 }
+        Self {
+            intra_threads: 1,
+            inter_threads: 1,
+        }
     }
 }
 
@@ -44,7 +47,10 @@ impl Silero {
     pub fn load_with(model: impl AsRef<Path>, options: SileroOptions) -> Result<Self> {
         let model = model.as_ref();
         if !model.is_file() {
-            return Err(Error::Model(format!("model not found: {}", model.display())));
+            return Err(Error::Model(format!(
+                "model not found: {}",
+                model.display()
+            )));
         }
         let session = Session::builder()
             .map_err(m("session builder"))?
@@ -56,7 +62,11 @@ impl Silero {
             .map_err(m("graph optimization"))?
             .commit_from_file(model)
             .map_err(m("load"))?;
-        let mut vad = Self { session, state: vec![0.0; STATE_LEN], context: [0.0; CONTEXT_SAMPLES] };
+        let mut vad = Self {
+            session,
+            state: vec![0.0; STATE_LEN],
+            context: [0.0; CONTEXT_SAMPLES],
+        };
         // Warm-up frame proves the model speaks the expected protocol.
         vad.score(&[0.0; FRAME_SAMPLES])?;
         vad.reset();
@@ -83,17 +93,27 @@ impl FrameScorer for Silero {
                 "sr" => Value::from_array(([] as [usize; 0], vec![SAMPLE_RATE as i64])).map_err(e("sr"))?
             ))
             .map_err(e("run"))?;
-        let (_, out) = outputs["output"].try_extract_tensor::<f32>().map_err(e("output"))?;
-        let score = *out.first().ok_or_else(|| Error::Model("empty output tensor".into()))?;
-        let (_, next) = outputs["stateN"].try_extract_tensor::<f32>().map_err(e("stateN"))?;
+        let (_, out) = outputs["output"]
+            .try_extract_tensor::<f32>()
+            .map_err(e("output"))?;
+        let score = *out
+            .first()
+            .ok_or_else(|| Error::Model("empty output tensor".into()))?;
+        let (_, next) = outputs["stateN"]
+            .try_extract_tensor::<f32>()
+            .map_err(e("stateN"))?;
         if next.len() != STATE_LEN {
-            return Err(Error::Model(format!("unexpected state length {}", next.len())));
+            return Err(Error::Model(format!(
+                "unexpected state length {}",
+                next.len()
+            )));
         }
         if !score.is_finite() || !(0.0..=1.0).contains(&score) {
             return Err(Error::Model(format!("invalid probability {score}")));
         }
         self.state = next.to_vec();
-        self.context.copy_from_slice(&frame[FRAME_SAMPLES - CONTEXT_SAMPLES..]);
+        self.context
+            .copy_from_slice(&frame[FRAME_SAMPLES - CONTEXT_SAMPLES..]);
         Ok(score)
     }
 }

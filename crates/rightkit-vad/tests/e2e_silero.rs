@@ -57,7 +57,10 @@ fn load_model(path: &Path) -> Silero {
 }
 
 fn model() -> Option<PathBuf> {
-    let mut c: Vec<PathBuf> = std::env::var_os("RIGHTKIT_VAD_MODEL").map(PathBuf::from).into_iter().collect();
+    let mut c: Vec<PathBuf> = std::env::var_os("RIGHTKIT_VAD_MODEL")
+        .map(PathBuf::from)
+        .into_iter()
+        .collect();
     c.push("/Volumes/D/claude/heardright/tauri-app-next/src-tauri/resources/vad/silero_vad_16k_op15.onnx".into());
     c.into_iter().find(|p| p.is_file())
 }
@@ -66,7 +69,9 @@ fn load_wav() -> Vec<f32> {
     let p = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/short_9s.wav");
     let mut r = hound::WavReader::open(p).unwrap();
     assert_eq!((r.spec().sample_rate, r.spec().channels), (16_000, 1));
-    r.samples::<i16>().map(|s| s.unwrap() as f32 / 32768.0).collect()
+    r.samples::<i16>()
+        .map(|s| s.unwrap() as f32 / 32768.0)
+        .collect()
 }
 
 macro_rules! need_model {
@@ -98,8 +103,14 @@ fn detects_speech_inside_silence_and_not_the_silence() {
     assert!(!spans.is_empty());
     let first = spans.first().unwrap();
     let last = spans.last().unwrap();
-    assert!(first.start_ms >= 1800, "leading silence marked speech: {first:?}");
-    assert!(last.end_ms <= 2000 + 9760 + 200, "trailing silence marked speech: {last:?}");
+    assert!(
+        first.start_ms >= 1800,
+        "leading silence marked speech: {first:?}"
+    );
+    assert!(
+        last.end_ms <= 2000 + 9760 + 200,
+        "trailing silence marked speech: {last:?}"
+    );
     let covered: u64 = spans.iter().map(Span::len_ms).sum();
     assert!(covered > 6000, "speech under-covered: {covered} ms");
 }
@@ -108,7 +119,11 @@ fn detects_speech_inside_silence_and_not_the_silence() {
 fn pure_silence_and_noise_floor_yield_no_spans() {
     let model = need_model!();
     let mut s = load_model(&model);
-    assert!(detect(&mut s, &vec![0.0; 16_000 * 3], &VadConfig::default()).unwrap().is_empty());
+    assert!(
+        detect(&mut s, &vec![0.0; 16_000 * 3], &VadConfig::default())
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -157,7 +172,11 @@ fn chunking_respects_max_and_splits_on_quiet_frames() {
     }
     let dur = audio.len() as u64 * 1000 / 16_000;
     let spans = scores_to_spans(&scores, &VadConfig::default(), dur);
-    let cfg = ChunkConfig { merge_gap_ms: 400, max_chunk_ms: 12_000, min_chunk_ms: 200 };
+    let cfg = ChunkConfig {
+        merge_gap_ms: 400,
+        max_chunk_ms: 12_000,
+        min_chunk_ms: 200,
+    };
     let chunks = chunk_spans(&spans, &cfg, Some(&scores));
     assert!(chunks.len() >= 3);
     assert!(chunks.iter().all(|c| c.len_ms() <= 12_000 + FRAME_MS));

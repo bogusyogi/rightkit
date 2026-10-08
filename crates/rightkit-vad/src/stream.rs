@@ -28,7 +28,14 @@ pub struct FrameStream<S: FrameScorer> {
 
 impl<S: FrameScorer> FrameStream<S> {
     pub fn new(scorer: S, threshold: f32) -> Self {
-        Self { scorer, threshold, pending: Vec::new(), failed: false, observed: 0, speech: 0 }
+        Self {
+            scorer,
+            threshold,
+            pending: Vec::new(),
+            failed: false,
+            observed: 0,
+            speech: 0,
+        }
     }
 
     pub fn reset(&mut self) {
@@ -68,7 +75,10 @@ impl<S: FrameScorer> FrameStream<S> {
         let complete = self.pending.len() / FRAME_SAMPLES * FRAME_SAMPLES;
         let tail = self.pending.split_off(complete);
         let frames = std::mem::replace(&mut self.pending, tail);
-        let mut out = FrameVerdicts { scores: Vec::new(), speech: Vec::new() };
+        let mut out = FrameVerdicts {
+            scores: Vec::new(),
+            speech: Vec::new(),
+        };
         for frame in frames.as_chunks::<FRAME_SAMPLES>().0 {
             match self.scorer.score(frame) {
                 Ok(score) => {

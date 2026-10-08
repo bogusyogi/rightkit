@@ -11,8 +11,16 @@ use rightkit_ort::{configure_runtime, CandidateSource, RuntimeCandidate};
 #[test]
 fn bundled_runtime_reproduces_the_characterized_fixture_output() {
     let (Some(models), Some(runtime)) = (
-        locate("RIGHTKIT_OCR_MODEL_DIR", "../../../../scraperight/models/ocr/det.onnx", true),
-        locate("RIGHTKIT_OCR_ORT_RUNTIME", "../../../bin/libonnxruntime.dylib", false),
+        locate(
+            "RIGHTKIT_OCR_MODEL_DIR",
+            "../../../../scraperight/models/ocr/det.onnx",
+            true,
+        ),
+        locate(
+            "RIGHTKIT_OCR_ORT_RUNTIME",
+            "../../../bin/libonnxruntime.dylib",
+            false,
+        ),
     ) else {
         eprintln!("SKIPPED: models/runtime not found (set RIGHTKIT_OCR_MODEL_DIR / RIGHTKIT_OCR_ORT_RUNTIME)");
         return;
@@ -46,7 +54,11 @@ fn locate(var: &str, relative: &str, parent: bool) -> Option<std::path::PathBuf>
             p.exists().then(|| p.canonicalize().ok()).flatten()
         })?;
     if parent {
-        if found.is_dir() { Some(found) } else { found.parent().map(|p| p.to_path_buf()) }
+        if found.is_dir() {
+            Some(found)
+        } else {
+            found.parent().map(|p| p.to_path_buf())
+        }
     } else {
         Some(found)
     }

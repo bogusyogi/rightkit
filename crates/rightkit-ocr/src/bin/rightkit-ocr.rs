@@ -62,9 +62,9 @@ fn run() -> Result<(), String> {
         options = options.with_onnx(cfg);
     }
     if isolated {
-        options = options.with_isolation(Isolation::Worker(
-            WorkerCommand::current_exe(worker::DEFAULT_WORKER_ARG)?,
-        ));
+        options = options.with_isolation(Isolation::Worker(WorkerCommand::current_exe(
+            worker::DEFAULT_WORKER_ARG,
+        )?));
     }
     let mut ocr = Ocr::new(options);
     let result = ocr.recognize_file(&image).map_err(|e| e.to_string())?;
