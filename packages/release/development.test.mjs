@@ -22,13 +22,17 @@ test("native target selection fails closed on another host", () => {
   assert.doesNotThrow(() => assertNativeDevelopmentHost("win", "win32"));
 });
 
-test("development environment marks profile and disables signing material", () => {
-  const env = developmentEnvironment({ APPLE_ID: "secret", TAURI_SIGNING_PRIVATE_KEY: "secret", KEEP: "yes" });
+test("development environment preserves Team identity and disables release-only signing material", () => {
+  const env = developmentEnvironment({ APPLE_ID: "secret", APPLE_API_KEY: "release-only", APPLE_API_ISSUER: "release-only", APPLE_API_KEY_PATH: "release-only", APPLE_CERTIFICATE: "release-only", APPLE_CERTIFICATE_PASSWORD: "release-only", TAURI_SIGNING_PRIVATE_KEY: "secret", APPLE_SIGNING_IDENTITY: "Developer ID Application: Fixture (6KLGD3LLKF)", APPLE_DEVELOPER_ID: "configured", APPLE_TEAM_ID: "6KLGD3LLKF", KEEP: "yes" });
   assert.equal(env.RIGHTKIT_BUILD_MODE, "dev");
   assert.equal(env.RIGHTKIT_CARGO_PROFILE, "release-iterate");
   assert.equal(env.TAURI_SIGNING_PRIVATE_KEY, "");
-  assert.equal(env.APPLE_ID, "");
+  for (const key of ["APPLE_ID", "APPLE_PASSWORD", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD"]) assert.equal(env[key], undefined);
   assert.equal(env.KEEP, "yes");
+  assert.equal(env.APPLE_SIGNING_IDENTITY, "Developer ID Application: Fixture (6KLGD3LLKF)");
+  assert.equal(env.APPLE_DEVELOPER_ID, "configured");
+  assert.equal(env.APPLE_TEAM_ID, "6KLGD3LLKF");
+  assert.equal(developmentEnvironment({}).APPLE_SIGNING_IDENTITY, undefined);
   assert.equal(env.CARGO_INCREMENTAL, undefined);
 });
 

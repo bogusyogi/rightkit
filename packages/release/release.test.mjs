@@ -5,6 +5,7 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { fileURLToPath } from "node:url";
+import { signingReceiptPath } from "./signing-receipts.mjs";
 import test from "node:test";
 
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
@@ -279,8 +280,11 @@ test("macOS portable contract rejects missing signing or notarization declaratio
 
 test("uses a configured signing receipt path for portable architecture isolation", () => {
   const source = readFileSync(release, "utf8");
-  assert.match(source, /phase === "raw-exe" \? target\.sign\?\.receipt : target\.sign\?\.installerReceipt/);
-  assert.match(source, /if \(configured\) return path\.resolve\(root, configured\)/);
+  assert.match(source, /signingReceiptPath\(\{ appRoot: root, target, platform: "win", phase, stateRoot: process\.env\.RIGHT_RELEASE_STATE_ROOT \}\)/);
+  const appRoot = path.resolve("fixture");
+  const target = { sign: { receipt: "receipts/raw-x64.json", installerReceipt: "receipts/installer-x64.json" } };
+  assert.equal(signingReceiptPath({ appRoot, target, platform: "win", phase: "raw-exe" }), path.join(appRoot, "receipts/raw-x64.json"));
+  assert.equal(signingReceiptPath({ appRoot, target, platform: "win", phase: "installer" }), path.join(appRoot, "receipts/installer-x64.json"));
 });
 
 test("rejects portable Windows releases that declare a second installer signing phase", () => {

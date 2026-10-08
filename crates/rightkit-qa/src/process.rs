@@ -373,6 +373,14 @@ pub fn sweep_registries(runs_root: &std::path::Path, skip_run: &str) -> Vec<u32>
         if e.file_name().to_string_lossy() == skip_run {
             continue;
         }
+        let Ok(ft) = e.file_type() else { continue };
+        if !ft.is_dir() || ft.is_symlink() { continue; }
+        let Some(marker) = crate::storage::read_marker(&e.path().join(crate::storage::RUN_MARKER)) else {
+            continue;
+        };
+        if marker.run_id != e.file_name().to_string_lossy() || crate::storage::marker_active(&marker, crate::util::now_ms()) {
+            continue;
+        }
         let file = e.path().join("pids.json");
         let Ok(bytes) = std::fs::read(&file) else {
             continue;

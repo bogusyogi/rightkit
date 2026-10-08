@@ -7,7 +7,10 @@ const streamJobEvent = (event) => { const value = jobEvent(event); if (value.typ
 
 try {
   const argv = process.argv.slice(2);
-  if (argv[0] === 'owns') {
+  if (argv[0] === 'storage') {
+    const { storageMain } = await import('./storage-cli.mjs');
+    process.exitCode = await storageMain(argv.slice(1));
+  } else if (argv[0] === 'owns') {
     if (argv.length !== 2) throw new TypeError('usage: rightkit owns <capability> | rightkit owns --compact');
     const output = ownershipLookup(argv[1]);
     process.stdout.write(`${output}\n`);
@@ -70,7 +73,8 @@ try {
     const handedOff = rerunOnCurrentRuntime(import.meta.url);
     if (handedOff !== null) process.exitCode = handedOff;
   } else {
-    process.stderr.write(`rightkit: ${error.message}\n`);
+    if (process.argv[2] === 'storage') process.stderr.write(`${JSON.stringify({ type: 'STORAGE_FAILED', error: error.message })}\n`);
+    else process.stderr.write(`rightkit: ${error.message}\n`);
     process.exitCode = process.argv[2] === 'owns' ? 2 : 125;
   }
 }

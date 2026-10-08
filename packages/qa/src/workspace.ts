@@ -18,16 +18,28 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  createManagedRun,
+  finishManagedRun,
+  pruneManagedRuns,
+  resolveManagedRoot,
+  type ManagedRun,
+} from './storage.js';
 
 export interface QaWorkspace {
   runId: string;
+  appKey: string;
+  managedRoot: string;
   root: string;
   /** Isolated user-data directory; pass to the app so it takes its own lock. */
   dataDir: string;
   /** Somewhere for screenshots, logs, and other recorded evidence. */
   evidenceDir: string;
+  /** Managed capture output directory. */
+  captureDir: string;
   /** Environment overrides that point the app at this workspace. */
   env: Record<string, string>;
+  marker: ManagedRun['marker'];
 }
 
 export interface DisposeReport {
@@ -36,31 +48,46 @@ export interface DisposeReport {
 }
 
 export interface CreateQaWorkspaceOptions {
-  root: string;
+  /** Managed root override; tests may provide a temporary directory. */
+  root?: string;
   runId?: string;
   appKey: string;
+  leaseMs?: number;
+  retention?: import('./storage.js').RetentionPolicy;
 }
 
 export function createQaWorkspace(options: CreateQaWorkspaceOptions): QaWorkspace {
   const appKey = requireText(options.appKey, 'appKey');
-  const runId = options.runId ?? crypto.randomUUID();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(runId)) throw new Error(`unsafe QA run id: ${runId}`);
-  const root = path.resolve(requireText(options.root, 'root'), 'runs', runId);
+  const managed = createManagedRun({ managedRoot: options.root ? requireText(options.root, 'root') : resolveManagedRoot(), app: appKey, runId: options.runId ?? crypto.randomUUID(), leaseMs: options.leaseMs, retention: options.retention });
+  const runId = managed.runId;
+  const root = managed.root;
   const dataDir = path.join(root, 'data');
   const evidenceDir = path.join(root, 'evidence');
+  const captureDir = path.join(root, 'captures');
+  const tmpDir = path.join(root, 'tmp');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(evidenceDir, { recursive: true });
+  fs.mkdirSync(captureDir, { recursive: true });
+  fs.mkdirSync(tmpDir, { recursive: true });
 
   return {
     runId,
+    appKey,
+    managedRoot: path.resolve(options.root ? requireText(options.root, 'root') : resolveManagedRoot()),
     root,
     dataDir,
     evidenceDir,
+    captureDir,
     env: {
       RIGHTKIT_QA_NATIVE: '1',
       RIGHTKIT_QA_RUN_ID: runId,
+      RIGHTKIT_RUN_ROOT: root,
       RIGHTKIT_QA_DATA_DIR: dataDir,
       RIGHTKIT_QA_EVIDENCE_DIR: evidenceDir,
+      RIGHTKIT_QA_CAPTURE_DIR: captureDir,
+      TMPDIR: tmpDir,
+      TMP: tmpDir,
+      TEMP: tmpDir,
       // Tauri/webview honour these for profile isolation; setting all three keeps
       // the run off the user's real profile regardless of which the app reads.
       XDG_DATA_HOME: dataDir,
@@ -68,6 +95,7 @@ export function createQaWorkspace(options: CreateQaWorkspaceOptions): QaWorkspac
       WEBVIEW2_USER_DATA_FOLDER: path.join(dataDir, 'webview2'),
       [`${appKey.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_DATA_DIR`]: dataDir,
     },
+    marker: managed.marker,
   };
 }
 
@@ -90,6 +118,8 @@ export function disposeQaWorkspace(workspace: QaWorkspace, options: DisposeOptio
   const sleep = options.sleep ?? sleepSync;
   const targets = options.keepEvidence ? [workspace.dataDir] : [workspace.root];
   const report: DisposeReport = { removed: [], retained: [] };
+
+  finishManagedRun(workspace.root);
 
   for (const target of targets) {
     // Only ever remove inside the workspace root we created.
@@ -127,36 +157,21 @@ export function disposeQaWorkspace(workspace: QaWorkspace, options: DisposeOptio
  */
 export function pruneAbandonedWorkspaces(
   root: string,
-  { olderThanMs = 6 * 60 * 60_000, now = Date.now(), keep = [] as string[] }: { olderThanMs?: number; now?: number; keep?: string[] } = {},
+  { olderThanMs, now = Date.now(), keep = [] as string[] }: { olderThanMs?: number; now?: number; keep?: string[] } = {},
 ): DisposeReport {
-  const runsRoot = path.resolve(root, 'runs');
+  const managedRoot = path.resolve(root);
   const report: DisposeReport = { removed: [], retained: [] };
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(runsRoot, { withFileTypes: true });
-  } catch {
-    return report;
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-    if (keep.includes(entry.name)) continue;
-    const target = path.join(runsRoot, entry.name);
-    let ageMs: number;
-    try {
-      ageMs = now - fs.statSync(target).mtimeMs;
-    } catch {
-      continue;
-    }
-    if (ageMs < olderThanMs) {
-      report.retained.push({ path: target, reason: `only ${Math.round(ageMs / 1000)}s old; may belong to a live run` });
-      continue;
-    }
-    try {
-      fs.rmSync(target, { recursive: true, force: true });
-      report.removed.push(target);
-    } catch (error) {
-      report.retained.push({ path: target, reason: describeError(error) });
+  const runsRoot = path.join(managedRoot, 'runs');
+  let apps: fs.Dirent[];
+  try { apps = fs.readdirSync(runsRoot, { withFileTypes: true }); } catch { return report; }
+  for (const app of apps) {
+    if (app.isDirectory() && !app.isSymbolicLink()) {
+      const policy = olderThanMs === undefined
+        ? { now, keepRunIds: keep }
+        : { now, youngMs: olderThanMs, keepCount: 0, maxBytes: 0, keepRunIds: keep };
+      const sub = pruneManagedRuns(managedRoot, app.name, policy);
+      report.removed.push(...sub.removed);
+      report.retained.push(...sub.retained);
     }
   }
   return report;

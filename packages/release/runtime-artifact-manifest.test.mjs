@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   buildRuntimeArtifactManifest,
+  RIGHT_SUITE_APP_KEYS,
   runtimeArtifactManifestPointerKey,
   runtimeArtifactObjectKey,
   signRuntimeArtifactManifest,
@@ -13,6 +14,28 @@ import {
 
 const digest = "a".repeat(64);
 const evidenceDigest = "b".repeat(64);
+
+test("runtime artifact app registry includes existing Suite and QTS consumers", () => {
+  assert.deepEqual([...RIGHT_SUITE_APP_KEYS].sort(), [
+    "coderight", "genright", "heardright", "mailright", "scraperight", "screenright", "viewright", "voiceright",
+  ]);
+});
+
+test("GenRight TTS models use its immutable namespace and require private Pro delivery", () => {
+  const input = {
+    artifactKind: "tts-model",
+    filename: "qwen3-tts-1.7b-customvoice-talker-q8_0.gguf",
+    entitlement: { appKey: "genright", tier: "pro" },
+  };
+  const manifest = validManifest(input);
+  assert.equal(manifest.object.r2Key, `genright/runtime-artifacts/objects/sha256/${digest}/${input.filename}`);
+  assert.equal(manifest.pointerKey, "genright/runtime-artifacts/tts-model/windows/x86_64/current/manifest.json");
+  assert.throws(() => validManifest({
+    ...input,
+    entitlement: { appKey: "genright", tier: "public" },
+    distribution: { delivery: "public-r2", bucket: "rightapps-downloads" },
+  }), /model.*private-r2.*pro/i);
+});
 
 function validManifest(overrides = {}) {
   return buildRuntimeArtifactManifest({

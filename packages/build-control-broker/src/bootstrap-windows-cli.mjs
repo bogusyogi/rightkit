@@ -12,7 +12,8 @@ import { dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runWindowsCutover } from './runtime-cutover-windows-cli.mjs';
 import { assertNoToolLoss, preserveOperatorTunedConfig, stripBom } from './config.mjs';
-import { deriveCargoBuildJobs, deriveHostSizing, hostBounds, volumeBytes } from './host-sizing.mjs';
+import { deriveCargoBuildJobs, deriveHostSizing, hostBounds, TARGET_CACHE_MAX_BYTES, volumeBytes } from './host-sizing.mjs';
+import { discoverManagedVolume } from './volume-discovery.mjs';
 
 const execFile = promisify(childExecFile);
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -168,7 +169,7 @@ export function defaultBounds() {
   return {
     heartbeatIntervalMs: 5_000, processGraceMs: 5_000, jobDeadlineMs: 0,
     outputBufferBytes: 8 * 1024 * 1024, outputHeadBytes: 16_384, outputTailBytes: 16_384,
-    controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 3, workspaceWriteConcurrency: 4, targetCacheCapBytes: 150 * 1024 ** 3,
+    controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 3, workspaceWriteConcurrency: 4, targetCacheCapBytes: TARGET_CACHE_MAX_BYTES,
     workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 30_000,
   };
 }
@@ -179,7 +180,9 @@ export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = to
   return deriveCargoBuildJobs({ cpus, totalMemoryBytes });
 }
 
-export async function buildConfig({ externalRoot, sizing = deriveHostSizing({ managedVolumeBytes: volumeBytes(externalRoot) }) }) {
+export async function buildConfig({ externalRoot, sizing = null }) {
+  const volume = await discoverManagedVolume(externalRoot).catch(() => null);
+  sizing ??= deriveHostSizing({ managedVolumeBytes: volume?.capacityBytes ?? volumeBytes(externalRoot) });
   const tools = await stageManagedTools(await discoverTools(), externalRoot);
   const sccacheTool = tools.find((tool) => tool.id === 'sccache');
   const expectedSccacheVersion = await sccacheVersion(sccacheTool?.path);
@@ -189,7 +192,7 @@ export async function buildConfig({ externalRoot, sizing = deriveHostSizing({ ma
   return {
     schemaVersion: 2,
     broker: {
-      externalRoot: { path: externalRoot, volumeId: 'unknown', mounted: true, writable: true, internal: false },
+      externalRoot: { path: externalRoot, volumeId: volume?.volumeId ?? 'unknown', mounted: volume?.mounted ?? true, writable: volume?.writable ?? true, internal: false },
       capacityBytes: sizing.capacityBytes,
       stateFile: join(externalRoot, 'state', 'broker.json'),
       activationFencePath: join(externalRoot, 'state', 'runtime-activation.json'),

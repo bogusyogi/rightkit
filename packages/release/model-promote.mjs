@@ -8,6 +8,7 @@ import { spawn, spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
+  RIGHT_SUITE_APP_KEYS,
   buildRuntimeArtifactManifest,
   signRuntimeArtifactManifest,
 } from "./runtime-artifact-manifest.mjs";
@@ -19,15 +20,34 @@ export const RUNTIME_ARTIFACT_TRUSTED_KEY_ID = "rightkit-runtime-artifacts-2026-
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD = path.join(TOOL_ROOT, "upload-large.mjs");
 
+export class RuntimeArtifactPromotionError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "RuntimeArtifactPromotionError";
+    this.code = code;
+  }
+}
+
+function assertPromotionAuthority(authority, appKey) {
+  for (const [field, key] of [["authority", authority], ["entitlement.appKey", appKey]]) {
+    if (!RIGHT_SUITE_APP_KEYS.includes(key)) {
+      throw new RuntimeArtifactPromotionError("RUNTIME_ARTIFACT_UNKNOWN_APP", `${field} is not a registered Right Suite app: ${key}`);
+    }
+  }
+  if (authority !== appKey) {
+    throw new RuntimeArtifactPromotionError("RUNTIME_ARTIFACT_AUTHORITY_MISMATCH", "model promotion authority must equal manifest.entitlement.appKey");
+  }
+}
+
 export async function promoteRuntimeArtifact(input, deps = {}) {
   const metadata = deps.metadata ?? fileMetadata;
   const upload = deps.upload;
   const register = deps.register;
   const { config } = input;
   assertPromotionConfig(config);
+  assertPromotionAuthority(input.authority, config.manifest.entitlement?.appKey);
   if (!input.verification) throw new Error("release source identity is required");
   assertCleanSource({ status: input.verification.status, commandId: "right-release model promote" });
-  if (input.authority !== "heardright") throw new Error("model promotion authority must be heardright");
   if (input.keyId !== RUNTIME_ARTIFACT_TRUSTED_KEY_ID) throw new Error(`untrusted runtime artifact key id: ${input.keyId}`);
   if (!input.privateKey) throw new Error("runtime artifact signing key is required");
 
@@ -122,6 +142,8 @@ async function main() {
     evidence: { sha256: raw.evidence.sha256 },
     manifest: raw.manifest,
   };
+  assertPromotionConfig(config);
+  assertPromotionAuthority(args.authority, config.manifest.entitlement?.appKey);
   const privateKey = await loadRuntimeArtifactSigningKey({ explicitFile: args.signingKeyFile });
   const releaseToken = args.dryRun ? null : await loadReleaseToken();
   const runtime = {
@@ -150,7 +172,10 @@ async function main() {
 }
 
 function printHelp() {
-  console.log(`right-release model promote --authority heardright --config <promotion.json> [options]
+  console.log(`right-release model promote --authority <app-key> --config <promotion.json> [options]
+
+Authority must equal manifest.entitlement.appKey. Registered Right Suite apps:
+${RIGHT_SUITE_APP_KEYS.join(", ")}.
 
 The JSON config has exactly:
   artifact: { file, filename, sha256, sizeBytes }
@@ -171,7 +196,9 @@ exact commit.
 Signing key inputs (never printed): RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY or
 RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE. Windows defaults to
 %APPDATA%/RightKit/runtime-artifact-signing-key.pem. Live promotion also uses
-the durable RIGHTAPPS_RELEASE_TOKEN boundary.`);
+the durable RIGHTAPPS_RELEASE_TOKEN boundary. Run live promotion on Windows,
+or set RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE to the protected PEM.
+See packages/release/MODEL-PROMOTION.md for config and evidence examples.`);
 }
 
 function parseArgs(args) {
@@ -190,7 +217,7 @@ function parseArgs(args) {
     else throw new Error(`unknown model promote argument: ${arg}`);
   }
   if (!config) throw new Error("model promote requires --config <path>");
-  if (!authority) throw new Error("model promote requires --authority heardright");
+  if (!authority) throw new Error("model promote requires --authority <app-key>");
   return { authority, config, signingKeyFile, keyId, dryRun };
 }
 
@@ -276,7 +303,7 @@ function assertExactKeys(value, expected, label) {
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   main().catch((error) => {
-    console.error(`right-release model promote: ${error.message}`);
+    console.error(`right-release model promote: ${error.code ? `[${error.code}] ` : ""}${error.message}`);
     process.exitCode = 1;
   });
 }

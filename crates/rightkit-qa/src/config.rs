@@ -3,6 +3,7 @@
 //! ```toml
 //! app = "genright"
 //! app_root = "."                         # relative to this file
+//! # Legacy compatibility key; harness/suite evidence is always under managed storage.
 //! evidence_dir = ".cache/rightkit-qa"
 //! scenarios = ["tests/scenarios"]        # dirs scanned for *.scenario.toml
 //!

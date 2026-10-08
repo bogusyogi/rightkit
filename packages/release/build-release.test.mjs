@@ -198,9 +198,8 @@ test("Windows & macOS seals and cache identity bind signing contracts, config, a
   assert.match(source, /platform === "mac"/);
   assert.match(source, /contract: target\.signingContract/);
   assert.match(source, /configSha256: hashFile\(configPath\)/);
-  assert.match(source, /windows-\$\{phase\}\.json/);
-  assert.match(source, /macos-signing\.json/);
-  assert.match(source, /macos-notarization\.json/);
+  assert.match(source, /signingReceiptPath\(\{ appRoot, target, platform, phase, stateRoot \}\)/);
+  assert.match(source, /\["signing", "notarization"\]/);
   assert.match(source, /sign-macos\.mjs/);
   assert.match(source, /notarize-macos\.mjs/);
   assert.match(source, /inputHashes\["\.right-release\/signing-identity\.json"\]/);

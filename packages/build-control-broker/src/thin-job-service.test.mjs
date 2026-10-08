@@ -11,6 +11,7 @@ import { ThinState } from './thin-state.mjs';
 import { beginCutoverDrain, endCutoverDrain } from './cutover-shared.mjs';
 
 const digest = 'a'.repeat(64);
+const canonicalTempDir = async (prefix) => realpath(await mkdtemp(join(tmpdir(), prefix)));
 const message = (workspace, argv, extra = {}) => ({ type: 'MANAGED_AGENT', protocol: BUILD_CONTROL_PROTOCOL, runtime: SOURCE_RUNTIME_IDENTITY, shim: 'cargo', observedEnvironment: {}, request: { frontend: 'cargo', argv, workspace, environment: {}, profile: 'MANAGED_AGENT', configuration: {} }, ...extra });
 const compilerMessage = (workspace, argv, extra = {}) => ({ type: 'MANAGED_AGENT', protocol: BUILD_CONTROL_PROTOCOL, runtime: SOURCE_RUNTIME_IDENTITY, shim: 'rustc', observedEnvironment: {}, ...extra, request: { frontend: 'raw-compiler', argv, workspace, environment: {}, profile: 'MANAGED_AGENT', configuration: {}, ...(extra.request ?? {}) } });
 const command = (type, value) => ({ type, protocol: BUILD_CONTROL_PROTOCOL, runtime: SOURCE_RUNTIME_IDENTITY, ...(type === 'SUBMIT' ? { job: value } : { id: value }) });
@@ -20,7 +21,7 @@ class Child extends EventEmitter {
 }
 
 async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, indexRefreshRetry = undefined, coalesceIdenticalRequests = undefined, workspaceResolver = null, startChild = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }) } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
+  const root = await canonicalTempDir('rightkit-thin-job-'); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
   const state = await ThinState.open({ externalRoot: root }); const children = []; let pid = 300;
@@ -403,6 +404,33 @@ test('broker readiness does not wait for retired-generation sizing', async () =>
   } finally { await item.close(); }
 });
 
+test('STORAGE_GC RPC plans through live broker maintenance & requires lead apply', async () => {
+  const gcCalls = []; const cacheCalls = [];
+  const item = await fixture({
+    bounds: { targetCacheCapBytes: 1 },
+    gc: async (options) => { gcCalls.push(options); return { dryRun: options.dryRun, beforeBytes: 8, afterBytes: options.dryRun ? 8 : 0, capBytes: 1, deleted: [], evicted: [], reclaimed: { deadRoots: [], orphanLeaves: [] }, planned: { deleted: [], evicted: [], reclaimed: { deadRoots: [], orphanLeaves: [] } }, unenforceable: null }; },
+    cache: { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: layout.root, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp } }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: {} }), gc: async (options) => { cacheCalls.push(options); return { dryRun: options.dryRun, budgetPressure: options.budgetPressure, evicted: 0 }; } }
+  });
+  try {
+    const envelope = (extra = {}) => ({ type: 'STORAGE_GC', protocol: BUILD_CONTROL_PROTOCOL, runtime: SOURCE_RUNTIME_IDENTITY, ...extra });
+    // Startup maintenance is detached; observe explicit BUSY while it runs,
+    // then retry read-only RPC after live singleton maintenance settles.
+    let dry;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      dry = await call(item.service, envelope({ dryRun: true }));
+      if (dry.result.result?.gc) break;
+      assert.equal(dry.result.status, 'BUSY'); assert.equal(dry.result.result?.status, 'BUSY');
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(dry.result.type, 'STORAGE_GC'); assert.equal(dry.result.status, 'PLANNED'); assert.equal(dry.result.dryRun, true); assert.equal(dry.result.result.gc.dryRun, true);
+    assert.equal(gcCalls.at(-1).dryRun, true); assert.equal(cacheCalls.at(-1).dryRun, true);
+    const denied = await call(item.service, envelope({ dryRun: false }));
+    assert.equal(denied.result.type, 'RESULT'); assert.equal(denied.result.code, 'RK_STORAGE_GC_LEAD_ONLY');
+    const applied = await call(item.service, envelope({ dryRun: false, lead: true }));
+    assert.equal(applied.result.type, 'STORAGE_GC'); assert.equal(applied.result.status, 'APPLIED'); assert.equal(applied.result.dryRun, false); assert.equal(gcCalls.at(-1).dryRun, false);
+  } finally { await item.close(); }
+});
+
 test('termination signal is durably logged with active request provenance', async () => {
   const item = await fixture();
   try {
@@ -442,7 +470,7 @@ test('disconnected watcher EPIPE detaches without crashing broker', async () => 
 });
 
 test('workspace discovery is bounded, deduplicated, cached & reports hit timing', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rightkit-workspace-resolver-'));
+  const root = await canonicalTempDir('rightkit-workspace-resolver-');
   let calls = 0; let release;
   const gate = new Promise((resolve) => { release = resolve; });
   const resolver = new CachedWorkspaceResolver({ concurrency: 1, resolver: async (cwd, options) => { calls += 1; assert.equal(options.timeoutMs, 30_000); await gate; return { executionCwd: cwd, workspaceRoot: cwd, workspaceDiscoveryMs: 8 }; } });
@@ -462,7 +490,7 @@ test('workspace discovery is bounded, deduplicated, cached & reports hit timing'
 });
 
 test('workspace discovery reports timeout & Cargo failure explicitly', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rightkit-workspace-errors-'));
+  const root = await canonicalTempDir('rightkit-workspace-errors-');
   try {
     await assert.rejects(
       resolveCargoWorkspace(root, { cargoPath: '/managed/cargo', timeoutMs: 17_000, run: async () => { throw Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' }); } }),
@@ -630,7 +658,7 @@ test('cache preparation receives broker-owned repository, workspace & active-gen
 });
 
 test('repository marker scopes independent Cargo workspaces to one cache root', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rightkit-repository-root-'));
+  const root = await canonicalTempDir('rightkit-repository-root-');
   const repository = join(root, 'product');
   const engine = join(repository, 'engine');
   const tray = join(repository, 'apps', 'tray');

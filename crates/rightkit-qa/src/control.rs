@@ -700,6 +700,19 @@ impl Control {
     pub fn health(&self) -> Result<Value> {
         self.rpc("health", json!({}))
     }
+    /// Resize hidden native content without screen clamping or activation.
+    /// Returns measured CSS dimensions; this effect is never automatically replayed.
+    pub fn set_viewport(&self, width: u32, height: u32) -> Result<(u32, u32)> {
+        let v = self.json("set_viewport", json!({"width": width, "height": height}))?;
+        let dimension = |key: &str| {
+            v.get(key)
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| *n > 0)
+                .ok_or_else(|| Error(format!("set_viewport returned invalid {key}")))
+        };
+        Ok((dimension("innerWidth")?, dimension("innerHeight")?))
+    }
     /// Prove the allowlist: an app that is not on it is refused at hello. Returns the error code.
     pub fn unlisted_app_probe(&self) -> Result<String> {
         match Client::connect(&self.suite, &self.service, "not-allowlisted-probe") {

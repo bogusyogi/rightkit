@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -74,7 +74,7 @@ test('macOS cutover bootstraps exact supplied plist when service is unloaded', m
 });
 
 test('macOS process probe binds launchd PID to exact resolved runtime script', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-cutover-process-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'rk-cutover-process-')));
   try {
     const runtime = join(root, 'runtime-hash'); const script = join(runtime, 'build-control-broker', 'src', 'broker.mjs');
     await mkdir(join(runtime, 'build-control-broker', 'src'), { recursive: true }); await writeFile(script, ''); await symlink('runtime-hash', join(root, 'runtime-current'));

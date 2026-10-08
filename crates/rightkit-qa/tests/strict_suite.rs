@@ -5,7 +5,7 @@
 
 use rightkit_qa::config::QaConfig;
 use rightkit_qa::process::{run_owned, RunOptions, Tracker};
-use rightkit_qa::suite::{run_suite, SuiteOptions};
+use rightkit_qa::suite::{run_suite_in_managed_root, SuiteOptions};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -88,7 +88,7 @@ command = "x"
 fn wrong_content_fails_and_right_content_binds_identity() {
     let wrong = tmp("wrong");
     let cfg = app(&wrong, &[("wrong", WRONG)]);
-    let r = run_suite(&cfg, &SuiteOptions::default()).unwrap();
+    let r = run_suite_in_managed_root(&cfg, &SuiteOptions::default(), &wrong.join("managed")).unwrap();
     assert_eq!(
         r.exit_code, 1,
         "exists+eq with the wrong value must not pass"
@@ -96,7 +96,7 @@ fn wrong_content_fails_and_right_content_binds_identity() {
 
     let ok = tmp("ok");
     let cfg = app(&ok, &[("right", RIGHT), ("opt", OPTIONAL_SKIP)]);
-    let r = run_suite(&cfg, &SuiteOptions::default()).unwrap();
+    let r = run_suite_in_managed_root(&cfg, &SuiteOptions::default(), &ok.join("managed")).unwrap();
     assert_eq!(r.exit_code, 0, "{:?}", r.outcomes);
     let ev: serde_json::Value =
         serde_json::from_slice(&fs::read(&r.evidence_path).unwrap()).unwrap();
@@ -120,7 +120,7 @@ fn wrong_content_fails_and_right_content_binds_identity() {
 fn mandatory_skip_fails_the_run_but_optional_skip_does_not() {
     let d = tmp("skip");
     let cfg = app(&d, &[("right", RIGHT), ("mand", MANDATORY_SKIP)]);
-    let r = run_suite(&cfg, &SuiteOptions::default()).unwrap();
+    let r = run_suite_in_managed_root(&cfg, &SuiteOptions::default(), &d.join("managed")).unwrap();
     assert_eq!(
         r.exit_code, 1,
         "a skipped mandatory scenario must fail the run"
@@ -136,9 +136,11 @@ fn mandatory_skip_fails_the_run_but_optional_skip_does_not() {
 fn live_run_lock_holder_is_not_displaced_by_a_second_run() {
     let d = tmp("lock");
     let cfg = app(&d, &[("right", RIGHT)]);
-    fs::create_dir_all(&cfg.evidence_root).unwrap();
+    let managed_root = cfg.app_root.join("managed");
+    let managed_app_root = managed_root.join("runs").join(&cfg.app);
+    fs::create_dir_all(&managed_app_root).unwrap();
     let lock = rightkit_qa::lock::acquire(
-        &cfg.evidence_root.join("native.lock"),
+        &managed_app_root.join("native.lock"),
         "first",
         &Default::default(),
     )
@@ -146,11 +148,11 @@ fn live_run_lock_holder_is_not_displaced_by_a_second_run() {
     let mut quick = cfg.clone();
     quick.lock.timeout_s = Some(1);
     quick.lock.stale_s = Some(0);
-    let e = run_suite(&quick, &SuiteOptions::default()).unwrap_err();
+    let e = run_suite_in_managed_root(&quick, &SuiteOptions::default(), &managed_root).unwrap_err();
     assert!(e.0.contains("held by first"), "{e}");
     drop(lock);
     assert_eq!(
-        run_suite(&quick, &SuiteOptions::default())
+        run_suite_in_managed_root(&quick, &SuiteOptions::default(), &managed_root)
             .unwrap()
             .exit_code,
         0

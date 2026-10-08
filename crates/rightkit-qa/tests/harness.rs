@@ -24,8 +24,7 @@ fn harness(root: &Path, settings: &str) -> Harness {
     let s = Settings::load(&root.join(".cache/qa/settings.env"))
         .unwrap()
         .with_env_override(false);
-    Harness::with_parts("harness-test", root.to_path_buf(), s)
-        .with_evidence_root(root.join("evidence"))
+    Harness::with_parts_in_managed_root("harness-test", root.to_path_buf(), s, root.join("managed"))
 }
 
 fn bundle(h: &Harness, name: &str) -> Value {
@@ -252,11 +251,11 @@ fn discover_uses_the_app_root_search_order() {
         "RIGHTKIT_QA_TIER=fast,paid\nRIGHTKIT_QA_EVIDENCE=out/ev\n",
     )
     .unwrap();
-    let h = Harness::new("discover", &r).unwrap();
+    let h = Harness::new_in_managed_root("discover", &r, r.join("managed")).unwrap();
     assert_eq!(
         h.settings().source(),
         Some(r.join(".cache/e2e/settings.env").as_path())
     );
     assert_eq!(h.selected_tiers(), "fast,paid");
-    assert_eq!(h.evidence_root(), r.join("out/ev"));
+    assert!(h.evidence_root().starts_with(r.join("managed")));
 }

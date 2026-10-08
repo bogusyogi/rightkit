@@ -8,8 +8,10 @@ import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 import { acquireManagedRunLease, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
+import { signMacosDevelopmentBundle } from "./development-signing.mjs";
 
 export const DEVELOPMENT_PROFILE = "release-iterate";
+const RELEASE_ONLY_APPLE_ENV = ["APPLE_ID", "APPLE_PASSWORD", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD"];
 
 export function developmentEnvironment(env = process.env) {
   const result = {
@@ -18,12 +20,9 @@ export function developmentEnvironment(env = process.env) {
     RIGHTKIT_CARGO_PROFILE: DEVELOPMENT_PROFILE,
     TAURI_SIGNING_PRIVATE_KEY: "",
     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "",
-    APPLE_SIGNING_IDENTITY: "-",
-    APPLE_ID: "",
-    APPLE_PASSWORD: "",
-    APPLE_TEAM_ID: "",
     CSC_IDENTITY_AUTO_DISCOVERY: "false",
   };
+  for (const key of RELEASE_ONLY_APPLE_ENV) delete result[key];
   delete result.CARGO_INCREMENTAL;
   const client = managedRuntimeClient(result);
   if (client) {
@@ -76,8 +75,8 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     const startedMs = Date.now();
     for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
     if (buildOnly || !target.install) return { built: true, installed: false };
-    install(target.install, { root, platform, env: childEnv, run, sinceMs: startedMs });
-    return { built: true, installed: true };
+    const signing = install(target.install, { root, platform, config, env: childEnv, run, sinceMs: startedMs });
+    return { built: true, installed: true, ...(platform === "mac" && target.install.kind === "tauri" ? { signing } : {}) };
   } finally { lease.release(); }
 }
 
@@ -85,7 +84,7 @@ export function assertNativeDevelopmentHost(platform, host = process.platform) {
   if ((platform === "win" && host !== "win32") || (platform === "mac" && host !== "darwin")) throw new Error(`development target ${platform} requires its native host`);
 }
 
-function install(descriptor, { root, platform, env, run, sinceMs = null }) {
+function install(descriptor, { root, platform, config, env, run, sinceMs = null }) {
   if (descriptor.kind === "command") return execute(descriptor, { root, env, run, label: "install" });
   if (descriptor.kind === "portable") return installPortableDevelopment(descriptor, { root, platform: platform === "win" ? "win32" : "darwin", env });
   if (platform === "win") {
@@ -111,11 +110,10 @@ function install(descriptor, { root, platform, env, run, sinceMs = null }) {
   const backup = `${destination}.rightkit-backup-${process.pid}`;
   rmSync(staging, { recursive: true, force: true });
   rmSync(backup, { recursive: true, force: true });
-  cpSync(app, staging, { recursive: true });
-  const signature = run("codesign", ["--force", "--deep", "--preserve-metadata=entitlements", "--sign", "-", staging], { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
-  if (signature.status !== 0) { rmSync(staging, { recursive: true, force: true }); throw new Error(`ad-hoc signing failed (${signature.status}): ${staging}`); }
-  const verified = run("codesign", ["--verify", "--deep", "--strict", staging], { cwd: root, env, stdio: "inherit", windowsHide: true, shell: false });
-  if (verified.status !== 0) { rmSync(staging, { recursive: true, force: true }); throw new Error(`ad-hoc signature verification failed (${verified.status}): ${staging}`); }
+  cpSync(app, staging, { recursive: true, verbatimSymlinks: true });
+  let signing;
+  try { signing = signMacosDevelopmentBundle({ root, bundle: staging, descriptor, config, env, run }); }
+  catch (error) { rmSync(staging, { recursive: true, force: true }); throw error; }
   let backedUp = false;
   try {
     if (existsSync(destination)) { renameSync(destination, backup); backedUp = true; }
@@ -128,6 +126,9 @@ function install(descriptor, { root, platform, env, run, sinceMs = null }) {
     rmSync(staging, { recursive: true, force: true });
     throw error;
   }
+  if (signing.provisioningProfile) signing.provisioningProfile = path.join(destination, "Contents", "embedded.provisionprofile");
+  console.log(`right-release dev: installed ${destination}; identity=${signing.identity}; TeamIdentifier=${signing.teamIdentifier}; profile=${signing.provisioningProfile ?? "none"}`);
+  return signing;
 }
 
 export function resolveTauriArtifact(descriptor, { root, platform, env = process.env, runCargo = runCargoSync }) {
@@ -268,6 +269,7 @@ export async function main(args = process.argv.slice(2)) {
   const absoluteConfig = path.resolve(configPath);
   const safeEnv = developmentEnvironment(process.env);
   for (const [key, value] of Object.entries(safeEnv)) process.env[key] = value;
+  for (const key of RELEASE_ONLY_APPLE_ENV) delete process.env[key];
   delete process.env.CARGO_INCREMENTAL;
   const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path");
   if (pathKey) process.env[pathKey] = safeEnv[pathKey] ?? process.env[pathKey];
@@ -279,5 +281,5 @@ export async function main(args = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  main().catch((error) => { console.error(`right-release dev: ${error.message}`); process.exitCode = 1; });
+  main().catch((error) => { console.error(`right-release dev: ${error.code ? `[${error.code}] ` : ""}${error.message}`); process.exitCode = 1; });
 }

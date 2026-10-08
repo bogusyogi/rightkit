@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { execFileSync, spawnSync } from "./background-process.mjs";
+import { spawnSync } from "./background-process.mjs";
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { signMacUpdaterFiles } from "./macos-signing-session.mjs";
 
 const args = process.argv.slice(2);
 const files = [];
@@ -20,17 +20,7 @@ if (!dryRun && !env.TAURI_SIGNING_PRIVATE_KEY) {
     const key = path.join(env.APPDATA || "", "ViewRight", "updater.key");
     if (!existsSync(key)) fail(`shared updater key not found: ${key}`);
     env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(key, "utf8");
-  } else if (process.platform === "darwin") {
-    try {
-      env.TAURI_SIGNING_PRIVATE_KEY = execFileSync(
-        "security",
-        ["find-generic-password", "-a", os.userInfo().username, "-s", "rightsuite-updater-key", "-w"],
-        { encoding: "utf8" },
-      ).trim();
-    } catch {
-      fail("shared updater key is missing from Keychain service rightsuite-updater-key");
-    }
-  } else {
+  } else if (process.platform !== "darwin") {
     fail("TAURI_SIGNING_PRIVATE_KEY is required on this platform");
   }
 }
@@ -41,6 +31,7 @@ for (const file of files) {
   rmSync(`${file}.sig`, { force: true });
   console.log(`${dryRun ? "[dry-run] " : ""}pnpm exec tauri signer sign ${file}`);
   if (dryRun) continue;
+  if (process.platform === "darwin") continue;
   const result = process.platform === "win32"
     ? spawnSync(
         process.env.ComSpec || "cmd.exe",
@@ -57,6 +48,10 @@ for (const file of files) {
     stdio: "inherit",
   });
   if (result.status !== 0) process.exit(result.status ?? 1);
+}
+if (!dryRun && process.platform === "darwin") {
+  try { signMacUpdaterFiles(files, { env }); }
+  catch (error) { fail(`${error.code ? `[${error.code}] ` : ""}${error.message}`); }
 }
 
 function fail(message) {

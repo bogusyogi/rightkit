@@ -2,12 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createManagedRun, finishManagedRun, pruneManagedRuns } from './storage.js';
 import { createQaWorkspace, disposeQaWorkspace, pruneAbandonedWorkspaces } from './workspace.js';
 
 const roots: string[] = [];
 
 function tempRoot(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rightkit-qa-ws-'));
+  const root = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), 'rightkit-qa-ws-'));
   roots.push(root);
   return root;
 }
@@ -23,6 +24,9 @@ describe('QA run workspace', () => {
     expect(workspace.env.RIGHTKIT_QA_DATA_DIR).toBe(workspace.dataDir);
     expect(workspace.env.VIEWRIGHT_DATA_DIR).toBe(workspace.dataDir);
     expect(workspace.env.WEBVIEW2_USER_DATA_FOLDER).toContain(workspace.dataDir);
+    expect(workspace.env.RIGHTKIT_RUN_ROOT).toBe(workspace.root);
+    expect(workspace.env.TMPDIR).toContain(workspace.root);
+    expect(workspace.captureDir).toContain(workspace.root);
     expect(workspace.dataDir).not.toBe(os.homedir());
   });
 
@@ -90,10 +94,13 @@ describe('QA run workspace', () => {
     const root = tempRoot();
     const stale = createQaWorkspace({ root, runId: 'stale-run', appKey: 'viewright' });
     const live = createQaWorkspace({ root, runId: 'live-run', appKey: 'viewright' });
-    const old = Date.now() - 24 * 60 * 60_000;
-    fs.utimesSync(stale.root, new Date(old), new Date(old));
+    const old = Date.now() - 48 * 60 * 60_000;
+    finishManagedRun(stale.root);
+    const markerPath = path.join(stale.root, '.rightkit-run.json');
+    const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(markerPath, JSON.stringify({ ...marker, createdAt: old }));
 
-    const report = pruneAbandonedWorkspaces(root, { keep: [live.runId] });
+    const report = pruneAbandonedWorkspaces(root, { olderThanMs: 6 * 60 * 60_000, keep: [live.runId] });
 
     expect(report.removed).toContain(stale.root);
     expect(fs.existsSync(live.root)).toBe(true);
@@ -108,7 +115,37 @@ describe('QA run workspace', () => {
     expect(report.retained[0].reason).toMatch(/may belong to a live run/);
   });
 
+  it('keeps one completed run older than six hours under default retention', () => {
+    const root = tempRoot();
+    const completed = createManagedRun({ managedRoot: root, app: 'viewright', runId: 'completed-old', leaseMs: 1 });
+    finishManagedRun(completed);
+    const markerPath = path.join(completed.root, '.rightkit-run.json');
+    const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(markerPath, JSON.stringify({ ...marker, createdAt: Date.now() - 8 * 60 * 60_000 }));
+
+    const report = pruneAbandonedWorkspaces(root);
+
+    expect(report.removed).toEqual([]);
+    expect(fs.existsSync(completed.root)).toBe(true);
+  });
+
   it('is a no-op when the workspace root has never been created', () => {
     expect(pruneAbandonedWorkspaces(path.join(tempRoot(), 'never-used'))).toEqual({ removed: [], retained: [] });
+  });
+
+  it('keeps newest five under count retention even when byte cap is not exceeded', () => {
+    const root = tempRoot();
+    const old = Date.now() - 48 * 60 * 60_000;
+    for (let i = 0; i < 7; i += 1) {
+      const run = createManagedRun({ managedRoot: root, app: 'viewright', runId: `count-${i}`, leaseMs: 1, retention: { keepCount: 100 } });
+      finishManagedRun(run);
+      const markerPath = path.join(run.root, '.rightkit-run.json');
+      const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8')) as Record<string, unknown>;
+      fs.writeFileSync(markerPath, JSON.stringify({ ...marker, createdAt: old + i }));
+    }
+    const report = pruneManagedRuns(root, 'viewright', { maxBytes: 1024 ** 3, now: Date.now() });
+    expect(report.removed).toHaveLength(2);
+    expect(fs.existsSync(path.join(root, 'runs', 'viewright', 'count-5'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'runs', 'viewright', 'count-6'))).toBe(true);
   });
 });

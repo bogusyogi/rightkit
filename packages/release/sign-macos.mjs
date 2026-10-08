@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
+import { runMacCodesignCommands } from "./macos-signing-session.mjs";
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
@@ -34,8 +35,11 @@ if (entitlementsPath && !existsSync(entitlementsPath)) fail(`missing entitlement
 const evidence = [];
 for (const file of files) {
   const before = fileEvidence(file);
-  run("codesign", ["--force", "--options", "runtime", "--timestamp", "--sign", identity,
-    ...(entitlementsPath ? ["--entitlements", path.resolve(entitlementsPath)] : []), file]);
+  try {
+    const [signed] = runMacCodesignCommands([["--force", "--options", "runtime", "--timestamp", "--sign", identity,
+      ...(entitlementsPath ? ["--entitlements", path.resolve(entitlementsPath)] : []), file]]);
+    if (signed.error || signed.status !== 0) fail(`codesign failed: ${signed.stderr ?? signed.error?.message ?? signed.status}`);
+  } catch (error) { fail(`${error.code ? `[${error.code}] ` : ""}${error.message}`); }
   const verification = run("codesign", ["--verify", "--strict", "--verbose=4", file]);
   const details = run("codesign", ["-dvv", file]);
   if (!/valid on disk/i.test(verification) || !/satisfies its designated requirement/i.test(verification)) {

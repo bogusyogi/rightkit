@@ -13,9 +13,8 @@ use rightkit_qa::guard::{scripts_from_package_json, validate, Backend, ContractI
 use rightkit_qa::scenario::{discover, unmet_requirement, Scenario};
 use rightkit_qa::suite::{run_suite, select, SuiteOptions};
 use rightkit_qa::util::{err, Result};
-use rightkit_qa::{process, workspace};
+use rightkit_qa::process;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 struct Args(Vec<String>);
 
@@ -182,8 +181,9 @@ fn guard(a: &Args) -> Result<i32> {
 
 fn sweep(a: &Args) -> Result<i32> {
     let cfg = load_config(a)?;
-    let killed = process::sweep_registries(&cfg.evidence_root.join("runs"), "");
-    let r = workspace::prune_abandoned(&cfg.evidence_root, Duration::from_secs(6 * 3600), &[]);
+    let managed_root = rightkit_qa::storage::managed_root(None);
+    let killed = process::sweep_registries(&managed_root.join("runs").join(&cfg.app), "");
+    let r = rightkit_qa::storage::prune_with_keep(&managed_root, &cfg.app, None, &[])?;
     println!(
         "killed {} orphan pid(s) {killed:?}; removed {} abandoned run dir(s), retained {}",
         killed.len(),

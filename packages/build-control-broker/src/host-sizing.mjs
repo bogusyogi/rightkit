@@ -17,7 +17,9 @@ export const COMPILER_CACHE_VOLUME_FRACTION = 0.17;
 export const TARGET_CACHE_VOLUME_FRACTION = 0.45;
 /** Absolute ceilings: build storage is a fixed budget, never "the rest of the disk". GC evicts
  * idle generations past the cap before admitting builds. Measure from receipts before raising. */
-export const TARGET_CACHE_MAX_BYTES = 400 * GiB;
+// Keep managed target storage bounded independently from volume size. This is
+// the shared default for every host; volume sizing can lower it further.
+export const TARGET_CACHE_MAX_BYTES = 150_000_000_000;
 export const COMPILER_CACHE_MAX_BYTES = 150 * GiB;
 
 /** Bounds regenerated from the host on every bootstrap; never carried forward as operator tuning. */

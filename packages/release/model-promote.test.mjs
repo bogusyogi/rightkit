@@ -9,12 +9,14 @@ import { fileURLToPath } from "node:url";
 
 import {
   RUNTIME_ARTIFACT_TRUSTED_KEY_ID,
+  RuntimeArtifactPromotionError,
   defaultWindowsRuntimeArtifactSigningKeyFile,
   loadRuntimeArtifactSigningKey,
   promoteRuntimeArtifact,
   runtimeArtifactUploadEnv,
 } from "./model-promote.mjs";
-const { privateKey } = generateKeyPairSync("ed25519");
+import { RIGHT_SUITE_APP_KEYS, verifyRuntimeArtifactEnvelope } from "./runtime-artifact-manifest.mjs";
+const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const artifactDigest = "a".repeat(64);
 const evidenceDigest = "b".repeat(64);
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -42,7 +44,7 @@ function request(overrides = {}) {
       evidence: { sha256: evidenceDigest },
       manifest: {
         artifactKind: "asr-model",
-        entitlement: { appKey: "scraperight", tier: "pro" },
+        entitlement: { appKey: "heardright", tier: "pro" },
         distribution: { delivery: "private-r2", bucket: "rightapps-updates" },
         target: { os: "windows", arch: "x86_64" },
         versions: {
@@ -88,6 +90,8 @@ test("uploads immutable object, registers signed envelope, then replaces stable 
   assert.equal(result.envelope.signature.keyId, RUNTIME_ARTIFACT_TRUSTED_KEY_ID);
   assert.equal(result.envelope.manifest.object.sha256, artifactDigest);
   assert.equal(result.envelope.manifest.promotion.evidenceSha256, evidenceDigest);
+  assert.equal(result.envelope.manifest.entitlement.appKey, "heardright");
+  assert.equal(result.envelope.manifest.promotion.authorityAppKey, "heardright");
   assert.match(result.envelope.manifest.pointerKey, /\/current\/manifest\.json$/);
 });
 
@@ -97,6 +101,38 @@ test("dry-run validates and signs without invoking process or network boundaries
   assert.deepEqual(events, []);
   assert.deepEqual(result.steps, ["upload immutable object", "register signed envelope", "replace stable pointer"]);
   assert.equal(result.envelope.signature.algorithm, "Ed25519");
+});
+
+test("every registered app can dry-run promotion of its own entitled artifacts", async () => {
+  for (const appKey of RIGHT_SUITE_APP_KEYS) {
+    const input = request({ authority: appKey, dryRun: true });
+    input.config.manifest.entitlement.appKey = appKey;
+    if (appKey === "genright") input.config.manifest.artifactKind = "tts-model";
+    const events = [];
+    const result = await promoteRuntimeArtifact(input, boundaries(events));
+    const manifest = verifyRuntimeArtifactEnvelope(result.envelope, publicKey);
+    assert.equal(manifest.entitlement.appKey, appKey);
+    assert.equal(manifest.promotion.authorityAppKey, appKey);
+    assert.ok(manifest.pointerKey.startsWith(`${appKey}/runtime-artifacts/`));
+    assert.deepEqual(events, []);
+  }
+});
+
+test("unknown authority or entitlement app and authority mismatch have typed errors before file access", async () => {
+  for (const [authority, appKey, code] of [
+    ["unknown", "heardright", "RUNTIME_ARTIFACT_UNKNOWN_APP"],
+    ["heardright", "unknown", "RUNTIME_ARTIFACT_UNKNOWN_APP"],
+    ["genright", "heardright", "RUNTIME_ARTIFACT_AUTHORITY_MISMATCH"],
+    ["heardright", "genright", "RUNTIME_ARTIFACT_AUTHORITY_MISMATCH"],
+  ]) {
+    const input = request({ authority, dryRun: true });
+    input.config.manifest.entitlement.appKey = appKey;
+    await assert.rejects(promoteRuntimeArtifact(input, {
+      metadata: async () => assert.fail("invalid authority must fail before file access"),
+      upload: async () => assert.fail("unexpected upload"),
+      register: async () => assert.fail("unexpected registration"),
+    }), (error) => error instanceof RuntimeArtifactPromotionError && error.code === code);
+  }
 });
 
 test("model promotion refuses a dirty working tree", async () => {
@@ -193,6 +229,9 @@ test("model promote help documents the portable config and secure key inputs", (
   assert.match(result.stdout, /evidence\.sha256/);
   assert.match(result.stdout, /RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE/);
   assert.match(result.stdout, /RIGHTAPPS_RELEASE_TOKEN/);
+  assert.match(result.stdout, /--authority <app-key>/);
+  assert.match(result.stdout, /genright/);
+  assert.match(result.stdout, /must equal manifest\.entitlement\.appKey/);
 });
 
 test("portable CLI promotes from a clean checkout, refuses a dirty one, and rejects injected trust flags", async () => {
@@ -222,7 +261,11 @@ test("portable CLI promotes from a clean checkout, refuses a dirty one, and reje
         file: "evidence.json",
         sha256: createHash("sha256").update(evidence).digest("hex"),
       },
-      manifest: request().config.manifest,
+      manifest: {
+        ...request().config.manifest,
+        artifactKind: "tts-model",
+        entitlement: { appKey: "genright", tier: "pro" },
+      },
     };
     await writeFile(path.join(root, "promotion.json"), JSON.stringify(config));
     spawnSync("git", ["add", "."], { cwd: root, encoding: "utf8" });
@@ -230,13 +273,29 @@ test("portable CLI promotes from a clean checkout, refuses a dirty one, and reje
 
     const promoteArgs = [
       path.join(packageRoot, "cli/right-release.mjs"), "model", "promote",
-      "--authority", "heardright",
+      "--authority", "genright",
       "--config", path.join(root, "promotion.json"),
       "--signing-key-file", path.join(root, "key.pem"),
       "--dry-run",
     ];
     const result = spawnSync(process.execPath, promoteArgs, { cwd: root, encoding: "utf8", windowsHide: true });
     assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /\[dry-run\] runtime artifact promotion validated/);
+    assert.match(result.stdout, /app\/kind: genright\/tts-model/);
+    assert.match(result.stdout, /pointer: genright\/runtime-artifacts\/tts-model\/windows\/x86_64\/current\/manifest\.json/);
+
+    for (const [authority, code] of [
+      ["unknown", "RUNTIME_ARTIFACT_UNKNOWN_APP"],
+      ["heardright", "RUNTIME_ARTIFACT_AUTHORITY_MISMATCH"],
+    ]) {
+      const invalidArgs = [...promoteArgs];
+      invalidArgs[invalidArgs.indexOf("--authority") + 1] = authority;
+      invalidArgs[invalidArgs.indexOf("--signing-key-file") + 1] = path.join(root, "missing-key.pem");
+      const invalid = spawnSync(process.execPath, invalidArgs, { cwd: root, encoding: "utf8", windowsHide: true });
+      assert.equal(invalid.status, 1);
+      assert.ok(invalid.stderr.includes(`[${code}]`), invalid.stderr);
+      assert.doesNotMatch(invalid.stderr, /ENOENT|BEGIN PRIVATE KEY/);
+    }
 
     await writeFile(path.join(root, "untracked.txt"), "dirty");
     const dirty = spawnSync(process.execPath, promoteArgs, { cwd: root, encoding: "utf8", windowsHide: true });
@@ -266,6 +325,10 @@ test("uses the canonical Windows signing-key path and supports a Keychain-fed PE
     await loadRuntimeArtifactSigningKey({ env: { RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY: "line1\\nline2" }, platform: "darwin" }),
     "line1\nline2",
   );
+});
+
+test("non-Windows signing requires an explicit protected key input", async () => {
+  await assert.rejects(loadRuntimeArtifactSigningKey({ env: {}, platform: "darwin" }), /RIGHTKIT_RUNTIME_ARTIFACT_PRIVATE_KEY_FILE is required/);
 });
 
 test("does not forward signing or RightApps credentials into the Wrangler uploader process", () => {

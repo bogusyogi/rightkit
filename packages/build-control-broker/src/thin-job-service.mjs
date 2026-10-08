@@ -354,30 +354,44 @@ export class ThinJobService {
     void this.#log({ type: 'CACHE_RUNTIME_BLOCKED', reason: event?.reason ?? 'sccache-unavailable', epoch: event?.epoch ?? null, gatewayPid: event?.gatewayPid ?? null, affectedJobIds: affected.map((job) => job.id) });
   }
 
-  #gcInFlight = false; #gcQueued = false;
+  #gcInFlight = false;
 
   /** Background maintenance GC (v2.8 §10.6): runs detached from broker
-   * readiness and from request hot paths; repeated triggers coalesce. */
-  async #maintenanceGc() {
-    if (this.#gcInFlight) { this.#gcQueued = true; return; }
+   * readiness and from request hot paths. Concurrent requests receive BUSY;
+   * a dry-run never queues or upgrades into an applying pass. */
+  async #maintenanceGc({ dryRun = false } = {}) {
+    if (this.#gcInFlight) return Object.freeze({ status: 'BUSY', dryRun, reason: 'maintenance-in-flight' });
     this.#gcInFlight = true;
+    let latest = null;
     try {
-      do {
-        this.#gcQueued = false;
-        const gc = await this.#state.gc({ capBytes: this.#config.bounds?.targetCacheCapBytes ?? null, evictIdle: this.#evictIdleGeneration, freeFloorBytes: this.#config.bounds?.gcFreeFloorBytes ?? null, graceMs: this.#config.bounds?.gcGraceMs ?? 30 * 60_000, freeBytes: async () => { const stats = await nodeStatfs(this.#state.paths.base); return Number(stats.bavail) * Number(stats.bsize); } });
-        if (gc.deleted?.length || gc.evicted?.length || gc.reclaimed?.deadRoots?.length || gc.reclaimed?.orphanLeaves?.length) await this.#log({ type: 'GENERATION_GC', deleted: gc.deleted ?? [], evicted: gc.evicted ?? [], reclaimed: gc.reclaimed ?? null, beforeBytes: gc.beforeBytes ?? null, afterBytes: gc.afterBytes ?? null, capBytes: gc.capBytes ?? null, effectiveCapBytes: gc.effectiveCapBytes ?? null, freeBytes: gc.freeBytes ?? null, freeFloorBytes: gc.freeFloorBytes ?? null });
-        if (this.#nativeOpenSsl && this.#state.pinnedNativeKeys) { const native = await this.#nativeOpenSsl.gc({ pinned: await this.#state.pinnedNativeKeys('openssl') }); if (native.evicted.length) await this.#log({ type: 'NATIVE_OPENSSL_GC', ...native }); }
+      const gc = await this.#state.gc({ capBytes: this.#config.bounds?.targetCacheCapBytes ?? null, evictIdle: this.#evictIdleGeneration, freeFloorBytes: this.#config.bounds?.gcFreeFloorBytes ?? null, graceMs: this.#config.bounds?.gcGraceMs ?? 30 * 60_000, dryRun, freeBytes: async () => { const stats = await nodeStatfs(this.#state.paths.base); return Number(stats.bavail) * Number(stats.bsize); } });
+        // Budget pressure is based on the pre-GC target inventory so the
+        // compiler-cache pass still runs when workspace eviction brings target
+        // bytes back under cap. It remains independent of free-floor pressure.
+        const cache = await this.#cache.gc?.({ dryRun, budgetPressure: (gc.beforeBytes ?? 0) > (gc.capBytes ?? Number.MAX_SAFE_INTEGER) });
+        latest = { gc, cache: cache ?? null };
+        if (!dryRun && (gc.deleted?.length || gc.evicted?.length || gc.reclaimed?.deadRoots?.length || gc.reclaimed?.orphanLeaves?.length)) await this.#log({ type: 'GENERATION_GC', deleted: gc.deleted ?? [], evicted: gc.evicted ?? [], reclaimed: gc.reclaimed ?? null, beforeBytes: gc.beforeBytes ?? null, afterBytes: gc.afterBytes ?? null, capBytes: gc.capBytes ?? null, effectiveCapBytes: gc.effectiveCapBytes ?? null, freeBytes: gc.freeBytes ?? null, freeFloorBytes: gc.freeFloorBytes ?? null });
+        if (!dryRun && this.#nativeOpenSsl && this.#state.pinnedNativeKeys) { const native = await this.#nativeOpenSsl.gc({ pinned: await this.#state.pinnedNativeKeys('openssl') }); if (native.evicted.length) await this.#log({ type: 'NATIVE_OPENSSL_GC', ...native }); }
         // Shared job temp root: leaked test temp dirs older than 6 h and older than every running job.
-        if (this.#state.paths?.temporary) {
+        if (!dryRun && this.#state.paths?.temporary) {
           const running = [...this.#jobs.values()].filter((job) => !job.terminal).map((job) => job.submittedAt ?? job.startedAt ?? this.#now());
           const swept = await sweepTemporary(this.#state.paths.temporary, { now: this.#now(), notAfterMs: running.length ? Math.min(...running) : Infinity });
           if (swept.removed || swept.skipped) await this.#log({ type: 'TEMP_SWEEP', ...swept });
         }
-        if (gc.unenforceable) await this.#log({ type: 'TARGET_CACHE_CAP_UNENFORCEABLE', capBytes: gc.capBytes, targetBytes: gc.afterBytes, overByBytes: gc.unenforceable.overByBytes, idleCandidatesRemaining: gc.unenforceable.idleCandidatesRemaining });
-      } while (this.#gcQueued);
+        if (!dryRun && gc.unenforceable) await this.#log({ type: 'TARGET_CACHE_CAP_UNENFORCEABLE', capBytes: gc.capBytes, targetBytes: gc.afterBytes, overByBytes: gc.unenforceable.overByBytes, idleCandidatesRemaining: gc.unenforceable.idleCandidatesRemaining });
     } catch (error) {
       await this.#log({ type: 'GENERATION_GC_FAILED', error: error.message }).catch(() => {});
+      latest = { error: error.message, code: error.code ?? null };
     } finally { this.#gcInFlight = false; }
+    return latest;
+  }
+
+  async #storageGc(message, emit) {
+    const dryRun = message?.dryRun !== false;
+    if (!dryRun && message?.lead !== true) throw Object.assign(new Error('storage GC apply is lead-only'), { code: 'RK_STORAGE_GC_LEAD_ONLY' });
+    const result = await this.#maintenanceGc({ dryRun });
+    const status = result?.status ?? (result?.error ? 'ERROR' : dryRun ? 'PLANNED' : 'APPLIED');
+    return this.#emit(emit, { type: 'STORAGE_GC', dryRun, status, result });
   }
 
   /** Aggregate compiler-budget admission (dual-host routing §5): map a
@@ -399,7 +413,20 @@ export class ThinJobService {
     const ticket = this.#scheduler.acquire({ id: `gc-evict-${candidate.workspaceKey}-${randomUUID().slice(0, 8)}`, capability: { lane: 'WORKSPACE_WRITE', workspaceAccess: 'write' }, workspaceKey: candidate.workspaceKey, tryRun: true });
     let permit;
     try { permit = await ticket.permit; } catch { return null; }
-    try { return await this.#state.evictIdleWorkspace(candidate.canonicalRoot, { sizeBytes: candidate.sizeBytes, ...(candidate.reason ? { reason: candidate.reason } : {}) }); }
+    try {
+      return await this.#state.evictIdleWorkspace(candidate.canonicalRoot, {
+        sizeBytes: candidate.sizeBytes,
+        expectedGeneration: candidate.generation,
+        observedUpdatedAt: candidate.updatedAt,
+        observedLastUsedAt: candidate.lastUsedAt,
+        // Real GC candidates carry the scan timestamps; direct maintenance test
+        // hooks may omit them and retain legacy immediate-eviction semantics.
+        graceMs: candidate.updatedAt !== undefined || candidate.lastUsedAt !== undefined
+          ? this.#config.bounds?.gcGraceMs ?? 30 * 60_000
+          : 0,
+        ...(candidate.reason ? { reason: candidate.reason } : {})
+      });
+    }
     catch { return null; }
     finally { permit.release(); }
   };
@@ -429,6 +456,7 @@ export class ThinJobService {
     }
     try {
       if (message.type === 'DRAIN_STATUS') return this.#drainStatus(emit);
+      if (message.type === 'STORAGE_GC') return await this.#storageGc(message, emit);
       if (message.type === 'LIST') return this.#list(emit);
       if (message.type === 'SUBMIT') return await this.#submit(message.job, emit, rootAdmissionId, onDisconnect);
       if (message.type === 'WATCH') return this.#watch(message.id, emit, onDisconnect);

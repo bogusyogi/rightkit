@@ -8,6 +8,7 @@ import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
+import { recordPublishedVersion } from "./artifact-storage.mjs";
 
 const args = process.argv.slice(2);
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
@@ -75,6 +76,9 @@ if (!dryRun) writeJson(verifiedMarker, {
   tag: result.tag,
   verifiedAt: new Date().toISOString(),
 });
+// This runs only after GitHub has returned successful remote byte verification.
+// Candidate builds never enter published.json.
+if (!dryRun) recordPublishedVersion({ app: sealed.manifest.app, version: sealed.manifest.version, platform });
 console.log(`right-release upload: ${dryRun ? "dry-run " : ""}${result.status} ${releaseId} tier=${tier} repo=${repo}`);
 
 function git(cwd, runArgs) {

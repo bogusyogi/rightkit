@@ -13,3 +13,5 @@ export { CACHE_PROOF_MARKER, assertCacheProofTarget, clearCacheProofTarget, init
 export { ThinLogger } from './thin-logger.mjs';
 export { acquireThinBrokerSingleton } from './thin-singleton.mjs';
 export { CachedWorkspaceResolver, ThinJobService, createThinJobServer, resolveCargoWorkspace } from './thin-job-service.mjs';
+export { capacityFromStats, discoverManagedVolume } from './volume-discovery.mjs';
+export { migrateStorageConfig, parseArgs as parseStorageMigrationArgs, planStorageMigration } from './storage-migration.mjs';

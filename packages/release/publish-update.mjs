@@ -7,6 +7,7 @@ import { spawn } from "./background-process.mjs";
 import { pruneReleaseObjects } from "./prune-r2.mjs";
 import { loadReleaseToken } from "./release-token.mjs";
 import { registerRightAppsRelease } from "./rightapps-register.mjs";
+import { recordPublishedVersion, resolveArtifactInput } from "./artifact-storage.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD = path.join(TOOL_ROOT, "upload-large.mjs");
@@ -41,6 +42,10 @@ if (config?.distribution?.provider !== "r2-rightapps") {
 const target = config?.targets?.[platform];
 const artifacts = target?.updater?.artifacts ?? [];
 const installers = target?.installer?.artifacts ?? [];
+const versionForStorage = config.version || target?.updater?.version;
+const artifactFile = (declared) => versionForStorage
+  ? resolveArtifactInput({ root, app: config.app, version: versionForStorage, declared })
+  : path.resolve(root, declared);
 
 if (tier === "patch" && !installers.length) fail(`${config?.app ?? "app"} ${platform} patch has no installer.artifacts`);
 if (tier === "update" && !artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no updater.artifacts`);
@@ -57,7 +62,7 @@ if (!dryRun && (tier === "update" || artifacts.length > 0)) {
 if (tier === "patch") {
   for (const installer of installers) {
     assertCurrentKey(installer.key, "installer");
-    const file = path.resolve(root, installer.file);
+    const file = artifactFile(installer.file);
     if (!dryRun) await access(file).catch(() => fail(`missing signed installer: ${installer.file}`));
   }
   const platforms = {};
@@ -69,8 +74,8 @@ if (tier === "patch") {
     assertCurrentKey(artifact.key, "updater");
     const installerKey = patchInstallerKey(artifact);
     assertCurrentKey(installerKey, "installer");
-    const file = path.resolve(root, artifact.file);
-    const signatureFile = path.resolve(root, artifact.signature);
+    const file = artifactFile(artifact.file);
+    const signatureFile = artifactFile(artifact.signature);
     if (!dryRun) {
       await access(file).catch(() => fail(`missing patch updater payload: ${artifact.file}`));
       await access(signatureFile).catch(() => fail(`missing patch updater signature: ${artifact.signature}`));
@@ -96,7 +101,7 @@ if (tier === "patch") {
     });
   }
   for (const installer of installers) {
-    const file = path.resolve(root, installer.file);
+    const file = artifactFile(installer.file);
     if (!uploadedKeys.has(installer.key)) {
       console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD public/${installer.key}`);
       if (!dryRun) await run(process.execPath, [UPLOAD, file, installer.key, "public"], root);
@@ -121,6 +126,7 @@ if (tier === "patch") {
         private: target.updater.artifacts.map((artifact) => artifact.key),
       },
     });
+    if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform });
     process.exit(0);
   }
   const version = config.version || target.updater.version;
@@ -158,6 +164,7 @@ if (tier === "patch") {
       private: [],
     },
   });
+  if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform });
   process.exit(0);
 }
 
@@ -167,8 +174,8 @@ const updaterManifestArtifacts = new Map();
 const uploadedKeys = new Set();
 for (const artifact of artifacts) {
   assertCurrentKey(artifact.key, "updater");
-  const file = path.resolve(root, artifact.file);
-  const signatureFile = path.resolve(root, artifact.signature);
+  const file = artifactFile(artifact.file);
+  const signatureFile = artifactFile(artifact.signature);
   if (!dryRun) {
     await access(file).catch(() => fail(`missing updater artifact: ${artifact.file}`));
     await access(signatureFile).catch(() => fail(`missing updater signature: ${artifact.signature}`));
@@ -231,6 +238,7 @@ await pruneReleaseObjects({
     private: [...registrations.keys()],
   },
 });
+if (!dryRun) recordPublishedVersion({ app: config.app, version: versionForStorage, platform });
 
 async function fileMetadata(file) {
   const bytes = await readFile(file);

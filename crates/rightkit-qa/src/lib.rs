@@ -38,6 +38,7 @@ pub mod page;
 pub mod process;
 pub mod scenario;
 pub mod settings;
+pub mod storage;
 pub mod suite;
 pub mod util;
 pub mod workspace;

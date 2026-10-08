@@ -27,6 +27,8 @@ import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
 import { acquireCacheLease, acquireSuiteBuildSlot, applyCachePrune, assertWriteVolumeFloors, inspectCache, inspectWriteVolumes, markCacheEntrySuccessful, planCachePrune, readCachePolicy, resolveCacheLayout, resolveSharedCacheIdentity, resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { createTargetBridge } from "./target-bridge.mjs";
+import { signingReceiptPath } from "./signing-receipts.mjs";
+import { validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { resolveReleaseCacheMode } from "./release-cache-mode.mjs";
 import { resolveTargetRoot } from "./cargo-target.mjs";
@@ -36,14 +38,14 @@ import { assertCleanSource } from "./source-gate.mjs";
 import { acquireHeavyWorkSlot, heavyCommandEnvironment, summarizePreBrokerWaits, terminateProcessTree } from "./heavy-command.mjs";
 import { processGroupCpuSeconds } from "./process-liveness.mjs";
 import { cancelAndReapManagedRequest, firstManagedRequestId, releaseProgressLimits } from "./progress-control.mjs";
+import { beginArtifactLease, completeArtifactLease, materializeArtifacts, retainArtifacts, resolveArtifactDir, resolveManagedRoot } from "./artifact-storage.mjs";
 
 // Fingerprint of the pipeline code that can change the bytes we ship or the way
 // they are signed — deliberately NOT the package version, which moves for docs
 // and test-only edits and would force a cold Rust rebuild of every app each time.
-// These four files are the ones whose behaviour the cached target directory can
-// outlive.
+// Cached target directories must not outlive changes to these signing helpers.
 
-const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "notarize-macos.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
+const PIPELINE_FINGERPRINT_SOURCES = ["release.mjs", "sign-windows.mjs", "sign-macos.mjs", "macos-signing-session.mjs", "notarize-macos.mjs", "macos-notarization.mjs", "signing-receipts.mjs", "tauri-bundle-marker.mjs", "nsis-payload.mjs"];
 const PIPELINE_FINGERPRINT = createHash("sha256")
   .update(PIPELINE_FINGERPRINT_SOURCES.map((file) => `${file}:${createHash("sha256").update(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), file))).digest("hex")}`).join("\n"))
   .digest("hex")
@@ -170,7 +172,9 @@ try {
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
   const toolVersions = collectToolVersions(config.packageManager ?? "pnpm");
   const inputHashes = hashInputs(requiredInputs);
-  const receiptRoot = path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(appRoot, ".right-release", "receipts"));
+  const releaseId = `${config.app}-${config.version}-${shortCommit}`;
+  const platformDir = platform === "win" ? "windows" : "mac";
+  const stateRoot = path.join(vaultRoot, "state", releaseId, platformDir);
   const signingIdentity = platform === "win" ? {
     contract: target.signingContract ?? "<missing>",
     // Pipeline code participates in cache identity. Without it, a fix to the
@@ -184,10 +188,7 @@ try {
     // windows-<phase>.json name is only the fallback. Hardcoding the default
     // here made the seal read a path the signer never wrote whenever a config
     // (e.g. an architecture-qualified receipt) overrode it.
-    receiptInputs: ["raw-exe", "installer", "embedding"].map((phase) => {
-      const configured = phase === "raw-exe" ? target.sign?.receipt : phase === "installer" ? target.sign?.installerReceipt : undefined;
-      return configured ? path.resolve(appRoot, configured) : path.join(receiptRoot, `windows-${phase}.json`);
-    }),
+    receiptInputs: ["raw-exe", "installer", "embedding"].map((phase) => signingReceiptPath({ appRoot, target, platform, phase, stateRoot })),
   } : platform === "mac" ? {
     contract: target.signingContract ?? "<missing>",
     pipeline: PIPELINE_FINGERPRINT,
@@ -195,10 +196,7 @@ try {
     // Mac portable releases produce one Developer ID receipt before packaging
     // and one Accepted notarization receipt after. Both must be part of cache
     // identity and seal evidence, including configured receipt overrides.
-    receiptInputs: [
-      target.sign?.receipt ? path.resolve(appRoot, target.sign.receipt) : path.join(receiptRoot, "macos-signing.json"),
-      target.notarize?.receipt ? path.resolve(appRoot, target.notarize.receipt) : path.join(receiptRoot, "macos-notarization.json"),
-    ],
+    receiptInputs: ["signing", "notarization"].map((phase) => signingReceiptPath({ appRoot, target, platform, phase, stateRoot })),
   } : null;
   if (signingIdentity) inputHashes[".right-release/signing-identity.json"] = hashFileText(JSON.stringify(signingIdentity));
   const cargoLock = nativeLayout.lockPath;
@@ -259,6 +257,8 @@ try {
     ...(pathPrefix ? { PATH: `${pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
     RIGHT_RELEASE_REPO_ROOT: layout.repoRoot,
     RIGHT_RELEASE_APP_ROOT: layout.appRoot,
+    RIGHTKIT_MANAGED_ROOT: resolveManagedRoot({ env: process.env }),
+    RIGHT_RELEASE_ARTIFACT_DIR: resolveArtifactDir({ app: config.app, version: config.version, managedRoot: resolveManagedRoot({ env: process.env }) }),
   };
   if (managedCargoTarget) {
     for (const name of ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "SCCACHE_CACHE_SIZE", "RUSTFLAGS"]) {
@@ -277,10 +277,12 @@ try {
   const preBrokerWaits = summarizePreBrokerWaits({ heavySlot, suiteSlot, heavyOwnerInherited: process.env.RIGHTSUITE_HEAVY_WORK_OWNER === "1" });
   console.error(`[right-release] pre-broker waits: ${preBrokerWaits.summary}`);
   throwIfInterrupted();
-  const releaseId = `${config.app}-${config.version}-${shortCommit}`;
-  const platformDir = platform === "win" ? "windows" : "mac";
+  const managedRoot = resolveManagedRoot({ env: process.env });
+  const managedArtifactDir = resolveArtifactDir({ app: config.app, version: config.version, managedRoot });
+  beginArtifactLease({ app: config.app, version: config.version, managedRoot });
+  env.RIGHTKIT_MANAGED_ROOT = managedRoot;
+  env.RIGHT_RELEASE_ARTIFACT_DIR = managedArtifactDir;
   const buildRoot = managedCargoTarget ? null : path.join(vaultRoot, "build", config.app, config.version, shortCommit, platformDir);
-  const stateRoot = path.join(vaultRoot, "state", releaseId, platformDir);
   env.RIGHT_RELEASE_STATE_ROOT = stateRoot;
   const lockPayload = {
     schema: 1,
@@ -384,7 +386,7 @@ try {
         });
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, managedRoot });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -424,7 +426,7 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence }) {
+function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, managedRoot }) {
   // Every app's right-release.config.mjs names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
@@ -442,7 +444,12 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     if (managedCargoTarget && effectiveTargetPrefix !== targetPrefix && normalized.startsWith(effectiveTargetPrefix)) {
       return path.join(managedCargoTarget, normalized.slice(effectiveTargetPrefix.length));
     }
-    return path.resolve(configRoot, file);
+    const local = path.resolve(configRoot, file);
+    if (existsSync(local)) return local;
+    const managed = resolveArtifactDir({ app: config.app, version: config.version, managedRoot });
+    const managedCandidate = path.join(managed, path.basename(file));
+    if (existsSync(managedCandidate)) return managedCandidate;
+    return local;
   };
   const sources = new Map();
   const addSource = (source, role) => {
@@ -460,6 +467,7 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
   if (existsSync(temp)) rmSync(temp, { recursive: true, force: true });
   mkdirSync(temp, { recursive: true });
   const files = [];
+  const artifactInputs = [];
   const sourceNames = new Map();
   for (const [source, roles] of sources) {
     let name = path.basename(source);
@@ -467,6 +475,7 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     sourceNames.set(source, name);
     copyFileSync(source, path.join(temp, name));
     files.push({ role: [...roles].sort().join("+"), name, sha256: hashFile(source), sizeBytes: statSync(source).size });
+    artifactInputs.push({ source, name });
   }
   const routes = { patch: [], update: [] };
   for (const artifact of target.installer?.artifacts ?? []) {
@@ -497,6 +506,10 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     signing: signingIdentity ? { ...signingIdentity, receipts: (() => {
       const present = signingIdentity.receiptInputs.filter((file) => existsSync(file));
       if (present.length === 0) throw new Error(`no signing receipts found to seal; expected at least ${signingIdentity.receiptInputs[0]}`);
+      if (platform === "mac") {
+        if (present.length !== signingIdentity.receiptInputs.length) throw new Error("missing current-build macOS signing or notarization receipt");
+        validateNotarizationReceipt({ receiptPath: signingIdentity.receiptInputs[1], archive: resolveArtifactPath(target.notarize.file) });
+      }
       return present.map((file) => ({ file, sha256: hashFile(file) }));
     })() } : null,
     files,
@@ -514,6 +527,14 @@ function sealRelease({ configRoot, managedCargoTarget, nativeLayout, sealedDir, 
     const file = path.join(sealedDir, item.name);
     try { chmodSync(file, 0o444); } catch { /* best effort; hashes are authoritative */ }
   }
+  // Keep candidate installer/updater bytes outside app repositories. Sealed
+  // copies remain immutable release authority; managed copies support local
+  // retention and recovery without reintroducing repo-root artifacts.
+  materializeArtifacts({ app: config.app, version: config.version, managedRoot, files: artifactInputs });
+  completeArtifactLease({ app: config.app, version: config.version, managedRoot });
+  const retention = retainArtifacts({ app: config.app, managedRoot });
+  if (retention.state === "unknown") console.error(`[right-release] artifact retention skipped: ${retention.reason}`);
+  else if (retention.removed.length) console.log(`[right-release] artifact retention removed ${retention.removed.join(", ")}`);
 }
 
 function collectToolVersions(packageManager) {

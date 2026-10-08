@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFile as nodeExecFile } from 'node:child_process';
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -12,6 +12,7 @@ import { OWNERSHIP_SCANNER_DIR, OWNERSHIP_SCANNER_ENTRIES, committedOwnershipSca
 
 const execFile = promisify(nodeExecFile);
 const sourcePackages = fileURLToPath(new URL('../..', import.meta.url));
+const canonicalTempDir = async (prefix) => realpath(await mkdtemp(join(tmpdir(), prefix)));
 const git = async (cwd, args) => (await execFile('git', ['-C', cwd, ...args], { encoding: 'utf8' })).stdout.trim();
 
 test('Git provenance scopes use forward slashes even from Windows paths', () => {
@@ -70,7 +71,7 @@ test('native functional health requires a real resource snapshot', () => {
 });
 
 async function sourceFixture() {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-source-')); const packages = join(root, 'packages'); const healthWorkspace = join(root, 'health');
+  const root = await canonicalTempDir('rk-runtime-source-'); const packages = join(root, 'packages'); const healthWorkspace = join(root, 'health');
   for (const name of ['build-control-broker', 'build-control-core', 'build-control-clients']) await cp(join(sourcePackages, name), join(packages, name), { recursive: true });
   await mkdir(join(packages, 'release'), { recursive: true });
   const scanner = await committedOwnershipScanner(sourcePackages, 'HEAD');
@@ -87,7 +88,7 @@ async function sourceFixture() {
 }
 
 test('staging creates content-addressed immutable provenance-bound bundle without activation', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
+  const root = await canonicalTempDir('rk-runtime-'); const fixture = await sourceFixture(); try {
     await mkdir(join(fixture.packages, 'unrelated-release'));
     await writeFile(join(fixture.packages, 'unrelated-release', 'draft.mjs'), 'uncommitted unrelated work');
     const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
@@ -102,7 +103,7 @@ test('staging creates content-addressed immutable provenance-bound bundle withou
 });
 
 test('same source content returns on-disk release identity instead of requested conflicting label', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
+  const root = await canonicalTempDir('rk-runtime-'); const fixture = await sourceFixture(); try {
     const first = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a', windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
     const second = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-b', windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
     assert.equal(second.runtime, first.runtime); assert.equal(second.version, 'release-a'); assert.equal(second.manifest.version, 'release-a');
@@ -110,14 +111,14 @@ test('same source content returns on-disk release identity instead of requested 
 });
 
 test('staging refuses dirty or untracked package source', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
+  const root = await canonicalTempDir('rk-runtime-'); const fixture = await sourceFixture(); try {
     await writeFile(join(fixture.packages, 'build-control-core', 'untracked-runtime-input.mjs'), 'export default 1;\n');
     await assert.rejects(stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'release-a' }), /dirty or contains untracked/);
   } finally { await rm(root, { recursive: true, force: true }); await rm(fixture.root, { recursive: true, force: true }); }
 });
 
 test('Windows staging requires and verifies the native Job Object addon descriptor', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture();
+  const root = await canonicalTempDir('rk-runtime-'); const fixture = await sourceFixture();
   try {
     const relative = 'build-control-broker/native/windows-job/build/Release/rightkit_windows_job.node';
     const addonPath = join(fixture.packages, relative); const bytes = Buffer.from('MZ-fake-rightkit-job-addon');
@@ -137,7 +138,7 @@ test('Windows staging requires and verifies the native Job Object addon descript
 });
 
 test('Mac staging requires a regular, digest-pinned native resource addon', { skip: process.platform !== 'darwin' }, async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-mac-runtime-')); const fixture = await sourceFixture();
+  const root = await canonicalTempDir('rk-mac-runtime-'); const fixture = await sourceFixture();
   try {
     const args = { externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'mac-addon', platform: 'darwin' };
     const descriptor = fixture.macosResourceAddon;
@@ -151,7 +152,7 @@ test('Mac staging requires a regular, digest-pinned native resource addon', { sk
 });
 
 test('activation fence remains PENDING through candidate probe then rolls selection back without admission', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
+  const root = await canonicalTempDir('rk-runtime-'); const fixture = await sourceFixture(); try {
     const fence = join(root, 'state', 'activation-fence.json'); const prior = join(root, 'runtime-prior'); await cp(join(fixture.packages, 'build-control-core'), prior, { recursive: true }); await symlink('runtime-prior', join(root, 'runtime-current'));
     let rollback = false;
     await assert.rejects(installManagedRuntime({
@@ -166,7 +167,7 @@ test('activation fence remains PENDING through candidate probe then rolls select
 });
 
 test('activation commits only after exact post-switch process proof', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
+  const root = await canonicalTempDir('rk-runtime-'); const fixture = await sourceFixture(); try {
     const fence = join(root, 'state', 'activation-fence.json'); let runtime;
     const result = await installManagedRuntime({
       externalRoot: root, sourcePackagesRoot: fixture.packages, healthWorkspace: fixture.healthWorkspace, version: 'release-a', config: { broker: { externalRoot: { path: root }, activationFencePath: fence } }, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon, health: async () => {},
@@ -178,7 +179,7 @@ test('activation commits only after exact post-switch process proof', async () =
 });
 
 test('fence token prevents stale or substituted pending state from commit', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); try {
+  const root = await canonicalTempDir('rk-runtime-'); try {
     const manifest = { schema: 'rightkit.build-control.runtime.v2', version: 'release-a', clientDigest: 'a'.repeat(64), brokerDigest: 'b'.repeat(64) };
     const activation = await prepareRuntimeActivationFence({ path: join(root, 'activation.json'), manifest });
     await commitRuntimeActivationFence(activation);
@@ -187,14 +188,14 @@ test('fence token prevents stale or substituted pending state from commit', asyn
 });
 
 test('failed staging removes its unique staging directory', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); try {
+  const root = await canonicalTempDir('rk-runtime-'); try {
     await assert.rejects(stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: join(root, 'missing'), version: 'bad-v1' }));
     assert.deepEqual(await readdir(root), []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('staged runtime carries a loadable ownership scanner and its catalog, bound into the broker digest', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rk-runtime-')); const fixture = await sourceFixture(); try {
+  const root = await canonicalTempDir('rk-runtime-'); const fixture = await sourceFixture(); try {
     const staged = await stageManagedRuntime({ externalRoot: root, sourcePackagesRoot: fixture.packages, version: 'scanner', sourceRevision: fixture.revision, sourceTreeDigest: fixture.tree, windowsJobAddon: fixture.windowsJobAddon, macosResourceAddon: fixture.macosResourceAddon });
     const scannerRoot = join(staged.runtime, OWNERSHIP_SCANNER_DIR);
     for (const file of OWNERSHIP_SCANNER_ENTRIES) assert.ok(await lstat(join(scannerRoot, file)), `${file} staged`);

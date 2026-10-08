@@ -12,7 +12,7 @@ use crate::scenario::{
 use crate::util::{err, now_iso, platform, Result};
 use crate::workspace;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Default)]
@@ -163,6 +163,15 @@ fn ui_binary(cfg: &QaConfig, opts: &SuiteOptions, tracker: &Tracker) -> Result<O
 }
 
 pub fn run_suite(cfg: &QaConfig, opts: &SuiteOptions) -> Result<SuiteReport> {
+    run_suite_at(cfg, opts, None)
+}
+
+/// Test/embedding entry point with an explicit managed root.
+pub fn run_suite_in_managed_root(cfg: &QaConfig, opts: &SuiteOptions, managed_root: &Path) -> Result<SuiteReport> {
+    run_suite_at(cfg, opts, Some(managed_root))
+}
+
+fn run_suite_at(cfg: &QaConfig, opts: &SuiteOptions, managed_override: Option<&Path>) -> Result<SuiteReport> {
     let platform = platform()?;
     let tier = opts
         .tier
@@ -178,31 +187,24 @@ pub fn run_suite(cfg: &QaConfig, opts: &SuiteOptions) -> Result<SuiteReport> {
                 .unwrap_or_default()
         ));
     }
-    std::fs::create_dir_all(&cfg.evidence_root)?;
+    let managed_root = managed_override
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| crate::storage::managed_root(None));
+    let managed_app_root = crate::storage::prepare_app_root(&managed_root, &cfg.app)?;
     let lock_opts = LockOptions {
         timeout: Duration::from_secs(cfg.lock.timeout_s.unwrap_or(120)),
         stale: Duration::from_secs(cfg.lock.stale_s.unwrap_or(60)),
         ..Default::default()
     };
     let mut ownership = lock::acquire(
-        &cfg.evidence_root.join("native.lock"),
+        &managed_app_root.join("native.lock"),
         &format!("{}:{tier}", cfg.app),
         &lock_opts,
     )?;
     let run_id = crate::util::new_id();
     // Earlier crashed runs: kill survivors by recorded pid + command line, then drop their dirs.
-    let swept = sweep_registries(&cfg.evidence_root.join("runs"), &run_id);
-    workspace::prune_abandoned(
-        &cfg.evidence_root,
-        Duration::from_secs(6 * 3600),
-        std::slice::from_ref(&run_id),
-    );
-    workspace::prune_abandoned_homes(
-        &cfg.app,
-        Duration::from_secs(6 * 3600),
-        std::slice::from_ref(&run_id),
-    );
-    let ws = workspace::create(&cfg.evidence_root, Some(&run_id), &cfg.app)?;
+    let swept = sweep_registries(&managed_app_root, &run_id);
+    let ws = workspace::create(&managed_root, Some(&run_id), &cfg.app)?;
     let tracker = Tracker::with_registry(ws.root.join("pids.json"));
     let mut bundle = Bundle::new(&cfg.app, platform, &run_id)?;
     let _mute = cfg.audio.system_mute.then(SystemMute::engage);
@@ -435,7 +437,7 @@ pub fn run_suite(cfg: &QaConfig, opts: &SuiteOptions) -> Result<SuiteReport> {
     )?;
     bundle.write(&evidence_path)?;
     let _ = std::fs::write(
-        cfg.evidence_root.join("latest.json"),
+        ws.root.parent().unwrap_or(&ws.root).join("latest.json"),
         serde_json::to_vec_pretty(
             &json!({"runId": run_id, "evidence": evidence_path.to_string_lossy(), "results": results_path.to_string_lossy()}),
         )?,

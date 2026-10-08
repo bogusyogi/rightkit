@@ -22,9 +22,12 @@ import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { terminateProcessTree } from "./heavy-command.mjs";
 import { materializeHardeningEvidence } from "./hardening-evidence.mjs";
+import { signingReceiptPath } from "./signing-receipts.mjs";
+import { validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { MACOS_PORTABLE_SIGNING_CONTRACT } from "./macos-signing-contract.mjs";
 import { runConfiguredChecks } from "./release-checks.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
+import { DEFAULT_STORAGE_THRESHOLD_BYTES, findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -200,6 +203,20 @@ if (opts.doctor) {
   }
   if (target.sign?.files?.length) console.log(`sign: ${target.sign.files.join(", ")}`);
   if (target.publishBlocked) console.log(`publishBlocked: ${target.publishBlocked}`);
+  const managedRoot = process.env.RIGHTKIT_MANAGED_ROOT;
+  const installerCopyFindings = findInstallerCopyScripts({
+    appRoot: root,
+    workspaceRoot: process.env.RIGHTKIT_WORKSPACE_ROOT ?? path.resolve(doctorInvocation.repoRoot, ".."),
+  });
+  const storageFindings = [
+    ...installerCopyFindings,
+    ...findLargeRepositorySubdirectories({ appRoot: root, managedRoot, thresholdBytes: Number(process.env.RIGHTKIT_ARTIFACT_STORAGE_THRESHOLD_BYTES ?? DEFAULT_STORAGE_THRESHOLD_BYTES) }),
+  ];
+  if (storageFindings.length) {
+    console.log("artifact-storage: report-only storage findings detected:");
+    for (const finding of storageFindings) console.log(`  - ${finding.path}: ${finding.reason}`);
+    fail(`artifact-storage found ${storageFindings.length} repository storage finding(s); move outputs to RIGHT_RELEASE_ARTIFACT_DIR`);
+  } else console.log("artifact-storage: no installer-copy scripts detected");
 
   // Config above, MACHINE below. Printing config never told anyone whether this
   // box could finish a build; these checks do.
@@ -284,13 +301,13 @@ if (opts.platform === "win") {
 if (opts.platform !== "mac" || runMacPhase("package")) await runCommand(command, root);
 
 for (const rel of target.artifacts ?? []) {
-  await mustExist(path.resolve(root, rel), `missing release artifact: ${rel}`);
+  await mustExist(resolveReleaseArtifactPath(root, rel), `missing release artifact: ${rel}`);
 }
 
 if (nativeFinalization) await completeNativeFinalization(nativeFinalization, { root, target, nativeAssembly });
 
 if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT) {
-  const files = target.sign.files.map((p) => path.resolve(root, p));
+  const files = target.sign.files.map((p) => resolveReleaseArtifactPath(root, p));
   for (const file of files) await mustExist(file, `missing signing artifact: ${file}`);
   // Before the installer earns its own signature, prove it carries the bytes we
   // signed. An installer-only signature on a mutated payload verifies perfectly
@@ -298,7 +315,7 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   await verifyWindowsEmbedding({ root, target, files, markers: bundleMarkerReceipts });
   await signWindows(files, "installer", root);
   if (target.postSign) await runCommand(target.postSign, root);
-  const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => path.resolve(root, artifact.file)))];
+  const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => resolveReleaseArtifactPath(root, artifact.file)))];
   if (!updaterFiles.length) fail(`${config.app} win must declare updater.artifacts for post-code-signing minisign`);
   await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
@@ -308,7 +325,7 @@ if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || ru
 }
 
 if (opts.platform === "mac") {
-  const archive = path.resolve(root, target.notarize.file);
+  const archive = resolveReleaseArtifactPath(root, target.notarize.file);
   await mustExist(archive, `missing macOS notarization archive: ${archive}`);
   await notarizeMacos(archive, root);
 }
@@ -326,7 +343,7 @@ if (opts.platform !== "mac" || runMacPhase("harden")) {
     await run("node", [
       HARDENING_SCAN,
       ...(hardeningEvidence ? ["--allow-evidence", hardeningEvidence] : []),
-      ...scanTargets.map((p) => path.resolve(root, p)),
+      ...scanTargets.map((p) => resolveReleaseArtifactPath(root, p)),
     ], root);
   }
 }
@@ -337,7 +354,7 @@ if (opts.upload && target.publish) {
 
 if (opts.upload && !target.publish) {
   for (const item of target.upload ?? []) {
-    const file = path.resolve(root, item.file);
+    const file = resolveReleaseArtifactPath(root, item.file);
     await mustExist(file, `missing upload artifact: ${item.file}`);
     await run("node", [UPLOAD_LARGE, file, item.key, item.bucket ?? "public"], root);
   }
@@ -356,6 +373,20 @@ function usage(code, message) {
   if (message) console.error(`right-release: ${message}\n`);
   console.error("usage: node release.mjs --tier patch|update [--config right-release.config.mjs] [--platform mac|win] [--upload|--no-upload] [--install] [--dry-run] [--doctor]");
   process.exit(code);
+}
+
+// Product package scripts may emit final installer bytes directly into the
+// managed artifact directory. Keep legacy target-relative paths working while
+// preferring managed output when the local path does not exist.
+function resolveReleaseArtifactPath(root, declared) {
+  const local = path.resolve(root, declared);
+  if (existsSync(local)) return local;
+  const managed = process.env.RIGHT_RELEASE_ARTIFACT_DIR;
+  if (managed) {
+    const candidate = path.join(path.resolve(managed), path.basename(declared));
+    if (existsSync(candidate)) return candidate;
+  }
+  return local;
 }
 
 function fail(message) {
@@ -793,9 +824,7 @@ async function signWindows(files, phase, root) {
 }
 
 function windowsReceiptPath(root, phase) {
-  const configured = phase === "raw-exe" ? target.sign?.receipt : target.sign?.installerReceipt;
-  if (configured) return path.resolve(root, configured);
-  return path.join(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `windows-${phase}.json`);
+  return signingReceiptPath({ appRoot: root, target, platform: "win", phase, stateRoot: process.env.RIGHT_RELEASE_STATE_ROOT });
 }
 
 async function signMacos(files, root) {
@@ -815,6 +844,7 @@ async function notarizeMacos(archive, root) {
   if (opts.dryRun) args.push("--dry-run");
   args.push("--receipt", receipt);
   if (target.notarize.profile) args.push("--profile", target.notarize.profile);
+  if (target.notarize.app) args.push("--app", resolveReleaseArtifactPath(root, target.notarize.app));
   args.push(archive);
   if (!opts.dryRun && existsSync(receipt)) unlinkSync(receipt);
   console.log("right-release: notarizing macOS archive");
@@ -823,9 +853,7 @@ async function notarizeMacos(archive, root) {
 }
 
 function macosReceiptPath(root, phase) {
-  const configured = phase === "signing" ? target.sign?.receipt : target.notarize?.receipt;
-  if (configured) return path.resolve(root, configured);
-  return path.join(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts"), `macos-${phase}.json`);
+  return signingReceiptPath({ appRoot: root, target, platform: "mac", phase, stateRoot: process.env.RIGHT_RELEASE_STATE_ROOT });
 }
 
 function verifyMacosSigningReceipt(receipt, files) {
@@ -843,12 +871,8 @@ function verifyMacosSigningReceipt(receipt, files) {
 }
 
 function verifyMacosNotarizationReceipt(receipt, archive) {
-  if (!existsSync(receipt)) fail(`missing macOS notarization receipt: ${receipt}`);
-  let evidence;
-  try { evidence = JSON.parse(readFileSync(receipt, "utf8")); } catch { fail(`invalid macOS notarization receipt: ${receipt}`); }
-  const sha256 = createHash("sha256").update(readFileSync(archive)).digest("hex");
-  if (evidence.schema !== 1 || evidence.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT || path.resolve(evidence.archive?.file ?? "") !== archive
-    || evidence.archive?.sha256 !== sha256 || evidence.notarization?.status !== "Accepted") fail(`invalid macOS notarization receipt evidence: ${receipt}`);
+  try { validateNotarizationReceipt({ receiptPath: receipt, archive }); }
+  catch (error) { fail(error.message); }
 }
 
 /**

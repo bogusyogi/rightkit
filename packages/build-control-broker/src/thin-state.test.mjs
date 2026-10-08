@@ -5,8 +5,10 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { atomicJson, directorySize, replaceAtomicFile, ThinState, thinWorkspaceKey } from './thin-state.mjs';
 
+const canonicalTempDir = async (prefix) => realpath(await mkdtemp(join(tmpdir(), prefix)));
+
 async function fixture({ advanceClock = false } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-state-'));
+  const root = await canonicalTempDir('rightkit-thin-state-');
   const workspace = join(root, 'workspace');
   await (await import('node:fs/promises')).mkdir(workspace);
   let clock = Date.parse('2026-08-22T00:00:00Z');
@@ -28,7 +30,7 @@ test('Windows atomic replacement retries transient sharing failures', async () =
 });
 
 test('atomic JSON removes its temporary file after bounded replacement failure', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-state-atomic-'));
+  const root = await canonicalTempDir('rightkit-thin-state-atomic-');
   try {
     await assert.rejects(atomicJson(join(root, 'state.json'), { state: 'test' }, {
       platform: 'win32', retryDelays: [1], wait: async () => {},
@@ -97,7 +99,7 @@ test('thin GC deletes oldest retired generation while preserving current generat
   try {
     const first = await item.state.workspace(item.workspace); await writeFile(join(first.layout.target, 'old.bin'), Buffer.alloc(16));
     const second = await item.state.rotate(item.workspace, 'test'); await writeFile(join(second.layout.target, 'current.bin'), Buffer.alloc(16));
-    const result = await item.state.gc({ capBytes: 20 });
+    const result = await item.state.gc({ capBytes: 20, graceMs: 0 });
     assert.deepEqual(result.deleted.map(({ generation }) => generation), [1]);
     assert.equal(result.evicted.length, 0);
     assert.equal(result.unenforceable, null);
@@ -268,7 +270,7 @@ test('crash window between state transition and rename is harmless: orphaned old
     await (await import('node:fs/promises')).writeFile(statePath, JSON.stringify({ ...state, currentGeneration: 2, active: null, updatedAt: state.updatedAt }));
     // The next GC must treat the leftover generation 1 as a retired candidate
     // (not current, not active) and reclaim it over cap.
-    const result = await item.state.gc({ capBytes: 16 });
+    const result = await item.state.gc({ capBytes: 16, graceMs: 0 });
     assert.deepEqual(result.deleted.map(({ generation }) => generation), [1]);
     await assert.rejects(stat(workspace.layout.root), { code: 'ENOENT' });
     assert.equal((await item.state.workspace(item.workspace)).state.currentGeneration, 2);
@@ -288,7 +290,7 @@ test('pre-v2.8 state.json without LRU metadata migrates lazily through GC', asyn
     const loaded = await item.state.workspace(item.workspace);
     assert.equal(loaded.state.currentGeneration, 1, 'legacy state must validate & load');
     // GC must measure (no cached size), persist metadata, and not throw.
-    const result = await item.state.gc({ capBytes: 1_000_000 });
+    const result = await item.state.gc({ capBytes: 1_000_000, graceMs: 0 });
     assert.equal(result.beforeBytes, 32);
     const migrated = (await item.state.workspace(item.workspace)).state;
     assert.equal(migrated.lastMeasuredGeneration, 1);
@@ -305,7 +307,7 @@ test('pre-v2.8 state.json without LRU metadata migrates lazily through GC', asyn
 });
 
 test('directorySize tolerates files and directories vanishing during the scan', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-size-'));
+  const root = await canonicalTempDir('rightkit-thin-size-');
   try {
     const { mkdir } = await import('node:fs/promises');
     await writeFile(join(root, 'keep.bin'), Buffer.alloc(10));
@@ -336,7 +338,7 @@ test('GC uses advisory sizes for active trees and never persists them as measure
     const { mkdir } = await import('node:fs/promises');
     // A rustc temp dir inside the active tree must never be walked.
     await mkdir(join(workspace.layout.target, 'rustcTmp1'));
-    const result = await item.state.gc({ capBytes: 1_000_000 });
+    const result = await item.state.gc({ capBytes: 1_000_000, graceMs: 0 });
     assert.equal(result.advisorySizedTrees, 1);
     assert.equal(result.beforeBytes, 0);
     assert.equal((await item.state.workspace(item.workspace)).state.lastMeasuredBytes ?? null, null);
@@ -446,6 +448,19 @@ test('GC protects recently used warm trees and reports the cap as unenforceable 
   } finally { await item.close(); }
 });
 
+test('GC dry-run reports LRU workspaces without changing thin state', async () => {
+  const item = await fixture();
+  try {
+    await warmWorkspace(item, 'dry-run-a', 64); await warmWorkspace(item, 'dry-run-b', 64);
+    const before = await item.state.workspace(join(item.root, 'dry-run-a'));
+    const result = await item.state.gc({ capBytes: 1, evictIdle: evictVia(item), recentMs: 0, graceMs: 0, dryRun: true });
+    assert.equal(result.dryRun, true);
+    assert.ok(result.planned.evicted.length >= 1);
+    assert.equal(result.evicted.length, 0);
+    assert.equal((await item.state.workspace(join(item.root, 'dry-run-a'))).state.currentGeneration, before.state.currentGeneration);
+  } finally { await item.close(); }
+});
+
 test('GC never rotates empty generations', async () => {
   const item = await fixture();
   try {
@@ -461,7 +476,7 @@ test('GC reclaims a workspace whose source root was deleted', async () => {
   try {
     const { root, workspace } = await warmWorkspace(item, 'gone');
     await rm(root, { recursive: true, force: true });
-    const result = await item.state.gc({ capBytes: 1_000_000 });
+    const result = await item.state.gc({ capBytes: 1_000_000, graceMs: 0 });
     assert.deepEqual(result.reclaimed.deadRoots.map((entry) => entry.workspaceKey), [workspace.key]);
     await assert.rejects(stat(workspace.directory));
   } finally { await item.close(); }
@@ -473,7 +488,7 @@ test('GC reclaims the unpersisted sibling leaf but never the persisted one', asy
     const { workspace } = await warmWorkspace(item, 'leafy');
     assert.equal(workspace.layout.leaf, 'target');
     const orphan = join(workspace.layout.root, 't'); await mkdir(orphan); await writeFile(join(orphan, 'old.bin'), Buffer.alloc(32));
-    const result = await item.state.gc({ capBytes: 1_000_000 });
+    const result = await item.state.gc({ capBytes: 1_000_000, graceMs: 0 });
     assert.equal(result.reclaimed.orphanLeaves.length, 1); assert.equal(result.reclaimed.orphanLeaves[0].sizeBytes, 32);
     await assert.rejects(stat(orphan));
     await assert.doesNotReject(stat(join(workspace.layout.target, 'w.bin')));
@@ -509,8 +524,75 @@ test('GC retires stale idle trees regardless of cap', async () => {
   try {
     await warmWorkspace(item, 'old');
     const seen = [];
-    const result = await item.state.gc({ capBytes: 1_000_000, evictIdle: evictVia(item, seen), staleMs: 500 });
+    const result = await item.state.gc({ capBytes: 1_000_000, evictIdle: evictVia(item, seen), staleMs: 500, graceMs: 0 });
     assert.equal(result.evicted.length, 1); assert.equal(seen[0].reason, 'stale-idle-eviction');
+  } finally { await item.close(); }
+});
+
+test('GC grace protects newly retired & stale trees on every cleanup path', async () => {
+  const item = await fixture();
+  try {
+    const first = await item.state.workspace(item.workspace); await writeFile(join(first.layout.target, 'old.bin'), Buffer.alloc(16));
+    await item.state.rotate(item.workspace, 'test');
+    const seen = [];
+    const result = await item.state.gc({ capBytes: 1, evictIdle: evictVia(item, seen), staleMs: 0, graceMs: 3_600_000 });
+    assert.deepEqual(result.deleted, []); assert.deepEqual(result.evicted, []); assert.deepEqual(seen, []);
+    assert.equal(result.unenforceable !== null, true);
+  } finally { await item.close(); }
+});
+
+test('GC budget LRU evicts idle cache above free floor after grace', async () => {
+  const item = await fixture();
+  try {
+    const workspace = await warmWorkspace(item, 'budget-old', 64);
+    const state = JSON.parse(await readFile(workspace.workspace.statePath, 'utf8'));
+    await writeFile(workspace.workspace.statePath, JSON.stringify({ ...state, lastUsedAt: '2026-08-21T23:00:00.000Z', updatedAt: '2026-08-21T23:00:00.000Z' }));
+    const seen = [];
+    const result = await item.state.gc({ capBytes: 1, evictIdle: evictVia(item, seen), freeBytes: async () => 10_000, freeFloorBytes: 100, staleMs: 14 * 86_400_000, graceMs: 30 * 60_000 });
+    assert.equal(result.freeBytes > result.freeFloorBytes, true); assert.equal(result.evicted.length, 1); assert.equal(seen[0].reason, 'cache-budget-eviction');
+  } finally { await item.close(); }
+});
+
+test('GC budget LRU keeps idle cache inside post-job grace above free floor', async () => {
+  const item = await fixture();
+  try {
+    const workspace = await warmWorkspace(item, 'budget-fresh', 64);
+    const state = JSON.parse(await readFile(workspace.workspace.statePath, 'utf8'));
+    await writeFile(workspace.workspace.statePath, JSON.stringify({ ...state, lastUsedAt: '2026-08-21T23:40:00.000Z', updatedAt: '2026-08-21T23:40:00.000Z' }));
+    const seen = [];
+    const result = await item.state.gc({ capBytes: 1, evictIdle: evictVia(item, seen), freeBytes: async () => 10_000, freeFloorBytes: 100, staleMs: 14 * 86_400_000, graceMs: 30 * 60_000 });
+    assert.equal(result.freeBytes > result.freeFloorBytes, true); assert.equal(result.evicted.length, 0); assert.deepEqual(seen, []);
+  } finally { await item.close(); }
+});
+
+test('GC final eviction revalidates a build that finishes between inventory & callback', async () => {
+  const item = await fixture();
+  try {
+    const { workspace } = await warmWorkspace(item, 'race', 64);
+    const old = JSON.parse(await readFile(workspace.statePath, 'utf8'));
+    await writeFile(workspace.statePath, JSON.stringify({ ...old, lastUsedAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:00.000Z' }));
+    const seen = [];
+    const result = await item.state.gc({
+      capBytes: 1,
+      staleMs: 0,
+      graceMs: 30 * 60_000,
+      evictIdle: async (candidate) => {
+        seen.push(candidate);
+        await item.state.markRunning(item.workspace, { id: 'race-build', command: 'cargo build' });
+        await item.state.finish(item.workspace, 'race-build', { status: 'SUCCEEDED' });
+        return item.state.evictIdleWorkspace(candidate.canonicalRoot, {
+          sizeBytes: candidate.sizeBytes,
+          expectedGeneration: candidate.generation,
+          observedUpdatedAt: candidate.updatedAt,
+          observedLastUsedAt: candidate.lastUsedAt,
+          graceMs: 30 * 60_000,
+          reason: candidate.reason
+        });
+      }
+    });
+    assert.equal(seen.length, 1);
+    assert.deepEqual(result.evicted, []);
+    assert.equal((await item.state.workspace(item.workspace)).state.currentGeneration, 1);
   } finally { await item.close(); }
 });
 

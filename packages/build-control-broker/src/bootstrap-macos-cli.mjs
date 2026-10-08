@@ -9,12 +9,13 @@ import { promisify } from 'node:util';
 import { constants, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, open, readFile, realpath, symlink } from 'node:fs/promises';
 import { availableParallelism as cpuCount, homedir, totalmem } from 'node:os';
-import { deriveCargoBuildJobs, deriveHostSizing, hostBounds, volumeBytes } from './host-sizing.mjs';
+import { deriveCargoBuildJobs, deriveHostSizing, hostBounds, TARGET_CACHE_MAX_BYTES, volumeBytes } from './host-sizing.mjs';
 import { dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runMacOSCutover } from './runtime-cutover-macos-cli.mjs';
 import { assertNoToolLoss, preserveOperatorTunedConfig, stripBom } from './config.mjs';
 import { describeMacosResourceAddon } from './runtime.mjs';
+import { discoverManagedVolume } from './volume-discovery.mjs';
 // A `file://${process.argv[1]}` comparison never matches on Windows, where
 // argv[1] is a drive path: the CLI exited 0 having silently done nothing.
 import { isDirectMain } from './bootstrap-windows-cli.mjs';
@@ -222,7 +223,7 @@ export function defaultBounds() {
   return {
     heartbeatIntervalMs: 5_000, processGraceMs: 5_000, jobDeadlineMs: 0,
     outputBufferBytes: 8 * 1024 * 1024, outputHeadBytes: 16_384, outputTailBytes: 16_384,
-    controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 3, workspaceWriteConcurrency: 4, targetCacheCapBytes: 150 * 1024 ** 3,
+    controlConcurrency: 4, analysisConcurrency: 2, buildConcurrency: 3, workspaceWriteConcurrency: 4, targetCacheCapBytes: TARGET_CACHE_MAX_BYTES,
     workspaceDiscoveryTtlMs: 600_000, workspaceDiscoveryTimeoutMs: 30_000,
   };
 }
@@ -233,8 +234,10 @@ export function defaultCargoBuildJobs({ cpus = cpuCount(), totalMemoryBytes = to
   return deriveCargoBuildJobs({ cpus, totalMemoryBytes });
 }
 
-export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoBuildJobs(), sizing = deriveHostSizing({ managedVolumeBytes: volumeBytes(externalRoot), cargoBuildJobs }) }) {
+export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoBuildJobs(), sizing = null }) {
   if (!Number.isSafeInteger(cargoBuildJobs) || cargoBuildJobs < 1 || cargoBuildJobs > 256) throw new TypeError('cargoBuildJobs must be an integer from 1 to 256');
+  const volume = await discoverManagedVolume(externalRoot).catch(() => null);
+  sizing ??= deriveHostSizing({ managedVolumeBytes: volume?.capacityBytes ?? volumeBytes(externalRoot), cargoBuildJobs });
   const tools = await stageManagedTools(await discoverTools(), externalRoot);
   const sccacheTool = tools.find((tool) => tool.id === 'sccache');
   const expectedSccacheVersion = await sccacheVersion(sccacheTool?.path);
@@ -246,7 +249,7 @@ export async function buildConfig({ externalRoot, cargoBuildJobs = defaultCargoB
   return {
     schemaVersion: 2,
     broker: {
-      externalRoot: { path: externalRoot, volumeId: (await resolveVolumeId(externalRoot)) ?? 'unknown', mounted: true, writable: true, internal: false },
+      externalRoot: { path: externalRoot, volumeId: volume?.volumeId ?? (await resolveVolumeId(externalRoot)) ?? 'unknown', mounted: volume?.mounted ?? true, writable: volume?.writable ?? true, internal: false },
       capacityBytes: sizing.capacityBytes,
       stateFile: join(externalRoot, 'state', 'broker.json'),
       activationFencePath: join(externalRoot, 'state', 'runtime-activation.json'),

@@ -34,12 +34,13 @@ use crate::lock::{acquire, LockOptions};
 use crate::process::Tracker;
 use crate::scenario::{tier_selected, unmet_requirement_with};
 use crate::settings::Settings;
-use crate::util::{new_id, now_ms, sha256_hex, Result};
+use crate::util::{new_id, sha256_hex, Result};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Settings key read for the tier override unless [`Harness::with_tier_key`] changes it.
@@ -73,6 +74,21 @@ pub struct Harness {
     lock: Option<(PathBuf, Duration)>,
     identity: Value,
     prefix: String,
+    run: Arc<Mutex<Option<crate::workspace::QaWorkspace>>>,
+    run_root: PathBuf,
+    scratch_root: PathBuf,
+    allow_external_evidence: bool,
+}
+
+impl Drop for Harness {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.run) != 1 { return; }
+        if let Ok(mut run) = self.run.lock() {
+            if let Some(ws) = run.take() {
+                let _ = crate::workspace::dispose(&ws, true, 3, 10);
+            }
+        }
+    }
 }
 
 impl Harness {
@@ -84,14 +100,39 @@ impl Harness {
         Ok(Self::with_parts(app, root, settings))
     }
 
+    /// Test and embedding constructor with settings discovery and an explicit managed root.
+    pub fn new_in_managed_root(
+        app: &str,
+        root: impl Into<PathBuf>,
+        managed_root: impl Into<PathBuf>,
+    ) -> Result<Self> {
+        let root = root.into();
+        let settings = Settings::discover(&root)?;
+        Ok(Self::with_parts_in_managed_root(app, root, settings, managed_root))
+    }
+
     /// Like [`Harness::new`] with settings already loaded.
     pub fn with_parts(app: &str, root: PathBuf, settings: Settings) -> Self {
-        let evidence_root = settings.get_path(EVIDENCE_KEY, &root).unwrap_or_else(|| {
-            root.join(".cache")
-                .join("qa")
-                .join("evidence")
-                .join(format!("rust-{}-{}", now_ms(), std::process::id()))
-        });
+        Self::with_parts_at(app, root, settings, None)
+    }
+
+    /// Test and embedding constructor with an explicit managed root. This keeps
+    /// fixture runs off machine storage while preserving production defaults in
+    /// [`Harness::with_parts`].
+    pub fn with_parts_in_managed_root(
+        app: &str,
+        root: PathBuf,
+        settings: Settings,
+        managed_root: impl Into<PathBuf>,
+    ) -> Self {
+        let managed_root = managed_root.into();
+        Self::with_parts_at(app, root, settings, Some(managed_root.as_path()))
+    }
+
+    fn with_parts_at(app: &str, root: PathBuf, settings: Settings, managed_root: Option<&Path>) -> Self {
+        let run = Some(crate::workspace::create_impl_for_harness(managed_root, app).unwrap_or_else(|e| panic!("cannot create managed QA run: {e}")));
+        let evidence_root = run.as_ref().expect("managed run").evidence_dir.clone();
+        let run_root = run.as_ref().expect("managed run").root.clone();
         Self {
             app: app.to_string(),
             root,
@@ -103,6 +144,10 @@ impl Harness {
             lock: None,
             identity: Value::Null,
             prefix: "[qa]".into(),
+            scratch_root: run.as_ref().expect("managed run").root.join("scratch"),
+            run: Arc::new(Mutex::new(run)),
+            run_root,
+            allow_external_evidence: managed_root.is_some(),
         }
     }
 
@@ -129,7 +174,11 @@ impl Harness {
     }
 
     pub fn with_evidence_root(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.evidence_root = dir.into();
+        let dir = dir.into();
+        if !self.allow_external_evidence && !dir.starts_with(&self.run_root) {
+            panic!("QA evidence root must be inside managed run root: {}", self.run_root.display());
+        }
+        self.evidence_root = dir;
         self
     }
 
@@ -268,6 +317,7 @@ impl Harness {
             notes: Mutex::new(vec![]),
             skipped: Mutex::new(None),
             scratches: Mutex::new(vec![]),
+            scratch_root: self.scratch_root.clone(),
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&sc)));
         let orphans = match &result {
@@ -477,6 +527,7 @@ pub struct Scenario {
     notes: Mutex<Vec<String>>,
     skipped: Mutex<Option<String>>,
     scratches: Mutex<Vec<PathBuf>>,
+    scratch_root: PathBuf,
 }
 
 impl Scenario {
@@ -513,10 +564,10 @@ impl Scenario {
     pub fn note(&self, msg: impl Into<String>) {
         self.notes.lock().unwrap().push(msg.into());
     }
-    /// A fresh scratch directory outside the evidence tree (short path, OS temp dir). It is
+    /// A fresh scratch directory inside this run's managed root. It is
     /// removed when the scenario passes or skips; kept on failure for debugging.
     pub fn scratch(&self, label: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("rkqa-{}-{}", slug(label), &new_id()[..8]));
+        let d = self.scratch_root.join(format!("rkqa-{}-{}", slug(label), &new_id()[..8]));
         let _ = fs::create_dir_all(&d);
         let d = d.canonicalize().unwrap_or(d);
         self.scratches.lock().unwrap().push(d.clone());

@@ -3,6 +3,7 @@ import { sign as edSign, verify as edVerify } from "node:crypto";
 export const RUNTIME_ARTIFACT_SCHEMA = 1;
 export const RUNTIME_ARTIFACT_KINDS = Object.freeze([
   "asr-model",
+  "tts-model",
   "ocr-model",
   "ort-runtime",
   "media-runtime",
@@ -15,6 +16,9 @@ export const RIGHT_SUITE_APP_KEYS = Object.freeze([
   "mailright",
   "scraperight",
   "coderight",
+  "screenright",
+  "genright",
+  "voiceright",
 ]);
 
 const TARGET_OSES = new Set(["windows", "darwin", "linux", "ios"]);
@@ -107,7 +111,7 @@ export function validateRuntimeArtifactManifest(value) {
   if (value.entitlement.tier !== lane.tier || value.distribution.bucket !== lane.bucket) {
     fail("distribution lane contradicts entitlement tier or bucket");
   }
-  if (["asr-model", "ocr-model", "tokenizer"].includes(value.artifactKind)
+  if (["asr-model", "tts-model", "ocr-model", "tokenizer"].includes(value.artifactKind)
       && (value.distribution.delivery !== "private-r2" || value.entitlement.tier !== "pro")) {
     fail("model artifacts must use private-r2 with Pro entitlement");
   }

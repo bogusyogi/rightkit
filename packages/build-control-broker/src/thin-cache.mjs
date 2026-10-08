@@ -181,6 +181,19 @@ export class ThinCache {
     return Object.freeze({ mode: 'sccache', status: reuse.status, healthStatus: 'SERVICE_OK', reuse, delta: Object.freeze(measured), health: prepared.health ?? null, strictNoFallback: true, attribution: Object.freeze({ ...sample.attribution, windowStartedAt: prepared.attribution?.sampledAt ?? null, windowEndedAt: sample.attribution.sampledAt }) });
   }
 
+  /** Report compiler-cache budget pressure through sccache's own LRU. The
+   * gateway remains the sole writer; maintenance never deletes cache files
+   * behind its back. A later cache write causes sccache to evict oldest
+   * entries, so this path remains safe while builds are active. */
+  async gc({ dryRun = false, budgetPressure = false } = {}) {
+    if (typeof dryRun !== 'boolean' || typeof budgetPressure !== 'boolean') throw new TypeError('cache gc options must be boolean');
+    if (!this.#enabled) return Object.freeze({ dryRun, budgetPressure, status: 'DISABLED', cacheSizeBytes: null, maxSizeBytes: this.#maxSize, evicted: 0 });
+    const sample = await this.snapshot({ timeoutMs: Math.min(1_000, this.#timeout) });
+    const cacheSizeBytes = sample.storage?.cacheSizeBytes;
+    const overByBytes = Number.isSafeInteger(cacheSizeBytes) ? Math.max(0, cacheSizeBytes - this.#maxSize) : null;
+    return Object.freeze({ dryRun, budgetPressure, status: sample.status, cacheSizeBytes: Number.isSafeInteger(cacheSizeBytes) ? cacheSizeBytes : null, maxSizeBytes: this.#maxSize, overByBytes, evicted: 0, enforcement: 'sccache-native-lru', evictionTiming: 'native-write-enforcement', reason: overByBytes > 0 ? 'gateway-owned-native-lru' : null });
+  }
+
   get basedirsActive() { return this.#basedirsEnabled; }
 
   resourceUsage() {

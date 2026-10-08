@@ -18,6 +18,7 @@ const commands = new Map([
   ["hardeningscan", "hardeningscan.mjs"],
   ["sign-windows", "sign-windows.mjs"],
   ["sign-updater", "sign-updater.mjs"],
+  ["signing-agent", "signing-agent-command.mjs"],
   ["create-mac-updater", "create-mac-updater.mjs"],
   ["mirror-root-artifact", "mirror-root-artifact.mjs"],
   ["github", "github-release.mjs"],
@@ -31,7 +32,7 @@ const args = process.argv.slice(2);
 const first = args[0];
 if (first === "dev") {
   import("../development.mjs").then(({ main }) => main(args.slice(1))).catch((error) => {
-    console.error(`right-release dev: ${error.message}`);
+    console.error(`right-release dev: ${error.code ? `[${error.code}] ` : ""}${error.message}`);
     process.exitCode = 1;
   });
 } else {
@@ -69,6 +70,8 @@ if (first === "--version" || first === "-v") {
   );
 } else if (first === "cache") {
   run("cache-command.mjs", args.slice(1));
+} else if (first === "apple") {
+  run("apple-profile-renew.mjs", args.slice(1));
 } else if (first === "publish") {
   const rest = args.slice(1);
   if (rest[0] === "cargo") {
@@ -166,9 +169,12 @@ Commands:
                                                       (npm-rightkit-publish) and verify registry bytes
   publish cargo --crate <name> [--dry-run]           Test, inspect, scan, and publish one crates.io package
   publish swift [--repo <git-url>] [--dry-run] Test, tag, resolve a fresh exact-pin consumer, and publish RightKitSwift to its git repo
-  model promote --authority heardright --config <file> [--dry-run]
+  model promote --authority <app-key> --config <file> [--dry-run]
                                                       Sign and promote one runtime/model artifact
   addon doctor|build|upload|adopt <options>           Manage a signed headless add-on
+  apple profile renew [--config <file>] [--profile <file>] [--dry-run]
+                                                      Renew macOS profile for current Keychain signer
+  signing-agent install|uninstall|status              Manage invisible Aqua-session signing service
   doctor [--platform mac|win]                        Inspect one app's release config
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories
@@ -192,7 +198,7 @@ Commands:
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates
   generate-dmg-background <options>                 Generate the branded multi-resolution DMG background
   mirror-root-artifact --file <path> --package-root <dir>
-                                                      Persist a worktree artifact in the primary repo root
+                                                      Persist artifact in RIGHT_RELEASE_ARTIFACT_DIR
   github --release <id> --platform mac|win [--repo owner/repo] [--dry-run]
                                                       Attach sealed signed artifacts to a verified GitHub Release
 

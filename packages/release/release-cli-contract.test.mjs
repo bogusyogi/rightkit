@@ -43,6 +43,13 @@ test("upload dry-run cannot write a provider-bound verified marker", () => {
   assert.match(source, /verified-\$\{tier\}-github-releases\.json/);
 });
 
+test("upload replay never rewrites publication state from a local verified receipt", () => {
+  const source = readFileSync(upload, "utf8");
+  const replay = source.match(/if \(existsSync\(verifiedMarker\)\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+  assert.doesNotMatch(replay, /recordPublishedVersion/);
+  assert.match(source, /if \(!dryRun\) recordPublishedVersion\([^\n]+\);/);
+});
+
 test("build is tier-neutral and rejects a tier before touching a repository", () => {
   const result = spawnSync(process.execPath, [build, "--platform", "win", "--tier", "patch"], {
     cwd: mkdtempSync(path.join(os.tmpdir(), "right-build-cli-")),

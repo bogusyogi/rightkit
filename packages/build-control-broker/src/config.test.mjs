@@ -20,7 +20,8 @@ function fixture(root = '/managed') {
 }
 
 test('config accepts exact thin settings & freezes result', () => {
-  const config = validateBrokerConfig(fixture()); assert.equal(config.bounds.buildConcurrency, 1); assert.equal(Object.isFrozen(config), true); assert.equal(Object.isFrozen(config.broker), true);
+  const value = fixture(); value.bounds.gcGraceMs = 1_800_000;
+  const config = validateBrokerConfig(value); assert.equal(config.bounds.buildConcurrency, 1); assert.equal(config.bounds.gcGraceMs, 1_800_000); assert.equal(Object.isFrozen(config), true); assert.equal(Object.isFrozen(config.broker), true);
 });
 
 test('index refresh retry defaults on & accepts only boolean overrides', () => {

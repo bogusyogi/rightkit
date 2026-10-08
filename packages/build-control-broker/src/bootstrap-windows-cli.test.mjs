@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -31,7 +31,7 @@ test('direct-main detection is portable across Windows and POSIX path forms', ()
 });
 
 test('bootstrap creates remote snapshot inbox before first scp transfer', (t) => {
-  const scratch = mkdtempSync(join(tmpdir(), 'rk-win-remote-inputs-'));
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'rk-win-remote-inputs-')));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const inputs = ensureRemoteRoutingRoots(scratch);
   assert.equal(inputs, join(scratch, 'remote-inputs'));
@@ -53,7 +53,7 @@ test('Windows Cargo-job derivation uses the shared host sizing rule', () => {
 });
 
 test('Windows tool discovery skips installed RightKit agent shims', async (t) => {
-  const scratch = mkdtempSync(join(tmpdir(), 'rk-win-where-'));
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'rk-win-where-')));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const shimDir = join(scratch, 'agent-bin'); const realDir = join(scratch, 'toolchain');
   mkdirSync(shimDir); mkdirSync(realDir);
@@ -65,7 +65,7 @@ test('Windows tool discovery skips installed RightKit agent shims', async (t) =>
 });
 
 test('staging preserves bundled tools & copies standalone Cargo tools', async (t) => {
-  const scratch = mkdtempSync(join(tmpdir(), 'rk-win-stage-tools-'));
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'rk-win-stage-tools-')));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const rustcPath = join(scratch, 'toolchain', 'bin', 'rustc.exe');
   const upgradePath = join(scratch, 'cargo-upgrade.exe');
@@ -92,7 +92,7 @@ test('defaultBounds matches the same doc-mandated shape shipped on macOS', () =>
 });
 
 test('the Windows-shaped config buildConfig() constructs is accepted by the broker’s own schema', async (t) => {
-  const scratch = mkdtempSync(join(tmpdir(), 'rk-win-bootstrap-'));
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'rk-win-bootstrap-')));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   // Hand-built to the exact shape buildConfig() in bootstrap-windows-cli.mjs
   // produces, with one fake tool standing in for a real `where.exe` discovery.
@@ -134,7 +134,7 @@ test('a config with no rustc/rustdoc discovered omits rustcToolId/rustdocToolId 
   // Regression test: buildConfig() originally set these unconditionally, which
   // rejected the whole config whenever rustc/rustdoc were not on PATH — caught
   // only by testing a fixture that (correctly) mirrors an incomplete toolchain.
-  const scratch = mkdtempSync(join(tmpdir(), 'rk-win-bootstrap-'));
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'rk-win-bootstrap-')));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const config = {
     schemaVersion: 2,

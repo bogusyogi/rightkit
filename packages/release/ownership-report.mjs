@@ -3,6 +3,7 @@ import path from "node:path";
 import { checkApp, EXCEPTIONS_FILE } from "./ownership.mjs";
 import { DEFAULT_APPS } from "./standalone-clone-verify.mjs";
 import { sha256 } from "./ownership-approval.mjs";
+import { findInstallerCopyScripts, findLargeRepositorySubdirectories } from "./installer-storage-doctor.mjs";
 
 export const OWNERSHIP_APPS = Object.freeze([
   ...DEFAULT_APPS.map(({ key, appDir }) => ({ key, root: key === "coderight" ? key : path.posix.join(key, appDir === "." ? "" : appDir), scope: key === "coderight" ? "repository" : appDir })),
@@ -58,7 +59,7 @@ function exceptionRequests(root, app, report) {
   });
 }
 
-function asRecord(app, root, scope, report, manifest, versions, scannedAt) {
+function asRecord(app, root, scope, report, manifest, versions, scannedAt, storageFindings = []) {
   const meta = report.metadata ?? {};
   const findings = (report.findings ?? []).map((f) => ({ fingerprint: f.fingerprint, capability: f.capability, file: f.file, line: f.line ?? 0, occurrenceHash: f.occurrenceHash ?? sha256(canonicalJson(f)), ...(f.qaOnly ? { qaOnly: true } : {}) }));
   const files = [...new Set(findings.map((f) => f.file))].sort();
@@ -93,8 +94,9 @@ function asRecord(app, root, scope, report, manifest, versions, scannedAt) {
     covered: report.covered ?? [],
     problems: report.problems ?? [],
     warnings: report.warnings ?? [],
+    storageFindings,
   };
-  record.resultDigest = sha256(canonicalJson({ app: record.app, commit: record.commit, catalogDigest: record.catalogDigest, contentDigests: record.contentDigests, coverage: record.coverage, rows: record.rows, problems: record.problems, warnings: record.warnings, enrollmentPending: record.enrollmentPending }));
+  record.resultDigest = sha256(canonicalJson({ app: record.app, commit: record.commit, catalogDigest: record.catalogDigest, contentDigests: record.contentDigests, coverage: record.coverage, rows: record.rows, problems: record.problems, warnings: record.warnings, storageFindings: record.storageFindings, enrollmentPending: record.enrollmentPending }));
   record.exceptionRequests = exceptionRequests(root, app, report);
   return record;
 }
@@ -104,12 +106,20 @@ export function buildOwnershipReport({ workspaceRoot, manifest, versions, apps =
   const scannedAt = now.toISOString();
   const records = apps.map(({ key, root: relativeRoot, scope }) => {
     const root = path.resolve(workspaceRoot, relativeRoot);
-    if (!existsSync(root)) return { app: key, scope: scope ?? ".", repositoryRoot: root, status: "unscanned", reason: "configured app root is missing", catalogVersion: catalogVersion(manifest), catalogDigest: sha256(canonicalJson(manifest)), scannedAt, host: null, commit: null, scanAgeSeconds: 0, rows: [], findings: [], violations: [], covered: [], problems: [], coverage: [{ path: ".", status: "unscanned", reason: "configured app root is missing" }], contentDigests: [], resultDigest: sha256(`${key}:missing`) };
-    try { return asRecord(key, root, scope, scanner(root, manifest), manifest, versions, scannedAt); }
-    catch (error) { return { app: key, scope: scope ?? ".", repositoryRoot: root, status: "unscanned", reason: error.message, catalogVersion: catalogVersion(manifest), catalogDigest: sha256(canonicalJson(manifest)), scannedAt, host: null, commit: null, scanAgeSeconds: 0, rows: [], findings: [], violations: [], covered: [], problems: [error.message], coverage: [{ path: ".", status: "unscanned", reason: error.message }], contentDigests: [], resultDigest: sha256(`${key}:${error.message}`) }; }
+    if (!existsSync(root)) return { app: key, scope: scope ?? ".", repositoryRoot: root, status: "unscanned", reason: "configured app root is missing", catalogVersion: catalogVersion(manifest), catalogDigest: sha256(canonicalJson(manifest)), scannedAt, host: null, commit: null, scanAgeSeconds: 0, rows: [], findings: [], violations: [], covered: [], problems: [], warnings: [], storageFindings: [], coverage: [{ path: ".", status: "unscanned", reason: "configured app root is missing" }], contentDigests: [], resultDigest: sha256(`${key}:missing`) };
+    try {
+      const scan = scanner(root, manifest);
+      const storageFindings = [
+        ...findInstallerCopyScripts({ appRoot: root, workspaceRoot }),
+        ...findLargeRepositorySubdirectories({ appRoot: root }),
+      ];
+      return asRecord(key, root, scope, scan, manifest, versions, scannedAt, storageFindings);
+    }
+    catch (error) { return { app: key, scope: scope ?? ".", repositoryRoot: root, status: "unscanned", reason: error.message, catalogVersion: catalogVersion(manifest), catalogDigest: sha256(canonicalJson(manifest)), scannedAt, host: null, commit: null, scanAgeSeconds: 0, rows: [], findings: [], violations: [], covered: [], problems: [error.message], warnings: [], storageFindings: [], coverage: [{ path: ".", status: "unscanned", reason: error.message }], contentDigests: [], resultDigest: sha256(`${key}:${error.message}`) }; }
   });
   const blockMap = new Map(), requestMap = new Map(), warnings = [];
   for (const record of records) {
+    if (record.storageFindings?.length) warnings.push({ app: record.app, message: "release storage ownership findings detected; release artifacts should stay in managed storage", findings: record.storageFindings, problems: [] });
     for (const request of record.exceptionRequests ?? []) if (!requestMap.has(request.contentHash)) requestMap.set(request.contentHash, request);
     if (record.enrollmentPending) {
       warnings.push({ app: record.app, message: "approval enrollment pending; ownership findings remain backlog diagnostics", findings: record.violations, problems: record.problems, scannerWarnings: record.warnings });

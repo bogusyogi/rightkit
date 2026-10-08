@@ -23,7 +23,7 @@ Search order (the first existing file wins; files are not merged):
 3. `<root>/.cache/e2e/settings.env`
 4. `<root>/rightkit-qa.settings.env`
 
-A non-empty process environment variable overrides the file for a single key. This only applies to direct, unmanaged runs. The harness reads `RIGHTKIT_QA_TIER` to override the tier selection (`Harness::with_tier_key` renames it) and `RIGHTKIT_QA_EVIDENCE` to set the evidence root.
+A non-empty process environment variable overrides the file for a single key. This only applies to direct, unmanaged settings. The harness reads `RIGHTKIT_QA_TIER` to override tier selection (`Harness::with_tier_key` renames it); legacy `RIGHTKIT_QA_EVIDENCE` is accepted by settings for compatibility but managed harness runs always write evidence under their managed run root.
 
 ## UI scenarios against a real app (macOS)
 

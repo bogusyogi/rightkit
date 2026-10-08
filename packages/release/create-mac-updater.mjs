@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { execFileSync, spawnSync } from "./background-process.mjs";
+import { spawnSync } from "./background-process.mjs";
 import { existsSync, rmSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { signMacUpdaterFiles } from "./macos-signing-session.mjs";
 
 const args = process.argv.slice(2);
 let app;
@@ -27,18 +27,6 @@ const env = { ...process.env };
 // entries. Tauri's Rust extractor writes those entries as real bundle files,
 // invalidating the Developer ID seal and causing syspolicyd to trash the app.
 env.COPYFILE_DISABLE = "1";
-if (!dryRun && !env.TAURI_SIGNING_PRIVATE_KEY) {
-  try {
-    env.TAURI_SIGNING_PRIVATE_KEY = execFileSync(
-      "security",
-      ["find-generic-password", "-a", os.userInfo().username, "-s", "rightsuite-updater-key", "-w"],
-      { encoding: "utf8" },
-    ).trim();
-  } catch {
-    fail("shared updater key is missing from Keychain service rightsuite-updater-key");
-  }
-}
-env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= "";
 
 rmSync(outputPath, { force: true });
 rmSync(`${outputPath}.sig`, { force: true });
@@ -51,7 +39,12 @@ run("tar", [
   path.dirname(appPath),
   path.join(path.basename(appPath), "Contents"),
 ]);
-run("pnpm", ["exec", "tauri", "signer", "sign", outputPath]);
+if (dryRun) run("pnpm", ["exec", "tauri", "signer", "sign", outputPath]);
+else {
+  console.log(`pnpm exec tauri signer sign ${outputPath}`);
+  try { signMacUpdaterFiles([outputPath], { cwd, env }); }
+  catch (error) { fail(`${error.code ? `[${error.code}] ` : ""}${error.message}`); }
+}
 
 function run(command, commandArgs) {
   const envPrefix = command === "tar" ? "COPYFILE_DISABLE=1 " : "";
