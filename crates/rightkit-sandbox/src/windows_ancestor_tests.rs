@@ -192,7 +192,10 @@ fn owner_mapping_requires_exact_profile_format_and_derived_sid() {
     let prefix = "coderight.sandbox.workspace.";
     let name = format!("{prefix}0123456789abcdef");
     let sid = sid_string(derive_sid(&name).unwrap().0).unwrap();
-    assert_eq!(owned_mapping(&name, &sid, prefix).unwrap(), Some(sid.clone()));
+    assert_eq!(
+        owned_mapping(&name, &sid, prefix).unwrap(),
+        Some(sid.clone())
+    );
     assert_eq!(
         owned_mapping(&name.to_ascii_uppercase(), &sid, prefix).unwrap(),
         Some(sid.clone())
@@ -359,9 +362,11 @@ fn stale_sweep_removes_only_verified_crate_profile_sids() {
             .is_none(),
         "mapping must match derived SID"
     );
-    assert!(owned_mapping("rightkit.sandbox.not-a-hash", &sid, PROFILE_PREFIX)
-        .unwrap()
-        .is_none());
+    assert!(
+        owned_mapping("rightkit.sandbox.not-a-hash", &sid, PROFILE_PREFIX)
+            .unwrap()
+            .is_none()
+    );
     let owned = vec![owned_mapping(&name, &sid, PROFILE_PREFIX).unwrap().unwrap()];
     for path in &chain {
         add_ace(path, &sid, ANCESTOR_ACCESS, 0, ACCESS_ALLOWED_ACE_TYPE);

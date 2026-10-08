@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { OwnershipAdmission } from './ownership-admission.mjs';
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
@@ -78,7 +78,7 @@ test('rightkit resolution miss refreshes isolated manifest then retries original
     assert.deepEqual(refresh.argv, ['generate-lockfile', '--manifest-path', refresh.manifestPath]);
     assert.match(refresh.manifest, /\[workspace\]/);
     assert.match(refresh.manifest, /"rightkit-jobs" = "\^0\.2\.2"/);
-    assert.equal(refresh.cwd, item.workspace);
+    assert.equal(await realpath(refresh.cwd), await realpath(item.workspace));
     assert.equal(refresh.env.CARGO_HOME, original.env.CARGO_HOME);
     assert.equal(refresh.env.CARGO_NET_OFFLINE, 'false');
     assert.deepEqual(retry.argv, original.argv);
