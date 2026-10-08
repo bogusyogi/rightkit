@@ -212,12 +212,13 @@ unsafe extern "system" {
 #[cfg(unix)]
 #[test]
 fn inheritance_filter_preserves_exec_failure_reporting() {
-    // Existing file with no executable format gets through path resolution,
-    // then exec fails after pre_exec has run.
+    // Existing absolute path without execute permission: exec fails with EACCES after
+    // pre_exec has run. (An executable file with a bad format is not usable here:
+    // execvp answers ENOEXEC by re-running it through /bin/sh, so spawn succeeds.)
     let path = std::env::temp_dir().join(format!("rightkit-bad-exec-{}", std::process::id()));
-    std::fs::write(&path, b"\x7fELFbroken").unwrap();
+    std::fs::write(&path, b"not executable").unwrap();
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
     let mut command = OwnedCommand::new(&path);
     command.inherit_handles_only([]);
     let result = command.spawn();
