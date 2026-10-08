@@ -171,7 +171,7 @@ function createEvidence(repoRoot, {
     checkedAt: new Date().toISOString(),
   };
   const warning = enrollmentPending ? "WARNING: ownership approval enrollment is pending; findings remain backlog diagnostics and no protected evidence or approvals are asserted" : undefined;
-  return { ok: enrollmentPending || (result.ok && floor.ok && contentCoverage.length === 0), ...(enrollmentPending ? { enrollmentPending: true, warning } : {}), evidence, result, floor, contentCoverage };
+  return { ok: !enrollmentPending && result.ok && floor.ok && contentCoverage.length === 0, ...(enrollmentPending ? { enrollmentPending: true, warning } : {}), evidence, result, floor, contentCoverage };
 }
 
 /** Create scan evidence bound to committed source, catalog, and signed exceptions. */

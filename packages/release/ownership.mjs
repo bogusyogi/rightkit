@@ -1,6 +1,7 @@
 // RightKit ownership scan. Public exports retain the original findings-array API.
 import { spawnSync } from "./background-process.mjs";
-import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, resolveKeyLogTrust, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
+import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, policyEntryDigest, resolveKeyLogTrust, sha256, verifyException, verifyProtectedProvenance } from "./ownership-approval.mjs";
+import installedManifest from "./rightkit-ownership.json" with { type: "json" };
 import { parse as parseToml } from "smol-toml";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -84,13 +85,19 @@ function sourceFindings(file, matchers) {
   const key = `${matchers.digest}:${ext}:${file.cacheKey ?? inputDigest(file)}`;
   if (sourceCache.has(key)) return sourceCache.get(key);
   const text = file.bytes.toString("utf8"), findings = [];
+  const ordinals = new Map();
+  const push = (c, f, line, lineText) => {
+    const identity = `${f.id}\0${lineText}`, ordinal = ordinals.get(identity) ?? 0;
+    ordinals.set(identity, ordinal + 1);
+    findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, kind: "source", line, lineText, ordinal, text: lineText.trim().slice(0, 160) });
+  };
   if (matchers.prefilter.test(text)) {
     const lines = text.split(/\r?\n/);
     const applicable = matchers.sources.filter(({ f }) => !f.extensions || f.extensions.includes(ext));
     const lineMatchers = applicable.filter(({ f }) => !f.codeOnly);
     for (const [i, line] of lines.entries()) if (!commentOnly(line)) for (const { c, f, re } of lineMatchers) {
       re.lastIndex = 0;
-      if (re.test(line)) findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, line: i + 1, text: line.trim().slice(0, 160) });
+      if (re.test(line)) push(c, f, i + 1, line);
     }
     const codeMatchers = applicable.filter(({ f }) => f.codeOnly);
     if (codeMatchers.length) {
@@ -104,7 +111,7 @@ function sourceFindings(file, matchers) {
           for (; offset < match.index; offset++) if (text[offset] === "\n") line++;
           if (reported.has(line)) continue;
           reported.add(line);
-          findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, line, text: lines[line - 1].trim().slice(0, 160) });
+          push(c, f, line, lines[line - 1]);
         }
       }
     }
@@ -177,18 +184,25 @@ function parseCargo(parsed, file, out, workspace, root, coverage, inventory) {
   const pathSpec = (pathValue, sourceFile, display) => {
     resolveLocalPath(root, sourceFile, pathValue, coverage, display, inventory);
   };
-  const addTable = (table) => {
+  const addTable = (table, prefix = "") => {
     if (!table || typeof table !== "object") return;
     for (const section of ["dependencies", "dev-dependencies", "build-dependencies"]) for (const [alias, raw] of Object.entries(table[section] ?? {})) {
       const spec = raw && typeof raw === "object" ? raw : {};
-      const inherited = spec.workspace === true ? workspace.deps?.[alias] ?? {} : {};
+      const inheritedRaw = spec.workspace === true ? workspace.deps?.[alias] : undefined;
+      if (spec.workspace === true && inheritedRaw === undefined) throw new Error(`missing workspace dependency: ${alias}`);
+      const inherited = typeof inheritedRaw === "string" ? { version: inheritedRaw } : inheritedRaw ?? {};
       const name = spec.package ?? inherited.package ?? alias;
-      const source = spec.path ?? inherited.path ? "path" : spec.git ?? inherited.git ? "git" : undefined;
-      addDependency(out, "cargo", name, file, { local: source === "path" || source === "git", source });
-      if (source === "path") pathSpec(spec.path ?? inherited.path, spec.path ? file : path.posix.join(workspace.dir ?? ".", "Cargo.toml"), file);
-      if (source === "git") coverage.push({ path: file, status: "unscanned", reason: `git-dependency-source:${name}` });
+      const pathValue = spec.path ?? inherited.path, git = spec.git ?? inherited.git, selector = spec.rev ?? inherited.rev ?? spec.branch ?? inherited.branch ?? spec.tag ?? inherited.tag;
+      const source = pathValue ? `path:${pathValue}` : git ? `git+${git}${selector ? `#${selector}` : ""}` : "registry";
+      const requirement = typeof raw === "string" ? raw : spec.version ?? inherited.version ?? null;
+      if (spec.features !== undefined && !Array.isArray(spec.features) || inherited.features !== undefined && !Array.isArray(inherited.features)) throw new Error(`malformed dependency features: ${alias}`);
+      const features = [...new Set([...(inherited.features ?? []), ...(spec.features ?? [])])].sort();
+      if (!raw || typeof raw !== "string" && (typeof raw !== "object" || Array.isArray(raw)) || features.some((x) => typeof x !== "string") || requirement !== null && typeof requirement !== "string") throw new Error(`malformed dependency declaration: ${alias}`);
+      addDependency(out, "cargo", name, file, { alias: name === alias ? null : alias, section: `${prefix}${section}`, requirement, features, defaultFeatures: spec["default-features"] ?? inherited["default-features"] ?? null, source, resolvedVersion: null, local: !!pathValue || !!git });
+      if (pathValue) pathSpec(pathValue, spec.path ? file : path.posix.join(workspace.dir ?? ".", "Cargo.toml"), file);
+      if (git) coverage.push({ path: file, status: "unscanned", reason: `git-dependency-source:${name}` });
     }
-    for (const target of Object.values(table.target ?? {})) addTable(target);
+    for (const [target, value] of Object.entries(table.target ?? {})) addTable(value, `${prefix}target.'${target}'.`);
   };
   addTable(parsed);
 }
@@ -253,6 +267,110 @@ function committedFileInventory(appRoot, trust, pathPrefix, committed) {
   return { files, coverage, committed: true, pathPrefix, repositoryFiles, snapshotFiles: new Map(repositoryFiles.map((file) => [file.rel, file])) };
 }
 
+function swiftPackageArguments(text) {
+  const args = [];
+  for (const match of text.matchAll(/\.package\s*\(/g)) {
+    let at = match.index + match[0].length, start = at, depth = 1, quote = false;
+    for (; at < text.length && depth; at++) {
+      if (text[at] === "\\" && quote) { at++; continue; }
+      if (text[at] === '"') quote = !quote;
+      if (!quote && text[at] === "(") depth++;
+      if (!quote && text[at] === ")") depth--;
+    }
+    if (depth) throw new Error("unterminated Swift package declaration");
+    args.push(text.slice(start, at - 1));
+  }
+  return args;
+}
+function resolveDependencyVersions(appRoot, inventory, deps, coverage, contentDigests) {
+  const cache = new Map();
+  const adjacent = (file, name) => {
+    const rel = path.posix.join(path.posix.dirname(file), name);
+    if (cache.has(rel)) return cache.get(rel);
+    let bytes;
+    if (inventory.committed) {
+      const item = inventory.snapshotFiles.get(`${inventory.pathPrefix ?? ""}${rel}`);
+      if (item && !item.bytes) throw new Error(`lockfile bytes unavailable: ${rel}`);
+      bytes = item?.bytes;
+    } else {
+      const absolute = path.resolve(appRoot, ...rel.split("/"));
+      if (existsSync(absolute)) {
+        const root = realpathSync(appRoot), real = realpathSync(absolute);
+        if (!real.startsWith(`${root}${path.sep}`)) throw new Error(`lockfile outside scan root: ${rel}`);
+        if (!lstatSync(absolute).isFile() || lstatSync(absolute).size > 64 * 1024 * 1024) throw new Error(`lockfile unsupported or too large: ${rel}`);
+        bytes = readFileSync(absolute);
+      }
+    }
+    const text = bytes?.toString("utf8");
+    cache.set(rel, text);
+    if (bytes) contentDigests.push({ path: rel, digest: byteDigest(bytes) });
+    return text;
+  };
+  for (const d of deps) {
+    try {
+      if (d.ecosystem === "cargo") {
+        const text = adjacent(d.file, "Cargo.lock");
+        if (text !== undefined) {
+          const lock = parseToml(text);
+          if (!Array.isArray(lock.package)) throw new Error("Cargo.lock package list missing");
+          let candidates = lock.package.filter((p) => p.name === d.name && (d.source === "registry" ? String(p.source ?? "").startsWith("registry+") : d.source.startsWith("git+") ? String(p.source ?? "").split("#")[0].split("?")[0] === d.source.split("#")[0] : !p.source));
+          if (candidates.length > 1) {
+            const manifestText = inventory.files.find((f) => f.rel === d.file)?.bytes?.toString("utf8");
+            const owner = manifestText && parseToml(manifestText).package?.name;
+            const refs = lock.package.filter((p) => p.name === owner).flatMap((p) => p.dependencies ?? []);
+            candidates = candidates.filter((p) => refs.some((ref) => ref === `${d.name} ${p.version}` || ref.startsWith(`${d.name} ${p.version} (`)));
+          }
+          if (candidates.length !== 1 || typeof candidates[0].version !== "string") throw new Error(`Cargo.lock resolution missing or ambiguous: ${d.name}`);
+          d.resolvedVersion = candidates[0].version;
+        }
+      } else if (d.ecosystem === "npm") {
+        const text = adjacent(d.file, "npm-shrinkwrap.json") ?? adjacent(d.file, "package-lock.json");
+        if (text !== undefined) {
+          const lock = JSON.parse(text), name = d.alias ?? d.name;
+          const item = lock.packages?.[`node_modules/${name}`] ?? lock.dependencies?.[name];
+          if (typeof item?.version !== "string") throw new Error(`npm lock resolution missing: ${name}`);
+          d.resolvedVersion = item.version;
+        } else {
+          const pnpm = adjacent(d.file, "pnpm-lock.yaml"), yarn = pnpm === undefined ? adjacent(d.file, "yarn.lock") : undefined;
+          if (pnpm !== undefined) {
+            let section, name, dependencyIndent, inRoot = !/^importers:/m.test(pnpm), rootIndent;
+            for (const line of pnpm.split(/\r?\n/)) {
+              const entry = /^(\s*)(?:'([^']+)'|"([^"]+)"|([^:]+)):\s*(.*?)\s*$/.exec(line);
+              if (!entry) continue;
+              const indent = entry[1].length, key = entry[2] ?? entry[3] ?? entry[4], value = entry[5];
+              if (key === "." && indent === 2) { inRoot = true; rootIndent = 2; continue; }
+              if (rootIndent !== undefined && indent <= rootIndent) inRoot = false;
+              if (!inRoot) continue;
+              if (["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].includes(key)) { section = key; dependencyIndent = indent + 2; name = undefined; continue; }
+              if (indent === dependencyIndent) { name = key; if (name === (d.alias ?? d.name) && section === d.section && value) d.resolvedVersion = value.replace(/^['"]|['"]$/g, "").split("(")[0]; }
+              if (key === "version" && name === (d.alias ?? d.name) && section === d.section && indent === dependencyIndent + 2) d.resolvedVersion = value.replace(/^['"]|['"]$/g, "").split("(")[0].replace(/^.*@(?=\d)/, "");
+            }
+            if (!d.resolvedVersion) throw new Error(`pnpm lock resolution missing: ${d.alias ?? d.name}`);
+          } else if (yarn !== undefined) {
+            let selected = false;
+            for (const line of yarn.split(/\r?\n/)) {
+              if (/^\S/.test(line) && /:$/.test(line)) selected = line.includes(`${d.alias ?? d.name}@${d.requirement}`) || line.includes(`${d.alias ?? d.name}@npm:${d.requirement}`);
+              const version = /^\s+version(?::|\s)\s*["']?([^\s"']+)/.exec(line);
+              if (selected && version) d.resolvedVersion = version[1];
+            }
+            if (!d.resolvedVersion) throw new Error(`yarn lock resolution missing: ${d.alias ?? d.name}`);
+          }
+        }
+      } else if (d.ecosystem === "swiftpm") {
+        const text = adjacent(d.file, "Package.resolved");
+        if (text !== undefined && !d.local) {
+          const lock = JSON.parse(text), pins = lock.pins ?? lock.object?.pins;
+          if (!Array.isArray(pins)) throw new Error("Swift lock pins missing");
+          const pin = pins.filter((p) => (p.identity ?? p.package)?.toLowerCase() === d.name.toLowerCase() || p.location === d.source.slice(4).split("#")[0] || p.repositoryURL === d.source.slice(4).split("#")[0]);
+          if (pin.length !== 1) throw new Error(`Swift lock resolution missing or ambiguous: ${d.name}`);
+          d.resolvedVersion = pin[0].state?.version ?? null;
+          if (d.resolvedVersion !== null && typeof d.resolvedVersion !== "string") throw new Error(`invalid Swift resolved version: ${d.name}`);
+        }
+      }
+    } catch (error) { coverage.push({ path: d.file, status: "unscanned", reason: `dependency-lock-resolution:${error.message}` }); }
+  }
+}
+
 function dependenciesFromInventory(appRoot, inventory) {
   const deps = [], coverage = [], contentDigests = [];
   // Workspace inheritance is loaded before member manifests.
@@ -304,27 +422,32 @@ function dependenciesFromInventory(appRoot, inventory) {
     else if (base === "package.json") {
       let pkg; try { pkg = JSON.parse(text); } catch { coverage.push({ path: rel, status: "unscanned", reason: "invalid-json" }); continue; }
       for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) for (const [name, spec] of Object.entries(pkg[field] ?? {})) {
-        if (typeof spec !== "string") continue;
+        if (typeof spec !== "string") { coverage.push({ path: rel, status: "unscanned", reason: `invalid-npm-dependency:${name}` }); continue; }
         const alias = spec.match(/^(?:npm:)(@[^/]+\/[^@]+|[^@]+)(?:@|$)/)?.[1];
         const localPath = spec.match(/^(?:file:|link:)(.+)$/)?.[1];
         const isGit = /^(git\+|https?:.*\.git)/i.test(spec);
         const devOnly = field === "devDependencies" && !["dependencies", "optionalDependencies", "peerDependencies"].some((section) => Object.hasOwn(pkg[section] ?? {}, name));
-        addDependency(deps, "npm", alias ?? name, rel, { alias: alias ? name : undefined, local: !!localPath, source: localPath ? spec.split(":")[0] : isGit ? "git" : spec.startsWith("workspace:") ? "workspace" : undefined, ...(devOnly ? { devOnly: true } : {}) });
+        addDependency(deps, "npm", alias ?? name, rel, { alias: alias ? name : null, section: field, requirement: spec, features: [], defaultFeatures: null, resolvedVersion: null, local: !!localPath, source: localPath ? `path:${localPath}` : isGit ? spec.startsWith("git+") ? spec : `git+${spec}` : spec.startsWith("workspace:") ? `path:${spec}` : "registry", ...(devOnly ? { devOnly: true } : {}) });
         if (localPath) {
           resolveLocalPath(appRoot, rel, localPath, coverage, rel, inventory, "local-npm-dependency", name);
         } else if (isGit) coverage.push({ path: rel, status: "unscanned", reason: `git-npm-dependency-source:${name}` });
       }
     } else {
-      for (const m of text.matchAll(/\.package\s*\(([^)]*)\)/g)) {
-        const arg = m[1], url = arg.match(/url:\s*["']([^"']+)["']/)?.[1], pathDep = arg.match(/path:\s*["']([^"']+)["']/)?.[1];
-        const id = arg.match(/name:\s*["']([^"']+)["']/)?.[1] ?? url?.replace(/\.git$/i, "").split("/").pop()?.toLowerCase() ?? pathDep?.split(/[\\/]/).pop();
-        addDependency(deps, "swiftpm", id, rel, { local: !!pathDep, source: pathDep ? "path" : url });
+      for (const arg of swiftPackageArguments(text)) {
+        const url = arg.match(/url:\s*["']([^"']+)["']/)?.[1], pathDep = arg.match(/path:\s*["']([^"']+)["']/)?.[1], registry = arg.match(/id:\s*["']([^"']+)["']/)?.[1];
+        const explicitName = arg.match(/name:\s*["']([^"']+)["']/)?.[1];
+        const id = explicitName ?? registry ?? url?.replace(/\.git$/i, "").split("/").pop()?.toLowerCase() ?? pathDep?.split(/[\\/]/).pop();
+        if (!id || !url && !pathDep && !registry) throw new Error("unsupported Swift package identity or source");
+        const selector = arg.match(/(?:branch|revision):\s*["']([^"']+)["']/)?.[1];
+        const requirement = arg.replace(/(?:name|url|path|id):\s*"(?:\\.|[^"\\])*"\s*,?\s*/g, "").trim() || null;
+        addDependency(deps, "swiftpm", id, rel, { alias: null, section: "dependencies", requirement, features: [], defaultFeatures: null, resolvedVersion: null, local: !!pathDep, source: pathDep ? `path:${pathDep}` : registry ? "registry" : `git+${url}${selector ? `#${selector}` : ""}` });
         if (pathDep) {
           resolveLocalPath(appRoot, rel, pathDep, coverage, rel, inventory, "local-swift-dependency", id);
         }
       }
     }
   }
+  resolveDependencyVersions(appRoot, inventory, deps, coverage, contentDigests);
   Object.defineProperty(deps, "coverage", { value: coverage, enumerable: false });
   Object.defineProperty(deps, "contentDigests", { value: contentDigests, enumerable: false });
   return deps;
@@ -441,7 +564,7 @@ function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), t
   for (const c of manifest.capabilities) for (const f of c.fingerprints.filter((x) => x.type === "dependency")) for (const d of deps) {
     if (d.ecosystem === f.ecosystem && (d.name === f.name || d.alias === f.name)) {
       const qaOnly = c.capability !== "desktop-qa" && d.ecosystem === "npm" && d.devOnly && npmUsage.get(d.alias ?? d.name) === true;
-      findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, file: d.file, line: 0, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, local: d.local, provenance: d.source, ...(qaOnly ? { qaOnly: true } : {}) });
+      findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, file: d.file, line: 0, kind: "dependency", ecosystem: d.ecosystem, name: d.name, alias: d.alias, section: d.section, requirement: d.requirement, features: d.features, defaultFeatures: d.defaultFeatures, source: d.source, resolvedVersion: d.resolvedVersion, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, local: d.local, provenance: d.source, ...(qaOnly ? { qaOnly: true } : {}) });
     }
   }
   const matchers = sourceMatchers(manifest);
@@ -528,18 +651,20 @@ export function evaluate(findings, exceptions, options = {}) {
   const catalogDigest = metadata.catalogDigest ?? options.catalogDigest ?? "";
   const identity = options.repositoryIdentity ?? metadata.repositoryIdentity ?? "";
   for (const e of exceptions) {
-    const p = e.payload ?? e;
-    const where = `exception #${e.index} (${p.fingerprint ?? "?"})`;
-    const missing = ["fingerprint", "paths", "reason", "owner", "expires", "requestId", "occurrenceHashes"].filter((k) => !p[k] || (Array.isArray(p[k]) && !p[k].length));
+    const p = e?.payload ?? e ?? {};
+    const where = `exception #${e?.index} (${p.fingerprint ?? "?"})`;
+    const missing = ["fingerprint", "occurrences", "policyDigest", "minimumScannerVersion", "minimumCatalogVersion", "issued", "reason", "owner", "expires", "requestId"].filter((k) => !p[k] || (Array.isArray(p[k]) && !p[k].length));
     if (missing.length) { problems.push(`${where}: missing ${missing.join(", ")}`); continue; }
     const approvedBy = e.approvedBy ?? p.approvedBy;
     if (approvedBy !== undefined && approvedBy !== "Adrian") { problems.push(`${where}: approvedBy must be Adrian`); continue; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(p.expires) || Number.isNaN(Date.parse(`${p.expires}T00:00:00Z`)) || p.expires < today) { problems.push(`${where}: invalid or expired expires date`); continue; }
     if (!p.trackingRef || typeof p.trackingRef !== "object" || !p.trackingRef.verified || !/^https:\/\//.test(p.trackingRef.url ?? "") || !p.trackingRef.id) { problems.push(`${where}: tracking must be a verified RightKit request reference`); continue; }
-    if (p.paths.some((item) => !item || item.includes("\\") || item.startsWith("/") || item.split("/").includes("..") || /[*?\[\]{}]/.test(item))) { problems.push(`${where}: exception paths must be exact repository-relative paths`); continue; }
-    const verification = verifyException(e, { repositoryIdentity: identity, catalogDigest, findings, trust: options.trust, today, scannerVersion: options.scannerVersion ?? metadata.scannerVersion ?? SCANNER_VERSION, catalogVersion: options.catalogVersion ?? metadata.catalogVersion });
+    let policyDigest;
+    try { policyDigest = policyEntryDigest(options.manifest ?? installedManifest, p.fingerprint); } catch (error) { problems.push(`${where}: ${error.message}`); continue; }
+    const { index, ...record } = e;
+    const verification = verifyException(record, { repositoryIdentity: identity, catalogDigest, policyDigest, findings, trust: options.trust, today, scannerVersion: options.scannerVersion ?? metadata.scannerVersion ?? SCANNER_VERSION, catalogVersion: options.catalogVersion ?? metadata.catalogVersion });
     if (!verification?.ok) { problems.push(`${where}: signature verification failed${verification?.problems?.length ? ` (${verification.problems.join("; ")})` : ""}`); continue; }
-    const matching = findings.filter((f) => f.fingerprint === p.fingerprint && p.paths.includes(f.file) && p.occurrenceHashes.includes(occurrenceHash(f)));
+    const matching = findings.filter((f) => f.fingerprint === p.fingerprint && p.occurrences.some((item) => item.path === f.file && item.hash === occurrenceHash(f)));
     if (!matching.length) { problems.push(`${where}: stale, matches no signed occurrence`); continue; }
     for (const f of matching) covered.push({ ...f, occurrenceHash: occurrenceHash(f), exception: e });
   }
@@ -576,10 +701,10 @@ export function checkApp(appRoot, manifest, options = {}) {
   const enrollment = trust?.rootFingerprint
     ? { enrolled: trust.enrollmentComplete === true, pending: trust.enrollmentComplete !== true }
     : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined;
-  const result = evaluate(scanned.findings, loadExceptions(appRoot), { ...options, trust, trustEnrollment: enrollment, metadata });
+  const result = evaluate(scanned.findings, loadExceptions(appRoot), { ...options, manifest, trust, trustEnrollment: enrollment, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
-  return { ok: result.enrollmentPending || (!result.violations.length && !result.problems.length && !coverage.length), rows, ...result, findings: scanned.findings, coverage, metadata };
+  return { ok: !result.enrollmentPending && !result.violations.length && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
 }
 
 function checkCommitted(appRoot, manifest, options, acquire) {
@@ -639,7 +764,7 @@ function checkCommitted(appRoot, manifest, options, acquire) {
     pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance, exceptionDigest,
     source: "committed-git-tree", ...(keyLogDigest ? { keyLogDigest, keyCheckpoint, rootFingerprint: trust.rootFingerprint, ...(keyAuthorityBinding ? { keyAuthority: keyAuthorityBinding } : {}) } : {}),
   };
-  const result = evaluate(scanned.findings, exceptions, { ...options, trust, trustEnrollment: trust?.rootFingerprint
+  const result = evaluate(scanned.findings, exceptions, { ...options, manifest, trust, trustEnrollment: trust?.rootFingerprint
     ? { enrolled: trust.enrollmentComplete === true, pending: trust.enrollmentComplete !== true }
     : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata });
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];

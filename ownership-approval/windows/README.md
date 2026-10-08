@@ -1,6 +1,6 @@
 # RightKit Windows ownership approval helper
 
-Visible WinForms helper preserves legacy exception review/signing and adds Windows Hello key-log commands. Argumentless launch keeps existing review GUI.
+Visible WinForms helper reviews schema-2 exceptions & key-log commands through one Windows Hello RSA-2048 credential. Argumentless launch keeps existing review GUI.
 
 ## Native key-log commands
 
@@ -13,7 +13,7 @@ Windows Hello API owns per-use user verification for key-log signing & creation;
 
 ## Exception approvals
 
-The existing exception-review GUI keeps schema-1 payload validation, full-payload review, digest display, explicit confirmation, and signed-record output. It prefers the dedicated Windows Hello RSA credential when available and signs through one `RequestSignAsync` call. Its signature envelope keeps the legacy `win-<sha256-SPKI>` key ID. If no Windows Hello credential exists, the existing nonexportable MPCP P-256 key & ForceHighProtection flow remains available.
+Exception-review GUI requires [schema v2](../../docs/OWNERSHIP-EXCEPTION-SCHEMA-V2.md): exact payload keys, fingerprint ID regex, policy digest, dotted-numeric scanner/catalog floors, 1–256 distinct path/hash occurrences, issued/expiry dates at most 90 days apart, & verified HTTPS tracking without userinfo. Full-payload review, digest display & explicit confirmation precede one `RequestSignAsync` call. Enrollment, staging, export & signing all use dedicated Hello RSA credential; missing credentials fail closed. Exception signature IDs remain `win-<sha256-SPKI>`; key-log IDs use bare SPKI fingerprints.
 
 ## Build & source checks
 
@@ -25,4 +25,4 @@ $output = Join-Path $env:TEMP 'rightkit-ownership-approval-win-x64'
 & 'C:\Users\adrds\.dotnet\dotnet.exe' publish tools/rightkit/ownership-approval/windows/OwnershipApproval.csproj -c Release -r win-x64 --artifacts-path $artifacts -o $output
 ```
 
-Run source conformance with `powershell -NoProfile -File tools/rightkit/ownership-approval/windows/source-conformance.ps1`. Native build and ephemeral software-RSA interoperability do not enroll or authenticate a real key.
+Run source conformance with `powershell -NoProfile -File tools/rightkit/ownership-approval/windows/source-conformance.ps1`. It pins native refusal guards, extracts payload keys/regexes & checks every shared `conformance/v2-vectors.json` draft through source-projected rules without compilation or authentication. Native build & ephemeral software-RSA interoperability do not enroll or authenticate a real key.

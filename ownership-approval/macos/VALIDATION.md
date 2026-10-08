@@ -1,5 +1,7 @@
 # Mac ownership helper validation
 
+Schema-v2 source update: exact payload keys, fingerprint ID regex, policy digest, dotted-numeric scanner/catalog floors, 1–256 distinct path/hash occurrences, issued/expiry window capped at 90 days, & verified HTTPS tracking without userinfo. Exception signing emits schema 2; key-log schema stays 1. `source-conformance.ps1` consumes shared `conformance/v2-vectors.json`, pins native refusal guards & checks source-projected rules. This update has source checks only; native evidence below describes prior build.
+
 Checked 2026-10-08 on macOS 27.0.1, native arm64.
 
 Helper: `/Users/adrdsouza/.rightkit-managed/ownership-approval/macos/content-2c30864bdb666a1ca1e4388ea7a3bc83cb985196d666b96cc30e1da7cd5b0e6b/RightKitOwnershipApproval.app/Contents/MacOS/ownership-approval`
@@ -26,4 +28,3 @@ Developer ID: `Adrian D'souza (6KLGD3LLKF)`; bundle ID: `com.orthiclabs.rightkit
 Full-suite failures include Mac-only fixtures using /private/tmp or POSIX uid/mode checks on Windows, Apple-profile mocks, signing-session fixtures & existing app release-contract checks. Full-suite success is not claimed. Native validation logs remain in build directory `/Users/adrdsouza/.rightkit-managed/ownership-approval/macos/build-8e2eb3dcbb7b476a83a19ee38d288c3c/`; Windows test output is in `.audit/rightkit-local-storage-release-tests.log`.
 
 Local storage uses legacy Keychain ACLs, independently of Secure Enclave presence enforcement. An explicit macOS user grant can authorize another application; helper reads never request that grant or retry authentication. Verified update continuity preserves normal one-command enrollment/approval flow.
-

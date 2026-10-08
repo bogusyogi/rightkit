@@ -4,11 +4,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { __testOnly, canonicalJson, canonicalRepositoryIdentity, createDraft, evaluateWindowsAcl, keyIdForPublicKey, provenanceContentDigest, resolveKeyLogTrust, sha256, validateOwnershipFloor, verifyException, verifyProtectedProvenance, verifyRepositoryRegistration } from "./ownership-approval.mjs";
+import { __testOnly, canonicalJson, canonicalRepositoryIdentity, createDraft, evaluateWindowsAcl, keyIdForPublicKey, occurrenceHash, policyEntryDigest, provenanceContentDigest, resolveKeyLogTrust, sha256, validateOwnershipFloor, verifyException, verifyProtectedProvenance, verifyRepositoryRegistration } from "./ownership-approval.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
 
-const finding = { fingerprint: "oauth.device", file: "src/auth.rs", line: 12, text: "device grant endpoint" };
-const context = { repositoryIdentity: "https://github.com/orthic-labs/example", catalogDigest: "a".repeat(64), findings: [finding], today: "2026-10-07", scannerVersion: "2", catalogVersion: "4" };
+const finding = { fingerprint: "oauth.device", file: "src/auth.rs", line: 12, text: "device grant endpoint", lineText: "device grant endpoint", ordinal: 0 };
+const context = { repositoryIdentity: "https://github.com/orthic-labs/example", catalogDigest: "a".repeat(64), policyDigest: "b".repeat(64), findings: [finding], today: "2026-10-07", scannerVersion: "2", catalogVersion: "4" };
 const keys = Object.fromEntries(["windows", "macos"].map((host) => {
   const kp = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const publicKeyPem = kp.publicKey.export({ type: "spki", format: "pem" });
@@ -19,17 +19,17 @@ const winAce = (identitySID, mask, propagationFlags = 0) => ({ identitySID, mask
 const nativeRootAcl = { ownerSID: "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464", ownerName: "NT SERVICE\\TrustedInstaller", attributes: "Directory", directory: true, nonempty: true, elevated: false, access: [winAce("S-1-5-11", 4), winAce("S-1-5-11", -536805376, 2), winAce("S-1-5-18", 2032127), winAce("S-1-5-32-544", 2032127), winAce("S-1-5-32-545", 1179817), winAce("S-1-15-3-65536-1888954469-739942743-1668119174-2468466756-4239452838-1296943325-355587736-700089176", 1048737)] };
 const nativeProgramDataAcl = { ownerSID: "S-1-5-18", ownerName: "NT AUTHORITY\\SYSTEM", attributes: "Directory", directory: true, nonempty: true, elevated: false, access: [winAce("S-1-3-0", 268435456, 2), winAce("S-1-5-18", 2032127), winAce("S-1-5-32-544", 2032127), winAce("S-1-5-32-545", 1179817), winAce("S-1-5-32-545", 278)] };
 function signed(overrides = {}, signingHost = "windows") {
-  const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, catalogDigest: context.catalogDigest, fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "bounded migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true }, ...overrides });
+  const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, policyDigest: context.policyDigest, minimumScannerVersion: "2", minimumCatalogVersion: "4", issued: "2026-10-07", fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "bounded migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true }, ...overrides });
   const data = Buffer.from(canonicalJson(draft.payload));
   return { ...draft, signature: { keyId: keys[signingHost].keyId, host: signingHost, value: sign("sha256", data, keys[signingHost].privateKey).toString("base64") } };
 }
 
 test("valid signed approval matches exact repo, catalog, path & occurrence baseline", () => {
   assert.deepEqual(verifyException(signed(), { ...context, trust }), { ok: true, problems: [] });
-  assert.equal(createDraft({ repositoryIdentity: "git@github.com:Orthic-Labs/Example.git", catalogDigest: context.catalogDigest, fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true } }).payload.repositoryIdentity, context.repositoryIdentity);
+  assert.equal(createDraft({ repositoryIdentity: "git@github.com:Orthic-Labs/Example.git", policyDigest: context.policyDigest, minimumScannerVersion: "2", minimumCatalogVersion: "4", issued: "2026-10-07", fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true } }).payload.repositoryIdentity, context.repositoryIdentity);
 });
 test("unsigned, malformed, and payload-tampered records fail", () => {
-  const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, catalogDigest: context.catalogDigest, fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "r", owner: "o", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://example.com/t/1", id: "1", verified: true } });
+  const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, policyDigest: context.policyDigest, minimumScannerVersion: "2", minimumCatalogVersion: "4", issued: "2026-10-07", fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "r", owner: "o", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://example.com/t/1", id: "1", verified: true } });
   assert.match(verifyException(draft, { ...context, trust }).problems.join(" "), /unsigned/);
   const changed = signed(); changed.payload.reason = "broadened";
   assert.match(verifyException(changed, { ...context, trust }).problems.join(" "), /invalid signature/);
@@ -69,7 +69,7 @@ test("pinned Windows RSA approval accepts PSS & PKCS1 signatures", () => {
   const keyId = keyFingerprint(publicKeyPem);
   const trustPinned = { ...trust, rootFingerprint: keyId, keyCheckpoint: { sequence: 0, head: "a".repeat(64) }, ownershipKeys: [{ keyId, publicKeyPem, platform: "windows", deviceName: "Windows host" }] };
   for (const padding of [constants.RSA_PKCS1_PSS_PADDING, constants.RSA_PKCS1_PADDING]) {
-    const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, catalogDigest: context.catalogDigest, fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "bounded migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true } });
+    const draft = createDraft({ repositoryIdentity: context.repositoryIdentity, policyDigest: context.policyDigest, minimumScannerVersion: "2", minimumCatalogVersion: "4", issued: "2026-10-07", fingerprint: finding.fingerprint, findings: [finding], paths: [finding.file], reason: "bounded migration", owner: "Example", expires: "2026-12-31", requestId: "REQ-123", trackingRef: { url: "https://github.com/orthic-labs/example/issues/123", id: "123", verified: true } });
     const signature = sign("sha256", Buffer.from(canonicalJson(draft.payload)), { key: pair.privateKey, padding, ...(padding === constants.RSA_PKCS1_PSS_PADDING ? { saltLength: 32 } : {}) });
     const record = { ...draft, signature: { keyId: `win-${keyId}`, host: "windows", value: signature.toString("base64") } };
     assert.equal(verifyException(record, { ...context, trust: trustPinned }).ok, true);
@@ -79,7 +79,7 @@ test("changed identity, catalog, path occurrence, expiry, or revoked key fail", 
   const record = signed();
   for (const change of [
     { ...context, repositoryIdentity: "github.com/other/repo" },
-    { ...context, catalogDigest: "b".repeat(64) },
+    { ...context, policyDigest: "c".repeat(64) },
     { ...context, findings: [{ ...finding, file: "src/other.rs" }] },
     { ...context, today: "2027-01-01" },
   ]) assert.equal(verifyException(record, { ...change, trust }).ok, false);
@@ -88,7 +88,7 @@ test("changed identity, catalog, path occurrence, expiry, or revoked key fail", 
   assert.match(verifyException(signed({ expires: "2026-02-31" }), { ...context, trust }).problems.join(" "), /expiry date/);
 });
 test("glob paths, unverified tracking, and missing second-host enrollment fail", () => {
-  const broad = signed({ paths: ["src/**"] });
+  const broad = signed(); broad.payload.occurrences[0].path = "src/**";
   assert.match(verifyException(broad, { ...context, trust }).problems.join(" "), /exact/);
   const tracking = signed({ trackingRef: { url: "https://example.com/1", id: "1", verified: false } });
   assert.match(verifyException(tracking, { ...context, trust }).problems.join(" "), /verified/);

@@ -16,8 +16,8 @@ private let publicKeychainAccount = "approval-public-key"
 private let ownershipBundleIdentifier = "com.orthiclabs.rightkit.ownership-approval"
 private let ownershipTeamIdentifier = "6KLGD3LLKF"
 private let payloadKeys = [
-  "repositoryIdentity", "catalogDigest", "fingerprint", "paths",
-  "occurrenceHashes", "reason", "owner", "expires", "requestId", "trackingRef"
+  "repositoryIdentity", "fingerprint", "policyDigest", "minimumScannerVersion",
+  "minimumCatalogVersion", "occurrences", "reason", "owner", "issued", "expires", "requestId", "trackingRef"
 ]
 
 private enum ApprovalError: LocalizedError {
@@ -321,7 +321,7 @@ private func keyLogSelfTest() throws {
 }
 
 private func requireString(_ object: [String: Any], _ key: String, max: Int = 4096) throws -> String {
-  guard let value = object[key] as? String, !value.isEmpty, value.utf8.count <= max else {
+  guard let value = object[key] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, value.utf16.count <= max else {
     throw ApprovalError.malformed("invalid \(key)")
   }
   return value
@@ -330,48 +330,75 @@ private func requireString(_ object: [String: Any], _ key: String, max: Int = 40
 private func validateDraft(_ data: Data) throws -> ([String: Any], [String: Any]) {
   guard let outer = try JSONSerialization.jsonObject(with: data) as? [String: Any],
         Set(outer.keys) == Set(["schema", "payload", "signature"]),
-        let schema = outer["schema"] as? NSNumber, schema.intValue == 1,
+        let schema = outer["schema"] as? NSNumber, schema.doubleValue == 2,
         CFGetTypeID(schema) != CFBooleanGetTypeID(), outer["signature"] is NSNull,
         let payload = outer["payload"] as? [String: Any], Set(payload.keys) == Set(payloadKeys)
-  else { throw ApprovalError.malformed("expected an unsigned schema-1 record with the complete v1 payload") }
+  else { throw ApprovalError.malformed("expected an unsigned schema-2 record with the complete v2 payload") }
 
   _ = try requireString(payload, "repositoryIdentity", max: 512)
-  for key in ["catalogDigest", "fingerprint"] {
-    let value = try requireString(payload, key)
-    guard value.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else {
+  let fingerprint = try requireString(payload, "fingerprint", max: 128)
+  guard fingerprint.range(of: "^[a-z0-9][a-z0-9._-]{1,127}$", options: .regularExpression) == fingerprint.startIndex..<fingerprint.endIndex,
+        fingerprint.range(of: "^[a-f0-9]{64}$", options: .regularExpression) == nil else {
+    throw ApprovalError.malformed("invalid fingerprint")
+  }
+  let policyDigest = try requireString(payload, "policyDigest", max: 64)
+  guard policyDigest.range(of: "^[a-f0-9]{64}$", options: .regularExpression) == policyDigest.startIndex..<policyDigest.endIndex else {
+    throw ApprovalError.malformed("invalid policyDigest")
+  }
+  for key in ["minimumScannerVersion", "minimumCatalogVersion"] {
+    let value = try requireString(payload, key, max: Int.max)
+    guard value.range(of: "^[0-9]+(?:\\.[0-9]+)*$", options: .regularExpression) == value.startIndex..<value.endIndex else {
       throw ApprovalError.malformed("invalid \(key)")
     }
   }
-  for key in ["reason", "owner", "expires", "requestId"] { _ = try requireString(payload, key) }
+  _ = try requireString(payload, "reason", max: 4000)
+  _ = try requireString(payload, "owner", max: 256)
+  let issued = try requireString(payload, "issued")
   let expiry = try requireString(payload, "expires")
-  guard expiry.range(of: "^\\d{4}-\\d{2}-\\d{2}$", options: .regularExpression) != nil,
+  guard issued.range(of: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", options: .regularExpression) == issued.startIndex..<issued.endIndex,
+        expiry.range(of: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", options: .regularExpression) == expiry.startIndex..<expiry.endIndex,
+        let issuedDate = ISO8601DateFormatter().date(from: issued + "T00:00:00Z"),
         let date = ISO8601DateFormatter().date(from: expiry + "T00:00:00Z"),
+        ISO8601DateFormatter().string(from: issuedDate).hasPrefix(issued),
         ISO8601DateFormatter().string(from: date).hasPrefix(expiry) else {
-    throw ApprovalError.malformed("invalid expires date")
+    throw ApprovalError.malformed("invalid issued or expires date")
+  }
+  guard issuedDate <= Date(), date > issuedDate, date.timeIntervalSince(issuedDate) <= 90 * 86400 else {
+    throw ApprovalError.malformed("issued must not be in the future; expiry must follow issued by at most 90 days")
   }
   let request = try requireString(payload, "requestId")
-  guard request.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$", options: .regularExpression) != nil else {
+  guard request.range(of: "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$", options: .regularExpression) == request.startIndex..<request.endIndex else {
     throw ApprovalError.malformed("invalid requestId")
   }
-  guard let paths = payload["paths"] as? [String], !paths.isEmpty else { throw ApprovalError.malformed("paths must be a nonempty string array") }
-  for path in paths {
+  guard let occurrences = payload["occurrences"] as? [[String: Any]], (1...256).contains(occurrences.count) else {
+    throw ApprovalError.malformed("occurrences must contain 1 to 256 objects")
+  }
+  var pairs = Set<[String]>()
+  for occurrence in occurrences {
+    guard Set(occurrence.keys) == Set(["path", "kind", "hash"]),
+          let path = occurrence["path"] as? String,
+          let kind = occurrence["kind"] as? String, ["source", "dependency"].contains(kind),
+          let hash = occurrence["hash"] as? String,
+          hash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) == hash.startIndex..<hash.endIndex else {
+      throw ApprovalError.malformed("each occurrence must contain exactly path, source/dependency kind, and a SHA-256 hash")
+    }
     let parts = path.split(separator: "/", omittingEmptySubsequences: false)
     guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\"),
+          path.range(of: "^[A-Za-z]:", options: .regularExpression) == nil,
           !path.contains(where: { "*?[]{}".contains($0) }),
           parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
-      throw ApprovalError.malformed("paths must be exact repository-relative paths")
+      throw ApprovalError.malformed("occurrence paths must be exact repository-relative paths")
     }
+    guard pairs.insert([path, hash]).inserted else { throw ApprovalError.malformed("occurrences contain duplicate path/hash pairs") }
   }
-  guard Set(paths).count == paths.count else { throw ApprovalError.malformed("paths contain duplicates") }
-  guard let hashes = payload["occurrenceHashes"] as? [String], !hashes.isEmpty,
-        hashes.allSatisfy({ $0.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil }),
-        Set(hashes).count == hashes.count else { throw ApprovalError.malformed("invalid occurrenceHashes") }
   guard let tracking = payload["trackingRef"] as? [String: Any],
         Set(tracking.keys) == Set(["url", "id", "verified"]),
-        let url = tracking["url"] as? String, url.range(of: "^https://.+", options: .regularExpression) != nil,
+        let url = tracking["url"] as? String, let components = URLComponents(string: url),
+        components.scheme == "https", let host = components.host, !host.isEmpty,
+        components.user == nil, components.password == nil,
         let identifier = tracking["id"] as? String, !identifier.isEmpty,
         let verified = tracking["verified"] as? NSNumber, CFGetTypeID(verified) == CFBooleanGetTypeID(), verified.boolValue else {
-    throw ApprovalError.malformed("trackingRef must be verified and https-backed")
+    throw ApprovalError.malformed("trackingRef must be verified and HTTPS-backed without userinfo")
   }
   return (outer, payload)
 }
@@ -755,7 +782,7 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
     panel.canChooseDirectories = false
     panel.canChooseFiles = true
     panel.allowsMultipleSelection = false
-    panel.message = "Choose an unsigned schema-1 ownership exception draft."
+    panel.message = "Choose an unsigned schema-2 ownership exception draft."
     guard panel.runModal() == .OK, let url = panel.url else { exit(1) }
     loadDraft(url)
   }
@@ -778,7 +805,7 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
       let display = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
       loaded = payload
       content.string = "DRAFT: \(url.path)\n\nPAYLOAD SHOWN TO USER:\n\(String(decoding: display, as: UTF8.self))\n\nCANONICAL JSON UTF-8 SHA-256: \(digest)\n\nThe signature covers only the canonical payload bytes above."
-      status.stringValue = "Validated complete schema-1 record. No authentication or signature has occurred."
+      status.stringValue = "Validated complete schema-2 record. No authentication or signature has occurred."
       actionButton.title = "Sign displayed record…"
       actionButton.isEnabled = true
     } catch { showError(error) }
@@ -884,7 +911,7 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
     let confirm = NSAlert()
     confirm.alertStyle = .warning
     confirm.messageText = "Sign this exact ownership exception?"
-    confirm.informativeText = "The full payload and its SHA-256 digest are visible in the review window. Press Sign only if you approve this repository, paths, baseline, reason, owner, expiry, request id, and tracking reference."
+    confirm.informativeText = "The full payload and its SHA-256 digest are visible in the review window. Press Sign only if you approve this repository, occurrences, policy digest, version floors, reason, owner, issued/expiry dates, request id, and tracking reference."
     confirm.addButton(withTitle: "Continue to macOS authentication")
     confirm.addButton(withTitle: "Cancel")
       guard confirm.runModal() == .alertFirstButtonReturn else { exit(1) }
@@ -911,7 +938,7 @@ private final class ApprovalWindow: NSObject, NSApplicationDelegate {
       let input = try signingInput(loaded)
       let signature = try privateKey.signature(for: input.digest)
       let signed: [String: Any] = [
-        "schema": 1,
+        "schema": 2,
         "payload": loaded,
         "signature": ["keyId": keyIdentifier(privateKey.publicKey), "host": "macos", "value": signature.derRepresentation.base64EncodedString()]
       ]

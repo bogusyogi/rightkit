@@ -7,7 +7,7 @@ import { generateKeyPairSync, sign as signBytes } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog } from "./ownership-key-log.mjs";
 import { prepareTrustUpdate } from "./ownership-key-trust.mjs";
-import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
+import { __testOnly as authorityTestOnly } from "./ownership-key-authority.mjs";
 import { resolveKeyLogTrust } from "./ownership-approval.mjs";
 import { __testOnly, main } from "./ownership-key-command.mjs";
 
@@ -108,7 +108,10 @@ test("first-host ceremony writes self-signed genesis, pins baseline, elevates on
     assert.deepEqual(f.trustHolder.trust.repositories, f.deps.baseline.repositories);
     assert.deepEqual(f.trustHolder.trust.keyAuthority, f.deps.authority(f.repo));
     assert.equal(f.runner("git", ["-C", f.repo, "remote", "add", "origin", f.trustHolder.trust.keyAuthority.repositoryIdentity]).status, 0);
-    const committed = readCommittedKeyAuthority(f.trustHolder.trust);
+    const protectedFile = path.join(f.dir ?? f.repo, "host-trust.json");
+    writeFileSync(protectedFile, JSON.stringify(f.trustHolder.trust));
+    authorityTestOnly.persistCheckpoint(f.trustHolder.trust, Buffer.from(JSON.stringify(log)), protectedFile, () => {});
+    const committed = authorityTestOnly.readAuthority(f.trustHolder.trust, { file: protectedFile, audit: () => {} });
     assert.equal(committed.ok, true, committed.problems?.join("; "));
     assert.equal(committed.rootFingerprint, f.root.record.keyId);
     assert.equal(committed.keyCheckpoint.sequence, 0);

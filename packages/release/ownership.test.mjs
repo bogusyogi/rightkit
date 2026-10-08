@@ -5,13 +5,14 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalJson, canonicalRepositoryIdentity, createDraft, keyIdForPublicKey, provenanceContentDigest, sha256 } from "./ownership-approval.mjs";
-import { aggregateOwnership, catalogDigest, checkApp, checkCommittedAppForTest, contentInventory, directDependencies, evaluate, MANIFEST_FILE, scanApp } from "./ownership.mjs";
+import { canonicalJson, canonicalRepositoryIdentity, createDraft, keyIdForPublicKey, occurrenceHash, policyEntryDigest, provenanceContentDigest, sha256 } from "./ownership-approval.mjs";
+import { aggregateOwnership, catalogDigest, checkApp, checkCommittedAppForTest, contentInventory, directDependencies, evaluate, MANIFEST_FILE, scanApp, SCANNER_VERSION } from "./ownership.mjs";
 import { createKeyEvent, eventHash, keyFingerprint } from "./ownership-key-log.mjs";
 import { buildOwnershipReport, renderOwnershipMarkdown } from "./ownership-report.mjs";
 
 const rightkitRoot = path.resolve(import.meta.dirname, "../..");
 const shipped = JSON.parse(readFileSync(path.join(import.meta.dirname, MANIFEST_FILE), "utf8"));
+const approvalCatalog = { ...shipped, capabilities: shipped.capabilities.map((c) => ({ ...c, tier: "block" })) };
 const SAMPLES = {
   "oauth.endpoint.github": 'const URL: &str = "https://github.com/login/device/code";',
   "oauth.endpoint.google": 'let u = "https://oauth2.googleapis.com/device/code";',
@@ -45,10 +46,10 @@ function app(files = {}) {
   return root;
 }
 
-function signedException(findings, { root, fingerprint, file, today = "2026-10-07", agentField = false } = {}) {
+function signedException(findings, { root, fingerprint = "oauth.endpoint.github", file, today = "2026-10-07", agentField = false } = {}) {
   const selected = findings.filter((f) => f.fingerprint === fingerprint && f.file === file);
-  const draft = createDraft({ repositoryIdentity: root, catalogDigest: catalogDigest(shipped), fingerprint,
-    findings: selected, paths: [file], reason: "bounded migration", owner: "CodeRight", expires: "2026-12-31",
+  const draft = createDraft({ repositoryIdentity: root, policyDigest: policyEntryDigest(approvalCatalog, fingerprint), minimumScannerVersion: "2.0.0", minimumCatalogVersion: "1", issued: today, fingerprint,
+    findings: selected, reason: "bounded migration", owner: "CodeRight", expires: "2026-12-31",
     requestId: "RK-OWNERSHIP-001", trackingRef: { id: "RK-123456", url: "https://github.com/org/repo/issues/1", verified: true } });
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const { publicKey: macPublicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -393,26 +394,26 @@ test("symlink escapes and opaque build caches are explicit incomplete coverage",
 });
 
 test("unsigned, forged, broad, expired & stale exceptions never cover; valid signed exact baseline does", () => {
-  const findings = [{ fingerprint: "oauth.endpoint.github", capability: "oauth-sign-in", package: "rightkit-oauth", file: "engine/src/auth.rs", line: 1, text: SAMPLES["oauth.endpoint.github"] }];
+  const findings = [{ fingerprint: "oauth.endpoint.github", capability: "oauth-sign-in", package: "rightkit-oauth", file: "engine/src/auth.rs", line: 1, lineText: SAMPLES["oauth.endpoint.github"], ordinal: 0, text: SAMPLES["oauth.endpoint.github"] }];
   const metadata = { repositoryIdentity: "https://github.com/org/repo", catalogDigest: catalogDigest(shipped), scannerVersion: "2.0.0", catalogVersion: "1" };
-  let result = evaluate(findings, [{ fingerprint: findings[0].fingerprint, paths: [findings[0].file], approvedBy: "agent" }], { metadata, today: "2026-10-07" });
+  let result = evaluate(findings, [{ fingerprint: findings[0].fingerprint, paths: [findings[0].file], approvedBy: "agent" }], { manifest: approvalCatalog, metadata, today: "2026-10-07" });
   assert.equal(result.covered.length, 0); assert.ok(result.problems.length);
   const { record, trust } = signedException(findings, { root: metadata.repositoryIdentity, fingerprint: findings[0].fingerprint, file: findings[0].file });
-  result = evaluate(findings, [record], { metadata, trust, today: "2026-10-07" });
+  result = evaluate(findings, [record], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
   assert.equal(result.covered.length, 1); assert.equal(result.violations.length, 0); assert.deepEqual(result.problems, []);
-  result = evaluate(findings, [{ ...record, approvedBy: "agent" }], { metadata, trust, today: "2026-10-07" });
+  result = evaluate(findings, [{ ...record, approvedBy: "agent" }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
   assert.equal(result.covered.length, 0); assert.match(result.problems[0], /approvedBy must be Adrian/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, approvedBy: "agent" } }], { metadata, trust, today: "2026-10-07" });
+  result = evaluate(findings, [{ ...record, payload: { ...record.payload, approvedBy: "agent" } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
   assert.equal(result.covered.length, 0); assert.match(result.problems[0], /approvedBy must be Adrian/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, paths: ["**"] } }], { metadata, trust, today: "2026-10-07" });
+  result = evaluate(findings, [{ ...record, payload: { ...record.payload, occurrences: [{ ...record.payload.occurrences[0], path: "**" }] } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
   assert.equal(result.covered.length, 0); assert.match(result.problems[0], /exact repository-relative/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, expires: "" } }], { metadata, trust, today: "2026-10-07" });
+  result = evaluate(findings, [{ ...record, payload: { ...record.payload, expires: "" } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
   assert.equal(result.covered.length, 0); assert.match(result.problems[0], /missing expires/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, expires: "2026-99-99" } }], { metadata, trust, today: "2026-10-07" });
+  result = evaluate(findings, [{ ...record, payload: { ...record.payload, expires: "2026-99-99" } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
   assert.equal(result.covered.length, 0); assert.match(result.problems[0], /invalid or expired expires/);
-  result = evaluate(findings, [{ ...record, payload: { ...record.payload, trackingRef: "issue RK-123456" } }], { metadata, trust, today: "2026-10-07" });
+  result = evaluate(findings, [{ ...record, payload: { ...record.payload, trackingRef: "issue RK-123456" } }], { manifest: approvalCatalog, metadata, trust, today: "2026-10-07" });
   assert.equal(result.covered.length, 0); assert.match(result.problems[0], /tracking must be a verified/);
-  result = evaluate(findings, [record], { metadata, trust: undefined, today: "2026-10-07" });
+  result = evaluate(findings, [record], { manifest: approvalCatalog, metadata, trust: undefined, today: "2026-10-07" });
   assert.equal(result.covered.length, 0); assert.ok(result.warnings.some((p) => /enrollment pending/.test(p)));
 });
 

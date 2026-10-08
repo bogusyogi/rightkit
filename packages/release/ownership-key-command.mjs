@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
-import { accessSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog, verifyKeyRequest } from "./ownership-key-log.mjs";
-import { canonicalRepositoryIdentity, loadTrustedExternal, resolveKeyLogTrust } from "./ownership-approval.mjs";
+import { canonicalRepositoryIdentity, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
+import { managedRuntimeClient } from "./managed-cargo.mjs";
+import { verifyProtectedFileManifest } from "../../ownership-approval/adapters/package-manifest.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const LOG = ".rightkit/ownership-keys.json";
@@ -257,29 +259,63 @@ function validateNative(out, expectedHost = platform) {
   if (out.keyId !== `${expectedHost === "windows" ? "win" : "mac"}-${fingerprint}`) throw new Error("native helper key id does not match its public key");
   return { keyId: fingerprint, publicKeyPem: out.publicKeyPem, platform: expectedHost };
 }
-function elevate(run, requestPath, digest) {
-  const child = path.join(here, "ownership-key-trust.mjs");
-  const args = [child, "--request", requestPath, "--sha256", digest];
+function elevate(run, requestPath, digest, { runtimeClient = managedRuntimeClient({}, process.platform), modulePath = fileURLToPath(import.meta.url), nodeExe = process.execPath, audit = (target) => approvalTestOnly.protectedLocation(target, process.platform) } = {}) {
+  let child, wrapper, installedNode;
+  const refuse = (message) => { throw Object.assign(new Error(`RK_OWNERSHIP_ELEVATION_UNPROTECTED: ${message}`), { code: "RK_OWNERSHIP_ELEVATION_UNPROTECTED", type: "RK_OWNERSHIP_ELEVATION_UNPROTECTED" }); };
+  try {
+    if (!runtimeClient) refuse("installer-owned runtime-current root is unavailable");
+    const currentRoot = path.dirname(path.dirname(path.dirname(runtimeClient)));
+    const root = realpathSync(currentRoot);
+    const installedModule = path.join(root, "release", "ownership-key-command.mjs");
+    const same = (left, right) => process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+    if (!same(realpathSync(modulePath), installedModule)) refuse("current module is outside installer-owned runtime-current root");
+    const protection = audit(root);
+    if (protection?.ok !== true) refuse((protection?.problems ?? ["installed root protection is unavailable"]).join("; "));
+    const manifestPath = path.join(root, "ownership", "adapters", "adapter-files.json");
+    const manifestProtection = audit(manifestPath);
+    if (manifestProtection?.ok !== true) refuse("installer-owned manifest is unprotected");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const inventory = verifyProtectedFileManifest(root, manifestPath);
+    if (!inventory.ok) refuse(`installer-owned manifest ${manifestPath}: ${inventory.problems.join("; ")}`);
+    for (const entry of manifest.files) {
+      const protection = audit(path.join(root, ...entry.path.split("/")));
+      if (protection?.ok !== true) refuse(`installer-owned input is unprotected: ${entry.path}`);
+    }
+    child = path.join(root, "release", "ownership-key-trust.mjs");
+    wrapper = path.join(root, "release", "ownership-key-authority.mjs");
+    installedNode = realpathSync(nodeExe);
+    for (const target of [installedModule, child, wrapper, installedNode]) {
+      const relative = path.relative(root, target).replaceAll("\\", "/");
+      if (!relative || relative.startsWith("../") || path.isAbsolute(relative) || lstatSync(target).isSymbolicLink() || !same(realpathSync(target), target)) refuse(`elevated input is outside protected root or linked: ${target}`);
+      const entries = manifest.files.filter((entry) => entry.path === relative && entry.type === "file");
+      if (entries.length !== 1 || !HEX.test(entries[0].sha256 ?? "") || sha(readFileSync(target)) !== entries[0].sha256) refuse(`installed manifest digest missing or mismatched: ${target}`);
+    }
+  } catch (error) {
+    if (error?.code === "RK_OWNERSHIP_ELEVATION_UNPROTECTED") throw error;
+    refuse(`installed ownership elevation cannot be verified: ${error.message}`);
+  }
+  const args = [wrapper, "--trust-script", child, "--request", requestPath, "--sha256", digest];
   if (process.platform === "win32") {
-    const invocation = buildWindowsElevationInvocation(process.execPath, child, requestPath, digest);
+    const invocation = buildWindowsElevationInvocation(installedNode, child, requestPath, digest, wrapper);
     const r = run(invocation.parentExecutable, invocation.parentArgs);
     if (r.status !== 0) throw new Error("elevated trust update failed or was cancelled");
   } else {
     let r;
-    try { r = run("/usr/bin/sudo", ["-k", process.execPath, ...args], { stdio: "inherit" }); }
+    try { r = run("/usr/bin/sudo", ["-k", installedNode, ...args], { stdio: "inherit", env: { ...process.env, NODE_OPTIONS: "", NODE_PATH: "" } }); }
     finally { try { run("/usr/bin/sudo", ["-K"], { stdio: "inherit" }); } catch {} }
     if (r.status !== 0) throw new Error("elevated trust update failed or was cancelled");
   }
 }
-function buildWindowsElevationInvocation(nodeExe, trustScript, requestPath, digest) {
+function buildWindowsElevationInvocation(nodeExe, trustScript, requestPath, digest, checkpointScript) {
   const powershell = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
   const quote = (value) => `'${value.replaceAll("'", "''")}'`;
-  const childScript = `& ${[nodeExe, trustScript, "--request", requestPath, "--sha256", digest].map(quote).join(" ")}; exit $LASTEXITCODE`;
+  const childArgs = checkpointScript ? [nodeExe, checkpointScript, "--trust-script", trustScript, "--request", requestPath, "--sha256", digest] : [nodeExe, trustScript, "--request", requestPath, "--sha256", digest];
+  const childScript = `& ${childArgs.map(quote).join(" ")}; exit $LASTEXITCODE`;
   const childEncoded = Buffer.from(childScript, "utf16le").toString("base64");
-  const parentScript = `$ErrorActionPreference='Stop'; try { $p=Start-Process -FilePath ${quote(powershell)} -ArgumentList ${quote(`-NoProfile -EncodedCommand ${childEncoded}`)} -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode } catch { exit 1 }`;
+  const parentScript = `$ErrorActionPreference='Stop'; try { $env:NODE_OPTIONS=$null; $env:NODE_PATH=$null; $p=Start-Process -FilePath ${quote(powershell)} -ArgumentList ${quote(`-NoProfile -EncodedCommand ${childEncoded}`)} -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode } catch { exit 1 }`;
   return { parentExecutable: powershell, parentArgs: ["-NoProfile", "-EncodedCommand", Buffer.from(parentScript, "utf16le").toString("base64")], childScript };
 }
-export const __testOnly = Object.freeze({ buildWindowsElevationInvocation, assertSafeMetadataParents, detectMinimizeHook });
+export const __testOnly = Object.freeze({ elevate, buildWindowsElevationInvocation, assertSafeMetadataParents, detectMinimizeHook });
 function trustState() { return loadTrustedExternal(); }
 function currentLogTrust(root, log, trust = trustState(), authority, injected = false) {
   if (!trust.trust?.rootFingerprint) throw new Error("protected root trust is not enrolled on this host");

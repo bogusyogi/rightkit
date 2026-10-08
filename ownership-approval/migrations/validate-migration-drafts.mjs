@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "../../packages/release/background-process.mjs";
-import { canonicalRepositoryIdentity, occurrenceHash, sha256 } from "../../packages/release/ownership-approval.mjs";
+import { canonicalRepositoryIdentity, occurrenceHash, policyEntryDigest, sha256, validateRecord } from "../../packages/release/ownership-approval.mjs";
 import manifest from "../../packages/release/rightkit-ownership.json" with { type: "json" };
 
 const MIGRATIONS = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +16,7 @@ function git(root, args) {
 function validate() {
   const prepared = JSON.parse(readFileSync(path.join(MIGRATIONS, "prepared-migration-manifest.json"), "utf8"));
   const problems = [];
+  if (prepared.schema !== 2) problems.push("prepared migration manifest must use schema 2");
   const repos = new Map();
   for (const source of prepared.sourceEvidence) {
     const root = source.repositoryRoot;
@@ -38,15 +39,20 @@ function validate() {
     const file = path.resolve(MIGRATIONS, item.file);
     if (!file.startsWith(`${draftRoot}${path.sep}`) || !existsSync(file)) { problems.push(`draft file missing/outside drafts directory: ${item.file}`); continue; }
     const record = JSON.parse(readFileSync(file, "utf8"));
-    if (Object.keys(record).sort().join(",") !== "payload,schema,signature") problems.push(`${item.file}: native helper schema requires only schema, payload, and signature fields`);
+    const shapeProblems = validateRecord(record);
+    if (shapeProblems.length) { problems.push(...shapeProblems.map((p) => `${item.file}: ${p}`)); continue; }
     if (record.signature !== null) problems.push(`${item.file}: draft is not unsigned`);
     if (record.payload.repositoryIdentity !== repos.get(item.app)?.repositoryIdentity) problems.push(`${item.file}: repository identity mismatch`);
-    if (record.payload.catalogDigest !== digest) problems.push(`${item.file}: catalog digest mismatch`);
+    if (record.payload.policyDigest !== policyEntryDigest(manifest, record.payload.fingerprint)) problems.push(`${item.file}: fingerprint policy digest mismatch`);
+    const source = repos.get(item.app);
+    if (record.payload.minimumScannerVersion !== source?.scan.scannerVersion || record.payload.minimumCatalogVersion !== source?.scan.catalogVersion) problems.push(`${item.file}: draft version floors differ from source scan`);
+    if (record.payload.issued !== prepared.generatedAt.slice(0, 10)) problems.push(`${item.file}: issued date differs from preparation date`);
+    const duration = Date.parse(record.payload.expires) - Date.parse(record.payload.issued);
+    if (!(duration > 0 && duration <= 90 * 86400000) || record.payload.issued > new Date().toISOString().slice(0, 10)) problems.push(`${item.file}: invalid issued/expiry window`);
     const sourceFindings = repos.get(item.app)?.findings ?? [];
-    const observed = sourceFindings.filter((finding) => finding.fingerprint === record.payload.fingerprint && record.payload.paths.includes(finding.file));
-    const actualHashes = observed.map(occurrenceHash).sort();
-    if (JSON.stringify(actualHashes) !== JSON.stringify([...record.payload.occurrenceHashes].sort())) problems.push(`${item.file}: occurrence hashes do not match scoped source findings`);
-    if (!record.payload.paths.every((p) => item.observedPaths.includes(p))) problems.push(`${item.file}: payload path missing from prepared manifest`);
+    const observed = sourceFindings.filter((finding) => finding.fingerprint === record.payload.fingerprint && record.payload.occurrences.some((item) => item.path === finding.file && item.hash === occurrenceHash(finding) && item.kind === (finding.kind ?? (finding.ecosystem ? "dependency" : "source"))));
+    if (observed.length !== record.payload.occurrences.length) problems.push(`${item.file}: occurrence pairs do not match scoped source findings`);
+    if (!record.payload.occurrences.every((entry) => item.observedPaths.includes(entry.path))) problems.push(`${item.file}: payload path missing from prepared manifest`);
   }
   const result = {
     ok: problems.length === 0,

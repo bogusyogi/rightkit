@@ -1,120 +1,125 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep, isAbsolute } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-/** Build admission against RightKit ownership: a root build in an app that re-implements a capability
- * RightKit owns is reported (mode 'report') or refused (mode 'enforce'). Scans run out of process with
- * a hard timeout and bounded output, are cached per scan root, and are deduplicated while in flight. */
+/** Protected ownership evidence: bounded worker scans & digest-bound verdict reuse. */
 export const OWNERSHIP_MODES = Object.freeze(['off', 'report', 'enforce']);
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** Staged runtime layout (<runtime>/ownership-scanner) first, then the source checkout (packages/release). */
+/** Staged runtime layout first, then source checkout. */
 export function defaultScannerRoot() {
   for (const candidate of [join(here, '..', '..', 'ownership-scanner'), join(here, '..', '..', 'release')]) {
     if (existsSync(join(candidate, 'ownership-scan-worker.mjs')) && existsSync(join(candidate, 'rightkit-ownership.json'))) return candidate;
   }
   return null;
 }
+const shared = defaultScannerRoot();
+const { ownershipVerdict, ownershipCacheKey } = shared
+  ? await import(pathToFileURL(join(shared, 'ownership-verdict.mjs')).href)
+  : { ownershipVerdict: () => ({ admit: false, code: 'RK_OWNERSHIP_UNVERIFIED', problems: ['shared ownership verdict is unavailable'] }), ownershipCacheKey: () => { throw new Error('shared ownership verdict is unavailable'); } };
 
-const containsPath = (root, candidate) => { const scoped = relative(resolve(root), resolve(candidate)); return scoped === '' || (!isAbsolute(scoped) && scoped !== '..' && !scoped.startsWith(`..${sep}`)); };
-
-/** Which tree a job is judged by: the app repository, except in the RightKit host monorepo, where
- * RightKit's own crates are the owner (exempt) and other workspaces are scanned on their own. */
+/** Always scan repository coverage; owner authority comes from protected registry. */
 export function ownershipScanRoot({ repositoryRoot, workspaceRoot }) {
   const repository = repositoryRoot ?? workspaceRoot;
-  if (!repository) return { exempt: 'no-repository' };
-  const rightkit = join(repository, 'tools', 'rightkit');
-  if (existsSync(join(rightkit, 'packages', 'release', 'rightkit-ownership.json'))) {
-    if (!workspaceRoot || containsPath(rightkit, workspaceRoot)) return { exempt: 'rightkit-source' };
-    return { root: resolve(workspaceRoot) };
-  }
-  return { root: resolve(repository) };
+  return typeof repository === 'string' && repository.length ? { root: resolve(repository) } : { error: 'repository root is missing or malformed' };
 }
 
-export function runScanWorker({ scannerRoot, scanRoot, timeoutMs, spawn = nodeSpawn, execPath = process.execPath }) {
+export function runScanWorker({ scannerRoot, scanRoot, timeoutMs, inputsOnly = false, spawn = nodeSpawn, execPath = process.execPath }) {
   return new Promise((resolveScan) => {
-    let child;
+    let child, timer;
     try {
-      child = spawn(execPath, [join(scannerRoot, 'ownership-scan-worker.mjs'), scanRoot, join(scannerRoot, 'rightkit-ownership.json')], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-    } catch (error) { resolveScan({ error: `scanner failed to start: ${error.message}` }); return; }
+      child = spawn(execPath, [join(scannerRoot, 'ownership-scan-worker.mjs'), scanRoot, join(scannerRoot, 'rightkit-ownership.json'), ...(inputsOnly ? ['--inputs'] : [])], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    } catch (error) { resolveScan({ error: 'scanner failed to start: ' + error.message }); return; }
     const out = []; const err = []; let bytes = 0; let settled = false;
     const settleScan = (value) => { if (settled) return; settled = true; clearTimeout(timer); resolveScan(value); };
     const collect = (sink) => (chunk) => {
       bytes += chunk.length;
-      if (bytes > MAX_OUTPUT_BYTES) { child.kill(); settleScan({ error: `scanner output exceeded ${MAX_OUTPUT_BYTES} bytes` }); return; }
+      if (bytes > MAX_OUTPUT_BYTES) { child.kill(); settleScan({ error: 'scanner output exceeded ' + MAX_OUTPUT_BYTES + ' bytes' }); return; }
       sink.push(chunk);
     };
     child.stdout.on('data', collect(out)); child.stderr.on('data', collect(err));
-    child.once('error', (error) => settleScan({ error: `scanner failed to start: ${error.message}` }));
+    child.once('error', (error) => settleScan({ error: 'scanner failed to start: ' + error.message }));
     child.once('close', (code) => {
-      if (code !== 0) return settleScan({ error: Buffer.concat(err).toString('utf8').trim().slice(0, 2000) || `scanner exited ${code}` });
-      try { settleScan({ report: JSON.parse(Buffer.concat(out).toString('utf8')) }); }
-      catch (error) { settleScan({ error: `scanner returned invalid JSON: ${error.message}` }); }
+      if (code !== 0) return settleScan({ error: Buffer.concat(err).toString('utf8').trim().slice(0, 2000) || 'scanner exited ' + code });
+      try { settleScan(JSON.parse(Buffer.concat(out).toString('utf8'))); }
+      catch (error) { settleScan({ error: 'scanner returned invalid JSON: ' + error.message }); }
     });
-    const timer = setTimeout(() => { child.kill(); settleScan({ error: `scan exceeded ${timeoutMs} ms` }); }, timeoutMs);
+    timer = setTimeout(() => { child.kill(); settleScan({ error: 'scan exceeded ' + timeoutMs + ' ms' }); }, timeoutMs);
     timer.unref?.();
   });
 }
 
-/** Typed admission outcome from a scanner report. */
-export function classifyOwnershipReport(report) {
-  const violations = (report.violations ?? []).map((v) => ({ capability: v.capability ?? null, owner: v.package ?? null, fingerprint: v.fingerprint ?? null, file: v.file ?? null, line: v.line ?? null }));
-  const problems = report.problems ?? [];
-  if (violations.length && report.enrollmentPending) return { outcome: 'pending-enrollment', violations, problems };
-  if (violations.length) return { outcome: 'violations', violations, problems };
-  if (problems.length) return { outcome: 'problems', violations, problems };
-  return { outcome: 'clean', violations, problems };
+const outcomes = Object.freeze({
+  RK_OWNERSHIP_CLEAN: 'clean', RK_OWNERSHIP_VIOLATION: 'violations', RK_OWNERSHIP_PENDING_ENROLLMENT: 'pending-enrollment',
+  RK_OWNERSHIP_MALFORMED_REPORT: 'malformed-report', RK_OWNERSHIP_INCOMPLETE_COVERAGE: 'incomplete-coverage',
+  RK_OWNERSHIP_INVALID_REGISTRATION: 'invalid-registration', RK_OWNERSHIP_POLICY_DOWNGRADE: 'policy-downgrade',
+  RK_OWNERSHIP_REPORT_FAILED: 'report-failed', RK_OWNERSHIP_UNVERIFIED: 'problems',
+});
+/** Classification delegates every acceptance decision to shared verdict contract. */
+export function classifyOwnershipReport(report, trust) {
+  const verdict = ownershipVerdict(report, trust);
+  const violations = Array.isArray(report?.violations) ? report.violations.filter((v) => v && typeof v === 'object').map((v) => ({ capability: v.capability ?? null, owner: v.package ?? null, fingerprint: v.fingerprint ?? null, file: v.file ?? null, line: v.line ?? null })) : [];
+  return { ...verdict, outcome: outcomes[verdict.code] ?? 'unscanned', violations };
 }
 
 export class OwnershipAdmission {
-  #mode; #timeoutMs; #ttlMs; #scannerRoot; #now; #run; #cache = new Map(); #inflight = new Map();
+  #mode; #timeoutMs; #scannerRoot; #now; #run; #inputs; #cache = new Map(); #inflight = new Map();
 
-  constructor({ mode = 'report', timeoutMs = 30_000, ttlMs = 60_000, scannerRoot = defaultScannerRoot(), now = Date.now, runScan = runScanWorker } = {}) {
-    if (!OWNERSHIP_MODES.includes(mode)) throw new TypeError(`ownership mode must be one of ${OWNERSHIP_MODES.join(', ')}`);
-    this.#mode = mode; this.#timeoutMs = timeoutMs; this.#ttlMs = ttlMs; this.#scannerRoot = scannerRoot; this.#now = now; this.#run = runScan;
+  constructor({ mode = 'report', timeoutMs = 30_000, scannerRoot = defaultScannerRoot(), now = Date.now, runScan = runScanWorker, runInputs = runScanWorker } = {}) {
+    if (!OWNERSHIP_MODES.includes(mode)) throw new TypeError('ownership mode must be one of ' + OWNERSHIP_MODES.join(', '));
+    this.#mode = mode; this.#timeoutMs = timeoutMs; this.#scannerRoot = scannerRoot; this.#now = now; this.#run = runScan; this.#inputs = runInputs;
   }
 
   get mode() { return this.#mode; }
 
-  /** Evaluate a root build. Never throws; an unavailable scan is outcome 'unscanned'. */
-  async evaluate({ repositoryRoot, workspaceRoot }) {
+  #failure(root, error, code = 'RK_OWNERSHIP_UNVERIFIED') {
+    return Object.freeze({ mode: this.#mode, admit: false, code, outcome: code === 'RK_OWNERSHIP_UNVERIFIED' ? 'unscanned' : outcomes[code] ?? 'unscanned', scanRoot: root, error, problems: [error], violations: [], scanMs: 0, cached: false });
+  }
+
+  /** Re-authenticate & hash inputs on every admission, including cache hits. */
+  async evaluate({ repositoryRoot, workspaceRoot } = {}) {
     if (this.#mode === 'off') return Object.freeze({ mode: 'off', outcome: 'off' });
     const target = ownershipScanRoot({ repositoryRoot, workspaceRoot });
-    if (target.exempt) return Object.freeze({ mode: this.#mode, outcome: 'exempt', reason: target.exempt });
-    const cached = this.#cache.get(target.root);
-    if (cached && this.#now() - cached.at < this.#ttlMs) return Object.freeze({ ...cached.result, cached: true });
-    let pending = this.#inflight.get(target.root);
-    if (!pending) {
-      pending = this.#scan(target.root).finally(() => this.#inflight.delete(target.root));
-      this.#inflight.set(target.root, pending);
-    }
-    return pending;
+    if (target.error) return this.#failure(null, target.error, 'RK_OWNERSHIP_INVALID_REGISTRATION');
+    if (!this.#scannerRoot) return this.#failure(target.root, 'ownership scanner is not staged in this runtime');
+    try {
+      const observed = await this.#inputs({ scannerRoot: this.#scannerRoot, scanRoot: target.root, timeoutMs: this.#timeoutMs, inputsOnly: true });
+      if (observed?.error) return this.#failure(target.root, observed.error, observed.code);
+      if (typeof observed?.complete !== 'boolean') return this.#failure(target.root, 'source inventory completeness is missing or malformed', 'RK_OWNERSHIP_INVALID_INPUTS');
+      const key = ownershipCacheKey(observed?.inputs);
+      if (observed.complete === false) return this.#failure(target.root, 'source content inventory has incomplete coverage', 'RK_OWNERSHIP_INCOMPLETE_COVERAGE');
+      const cached = this.#cache.get(key);
+      if (cached?.scanRoot === target.root) return Object.freeze({ ...cached, cached: true });
+      // Root keeps distinct repository provenance separate; digests determine freshness.
+      const flight = target.root + ':' + key;
+      let pending = this.#inflight.get(flight);
+      if (!pending) {
+        pending = this.#scan(target.root, key, observed).finally(() => this.#inflight.delete(flight));
+        this.#inflight.set(flight, pending);
+      }
+      return await pending;
+    } catch (error) { return this.#failure(target.root, error.message, error.code?.startsWith('RK_OWNERSHIP_') ? error.code : 'RK_OWNERSHIP_UNVERIFIED'); }
   }
 
-  /** Throws a typed refusal when enforcement applies; report mode never blocks. */
+  /** Enforce refuses every non-admitted result; report records identical verdicts. */
   assertAdmitted(result) {
     if (this.#mode !== 'enforce') return;
-    if (result.outcome === 'violations') {
-      const list = result.violations.slice(0, 5).map((v) => `${v.capability} (${v.fingerprint} in ${v.file}) is owned by ${v.owner}`).join('; ');
-      throw Object.assign(new Error(`RightKit ownership blocks this build: ${list}${result.violations.length > 5 ? `; +${result.violations.length - 5} more` : ''}. Adopt the RightKit owner or request a signed exception: right-release ownership`), { code: 'RK_OWNERSHIP_VIOLATION' });
-    }
-    if (result.outcome === 'unscanned' || result.outcome === 'problems') {
-      throw Object.assign(new Error(`RightKit ownership could not verify this build (${result.error ?? result.problems?.slice(0, 3).join('; ')}); enforcement fails closed`), { code: 'RK_OWNERSHIP_UNVERIFIED' });
-    }
+    if (result?.admit === true && result.code === 'RK_OWNERSHIP_CLEAN') return;
+    throw Object.assign(new Error('RightKit ownership refuses this build: ' + (result?.problems?.slice(0, 5).join('; ') || result?.error || 'ownership verdict is missing or malformed')), { code: result?.code ?? 'RK_OWNERSHIP_UNVERIFIED' });
   }
 
-  async #scan(root) {
+  async #scan(root, key, observed) {
     const started = this.#now();
-    if (!this.#scannerRoot) return Object.freeze({ mode: this.#mode, outcome: 'unscanned', scanRoot: root, error: 'ownership scanner is not staged in this runtime', scanMs: 0, cached: false });
     const scanned = await this.#run({ scannerRoot: this.#scannerRoot, scanRoot: root, timeoutMs: this.#timeoutMs });
-    const scanMs = this.#now() - started;
-    const result = scanned.error
-      ? Object.freeze({ mode: this.#mode, outcome: 'unscanned', scanRoot: root, error: scanned.error, scanMs, cached: false })
-      : Object.freeze({ mode: this.#mode, ...classifyOwnershipReport(scanned.report), scanRoot: root, scanMs, cached: false });
-    // Unscanned results are not cached: the next build retries instead of inheriting a transient failure.
-    if (result.outcome !== 'unscanned') this.#cache.set(root, { at: this.#now(), result });
+    if (scanned?.error) return this.#failure(root, scanned.error, scanned.code);
+    if (ownershipCacheKey(scanned?.inputs) !== key) return this.#failure(root, 'ownership inputs changed between admission & protected scan', 'RK_OWNERSHIP_INPUTS_CHANGED');
+    const result = Object.freeze({ mode: this.#mode, ...classifyOwnershipReport(scanned?.report, observed.trust), scanRoot: root, scanMs: this.#now() - started, cached: false });
+    if (!['RK_OWNERSHIP_MALFORMED_REPORT', 'RK_OWNERSHIP_UNVERIFIED'].includes(result.code)) {
+      this.#cache.set(key, result);
+      if (this.#cache.size > 128) this.#cache.delete(this.#cache.keys().next().value);
+    }
     return result;
   }
 }

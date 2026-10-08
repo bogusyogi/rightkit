@@ -3,14 +3,24 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDraft, loadTrustedExternal, verifyException } from "./ownership-approval.mjs";
+import { createDraft, loadTrustedExternal, policyEntryDigest, validateRecord, verifyException } from "./ownership-approval.mjs";
+import { SCANNER_VERSION } from "./ownership.mjs";
+import manifest from "./rightkit-ownership.json" with { type: "json" };
 
 function arg(args, name) { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; }
 function json(file) { return JSON.parse(readFileSync(path.resolve(file), "utf8")); }
+export function createInstalledDraft(input, { catalog = manifest, scannerVersion = SCANNER_VERSION, now = new Date() } = {}) {
+  const draft = createDraft({ ...input, issued: now.toISOString().slice(0, 10), policyDigest: policyEntryDigest(catalog, input.fingerprint), minimumScannerVersion: scannerVersion, minimumCatalogVersion: catalog.version ?? String(catalog.schema) });
+  const problems = validateRecord(draft);
+  const duration = Date.parse(draft.payload.expires) - Date.parse(draft.payload.issued);
+  if (!(duration > 0 && duration <= 90 * 86400000)) problems.push("draft expiry must be after issued and within 90 days");
+  if (problems.length) throw new Error(problems.join("; "));
+  return draft;
+}
 export function main(args) {
   if (args.includes("--draft")) {
     const input = json(arg(args, "--draft"));
-    const draft = createDraft(input);
+    const draft = createInstalledDraft(input);
     const out = arg(args, "--out");
     const data = `${JSON.stringify(draft, null, 2)}\n`;
     if (out) writeFileSync(path.resolve(out), data, { flag: "wx" }); else process.stdout.write(data);
