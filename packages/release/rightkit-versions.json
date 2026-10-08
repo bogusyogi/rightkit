@@ -314,10 +314,10 @@
       "rightkit-secrets": "0.1.0",
       "rightkit-service": "0.1.0",
       "rightkit-settings": "0.1.0",
-      "rightkit-shell": "0.1.2",
+      "rightkit-shell": "0.1.3",
       "rightkit-speech-client": "0.3.0",
       "rightkit-tauri": "0.1.1",
-      "rightkit-watch": "0.3.0"
+      "rightkit-watch": "0.3.1"
     },
     "npm": {
       "@rightkit/app-shell": "0.2.1",
