@@ -158,7 +158,7 @@ pub fn bundle_verify(dir: &Path, options: &VerifyOptions) -> Result<VerifyReport
         Err(problem) => report.problems.push(problem),
     }
 
-    check_clock_and_capture(dir, &manifest, &mut report.problems);
+    check_clock_and_capture(dir, &manifest, &mut report.problems, &mut report.warnings);
 
     for name in TEXT_FILES {
         let Ok(text) = fs::read_to_string(dir.join(name)) else {
@@ -469,7 +469,12 @@ fn field_value<'a>(event: &'a Value, field: &str) -> Option<&'a Value> {
     }
 }
 
-fn check_clock_and_capture(dir: &Path, manifest: &Value, problems: &mut Vec<String>) {
+fn check_clock_and_capture(
+    dir: &Path,
+    manifest: &Value,
+    problems: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
     match read_json(&dir.join(CLOCK_FILE)) {
         Ok(mut clock) => {
             let frames = clock
@@ -511,6 +516,9 @@ fn check_clock_and_capture(dir: &Path, manifest: &Value, problems: &mut Vec<Stri
         Ok(capture) => {
             if manifest.get("capture") != Some(&capture) {
                 problems.push("capture.json does not match the manifest capture".into());
+            }
+            if capture.pointer("/border/required").and_then(Value::as_bool) == Some(true) {
+                warnings.push("capture border visible".into());
             }
         }
         Err(error) => problems.push(format!("capture.json unreadable: {error}")),

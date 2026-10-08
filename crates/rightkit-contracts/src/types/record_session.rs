@@ -112,6 +112,21 @@ pub struct Capture {
     pub scope: CaptureScope,
     pub display_opt_in: bool,
     pub visibility_state: VisibilityState,
+    /// The OS capture border state, when the backend reports one (1.2.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<CaptureBorder>,
+}
+
+/// Whether the recording contains the OS capture border. `required` true means
+/// the border is visible in the frames.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct CaptureBorder {
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

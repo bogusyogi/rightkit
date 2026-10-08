@@ -17,7 +17,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
-use rightkit_contracts::types::record_session::RecorderOs;
+use rightkit_contracts::types::record_session::{CaptureBorder, RecorderOs};
 use rightkit_framed_sidecar::length_prefixed::{read_frame_bytes, write_frame};
 use rightkit_framed_sidecar::FrameError;
 use serde_json::{json, Value};
@@ -44,6 +44,8 @@ pub struct ProcessBackend {
     link: Mutex<Link>,
     events: Receiver<HelperEvent>,
     identity: Identity,
+    /// The border the helper reported when the take started.
+    border: Option<CaptureBorder>,
 }
 
 /// The request side of the connection: the writer and the response queue.
@@ -104,6 +106,7 @@ impl ProcessBackend {
             link: Mutex::new(link),
             events,
             identity,
+            border: None,
         })
     }
 
@@ -139,7 +142,14 @@ impl Backend for ProcessBackend {
     fn start(&mut self, plan: &BackendPlan) -> Result<StartInfo> {
         let encoded = encode_plan(plan).map_err(|e| RecordError::new(Code::ArgInvalid, e))?;
         let result = self.call("start", json!({ "plan": encoded }))?;
+        self.border = result
+            .get("border")
+            .and_then(|border| serde_json::from_value(border.clone()).ok());
         decode_start_info(&result).map_err(protocol_error)
+    }
+
+    fn border(&self) -> Option<CaptureBorder> {
+        self.border.clone()
     }
 
     fn poll(&mut self) -> Vec<HelperEvent> {
@@ -301,7 +311,13 @@ fn serve_request<B: Backend, W: Write>(
         })),
         Some("sources") => backend.sources().map(|sources| encode_sources(&sources)),
         Some("start") => match crate::protocol::decode_plan(&request["plan"]) {
-            Ok(plan) => backend.start(&plan).map(|info| encode_start_info(&info)),
+            Ok(plan) => backend.start(&plan).map(|info| {
+                let mut encoded = encode_start_info(&info);
+                if let (Some(border), Some(object)) = (backend.border(), encoded.as_object_mut()) {
+                    object.insert("border".into(), json!(border));
+                }
+                encoded
+            }),
             Err(detail) => Err(RecordError::new(Code::ArgInvalid, detail)),
         },
         Some("stop") => {

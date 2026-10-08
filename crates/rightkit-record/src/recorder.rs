@@ -14,7 +14,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rightkit_contracts::types::record_event::{
     DropReason, EventKind, Frame, FrameDropped as DropInfo, PolicyRef, RecordEvent,
 };
-use rightkit_contracts::types::record_session::{BundleStatus, RecorderOs, VisibilityState};
+use rightkit_contracts::types::record_session::{
+    BundleStatus, CaptureBorder, RecorderOs, VisibilityState,
+};
 use rightkit_contracts::types::Rect;
 use rightkit_contracts::{validate, Contract};
 use serde_json::{json, Value};
@@ -339,7 +341,7 @@ impl<B: Backend, C: Clock> Recorder<B, C> {
             return Err(RecordError::new(Code::Unsupported, reason));
         }
         session.host_ns_at_start = info.host_ns_at_start;
-        let capture = capture_json(&request, &info);
+        let capture = capture_json(&request, &info, self.backend.border());
         {
             let writer = session.writer();
             writer
@@ -806,8 +808,8 @@ fn epoch_json(epoch: u32, start_ms: u64, bounds: Rect, scale: f64, dpi: u32) -> 
 
 /// The capture metadata. `scale` and `visibilityState` are what the backend
 /// reported as applied, not what the request asked for.
-fn capture_json(request: &StartRequest, info: &StartInfo) -> Value {
-    json!({
+fn capture_json(request: &StartRequest, info: &StartInfo, border: Option<CaptureBorder>) -> Value {
+    let mut capture = json!({
         "fps": request.fps,
         "scale": info.scale,
         "codec": info.codec,
@@ -816,7 +818,12 @@ fn capture_json(request: &StartRequest, info: &StartInfo) -> Value {
         "scope": "app_surfaces",
         "displayOptIn": false,
         "visibilityState": info.visibility,
-    })
+    });
+    // Absent unless the backend reports a border, so macOS captures stay unchanged.
+    if let (Some(border), Some(object)) = (border, capture.as_object_mut()) {
+        object.insert("border".into(), json!(border));
+    }
+    capture
 }
 
 #[cfg(all(test, unix))]

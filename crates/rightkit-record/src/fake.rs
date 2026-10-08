@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::fs;
 
-use rightkit_contracts::types::record_session::{RecorderOs, VisibilityState};
+use rightkit_contracts::types::record_session::{CaptureBorder, RecorderOs, VisibilityState};
 use rightkit_contracts::types::Rect;
 
 use crate::backend::{
@@ -25,6 +25,8 @@ pub struct FakeBackend {
     pub observed_visibility: Option<VisibilityState>,
     /// The scale the fake reports as applied. `None` reports the requested one.
     pub applied_scale: Option<f64>,
+    /// The capture border the fake reports. `None` reports none, like macOS.
+    pub border: Option<CaptureBorder>,
     pub sources: Vec<Source>,
     /// Batches returned by successive `poll` calls, oldest first.
     script: VecDeque<Vec<HelperEvent>>,
@@ -54,6 +56,7 @@ impl FakeBackend {
             prompt_grants: true,
             observed_visibility: None,
             applied_scale: None,
+            border: None,
             sources: Vec::new(),
             script: VecDeque::new(),
             start_error: None,
@@ -148,6 +151,10 @@ impl Backend for FakeBackend {
             os_build: self.os_build.clone(),
             visibility: self.observed_visibility.unwrap_or(plan.visibility),
         })
+    }
+
+    fn border(&self) -> Option<CaptureBorder> {
+        self.border.clone()
     }
 
     fn poll(&mut self) -> Vec<HelperEvent> {

@@ -6,7 +6,9 @@
 use std::path::PathBuf;
 
 use rightkit_contracts::types::record_event::DropReason;
-use rightkit_contracts::types::record_session::{RecorderOs, TrackKind, VisibilityState};
+use rightkit_contracts::types::record_session::{
+    CaptureBorder, RecorderOs, TrackKind, VisibilityState,
+};
 use rightkit_contracts::types::Rect;
 
 use crate::error::RecordError;
@@ -211,6 +213,12 @@ pub trait Backend {
     /// Honours `plan.scale` and `plan.codec`, or refuses with `Code::Unsupported`
     /// or `Code::CodecUnavailable`. Requests permission here when undetermined.
     fn start(&mut self, plan: &BackendPlan) -> Result<StartInfo, RecordError>;
+    /// The OS capture border state of the take that `start` began. `None` when
+    /// the backend reports none, which is the default. A `required` border means
+    /// the frames contain it, and the bundle records that.
+    fn border(&self) -> Option<CaptureBorder> {
+        None
+    }
     /// Drains the helper events received since the last call. Never blocks.
     fn poll(&mut self) -> Vec<HelperEvent>;
     /// Finalizes the media and reports whether the finish was clean.

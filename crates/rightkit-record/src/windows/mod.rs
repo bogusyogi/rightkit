@@ -38,7 +38,7 @@ use ::windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 use ::windows::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
-use rightkit_contracts::types::record_session::{RecorderOs, VisibilityState};
+use rightkit_contracts::types::record_session::{CaptureBorder, RecorderOs, VisibilityState};
 use rightkit_contracts::types::Rect;
 use serde_json::{json, Value};
 
@@ -149,6 +149,15 @@ impl Capture {
 }
 
 impl Backend for WindowsBackend {
+    fn border(&self) -> Option<CaptureBorder> {
+        let border = WindowsBackend::border(self)?;
+        Some(CaptureBorder {
+            required: border["borderRequired"].as_bool().unwrap_or(false),
+            access: border["borderlessAccess"].as_str().map(str::to_string),
+            error: border["error"].as_str().map(str::to_string),
+        })
+    }
+
     fn os(&self) -> RecorderOs {
         RecorderOs::Windows
     }

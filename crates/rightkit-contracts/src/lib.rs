@@ -78,7 +78,7 @@ impl Contract {
     pub fn supported_version(self) -> Version {
         match self {
             Contract::RecordEvent => Version::new(1, 2, 0),
-            Contract::RecordSession => Version::new(1, 1, 0),
+            Contract::RecordSession => Version::new(1, 2, 0),
             _ => Version::new(1, 0, 0),
         }
     }

@@ -269,3 +269,62 @@ fn complete_bundles_have_a_schema_valid_manifest_and_complete_status() {
             .is_ok()
     );
 }
+
+#[test]
+fn a_required_capture_border_is_recorded_validated_and_warned_about() {
+    use rightkit_contracts::types::record_session::CaptureBorder;
+    let scratch = Scratch::new("border");
+    let mut backend = FakeBackend::windows();
+    backend.border = Some(CaptureBorder {
+        required: true,
+        access: Some("DeniedByUser".into()),
+        error: Some("borderless access status is DeniedByUser, not Allowed".into()),
+    });
+    backend.push(frames_batch(2));
+    let out = sealed(&scratch, backend, "take");
+    let manifest = read_manifest(&out);
+    assert_eq!(manifest["capture"]["border"]["required"], true);
+    assert_eq!(manifest["capture"]["border"]["access"], "DeniedByUser");
+    assert!(
+        rightkit_contracts::validate(rightkit_contracts::Contract::RecordSession, &manifest)
+            .is_ok()
+    );
+    let report = verify(&out);
+    assert!(report.ok(), "{:?}", report.problems);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w == "capture border visible"),
+        "{:?}",
+        report.warnings
+    );
+}
+
+#[test]
+fn a_hidden_capture_border_is_recorded_without_a_warning() {
+    use rightkit_contracts::types::record_session::CaptureBorder;
+    let scratch = Scratch::new("border-off");
+    let mut backend = FakeBackend::windows();
+    backend.border = Some(CaptureBorder {
+        required: false,
+        access: Some("Allowed".into()),
+        error: None,
+    });
+    backend.push(frames_batch(2));
+    let out = sealed(&scratch, backend, "take");
+    assert_eq!(read_manifest(&out)["capture"]["border"]["required"], false);
+    let report = verify(&out);
+    assert!(report.ok(), "{:?}", report.problems);
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+}
+
+#[test]
+fn a_backend_that_reports_no_border_omits_it() {
+    let scratch = Scratch::new("border-none");
+    let mut backend = FakeBackend::macos();
+    backend.push(frames_batch(2));
+    let out = sealed(&scratch, backend, "take");
+    assert!(read_manifest(&out)["capture"].get("border").is_none());
+    assert!(verify(&out).warnings.is_empty());
+}
