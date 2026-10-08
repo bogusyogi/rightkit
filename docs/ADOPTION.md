@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 83 (54 crates, 29 npm packages).
+- Packages in RightKit: 82 (53 crates, 29 npm packages).
 - Packages with at least one app pin: 47.
 - App pins: 187. Stale: 98. Ahead of published: 0. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 0.
@@ -35,7 +35,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-cache` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `rightkit-channel-memory` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-compose` | private | 0.0.0 | none recorded | 0 | none | - |
-| `rightkit-computer` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-contracts` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-control` | crates.io | 0.1.9 | 0.1.9 | 3 | cockpit, cutright, genright | 1 stale |
 | `rightkit-crash` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
@@ -49,9 +48,9 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-license` | crates.io | 0.1.3 | 0.1.3 | 5 | coderight, heardright, mailright, scraperight, viewright | - |
 | `rightkit-llm` | crates.io | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-logs` | crates.io | 0.2.0 | 0.2.0 | 6 | coderight, genright, heardright, mailright, scraperight, viewright | 4 stale |
-| `rightkit-mcp` | crates.io | 0.5.0 | 0.4.0 | 1 | coderight | 2 stale |
+| `rightkit-mcp` | crates.io | 0.5.1 | 0.5.0 | 1 | coderight | 2 stale |
 | `rightkit-media` | crates.io | 0.2.3 | 0.2.3 | 1 | genright | - |
-| `rightkit-models` | crates.io | 0.2.3 | 0.2.3 | 2 | cutright, genright | 5 stale |
+| `rightkit-models` | crates.io | 0.2.4 | 0.2.3 | 2 | cutright, genright | 5 stale |
 | `rightkit-oauth` | crates.io | 0.3.0 | 0.3.0 | 2 | coderight, mailright | 2 stale |
 | `rightkit-ocr` | private | 0.1.2 | none recorded | 0 | none | - |
 | `rightkit-ort` | crates.io | 0.2.1 | 0.2.1 | 4 | coderight, cutright, genright, scraperight | 16 stale |
@@ -60,14 +59,14 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-playback` | crates.io | 0.1.1 | 0.1.1 | 0 | none | - |
 | `rightkit-process` | crates.io | 0.3.1 | 0.3.1 | 3 | coderight, cutright, genright | 6 stale |
 | `rightkit-qa` | crates.io | 0.2.13 | 0.2.12 | 3 | cockpit, cutright, genright | - |
-| `rightkit-qts` | crates.io | 0.2.1 | 0.2.1 | 1 | genright | - |
+| `rightkit-qts` | crates.io | 0.2.2 | 0.2.1 | 1 | genright | - |
 | `rightkit-qts-ggml` | crates.io | 0.1.0 | 0.1.0 | 1 | genright | - |
 | `rightkit-qts-ggml-sys` | crates.io | 0.1.0 | 0.1.0 | 1 | genright | - |
 | `rightkit-record` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-review` | private | 0.1.0 | none recorded | 0 | none | - |
 | `rightkit-sandbox` | crates.io | 0.3.1 | 0.3.1 | 1 | coderight | 1 stale |
 | `rightkit-scenario` | private | 0.0.0 | none recorded | 0 | none | - |
-| `rightkit-search` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
+| `rightkit-search` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
 | `rightkit-secrets` | crates.io | 0.1.1 | 0.1.1 | 5 | coderight, cutright, genright, mailright, scraperight | 6 stale |
 | `rightkit-service` | crates.io | 0.1.1 | 0.1.1 | 1 | heardright | 1 stale |
 | `rightkit-settings` | crates.io | 0.1.0 | 0.1.0 | 1 | genright | - |
@@ -88,7 +87,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/build-control-phase0` | private | 0.0.0-phase0 | none recorded | 0 | none | - |
 | `@rightkit/build-control-policy` | private | 0.1.0-phase1 | none recorded | 0 | none | - |
 | `@rightkit/build-control-staging` | private | 0.1.0-phase1 | none recorded | 0 | none | - |
-| `@rightkit/doc-render` | npm | 0.1.3 | 0.1.3 | 1 | viewright | - |
+| `@rightkit/doc-render` | npm | 0.1.4 | 0.1.3 | 1 | viewright | - |
 | `@rightkit/git` | npm | 0.2.26 | 0.2.26 | 2 | coderight, legion | 2 stale |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 2 | coderight, legion | 2 stale |
 | `@rightkit/i18n` | npm | 0.1.0 | 0.1.0 | 0 | none | - |
@@ -151,8 +150,8 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-logs` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
 | `rightkit-logs` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.2.0 | stale |
 | `rightkit-logs` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.2.0 | stale |
-| `rightkit-mcp` | coderight | `coderight/context/engine/crates/membrane-mcp/Cargo.toml` | dependencies | `=0.3.1` | 0.4.0 | stale |
-| `rightkit-mcp` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.1` | 0.4.0 | stale |
+| `rightkit-mcp` | coderight | `coderight/context/engine/crates/membrane-mcp/Cargo.toml` | dependencies | `=0.3.1` | 0.5.0 | stale |
+| `rightkit-mcp` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.1` | 0.5.0 | stale |
 | `rightkit-media` | genright | `genright/crates/genright-studio/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
 | `rightkit-models` | cutright | `cutright/crates/cutright-model-store/Cargo.toml` | dependencies | `=0.2.1` | 0.2.3 | stale |
 | `rightkit-models` | genright | `genright/crates/genright-local-image/Cargo.toml` | dependencies | `=0.2.2` | 0.2.3 | stale |

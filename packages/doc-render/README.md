@@ -33,6 +33,5 @@ export function Doc({ markdown }: { markdown: string }) {
 
 ## Known issues
 
-- `mermaid` and `katex` are declared dependencies with no references in `src`, `test` or `styles`. They add about 111 packages to every install (production closure 236 down to 125, measured in the npm audit 2026-10-08). Removal is pending.
 - `remark-math` parses math, but output is raw text in `<pre>`/`<code>` (`src/renderers.tsx:71-72`). Math is not rendered as KaTeX.
 - Shiki loads its WASM through `shiki/onig.wasm?url`, so the host bundler must resolve `?url` imports.

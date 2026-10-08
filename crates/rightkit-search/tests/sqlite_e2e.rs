@@ -3,7 +3,7 @@
 //! by the rows that come back.
 
 use rightkit_search::snippet::{fts_snippet_expr, split_highlights};
-use rightkit_search::{Binding, CompileError, ParseError, Schema, ValueKind};
+use rightkit_search::{Binding, CompileError, ParseError, Query, Schema, ValueKind};
 use rusqlite::{params_from_iter, Connection};
 
 fn schema() -> Schema {
@@ -124,7 +124,17 @@ fn ids(conn: &Connection, query: &str) -> Vec<String> {
     let q = schema
         .parse(query)
         .unwrap_or_else(|e| panic!("parse {query:?}: {e}"));
-    let compiled = schema.compile_at(&q, APR1 + 10 * 86_400_000).unwrap();
+    rows_for(conn, &schema, &q)
+}
+
+fn lenient_ids(conn: &Connection, query: &str) -> Vec<String> {
+    let schema = schema();
+    let q = Query::parse_lenient(query, &schema.syntax());
+    rows_for(conn, &schema, &q)
+}
+
+fn rows_for(conn: &Connection, schema: &Schema, q: &Query) -> Vec<String> {
+    let compiled = schema.compile_at(q, APR1 + 10 * 86_400_000).unwrap();
     let sql = compiled.select("SELECT m.id FROM messages m") + " ORDER BY m.id";
     let mut stmt = conn
         .prepare(&sql)
@@ -261,4 +271,29 @@ fn fts_snippets_mark_matches_and_split_into_spans() {
 fn empty_query_matches_everything_and_compiles_to_a_noop() {
     let (_d, conn) = fixture();
     assert_eq!(ids(&conn, "   ").len(), 5);
+    assert_eq!(lenient_ids(&conn, "   ").len(), 5);
+}
+
+#[test]
+fn malformed_lenient_query_matches_nothing() {
+    let (_d, conn) = fixture();
+    for bad in [")", "(from:alice", "from:alice )", "}", "nosuchop:x"] {
+        assert_eq!(
+            lenient_ids(&conn, bad),
+            Vec::<String>::new(),
+            "query {bad:?}"
+        );
+    }
+    assert!(Query::parse_lenient(")", &schema().syntax()).matches_nothing());
+    assert!(!Query::parse_lenient("   ", &schema().syntax()).matches_nothing());
+    assert!(!Query::parse_lenient("", &schema().syntax()).matches_nothing());
+}
+
+#[test]
+fn strict_parse_still_reports_malformed_queries() {
+    let schema = schema();
+    assert!(matches!(
+        schema.parse(")"),
+        Err(ParseError::UnbalancedGroup { .. })
+    ));
 }

@@ -25,7 +25,6 @@ name = "rightkit_asr"
 path = "src/lib.rs"
 
 [dependencies]
-eyre = "0.6"
 half = "2"
 hound = "3.5"
 ndarray = "0.17"
@@ -34,7 +33,7 @@ realfft = "3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 libloading = "0.9"
-rightkit-vad = { path = "../rightkit-vad" }
+rightkit-vad = { path = "../rightkit-vad", default-features = false }
 tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -53,7 +52,9 @@ cpu = []
 # ort rc.13's own `default` raises the API floor to 27 (ORT 1.27), which the
 # suite's approved 1.24.4 runtime cannot serve. Keep rc.12's default set with
 # the suite API level instead of `ort/default`.
-ort-defaults = ["ort/std", "ort/ndarray", "ort/tracing", "ort/download-binaries", "ort/tls-native", "ort/copy-dylibs", "ort/api-24"]
+ort-defaults = ["ort/std", "ort/ndarray", "ort/tracing", "ort/api-24"]
+# Build-time ONNX Runtime fetch is opt-in (inventory 1.1); the suite loads ORT through rightkit-ort.
+ort-download = ["ort/download-binaries", "ort/tls-native", "ort/copy-dylibs"]
 cuda = ["ort/cuda"]
 tensorrt = ["ort/tensorrt"]
 coreml = ["ort/coreml"]

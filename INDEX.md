@@ -12,7 +12,7 @@ Flagged mismatches: 5.
 
 The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) is moving to RustRight, a separate product. Entries here are inventory only.
 
-## Rust crates (54)
+## Rust crates (53)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -26,7 +26,6 @@ The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) 
 | `rightkit-cache` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | disk-cache | Disk cache primitive with a hard size cap, LRU eviction that survives restarts, atomic writes and group invalidation, plus stable-prefix prompt-cache keys. |
 | `rightkit-channel-memory` | private | 0.1.0 | none recorded |  | private | channel-memory | Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7. |
 | `rightkit-compose` | private | 0.0.0 | none recorded |  | private | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
-| `rightkit-computer` | private | 0.1.0 | none recorded |  | private | computer-control | Shared computer-control layer: observe and act on any app window in the background (macOS prototype). |
 | `rightkit-contracts` | private | 0.1.0 | none recorded |  | private | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |
 | `rightkit-control` | crates.io | 0.1.9 | 0.1.9 | 0.1.9 | ok | desktop-control | Background native input, accessibility reads, and a WebDriver bridge for driving real desktop apps without stealing focus. |
 | `rightkit-crash` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
@@ -40,9 +39,9 @@ The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) 
 | `rightkit-license` | crates.io | 0.1.3 | 0.1.3 | 0.1.3 | ok | licensing | Right Suite license enforcement primitive — offline verification of server-signed Ed25519 entitlement tokens. The Rust (security) half of @rightkit/license. |
 | `rightkit-llm` | crates.io | 0.1.0 | none recorded |  | **MISMATCH public package has no release record** | llm-providers | Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline. |
 | `rightkit-logs` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | structured-logging | Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps. |
-| `rightkit-mcp` | crates.io | 0.5.0 | 0.4.0 | 0.5.0 | staged, not yet published | mcp | Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. |
+| `rightkit-mcp` | crates.io | 0.5.1 | 0.5.0 | 0.5.1 | staged, not yet published | mcp | Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps. |
 | `rightkit-media` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | media-pipelines | Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. |
-| `rightkit-models` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
+| `rightkit-models` | crates.io | 0.2.4 | 0.2.3 | 0.2.4 | staged, not yet published | model-installation | Shared local-model manifest and installer for Right Suite apps: revisions and quantizations, resumable verified downloads, archive extraction, atomic activation, rollback, and hardware fit. |
 | `rightkit-oauth` | crates.io | 0.3.0 | 0.3.0 | 0.3.0 | ok | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |
 | `rightkit-ocr` | private | 0.1.2 | none recorded |  | private | ocr | Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback |
 | `rightkit-ort` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | onnx-runtime | Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin) |
@@ -51,14 +50,14 @@ The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) 
 | `rightkit-playback` | crates.io | 0.1.1 | 0.1.1 | 0.1.1 | ok | media-playback | Source-preserving FFmpeg compatibility playback preparation for Right Suite media apps. |
 | `rightkit-process` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
 | `rightkit-qa` | crates.io | 0.2.13 | 0.2.12 | 0.2.13 | staged, not yet published | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving through rightkit-control, Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |
-| `rightkit-qts` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |
+| `rightkit-qts` | crates.io | 0.2.2 | 0.2.1 | 0.2.2 | staged, not yet published | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |
 | `rightkit-qts-ggml` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | text-to-speech | Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-qts-ggml-sys` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | text-to-speech | Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-record` | private | 0.1.0 | none recorded |  | private | screen-recording | Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait. |
 | `rightkit-review` | private | 0.1.0 | none recorded |  | private | content-review | Shared review capability for the content pipeline: deterministic checks over a media or brief description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records. |
 | `rightkit-sandbox` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | os-sandbox | Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps. |
 | `rightkit-scenario` | private | 0.0.0 | none recorded |  | private | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
-| `rightkit-search` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | search | Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index. |
+| `rightkit-search` | crates.io | 0.2.0 | 0.1.0 | 0.2.0 | staged, not yet published | search | Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index. |
 | `rightkit-secrets` | crates.io | 0.1.1 | 0.1.1 | 0.1.1 | ok | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
 | `rightkit-service` | crates.io | 0.1.1 | 0.1.1 | 0.1.1 | ok | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
 | `rightkit-settings` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | settings-persistence | Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events. |
@@ -84,7 +83,7 @@ The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) 
 | `@rightkit/build-control-phase0` | private | 0.0.0-phase0 | none recorded |  | private | rightkit-phase0 |  | Executable Phase-0 feasibility evidence for RightKit Build Control Plane V5. |
 | `@rightkit/build-control-policy` | private | 0.1.0-phase1 | none recorded |  | private |  |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` & Codex `apply_patch`. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
 | `@rightkit/build-control-staging` | private | 0.1.0-phase1 | none recorded |  | private |  |  | Build-control broker layer; moving to RustRight. |
-| `@rightkit/doc-render` | npm | 0.1.3 | 0.1.3 | 0.1.3 | ok |  | document-rendering | Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers. |
+| `@rightkit/doc-render` | npm | 0.1.4 | 0.1.3 | 0.1.4 | staged, not yet published |  | document-rendering | Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers. |
 | `@rightkit/git` | npm | 0.2.26 | 0.2.26 | 0.2.26 | ok | right-git | github-workflows | Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0.1.2 | ok | rightkit-hooks | lifecycle-hooks | Neutral lifecycle runtime shared by independently installable agent systems. |
 | `@rightkit/i18n` | npm | 0.1.0 | 0.1.0 | 0.1.0 | ok |  | localization | Shared locale catalog and React provider for Right Suite apps. |

@@ -154,6 +154,9 @@ pub enum StdioInputMode {
     FailFast,
 }
 
+/// Default cap on one stdio input frame (one line), matching the HTTP body cap.
+pub const DEFAULT_MAX_STDIO_FRAME_BYTES: usize = 8 * 1024 * 1024;
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ServerOptions {
     pub id_policy: IdPolicy,
@@ -233,6 +236,7 @@ struct Inner {
     async_handler: Option<Arc<dyn AsyncRequestHandler>>,
     protocol_versions: Option<Vec<String>>,
     response_limits: Option<crate::ResponseLimits>,
+    max_stdio_frame_bytes: usize,
 }
 
 #[derive(Clone)]
@@ -269,6 +273,60 @@ where
 
 fn rpc_error(id: &Value, code: i64, message: impl Into<String>) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into()}})
+}
+
+enum LineRead {
+    Eof,
+    Line,
+    /// The line exceeded the limit; its remaining bytes were consumed and discarded.
+    Oversize,
+}
+
+/// Reads one `\n`-terminated line into `buf` (terminator and a trailing `\r` removed) without
+/// ever holding more than `max` bytes. An oversize line is drained to its terminator so the
+/// stream stays aligned on the next frame.
+fn read_bounded_line(
+    reader: &mut impl BufRead,
+    buf: &mut Vec<u8>,
+    max: usize,
+) -> std::io::Result<LineRead> {
+    buf.clear();
+    let mut oversize = false;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            if buf.is_empty() && !oversize {
+                return Ok(LineRead::Eof);
+            }
+            break;
+        }
+        let (done, used) = match available.iter().position(|&b| b == b'\n') {
+            Some(i) => (true, i + 1),
+            None => (false, available.len()),
+        };
+        if !oversize {
+            let take = if done { used - 1 } else { used };
+            // One extra byte of slack admits a CR that the terminator-strip below removes.
+            if buf.len() + take > max.saturating_add(1) {
+                oversize = true;
+                buf.clear();
+            } else {
+                buf.extend_from_slice(&available[..take]);
+            }
+        }
+        reader.consume(used);
+        if done {
+            break;
+        }
+    }
+    if buf.last() == Some(&b'\r') {
+        buf.pop();
+    }
+    if oversize || buf.len() > max {
+        buf.clear();
+        return Ok(LineRead::Oversize);
+    }
+    Ok(LineRead::Line)
 }
 
 async fn join_options<'a, I>(futures: I) -> Vec<Value>
@@ -316,6 +374,7 @@ impl ServerHost {
                 async_handler: None,
                 protocol_versions: None,
                 response_limits: None,
+                max_stdio_frame_bytes: DEFAULT_MAX_STDIO_FRAME_BYTES,
             }),
         }
     }
@@ -333,6 +392,7 @@ impl ServerHost {
             async_handler: i.async_handler.clone(),
             protocol_versions: i.protocol_versions.clone(),
             response_limits: i.response_limits,
+            max_stdio_frame_bytes: i.max_stdio_frame_bytes,
         };
         f(&mut n);
         ServerHost { inner: Arc::new(n) }
@@ -356,6 +416,13 @@ impl ServerHost {
 
     pub fn with_response_limits(self, limits: crate::ResponseLimits) -> Self {
         self.rebuild(|i| i.response_limits = Some(limits))
+    }
+
+    /// Maximum bytes in one stdio input line, excluding its terminator (default
+    /// [`DEFAULT_MAX_STDIO_FRAME_BYTES`]). A longer line is drained, answered with a JSON-RPC
+    /// Invalid Request error (id null), and serving continues.
+    pub fn with_max_stdio_frame_bytes(self, max: usize) -> Self {
+        self.rebuild(|i| i.max_stdio_frame_bytes = max)
     }
 
     /// Dispatch a parsed frame without transport I/O or HTTP session issuance.
@@ -636,16 +703,33 @@ impl ServerHost {
 
     fn stdio_loop(
         &self,
-        reader: impl BufRead,
+        mut reader: impl BufRead,
         mut writer: impl Write,
         ctx: &Ctx,
     ) -> std::io::Result<()> {
-        for line in reader.lines() {
-            let line = line?;
+        let max = self.inner.max_stdio_frame_bytes;
+        let mut buf = Vec::new();
+        loop {
+            match read_bounded_line(&mut reader, &mut buf, max)? {
+                LineRead::Eof => break,
+                LineRead::Oversize => {
+                    let reply = rpc_error(
+                        &Value::Null,
+                        -32600,
+                        format!("request frame exceeds {max} byte limit"),
+                    );
+                    writeln!(writer, "{reply}")?;
+                    writer.flush()?;
+                    continue;
+                }
+                LineRead::Line => {}
+            }
+            let line = std::str::from_utf8(&buf)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
             if line.trim().is_empty() {
                 continue;
             }
-            let reply = match serde_json::from_str::<Value>(&line) {
+            let reply = match serde_json::from_str::<Value>(line) {
                 Ok(msg) => self.dispatch_frame(&msg, ctx),
                 Err(e) if self.inner.options.stdio_input_mode == StdioInputMode::FailFast => {
                     return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));

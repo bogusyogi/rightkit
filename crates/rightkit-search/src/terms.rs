@@ -23,6 +23,8 @@ pub struct Query {
     /// Free-text disjunctions: `(a OR b)`.
     pub or_groups: Vec<Vec<String>>,
     pub negated_text: Vec<String>,
+    /// Set only by [`Query::parse_lenient`] on malformed input: the query matches no rows.
+    matches_nothing: bool,
 }
 
 fn clean(value: &str) -> String {
@@ -34,9 +36,20 @@ impl Query {
         Ok(Self::from_nodes(ast::parse(input, syntax)?))
     }
 
-    /// Infallible variant: a malformed query matches nothing (empty query).
+    /// Infallible variant: malformed input yields a query that matches nothing
+    /// ([`Query::matches_nothing`], compiled to `0=1`). Blank input is not malformed and
+    /// still matches everything.
     pub fn parse_lenient(input: &str, syntax: &Syntax) -> Self {
-        Self::parse(input, syntax).unwrap_or_default()
+        Self::parse(input, syntax).unwrap_or(Self {
+            matches_nothing: true,
+            ..Self::default()
+        })
+    }
+
+    /// True for a malformed lenient query. Such a query is not [`Query::is_empty`]: it
+    /// restricts to zero rows rather than matching all of them.
+    pub fn matches_nothing(&self) -> bool {
+        self.matches_nothing
     }
 
     pub fn from_nodes(nodes: Vec<Node>) -> Self {
@@ -105,7 +118,8 @@ impl Query {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.ops.is_empty()
+        !self.matches_nothing
+            && self.ops.is_empty()
             && self.op_or_groups.is_empty()
             && self.text.is_empty()
             && self.phrases.is_empty()

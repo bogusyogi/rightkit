@@ -19,7 +19,5 @@ tauri = ["dep:tauri"]
 rightkit-media = { path = "../rightkit-media", version = "0.2.3" }
 rightkit-process = { path = "../rightkit-process", version = "0.3.0" }
 parking_lot = "=0.12.5"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
 sha2 = "=0.10.9"
 tauri = { version = "2", optional = true, default-features = false }

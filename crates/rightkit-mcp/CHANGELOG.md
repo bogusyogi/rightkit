@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 — staged, unpublished
+
+- Security: the stdio server host no longer reads unbounded input lines. Each input frame is
+  capped by `ServerHost::with_max_stdio_frame_bytes` (default `DEFAULT_MAX_STDIO_FRAME_BYTES`,
+  8 MiB, the HTTP body cap). An oversize line is drained to its terminator and answered with a
+  JSON-RPC Invalid Request error (`-32600`, id `null`); serving continues, including under
+  `StdioInputMode::FailFast`. Invalid UTF-8 still ends serving with `InvalidData`.
+
 ## 0.5.0 — staged, unpublished
 
 - Breaking (0.x minor): new `McpError::RandomUnavailable` variant; exhaustive matches need one arm.

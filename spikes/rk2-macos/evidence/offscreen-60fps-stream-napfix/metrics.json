@@ -1,0 +1,286 @@
+{
+ "label": "offscreen-60fps-stream-napfix",
+ "frames_callbacks": 3343,
+ "frames_complete": 3343,
+ "frames_idle": 0,
+ "frames_blank_status": 0,
+ "decoded_frames": 3343,
+ "file_bytes": 4839782,
+ "analyzer": "{\"frames\":3343,\"ok\":true,\"reader_status\":2}",
+ "black_frames_luma_lt_15": 0,
+ "strip_valid_frames": 3343,
+ "max_foreign_magenta_samples": 0,
+ "frames_with_magenta_gt_20": 0,
+ "animated_frame_intervals": 2083,
+ "animated_intervals_counter_advanced": 2079,
+ "pct_intervals_advanced": 99.8,
+ "resampled_ticks": 2227,
+ "pct_ticks_advanced": 93.2,
+ "intervals_by_page_rate": {
+  "page60": {
+   "intervals": 2083,
+   "advanced": 2079,
+   "pct": 99.8
+  },
+  "throttled": {
+   "intervals": 0,
+   "advanced": 0,
+   "pct": null
+  }
+ },
+ "first_throttled_pts_s": null,
+ "page_raf_rate_samples": [
+  52,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  59,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60
+ ],
+ "counter_first_last": [
+  234,
+  2757
+ ],
+ "distinct_counter_values": 2353,
+ "ocr_samples_stable": 432,
+ "ocr_step_correct": 432,
+ "step_recovery": [
+  {
+   "step": 2,
+   "post_enc_s": 6.139,
+   "ocr_first_seen_enc_s": 6.148333333333333,
+   "latency_ms": 9
+  },
+  {
+   "step": 3,
+   "post_enc_s": 22.139,
+   "ocr_first_seen_enc_s": 22.138333333333332,
+   "latency_ms": -1
+  },
+  {
+   "step": 4,
+   "post_enc_s": 50.139,
+   "ocr_first_seen_enc_s": 50.14666666666667,
+   "latency_ms": 8
+  }
+ ],
+ "inputs": [
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 7.427542,
+   "dispatch_ms": 7.473167,
+   "complete_ms": 154.23775,
+   "caller_recv_ms": 178.450542,
+   "send_enc_pts_s": 6.01,
+   "admit_enc_pts_s": 6.018,
+   "complete_enc_pts_s": 6.165
+  },
+  {
+   "input": "click input",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 4.435542,
+   "dispatch_ms": 7.560583,
+   "complete_ms": 147.03275,
+   "caller_recv_ms": 179.808333,
+   "send_enc_pts_s": 14.013,
+   "admit_enc_pts_s": 14.017,
+   "complete_enc_pts_s": 14.16
+  },
+  {
+   "input": "type",
+   "method": "type",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 4.682042,
+   "dispatch_ms": 4.886417,
+   "complete_ms": 124.859375,
+   "caller_recv_ms": 130.20375,
+   "send_enc_pts_s": 15.515,
+   "admit_enc_pts_s": 15.519,
+   "complete_enc_pts_s": 15.639
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 4.914083,
+   "dispatch_ms": 4.952708,
+   "complete_ms": 149.176375,
+   "caller_recv_ms": 178.070875,
+   "send_enc_pts_s": 22.011,
+   "admit_enc_pts_s": 22.016,
+   "complete_enc_pts_s": 22.161
+  },
+  {
+   "input": "drag scrub",
+   "method": "drag",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 7.489292,
+   "dispatch_ms": 7.557,
+   "complete_ms": 399.049584,
+   "caller_recv_ms": 433.634584,
+   "send_enc_pts_s": 30.008,
+   "admit_enc_pts_s": 30.015,
+   "complete_enc_pts_s": 30.407
+  },
+  {
+   "input": "wheel scroll",
+   "method": "wheel",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 7.271292,
+   "dispatch_ms": 8.707667,
+   "complete_ms": 9.280125,
+   "caller_recv_ms": 48.278334,
+   "send_enc_pts_s": 38.01,
+   "admit_enc_pts_s": 38.017,
+   "complete_enc_pts_s": 38.019
+  },
+  {
+   "input": "key Right",
+   "method": "key",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 4.560916,
+   "dispatch_ms": 72.193916,
+   "complete_ms": 97.59475,
+   "caller_recv_ms": 174.561416,
+   "send_enc_pts_s": 44.009,
+   "admit_enc_pts_s": 44.014,
+   "complete_enc_pts_s": 44.107
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 2.78575,
+   "dispatch_ms": 2.798709,
+   "complete_ms": 148.754625,
+   "caller_recv_ms": 168.043709,
+   "send_enc_pts_s": 50.012,
+   "admit_enc_pts_s": 50.015,
+   "complete_enc_pts_s": 50.161
+  }
+ ],
+ "foreground_changes": [
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "?",
+    "frontmost_pid": 97854,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 87822,
+     "windowNumber": 3268
+    }
+   },
+   "t_uptime_ns": 44036601872708
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "?",
+    "frontmost_pid": 97854,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 3217
+    }
+   },
+   "t_uptime_ns": 44038415052208
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "?",
+    "frontmost_pid": 97854,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 57
+    }
+   },
+   "t_uptime_ns": 44043265304458
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "?",
+    "frontmost_pid": 97854,
+    "top_other_window": {
+     "owner": "Problem Reporter",
+     "pid": 1077,
+     "windowNumber": 3274
+    }
+   },
+   "t_uptime_ns": 44048581070833
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "?",
+    "frontmost_pid": 97854,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 57
+    }
+   },
+   "t_uptime_ns": 44056340553375
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 57
+    }
+   },
+   "t_uptime_ns": 44060443976000
+  }
+ ],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0x11011: (in front)      bundleID=\"com.anthropic.claudefordesktop\"     b",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NU",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.001,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -0.085
+}

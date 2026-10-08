@@ -807,3 +807,100 @@ fn membrane_e2e_discovery_and_typed_failures_survive_shared_dispatch() {
         r#"{"id":null,"jsonrpc":"2.0","result":{}}"#,
     );
 }
+
+const DEFAULT_LIMIT: usize = rightkit_mcp::server::DEFAULT_MAX_STDIO_FRAME_BYTES;
+
+fn stdio_with_limit(limit: usize, input: &[u8], mode: StdioInputMode) -> Vec<Value> {
+    let mut out = Vec::new();
+    host()
+        .with_options(ServerOptions {
+            stdio_input_mode: mode,
+            ..Default::default()
+        })
+        .with_max_stdio_frame_bytes(limit)
+        .serve_stdio_on(Cursor::new(input.to_vec()), &mut out)
+        .unwrap();
+    String::from_utf8(out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[test]
+fn default_stdio_frame_limit_is_eight_mib() {
+    assert_eq!(DEFAULT_LIMIT, 8 * 1024 * 1024);
+    let mut out = Vec::new();
+    let big = format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"ping\",\"pad\":\"{}\"}}\n",
+        "q".repeat(DEFAULT_LIMIT)
+    );
+    host().serve_stdio_on(Cursor::new(big), &mut out).unwrap();
+    let reply: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(reply["error"]["code"], json!(-32600));
+}
+
+#[test]
+fn oversize_stdio_frame_gets_rpc_error_and_server_keeps_serving() {
+    let ping = r#"{"jsonrpc":"2.0","id":7,"method":"ping","params":{}}"#;
+    let oversize = format!(
+        r#"{{"jsonrpc":"2.0","id":8,"method":"ping","pad":"{}"}}"#,
+        "x".repeat(200)
+    );
+    let input = format!("{oversize}\n{ping}\n{ping}\n");
+    let replies = stdio_with_limit(128, input.as_bytes(), StdioInputMode::ParseErrorReply);
+    assert_eq!(replies.len(), 3, "{replies:?}");
+    assert_eq!(replies[0]["id"], Value::Null);
+    assert_eq!(replies[0]["error"]["code"], json!(-32600));
+    assert!(replies[0]["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("128"));
+    assert_eq!(replies[1], json!({"id":7,"jsonrpc":"2.0","result":{}}));
+    assert_eq!(replies[2], json!({"id":7,"jsonrpc":"2.0","result":{}}));
+}
+
+#[test]
+fn stdio_frame_limit_is_inclusive_and_ignores_crlf_terminator() {
+    let body = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
+    let len = body.len();
+    let exact = format!("{body}\r\n");
+    let replies = stdio_with_limit(len, exact.as_bytes(), StdioInputMode::ParseErrorReply);
+    assert_eq!(replies, vec![json!({"id":1,"jsonrpc":"2.0","result":{}})]);
+    let replies = stdio_with_limit(len - 1, exact.as_bytes(), StdioInputMode::ParseErrorReply);
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0]["error"]["code"], json!(-32600));
+}
+
+#[test]
+fn oversize_final_frame_without_newline_is_answered_then_eof_ends_cleanly() {
+    let input = format!(r#"{{"pad":"{}"}}"#, "y".repeat(500));
+    let replies = stdio_with_limit(64, input.as_bytes(), StdioInputMode::ParseErrorReply);
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0]["error"]["code"], json!(-32600));
+}
+
+#[test]
+fn oversize_frame_is_rejected_even_in_fail_fast_mode_without_ending_serving() {
+    let ping = r#"{"jsonrpc":"2.0","id":3,"method":"ping"}"#;
+    let input = format!("{}\n{ping}\n", "z".repeat(100));
+    let replies = stdio_with_limit(50, input.as_bytes(), StdioInputMode::FailFast);
+    assert_eq!(replies.len(), 2);
+    assert_eq!(replies[0]["error"]["code"], json!(-32600));
+    assert_eq!(replies[1], json!({"id":3,"jsonrpc":"2.0","result":{}}));
+}
+
+#[test]
+fn stdio_frame_at_default_limit_is_served_and_one_byte_over_is_rejected() {
+    let limit = DEFAULT_LIMIT;
+    let prefix = r#"{"jsonrpc":"2.0","id":5,"method":"ping","pad":""#;
+    let suffix = r#""}"#;
+    let pad_len = limit - prefix.len() - suffix.len();
+    let at_limit = format!("{prefix}{}{suffix}\n", "p".repeat(pad_len));
+    let over_limit = format!("{prefix}{}{suffix}\n", "p".repeat(pad_len + 1));
+    let input = format!("{at_limit}{over_limit}");
+    let replies = stdio_with_limit(limit, input.as_bytes(), StdioInputMode::ParseErrorReply);
+    assert_eq!(replies.len(), 2, "{replies:?}");
+    assert_eq!(replies[0], json!({"id":5,"jsonrpc":"2.0","result":{}}));
+    assert_eq!(replies[1]["error"]["code"], json!(-32600));
+}

@@ -21,16 +21,21 @@ Each layer is usable alone:
 
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
-| `ort-defaults` | on (through `default`) | `ort` with `std`, `ndarray`, `tracing`, `download-binaries`, `tls-native`, `copy-dylibs`, `api-24` | The default ONNX Runtime setup. `download-binaries` fetches prebuilt ONNX Runtime during the build. |
-| `load-dynamic` | off | `ort/load-dynamic` | Loads ONNX Runtime at run time from a library path. Use it with `default-features = false` to avoid the build-time download and to bind the approved runtime through `rightkit-ort`. |
+| `default` | on | `ort/tracing` | ONNX Runtime tracing only. The crate fetches, copies and links no runtime. The consumer supplies ONNX Runtime. |
+| `load-dynamic` | off | `ort/load-dynamic` | Loads ONNX Runtime at run time from a library path. Use it with `default-features = false`, and bind the approved runtime through `rightkit-ort`. |
+| `download-binaries` | off | `ort/download-binaries` | Opt-in: fetches prebuilt ONNX Runtime during the build. |
+| `tls-native` | off | `ort/tls-native` | Opt-in: native TLS backend for `download-binaries`. |
+| `copy-dylibs` | off | `ort/copy-dylibs` | Opt-in: copies the ONNX Runtime dylibs next to the build output. |
 
-The `ort` dependency is pinned to `=2.0.0-rc.13` in `Cargo.toml`. The comment in `Cargo.toml` says the defaults keep rc.12's set. Check that comment before relying on it.
+Unreleased change: the default no longer enables `ort/ndarray` or the build-time download (`download-binaries`, `tls-native`, `copy-dylibs`). The `ort-defaults` feature is removed. To keep the old build-time download, opt in with `features = ["download-binaries", "tls-native", "copy-dylibs"]` (with `default-features` left on), or use `load-dynamic` with `default-features = false`.
+
+The `ort` dependency is pinned to `=2.0.0-rc.13` in `Cargo.toml`, with `std` and API level 24 set in `[dependencies]`. rc.13's own `default` raises the API floor to ORT 1.27, which the suite's 1.24.4 runtime cannot serve. Do not use `ort/default`.
 
 ## Platform support
 
 The crate has no `cfg(target_os)` gates in `src/`. ONNX Runtime support follows the `ort` features above. The Silero model file and the ONNX Runtime library are supplied by the app.
 
-Published version: see `INDEX.md` at the repository root. This crate has no `CHANGELOG.md`. The crate's manifest sets `publish = false`.
+Published version: see `INDEX.md` at the repository root. The crate sets `publish = false`, so it has no `CHANGELOG.md`; this README records feature changes.
 
 ## Example
 

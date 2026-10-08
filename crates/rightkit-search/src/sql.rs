@@ -95,7 +95,7 @@ pub struct Schema {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Compiled {
-    /// `WHERE` body; `1=1` when the query is empty.
+    /// `WHERE` body; `1=1` when the query is empty and `0=1` when it matches nothing.
     pub where_sql: String,
     pub params: Vec<Param>,
     /// The positive FTS5 MATCH expression, for snippet/rank queries.
@@ -137,6 +137,13 @@ impl Schema {
 
     /// Deterministic variant with an explicit "now" for relative dates.
     pub fn compile_at(&self, q: &Query, now: i64) -> Result<Compiled, CompileError> {
+        if q.matches_nothing() {
+            return Ok(Compiled {
+                where_sql: "0=1".to_string(),
+                params: Vec::new(),
+                fts_match: None,
+            });
+        }
         let mut clauses: Vec<String> = Vec::new();
         let mut params: Vec<Param> = Vec::new();
 

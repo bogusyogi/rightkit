@@ -1,0 +1,299 @@
+{
+ "label": "offscreen-30fps-stream-napfix",
+ "frames_callbacks": 1760,
+ "frames_complete": 1760,
+ "frames_idle": 0,
+ "frames_blank_status": 0,
+ "decoded_frames": 1760,
+ "file_bytes": 3147921,
+ "analyzer": "{\"frames\":1760,\"ok\":true,\"reader_status\":2}",
+ "black_frames_luma_lt_15": 0,
+ "strip_valid_frames": 1760,
+ "max_foreign_magenta_samples": 0,
+ "frames_with_magenta_gt_20": 0,
+ "animated_frame_intervals": 1085,
+ "animated_intervals_counter_advanced": 1085,
+ "pct_intervals_advanced": 100.0,
+ "resampled_ticks": 1110,
+ "pct_ticks_advanced": 97.4,
+ "intervals_by_page_rate": {
+  "page60": {
+   "intervals": 1085,
+   "advanced": 1085,
+   "pct": 100.0
+  },
+  "throttled": {
+   "intervals": 0,
+   "advanced": 0,
+   "pct": null
+  }
+ },
+ "first_throttled_pts_s": null,
+ "page_raf_rate_samples": [
+  52,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60
+ ],
+ "counter_first_last": [
+  221,
+  2744
+ ],
+ "distinct_counter_values": 1237,
+ "ocr_samples_stable": 277,
+ "ocr_step_correct": 277,
+ "step_recovery": [
+  {
+   "step": 2,
+   "post_enc_s": 6.147,
+   "ocr_first_seen_enc_s": 6.168333333333333,
+   "latency_ms": 21
+  },
+  {
+   "step": 3,
+   "post_enc_s": 22.163,
+   "ocr_first_seen_enc_s": 22.19,
+   "latency_ms": 27
+  },
+  {
+   "step": 4,
+   "post_enc_s": 50.146,
+   "ocr_first_seen_enc_s": 50.166666666666664,
+   "latency_ms": 21
+  }
+ ],
+ "inputs": [
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 7.6925,
+   "dispatch_ms": 7.762416,
+   "complete_ms": 153.2815,
+   "caller_recv_ms": 182.8715,
+   "send_enc_pts_s": 6.006,
+   "admit_enc_pts_s": 6.013,
+   "complete_enc_pts_s": 6.159
+  },
+  {
+   "input": "click input",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 5.841083,
+   "dispatch_ms": 5.870166,
+   "complete_ms": 151.959416,
+   "caller_recv_ms": 182.0715,
+   "send_enc_pts_s": 14.006,
+   "admit_enc_pts_s": 14.012,
+   "complete_enc_pts_s": 14.158
+  },
+  {
+   "input": "type",
+   "method": "type",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 2.658583,
+   "dispatch_ms": 2.682125,
+   "complete_ms": 97.738333,
+   "caller_recv_ms": 128.332041,
+   "send_enc_pts_s": 15.505,
+   "admit_enc_pts_s": 15.508,
+   "complete_enc_pts_s": 15.603
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 5.616125,
+   "dispatch_ms": 15.875959,
+   "complete_ms": 163.230042,
+   "caller_recv_ms": 177.716084,
+   "send_enc_pts_s": 22.014,
+   "admit_enc_pts_s": 22.019,
+   "complete_enc_pts_s": 22.177
+  },
+  {
+   "input": "drag scrub",
+   "method": "drag",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 8.515583,
+   "dispatch_ms": 91.887833,
+   "complete_ms": 497.874208,
+   "caller_recv_ms": 534.127,
+   "send_enc_pts_s": 30.007,
+   "admit_enc_pts_s": 30.016,
+   "complete_enc_pts_s": 30.505
+  },
+  {
+   "input": "wheel scroll",
+   "method": "wheel",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 10.573083,
+   "dispatch_ms": 10.676416,
+   "complete_ms": 11.594291,
+   "caller_recv_ms": 56.595166,
+   "send_enc_pts_s": 38.011,
+   "admit_enc_pts_s": 38.022,
+   "complete_enc_pts_s": 38.023
+  },
+  {
+   "input": "key Right",
+   "method": "key",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.933792,
+   "dispatch_ms": 10.084833,
+   "complete_ms": 34.815375,
+   "caller_recv_ms": 49.509667,
+   "send_enc_pts_s": 44.013,
+   "admit_enc_pts_s": 44.017,
+   "complete_enc_pts_s": 44.048
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 10.79125,
+   "dispatch_ms": 10.856833,
+   "complete_ms": 154.431708,
+   "caller_recv_ms": 189.291791,
+   "send_enc_pts_s": 50.011,
+   "admit_enc_pts_s": 50.021,
+   "complete_enc_pts_s": 50.165
+  }
+ ],
+ "foreground_changes": [
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 9114,
+     "windowNumber": 3286
+    }
+   },
+   "t_uptime_ns": 44113113593833
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 9114,
+     "windowNumber": 3294
+    }
+   },
+   "t_uptime_ns": 44114660777625
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "org.freecad.FreeCAD",
+    "frontmost_pid": -1,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 9114,
+     "windowNumber": 3294
+    }
+   },
+   "t_uptime_ns": 44115546193500
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "org.freecad.FreeCAD",
+    "frontmost_pid": -1,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 9114,
+     "windowNumber": 3301
+    }
+   },
+   "t_uptime_ns": 44115878467041
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "org.freecad.FreeCAD",
+    "frontmost_pid": -1,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 3304
+    }
+   },
+   "t_uptime_ns": 44118948671541
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 3304
+    }
+   },
+   "t_uptime_ns": 44121804856291
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.openai.codex",
+    "frontmost_pid": 696,
+    "top_other_window": {
+     "owner": "ChatGPT",
+     "pid": 696,
+     "windowNumber": 57
+    }
+   },
+   "t_uptime_ns": 44129238189625
+  }
+ ],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0xf00f: (in front)      bundleID=\"com.openai.codex\"     bundle path=[ NU",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0x43043: (in front)      bundleID=\"com.apple.UserNotificationCenter\"    ",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.001,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -0.084
+}

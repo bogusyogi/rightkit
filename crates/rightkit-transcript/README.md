@@ -17,7 +17,7 @@ Product-neutral word-timed transcript contract for Right Suite applications. It 
 
 ## Features
 
-None. The crate has no Cargo features. Dependencies: `serde`, `serde_json`, `thiserror`.
+One test-only feature, `asr-roundtrip`, which enables the engine-backed end-to-end test in `tests/asr_roundtrip.rs` (pulls `rightkit-asr`). It is off by default. Dependencies: `serde`, `serde_json`, `thiserror`.
 
 ## Platform support
 
@@ -27,7 +27,7 @@ Published version: see `INDEX.md` at the repository root. This crate has no `CHA
 
 ## Example
 
-Illustrative; not compiled as a doctest. For compiled round trips, see `tests/roundtrip.rs`.
+Illustrative; not compiled as a doctest. For compiled round trips, see `tests/roundtrip.rs`; the engine-backed round trip is `tests/asr_roundtrip.rs` (run with `--features asr-roundtrip`).
 
 ```rust,ignore
 use rightkit_transcript::{build_cues, parse_srt, to_srt, words_from_seconds, CaptionConfig, Newline};

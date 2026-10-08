@@ -172,6 +172,7 @@ let reply = host.dispatch_checked(&json!({"id":1,"method":"ping"}), &RequestCont
 - Request-aware `ToolProvider::list_tools` & raw payload hooks preserve custom tool/resource/prompt fields; `list_resource_templates` opts into `resources/templates/list`; prompt list/get hooks retain metadata.
 - `ToolProvider::read_resource_with_context` receives original frame, host context & string entries from `params.accessGrants`; providers decide authorization.
 - `ServerOptions::initialize_result` returns fixed initialize payload verbatim; default retains protocol negotiation & generated capabilities/instructions.
+- Stdio server input frames are capped (`ServerHost::with_max_stdio_frame_bytes`, default 8 MiB); an oversize line gets a JSON-RPC `-32600` error with id `null` and serving continues.
 - Opt-in `StdioInputMode::FailFast` stops malformed JSON with `InvalidData`; `serve_stdio_io`/`serve_stdio_on_io` return original read/write/flush errors, while existing serving methods retain originals in `McpError::IoError` under this mode.
 
 All new provider methods have legacy defaults. Default initialized handling, missing/null-ID suppression, method-not-found text, typed payloads, admission, initialize negotiation & stdio parse-error replies stay unchanged. Resource template listing stays unsupported unless its provider hook returns `Some`.

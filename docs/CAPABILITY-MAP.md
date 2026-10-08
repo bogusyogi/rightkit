@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 69 (33 with fingerprints, 36 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 68 (33 with fingerprints, 35 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -22,7 +22,6 @@ Capabilities: 69 (33 with fingerprints, 36 declaration-only). Internal owners th
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: none recorded |
 | cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: staged 0.1.0, not published |
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: none recorded |
-| computer-control | `rightkit-computer` | none | declaration-only | 0 | rightkit-computer: none recorded |
 | content-contracts | `rightkit-contracts` | none | declaration-only | 0 | rightkit-contracts: none recorded |
 | content-review | `rightkit-review` | none | declaration-only | 0 | rightkit-review: none recorded |
 | crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.1.0 (crates.io) |
@@ -46,7 +45,7 @@ Capabilities: 69 (33 with fingerprints, 36 declaration-only). Internal owners th
 | llm-providers | `rightkit-llm` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-llm: none recorded |
 | local-services | `rightkit-service` | none | declaration-only | 0 | rightkit-service: published 0.1.1 (crates.io) |
 | localization | `@rightkit/i18n` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/i18n: published 0.1.0 (npm) |
-| mcp | `rightkit-mcp` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-mcp: published 0.4.0 (crates.io) |
+| mcp | `rightkit-mcp` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-mcp: published 0.5.0 (crates.io) |
 | media-pipelines | `rightkit-media` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-media: published 0.2.3 (crates.io) |
 | media-playback | `rightkit-playback` | none | declaration-only | 0 | rightkit-playback: published 0.1.1 (crates.io) |
 | media-ui | `@rightkit/media-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/media-ui: published 0.2.6 (npm) |

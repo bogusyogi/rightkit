@@ -1,0 +1,1011 @@
+{
+ "label": "occluded-30fps-stream-napfix",
+ "state": "occluded",
+ "fps": 30,
+ "seconds": 120.0,
+ "mode": "stream",
+ "frontmost_before": {
+  "asn": "ASN:0x0-0x43043:",
+  "info": "[ NULL ]  ASN:0x0-0x43043: (in front)      bundleID=\"com.apple.UserNotificationCenter\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 2955 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ },
+ "info_initial": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 400,
+   "y": 222
+  },
+  "isMiniaturized": false,
+  "isVisible": false,
+  "occlusionState": 8192,
+  "onAnyScreen": true,
+  "pid": 15970,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 3331
+ },
+ "display_union_appkit": [
+  0,
+  0,
+  1600,
+  900
+ ],
+ "placement_target": [
+  3600,
+  300
+ ],
+ "pre_visibility_force": "spi",
+ "vis_force_result": "spi applied",
+ "nap_off_result": "activity held",
+ "info_placed": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 15970,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 3331
+ },
+ "placement_outside_all_displays": true,
+ "backing_scale": 1,
+ "info_before_capture": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 15970,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 3331
+ },
+ "page_before_capture": {
+  "counter": "FRAME 000396",
+  "focus": false,
+  "vis": "visible"
+ },
+ "page_before_capture_2": {
+  "counter": "FRAME 000421",
+  "vis": "visible"
+ },
+ "sck_list": {
+  "ok": true,
+  "windows": [
+   {
+    "active": true,
+    "frame": {
+     "h": 600,
+     "w": 800,
+     "x": 3600,
+     "y": 0
+    },
+    "isOnScreen": true,
+    "layer": 0,
+    "pid": 15970,
+    "title": "RK2 Fixture",
+    "windowID": 3331
+   },
+   {
+    "active": false,
+    "frame": {
+     "h": 500,
+     "w": 500,
+     "x": 0,
+     "y": 400
+    },
+    "isOnScreen": false,
+    "layer": 0,
+    "pid": 15970,
+    "title": "",
+    "windowID": 3332
+   }
+  ]
+ },
+ "zorder_target_and_occluder": {
+  "ok": true,
+  "windows": [
+   {
+    "bounds": {
+     "h": 720,
+     "w": 920,
+     "x": 3540,
+     "y": -60
+    },
+    "front_to_back_index": 9,
+    "layer": 3,
+    "onscreen": true,
+    "pid": 16051,
+    "windowNumber": 3334
+   },
+   {
+    "bounds": {
+     "h": 600,
+     "w": 800,
+     "x": 3600,
+     "y": 0
+    },
+    "front_to_back_index": 11,
+    "layer": 0,
+    "onscreen": true,
+    "pid": 15970,
+    "windowNumber": 3331
+   }
+  ]
+ },
+ "occluder_sanity": {
+  "frames": 119,
+  "max_magenta_samples": 2437
+ },
+ "capture_started_seen": true,
+ "first_frame_seen": true,
+ "helper_exit": 0,
+ "helper_lines": [
+  "{\"arrival_uptime_ns\":44174608693416,\"event\":\"first_accepted_frame\",\"latency_ms\":0.97416599999999998,\"pts_host_s\":44174.607719250002}",
+  "{\"anchor0\":{\"host_clock_s\":44174.570490958002,\"uptime_ns\":44174570490375},\"event\":\"capture_started\",\"fps\":30,\"height\":600,\"mode\":\"stream\",\"scale\":1,\"sck_active\":true,\"sck_frame\":{\"h\":600,\"w\":800,\"x\":3600,\"y\":0},\"sck_isOnScreen\":true,\"sck_layer\":0,\"start_call_uptime_ns\":44174570492500,\"start_return_uptime_ns\":44174612414375,\"width\":800,\"windowID\":3331}",
+  "{\"event\":\"summary_written\",\"path\":\"\\/Volumes\\/D\\/claude\\/tools\\/rightkit\\/spikes\\/rk2-macos\\/evidence\\/occluded-30fps-stream-napfix\\/summary.json\"}"
+ ],
+ "inputs": [
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 6,
+   "caller_send_ns": 44180617589125,
+   "caller_recv_ns": 44180802244291,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click input",
+   "method": "click",
+   "offset_s": 14,
+   "caller_send_ns": 44188612970833,
+   "caller_recv_ns": 44188796229750,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "type",
+   "method": "type",
+   "offset_s": 15.5,
+   "caller_send_ns": 44190114670541,
+   "caller_recv_ns": 44190248072250,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 22,
+   "caller_send_ns": 44196621817875,
+   "caller_recv_ns": 44196811661625,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "drag scrub",
+   "method": "drag",
+   "offset_s": 30,
+   "caller_send_ns": 44204622668750,
+   "caller_recv_ns": 44205022770750,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "wheel scroll",
+   "method": "wheel",
+   "offset_s": 38,
+   "caller_send_ns": 44212613102916,
+   "caller_recv_ns": 44212662944666,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "key Right",
+   "method": "key",
+   "offset_s": 44,
+   "caller_send_ns": 44218615828583,
+   "caller_recv_ns": 44218660572875,
+   "result": {
+    "ok": true
+   }
+  },
+  {
+   "name": "click Next",
+   "method": "click",
+   "offset_s": 50,
+   "caller_send_ns": 44224621120166,
+   "caller_recv_ns": 44224801204250,
+   "result": {
+    "ok": true
+   }
+  }
+ ],
+ "clock0": {
+  "epoch_ms": 1791485612774.71,
+  "uptime_ns": 44174367990375
+ },
+ "clock1": {
+  "epoch_ms": 1791485733155.611,
+  "uptime_ns": 44294750487125
+ },
+ "page_log": [
+  {
+   "counter": 0,
+   "epochMs": 1791485600465,
+   "kind": "load",
+   "step": 1
+  },
+  {
+   "counter": 0,
+   "epochMs": 1791485600754,
+   "kind": "cycle0",
+   "step": 1,
+   "t0Epoch": 1791485600754
+  },
+  {
+   "counter": 103,
+   "epochMs": 1791485602465,
+   "fps": 51.97401299350325,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 223,
+   "epochMs": 1791485604466,
+   "fps": 59.97001499250375,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 343,
+   "epochMs": 1791485606467,
+   "fps": 59.97001499250375,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 421,
+   "epochMs": 1791485608468,
+   "fps": 59.97001499250375,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 421,
+   "epochMs": 1791485610468,
+   "fps": 60,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 523,
+   "epochMs": 1791485612469,
+   "fps": 59.97001499250375,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 643,
+   "epochMs": 1791485614469,
+   "fps": 60,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 764,
+   "epochMs": 1791485616473,
+   "fps": 60.37924151696607,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791485618478,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 1
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791485619136,
+   "kind": "click:next",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791485619153,
+   "kind": "postcondition:step",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 840,
+   "epochMs": 1791485620482,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 944,
+   "epochMs": 1791485622485,
+   "fps": 59.910134797803295,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1065,
+   "epochMs": 1791485624489,
+   "fps": 60.37924151696607,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1185,
+   "epochMs": 1791485626494,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1220,
+   "epochMs": 1791485627075,
+   "kind": "focus:input",
+   "step": 2
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628497,
+   "fps": 59.910134797803295,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628525,
+   "key": "h",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628525,
+   "kind": "input",
+   "step": 2,
+   "value": 1
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628543,
+   "key": "e",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628543,
+   "kind": "input",
+   "step": 2,
+   "value": 2
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628553,
+   "key": "l",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628553,
+   "kind": "input",
+   "step": 2,
+   "value": 3
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628563,
+   "key": "l",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628563,
+   "kind": "input",
+   "step": 2,
+   "value": 4
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628572,
+   "key": "o",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628573,
+   "kind": "input",
+   "step": 2,
+   "value": 5
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628581,
+   "key": " ",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628581,
+   "kind": "input",
+   "step": 2,
+   "value": 6
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628590,
+   "key": "r",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628590,
+   "kind": "input",
+   "step": 2,
+   "value": 7
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628601,
+   "key": "k",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628601,
+   "kind": "input",
+   "step": 2,
+   "value": 8
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628609,
+   "key": "2",
+   "kind": "key",
+   "step": 2,
+   "trusted": true
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485628609,
+   "kind": "input",
+   "step": 2,
+   "value": 9
+  },
+  {
+   "counter": 1260,
+   "epochMs": 1791485630502,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1366,
+   "epochMs": 1791485632505,
+   "fps": 60.40938592111832,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1486,
+   "epochMs": 1791485634509,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 2
+  },
+  {
+   "counter": 1524,
+   "epochMs": 1791485635139,
+   "kind": "click:next",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 1526,
+   "epochMs": 1791485635170,
+   "kind": "postcondition:step",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 1606,
+   "epochMs": 1791485636513,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1680,
+   "epochMs": 1791485638516,
+   "fps": 59.910134797803295,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1680,
+   "epochMs": 1791485640520,
+   "fps": 60.37924151696607,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1787,
+   "epochMs": 1791485642524,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 1821,
+   "epochMs": 1791485643087,
+   "kind": "pointerdown:scrub",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 1839,
+   "epochMs": 1791485643400,
+   "kind": "pointerup:scrub",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 1907,
+   "epochMs": 1791485644529,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2027,
+   "epochMs": 1791485646533,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2101,
+   "epochMs": 1791485648537,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2101,
+   "epochMs": 1791485650540,
+   "fps": 60.40938592111832,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2209,
+   "epochMs": 1791485652544,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2329,
+   "epochMs": 1791485654549,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2449,
+   "epochMs": 1791485656552,
+   "fps": 59.910134797803295,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2478,
+   "epochMs": 1791485657024,
+   "key": "ArrowRight",
+   "kind": "key",
+   "step": 3,
+   "trusted": true
+  },
+  {
+   "counter": 2521,
+   "epochMs": 1791485658556,
+   "fps": 60.37924151696607,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2521,
+   "epochMs": 1791485660561,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2630,
+   "epochMs": 1791485662565,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 3
+  },
+  {
+   "counter": 2664,
+   "epochMs": 1791485663133,
+   "kind": "click:next",
+   "step": 4,
+   "trusted": true
+  },
+  {
+   "counter": 2666,
+   "epochMs": 1791485663153,
+   "kind": "postcondition:step",
+   "step": 4,
+   "trusted": true
+  },
+  {
+   "counter": 2750,
+   "epochMs": 1791485664569,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 2871,
+   "epochMs": 1791485666572,
+   "fps": 60.40938592111832,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 2941,
+   "epochMs": 1791485668577,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 2941,
+   "epochMs": 1791485670581,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3051,
+   "epochMs": 1791485672585,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3172,
+   "epochMs": 1791485674588,
+   "fps": 60.40938592111832,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3292,
+   "epochMs": 1791485676592,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3361,
+   "epochMs": 1791485678596,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3361,
+   "epochMs": 1791485680600,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3473,
+   "epochMs": 1791485682603,
+   "fps": 60.40938592111832,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3593,
+   "epochMs": 1791485684608,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3713,
+   "epochMs": 1791485686612,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3781,
+   "epochMs": 1791485688616,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3781,
+   "epochMs": 1791485690619,
+   "fps": 60.40938592111832,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 3894,
+   "epochMs": 1791485692623,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4014,
+   "epochMs": 1791485694627,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4134,
+   "epochMs": 1791485696631,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4201,
+   "epochMs": 1791485698636,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4201,
+   "epochMs": 1791485700640,
+   "fps": 60.37924151696607,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4315,
+   "epochMs": 1791485702644,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4435,
+   "epochMs": 1791485704648,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4555,
+   "epochMs": 1791485706652,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4621,
+   "epochMs": 1791485708655,
+   "fps": 60.40938592111832,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4621,
+   "epochMs": 1791485710660,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4736,
+   "epochMs": 1791485712663,
+   "fps": 59.910134797803295,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4856,
+   "epochMs": 1791485714668,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 4977,
+   "epochMs": 1791485716671,
+   "fps": 60.40938592111832,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 5041,
+   "epochMs": 1791485718676,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 5041,
+   "epochMs": 1791485720680,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 5157,
+   "epochMs": 1791485722684,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 5278,
+   "epochMs": 1791485724687,
+   "fps": 60.40938592111832,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 5398,
+   "epochMs": 1791485726692,
+   "fps": 59.85037406483791,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 5461,
+   "epochMs": 1791485728695,
+   "fps": 59.910134797803295,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 5461,
+   "epochMs": 1791485730699,
+   "fps": 59.880239520958085,
+   "kind": "raf-rate",
+   "step": 4
+  },
+  {
+   "counter": 5579,
+   "epochMs": 1791485732703,
+   "fps": 60.37924151696607,
+   "kind": "raf-rate",
+   "step": 4
+  }
+ ],
+ "info_after": {
+  "appHidden": false,
+  "backingScale": 1,
+  "contentLayout": {
+   "h": 568,
+   "w": 800,
+   "x": 0,
+   "y": 0
+  },
+  "frame": {
+   "h": 600,
+   "w": 800,
+   "x": 3600,
+   "y": 300
+  },
+  "isMiniaturized": false,
+  "isVisible": true,
+  "occlusionState": 8192,
+  "onAnyScreen": false,
+  "pid": 15970,
+  "screens": [
+   {
+    "h": 900,
+    "scale": 1,
+    "w": 1600,
+    "x": 0,
+    "y": 0
+   }
+  ],
+  "windowNumber": 3331
+ },
+ "frontmost_after": {
+  "asn": "ASN:0x0-0x94b94b:",
+  "info": "[ NULL ]  ASN:0x0-0x94b94b: (in front)      bundleID=\"dev.orthic.pulse.hub\"     bundle path=[ NULL ]      executable path=[ NULL ]      pid = 19628 !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none"
+ }
+}

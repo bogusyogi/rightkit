@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 — 2026-10-09
+
+- Drop `ort/ndarray` from the ONNX Runtime dependency. The vocoder uses tuple/`Tensor`
+  inputs and never touches `ndarray`, so no public API changes. Dependency tree: 97 to 93 crates
+  (`rightkit cargo tree -p rightkit-qts -e normal,build`).
+
 ## 0.2.1 — 2026-10-08
 
 - Fix 1.7B CustomVoice/VoiceDesign noise and runaway generation: mode synthesis

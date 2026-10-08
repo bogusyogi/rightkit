@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 — 2026-10-09
+
+- Removed the unused `mermaid` and `katex` dependencies (no references in `src`, `test` or `styles`). No runtime change; the production dependency closure shrinks for every consumer.
+
 ## 0.1.3 — 2026-10-07
 
 - Test-only: the real-browser e2e harness launches Chrome for Testing through `@rightkit/qa/chrome` (`RIGHTKIT_CHROME_FOR_TESTING` overrides; skips with install instructions when missing, never regular Chrome) and closes gracefully (CDP `Browser.close`, SIGTERM, SIGKILL last) with its temp profile removed. No runtime change.

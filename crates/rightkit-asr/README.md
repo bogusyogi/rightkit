@@ -36,6 +36,8 @@ Do not use it from a published product yet, and do not put product policy (model
 | `load-dynamic` | no | `ort/load-dynamic`: loads the ONNX Runtime library at run time. The test lane below uses it. |
 | `preload-dylibs` | no | `ort/preload-dylibs`. |
 
+Unreleased change: the `eyre` dependency is removed. `rightkit-vad` is taken with `default-features = false`, so the vad crate adds no ORT download features (its `default` is ORT tracing only; see `rightkit-vad/README.md`). This crate's own `ort-defaults` still enables `download-binaries`, `tls-native` and `copy-dylibs` on its ORT dependency, so the default build still fetches ONNX Runtime. To build without the fetch, use `--no-default-features --features load-dynamic` and bind the runtime through `rightkit-ort`.
+
 On macOS the crate also depends on `objc2`, `objc2-core-ml` and `objc2-foundation`. The `parakeet_coreml` module compiles only on macOS.
 
 ## Usage

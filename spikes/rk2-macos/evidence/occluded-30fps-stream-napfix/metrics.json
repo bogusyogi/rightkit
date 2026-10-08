@@ -1,0 +1,424 @@
+{
+ "label": "occluded-30fps-stream-napfix",
+ "frames_callbacks": 3521,
+ "frames_complete": 3521,
+ "frames_idle": 0,
+ "frames_blank_status": 0,
+ "decoded_frames": 3521,
+ "file_bytes": 6302688,
+ "analyzer": "{\"frames\":3521,\"ok\":true,\"reader_status\":2}",
+ "black_frames_luma_lt_15": 0,
+ "strip_valid_frames": 3521,
+ "max_foreign_magenta_samples": 0,
+ "frames_with_magenta_gt_20": 0,
+ "animated_frame_intervals": 2165,
+ "animated_intervals_counter_advanced": 2165,
+ "pct_intervals_advanced": 100.0,
+ "resampled_ticks": 2219,
+ "pct_ticks_advanced": 97.4,
+ "intervals_by_page_rate": {
+  "page60": {
+   "intervals": 2165,
+   "advanced": 2165,
+   "pct": 100.0
+  },
+  "throttled": {
+   "intervals": 0,
+   "advanced": 0,
+   "pct": null
+  }
+ },
+ "first_throttled_pts_s": null,
+ "page_raf_rate_samples": [
+  52,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60,
+  60
+ ],
+ "counter_first_last": [
+  555,
+  5598
+ ],
+ "distinct_counter_values": 2473,
+ "ocr_samples_stable": 394,
+ "ocr_step_correct": 394,
+ "step_recovery": [
+  {
+   "step": 2,
+   "post_enc_s": 6.139,
+   "ocr_first_seen_enc_s": 6.161666666666667,
+   "latency_ms": 22
+  },
+  {
+   "step": 3,
+   "post_enc_s": 22.156,
+   "ocr_first_seen_enc_s": 22.176666666666666,
+   "latency_ms": 20
+  },
+  {
+   "step": 4,
+   "post_enc_s": 50.139,
+   "ocr_first_seen_enc_s": 50.155,
+   "latency_ms": 16
+  }
+ ],
+ "inputs": [
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 6.517625,
+   "dispatch_ms": 6.598083,
+   "complete_ms": 156.748875,
+   "caller_recv_ms": 184.655166,
+   "send_enc_pts_s": 6.01,
+   "admit_enc_pts_s": 6.016,
+   "complete_enc_pts_s": 6.167
+  },
+  {
+   "input": "click input",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.483875,
+   "dispatch_ms": 3.508833,
+   "complete_ms": 140.062167,
+   "caller_recv_ms": 183.258917,
+   "send_enc_pts_s": 14.005,
+   "admit_enc_pts_s": 14.009,
+   "complete_enc_pts_s": 14.145
+  },
+  {
+   "input": "type",
+   "method": "type",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.37725,
+   "dispatch_ms": 3.392042,
+   "complete_ms": 98.275,
+   "caller_recv_ms": 133.401709,
+   "send_enc_pts_s": 15.507,
+   "admit_enc_pts_s": 15.51,
+   "complete_enc_pts_s": 15.605
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 12.221666,
+   "dispatch_ms": 12.342375,
+   "complete_ms": 153.75475,
+   "caller_recv_ms": 189.84375,
+   "send_enc_pts_s": 22.014,
+   "admit_enc_pts_s": 22.026,
+   "complete_enc_pts_s": 22.168
+  },
+  {
+   "input": "drag scrub",
+   "method": "drag",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 5.233166,
+   "dispatch_ms": 5.2715,
+   "complete_ms": 372.131375,
+   "caller_recv_ms": 400.102,
+   "send_enc_pts_s": 30.015,
+   "admit_enc_pts_s": 30.02,
+   "complete_enc_pts_s": 30.387
+  },
+  {
+   "input": "wheel scroll",
+   "method": "wheel",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 4.96675,
+   "dispatch_ms": 5.012875,
+   "complete_ms": 5.580542,
+   "caller_recv_ms": 49.84175,
+   "send_enc_pts_s": 38.005,
+   "admit_enc_pts_s": 38.01,
+   "complete_enc_pts_s": 38.011
+  },
+  {
+   "input": "key Right",
+   "method": "key",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.147125,
+   "dispatch_ms": 3.174625,
+   "complete_ms": 28.493,
+   "caller_recv_ms": 44.744292,
+   "send_enc_pts_s": 44.008,
+   "admit_enc_pts_s": 44.011,
+   "complete_enc_pts_s": 44.037
+  },
+  {
+   "input": "click Next",
+   "method": "click",
+   "ok": true,
+   "caller_send_ms": 0,
+   "admit_ms": 3.141125,
+   "dispatch_ms": 3.173792,
+   "complete_ms": 148.547709,
+   "caller_recv_ms": 180.084084,
+   "send_enc_pts_s": 50.013,
+   "admit_enc_pts_s": 50.017,
+   "complete_enc_pts_s": 50.162
+  }
+ ],
+ "foreground_changes": [
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.apple.finder",
+    "frontmost_pid": 713,
+    "top_other_window": {
+     "owner": "Claude",
+     "pid": 698,
+     "windowNumber": 48
+    }
+   },
+   "t_uptime_ns": 44187678905500
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.apple.finder",
+    "frontmost_pid": 713,
+    "top_other_window": {
+     "owner": "Finder",
+     "pid": 713,
+     "windowNumber": 3351
+    }
+   },
+   "t_uptime_ns": 44192870886583
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.apple.finder",
+    "frontmost_pid": 713,
+    "top_other_window": {
+     "owner": "Finder",
+     "pid": 713,
+     "windowNumber": 3354
+    }
+   },
+   "t_uptime_ns": 44193469048125
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.apple.finder",
+    "frontmost_pid": 713,
+    "top_other_window": {
+     "owner": "Finder",
+     "pid": 713,
+     "windowNumber": 3358
+    }
+   },
+   "t_uptime_ns": 44198298747375
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.apple.finder",
+    "frontmost_pid": 713,
+    "top_other_window": {
+     "owner": "Finder",
+     "pid": 713,
+     "windowNumber": 3362
+    }
+   },
+   "t_uptime_ns": 44199136307875
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "com.apple.finder",
+    "frontmost_pid": 713,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 17648,
+     "windowNumber": 3365
+    }
+   },
+   "t_uptime_ns": 44199721233083
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "org.freecad.FreeCAD",
+    "frontmost_pid": -1,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 17648,
+     "windowNumber": 3365
+    }
+   },
+   "t_uptime_ns": 44200817839416
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "org.freecad.FreeCAD",
+    "frontmost_pid": -1,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 17648,
+     "windowNumber": 3376
+    }
+   },
+   "t_uptime_ns": 44201603937500
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "org.freecad.FreeCAD",
+    "frontmost_pid": -1,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 17648,
+     "windowNumber": 3383
+    }
+   },
+   "t_uptime_ns": 44202483051916
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "org.freecad.FreeCAD",
+    "frontmost_pid": -1,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 17648,
+     "windowNumber": 3388
+    }
+   },
+   "t_uptime_ns": 44209767844666
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "dev.orthic.pulse.hub",
+    "frontmost_pid": 19403,
+    "top_other_window": {
+     "owner": "Pulse",
+     "pid": 19403,
+     "windowNumber": 3391
+    }
+   },
+   "t_uptime_ns": 44254890532666
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "dev.orthic.pulse.hub",
+    "frontmost_pid": 19403,
+    "top_other_window": {
+     "owner": "FreeCAD",
+     "pid": 17648,
+     "windowNumber": 3388
+    }
+   },
+   "t_uptime_ns": 44262985105625
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "dev.orthic.pulse.hub",
+    "frontmost_pid": 19403,
+    "top_other_window": {
+     "owner": "Pulse",
+     "pid": 19628,
+     "windowNumber": 3399
+    }
+   },
+   "t_uptime_ns": 44263155103208
+  },
+  {
+   "kind": "change",
+   "snapshot": {
+    "frontmost_bundle": "dev.orthic.pulse.hub",
+    "frontmost_pid": 19628,
+    "top_other_window": {
+     "owner": "Pulse",
+     "pid": 19628,
+     "windowNumber": 3399
+    }
+   },
+   "t_uptime_ns": 44263213731000
+  }
+ ],
+ "frontmost_before": "[ NULL ]  ASN:0x0-0x43043: (in front)      bundleID=\"com.apple.UserNotificationCenter\"    ",
+ "frontmost_after": "[ NULL ]  ASN:0x0-0x94b94b: (in front)      bundleID=\"dev.orthic.pulse.hub\"     bundle pat",
+ "clock_anchor_offset_host_vs_uptime_ms": [
+  0.001,
+  0.001
+ ],
+ "epoch_uptime_drift_ms": -1.596
+}
