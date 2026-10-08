@@ -33,7 +33,18 @@ pub struct PendingApproval {
     pub env_keys: Vec<String>,
 }
 
-/// Stable identity of what would run/connect: kind + command + args + env key names, or the URL.
+/// Format version bound into every fingerprint. Version 2 binds environment VALUES
+/// as well as names; fingerprints from version 1 never match again, so existing
+/// approvals are Pending and must be re-approved.
+const FINGERPRINT_VERSION: u32 = 2;
+
+/// Stable, value-sensitive identity of what would run/connect.
+///
+/// For stdio servers the canonical form covers command, args, cwd and every
+/// environment variable name AND value (e.g. a changed `PATH` or `NODE_OPTIONS`
+/// invalidates an approval). Only this SHA-256 digest is ever persisted or
+/// surfaced; environment values themselves never leave the in-memory canonical
+/// string, which is dropped after hashing.
 pub fn fingerprint(spec: &ServerSpec) -> String {
     let canonical = match spec {
         ServerSpec::Stdio {
@@ -42,11 +53,14 @@ pub fn fingerprint(spec: &ServerSpec) -> String {
             env,
             cwd,
         } => json_canon(&serde_json::json!({
+            "v": FINGERPRINT_VERSION,
             "kind": "stdio", "command": command, "args": args,
-            "envKeys": env.keys().collect::<Vec<_>>(),
+            "env": env,
             "cwd": cwd.as_ref().map(|c| c.to_string_lossy().to_string()),
         })),
-        ServerSpec::Http { url } => json_canon(&serde_json::json!({"kind": "http", "url": url})),
+        ServerSpec::Http { url } => json_canon(&serde_json::json!({
+            "v": FINGERPRINT_VERSION, "kind": "http", "url": url
+        })),
     };
     let d = Sha256::digest(canonical.as_bytes());
     format!(

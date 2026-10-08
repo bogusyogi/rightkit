@@ -2,6 +2,14 @@
 
 Shared MCP client and server host for Right Suite apps. See API.md in the lane deliverables for the full contract.
 
+## Trust approvals (0.3.2): re-approval required
+
+Workspace-declared stdio servers are gated before spawn. The approval fingerprint now binds the full launch configuration by value: command, args, cwd, and every environment variable's name **and value**. Changing `PATH`, `NODE_OPTIONS`, or any other env value invalidates the approval.
+
+- **Breaking for stored approvals:** fingerprints changed format (canonical version 2). Every approval recorded by 0.3.x is now `Pending`; re-approve each workspace server once after upgrading.
+- Only the SHA-256 digest is persisted in the trust store. Environment values are never written to the approval file or surfaced in `PendingApproval` (which still lists env variable names only).
+- Digests are unsalted. Low-entropy env values could be guessed offline from a copied trust file; keep the trust store private, as with other local credentials.
+
 ## Also (0.3.0)
 
 All additions are opt-in. Existing `ClientOptions`, `ServerOptions`, `ServerSpec`, provider methods & transport defaults remain source-compatible. `connect_with_extensions` selects cancellable HTTP I/O; existing `connect` retains its original HTTP transport. Synchronous client calls can also run from async hosts. New typed errors are `McpError::Cancelled`, `ResponseTooLarge { limit }` & `CrossOriginEndpoint { configured_origin, endpoint_origin }`.

@@ -1,8 +1,22 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { dispatchHookEvent } from '../lib/runtime.mjs';
+
+const STDIN_LIMIT_BYTES = 1024 * 1024;
+
+// fs/promises readFile(0) cannot read the numeric stdin descriptor on piped input,
+// so stream process.stdin directly and enforce the size cap while reading.
+async function readStdin(limit = STDIN_LIMIT_BYTES) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of process.stdin) {
+    size += chunk.length;
+    if (size > limit) throw new Error(`HookHost stdin exceeds ${limit} bytes`);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 const paths = process.argv.slice(2);
 if (paths.length === 0) {
@@ -10,7 +24,7 @@ if (paths.length === 0) {
   process.exitCode = 64;
 } else {
   try {
-    const payload = JSON.parse(await readFile(0, 'utf8'));
+    const payload = JSON.parse(await readStdin());
     const modules = [];
     for (const path of paths) {
       const loaded = await import(pathToFileURL(resolve(path)));

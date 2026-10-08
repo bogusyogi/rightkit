@@ -16,6 +16,33 @@ fn room() -> Room {
     .unwrap()
 }
 
+fn room_with_human() -> Room {
+    let workspace = tempfile::tempdir().unwrap().keep();
+    Room::new(RoomConfig {
+        room_id: "auth-room".into(),
+        mode: "debate".into(),
+        at_budget: "abstain".into(),
+        workspace_root: workspace,
+        seats: vec![
+            SeatConfig::new("seat-a", "Claude", "claude", "moderator"),
+            SeatConfig::new("seat-b", "Codex", "codex", "reviewer"),
+            SeatConfig::new("adrian", "Adrian", "human", "human"),
+        ],
+    })
+    .unwrap()
+}
+
+fn request(name: &str, model: &str, role: &str) -> JoinRequest {
+    JoinRequest {
+        room_id: "auth-room".into(),
+        name: name.into(),
+        model: model.into(),
+        role: role.into(),
+        resume_token: None,
+        bootstrap_token: None,
+    }
+}
+
 #[test]
 fn first_join_claims_stable_seat_and_rejoin_rotates_both_credentials() {
     let room = room();
@@ -29,6 +56,7 @@ fn first_join_claims_stable_seat_and_rejoin_rotates_both_credentials() {
                 model: "codex".into(),
                 role: "reviewer".into(),
                 resume_token: None,
+                bootstrap_token: None,
             },
         )
         .unwrap();
@@ -52,6 +80,7 @@ fn first_join_claims_stable_seat_and_rejoin_rotates_both_credentials() {
                 model: "codex".into(),
                 role: "reviewer".into(),
                 resume_token: Some(old_resume.clone()),
+                bootstrap_token: None,
             },
         )
         .unwrap();
@@ -81,6 +110,7 @@ fn rejoin_replay_obeys_current_phase_visibility() {
                 model: "codex".into(),
                 role: "reviewer".into(),
                 resume_token: None,
+                bootstrap_token: None,
             },
         )
         .unwrap();
@@ -93,6 +123,7 @@ fn rejoin_replay_obeys_current_phase_visibility() {
                 model: "codex".into(),
                 role: "reviewer".into(),
                 resume_token: Some(first.resume_token),
+                bootstrap_token: None,
             },
         )
         .unwrap();
@@ -136,6 +167,7 @@ fn peer_prompt_injection_remains_untrusted_transcript_data() {
                 model: "codex".into(),
                 role: "reviewer".into(),
                 resume_token: None,
+                bootstrap_token: None,
             },
         )
         .unwrap();
@@ -150,4 +182,108 @@ fn peer_prompt_injection_remains_untrusted_transcript_data() {
     assert_eq!(room.phase, Phase::PeerDebate);
     assert!(room.motions.is_empty());
     assert!(room.dispositions.is_empty());
+}
+
+#[test]
+fn unauthenticated_join_cannot_take_a_human_seat() {
+    let room = room_with_human();
+    let mut auth = AuthRegistry::new(&room);
+    let error = auth
+        .join(&room, request("Adrian", "human", "human"))
+        .unwrap_err();
+    assert_eq!(error.code, "seat_unavailable");
+    assert!(!auth.has_joined("adrian"));
+}
+
+#[test]
+fn bootstrap_token_claims_exactly_its_seat_once() {
+    let room = room_with_human();
+    let mut auth = AuthRegistry::new(&room);
+    let token = auth.mint_bootstrap_token(&room, "adrian").unwrap();
+
+    let joined = auth
+        .join(
+            &room,
+            JoinRequest {
+                bootstrap_token: Some(token.clone()),
+                ..request("Adrian", "human", "human")
+            },
+        )
+        .unwrap();
+    assert_eq!(joined.seat_id, "adrian");
+    assert_eq!(auth.authenticate(&joined.bearer_token), Some("adrian"));
+
+    let reused = auth
+        .join(
+            &room,
+            JoinRequest {
+                bootstrap_token: Some(token),
+                ..request("Adrian", "human", "human")
+            },
+        )
+        .unwrap_err();
+    assert_eq!(reused.code, "bootstrap_invalid");
+}
+
+#[test]
+fn bootstrap_token_is_not_consumed_by_identity_mismatch() {
+    let room = room_with_human();
+    let mut auth = AuthRegistry::new(&room);
+    let token = auth.mint_bootstrap_token(&room, "adrian").unwrap();
+
+    let wrong = auth
+        .join(
+            &room,
+            JoinRequest {
+                bootstrap_token: Some(token.clone()),
+                ..request("Mallory", "human", "human")
+            },
+        )
+        .unwrap_err();
+    assert_eq!(wrong.code, "seat_identity_mismatch");
+
+    let joined = auth
+        .join(
+            &room,
+            JoinRequest {
+                bootstrap_token: Some(token),
+                ..request("Adrian", "human", "human")
+            },
+        )
+        .unwrap();
+    assert_eq!(joined.seat_id, "adrian");
+}
+
+#[test]
+fn minting_again_replaces_outstanding_token_and_unknown_seat_is_refused() {
+    let room = room_with_human();
+    let mut auth = AuthRegistry::new(&room);
+    let first = auth.mint_bootstrap_token(&room, "adrian").unwrap();
+    let second = auth.mint_bootstrap_token(&room, "adrian").unwrap();
+    assert_ne!(first, second);
+
+    let stale = auth
+        .join(
+            &room,
+            JoinRequest {
+                bootstrap_token: Some(first),
+                ..request("Adrian", "human", "human")
+            },
+        )
+        .unwrap_err();
+    assert_eq!(stale.code, "bootstrap_invalid");
+
+    let unknown = auth.mint_bootstrap_token(&room, "nobody").unwrap_err();
+    assert_eq!(unknown.code, "seat_unknown");
+}
+
+#[test]
+fn agent_seats_still_claim_without_bootstrap_token() {
+    let room = room_with_human();
+    let mut auth = AuthRegistry::new(&room);
+    let joined = auth
+        .join(&room, request("Codex", "codex", "reviewer"))
+        .unwrap();
+    assert_eq!(joined.seat_id, "seat-b");
+    assert!(!auth.has_joined("adrian"));
 }
