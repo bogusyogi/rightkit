@@ -181,6 +181,7 @@ mod windows_run {
             },
             "osBuild": info.os_build,
             "encoder": backend.encoder(),
+            "border": backend.border(),
             "frames": counts.frames,
             "readyMarker": counts.ready,
             "droppedBackpressure": counts.dropped_backpressure,

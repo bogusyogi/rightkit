@@ -67,6 +67,7 @@ pub struct WindowsBackend {
     capture: Option<Capture>,
     events: Option<Receiver<HelperEvent>>,
     encoder: Option<Value>,
+    border: Option<Value>,
     summary: Option<Value>,
 }
 
@@ -84,8 +85,14 @@ impl WindowsBackend {
             capture: None,
             events: None,
             encoder: None,
+            border: None,
             summary: None,
         }
+    }
+
+    /// Whether the capture border is drawn, with the borderless access status, once a take has started.
+    pub fn border(&self) -> Option<&Value> {
+        self.border.as_ref()
     }
 
     /// The encoder that was configured, once a take has started.
@@ -204,12 +211,6 @@ impl Backend for WindowsBackend {
                 .map_err(|e| {
                     capture_error(Code::Unsupported, "graphics capture access request", e)
                 })?;
-        if access != AppCapabilityAccessStatus::Allowed {
-            return Err(RecordError::new(
-                Code::PermissionDenied,
-                format!("graphics capture borderless access status is {access:?}, not Allowed"),
-            ));
-        }
 
         let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
             .map_err(|e| capture_error(Code::Unsupported, "GraphicsCaptureItem interop", e))?;
@@ -243,9 +244,20 @@ impl Backend for WindowsBackend {
         let session: GraphicsCaptureSession = pool
             .CreateCaptureSession(&item)
             .map_err(|e| capture_error(Code::Helper, "CreateCaptureSession", e))?;
-        session
-            .SetIsBorderRequired(false)
-            .map_err(|e| capture_error(Code::Helper, "SetIsBorderRequired", e))?;
+        // The border is cosmetic: a refused borderless request or setter records it and the take continues.
+        let border_error = if access == AppCapabilityAccessStatus::Allowed {
+            session.SetIsBorderRequired(false).err().map(|e| e.to_string())
+        } else {
+            Some(format!("borderless access status is {access:?}, not Allowed"))
+        };
+        if let Some(error) = &border_error {
+            eprintln!("rightkit-record-helper: warning: capture border stays on: {error}");
+        }
+        let border = json!({
+            "borderRequired": border_error.is_some(),
+            "borderlessAccess": format!("{access:?}"),
+            "error": border_error,
+        });
         session
             .SetIsCursorCaptureEnabled(false)
             .map_err(|e| capture_error(Code::Helper, "SetIsCursorCaptureEnabled", e))?;
@@ -321,6 +333,7 @@ impl Backend for WindowsBackend {
             VisibilityState::OffScreenVisible
         };
         self.encoder = Some(encoder);
+        self.border = Some(border);
         self.events = Some(events_rx);
         self.capture = Some(capture);
         self.summary = None;
