@@ -2,7 +2,7 @@ import { HOST_DERIVED_BOUNDS } from './host-sizing.mjs';
 import { readFile as defaultReadFile } from 'node:fs/promises';
 import { isAbsolute, normalize, relative, win32 } from 'node:path';
 
-const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands', 'ownership', 'indexRefreshRetry']);
+const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands', 'ownership', 'indexRefreshRetry', 'coalesceIdenticalRequests']);
 const brokerFields = new Set(['externalRoot', 'capacityBytes', 'stateFile', 'receiptsDir', 'activationFencePath']);
 const externalRootFields = new Set(['path', 'volumeId', 'mounted', 'writable', 'internal']);
 const toolFields = new Set(['id', 'path', 'root', 'sha256']);
@@ -185,6 +185,7 @@ export function validateBrokerConfig(value) {
   if (!hasUnixSocket && !hasWindowsPipe) throw new TypeError('unixSocket or windowsPipe is required');
   const normalized = { schemaVersion, ...config, broker: normalizedBroker };
   normalized.indexRefreshRetry = config.indexRefreshRetry === undefined ? true : requiredBoolean(config.indexRefreshRetry, 'indexRefreshRetry');
+  normalized.coalesceIdenticalRequests = config.coalesceIdenticalRequests === undefined ? true : requiredBoolean(config.coalesceIdenticalRequests, 'coalesceIdenticalRequests');
   delete normalized.unixSocket; delete normalized.windowsPipe;
   if (hasUnixSocket) normalized.unixSocket = inside(rootPath, absolute(config.unixSocket, 'unixSocket'), 'unixSocket');
   if (hasWindowsPipe) {

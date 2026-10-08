@@ -430,11 +430,11 @@ export class ThinJobService {
     try {
       if (message.type === 'DRAIN_STATUS') return this.#drainStatus(emit);
       if (message.type === 'LIST') return this.#list(emit);
-      if (message.type === 'SUBMIT') return await this.#submit(message.job, emit, rootAdmissionId);
+      if (message.type === 'SUBMIT') return await this.#submit(message.job, emit, rootAdmissionId, onDisconnect);
       if (message.type === 'WATCH') return this.#watch(message.id, emit, onDisconnect);
       if (message.type === 'STATUS') return await this.#status(message.id, emit);
       if (message.type === 'CANCEL') return this.#cancel(message, emit);
-      if (message.type === 'MANAGED_AGENT') { const submitted = await this.#submit(message, emit, rootAdmissionId); return submitted.type === 'SUBMITTED' ? this.#watch(submitted.id, emit, onDisconnect) : submitted; }
+      if (message.type === 'MANAGED_AGENT') { const submitted = await this.#submit(message, emit, rootAdmissionId, onDisconnect); return submitted.type === 'SUBMITTED' ? this.#watch(submitted.id, emit, onDisconnect) : submitted; }
       throw new TypeError('registered broker job operation is required');
     } catch (error) {
       if (rootAdmissionId) this.#admissions.delete(rootAdmissionId);
@@ -454,7 +454,7 @@ export class ThinJobService {
     await this.#singleton.release();
   }
 
-  async #submit(message, emit, reservedId = null) {
+  async #submit(message, emit, reservedId = null, onDisconnect = null) {
     let job;
     try {
       job = await this.#normalize(message, reservedId);
@@ -473,11 +473,21 @@ export class ThinJobService {
         exitCode: 125, signal: null,
         reason: error.code ?? 'pre-execution-rejected', error: error.message,
         cache: { mode: 'direct', status: 'NOT_APPLICABLE', delta: null },
-        cancellation: null, submittedAt: new Date(this.#now()).toISOString(), terminalAt: new Date(this.#now()).toISOString(),
+        cancellation: null, coalescedClients: 0, submittedAt: new Date(this.#now()).toISOString(), terminalAt: new Date(this.#now()).toISOString(),
         output: { bytes: 0, digest: '', head: '', tail: '' }
       });
       await this.#state.writeReceipt(attempted.id, attempted).catch(() => null);
       return this.#emit(emit, { type: 'RESULT', exitCode: 125, status: 'REJECTED', id: attempted.id, error: error.message, code: error.code });
+    }
+    if (job.coalescingKey) {
+      const existing = [...this.#jobs.values()].find((value) => value.coalescingKey === job.coalescingKey && ['QUEUED', 'RUNNING'].includes(value.state) && !value.terminal && !value.cancelReason);
+      if (existing) {
+        if (reservedId) this.#admissions.delete(reservedId);
+        existing.coalescedClients += 1;
+        const event = Object.freeze({ type: 'COALESCED', id: existing.id, attachedClient: job.id.slice(0, 8) });
+        this.#emit(emit, { type: 'SUBMITTED', id: existing.id, state: existing.state, lane: existing.capability.lane, priority: existing.priority, coalesced: true });
+        return this.#watch(existing.id, emit, onDisconnect, event);
+      }
     }
     this.#jobs.set(job.id, job);
     if (reservedId) this.#admissions.delete(reservedId);
@@ -561,7 +571,13 @@ export class ThinJobService {
     const outputLimit = integer(this.#config.bounds?.outputBufferBytes, DEFAULT_OUTPUT_BYTES, 1024);
     const effectiveCapability = nestedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true, skipRootServices: true }) : capability;
     const requestEnvironment = nestedCompiler ? normalizeDelegatedCompilerEnvironment(request.environment) : normalizeRequestEnvironment(request.environment);
-    return { id, parentId, rootToken, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, workspaceDiscoveryCache: roots.workspaceDiscoveryCache ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: cacheRoot, cargoWorkspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], resourceChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, residentOutput: '', residentTransition: null, residentAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, cancelRequests: [], terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
+    // Keep submission argv stable: execution later injects broker-owned target paths.
+    const coalescible = this.#config.coalesceIdenticalRequests !== false && !parentId && cacheRoot && compileClass(effectiveCapability) && effectiveCapability.artifactWrite && !effectiveCapability.residentAfterBuild && !effectiveCapability.credentialStdin
+      && message.shim === 'cargo' && ['build', 'check', 'test', 'clippy', 'doc'].includes(effectiveCapability.command)
+      && [message, message.request].every((value) => value.credentialStdin === undefined && value.stdin === undefined && value.stdinPayload === undefined);
+    const environmentFingerprint = createHash('sha256').update(JSON.stringify(Object.keys(requestEnvironment).sort().map((key) => `${key}=${requestEnvironment[key]}`))).digest('hex');
+    const coalescingKey = coalescible ? JSON.stringify([cacheRoot, roots.executionCwd, message.shim, toolId, argv, this.#config.defaults?.toolchain ?? 'default', environmentFingerprint]) : null;
+    return { id, parentId, rootToken, coalescingKey, coalescedClients: 0, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, workspaceDiscoveryCache: roots.workspaceDiscoveryCache ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: cacheRoot, cargoWorkspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], resourceChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, residentOutput: '', residentTransition: null, residentAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, cancelRequests: [], terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
   }
 
   async #execute(job) {
@@ -790,7 +806,7 @@ export class ThinJobService {
     const evidence = await this.#buildEvidence(job);
     if (evidence) this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: targetConsoleLine({ phase: 'end', target: evidence.target, freshness: evidence.freshness, cold: evidence.cold }) } });
     const cacheCohort = job.parentId || !job.capability.compile ? null : cargoCohort({ argv: job.invokeArgv, command: job.command, workspace: job.workspaceRoot, profile: this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null, toolchain: this.#config.defaults?.toolchain ?? null, compilerIdentity: this.#compilerIdentity, cacheEpoch: job.cacheResult?.attribution?.epoch ?? job.cachePrepared?.attribution?.epoch ?? null, platform: this.#platform });
-    const receipt = Object.freeze({
+    let receipt = Object.freeze({
       id: job.id, state: status, status, command: job.command, argv: Object.freeze([...job.invokeArgv]), workspace: job.workspaceRoot, repository: job.repositoryRoot ?? null, profile: cacheCohort?.profile ?? this.#config.defaults?.buildProfile ?? null, targetTriple: job.targetTriple ?? null,
       generation: job.capability.artifactWrite ? (invalidWriter ? job.workspace.state.rotatedFrom : job.workspace.layout.generation) : null,
       resources: summarizeBuildResources({ processTree: job.processResources, delegated: job.resourceChildren, cacheBefore: job.cacheResourceStart, cacheAfter: job.cacheResourceEnd, cacheExpected: job.cachePrepared?.mode === 'sccache', cacheAttribution: job.cacheResult?.attribution, runMs: job.startedAt ? terminalAt - job.startedAt : null, host: job.hostResources }),
@@ -803,6 +819,7 @@ export class ThinJobService {
       residentMs: job.residentAt ? terminalAt - job.residentAt : null,
       exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, error: details.error ?? null,
       indexRefreshRetried: job.indexRefreshRetried === true,
+      coalescedClients: job.coalescedClients,
       // v2.7 §4.1: exact cancellation provenance (never inferred from SIGTERM alone)
       cancellation: job.cancelProvenance ? Object.freeze({ source: job.cancelProvenance, reason: job.cancelReason ?? null, requests: Object.freeze(job.cancelRequests.map((request) => Object.freeze({ ...request }))) }) : null,
       cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, healthStatus: job.cachePrepared.healthStatus ?? null, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }),
@@ -819,6 +836,11 @@ export class ThinJobService {
       output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') }
     });
     if (job.capability.artifactWrite && !uncertainWriter) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
+    // Attachments can arrive while receipt I/O yields; persist their final count before RESULT.
+    while (receipt.coalescedClients !== job.coalescedClients) {
+      receipt = Object.freeze({ ...receipt, coalescedClients: job.coalescedClients });
+      await this.#state.writeReceipt(job.id, receipt);
+    }
     job.state = status; job.terminal = Object.freeze({ type: 'RESULT', id: job.id, exitCode: receipt.exitCode, status, receipt });
     await this.#log({ type: 'TERMINAL', id: job.id, status, exitCode: receipt.exitCode, signal: receipt.signal, queueMs: receipt.queueMs, runMs: receipt.runMs, cache: receipt.cache, resources: receipt.resources, cargoRunMs: receipt.cargoRunMs, generation: receipt.generation, uncertainWriter });
     this.#publish(job, job.terminal); job.resolveDone(job.terminal);
@@ -1020,7 +1042,8 @@ export class ThinJobService {
       indexRefreshRetried: job.indexRefreshRetried === true,
       lastOutputAt: job.lastOutputAt ? new Date(job.lastOutputAt).toISOString() : null,
       ...(job.state === 'RUNNING' ? { stalledAt: job.stalledAt == null ? null : new Date(job.stalledAt).toISOString(), quietMs: this.#quietMs(job, now) } : {}),
-      attachedClients: job.watchers?.size ?? 0
+      attachedClients: job.watchers?.size ?? 0,
+      coalescedClients: job.coalescedClients ?? 0
     });
   }
 
@@ -1037,7 +1060,7 @@ export class ThinJobService {
   #status(id, emit) {
     const live = this.#jobs.get(id);
     if (live) return this.#emit(emit, { type: 'STATUS', ...this.#jobSummary(live), receipt: live.terminal?.receipt ?? null });
-    return this.#state.receipt(id).then((receipt) => { if (!receipt) throw Object.assign(new Error('job not found'), { code: 'RK_JOB_NOT_FOUND' }); return this.#emit(emit, { type: 'STATUS', id, state: receipt.state, receipt }); });
+    return this.#state.receipt(id).then((receipt) => { if (!receipt) throw Object.assign(new Error('job not found'), { code: 'RK_JOB_NOT_FOUND' }); return this.#emit(emit, { type: 'STATUS', id, state: receipt.state, coalescedClients: receipt.coalescedClients ?? 0, receipt }); });
   }
 
   #list(emit) {
@@ -1055,16 +1078,23 @@ export class ThinJobService {
     return this.#emit(emit, { type: 'DRAIN_STATUS', open: inFlight.length, inFlight });
   }
 
-  async #watch(id, emit, onDisconnect) {
+  async #watch(id, emit, onDisconnect, coalesced = null) {
     const live = this.#jobs.get(id);
     if (!live) { const receipt = await this.#state.receipt(id); if (!receipt) throw Object.assign(new Error('job not found'), { code: 'RK_JOB_NOT_FOUND' }); return this.#emit(emit, { type: 'RESULT', id, exitCode: receipt.exitCode, status: receipt.state, receipt }); }
-    for (const event of live.history) emit(event);
+    const announce = () => { if (coalesced) { this.#publish(live, { type: 'JOB_EVENT', id, event: coalesced }); void this.#log(coalesced); } };
+    if (coalesced) {
+      for (const data of [`rightkit: attached to in-flight identical job ${id} (coalesced)\n`, ...(live.outputTail.length ? [live.outputTail.toString('utf8')] : [])]) {
+        if (emit(Object.freeze({ type: 'JOB_EVENT', id, event: { type: 'STDERR', data } })) === false) { announce(); return { type: 'WATCH_DETACHED', id, reason: 'RK_WATCH_BACKPRESSURE' }; }
+      }
+      if (live.terminal) { announce(); return this.#emit(emit, live.terminal); }
+    } else for (const event of live.history) emit(event);
     if (live.terminal) return live.terminal;
     return new Promise((resolve) => {
       let unsubscribe = null;
       const watcher = (event) => { if (emit(event) === false) { cleanup(); resolve({ type: 'WATCH_DETACHED', id, reason: 'RK_WATCH_BACKPRESSURE' }); } else if (event.type === 'RESULT') { cleanup(); resolve(event); } };
       const cleanup = () => { live.watchers.delete(watcher); unsubscribe?.(); };
       live.watchers.add(watcher); unsubscribe = typeof onDisconnect === 'function' ? onDisconnect(() => { cleanup(); resolve({ type: 'DETACHED', id }); }) : null;
+      announce();
     });
   }
 

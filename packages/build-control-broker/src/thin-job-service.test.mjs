@@ -19,7 +19,7 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, indexRefreshRetry = undefined, startChild = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }) } = {}) {
+async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, indexRefreshRetry = undefined, coalesceIdenticalRequests = undefined, workspaceResolver = null, startChild = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }) } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
@@ -32,12 +32,188 @@ async function fixture({ bounds = {}, externalCommands = [], cache = null, cache
   const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc', rustup: 'rustup' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
   Object.assign(config.bounds, bounds);
   if (indexRefreshRetry !== undefined) config.indexRefreshRetry = indexRefreshRetry;
-  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; child.cwd = options.cwd; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); else if (startChild) await startChild(child); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
+  if (coalesceIdenticalRequests !== undefined) config.coalesceIdenticalRequests = coalesceIdenticalRequests;
+  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: workspaceResolver ?? (async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd })), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; child.cwd = options.cwd; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); else if (startChild) await startChild(child); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
 
 async function call(service, value) { const events = []; const result = await service.dispatch(value, (event) => { events.push(event); return true; }); return { result, events }; }
 async function waitFor(service, id, states) { let last; for (let attempt = 0; attempt < 100; attempt += 1) { const { result } = await call(service, command('STATUS', id)); last = result; if (states.includes(result.state)) return result; if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(result.state)) break; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error(`job ${id} did not reach ${states}: ${JSON.stringify(last)}`); }
+
+function streamCall(service, value) {
+  const events = []; const disconnects = new Set(); let submitted; let rejected;
+  const submission = new Promise((resolve, reject) => { submitted = resolve; rejected = reject; });
+  const done = service.dispatch(value, (event) => { events.push(event); if (event.type === 'SUBMITTED') submitted(event); else if (event.type === 'RESULT' && !events.some((value) => value.type === 'SUBMITTED')) rejected(new Error(event.error ?? 'request was not submitted')); return true; }, (callback) => { disconnects.add(callback); return () => disconnects.delete(callback); });
+  return { events, submission, done, disconnect: () => { for (const callback of [...disconnects]) callback(); } };
+}
+
+test('identical RUNNING submit coalesces, replays bounded tail & shares exit/receipt', async () => {
+  const item = await fixture();
+  try {
+    const argv = ['build', '--profile', 'release-iterate', '--locked', '--bins'];
+    const original = streamCall(item.service, message(item.workspace, argv)); const first = await original.submission;
+    await waitFor(item.service, first.id, ['RUNNING']);
+    const child = item.children[0]; const output = `${'x'.repeat(2048)}\ncompiled so far\n`;
+    child.stdout.emit('data', Buffer.from(output));
+    const retry = streamCall(item.service, command('SUBMIT', message(item.workspace, argv))); const second = await retry.submission;
+    assert.equal(second.id, first.id); assert.equal(second.coalesced, true); assert.equal(second.state, 'RUNNING');
+    const status = (await call(item.service, command('STATUS', first.id))).result;
+    assert.equal(status.attachedClients, 2); assert.equal(status.coalescedClients, 1); assert.equal(item.children.length, 1);
+    const replay = retry.events.filter((event) => event.event?.type === 'STDERR');
+    assert.deepEqual(replay.map((event) => event.event.data), [`rightkit: attached to in-flight identical job ${first.id} (coalesced)\n`, Buffer.from(output).subarray(-1024).toString('utf8')]);
+    const coalesced = original.events.find((event) => event.event?.type === 'COALESCED');
+    assert.equal(coalesced.id, first.id); assert.equal(coalesced.event.id, first.id); assert.match(coalesced.event.attachedClient, /^[a-f0-9]{8}$/);
+    assert.deepEqual(retry.events.find((event) => event.event?.type === 'COALESCED'), coalesced);
+    assert.deepEqual(item.logger.events.filter((event) => event.type === 'COALESCED'), [coalesced.event]);
+    child.stderr.emit('data', Buffer.from('remaining output\n')); child.emit('close', 37, null);
+    const [left, right] = await Promise.all([original.done, retry.done]);
+    assert.strictEqual(left, right); assert.equal(left.exitCode, 37); assert.equal(left.receipt.coalescedClients, 1);
+    for (const client of [original, retry]) assert.ok(client.events.some((event) => event.event?.data === 'remaining output\n'));
+    assert.equal((await item.state.receipt(first.id)).coalescedClients, 1);
+    assert.equal((await call(item.service, command('STATUS', first.id))).result.coalescedClients, 1);
+    assert.equal(item.children.length, 1);
+  } finally { await item.close(); }
+});
+
+test('identical QUEUED submit attaches to one queued execution', async () => {
+  const item = await fixture();
+  try {
+    const blocker = (await call(item.service, command('SUBMIT', message(item.other, ['build'])))).result;
+    await waitFor(item.service, blocker.id, ['RUNNING']);
+    const original = streamCall(item.service, message(item.workspace, ['test', '--locked'])); const first = await original.submission;
+    await waitFor(item.service, first.id, ['QUEUED']);
+    const retry = streamCall(item.service, message(item.workspace, ['test', '--locked'])); const second = await retry.submission;
+    assert.equal(second.id, first.id); assert.equal(second.coalesced, true); assert.equal(second.state, 'QUEUED');
+    const status = (await call(item.service, command('STATUS', first.id))).result;
+    assert.equal(status.coalescedClients, 1); assert.equal(status.attachedClients, 2); assert.equal(item.children.length, 1);
+    assert.equal((await call(item.service, command('LIST'))).result.inFlight.length, 2);
+    item.children[0].emit('close', 0, null);
+    await waitFor(item.service, first.id, ['RUNNING']); item.children[1].emit('close', 0, null);
+    const [left, right] = await Promise.all([original.done, retry.done]);
+    assert.strictEqual(left, right); assert.equal(right.exitCode, 0); assert.equal(right.receipt.coalescedClients, 1); assert.equal(item.children.length, 2);
+  } finally { await item.close(); }
+});
+
+test('argv, environment & cwd differences never coalesce within one workspace', async () => {
+  const item = await fixture({ workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd.endsWith('member') ? dirname(cwd) : cwd }) });
+  try {
+    const member = join(item.workspace, 'member'); await mkdir(member);
+    const first = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+    await waitFor(item.service, first.id, ['RUNNING']);
+    const envRequest = message(item.workspace, ['check']); envRequest.request.environment = { CI: '1' };
+    for (const request of [message(item.workspace, ['check', '--locked']), envRequest, message(member, ['check']), message(item.other, ['check'])]) {
+      const submitted = (await call(item.service, command('SUBMIT', request))).result;
+      assert.equal(submitted.type, 'SUBMITTED'); assert.notEqual(submitted.id, first.id); assert.notEqual(submitted.coalesced, true);
+      const status = (await call(item.service, command('STATUS', submitted.id))).result;
+      assert.equal(status.state, 'QUEUED'); assert.equal(status.coalescedClients, 0);
+    }
+    assert.equal(item.children.length, 1); assert.equal(item.logger.events.some((event) => event.type === 'COALESCED'), false);
+  } finally { await item.close(); }
+});
+
+test('filtered environment fingerprint ignores key order & canonicalizes allowed keys', async () => {
+  const item = await fixture();
+  try {
+    const left = message(item.workspace, ['clippy']); left.request.environment = { CI: '1', RUST_LOG: 'warn' };
+    const right = message(join(item.workspace, '.'), ['clippy']); right.request.environment = { RUST_LOG: 'warn', ci: '1' };
+    const original = streamCall(item.service, left); const first = await original.submission;
+    await waitFor(item.service, first.id, ['RUNNING']);
+    const retry = streamCall(item.service, right); assert.equal((await retry.submission).id, first.id);
+    item.children[0].emit('close', 0, null); assert.strictEqual(await original.done, await retry.done);
+  } finally { await item.close(); }
+});
+
+test('credential/stdin payloads, resident & non-artifact commands never coalesce', async () => {
+  for (const [argv, extra] of [[['login'], { credentialStdin: 'test-token-value' }], [['run'], {}], [['tree', '--locked'], {}], [['fix'], {}], [['publish'], {}], [['build'], { stdin: 'payload' }], [['build'], { requestStdin: 'payload' }]]) {
+    const item = await fixture();
+    try {
+      const request = message(item.workspace, argv, extra);
+      if (extra.requestStdin) { delete request.requestStdin; request.request.stdin = extra.requestStdin; }
+      const first = (await call(item.service, command('SUBMIT', request))).result;
+      const second = (await call(item.service, command('SUBMIT', request))).result;
+      assert.equal(first.type, 'SUBMITTED'); assert.equal(second.type, 'SUBMITTED'); assert.notEqual(first.id, second.id); assert.notEqual(second.coalesced, true);
+      assert.equal(item.logger.events.some((event) => event.type === 'COALESCED'), false);
+    } finally { await item.close(); }
+  }
+});
+
+test('config false disables identical request coalescing', async () => {
+  const item = await fixture({ coalesceIdenticalRequests: false });
+  try {
+    const first = (await call(item.service, command('SUBMIT', message(item.workspace, ['doc'])))).result;
+    await waitFor(item.service, first.id, ['RUNNING']);
+    const second = (await call(item.service, command('SUBMIT', message(item.workspace, ['doc'])))).result;
+    assert.notEqual(second.id, first.id); assert.notEqual(second.coalesced, true);
+    assert.equal((await call(item.service, command('STATUS', second.id))).result.state, 'QUEUED');
+    item.children[0].emit('close', 0, null); await waitFor(item.service, second.id, ['RUNNING']);
+    item.children[1].emit('close', 0, null);
+    assert.equal((await call(item.service, command('WATCH', second.id))).result.receipt.coalescedClients, 0); assert.equal(item.children.length, 2);
+  } finally { await item.close(); }
+});
+
+test('original disconnect keeps job running & retry receives its result', async () => {
+  const item = await fixture();
+  try {
+    const original = streamCall(item.service, message(item.workspace, ['build'])); const first = await original.submission;
+    await waitFor(item.service, first.id, ['RUNNING']); original.disconnect();
+    assert.equal((await original.done).type, 'DETACHED');
+    const detached = (await call(item.service, command('STATUS', first.id))).result;
+    assert.equal(detached.state, 'RUNNING'); assert.equal(detached.attachedClients, 0); assert.equal(item.children[0].closed, undefined);
+    const retry = streamCall(item.service, message(item.workspace, ['build'])); const second = await retry.submission;
+    assert.equal(second.coalesced, true); assert.equal(second.id, first.id);
+    item.children[0].emit('close', 19, null); const result = await retry.done;
+    assert.equal(result.exitCode, 19); assert.equal(result.receipt.cancellation, null); assert.equal(result.receipt.coalescedClients, 1); assert.equal(item.children.length, 1);
+  } finally { await item.close(); }
+});
+
+test('terminal & cancelling jobs are never coalesced', async () => {
+  const item = await fixture();
+  try {
+    const first = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+    await waitFor(item.service, first.id, ['RUNNING']); item.children[0].emit('close', 0, null);
+    await waitFor(item.service, first.id, ['SUCCEEDED']);
+    const blocker = (await call(item.service, command('SUBMIT', message(item.other, ['build'])))).result;
+    await waitFor(item.service, blocker.id, ['RUNNING']);
+    const queued = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+    assert.notEqual(queued.id, first.id);
+    await call(item.service, command('CANCEL', queued.id));
+    const retry = (await call(item.service, command('SUBMIT', message(item.workspace, ['check'])))).result;
+    assert.notEqual(retry.id, queued.id); assert.notEqual(retry.coalesced, true);
+  } finally { await item.close(); }
+});
+
+test('cancelling RUNNING job never accepts an identical attachment', async () => {
+  let release; const gate = new Promise((resolve) => { release = resolve; });
+  const cache = { prepare: async () => ({ mode: 'sccache', status: 'OK', environment: {}, before: {} }), finish: async () => { await gate; return { mode: 'sccache', status: 'OK', delta: {} }; } };
+  const item = await fixture({ cache });
+  try {
+    const first = (await call(item.service, command('SUBMIT', message(item.workspace, ['build'])))).result;
+    await waitFor(item.service, first.id, ['RUNNING']); await call(item.service, command('CANCEL', first.id));
+    assert.equal((await call(item.service, command('STATUS', first.id))).result.state, 'RUNNING');
+    const retry = streamCall(item.service, command('SUBMIT', message(item.workspace, ['build']))); const second = await retry.submission;
+    assert.notEqual(second.id, first.id); assert.notEqual(second.coalesced, true);
+    assert.equal(item.logger.events.some((event) => event.type === 'COALESCED'), false);
+    await retry.done;
+  } finally { release(); await item.close(); }
+});
+
+test('attachments during receipt persistence share final cumulative count', async () => {
+  const item = await fixture(); let release; let entered;
+  const gate = new Promise((resolve) => { release = resolve; }); const writing = new Promise((resolve) => { entered = resolve; });
+  try {
+    const original = streamCall(item.service, message(item.workspace, ['check'])); const first = await original.submission;
+    await waitFor(item.service, first.id, ['RUNNING']);
+    const writeReceipt = item.state.writeReceipt.bind(item.state); let blocked = false;
+    item.state.writeReceipt = async (id, receipt) => { if (id === first.id && !blocked) { blocked = true; entered(); await gate; } return writeReceipt(id, receipt); };
+    item.children[0].emit('close', 0, null); await writing;
+    const retries = [streamCall(item.service, message(item.workspace, ['check'])), streamCall(item.service, message(item.workspace, ['check']))];
+    for (const retry of retries) { const submitted = await retry.submission; assert.equal(submitted.id, first.id); assert.equal(submitted.coalesced, true); }
+    assert.equal((await call(item.service, command('STATUS', first.id))).result.coalescedClients, 2);
+    release(); const [result, ...results] = await Promise.all([original.done, ...retries.map((retry) => retry.done)]);
+    for (const attached of results) assert.strictEqual(attached, result);
+    assert.equal(result.receipt.coalescedClients, 2); assert.equal((await item.state.receipt(first.id)).coalescedClients, 2); assert.equal(item.children.length, 1);
+  } finally { release(); await item.close(); }
+});
 
 const resolutionMiss = (crate = 'rightkit-jobs', req = '^0.2.2') => `error: failed to select a version for the requirement \`${crate} = "${req}"\`\ncandidate versions found which didn't match: 0.2.1, 0.2.0, 0.1.0\nlocation searched: crates.io index\nrequired by package \`rightkit-shell v0.1.2\`\n`;
 
