@@ -290,9 +290,10 @@ fn finish(
     inner.windows_hide();
     let mut child = inner.spawn()?;
     #[cfg(windows)]
-    let job = crate::windows_job::WindowsJob::new(crate::windows_job::DEFAULT_ACTIVE_PROCESS_LIMIT)
-        .and_then(|j| j.assign_process_id(child.id()).map(|_| j))
-        .ok();
+    let job =
+        crate::windows_job::WindowsJob::new(Some(crate::windows_job::DEFAULT_ACTIVE_PROCESS_LIMIT))
+            .and_then(|j| j.assign_process_id(child.id()).map(|_| j))
+            .ok();
     Ok(SandboxedChild {
         stdout: child
             .take_stdout()

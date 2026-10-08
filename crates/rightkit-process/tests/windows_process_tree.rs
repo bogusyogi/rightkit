@@ -126,3 +126,33 @@ fn dropping_owned_child_leaves_no_orphan() {
     wait_until_stopped(&grandchild);
     let _ = fs::remove_file(temp);
 }
+
+/// A std-spawned child attached with `assign_child` dies with its grandchild when the job drops;
+/// `assign_process_id` + `terminate` kill on demand; a zero cap is refused.
+#[test]
+fn windows_job_kills_an_already_spawned_tree_on_drop_and_terminate() {
+    use rightkit_process::{WindowsJob, DEFAULT_ACTIVE_PROCESS_LIMIT};
+
+    assert!(WindowsJob::new(Some(0)).is_err());
+
+    let dir = std::env::temp_dir().join(format!("rightkit-process-job-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let pid_file = dir.join("dropped.pid");
+    let job = WindowsJob::new(None).unwrap();
+    let mut child = tree_command(&pid_file).spawn().unwrap();
+    job.assign_child(&child).unwrap();
+    let grandchild = AdoptedProcess::new(NonZeroU32::new(wait_for_pid(&pid_file)).unwrap());
+    drop(job);
+    let _ = child.wait();
+    wait_until_stopped(&grandchild);
+
+    let pid_file = dir.join("terminated.pid");
+    let job = WindowsJob::new(Some(DEFAULT_ACTIVE_PROCESS_LIMIT)).unwrap();
+    let mut child = tree_command(&pid_file).spawn().unwrap();
+    job.assign_process_id(child.id()).unwrap();
+    let grandchild = AdoptedProcess::new(NonZeroU32::new(wait_for_pid(&pid_file)).unwrap());
+    job.terminate().unwrap();
+    let _ = child.wait();
+    wait_until_stopped(&grandchild);
+    let _ = fs::remove_dir_all(&dir);
+}

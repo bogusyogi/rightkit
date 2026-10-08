@@ -1633,7 +1633,7 @@ pub(crate) fn spawn(
     };
     // Assigned while suspended, so no fast child can spawn descendants outside the job. Any
     // failure before resume kills the process (ConfinedChild's drop) and fails closed.
-    let job = WindowsJob::new(DEFAULT_ACTIVE_PROCESS_LIMIT)
+    let job = WindowsJob::new(Some(DEFAULT_ACTIVE_PROCESS_LIMIT))
         .and_then(|job| job.assign_process_id(pid).map(|()| job))
         .map_err(|e| step_error("assign confined process to its Job Object", e))?;
     child.job = Some(job);

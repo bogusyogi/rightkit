@@ -12,6 +12,8 @@ mod restart;
 mod spawn_windows;
 mod stall;
 mod stderr_tail;
+#[cfg(windows)]
+pub mod windows_job;
 
 pub use health::{HealthOutcome, HealthPolicy, HealthProbe, HealthTracker};
 pub use owned::{
@@ -27,3 +29,5 @@ pub use restart::{
 pub use spawn_windows::{WindowsChild, WindowsSpawnConfig, WindowsStdio};
 pub use stall::{Ack, Cooldown, StallConfig, StallEvent, StallWatchdog};
 pub use stderr_tail::StderrTail;
+#[cfg(windows)]
+pub use windows_job::{WindowsJob, DEFAULT_ACTIVE_PROCESS_LIMIT};
