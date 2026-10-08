@@ -9,6 +9,7 @@ import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build
 import { brokerEndpointForPlatform, CachedWorkspaceResolver, ThinJobService, createThinJobServer, resolveCargoWorkspace, resolveRepositoryRoot } from './thin-job-service.mjs';
 import { ThinState } from './thin-state.mjs';
 import { beginCutoverDrain, endCutoverDrain } from './cutover-shared.mjs';
+import { InputClosureGuard, assertPromotableReceipt } from './input-closure.mjs';
 
 const digest = 'a'.repeat(64);
 const canonicalTempDir = async (prefix) => realpath(await mkdtemp(join(tmpdir(), prefix)));
@@ -20,7 +21,7 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, indexRefreshRetry = undefined, coalesceIdenticalRequests = undefined, workspaceResolver = null, startChild = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }) } = {}) {
+async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, indexRefreshRetry = undefined, coalesceIdenticalRequests = undefined, workspaceResolver = null, startChild = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }), inputClosure = undefined } = {}) {
   const root = await canonicalTempDir('rightkit-thin-job-'); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
@@ -34,7 +35,7 @@ async function fixture({ bounds = {}, externalCommands = [], cache = null, cache
   Object.assign(config.bounds, bounds);
   if (indexRefreshRetry !== undefined) config.indexRefreshRetry = indexRefreshRetry;
   if (coalesceIdenticalRequests !== undefined) config.coalesceIdenticalRequests = coalesceIdenticalRequests;
-  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: workspaceResolver ?? (async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd })), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; child.cwd = options.cwd; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); else if (startChild) await startChild(child); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
+  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(inputClosure === undefined ? {} : { inputClosure }), ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: workspaceResolver ?? (async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd })), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; child.cwd = options.cwd; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); else if (startChild) await startChild(child); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -1371,4 +1372,50 @@ test('registry tokens are accepted only for credential capabilities and redacted
   assert.deepEqual(redactCredentialArgv('cargo', ['publish', '--token', 'test-token-value', '-p', 'x']), ['publish', '--token', '<redacted>', '-p', 'x']);
   assert.deepEqual(redactCredentialArgv('cargo', ['publish', '--token=test-token-value']), ['publish', '--token=<redacted>']);
   assert.deepEqual(redactCredentialArgv('cargo', ['build', '-p', 'x']), ['build', '-p', 'x']);
+});
+
+// Class 2: the closure is re-digested before spawn and at completion. Scoped to this suite's fixture repository.
+async function closureRun(item, mutate) {
+  await writeFile(join(item.repository, 'Cargo.toml'), '[package]\nname = "closure"\n');
+  const submitted = streamCall(item.service, message(item.workspace, ['build', '--profile', 'release-iterate', '--locked', '--bins']));
+  const first = await submitted.submission;
+  await waitFor(item.service, first.id, ['RUNNING']);
+  if (mutate) await mutate(item);
+  const child = item.children.find((candidate) => candidate.payload.argv.includes('build'));
+  child.emit('close', 0, null);
+  const result = await submitted.done;
+  return result.receipt;
+}
+
+test('class 2: a closure that moves during the run is recorded inputs-mutated and can never be promoted to evidence', async () => {
+  const guard = new InputClosureGuard({ list: async () => ['Cargo.toml'] });
+  const item = await fixture({ inputClosure: guard });
+  try {
+    const receipt = await closureRun(item, () => writeFile(join(item.repository, 'Cargo.toml'), '[package]\nname = "tampered"\n'));
+    assert.equal(receipt.inputClosure.status, 'inputs-mutated');
+    assert.deepEqual(receipt.inputClosure.changed, ['Cargo.toml']);
+    assert.notEqual(receipt.inputClosure.preDigest, receipt.inputClosure.postDigest);
+    assert.throws(() => assertPromotableReceipt(receipt), (error) => error.code === 'RK_INPUTS_MUTATED');
+  } finally { await item.close(); }
+});
+
+test('class 2: an untouched closure verifies at completion and is promotable', async () => {
+  const guard = new InputClosureGuard({ list: async () => ['Cargo.toml'] });
+  const item = await fixture({ inputClosure: guard });
+  try {
+    const receipt = await closureRun(item, null);
+    assert.equal(receipt.inputClosure.status, 'verified');
+    assert.equal(assertPromotableReceipt(receipt), true);
+  } finally { await item.close(); }
+});
+
+test('class 2: an unreadable closure is recorded unverified and is not promotable', async () => {
+  const guard = new InputClosureGuard({ list: async () => { throw new Error('git unavailable'); } });
+  const item = await fixture({ inputClosure: guard });
+  try {
+    const receipt = await closureRun(item, null);
+    assert.equal(receipt.inputClosure.status, 'unverified');
+    assert.match(receipt.inputClosure.reason, /git unavailable/);
+    assert.throws(() => assertPromotableReceipt(receipt), (error) => error.code === 'RK_INPUTS_UNVERIFIED');
+  } finally { await item.close(); }
 });

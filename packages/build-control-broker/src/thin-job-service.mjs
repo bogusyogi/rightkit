@@ -4,6 +4,7 @@ import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, statfs as nodeStatfs, writeFile } from 'node:fs/promises';
 import { sweepTemporary } from './temp-sweep.mjs';
 import { OwnershipAdmission } from './ownership-admission.mjs';
+import { InputClosureGuard, recordInputClosure } from './input-closure.mjs';
 import net from 'node:net';
 import { cpus, freemem, homedir, totalmem } from 'node:os';
 import { safeResourceSnapshot, summarizeBuildResources } from './resource-telemetry.mjs';
@@ -256,9 +257,9 @@ function hostResourceSnapshot() {
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #rustupHome; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #readResources; #readHostResources; #statfs; #now; #platform; #nativeOpenSsl; #admission; #jobs = new Map(); #credentials = new WeakMap(); #admissions = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #rustupHome; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #readResources; #readHostResources; #statfs; #now; #platform; #nativeOpenSsl; #admission; #inputClosure; #jobs = new Map(); #credentials = new WeakMap(); #admissions = new Map(); #stopping = false;
 
-  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, readResources = readManagedProcessResources, readHostResources = hostResourceSnapshot, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform, nativeOpenSsl = undefined, ownershipAdmission = undefined } = {}) {
+  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, readResources = readManagedProcessResources, readHostResources = hostResourceSnapshot, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform, nativeOpenSsl = undefined, ownershipAdmission = undefined, inputClosure = undefined } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
     const externalRoot = normalize(config.broker.externalRoot.path);
     const controlRoot = resolveManagedRoots({ platform, dataRoot: externalRoot, controlRoot: config.broker.controlRoot ?? externalRoot }).controlRoot;
@@ -316,7 +317,7 @@ export class ThinJobService {
         ? workspaceResolver
         : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 30_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
       const rustupContext = registeredRustupContext(cargoTool.path);
-      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: rustupContext.toolchain, rustupHome: rustupContext.home, compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform, ownershipAdmission, nativeOpenSsl: nativeOpenSsl === undefined ? (platform === 'win32' ? new NativeOpenSslCache({ root: join(dirname(thinState.paths.temporary), 'n') }) : null) : nativeOpenSsl });
+      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: rustupContext.toolchain, rustupHome: rustupContext.home, compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform, ownershipAdmission, inputClosure: inputClosure === undefined ? (config.inputClosure?.enabled === false ? null : new InputClosureGuard()) : inputClosure, nativeOpenSsl: nativeOpenSsl === undefined ? (platform === 'win32' ? new NativeOpenSslCache({ root: join(dirname(thinState.paths.temporary), 'n') }) : null) : nativeOpenSsl });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1), platform }) });
       await thinCache.start?.();
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
@@ -333,10 +334,11 @@ export class ThinJobService {
     }
   }
 
-  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, rustupToolchain, rustupHome, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform = process.platform, nativeOpenSsl = null, ownershipAdmission = undefined }) {
+  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, rustupToolchain, rustupHome, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform = process.platform, nativeOpenSsl = null, ownershipAdmission = undefined, inputClosure = null }) {
     this.#nativeOpenSsl = nativeOpenSsl;
     this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#rustupToolchain = rustupToolchain; this.#rustupHome = rustupHome; this.#compilerEnvironment = compilerEnvironment; this.#compilerIdentity = compilerIdentity; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#readResources = readResources ?? readManagedProcessResources; this.#readHostResources = readHostResources ?? hostResourceSnapshot; this.#statfs = statfs; this.#now = now; this.#platform = platform;
     this.#admission = ownershipAdmission ?? new OwnershipAdmission({ mode: config.ownership?.mode ?? 'report', timeoutMs: config.ownership?.timeoutMs ?? 30_000, now });
+    this.#inputClosure = inputClosure;
   }
 
   get runtimeIdentity() { return this.#runtime; }
@@ -734,6 +736,8 @@ export class ThinJobService {
     if (job.cancelReason) throw Object.assign(new Error('request cancelled'), { code: 'RK_QUEUE_CANCELLED' });
     job.termination = null;
     if (!onOutput) job.indexResolutionOutput = Buffer.alloc(0);
+    // Class 2: snapshot the locked input closure once, before the first child spawns (root jobs only).
+    if (this.#inputClosure && !job.parentId && job.inputSnapshot === undefined) job.inputSnapshot = job.repositoryRoot ? await this.#inputClosure.snapshot(job.repositoryRoot) : Object.freeze({ status: 'unverified', reason: 'no repository root' });
     job.child = spawnManagedProcess(tool.path, argv, { cwd: job.request.workspace, env, stdio: [credential === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
     if (credential !== undefined && job.child.stdin) { job.child.stdin.on('error', () => {}); job.child.stdin.end(`${credential}\n`); }
     job.exit = childExit(job.child, { onStdioHeld: () => void this.#logStdioHeld(job) });
@@ -808,6 +812,8 @@ export class ThinJobService {
     const invalidWriter = uncertainWriter;
     if (invalidWriter) job.workspace = await this.#state.rotate(job.workspaceRoot, 'process-tree-unreaped');
     const terminalAt = this.#now();
+    // Class 2 completion re-digest: a moved closure marks the receipt inputs-mutated (never evidence).
+    const inputVerdict = this.#inputClosure && job.inputSnapshot !== undefined ? await this.#inputClosure.verify(job.inputSnapshot) : null;
     this.#sampleResourceState(job);
     // Roll delegated compiler children up into their admitted root so the root
     // receipt carries one authoritative compiler process & round-trip count and
@@ -866,6 +872,7 @@ export class ThinJobService {
       ownership: job.ownership ?? null, reap: details.reap ?? null, submittedAt: new Date(job.submittedAt).toISOString(), terminalAt: new Date(terminalAt).toISOString(),
       output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') }
     });
+    if (inputVerdict) receipt = recordInputClosure(receipt, inputVerdict);
     if (job.capability.artifactWrite && !uncertainWriter) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
     // Attachments can arrive while receipt I/O yields; persist their final count before RESULT.
     while (receipt.coalescedClients !== job.coalescedClients) {
