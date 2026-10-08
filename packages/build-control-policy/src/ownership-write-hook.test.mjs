@@ -308,3 +308,8 @@ test('standalone hook honors banned policy independently of tier, Swift dependen
     assertAdvice(broken.ownershipWriteDecision(input), /Could not load ownership catalog/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('RightKit owner tree is never screened as a duplicate of itself', () => {
+  const decision = ownershipWriteDecision({ tool_name: 'Write', cwd: 'D:/Claude', tool_input: { file_path: 'D:/Claude/tools/rightkit/crates/rightkit-sandbox/src/bin/exec.rs', content: 'sandbox_init(profile); SetFileSecurityW(); SendInput(); chromiumoxide::Browser;' } }, { readFile: () => { const error = new Error('missing'); error.code = 'ENOENT'; throw error; } });
+  assert.equal(decision.hookSpecificOutput, undefined);
+});

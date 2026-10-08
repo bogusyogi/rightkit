@@ -150,7 +150,17 @@ function scannedText(filePath, text, cwd) {
   return sourceExtensions.has(extension) ? stripComments(text, extension) : '';
 }
 
+// RightKit's own tree implements the owned capabilities, so owner source and manifests are never
+// screened as duplicates. Advisory only; protected gates scan registered app repositories.
+// Only the event's own cwd counts; the hook process cwd says nothing about the edited file.
+let explicitCwd;
+function isRightKitTree(target, cwd) {
+  if (typeof target !== 'string' || (!isAbsolute(target) && typeof cwd !== 'string')) return false;
+  const normalized = (isAbsolute(target) ? target : resolve(cwd, target)).replaceAll('\\', '/').toLowerCase();
+  return normalized.includes('/tools/rightkit/');
+}
 function hasFingerprintIncrease(beforePath, before, after, cwd) {
+  if (isRightKitTree(beforePath, explicitCwd)) return undefined;
   const oldText = scannedText(beforePath, before, cwd);
   const newText = scannedText(beforePath, after, cwd);
   return fingerprints.find((entry) => occurrenceCount(newText, entry, beforePath) > occurrenceCount(oldText, entry, beforePath));
@@ -367,6 +377,7 @@ const keywordOwners = {
 };
 
 function manifestFeedback(path, before, after, created, cwd) {
+  if (isRightKitTree(path, explicitCwd)) return null;
   try {
     if (after === null) return manifestFailure(path);
     const post = parseManifest(path, after);
@@ -428,6 +439,7 @@ export function ownershipWriteDecision(input, options = {}) {
 }
 
 function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? process.cwd() } = {}) {
+  explicitCwd = typeof input?.cwd === 'string' ? input.cwd : undefined;
   const tool = input?.tool_name ?? input?.toolName ?? '';
   const data = input?.tool_input ?? input?.toolInput ?? {};
   const command = tool === 'exec_command' ? data.cmd ?? input?.cmd : data.command ?? data.cmd ?? data.code ?? data.input ?? input?.command ?? input?.cmd ?? input?.code;
