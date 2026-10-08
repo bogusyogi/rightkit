@@ -12,10 +12,41 @@ use rightkit_contracts::types::Rect;
 use crate::error::RecordError;
 use crate::plan::PixelMasking;
 
+/// The screen-recording permission of the helper identity.
+///
+/// `permission()` reports the state without prompting the user. A helper that
+/// cannot read the state without prompting reports `Undetermined`, and the
+/// prompt, if any, happens in `start`, which reports a refusal as
+/// `Code::PermissionDenied`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Permission {
     Granted,
     Denied,
+    Undetermined,
+}
+
+/// The encoded video codecs a take may request. `prores` is a macOS follow-up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Codec {
+    H264,
+    Hevc,
+}
+
+impl Codec {
+    pub fn parse(value: &str) -> Option<Codec> {
+        match value {
+            "h264" => Some(Codec::H264),
+            "hevc" => Some(Codec::Hevc),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Codec::H264 => "h264",
+            Codec::Hevc => "hevc",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +86,10 @@ pub enum Failure {
     TargetExited,
     /// Screen-recording permission was withdrawn mid-take.
     PermissionRevoked,
+    /// The target window was hidden mid-take, so it can deliver no frames.
+    WindowHidden,
+    /// The target window was minimized mid-take, so it can deliver no frames.
+    WindowMinimized,
     /// The helper could not establish the masked pixel region before encoding.
     MaskGeometryUnknown,
     /// The helper broke the protocol (frame before readiness, PTS going back).
@@ -69,6 +104,8 @@ impl Failure {
             Failure::DiskFull => "disk_full".into(),
             Failure::TargetExited => "target_exited".into(),
             Failure::PermissionRevoked => "permission_revoked".into(),
+            Failure::WindowHidden => "window_hidden".into(),
+            Failure::WindowMinimized => "window_minimized".into(),
             Failure::MaskGeometryUnknown => "mask_geometry_unknown".into(),
             Failure::Protocol(detail) => format!("protocol_violation: {detail}"),
             Failure::Io(detail) => format!("io_error: {detail}"),
@@ -110,6 +147,7 @@ pub struct BackendPlan {
     pub audio: Vec<TrackKind>,
     pub visibility: VisibilityState,
     pub masking: PixelMasking,
+    pub codec: Codec,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,12 +155,17 @@ pub struct StartInfo {
     pub host_ns_at_start: u64,
     pub width: u32,
     pub height: u32,
+    /// The scale the backend applied. A backend that cannot honour the
+    /// requested scale refuses the start instead of reporting a different one.
     pub scale: f64,
     pub bounds_pt: Rect,
     pub dpi: u32,
-    /// `h264` or `hevc`.
+    /// The codec the encoder was configured with, `h264` or `hevc`.
     pub codec: String,
     pub os_build: String,
+    /// The visibility state the backend observed for the target at start. The
+    /// core refuses the take when it differs from the declared state.
+    pub visibility: VisibilityState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,9 +203,13 @@ pub trait Backend {
     fn os(&self) -> RecorderOs;
     fn os_build(&self) -> String;
     fn helper(&self) -> HelperIdentity;
+    /// Reports the screen-recording permission now. It must not prompt. A
+    /// helper that cannot tell without prompting returns `Undetermined`.
     fn permission(&self) -> Permission;
     fn sources(&self) -> Result<Vec<Source>, RecordError>;
     /// Starts capture. Writes the media and track files under `plan.out_dir`.
+    /// Honours `plan.scale` and `plan.codec`, or refuses with `Code::Unsupported`
+    /// or `Code::CodecUnavailable`. Requests permission here when undetermined.
     fn start(&mut self, plan: &BackendPlan) -> Result<StartInfo, RecordError>;
     /// Drains the helper events received since the last call. Never blocks.
     fn poll(&mut self) -> Vec<HelperEvent>;

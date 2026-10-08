@@ -434,17 +434,17 @@ fn seal(dir: &Path) -> io::Result<()> {
     set_read_only(dir)
 }
 
+/// Seals one path on every OS. The per-file read-only attribute is set everywhere,
+/// since on Windows it is the only thing that refuses a write to an existing file.
+/// On Unix the write bits are also cleared from the mode.
 fn set_read_only(path: &Path) -> io::Result<()> {
     let mut permissions = fs::metadata(path)?.permissions();
+    permissions.set_readonly(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let mode = permissions.mode();
         permissions.set_mode(mode & !0o222);
-    }
-    #[cfg(not(unix))]
-    {
-        permissions.set_readonly(true);
     }
     fs::set_permissions(path, permissions)
 }

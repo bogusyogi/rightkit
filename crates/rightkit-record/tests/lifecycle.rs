@@ -4,7 +4,9 @@ use common::{blank_event, read_manifest, recorder, request, Scratch};
 use rightkit_contracts::types::record_event::DropReason;
 use rightkit_contracts::types::record_session::{BundleStatus, VisibilityState};
 use rightkit_record::fake::{frame, FakeBackend};
-use rightkit_record::{Code, Failure, HelperEvent, Permission, Phase, PixelMasking, VerifyOptions};
+use rightkit_record::{
+    Code, Codec, Failure, HelperEvent, Permission, Phase, PixelMasking, VerifyOptions,
+};
 
 const T0: u64 = 1_000_000;
 
@@ -406,4 +408,115 @@ fn status_reports_frames_and_drops() {
     assert_eq!(status.phase, Phase::Recording);
     assert_eq!(status.frames, 4);
     assert_eq!(status.dropped, 2);
+}
+
+#[test]
+fn undetermined_permission_is_decided_by_the_start_prompt() {
+    let scratch = Scratch::new("undetermined-granted");
+    let mut backend = FakeBackend::macos();
+    backend.set_permission(Permission::Undetermined);
+    let mut rec = recorder(backend, T0);
+    assert_eq!(rec.doctor().permission, Permission::Undetermined);
+    let out = scratch.bundle("granted");
+    rec.record_start(request(out.clone()))
+        .expect("the prompt grants");
+    assert_eq!(rec.doctor().permission, Permission::Granted);
+    rec.backend_mut().push(ready_and_frames(2));
+    assert_eq!(rec.record_stop().unwrap().status, BundleStatus::Complete);
+}
+
+#[test]
+fn undetermined_permission_declined_at_the_prompt_is_refused() {
+    let scratch = Scratch::new("undetermined-declined");
+    let mut backend = FakeBackend::macos();
+    backend.set_permission(Permission::Undetermined);
+    backend.prompt_grants = false;
+    let mut rec = recorder(backend, T0);
+    let out = scratch.bundle("declined");
+    let err = rec.record_start(request(out.clone())).unwrap_err();
+    assert_eq!(err.code, Code::PermissionDenied);
+    let outcome = rec.record_stop().unwrap();
+    assert_eq!(outcome.status, BundleStatus::Invalid);
+    assert_eq!(
+        read_capture(&out),
+        serde_json::json!({}),
+        "no capture was started"
+    );
+}
+
+#[test]
+fn capture_records_the_codec_and_the_applied_scale() {
+    let scratch = Scratch::new("codec-scale");
+    let mut backend = FakeBackend::macos();
+    backend.applied_scale = Some(1.0);
+    let mut rec = recorder(backend, T0);
+    let out = scratch.bundle("take");
+    let mut req = request(out.clone());
+    req.codec = Codec::Hevc;
+    req.scale = 0.5;
+    rec.record_start(req).expect("start");
+    assert_eq!(rec.backend().last_plan.as_ref().unwrap().codec, Codec::Hevc);
+    rec.backend_mut().push(ready_and_frames(2));
+    rec.record_stop().unwrap();
+    let capture: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("capture.json")).unwrap()).unwrap();
+    assert_eq!(capture["codec"], "hevc");
+    assert_eq!(
+        capture["scale"], 1.0,
+        "the applied scale, not the requested 0.5"
+    );
+}
+
+#[test]
+fn a_visibility_mismatch_at_start_is_refused_and_sealed_invalid() {
+    let scratch = Scratch::new("visibility-mismatch");
+    let mut backend = FakeBackend::macos();
+    backend.observed_visibility = Some(VisibilityState::OnScreenVisible);
+    let mut rec = recorder(backend, T0);
+    let out = scratch.bundle("take");
+    let err = rec.record_start(request(out.clone())).unwrap_err();
+    assert_eq!(err.code, Code::Unsupported);
+    assert!(err.message.contains("visibility_mismatch"), "{err}");
+    assert_eq!(
+        read_capture(&out),
+        serde_json::json!({}),
+        "no capture metadata is written"
+    );
+    assert_eq!(read_manifest(&out)["status"], "invalid");
+}
+
+#[test]
+fn a_matching_observed_visibility_starts_and_is_recorded() {
+    let scratch = Scratch::new("visibility-match");
+    let mut backend = FakeBackend::macos();
+    backend.observed_visibility = Some(VisibilityState::OffScreenVisible);
+    let (mut rec, out) = start_take(backend, &scratch);
+    rec.backend_mut().push(ready_and_frames(2));
+    rec.record_stop().unwrap();
+    let capture: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("capture.json")).unwrap()).unwrap();
+    assert_eq!(capture["visibilityState"], "off_screen_visible");
+}
+
+#[test]
+fn window_hidden_or_minimized_mid_take_quarantines_with_its_own_reason() {
+    for (failure, reason) in [
+        (Failure::WindowHidden, "window_hidden"),
+        (Failure::WindowMinimized, "window_minimized"),
+    ] {
+        let scratch = Scratch::new(reason);
+        let mut backend = FakeBackend::windows();
+        let mut batch = ready_and_frames(2);
+        batch.push(HelperEvent::Failed(failure));
+        backend.push(batch);
+        let (mut rec, _out) = start_take(backend, &scratch);
+        let outcome = rec.record_stop().unwrap();
+        assert_eq!(outcome.status, BundleStatus::PartialQuarantined, "{reason}");
+        assert_eq!(outcome.reason.as_deref(), Some(reason));
+    }
+}
+
+/// The sealed `capture.json` of a take. Refused takes seal it as `{}`.
+fn read_capture(out: &std::path::Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(out.join("capture.json")).unwrap()).unwrap()
 }

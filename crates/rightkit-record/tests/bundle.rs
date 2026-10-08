@@ -68,11 +68,43 @@ fn sealed_bundle_is_read_only_and_refuses_writes() {
     backend.push(frames_batch(2));
     let out = sealed(&scratch, backend, "take");
     let events = out.join("events.ndjson");
-    assert!(fs::metadata(&events).unwrap().permissions().readonly());
     assert!(fs::metadata(&out).unwrap().permissions().readonly());
-    let attempt = fs::OpenOptions::new().append(true).open(&events);
-    assert!(attempt.is_err(), "appending to a sealed bundle must fail");
+    // File-level refusal, on every OS: each sealed file carries the read-only
+    // attribute and refuses an append and a rewrite.
+    let mut files = Vec::new();
+    collect_files(&out, &mut files);
+    assert!(files.contains(&events), "the event log is a sealed file");
+    for file in &files {
+        assert!(
+            fs::metadata(file).unwrap().permissions().readonly(),
+            "{} must carry the read-only attribute",
+            file.display()
+        );
+        assert!(
+            fs::OpenOptions::new().append(true).open(file).is_err(),
+            "appending to {} must fail",
+            file.display()
+        );
+        assert!(
+            fs::write(file, b"x").is_err(),
+            "rewriting {} must fail",
+            file.display()
+        );
+    }
+    // Unix-only: a Windows directory read-only flag does not stop new files.
+    #[cfg(unix)]
     assert!(fs::write(out.join("stray.txt"), b"x").is_err());
+}
+
+fn collect_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            collect_files(&path, out);
+        } else {
+            out.push(path);
+        }
+    }
 }
 
 #[test]

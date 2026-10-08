@@ -3,12 +3,14 @@
   "capabilities": [
     {
       "capability": "screen-recording",
-      "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, and the step-to-frame reader. OS capture is delegated to helpers behind the Backend trait.",
+      "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, the step-to-frame reader, and the helper wire protocol (length-prefixed JSON via rightkit-framed-sidecar) with ProcessBackend and serve_backend. Windows capture (Windows.Graphics.Capture and Media Foundation, src/windows, cfg(windows)) and the rightkit-record-helper binary live in this crate.",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
-        "Declaration-only: the lifecycle, bundle writer, redaction and reader are not an ownership fingerprint.",
-        "No OS capture lives in this crate; the macOS and Windows helpers implement the Backend trait in later slices."
+        "Declaration-only: the lifecycle, bundle writer, redaction, protocol and reader are not an ownership fingerprint.",
+        "Windows capture lives in this crate (src/windows, cfg(windows)) and is served out of process by rightkit-record-helper in serve mode.",
+        "rightkit-process owns helper spawning, supervision and restart; this crate only speaks the protocol over the streams it is given.",
+        "The macOS helper is not in this crate. It will implement Backend in its own helper and serve the same protocol."
       ]
     }
   ]

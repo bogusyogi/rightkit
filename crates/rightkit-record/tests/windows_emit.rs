@@ -22,7 +22,9 @@ const INTERVAL_NS: u64 = 1_000_000_000 / 60;
 
 /// Synthetic packed BGRA pixels for one frame, distinct per index.
 fn pixels(index: u64) -> Vec<u8> {
-    (0..64u64).map(|b| (b as u8).wrapping_add(index as u8)).collect()
+    (0..64u64)
+        .map(|b| (b as u8).wrapping_add(index as u8))
+        .collect()
 }
 
 /// Runs arrivals through the emitter in the worker's order: offer, drain the
@@ -47,7 +49,14 @@ fn synthetic_windows_frames_pass_the_core_protocol_checks() {
     let mut arrivals = Vec::new();
     // 30 frames at 60 Hz. Two frames are lost to callback backpressure before frame 12.
     for i in 0..30u64 {
-        let losses = if i == 12 { Losses { backpressure: 2, unknown: 0 } } else { Losses::default() };
+        let losses = if i == 12 {
+            Losses {
+                backpressure: 2,
+                unknown: 0,
+            }
+        } else {
+            Losses::default()
+        };
         arrivals.push((BASE_NS + i * INTERVAL_NS, losses));
     }
     // Static content: three seconds with no frames delivered, then frames resume.
@@ -57,7 +66,10 @@ fn synthetic_windows_frames_pass_the_core_protocol_checks() {
     }
 
     let events = emit(&arrivals);
-    assert!(matches!(events.first(), Some(HelperEvent::Ready(_))), "readiness marker comes first");
+    assert!(
+        matches!(events.first(), Some(HelperEvent::Ready(_))),
+        "readiness marker comes first"
+    );
     let drops: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
@@ -65,7 +77,11 @@ fn synthetic_windows_frames_pass_the_core_protocol_checks() {
             _ => None,
         })
         .collect();
-    assert_eq!(drops, vec![(2, DropReason::Backpressure)], "silence adds no drop event");
+    assert_eq!(
+        drops,
+        vec![(2, DropReason::Backpressure)],
+        "silence adds no drop event"
+    );
 
     let scratch = Scratch::new("win-synthetic");
     let out = scratch.bundle("take");
@@ -77,7 +93,10 @@ fn synthetic_windows_frames_pass_the_core_protocol_checks() {
     assert_eq!(outcome.status, BundleStatus::Complete, "{outcome:?}");
     assert_eq!(outcome.reason, None);
     let manifest = read_manifest(&out);
-    assert_eq!(manifest["frames"]["count"], 40, "30 frames plus 10 after the silence");
+    assert_eq!(
+        manifest["frames"]["count"], 40,
+        "30 frames plus 10 after the silence"
+    );
     assert_eq!(manifest["frames"]["droppedCount"], 2);
 }
 
@@ -89,7 +108,12 @@ fn static_content_with_no_losses_seals_complete_with_no_drops() {
         (BASE_NS + 600 * INTERVAL_NS, Losses::default()),
     ];
     let events = emit(&arrivals);
-    assert!(events.iter().all(|e| !matches!(e, HelperEvent::Dropped { .. })), "{events:?}");
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e, HelperEvent::Dropped { .. })),
+        "{events:?}"
+    );
 
     let scratch = Scratch::new("win-silence");
     let out = scratch.bundle("take");

@@ -9,8 +9,8 @@ use ::windows::Win32::Foundation::HMODULE;
 use ::windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use ::windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Multithread, ID3D11Texture2D,
-    D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_READ,
-    D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
+    D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE,
+    D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
 };
 use ::windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use ::windows::Win32::Graphics::Dxgi::IDXGIDevice;
@@ -41,9 +41,14 @@ impl Device {
                 Some(&mut context),
             )
         }
-        .map_err(|e| RecordError::new(Code::Unsupported, format!("D3D11CreateDevice failed: {e}")))?;
+        .map_err(|e| {
+            RecordError::new(Code::Unsupported, format!("D3D11CreateDevice failed: {e}"))
+        })?;
         let (Some(device), Some(context)) = (device, context) else {
-            return Err(RecordError::new(Code::Unsupported, "D3D11CreateDevice returned no device"));
+            return Err(RecordError::new(
+                Code::Unsupported,
+                "D3D11CreateDevice returned no device",
+            ));
         };
         let multithread: ID3D11Multithread = device
             .cast()
@@ -53,12 +58,20 @@ impl Device {
         let dxgi: IDXGIDevice = device
             .cast()
             .map_err(|e| RecordError::new(Code::Unsupported, format!("IDXGIDevice: {e}")))?;
-        let inspectable = unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi) }
-            .map_err(|e| RecordError::new(Code::Unsupported, format!("CreateDirect3D11DeviceFromDXGIDevice: {e}")))?;
+        let inspectable = unsafe { CreateDirect3D11DeviceFromDXGIDevice(&dxgi) }.map_err(|e| {
+            RecordError::new(
+                Code::Unsupported,
+                format!("CreateDirect3D11DeviceFromDXGIDevice: {e}"),
+            )
+        })?;
         let winrt: IDirect3DDevice = inspectable
             .cast()
             .map_err(|e| RecordError::new(Code::Unsupported, format!("IDirect3DDevice: {e}")))?;
-        Ok(Self { device, context, winrt })
+        Ok(Self {
+            device,
+            context,
+            winrt,
+        })
     }
 
     pub fn winrt(&self) -> &IDirect3DDevice {
@@ -73,7 +86,10 @@ impl Device {
             MipLevels: 1,
             ArraySize: 1,
             Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
             Usage: D3D11_USAGE_STAGING,
             BindFlags: 0,
             CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
@@ -84,11 +100,17 @@ impl Device {
             let mut texture: Option<ID3D11Texture2D> = None;
             unsafe { self.device.CreateTexture2D(&desc, None, Some(&mut texture)) }
                 .map_err(|e| RecordError::new(Code::Helper, format!("staging texture: {e}")))?;
-            let texture = texture
-                .ok_or_else(|| RecordError::new(Code::Helper, "staging texture: no texture returned"))?;
+            let texture = texture.ok_or_else(|| {
+                RecordError::new(Code::Helper, "staging texture: no texture returned")
+            })?;
             staging.push(texture);
         }
-        Ok(Readback { context: self.context.clone(), staging, width, height })
+        Ok(Readback {
+            context: self.context.clone(),
+            staging,
+            width,
+            height,
+        })
     }
 }
 
@@ -115,8 +137,11 @@ impl Readback {
     pub fn read_packed(&self, slot: usize, out: &mut Vec<u8>) -> Result<(), RecordError> {
         let texture = &self.staging[slot];
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-        unsafe { self.context.Map(texture, 0, D3D11_MAP_READ, 0, Some(&mut mapped)) }
-            .map_err(|e| RecordError::new(Code::Helper, format!("Map staging slot: {e}")))?;
+        unsafe {
+            self.context
+                .Map(texture, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+        }
+        .map_err(|e| RecordError::new(Code::Helper, format!("Map staging slot: {e}")))?;
         let width = self.width as usize;
         let height = self.height as usize;
         let row = width * 4;
@@ -125,7 +150,9 @@ impl Readback {
         out.reserve(row * height);
         for y in 0..height {
             // Safety: Map returned pitch-strided rows of at least `row` bytes each.
-            let src = unsafe { std::slice::from_raw_parts((mapped.pData as *const u8).add(y * pitch), row) };
+            let src = unsafe {
+                std::slice::from_raw_parts((mapped.pData as *const u8).add(y * pitch), row)
+            };
             out.extend_from_slice(src);
         }
         unsafe { self.context.Unmap(texture, 0) };

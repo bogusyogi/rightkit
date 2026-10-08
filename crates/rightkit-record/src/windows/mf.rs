@@ -9,19 +9,23 @@ use std::ptr;
 
 use ::windows::core::PCWSTR;
 use ::windows::Win32::Media::MediaFoundation::{
-    IMFActivate, IMFAttributes, IMFByteStream, IMFMediaType, IMFSinkWriter, MFCreateAttributes, MFCreateMediaType,
-    MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Video, MFNominalRange_16_235,
-    MFShutdown, MFStartup, MFTEnumEx, MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG, MFT_ENUM_FLAG_ASYNCMFT,
-    MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER, MFT_ENUM_FLAG_SYNCMFT, MFT_FRIENDLY_NAME_Attribute,
-    MFT_REGISTER_TYPE_INFO, MFSTARTUP_FULL, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_NV12,
-    MFVideoInterlace_Progressive, MFVideoTransferMatrix_BT709, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE,
-    MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE,
-    MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_YUV_MATRIX, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_VERSION,
+    IMFActivate, IMFAttributes, IMFByteStream, IMFMediaType, IMFSinkWriter, MFCreateAttributes,
+    MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL,
+    MFMediaType_Video, MFNominalRange_16_235, MFShutdown, MFStartup, MFTEnumEx,
+    MFT_FRIENDLY_NAME_Attribute, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_NV12,
+    MFVideoInterlace_Progressive, MFVideoTransferMatrix_BT709, MFSTARTUP_FULL,
+    MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG, MFT_ENUM_FLAG_ASYNCMFT, MFT_ENUM_FLAG_HARDWARE,
+    MFT_ENUM_FLAG_SORTANDFILTER, MFT_ENUM_FLAG_SYNCMFT, MFT_REGISTER_TYPE_INFO, MF_MT_AVG_BITRATE,
+    MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE,
+    MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_YUV_MATRIX,
+    MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_VERSION,
 };
 use ::windows::Win32::System::Com::CoTaskMemFree;
 use serde_json::{json, Value};
 
-use crate::codec::{bitrate_bps, even_dimension, bgra_to_nv12, nv12_len, sample_duration_100ns, Codec};
+use crate::codec::{
+    bgra_to_nv12, bitrate_bps, even_dimension, nv12_len, sample_duration_100ns, Codec,
+};
 use crate::error::{Code, RecordError};
 
 /// MFStartup for the life of a run. Dropping it calls MFShutdown, so every
@@ -76,34 +80,61 @@ unsafe impl Send for Mp4Writer {}
 impl Mp4Writer {
     /// `native_width` and `native_height` come from the capture item. The encoded
     /// frame is the top-left even-rounded region of them.
-    pub fn create(path: &Path, codec: Codec, native_width: u32, native_height: u32, fps: u32) -> Result<Self, RecordError> {
+    pub fn create(
+        path: &Path,
+        codec: Codec,
+        native_width: u32,
+        native_height: u32,
+        fps: u32,
+    ) -> Result<Self, RecordError> {
         let subtype = match codec {
             Codec::H264 => MFVideoFormat_H264,
             Codec::Hevc => MFVideoFormat_HEVC,
         };
-        let width = even_dimension(native_width)
-            .ok_or_else(|| RecordError::new(Code::Helper, format!("frame width {native_width} is too small")))?;
-        let height = even_dimension(native_height)
-            .ok_or_else(|| RecordError::new(Code::Helper, format!("frame height {native_height} is too small")))?;
+        let width = even_dimension(native_width).ok_or_else(|| {
+            RecordError::new(
+                Code::Helper,
+                format!("frame width {native_width} is too small"),
+            )
+        })?;
+        let height = even_dimension(native_height).ok_or_else(|| {
+            RecordError::new(
+                Code::Helper,
+                format!("frame height {native_height} is too small"),
+            )
+        })?;
         let encoder = select_encoder(codec, subtype)?;
 
         let mut attributes: Option<IMFAttributes> = None;
-        unsafe { MFCreateAttributes(&mut attributes, 1) }.map_err(|e| setup_error("MFCreateAttributes", e))?;
-        let attributes = attributes.ok_or_else(|| setup_error("MFCreateAttributes", "no attribute store"))?;
+        unsafe { MFCreateAttributes(&mut attributes, 1) }
+            .map_err(|e| setup_error("MFCreateAttributes", e))?;
+        let attributes =
+            attributes.ok_or_else(|| setup_error("MFCreateAttributes", "no attribute store"))?;
         unsafe { attributes.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1) }
             .map_err(|e| setup_error("enable hardware transforms", e))?;
 
-        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-        let writer = unsafe { MFCreateSinkWriterFromURL(PCWSTR(wide.as_ptr()), None::<&IMFByteStream>, &attributes) }
-            .map_err(|e| RecordError::new(Code::Io, format!("MFCreateSinkWriterFromURL failed: {e}")))?;
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let writer = unsafe {
+            MFCreateSinkWriterFromURL(PCWSTR(wide.as_ptr()), None::<&IMFByteStream>, &attributes)
+        }
+        .map_err(|e| {
+            RecordError::new(Code::Io, format!("MFCreateSinkWriterFromURL failed: {e}"))
+        })?;
 
-        let output = unsafe { MFCreateMediaType() }.map_err(|e| setup_error("MFCreateMediaType", e))?;
+        let output =
+            unsafe { MFCreateMediaType() }.map_err(|e| setup_error("MFCreateMediaType", e))?;
         set_frame_format(&output, subtype, width, height, fps)?;
         unsafe { output.SetUINT32(&MF_MT_AVG_BITRATE, bitrate_bps(width, height, fps)) }
             .map_err(|e| setup_error("MF_MT_AVG_BITRATE", e))?;
-        let stream = unsafe { writer.AddStream(&output) }.map_err(|e| setup_error("AddStream", e))?;
+        let stream =
+            unsafe { writer.AddStream(&output) }.map_err(|e| setup_error("AddStream", e))?;
 
-        let input = unsafe { MFCreateMediaType() }.map_err(|e| setup_error("MFCreateMediaType", e))?;
+        let input =
+            unsafe { MFCreateMediaType() }.map_err(|e| setup_error("MFCreateMediaType", e))?;
         set_frame_format(&input, MFVideoFormat_NV12, width, height, fps)?;
         unsafe { input.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32) }
             .map_err(|e| setup_error("MF_MT_YUV_MATRIX", e))?;
@@ -113,7 +144,15 @@ impl Mp4Writer {
             .map_err(|e| setup_error("SetInputMediaType", e))?;
         unsafe { writer.BeginWriting() }.map_err(|e| setup_error("BeginWriting", e))?;
 
-        Ok(Self { writer, stream, width, height, fps, encoder, finalized: false })
+        Ok(Self {
+            writer,
+            stream,
+            width,
+            height,
+            fps,
+            encoder,
+            finalized: false,
+        })
     }
 
     pub fn encoder(&self) -> &Encoder {
@@ -127,27 +166,39 @@ impl Mp4Writer {
 
     /// Converts one packed BGRA frame (`src_width` pixels per row) and writes it
     /// at `sample_time` (100 ns units from the first kept frame).
-    pub fn write_frame(&mut self, packed_bgra: &[u8], src_width: usize, sample_time: i64) -> Result<(), RecordError> {
+    pub fn write_frame(
+        &mut self,
+        packed_bgra: &[u8],
+        src_width: usize,
+        sample_time: i64,
+    ) -> Result<(), RecordError> {
         let (width, height) = (self.width as usize, self.height as usize);
         let len = nv12_len(width, height);
-        let buffer = unsafe { MFCreateMemoryBuffer(len as u32) }.map_err(|e| capture_failure("MFCreateMemoryBuffer", e))?;
+        let buffer = unsafe { MFCreateMemoryBuffer(len as u32) }
+            .map_err(|e| capture_failure("MFCreateMemoryBuffer", e))?;
         let mut data: *mut u8 = ptr::null_mut();
-        unsafe { buffer.Lock(&mut data, None, None) }.map_err(|e| capture_failure("IMFMediaBuffer::Lock", e))?;
+        unsafe { buffer.Lock(&mut data, None, None) }
+            .map_err(|e| capture_failure("IMFMediaBuffer::Lock", e))?;
         // Safety: Lock returned a writable region of `len` bytes (MFCreateMemoryBuffer(len)).
         let converted = {
             let dst = unsafe { std::slice::from_raw_parts_mut(data, len) };
             bgra_to_nv12(packed_bgra, src_width * 4, width, height, dst)
         };
         unsafe { buffer.Unlock() }.map_err(|e| capture_failure("IMFMediaBuffer::Unlock", e))?;
-        converted.map_err(|e| RecordError::new(Code::Helper, format!("NV12 conversion failed: {e}")))?;
-        unsafe { buffer.SetCurrentLength(len as u32) }.map_err(|e| capture_failure("SetCurrentLength", e))?;
+        converted
+            .map_err(|e| RecordError::new(Code::Helper, format!("NV12 conversion failed: {e}")))?;
+        unsafe { buffer.SetCurrentLength(len as u32) }
+            .map_err(|e| capture_failure("SetCurrentLength", e))?;
 
-        let sample = unsafe { MFCreateSample() }.map_err(|e| capture_failure("MFCreateSample", e))?;
+        let sample =
+            unsafe { MFCreateSample() }.map_err(|e| capture_failure("MFCreateSample", e))?;
         unsafe { sample.AddBuffer(&buffer) }.map_err(|e| capture_failure("AddBuffer", e))?;
-        unsafe { sample.SetSampleTime(sample_time) }.map_err(|e| capture_failure("SetSampleTime", e))?;
+        unsafe { sample.SetSampleTime(sample_time) }
+            .map_err(|e| capture_failure("SetSampleTime", e))?;
         unsafe { sample.SetSampleDuration(sample_duration_100ns(self.fps)) }
             .map_err(|e| capture_failure("SetSampleDuration", e))?;
-        unsafe { self.writer.WriteSample(self.stream, &sample) }.map_err(|e| capture_failure("WriteSample", e))
+        unsafe { self.writer.WriteSample(self.stream, &sample) }
+            .map_err(|e| capture_failure("WriteSample", e))
     }
 
     /// Writes the container trailer. Idempotent.
@@ -156,7 +207,8 @@ impl Mp4Writer {
             return Ok(());
         }
         self.finalized = true;
-        unsafe { self.writer.Finalize() }.map_err(|e| RecordError::new(Code::Io, format!("IMFSinkWriter::Finalize failed: {e}")))
+        unsafe { self.writer.Finalize() }
+            .map_err(|e| RecordError::new(Code::Io, format!("IMFSinkWriter::Finalize failed: {e}")))
     }
 }
 
@@ -169,24 +221,48 @@ impl Drop for Mp4Writer {
 /// Picks the encoder that will be reported. Hardware is ranked first, then
 /// software. HEVC with no registered encoder is an error, never a fallback.
 fn select_encoder(codec: Codec, subtype: ::windows::core::GUID) -> Result<Encoder, RecordError> {
-    let hardware = enumerate(subtype, MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER)?;
+    let hardware = enumerate(
+        subtype,
+        MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+    )?;
     if let Some(name) = hardware.into_iter().next() {
-        return Ok(Encoder { name, hardware: true });
+        return Ok(Encoder {
+            name,
+            hardware: true,
+        });
     }
-    let software = enumerate(subtype, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_ASYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER)?;
+    let software = enumerate(
+        subtype,
+        MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_ASYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER,
+    )?;
     match software.into_iter().next() {
-        Some(name) => Ok(Encoder { name, hardware: false }),
+        Some(name) => Ok(Encoder {
+            name,
+            hardware: false,
+        }),
         None => Err(RecordError::new(
-            Code::Unsupported,
-            format!("no {} encoder MFT is registered on this host", codec.as_str()),
+            Code::CodecUnavailable,
+            format!(
+                "no {} encoder MFT is registered on this host",
+                codec.as_str()
+            ),
         )),
     }
 }
 
 /// Friendly names of the video encoder MFTs that take NV12 and produce `output`.
-fn enumerate(output: ::windows::core::GUID, flags: MFT_ENUM_FLAG) -> Result<Vec<String>, RecordError> {
-    let input_info = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_NV12 };
-    let output_info = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: output };
+fn enumerate(
+    output: ::windows::core::GUID,
+    flags: MFT_ENUM_FLAG,
+) -> Result<Vec<String>, RecordError> {
+    let input_info = MFT_REGISTER_TYPE_INFO {
+        guidMajorType: MFMediaType_Video,
+        guidSubtype: MFVideoFormat_NV12,
+    };
+    let output_info = MFT_REGISTER_TYPE_INFO {
+        guidMajorType: MFMediaType_Video,
+        guidSubtype: output,
+    };
     let mut list: *mut Option<IMFActivate> = ptr::null_mut();
     let mut count = 0u32;
     unsafe {
@@ -219,7 +295,13 @@ fn enumerate(output: ::windows::core::GUID, flags: MFT_ENUM_FLAG) -> Result<Vec<
 fn friendly_name(activate: &IMFActivate) -> String {
     let mut buffer = [0u16; 256];
     let mut len = 0u32;
-    match unsafe { activate.GetString(&MFT_FRIENDLY_NAME_Attribute, &mut buffer, Some(&mut len as *mut u32)) } {
+    match unsafe {
+        activate.GetString(
+            &MFT_FRIENDLY_NAME_Attribute,
+            &mut buffer,
+            Some(&mut len as *mut u32),
+        )
+    } {
         Ok(()) => String::from_utf16_lossy(&buffer[..(len as usize).min(buffer.len())]),
         Err(_) => "unnamed encoder".to_string(),
     }
@@ -234,10 +316,18 @@ fn set_frame_format(
     fps: u32,
 ) -> Result<(), RecordError> {
     unsafe {
-        media_type.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video).map_err(|e| setup_error("MF_MT_MAJOR_TYPE", e))?;
-        media_type.SetGUID(&MF_MT_SUBTYPE, &subtype).map_err(|e| setup_error("MF_MT_SUBTYPE", e))?;
-        media_type.SetUINT64(&MF_MT_FRAME_SIZE, pack_pair(width, height)).map_err(|e| setup_error("MF_MT_FRAME_SIZE", e))?;
-        media_type.SetUINT64(&MF_MT_FRAME_RATE, pack_pair(fps, 1)).map_err(|e| setup_error("MF_MT_FRAME_RATE", e))?;
+        media_type
+            .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
+            .map_err(|e| setup_error("MF_MT_MAJOR_TYPE", e))?;
+        media_type
+            .SetGUID(&MF_MT_SUBTYPE, &subtype)
+            .map_err(|e| setup_error("MF_MT_SUBTYPE", e))?;
+        media_type
+            .SetUINT64(&MF_MT_FRAME_SIZE, pack_pair(width, height))
+            .map_err(|e| setup_error("MF_MT_FRAME_SIZE", e))?;
+        media_type
+            .SetUINT64(&MF_MT_FRAME_RATE, pack_pair(fps, 1))
+            .map_err(|e| setup_error("MF_MT_FRAME_RATE", e))?;
         media_type
             .SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, pack_pair(1, 1))
             .map_err(|e| setup_error("MF_MT_PIXEL_ASPECT_RATIO", e))?;

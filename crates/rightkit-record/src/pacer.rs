@@ -46,14 +46,25 @@ pub struct DropAggregator {
 
 impl DropAggregator {
     pub fn new(fps: u32) -> Self {
-        Self { frame_interval_ms: 1000.0 / f64::from(fps), pending: None }
+        Self {
+            frame_interval_ms: 1000.0 / f64::from(fps),
+            pending: None,
+        }
     }
 
     /// Records one arrival: whether the pacer kept it, and the callback losses
     /// since the previous arrival. Closed runs are pushed to `closed`.
     pub fn arrival(&mut self, kept: bool, losses: Losses, closed: &mut Vec<Closed>) {
-        self.add(DropReason::Backpressure, u32::try_from(losses.backpressure).unwrap_or(u32::MAX), closed);
-        self.add(DropReason::Unknown, u32::try_from(losses.unknown).unwrap_or(u32::MAX), closed);
+        self.add(
+            DropReason::Backpressure,
+            u32::try_from(losses.backpressure).unwrap_or(u32::MAX),
+            closed,
+        );
+        self.add(
+            DropReason::Unknown,
+            u32::try_from(losses.unknown).unwrap_or(u32::MAX),
+            closed,
+        );
         if kept {
             self.close(closed);
         }
@@ -79,7 +90,11 @@ impl DropAggregator {
 
     fn close(&mut self, closed: &mut Vec<Closed>) {
         if let Some((reason, count)) = self.pending.take() {
-            closed.push(Closed { reason, count, interval_ms: f64::from(count) * self.frame_interval_ms });
+            closed.push(Closed {
+                reason,
+                count,
+                interval_ms: f64::from(count) * self.frame_interval_ms,
+            });
         }
     }
 }
@@ -136,7 +151,11 @@ impl Pacer {
         let interval_ns = NS_PER_SEC / i64::from(fps);
         // A frame is accepted when it lands up to a third of an interval early.
         // That admits normal jitter but rejects the in-between frame of a 2:1 source.
-        Self { interval_ns, tolerance_ns: interval_ns / 3, next_due_ns: None }
+        Self {
+            interval_ns,
+            tolerance_ns: interval_ns / 3,
+            next_due_ns: None,
+        }
     }
 
     /// Offers one frame timestamp (host ns, monotonic, non-decreasing).
@@ -149,7 +168,8 @@ impl Pacer {
             Some(due) if host_ns + self.tolerance_ns >= due => {
                 // Advance the grid by one interval. If the source stalled, re-anchor
                 // to the arriving frame so the output does not burst to catch up.
-                let next = (due + self.interval_ns).max(host_ns + self.interval_ns - self.tolerance_ns);
+                let next =
+                    (due + self.interval_ns).max(host_ns + self.interval_ns - self.tolerance_ns);
                 self.next_due_ns = Some(next);
                 Decision::Keep
             }
@@ -164,12 +184,17 @@ mod tests {
 
     /// Frame timestamps for `count` frames at `source_fps`, starting at `start_ns`.
     fn ideal(source_fps: i64, count: i64, start_ns: i64) -> Vec<i64> {
-        (0..count).map(|k| start_ns + k * NS_PER_SEC / source_fps).collect()
+        (0..count)
+            .map(|k| start_ns + k * NS_PER_SEC / source_fps)
+            .collect()
     }
 
     fn kept_count(fps: u32, times: &[i64]) -> usize {
         let mut pacer = Pacer::new(fps);
-        times.iter().filter(|&&t| pacer.offer(t) == Decision::Keep).count()
+        times
+            .iter()
+            .filter(|&&t| pacer.offer(t) == Decision::Keep)
+            .count()
     }
 
     #[test]
@@ -205,7 +230,13 @@ mod tests {
         let times: Vec<i64> = ideal(60, 60, 0)
             .into_iter()
             .enumerate()
-            .map(|(k, t)| if k % 2 == 0 { t + 1_000_000 } else { t - 1_000_000 })
+            .map(|(k, t)| {
+                if k % 2 == 0 {
+                    t + 1_000_000
+                } else {
+                    t - 1_000_000
+                }
+            })
             .collect();
         let kept = kept_count(30, &times);
         assert!((29..=31).contains(&kept), "kept {kept}");
@@ -251,15 +282,32 @@ mod aggregation_tests {
 
     fn assert_interval(actual: f64, frames: u32, fps: u32) {
         let expected = f64::from(frames) * 1000.0 / f64::from(fps);
-        assert!((actual - expected).abs() < 1e-9, "interval {actual} vs {expected}");
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "interval {actual} vs {expected}"
+        );
     }
 
-    const NONE: Losses = Losses { backpressure: 0, unknown: 0 };
+    const NONE: Losses = Losses {
+        backpressure: 0,
+        unknown: 0,
+    };
 
     #[test]
     fn consecutive_losses_aggregate_into_one_event() {
-        let one = Losses { backpressure: 1, unknown: 0 };
-        let closed = run(60, &[(at(0, 60), true, NONE), (at(2, 60), false, one), (at(4, 60), false, one), (at(6, 60), true, one)]);
+        let one = Losses {
+            backpressure: 1,
+            unknown: 0,
+        };
+        let closed = run(
+            60,
+            &[
+                (at(0, 60), true, NONE),
+                (at(2, 60), false, one),
+                (at(4, 60), false, one),
+                (at(6, 60), true, one),
+            ],
+        );
         assert_eq!(closed.len(), 1, "{closed:?}");
         assert_eq!(closed[0].reason, DropReason::Backpressure);
         assert_eq!(closed[0].count, 3);
@@ -301,7 +349,10 @@ mod aggregation_tests {
     #[test]
     fn callback_losses_are_backpressure_and_are_not_double_counted_as_gap() {
         // Three intervals between arrivals with two frames lost in the callback.
-        let losses = Losses { backpressure: 2, unknown: 0 };
+        let losses = Losses {
+            backpressure: 2,
+            unknown: 0,
+        };
         let closed = run(60, &[(at(0, 60), true, NONE), (at(3, 60), true, losses)]);
         assert_eq!(closed.len(), 1, "{closed:?}");
         assert_eq!(closed[0].reason, DropReason::Backpressure);
@@ -311,7 +362,10 @@ mod aggregation_tests {
     #[test]
     fn a_gap_reports_only_the_frames_actually_lost() {
         // Five intervals between arrivals with one frame lost to backpressure: one drop, no gap.
-        let losses = Losses { backpressure: 1, unknown: 0 };
+        let losses = Losses {
+            backpressure: 1,
+            unknown: 0,
+        };
         let closed = run(60, &[(at(0, 60), true, NONE), (at(5, 60), true, losses)]);
         let reasons: Vec<_> = closed.iter().map(|c| (c.reason, c.count)).collect();
         assert_eq!(reasons, vec![(DropReason::Backpressure, 1)]);
@@ -320,19 +374,41 @@ mod aggregation_tests {
     #[test]
     fn a_change_of_reason_closes_the_run() {
         // A copy loss followed by a backpressure loss: two events, not one.
-        let copy = Losses { backpressure: 0, unknown: 1 };
-        let losses = Losses { backpressure: 1, unknown: 0 };
-        let closed = run(60, &[(at(0, 60), true, NONE), (at(1, 60), false, copy), (at(3, 60), true, losses)]);
+        let copy = Losses {
+            backpressure: 0,
+            unknown: 1,
+        };
+        let losses = Losses {
+            backpressure: 1,
+            unknown: 0,
+        };
+        let closed = run(
+            60,
+            &[
+                (at(0, 60), true, NONE),
+                (at(1, 60), false, copy),
+                (at(3, 60), true, losses),
+            ],
+        );
         let reasons: Vec<_> = closed.iter().map(|c| (c.reason, c.count)).collect();
-        assert_eq!(reasons, vec![(DropReason::Unknown, 1), (DropReason::Backpressure, 1)]);
+        assert_eq!(
+            reasons,
+            vec![(DropReason::Unknown, 1), (DropReason::Backpressure, 1)]
+        );
     }
 
     #[test]
     fn size_and_copy_losses_are_unknown() {
-        let losses = Losses { backpressure: 0, unknown: 2 };
+        let losses = Losses {
+            backpressure: 0,
+            unknown: 2,
+        };
         let closed = run(30, &[(at(0, 30), true, NONE), (at(1, 30), true, losses)]);
         assert_eq!(closed.len(), 1);
-        assert_eq!((closed[0].reason, closed[0].count), (DropReason::Unknown, 2));
+        assert_eq!(
+            (closed[0].reason, closed[0].count),
+            (DropReason::Unknown, 2)
+        );
         assert_interval(closed[0].interval_ms, 2, 30);
     }
 

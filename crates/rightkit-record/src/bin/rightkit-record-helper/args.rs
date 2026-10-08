@@ -40,7 +40,9 @@ fn parse_capture(args: &[String]) -> Result<CaptureArgs, RecordError> {
     let mut codec = None;
     let mut it = args.iter();
     while let Some(flag) = it.next() {
-        let value = it.next().ok_or_else(|| invalid(format!("{flag} needs a value")))?;
+        let value = it
+            .next()
+            .ok_or_else(|| invalid(format!("{flag} needs a value")))?;
         match flag.as_str() {
             "--hwnd" => set_once(&mut hwnd, flag, parse_hwnd(value)?)?,
             "--out" => {
@@ -65,7 +67,8 @@ fn parse_capture(args: &[String]) -> Result<CaptureArgs, RecordError> {
 }
 
 fn parse_codec(value: &str) -> Result<Codec, RecordError> {
-    Codec::parse(value).ok_or_else(|| invalid(format!("--codec must be h264 or hevc, got '{value}'")))
+    Codec::parse(value)
+        .ok_or_else(|| invalid(format!("--codec must be h264 or hevc, got '{value}'")))
 }
 
 fn parse_hwnd(value: &str) -> Result<u64, RecordError> {
@@ -93,7 +96,9 @@ fn parse_seconds(value: &str) -> Result<u32, RecordError> {
     if (1..=MAX_SECONDS).contains(&seconds) {
         Ok(seconds)
     } else {
-        Err(invalid(format!("--seconds must be between 1 and {MAX_SECONDS}")))
+        Err(invalid(format!(
+            "--seconds must be between 1 and {MAX_SECONDS}"
+        )))
     }
 }
 
@@ -124,7 +129,15 @@ mod tests {
     #[test]
     fn parses_full_capture_command() {
         let parsed = parse(&argv(&[
-            "capture", "--hwnd", "24775762", "--out", "D:/tmp/out", "--fps", "60", "--seconds", "5",
+            "capture",
+            "--hwnd",
+            "24775762",
+            "--out",
+            "D:/tmp/out",
+            "--fps",
+            "60",
+            "--seconds",
+            "5",
         ]))
         .unwrap();
         assert_eq!(
@@ -141,7 +154,17 @@ mod tests {
 
     #[test]
     fn codec_defaults_to_h264_and_accepts_each_value() {
-        let base = ["capture", "--hwnd", "1", "--out", "o", "--fps", "30", "--seconds", "1"];
+        let base = [
+            "capture",
+            "--hwnd",
+            "1",
+            "--out",
+            "o",
+            "--fps",
+            "30",
+            "--seconds",
+            "1",
+        ];
         let Command::Capture(default) = parse(&argv(&base)).unwrap();
         assert_eq!(default.codec, Codec::H264);
         for (value, codec) in [("h264", Codec::H264), ("hevc", Codec::Hevc)] {
@@ -154,7 +177,17 @@ mod tests {
 
     #[test]
     fn rejects_unknown_and_duplicate_codec_including_the_retired_bmp_path() {
-        let base = ["capture", "--hwnd", "1", "--out", "o", "--fps", "30", "--seconds", "1"];
+        let base = [
+            "capture",
+            "--hwnd",
+            "1",
+            "--out",
+            "o",
+            "--fps",
+            "30",
+            "--seconds",
+            "1",
+        ];
         for bad in ["vp9", "bmp"] {
             let mut items = base.to_vec();
             items.extend(["--codec", bad]);
@@ -164,13 +197,24 @@ mod tests {
         }
         let mut dup = base.to_vec();
         dup.extend(["--codec", "h264", "--codec", "hevc"]);
-        assert!(parse(&argv(&dup)).unwrap_err().message.contains("more than once"));
+        assert!(parse(&argv(&dup))
+            .unwrap_err()
+            .message
+            .contains("more than once"));
     }
 
     #[test]
     fn flag_order_does_not_matter() {
         let parsed = parse(&argv(&[
-            "capture", "--seconds", "2", "--fps", "30", "--out", "o", "--hwnd", "7",
+            "capture",
+            "--seconds",
+            "2",
+            "--fps",
+            "30",
+            "--out",
+            "o",
+            "--hwnd",
+            "7",
         ]))
         .unwrap();
         let Command::Capture(c) = parsed;
@@ -179,16 +223,36 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_fps() {
-        let err = parse(&argv(&["capture", "--hwnd", "1", "--out", "o", "--fps", "24", "--seconds", "1"]))
-            .unwrap_err();
+        let err = parse(&argv(&[
+            "capture",
+            "--hwnd",
+            "1",
+            "--out",
+            "o",
+            "--fps",
+            "24",
+            "--seconds",
+            "1",
+        ]))
+        .unwrap_err();
         assert_eq!(err.code, Code::ArgInvalid);
     }
 
     #[test]
     fn rejects_zero_hwnd_and_non_decimal_hwnd() {
         for bad in ["0", "0x1A", "-5", "abc"] {
-            let err = parse(&argv(&["capture", "--hwnd", bad, "--out", "o", "--fps", "30", "--seconds", "1"]))
-                .unwrap_err();
+            let err = parse(&argv(&[
+                "capture",
+                "--hwnd",
+                bad,
+                "--out",
+                "o",
+                "--fps",
+                "30",
+                "--seconds",
+                "1",
+            ]))
+            .unwrap_err();
             assert_eq!(err.code, Code::ArgInvalid, "hwnd {bad}");
         }
     }
@@ -196,18 +260,41 @@ mod tests {
     #[test]
     fn rejects_seconds_out_of_range() {
         for bad in ["0", "3601", "x"] {
-            let err = parse(&argv(&["capture", "--hwnd", "1", "--out", "o", "--fps", "30", "--seconds", bad]))
-                .unwrap_err();
+            let err = parse(&argv(&[
+                "capture",
+                "--hwnd",
+                "1",
+                "--out",
+                "o",
+                "--fps",
+                "30",
+                "--seconds",
+                bad,
+            ]))
+            .unwrap_err();
             assert_eq!(err.code, Code::ArgInvalid, "seconds {bad}");
         }
     }
 
     #[test]
     fn rejects_missing_duplicate_and_unknown_flags() {
-        let missing = parse(&argv(&["capture", "--hwnd", "1", "--out", "o", "--fps", "30"])).unwrap_err();
+        let missing = parse(&argv(&[
+            "capture", "--hwnd", "1", "--out", "o", "--fps", "30",
+        ]))
+        .unwrap_err();
         assert!(missing.message.contains("--seconds"));
         let dup = parse(&argv(&[
-            "capture", "--hwnd", "1", "--hwnd", "2", "--out", "o", "--fps", "30", "--seconds", "1",
+            "capture",
+            "--hwnd",
+            "1",
+            "--hwnd",
+            "2",
+            "--out",
+            "o",
+            "--fps",
+            "30",
+            "--seconds",
+            "1",
         ]))
         .unwrap_err();
         assert!(dup.message.contains("more than once"));

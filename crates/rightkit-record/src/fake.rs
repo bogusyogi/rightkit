@@ -19,6 +19,12 @@ pub struct FakeBackend {
     os: RecorderOs,
     os_build: String,
     permission: Permission,
+    /// Whether an `Undetermined` permission is granted by the start-time prompt.
+    pub prompt_grants: bool,
+    /// The visibility the fake reports at start. `None` reports the declared one.
+    pub observed_visibility: Option<VisibilityState>,
+    /// The scale the fake reports as applied. `None` reports the requested one.
+    pub applied_scale: Option<f64>,
     pub sources: Vec<Source>,
     /// Batches returned by successive `poll` calls, oldest first.
     script: VecDeque<Vec<HelperEvent>>,
@@ -45,6 +51,9 @@ impl FakeBackend {
             os,
             os_build: os_build.into(),
             permission: Permission::Granted,
+            prompt_grants: true,
+            observed_visibility: None,
+            applied_scale: None,
             sources: Vec::new(),
             script: VecDeque::new(),
             start_error: None,
@@ -97,8 +106,18 @@ impl Backend for FakeBackend {
         if let Some(error) = self.start_error.take() {
             return Err(error);
         }
-        if self.permission == Permission::Denied {
-            return Err(RecordError::new(Code::PermissionDenied, "not granted"));
+        match self.permission {
+            Permission::Granted => {}
+            Permission::Denied => {
+                return Err(RecordError::new(Code::PermissionDenied, "not granted"));
+            }
+            // The start-time prompt decides an undetermined permission.
+            Permission::Undetermined if self.prompt_grants => {
+                self.permission = Permission::Granted;
+            }
+            Permission::Undetermined => {
+                return Err(RecordError::new(Code::PermissionDenied, "prompt declined"));
+            }
         }
         fs::write(plan.out_dir.join(MEDIA_FILE), b"fake-media-bytes")
             .map_err(|e| RecordError::new(Code::Io, e.to_string()))?;
@@ -112,7 +131,7 @@ impl Backend for FakeBackend {
             host_ns_at_start: 1_000_000_000,
             width: 1600,
             height: 900,
-            scale: plan.scale,
+            scale: self.applied_scale.unwrap_or(plan.scale),
             bounds_pt: Rect {
                 x: -10_000.0,
                 y: -10_000.0,
@@ -120,8 +139,9 @@ impl Backend for FakeBackend {
                 height: 520.0,
             },
             dpi: 144,
-            codec: "h264".into(),
+            codec: plan.codec.as_str().into(),
             os_build: self.os_build.clone(),
+            visibility: self.observed_visibility.unwrap_or(plan.visibility),
         })
     }
 

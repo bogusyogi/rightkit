@@ -28,6 +28,8 @@ pub mod error;
 pub mod fake;
 pub mod hash;
 pub mod plan;
+pub mod process;
+pub mod protocol;
 pub mod reader;
 pub mod recorder;
 pub mod redact;
@@ -46,13 +48,14 @@ mod pacer;
 pub mod windows;
 
 pub use backend::{
-    track_file, track_id, Backend, BackendPlan, Failure, Finished, FrameSample, HelperEvent,
+    track_file, track_id, Backend, BackendPlan, Codec, Failure, Finished, FrameSample, HelperEvent,
     HelperIdentity, Permission, Source, StartInfo, TrackOutput,
 };
 pub use bundle::{Phase, Recovered};
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use error::{Code, RecordError, Result};
 pub use plan::{PixelMasking, ScenarioSpec, ScenarioStep, StartRequest, TargetSpec};
+pub use process::{serve_backend, ProcessBackend};
 pub use reader::{BundleReader, SourceFrame, StepSpan};
 pub use recorder::{Doctor, Outcome, Recorder, StateSupport, Status};
 pub use redact::{FieldMode, RedactionPolicy};

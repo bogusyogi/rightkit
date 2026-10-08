@@ -22,8 +22,8 @@ use std::time::{Duration, Instant};
 use ::windows::core::{factory, IInspectable, Interface, Ref};
 use ::windows::Foundation::TypedEventHandler;
 use ::windows::Graphics::Capture::{
-    Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind,
-    GraphicsCaptureItem, GraphicsCaptureSession,
+    Direct3D11CaptureFrame, Direct3D11CaptureFramePool, GraphicsCaptureAccess,
+    GraphicsCaptureAccessKind, GraphicsCaptureItem, GraphicsCaptureSession,
 };
 use ::windows::Graphics::DirectX::DirectXPixelFormat;
 use ::windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus;
@@ -33,19 +33,22 @@ use ::windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerfor
 use ::windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
 use ::windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use ::windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
-use ::windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+use ::windows::Win32::UI::HiDpi::{
+    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+};
 use rightkit_contracts::types::record_session::{RecorderOs, VisibilityState};
 use rightkit_contracts::types::Rect;
 use serde_json::{json, Value};
 
-pub use crate::codec::Codec;
-pub use crate::pacer::Losses;
 use crate::backend::{
-    Backend, BackendPlan, Failure, Finished, HelperEvent, HelperIdentity, Permission, Source, StartInfo,
+    Backend, BackendPlan, Failure, Finished, HelperEvent, HelperIdentity, Permission, Source,
+    StartInfo,
 };
 use crate::codec::sample_time_100ns;
+pub use crate::codec::Codec;
 use crate::error::{Code, RecordError};
 use crate::hash::blake3_text;
+pub use crate::pacer::Losses;
 use crate::plan::PixelMasking;
 use emit::{Emitter, KeptFrame};
 
@@ -67,9 +70,22 @@ pub struct WindowsBackend {
     summary: Option<Value>,
 }
 
+impl Default for WindowsBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WindowsBackend {
-    pub fn new(codec: Codec) -> Self {
-        Self { codec, capture: None, events: None, encoder: None, summary: None }
+    /// The codec comes from each take's [`BackendPlan`], not from the constructor.
+    pub fn new() -> Self {
+        Self {
+            codec: Codec::H264,
+            capture: None,
+            events: None,
+            encoder: None,
+            summary: None,
+        }
     }
 
     /// The encoder that was configured, once a take has started.
@@ -101,7 +117,14 @@ impl Capture {
     /// Stops the callback, lets the worker drain and finalize the sink, and
     /// returns what the worker reports. Safe on every path, including a failed start.
     fn shutdown(self) -> WorkerOutput {
-        let Capture { shared, pool, session, token, worker, .. } = self;
+        let Capture {
+            shared,
+            pool,
+            session,
+            token,
+            worker,
+            ..
+        } = self;
         shared.stopped.store(true, Ordering::Release);
         if let Some(token) = token {
             let _ = pool.RemoveFrameArrived(token);
@@ -126,44 +149,61 @@ impl Backend for WindowsBackend {
     }
 
     fn helper(&self) -> HelperIdentity {
-        HelperIdentity { identity: HELPER_IDENTITY.into(), signed: false }
+        HelperIdentity {
+            identity: HELPER_IDENTITY.into(),
+            signed: false,
+        }
     }
 
     /// Screen-recording permission is requested in `start`, which reports a
-    /// denial as `permission_denied`, so this reports granted until then.
+    /// denial as `permission_denied`. Nothing can be read here without that
+    /// request, so the state is undetermined until `start`.
     fn permission(&self) -> Permission {
-        Permission::Granted
+        Permission::Undetermined
     }
 
     fn sources(&self) -> Result<Vec<Source>, RecordError> {
-        Err(RecordError::new(Code::Unsupported, "window enumeration is not implemented in the Windows backend"))
+        Err(RecordError::new(
+            Code::Unsupported,
+            "window enumeration is not implemented in the Windows backend",
+        ))
     }
 
     fn start(&mut self, plan: &BackendPlan) -> Result<StartInfo, RecordError> {
         if self.capture.is_some() {
-            return Err(RecordError::new(Code::AlreadyRecording, "the Windows backend already has a take"));
+            return Err(RecordError::new(
+                Code::AlreadyRecording,
+                "the Windows backend already has a take",
+            ));
         }
         check_plan(plan)?;
+        self.codec = plan.codec;
         let hwnd = hwnd_of(plan.window_id)?;
 
-        let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        let _ =
+            unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
         let initial = window::check(hwnd)?;
         // A take that declares off-screen visibility must not be on a monitor, or the
-        // bundle would claim a state the window is not in. StartInfo has no field to
-        // report the actual state, so the mismatch is refused instead.
+        // bundle would claim a state the window is not in. The core also compares the
+        // observed visibility in StartInfo with the declared one.
         if matches!(plan.visibility, VisibilityState::OffScreenVisible) && initial.on_monitor {
             return Err(RecordError::new(
                 Code::Unsupported,
                 "window overlaps a monitor, so it is not off-screen; the take declares off_screen_visible",
             ));
         }
-        let scale = f64::from(initial.dpi) / 96.0;
+        // Points per pixel from the window's DPI. Used for geometry only; the
+        // effective capture scale is `plan.scale`, which `check_plan` requires to be 1.
+        let dpi_scale = f64::from(initial.dpi) / 96.0;
 
         let media_startup = mf::Startup::start()?;
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
-        let access = GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless)
-            .and_then(|operation| operation.get())
-            .map_err(|e| capture_error(Code::Unsupported, "graphics capture access request", e))?;
+        let access =
+            GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless)
+                .and_then(|operation| operation.get())
+                .map_err(|e| {
+                    capture_error(Code::Unsupported, "graphics capture access request", e)
+                })?;
         if access != AppCapabilityAccessStatus::Allowed {
             return Err(RecordError::new(
                 Code::PermissionDenied,
@@ -175,11 +215,19 @@ impl Backend for WindowsBackend {
             .map_err(|e| capture_error(Code::Unsupported, "GraphicsCaptureItem interop", e))?;
         let item: GraphicsCaptureItem = unsafe { interop.CreateForWindow(hwnd) }
             .map_err(|e| capture_error(Code::Helper, "CreateForWindow", e))?;
-        let size = item.Size().map_err(|e| capture_error(Code::Helper, "item size", e))?;
+        let size = item
+            .Size()
+            .map_err(|e| capture_error(Code::Helper, "item size", e))?;
         let (width, height) = (size.Width as u32, size.Height as u32);
 
         // Encoder setup runs before capture starts, so a missing codec fails with no capture.
-        let writer = mf::Mp4Writer::create(&plan.out_dir.join(MEDIA_FILE), self.codec, width, height, plan.fps)?;
+        let writer = mf::Mp4Writer::create(
+            &plan.out_dir.join(MEDIA_FILE),
+            self.codec,
+            width,
+            height,
+            plan.fps,
+        )?;
         let encoder = writer.encoder().to_json();
         let (encoded_width, encoded_height) = writer.frame_size();
 
@@ -229,12 +277,14 @@ impl Backend for WindowsBackend {
         };
 
         let callback_shared = Arc::clone(&shared);
-        let handler = TypedEventHandler::new(move |sender: Ref<'_, Direct3D11CaptureFramePool>, _: Ref<'_, IInspectable>| {
-            if let Ok(pool) = sender.ok() {
-                on_frame(&callback_shared, pool);
-            }
-            Ok(())
-        });
+        let handler = TypedEventHandler::new(
+            move |sender: Ref<'_, Direct3D11CaptureFramePool>, _: Ref<'_, IInspectable>| {
+                if let Ok(pool) = sender.ok() {
+                    on_frame(&callback_shared, pool);
+                }
+                Ok(())
+            },
+        );
         let mut capture = Capture {
             hwnd,
             pool,
@@ -260,10 +310,15 @@ impl Backend for WindowsBackend {
         }
 
         let bounds_pt = Rect {
-            x: f64::from(initial.rect.left) / scale,
-            y: f64::from(initial.rect.top) / scale,
-            width: f64::from(initial.rect.right - initial.rect.left) / scale,
-            height: f64::from(initial.rect.bottom - initial.rect.top) / scale,
+            x: f64::from(initial.rect.left) / dpi_scale,
+            y: f64::from(initial.rect.top) / dpi_scale,
+            width: f64::from(initial.rect.right - initial.rect.left) / dpi_scale,
+            height: f64::from(initial.rect.bottom - initial.rect.top) / dpi_scale,
+        };
+        let observed = if initial.on_monitor {
+            VisibilityState::OnScreenVisible
+        } else {
+            VisibilityState::OffScreenVisible
         };
         self.encoder = Some(encoder);
         self.events = Some(events_rx);
@@ -273,24 +328,31 @@ impl Backend for WindowsBackend {
             host_ns_at_start,
             width: encoded_width,
             height: encoded_height,
-            scale,
+            scale: plan.scale,
             bounds_pt,
             dpi: initial.dpi,
             codec: self.codec.as_str().into(),
             os_build: window::os_build(),
+            visibility: observed,
         })
     }
 
     /// Drains the events the worker reported. Also re-checks the target window,
     /// because a window that is hidden, minimized or closed mid-take ends the take.
     fn poll(&mut self) -> Vec<HelperEvent> {
-        let mut batch: Vec<HelperEvent> = self.events.as_ref().map(|rx| rx.try_iter().collect()).unwrap_or_default();
+        let mut batch: Vec<HelperEvent> = self
+            .events
+            .as_ref()
+            .map(|rx| rx.try_iter().collect())
+            .unwrap_or_default();
         if let Some(capture) = self.capture.as_mut() {
             if capture.last_window_check.elapsed() >= WINDOW_CHECK_EVERY {
                 capture.last_window_check = Instant::now();
                 if let Err(err) = window::check(capture.hwnd) {
                     let failure = match err.code {
                         Code::NotFound => Failure::TargetExited,
+                        Code::WindowHidden => Failure::WindowHidden,
+                        Code::WindowMinimized => Failure::WindowMinimized,
                         _ => Failure::Io(err.message),
                     };
                     batch.push(HelperEvent::Failed(failure));
@@ -301,13 +363,18 @@ impl Backend for WindowsBackend {
     }
 
     fn stop(&mut self) -> Result<Finished, RecordError> {
-        let capture = self
-            .capture
-            .take()
-            .ok_or_else(|| RecordError::new(Code::NotRecording, "the Windows backend has no take to stop"))?;
+        let capture = self.capture.take().ok_or_else(|| {
+            RecordError::new(
+                Code::NotRecording,
+                "the Windows backend has no take to stop",
+            )
+        })?;
         let output = capture.shutdown();
         self.summary = Some(output.summary);
-        Ok(Finished { clean: output.clean, tracks: Vec::new() })
+        Ok(Finished {
+            clean: output.clean,
+            tracks: Vec::new(),
+        })
     }
 
     fn abort(&mut self) {
@@ -321,10 +388,25 @@ impl Backend for WindowsBackend {
 /// Refuses requests the Windows backend cannot honor, before any capture starts.
 fn check_plan(plan: &BackendPlan) -> Result<(), RecordError> {
     if !matches!(plan.fps, 30 | 60) {
-        return Err(RecordError::new(Code::ArgInvalid, format!("fps must be 30 or 60, got {}", plan.fps)));
+        return Err(RecordError::new(
+            Code::ArgInvalid,
+            format!("fps must be 30 or 60, got {}", plan.fps),
+        ));
     }
     if !plan.audio.is_empty() {
-        return Err(RecordError::new(Code::Unsupported, "the Windows backend captures no audio tracks yet"));
+        return Err(RecordError::new(
+            Code::Unsupported,
+            "the Windows backend captures no audio tracks yet",
+        ));
+    }
+    if plan.scale != 1.0 {
+        return Err(RecordError::new(
+            Code::Unsupported,
+            format!(
+                "the Windows backend does not resample frames yet; scale must be 1, got {}",
+                plan.scale
+            ),
+        ));
     }
     match &plan.masking {
         PixelMasking::Declared(regions) if !regions.is_empty() => Err(RecordError::new(
@@ -341,7 +423,10 @@ fn check_plan(plan: &BackendPlan) -> Result<(), RecordError> {
 
 fn hwnd_of(window_id: u64) -> Result<HWND, RecordError> {
     if window_id == 0 || window_id > isize::MAX as u64 {
-        return Err(RecordError::new(Code::ArgInvalid, format!("window id {window_id} is not a valid HWND")));
+        return Err(RecordError::new(
+            Code::ArgInvalid,
+            format!("window id {window_id} is not a valid HWND"),
+        ));
     }
     Ok(HWND(window_id as usize as *mut c_void))
 }
@@ -365,7 +450,8 @@ impl Shared {
     fn losses(&self) -> Losses {
         Losses {
             backpressure: self.backpressure_drops.load(Ordering::Relaxed),
-            unknown: self.size_mismatch_drops.load(Ordering::Relaxed) + self.copy_failures.load(Ordering::Relaxed),
+            unknown: self.size_mismatch_drops.load(Ordering::Relaxed)
+                + self.copy_failures.load(Ordering::Relaxed),
         }
     }
 }
@@ -425,14 +511,22 @@ enum CopyError {
     Failed,
 }
 
-fn copy_frame(shared: &Shared, slot: usize, frame: &Direct3D11CaptureFrame) -> Result<u64, CopyError> {
-    let ticks = frame.SystemRelativeTime().map_err(|_| CopyError::Failed)?.Duration;
+fn copy_frame(
+    shared: &Shared,
+    slot: usize,
+    frame: &Direct3D11CaptureFrame,
+) -> Result<u64, CopyError> {
+    let ticks = frame
+        .SystemRelativeTime()
+        .map_err(|_| CopyError::Failed)?
+        .Duration;
     if ticks < 0 {
         return Err(CopyError::Failed);
     }
     let surface = frame.Surface().map_err(|_| CopyError::Failed)?;
     let access: IDirect3DDxgiInterfaceAccess = surface.cast().map_err(|_| CopyError::Failed)?;
-    let texture: ID3D11Texture2D = unsafe { access.GetInterface() }.map_err(|_| CopyError::Failed)?;
+    let texture: ID3D11Texture2D =
+        unsafe { access.GetInterface() }.map_err(|_| CopyError::Failed)?;
     let mut desc = D3D11_TEXTURE2D_DESC::default();
     unsafe { texture.GetDesc(&mut desc) };
     if desc.Width != shared.width || desc.Height != shared.height {
@@ -539,7 +633,9 @@ fn send_all(events: &Sender<HelperEvent>, batch: Vec<HelperEvent>) {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn capture_error(code: Code, step: &str, error: ::windows::core::Error) -> RecordError {

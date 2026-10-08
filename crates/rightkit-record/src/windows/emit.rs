@@ -79,7 +79,11 @@ impl Emitter {
     /// Claims the next index for a frame that was offered and kept.
     pub fn keep(&mut self, host_ns: u64) -> KeptFrame {
         let first_host_ns = *self.first_host_ns.get_or_insert(host_ns);
-        let frame = KeptFrame { index: self.kept, host_ns, first_host_ns };
+        let frame = KeptFrame {
+            index: self.kept,
+            host_ns,
+            first_host_ns,
+        };
         self.kept += 1;
         frame
     }
@@ -133,7 +137,9 @@ mod tests {
         let second = emitter.keep(5_000 + interval_ns(60));
         out.push(second.event("blake3:11".into()));
         assert!(matches!(&out[0], HelperEvent::Ready(f) if f.index == 0 && f.sample_pts_ns == 0));
-        assert!(matches!(&out[1], HelperEvent::Frame(f) if f.index == 1 && f.sample_pts_ns == interval_ns(60)));
+        assert!(
+            matches!(&out[1], HelperEvent::Frame(f) if f.index == 1 && f.sample_pts_ns == interval_ns(60))
+        );
     }
 
     #[test]
@@ -158,17 +164,28 @@ mod tests {
     fn losses_become_one_drop_event_stamped_at_the_closing_arrival() {
         let mut emitter = Emitter::new(60);
         let mut out = Vec::new();
-        let lost = Losses { backpressure: 2, unknown: 0 };
+        let lost = Losses {
+            backpressure: 2,
+            unknown: 0,
+        };
         assert!(emitter.offer(0, Losses::default()));
         emitter.keep(0);
         emitter.drain(&mut out);
         assert!(emitter.offer(3 * interval_ns(60), lost));
         emitter.drain(&mut out);
         match out.as_slice() {
-            [HelperEvent::Dropped { host_ns, count, reason, .. }] => {
+            [HelperEvent::Dropped {
+                host_ns,
+                count,
+                reason,
+                ..
+            }] => {
                 assert_eq!(*host_ns, 3 * interval_ns(60));
                 assert_eq!(*count, 2);
-                assert_eq!(*reason, rightkit_contracts::types::record_event::DropReason::Backpressure);
+                assert_eq!(
+                    *reason,
+                    rightkit_contracts::types::record_event::DropReason::Backpressure
+                );
             }
             other => panic!("expected one drop, got {other:?}"),
         }

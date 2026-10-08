@@ -19,6 +19,7 @@ path = "src/bin/rightkit-record-helper/main.rs"
 
 [dependencies]
 rightkit-contracts = { path = "../rightkit-contracts" }
+rightkit-framed-sidecar = { path = "../rightkit-framed-sidecar" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 blake3 = "1.8"

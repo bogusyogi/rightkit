@@ -8,6 +8,7 @@ use rightkit_contracts::types::record_session::{Dependency, Surface, TrackKind, 
 use rightkit_contracts::types::Rect;
 use serde_json::{json, Value};
 
+use crate::backend::Codec;
 use crate::error::{Code, RecordError, Result};
 use crate::redact::RedactionPolicy;
 
@@ -52,6 +53,7 @@ pub struct StartRequest {
     pub scenario: ScenarioSpec,
     pub fps: u32,
     pub scale: f64,
+    pub codec: Codec,
     pub cursor: bool,
     pub audio: Vec<TrackKind>,
     pub visibility: VisibilityState,
@@ -63,14 +65,15 @@ pub struct StartRequest {
 }
 
 impl StartRequest {
-    /// A request with the recording defaults: 60 fps, scale 1, no cursor, no
-    /// audio, off-screen-visible, no declared masks, the strict redaction policy.
+    /// A request with the recording defaults: 60 fps, scale 1, H.264, no cursor,
+    /// no audio, off-screen-visible, no declared masks, the strict redaction policy.
     pub fn new(target: TargetSpec, scenario: ScenarioSpec, out: impl Into<PathBuf>) -> Self {
         StartRequest {
             target,
             scenario,
             fps: 60,
             scale: 1.0,
+            codec: Codec::H264,
             cursor: false,
             audio: Vec::new(),
             visibility: VisibilityState::OffScreenVisible,

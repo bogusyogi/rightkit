@@ -1,8 +1,12 @@
 //! rightkit-record-helper: the out-of-process Windows capture helper (RK3).
 //!
-//! A thin CLI over `rightkit_record::windows::WindowsBackend`. The core owns the
-//! bundle. This binary writes only the media file, and prints one JSON summary
-//! of the take on stdout. rightkit-process will own this helper later.
+//! Two modes over `rightkit_record::windows::WindowsBackend`:
+//! - `capture`: a one-shot take. The helper writes only the media file and prints
+//!   one JSON summary on stdout.
+//! - `serve`: the helper protocol over stdin and stdout, for rightkit-process. The
+//!   core owns the bundle; nothing else may write to stdout in this mode.
+//!
+//! rightkit-process will own this helper later.
 
 #[cfg(windows)]
 mod args;
@@ -10,6 +14,16 @@ mod args;
 #[cfg(windows)]
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("serve") {
+        let code = match windows_run::serve() {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("serve ended: {error}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
     let outcome = args::parse(&argv).and_then(|command| match command {
         args::Command::Capture(capture) => windows_run::run(&capture),
     });
@@ -40,7 +54,13 @@ fn exit_code(code: rightkit_record::Code) -> i32 {
     use rightkit_record::Code;
     match code {
         Code::ArgInvalid => 2,
-        Code::NotFound | Code::Unsupported | Code::PermissionDenied | Code::OutExists => 3,
+        Code::NotFound
+        | Code::Unsupported
+        | Code::PermissionDenied
+        | Code::OutExists
+        | Code::WindowHidden
+        | Code::WindowMinimized
+        | Code::CodecUnavailable => 3,
         _ => 1,
     }
 }
@@ -101,20 +121,27 @@ mod windows_run {
         }
     }
 
+    /// Serves the helper protocol until the core stops or aborts the take.
+    pub fn serve() -> std::io::Result<()> {
+        let mut backend = WindowsBackend::new();
+        rightkit_record::serve_backend(&mut backend, std::io::stdin(), std::io::stdout().lock())
+    }
+
     pub fn run(args: &CaptureArgs) -> Result<Value, RecordError> {
         prepare_out_dir(args)?;
-        let mut backend = WindowsBackend::new(args.codec);
+        let mut backend = WindowsBackend::new();
         let plan = BackendPlan {
             out_dir: args.out.clone(),
             window_id: args.window_id,
             // The Windows backend addresses the window by HWND; the pid is not used.
             pid: 0,
             fps: args.fps,
-            // The helper reports the native scale it captured at, not a requested one.
+            // Full pixel scale: the Windows backend does not resample frames.
             scale: 1.0,
             audio: Vec::new(),
             visibility: VisibilityState::OffScreenVisible,
             masking: PixelMasking::Declared(Vec::new()),
+            codec: args.codec,
         };
         let started = Instant::now();
         let info = backend.start(&plan)?;

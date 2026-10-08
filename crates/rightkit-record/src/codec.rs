@@ -2,29 +2,7 @@
 //! timing, bitrate, and BGRA to NV12 conversion. Nothing here touches a window,
 //! a device or an encoder, so every helper is unit tested directly.
 
-/// The encoded video codecs the record-session contract admits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Codec {
-    H264,
-    Hevc,
-}
-
-impl Codec {
-    pub fn parse(value: &str) -> Option<Codec> {
-        match value {
-            "h264" => Some(Codec::H264),
-            "hevc" => Some(Codec::Hevc),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Codec::H264 => "h264",
-            Codec::Hevc => "hevc",
-        }
-    }
-}
+pub use crate::backend::Codec;
 
 /// Rounds a dimension down to the nearest even value. The encoder needs even
 /// sizes for 4:2:0 chroma, so this crops at most one column or row on the
@@ -227,7 +205,10 @@ mod tests {
         }
         let mut dst = vec![0u8; nv12_len(4, 2)];
         bgra_to_nv12(&src, 24, 4, 2, &mut dst).unwrap();
-        assert!(dst[..8].iter().all(|&y| y == 16), "red columns must not leak into the crop");
+        assert!(
+            dst[..8].iter().all(|&y| y == 16),
+            "red columns must not leak into the crop"
+        );
         assert!(dst[8..].iter().all(|&c| c == 128));
     }
 

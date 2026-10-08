@@ -296,6 +296,7 @@ impl<B: Backend, C: Clock> Recorder<B, C> {
             audio: request.audio.clone(),
             visibility: request.visibility,
             masking: request.masking.clone(),
+            codec: request.codec,
         };
         let info = match self.backend.start(&plan) {
             Ok(info) => info,
@@ -311,6 +312,19 @@ impl<B: Backend, C: Clock> Recorder<B, C> {
                 return Err(err);
             }
         };
+        // The declared visibility must be the one the backend observed. A take
+        // that disagrees would record a state the frames do not show, so it is
+        // ended here, sealed invalid, and no capture metadata is written.
+        if info.visibility != request.visibility {
+            self.backend.abort();
+            let reason = format!(
+                "visibility_mismatch: declared {:?}, observed {:?}",
+                request.visibility, info.visibility
+            );
+            self.session = Some(session);
+            let _ = self.finish(BundleStatus::Invalid, Some(reason.clone()), Vec::new());
+            return Err(RecordError::new(Code::Unsupported, reason));
+        }
         session.host_ns_at_start = info.host_ns_at_start;
         let capture = capture_json(&request, &info);
         {
@@ -776,6 +790,8 @@ fn epoch_json(epoch: u32, start_ms: u64, bounds: Rect, scale: f64, dpi: u32) -> 
     })
 }
 
+/// The capture metadata. `scale` and `visibilityState` are what the backend
+/// reported as applied, not what the request asked for.
 fn capture_json(request: &StartRequest, info: &StartInfo) -> Value {
     json!({
         "fps": request.fps,
@@ -785,7 +801,7 @@ fn capture_json(request: &StartRequest, info: &StartInfo) -> Value {
         "height": info.height,
         "scope": "app_surfaces",
         "displayOptIn": false,
-        "visibilityState": request.visibility,
+        "visibilityState": info.visibility,
     })
 }
 
