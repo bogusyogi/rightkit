@@ -82,7 +82,7 @@ test('AppContainer spec binds read-only root & distinct per-job output, denies c
 test('operator PowerShell parses & -WhatIf -DryRunOutput needs no elevation or mutation', { skip: process.platform !== 'win32' }, async () => {
   const { stdout, stderr } = await run('powershell', ['-NoProfile', '-NonInteractive', '-File', script, '-WhatIf', '-DryRunOutput', '-AgentUser', 'CLASS1TEST\\Agent'], { windowsHide: true, timeout: 20_000 });
   assert.equal(stderr, '');
-  for (const pattern of [/PLAN service:.*NT SERVICE\\RightKitBuildControl/, /global\\cargo-home/, /cargo-home\\git\\db/, /global\\compiler-cache/, /build-roots/, /inheritance=removed/, /ReadAndExecute/, /credentials: untouched/]) assert.match(stdout, pattern);
+  for (const pattern of [/PLAN service:.*NT SERVICE\\RightKitBuildControl/, /global\\cargo-home/, /cargo-home\\git\\db/, /global\\compiler-cache/, /build-roots/, /inheritance=removed/, /ReadAndExecute/, /credentials: untouched/, /PLAN sandbox launcher:.*bin\\rightkit-sandbox-exec\.exe/]) assert.match(stdout, pattern);
   assert.doesNotMatch(stdout, /CHANGE|ELEVATION_REQUIRED/);
   const whatIf = await run('powershell', ['-NoProfile', '-NonInteractive', '-File', script, '-WhatIf', '-AgentUser', 'CLASS1TEST\\Agent'], { windowsHide: true, timeout: 20_000 });
   assert.equal(whatIf.stderr, ''); assert.match(whatIf.stdout, /PLAN service:/);
