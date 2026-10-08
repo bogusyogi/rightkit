@@ -68,7 +68,7 @@ test("published ownership command runs without development sibling packages & re
 
     const app = path.join(temp, "app");
     mkdirSync(app);
-    for (const args of [["init", "-q"], ["config", "user.email", "test@example.invalid"], ["config", "user.name", "test"]]) {
+    for (const args of [["init", "-q"], ["config", "user.email", "test@example.invalid"], ["config", "user.name", "test"], ["remote", "add", "origin", "https://github.com/test/ownership-package.git"]]) {
       const git = spawnSync("git", ["-C", app, ...args], { encoding: "utf8", windowsHide: true });
       assert.equal(git.status, 0, git.stderr);
     }
@@ -82,7 +82,7 @@ test("published ownership command runs without development sibling packages & re
     assert.equal(command.status, 1, command.stderr);
     const output = JSON.parse(command.stdout);
     assert.equal(output.ok, false);
-    assert.equal(output.enrollmentPending, true);
+    assert.equal(output.enrollmentPending, true, JSON.stringify(output));
     assert.match(output.warning, /^WARNING:/);
     assert.equal(output.error, undefined);
     assert.ok(Array.isArray(output.rows));

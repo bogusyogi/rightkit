@@ -5,6 +5,7 @@ import { canonicalRepositoryIdentity, loadTrustedExternal, occurrenceHash, polic
 import installedManifest from "./rightkit-ownership.json" with { type: "json" };
 import { parse as parseToml } from "smol-toml";
 import { sourceNonCode } from "./ownership-source.mjs";
+import { OWNERSHIP_LOCKFILES, transitiveDependencies } from "./ownership-lockfiles.mjs";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { acquireCommittedSource, committedSourceDataForInternalUse } from "./committed-source.mjs";
@@ -191,7 +192,7 @@ function fileInventory(appRoot, trust, pathPrefix = "", repositoryRoot = appRoot
   const inventory = gitListedInventory(appRoot, {
     repositoryRoot,
     protectedPaths: [...protectedPaths],
-    relevant: (rel) => ["Cargo.toml", "package.json", "Package.swift"].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase()),
+    relevant: (rel) => ["Cargo.toml", "package.json", "Package.swift", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase()),
     maxFileBytes: (rel) => CODE_EXT.has(path.posix.extname(rel).toLowerCase()) || protectedPaths.has(rel) ? 2 * 1024 * 1024 : 64 * 1024 * 1024,
   });
   for (const item of inventory.coverage) if (item.reason === "file-over-size-limit") item.reason = protectedPaths.has(item.path) ? "protected-provenance-file-over-2MiB" : CODE_EXT.has(path.posix.extname(item.path).toLowerCase()) ? "source-file-over-2MiB" : "manifest-file-over-64MiB";
@@ -211,7 +212,7 @@ function committedFileInventory(appRoot, trust, pathPrefix, committed) {
     if (entry.mode === "120000") { coverage.push({ path: rel, status: "unscanned", reason: "committed-symlink" }); continue; }
     if (entry.mode === "160000" || entry.type === "commit") { coverage.push({ path: rel, status: "unscanned", reason: "committed-gitlink" }); continue; }
     if (entry.type !== "blob") { coverage.push({ path: rel, status: "unscanned", reason: "committed-unsupported-entry" }); continue; }
-    const relevant = protectedPaths.has(entry.rel) || ["Cargo.toml", "package.json", "Package.swift", "ownership-exceptions.json"].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase());
+    const relevant = protectedPaths.has(entry.rel) || ["Cargo.toml", "package.json", "Package.swift", "ownership-exceptions.json", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase());
     const bytes = relevant ? entry.bytes : undefined;
     if (relevant && !bytes) coverage.push({ path: rel, status: "unscanned", reason: "committed-blob-unavailable" });
     const isExceptionFile = path.posix.basename(rel) === "ownership-exceptions.json";
@@ -259,8 +260,11 @@ function resolveDependencyVersions(appRoot, inventory, deps, coverage, contentDi
       if (item && !item.bytes) throw new Error(`lockfile bytes unavailable: ${rel}`);
       bytes = item?.bytes;
     } else {
+      const inventoried = OWNERSHIP_LOCKFILES.includes(name) ? inventory.files.find((item) => item.rel === rel) : undefined;
+      if (inventoried && !inventoried.bytes) throw new Error(`lockfile bytes unavailable: ${rel}`);
       const absolute = path.resolve(appRoot, ...rel.split("/"));
-      if (existsSync(absolute)) {
+      if (inventoried) bytes = inventoried.bytes;
+      else if (existsSync(absolute)) {
         const root = realpathSync(appRoot), real = realpathSync(absolute);
         if (!real.startsWith(`${root}${path.sep}`)) throw new Error(`lockfile outside scan root: ${rel}`);
         if (!lstatSync(absolute).isFile() || lstatSync(absolute).size > 64 * 1024 * 1024) throw new Error(`lockfile unsupported or too large: ${rel}`);
@@ -416,6 +420,7 @@ function dependenciesFromInventory(appRoot, inventory) {
   resolveDependencyVersions(appRoot, inventory, deps, coverage, contentDigests);
   Object.defineProperty(deps, "coverage", { value: coverage, enumerable: false });
   Object.defineProperty(deps, "contentDigests", { value: contentDigests, enumerable: false });
+  Object.defineProperty(deps, "manifests", { value: files, enumerable: false });
   return deps;
 }
 
@@ -513,11 +518,18 @@ function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), t
   const catalogOwners = new Set(manifest.capabilities.map((entry) => entry.package));
   coverage.push(...(deps.coverage ?? []));
   const provenance = trustedProvenance(appRoot, inventory, trust, repositoryIdentity, coverage, repositoryRoot, pathPrefix);
+  const pushDependency = (c, f, d, kind = "dependency") => findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, ...findingPolicy(c, f), file: d.file, line: 0, kind, ecosystem: d.ecosystem, name: d.name,
+    ...(kind === "dependency" ? { alias: d.alias, section: d.section, requirement: d.requirement, features: d.features, defaultFeatures: d.defaultFeatures, local: d.local } : { lockfile: d.lockfile, dependencyPath: d.dependencyPath }),
+    source: d.source, resolvedVersion: d.resolvedVersion, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, provenance: d.source });
   for (const c of manifest.capabilities) for (const f of c.fingerprints.filter((x) => x.type === "dependency")) for (const d of deps) {
     if (d.ecosystem === f.ecosystem && (d.name === f.name || d.alias === f.name) && !catalogOwners.has(d.name)) {
-      findings.push({ fingerprint: f.id, capability: c.capability, package: c.package, ...findingPolicy(c, f), file: d.file, line: 0, kind: "dependency", ecosystem: d.ecosystem, name: d.name, alias: d.alias, section: d.section, requirement: d.requirement, features: d.features, defaultFeatures: d.defaultFeatures, source: d.source, resolvedVersion: d.resolvedVersion, text: `${d.ecosystem} dependency ${d.alias ? `${d.alias} aliases ` : ""}${d.name}`, local: d.local, provenance: d.source });
+      pushDependency(c, f, d);
     }
   }
+  const blockRules = manifest.capabilities.flatMap((c) => c.fingerprints.filter((f) => f.type === "dependency" && findingPolicy(c, f).tier === "block").map((f) => ({ c, f })));
+  const transitiveOwners = new Set([...catalogOwners, ...(manifest.internalOwners ?? []).map((owner) => typeof owner === "string" ? owner : owner.package)]);
+  const transitive = transitiveDependencies(appRoot, inventory, deps.manifests, transitiveOwners, coverage, contentDigests, blockRules.map(({ f }) => `${f.ecosystem}:${f.name}`));
+  for (const { c, f } of blockRules) for (const d of transitive) if (d.ecosystem === f.ecosystem && d.name === f.name) pushDependency(c, f, d, "transitive-dependency");
   const matchers = sourceMatchers(manifest);
   for (const file of inventory.files) {
     const { rel, size, bytes } = file;
@@ -532,7 +544,7 @@ function scanInternal(appRoot, manifest, { inventory = fileInventory(appRoot), t
   }
   if (pathPrefix) {
     const prefix = (p) => p === "." ? pathPrefix.slice(0, -1) : `${pathPrefix}${p}`;
-    for (const f of findings) f.file = prefix(f.file);
+    for (const f of findings) { f.file = prefix(f.file); if (f.lockfile) f.lockfile = prefix(f.lockfile); }
     for (const c of coverage) c.path = prefix(c.path);
     for (const d of deps) d.file = prefix(d.file);
     for (const d of contentDigests) d.path = prefix(d.path);
