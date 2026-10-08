@@ -5044,10 +5044,7 @@ dependencies = [
 name = "rightkit-models"
 version = "0.2.2"
 dependencies = [
- "base64 0.22.1",
- "chrono",
  "dirs 7.0.0",
- "ed25519-dalek",
  "flate2",
  "getrandom 0.3.4",
  "rightkit-qa",
@@ -5057,7 +5054,6 @@ dependencies = [
  "tar",
  "tempfile",
  "ureq",
- "url",
  "zip",
 ]
 
@@ -5104,9 +5100,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ort"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "half",
+ "ndarray",
  "ort",
  "rightkit-media",
  "windows-sys 0.61.2",

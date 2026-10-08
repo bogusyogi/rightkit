@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ort"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -22,9 +22,14 @@ directml = ["session", "ort/directml"]
 # f16 tensors (e.g. Parakeet f16 encoders): forwards ort/half and re-exports `half`, so apps
 # use rightkit_ort::half::f16 and never declare ort or half directly.
 half = ["session", "ort/half", "dep:half"]
+# ndarray tensors (Tensor::from_array, try_extract_array): forwards ort/ndarray and re-exports
+# `ndarray`, so apps use rightkit_ort::ndarray and never declare ort or ndarray directly.
+ndarray = ["session", "ort/ndarray", "dep:ndarray"]
 
 [dependencies]
 half = { version = "2", optional = true }
+# Same major as ort rc.13's own ndarray dependency, so the re-exported types are ort's.
+ndarray = { version = "0.17", optional = true }
 # SUITE PIN: every Right Suite crate and app uses exactly this ort version.
 # See README.md "Version policy".
 ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-24", "load-dynamic"] }

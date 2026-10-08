@@ -29,6 +29,10 @@ pub use ort;
 #[cfg(feature = "half")]
 pub use half;
 
+/// `ndarray` as used by ort's `ndarray` feature: `rightkit_ort::ndarray::Array2`.
+#[cfg(feature = "ndarray")]
+pub use ndarray;
+
 #[cfg(feature = "session")]
 pub mod environment;
 #[cfg(feature = "session")]
