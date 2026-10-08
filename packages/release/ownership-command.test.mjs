@@ -82,9 +82,10 @@ test("published ownership command runs without development sibling packages & re
     assert.equal(command.status, 1, command.stderr);
     const output = JSON.parse(command.stdout);
     assert.equal(output.ok, false);
-    assert.equal(output.enrollmentPending, true, JSON.stringify(output));
-    assert.match(output.warning, /^WARNING:/);
-    assert.equal(output.error, undefined);
+    // Host-state independent: a host still pending enrollment warns; an enrolled host refuses the
+    // unregistered fixture repository. Both fail closed with a well-formed report.
+    if (output.enrollmentPending) { assert.match(output.warning, /^WARNING:/); assert.equal(output.error, undefined); }
+    else assert.match(output.error?.message ?? "", /not registered in protected trust/, JSON.stringify(output));
     assert.ok(Array.isArray(output.rows));
     assert.ok(Array.isArray(output.violations));
   } finally {

@@ -6,10 +6,12 @@ import { sourceNonCode } from './ownership-source.mjs';
 // Packaged snapshot keeps installed adapters self-contained. Focused test
 // asserts this snapshot matches release catalog before any catalog changes ship.
 const catalogPath = fileURLToPath(new URL('./ownership-fingerprints.json', import.meta.url));
-const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
-const fingerprints = catalog.capabilities.flatMap((capability) => capability.fingerprints
+let catalog; let catalogError;
+try { catalog = JSON.parse(readFileSync(catalogPath, 'utf8')); } catch (error) { catalogError = error; catalog = { capabilities: [] }; }
+let fingerprints = [];
+try { fingerprints = catalog.capabilities.flatMap((capability) => capability.fingerprints
   .filter((entry) => entry.type === 'source' && typeof entry.pattern === 'string')
-  .map((entry) => ({ ...entry, package: capability.package, regex: new RegExp(entry.pattern, entry.flags ?? '') }))).sort((a, b) => Number(b.tier === 'block') - Number(a.tier === 'block'));
+  .map((entry) => ({ ...entry, package: capability.package, regex: new RegExp(entry.pattern, entry.flags ?? '') }))).sort((a, b) => Number(b.tier === 'block') - Number(a.tier === 'block')); } catch (error) { catalogError = error; }
 const sourceExtensions = new Set(['.rs', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx', '.swift', '.m', '.mm', '.c', '.cc', '.cpp', '.h', '.py', '.go', '.kt', '.java', '.cs']);
 
 function normalizedPath(value, cwd = process.cwd()) {
@@ -41,22 +43,25 @@ function writeTargetException(command, cwd) {
   return hasWriteIntent && (isProtectedPath(command, cwd) || /\.rightkit[\\/]ownership-exceptions\.json/i.test(command) || /(?:Orthic Labs[\\/]RightKit|RightKit[\\/]ownership)[\\/]trust\.json/i.test(command));
 }
 
-function applyEdit(oldText, oldString, newString) {
+function applyEdit(oldText, oldString, newString, replaceAll = false) {
   if (typeof oldString !== 'string' || typeof newString !== 'string' || oldString.length === 0) return null;
   const first = oldText.indexOf(oldString);
-  if (first < 0 || oldText.indexOf(oldString, first + oldString.length) >= 0) return null;
+  if (first < 0) return null;
+  if (replaceAll) return oldText.split(oldString).join(newString);
+  if (oldText.indexOf(oldString, first + oldString.length) >= 0) return null;
   return oldText.slice(0, first) + newString + oldText.slice(first + oldString.length);
 }
 
 function reconstructClaude(input, current) {
   const tool = input?.tool_name ?? input?.toolName;
   const value = input?.tool_input ?? input?.toolInput ?? {};
+  const manifest = isManifest(value.file_path ?? value.filePath ?? value.path ?? value.file);
   if (tool === 'Write' && typeof value.content === 'string') return value.content;
-  if (tool === 'Edit') return applyEdit(current, value.old_string ?? value.oldString, value.new_string ?? value.newString);
+  if (tool === 'Edit') return applyEdit(current, value.old_string ?? value.oldString, value.new_string ?? value.newString, manifest && value.replace_all === true);
   if (tool === 'MultiEdit' && Array.isArray(value.edits)) {
     let result = current;
     for (const edit of value.edits) {
-      result = applyEdit(result, edit.old_string ?? edit.oldString, edit.new_string ?? edit.newString);
+      result = applyEdit(result, edit.old_string ?? edit.oldString, edit.new_string ?? edit.newString, manifest && edit.replace_all === true);
       if (result === null) return null;
     }
     return result;
@@ -99,7 +104,9 @@ function reconstructPatch(current, file) {
   }
   const output = current.replace(/\r/g, '').split('\n'); let cursor = 0;
   for (const hunk of file.hunks) {
-    if (hunk.anchor) {
+    const numbered = isManifest(file.path.split('\n').at(-1)) && /^-\d+(?:,\d+)? \+(\d+)(?:,\d+)?(?: @@)?$/.exec(hunk.anchor);
+    if (numbered) cursor = Math.max(0, Number(numbered[1]) - 1);
+    else if (hunk.anchor) {
       const anchorIndex = output.findIndex((line, index) => index >= cursor && line.includes(hunk.anchor));
       if (anchorIndex < 0) return null;
       cursor = anchorIndex + 1;
@@ -179,22 +186,276 @@ function denial(reason) {
 
 export function fingerprintDecision(entry, reason) {
   if (entry.tier === 'block') return denial(reason);
-  return { decision: 'allow', hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', additionalContext: `[HOOK:rightkit-ownership:advise] ${reason} Usage context & replacement qualification require review.` } };
+  return { decision: 'allow', hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: `[HOOK:rightkit-ownership:advise] ${reason} Usage context & replacement qualification require review.` } };
 }
 
-export function ownershipWriteDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? process.cwd() } = {}) {
+const manifestName = (path) => path.replace(/\\/g, '/').split('/').at(-1);
+const isManifest = (path) => typeof path === 'string' && ['Cargo.toml', 'package.json', 'Package.swift'].includes(manifestName(path));
+const advice = (reason) => fingerprintDecision({ tier: 'advise' }, reason);
+const manifestFailure = (path) => advice(`could not screen manifest edit: ${path}. Ownership hooks are advisory; protected gates remain authoritative.`);
+const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+// Small self-contained TOML reader: unsupported syntax throws into advisory
+// feedback, never a guessed dependency verdict. No installed npm closure needed.
+function cargoManifest(text) {
+  let at = 0; let table = []; const records = []; const seen = new Set(); const tables = new Set();
+  const fail = () => { throw new Error('invalid or unsupported TOML'); };
+  const space = (lines = false) => {
+    while (at < text.length) {
+      if ((lines ? /\s/ : /[ \t\r]/).test(text[at])) { at += 1; continue; }
+      if (text[at] === '#') { while (at < text.length && text[at] !== '\n') at += 1; continue; }
+      break;
+    }
+  };
+  const string = () => {
+    const quote = text[at]; const triple = text.slice(at, at + 3) === quote.repeat(3);
+    const end = triple ? quote.repeat(3) : quote; at += end.length; let result = '';
+    if (triple && text[at] === '\n') at += 1;
+    while (at < text.length) {
+      if (text.slice(at, at + end.length) === end) { at += end.length; return result; }
+      const ch = text[at++];
+      if (!triple && /[\r\n]/.test(ch)) fail();
+      if (ch !== '\\' || quote === "'") { result += ch; continue; }
+      if (triple && /\s/.test(text[at] ?? '')) { while (at < text.length && /\s/.test(text[at])) at += 1; continue; }
+      const escape = text[at++]; const escapes = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', '"': '"', '\\': '\\' };
+      if (Object.hasOwn(escapes, escape)) result += escapes[escape];
+      else if (escape === 'u' || escape === 'U') {
+        const count = escape === 'u' ? 4 : 8; const hex = text.slice(at, at + count);
+        if (!new RegExp(`^[0-9a-fA-F]{${count}}$`).test(hex)) fail();
+        result += String.fromCodePoint(parseInt(hex, 16)); at += count;
+      } else fail();
+    }
+    return fail();
+  };
+  const keys = () => {
+    const parts = [];
+    do {
+      space(); let key;
+      if (text[at] === '"' || text[at] === "'") key = string();
+      else { key = /^[A-Za-z0-9_-]+/.exec(text.slice(at))?.[0]; if (!key) fail(); at += key.length; }
+      parts.push(key); space();
+      if (text[at] !== '.') return parts;
+      at += 1;
+    } while (at < text.length);
+    return fail();
+  };
+  const value = (depth = 0) => {
+    if (depth > 64) fail(); space(true);
+    if (text[at] === '"' || text[at] === "'") return string();
+    if (text[at] === '[') {
+      at += 1; const list = []; space(true);
+      while (text[at] !== ']') {
+        list.push(value(depth + 1)); space(true);
+        if (text[at] === ']') break;
+        if (text[at++] !== ',') fail(); space(true);
+      }
+      at += 1; return list;
+    }
+    if (text[at] === '{') {
+      at += 1; const fields = Object.create(null); space(true);
+      while (text[at] !== '}') {
+        const key = keys().join('.'); if (Object.hasOwn(fields, key) || text[at++] !== '=') fail();
+        fields[key] = value(depth + 1); space(true);
+        if (text[at] === '}') break;
+        if (text[at++] !== ',') fail(); space(true);
+      }
+      at += 1; return fields;
+    }
+    const token = /^[^\s,#\]}]+/.exec(text.slice(at))?.[0]; if (!token) fail(); at += token.length;
+    if (token === 'true' || token === 'false') return token === 'true';
+    if (/^[+-]?(?:\d[\d_]*(?:\.[\d_]+)?(?:[eE][+-]?[\d_]+)?|inf|nan)$/.test(token) || /^0[xob][0-9a-fA-F_]+$/.test(token)) return Number(token.replace(/_/g, ''));
+    if (/^\d{4}-\d{2}-\d{2}(?:T[^\s]+)?$/.test(token)) return new Date(token);
+    return fail();
+  };
+  while (at < text.length) {
+    space(true); if (at >= text.length) break;
+    if (text[at] === '[') {
+      at += 1; const array = text[at] === '['; if (array) at += 1;
+      table = keys(); if (text[at++] !== ']' || array && text[at++] !== ']') fail();
+      const id = JSON.stringify(table); if (!array && tables.has(id)) fail(); tables.add(id);
+      if (array) table = [...table, `#${records.length}`];
+    } else {
+      const key = keys(); if (text[at++] !== '=') fail();
+      const full = [...table, ...key]; const id = JSON.stringify(full); if (seen.has(id)) fail(); seen.add(id);
+      records.push({ path: full, value: value() });
+    }
+    space(); if (at < text.length && text[at++] !== '\n') fail();
+  }
+  const dependencies = new Map(); const metadata = {};
+  for (const entry of records) {
+    const parts = entry.path;
+    if (parts.length === 2 && parts[0] === 'package' && ['name', 'description'].includes(parts[1]) && typeof entry.value === 'string') metadata[parts[1]] = entry.value;
+    const group = parts.findIndex((part, index) => ['dependencies', 'dev-dependencies', 'build-dependencies'].includes(part)
+      && (index === 0 || index === 1 && parts[0] === 'workspace' || index === 2 && parts[0] === 'target'));
+    if (group < 0 || !parts[group + 1]) continue;
+    const alias = parts[group + 1]; const id = JSON.stringify(parts.slice(0, group + 2));
+    if (parts.length === group + 2) {
+      if (typeof entry.value !== 'string' && !object(entry.value)) fail();
+      const name = object(entry.value) ? entry.value.package ?? alias : alias; if (typeof name !== 'string') fail();
+      dependencies.set(id, name);
+    } else if (parts.length === group + 3) {
+      if (!dependencies.has(id)) dependencies.set(id, alias);
+      if (parts.at(-1) === 'package') { if (typeof entry.value !== 'string') fail(); dependencies.set(id, entry.value); }
+    } else fail();
+  }
+  return { ecosystem: 'cargo', names: new Set(dependencies.values()), ...metadata };
+}
+
+function npmName(value) {
+  return /^(?:[^@]+@)?npm:(@[^/]+\/[^@]+|[^@]+)(?:@|$)/.exec(value)?.[1]
+    ?? /^(@[^/]+\/[^@]+|[^@]+)(?:@|$)/.exec(value)?.[1];
+}
+
+function parseManifest(path, text) {
+  const base = manifestName(path);
+  if (base === 'Cargo.toml') return cargoManifest(text);
+  const names = new Set();
+  if (base === 'package.json') {
+    const pkg = JSON.parse(text); if (!object(pkg)) throw new Error('invalid package.json');
+    for (const section of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
+      if (pkg[section] === undefined) continue;
+      if (!object(pkg[section])) throw new Error('invalid dependency section');
+      for (const [name, spec] of Object.entries(pkg[section])) {
+        if (typeof spec !== 'string') throw new Error('invalid dependency declaration');
+        const actual = spec.startsWith('npm:') ? npmName(spec) : name; if (!actual) throw new Error('invalid npm alias');
+        names.add(actual);
+      }
+    }
+    return { ecosystem: 'npm', names, name: pkg.name, description: pkg.description };
+  }
+  const code = stripComments(text, '.swift');
+  for (const match of code.matchAll(/\.package\s*\(/g)) {
+    let at = match.index + match[0].length; const start = at; let depth = 1; let quote = false;
+    for (; at < code.length && depth; at += 1) {
+      if (quote && code[at] === '\\') { at += 1; continue; }
+      if (code[at] === '"') quote = !quote;
+      else if (!quote && code[at] === '(') depth += 1;
+      else if (!quote && code[at] === ')') depth -= 1;
+    }
+    if (depth || quote) throw new Error('invalid Swift package declaration');
+    const args = code.slice(start, at - 1); const field = (key) => new RegExp(`\\b${key}\\s*:\\s*"([^"]+)"`).exec(args)?.[1];
+    const source = field('url') ?? field('path');
+    const name = field('name') ?? field('id') ?? source?.replace(/\.git$/i, '').split(/[\\/]/).at(-1)?.toLowerCase();
+    if (!name) throw new Error('unsupported Swift package identity');
+    names.add(name);
+  }
+  return { ecosystem: 'swiftpm', names };
+}
+
+function dependencyFeedback(dependencies) {
+  const matches = catalog.capabilities.flatMap((capability) => capability.fingerprints
+    .filter((entry) => entry.type === 'dependency' && dependencies.some((dep) => dep.ecosystem === entry.ecosystem && dep.name === entry.name))
+    .map((entry) => ({ ...entry, capability: capability.capability, package: capability.package })));
+  if (!matches.length) return null;
+  const block = matches.some((entry) => entry.tier === 'block' || entry.policy === 'banned');
+  const reason = matches.map((entry) => `Dependency ${entry.name} matches capability ${entry.capability}; RightKit owner: ${entry.package}. Use ${entry.package} instead or request a signed exception.`).join('\n');
+  return block ? denial(reason) : advice(reason);
+}
+
+// Fixed discovery synonyms are bound to owners, rather than every capability.
+const keywordOwners = {
+  oauth: ['rightkit-oauth'], 'model-store': ['rightkit-models'], models: ['rightkit-models'],
+  supervisor: ['rightkit-process'], ocr: ['rightkit-ocr'], speech: ['rightkit-speech-client'],
+  asr: ['rightkit-asr'], tts: ['rightkit-tts'], sync: ['rightkit-sync'],
+  secrets: ['rightkit-secrets'], credential: ['rightkit-secrets', 'RightKitSwift'], keychain: ['rightkit-secrets', 'RightKitSwift'],
+  watcher: ['rightkit-watch'], updater: ['@rightkit/updates'], onboarding: ['@rightkit/onboarding'],
+  settings: ['rightkit-settings', '@rightkit/settings-ui'], telemetry: ['rightkit-logs', '@rightkit/logs'],
+  logs: ['rightkit-logs', '@rightkit/logs'], crash: ['rightkit-crash'], sandbox: ['rightkit-sandbox'],
+  browser: ['rightkit-browser'], mcp: ['rightkit-mcp'], pdf: ['rightkit-pdf'],
+  media: ['rightkit-media'], audio: ['rightkit-audio'], hotkeys: ['rightkit-hotkeys'],
+  overlay: ['rightkit-overlay'], license: ['rightkit-license', '@rightkit/license'],
+};
+
+function manifestFeedback(path, before, after, created, cwd) {
+  try {
+    if (after === null) return manifestFailure(path);
+    const post = parseManifest(path, after);
+    const previous = created ? new Set() : parseManifest(path, before).names;
+    const feedback = dependencyFeedback([...post.names].filter((name) => !previous.has(name)).map((name) => ({ ecosystem: post.ecosystem, name })));
+    if (feedback) return feedback;
+    if (!created || manifestName(path) === 'Package.swift' || /(?:^|\/)tools\/rightkit(?:\/|$)/i.test(normalizedPath(path, cwd))) return null;
+    const tokens = [post.name, post.description].filter((value) => typeof value === 'string').join(' ').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const hasKeyword = (keyword) => {
+      const parts = keyword.toLowerCase().split('-');
+      return tokens.some((_, index) => parts.every((part, offset) => tokens[index + offset] === part));
+    };
+    const owners = catalog.capabilities.filter((capability) => !post.names.has(capability.package)
+      && [...capability.capability.split('-'), ...Object.keys(keywordOwners).filter((keyword) => keywordOwners[keyword].includes(capability.package))].some(hasKeyword));
+    return owners.length ? advice(owners.map((entry) => `New manifest suggests capability ${entry.capability}; declare RightKit owner ${entry.package} as a dependency.`).join('\n')) : null;
+  } catch { return manifestFailure(path); }
+}
+
+function commandDependencies(command) {
+  if (typeof command !== 'string') return [];
+  const segments = []; let words = []; let word = ''; let quote = '';
+  const flush = () => { if (word) words.push(word); word = ''; };
+  for (let at = 0; at < command.length; at += 1) {
+    const ch = command[at];
+    if (quote) { if (ch === quote) quote = ''; else if (ch === '\\' && quote === '"' && command[at + 1] === '"') word += command[++at]; else word += ch; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; continue; }
+    if (ch === '#' && !word) { while (at < command.length && command[at] !== '\n') at += 1; flush(); segments.push(words); words = []; continue; }
+    if (ch === ';' || ch === '\n' || ch === '&' && command[at + 1] === '&') {
+      flush(); segments.push(words); words = []; if (ch === '&') at += 1;
+    } else if (/\s/.test(ch)) flush();
+    else word += ch;
+  }
+  if (quote) throw new Error('unclosed shell quote');
+  flush(); segments.push(words);
+  const dependencies = [];
+  const valueFlags = new Set(['--package', '-p', '--rename', '--features', '-F', '--manifest-path', '--target', '--registry', '--git', '--branch', '--tag', '--rev', '--path', '--workspace', '-w', '--filter', '--dir', '-C', '--prefix', '--cache', '--userconfig', '--globalconfig']);
+  for (const words of segments) {
+    const program = words[0]?.replace(/\\/g, '/').split('/').at(-1)?.replace(/\.exe$/i, '');
+    if (!['cargo', 'pnpm', 'npm', 'yarn'].includes(program)) continue;
+    const verbs = program === 'cargo' || program === 'yarn' ? ['add'] : program === 'pnpm' ? ['add', 'install'] : ['i', 'install', 'add'];
+    if (!verbs.includes(words[1])) continue;
+    for (let index = 2; index < words.length; index += 1) {
+      const word = words[index];
+      if (word.startsWith('-')) { if (valueFlags.has(word) && !(program === 'pnpm' && ['-w', '--workspace'].includes(word))) index += 1; continue; }
+      const name = npmName(word); if (name) dependencies.push({ ecosystem: program === 'cargo' ? 'cargo' : 'npm', name });
+    }
+  }
+  return dependencies;
+}
+
+export function ownershipWriteDecision(input, options = {}) {
+  try {
+    if (catalogError) return advice('Could not load ownership catalog; protected ownership gates remain authoritative.');
+    return writeDecision(input, options);
+  } catch {
+    const data = input?.tool_input ?? input?.toolInput; const path = data?.file_path ?? data?.filePath ?? data?.path ?? data?.file;
+    return isManifest(path) ? manifestFailure(path) : advice('Could not screen ownership write input; protected ownership gates remain authoritative.');
+  }
+}
+
+function writeDecision(input, { readFile = readFileSync, cwd = input?.cwd ?? process.cwd() } = {}) {
   const tool = input?.tool_name ?? input?.toolName ?? '';
   const data = input?.tool_input ?? input?.toolInput ?? {};
   const command = tool === 'exec_command' ? data.cmd ?? input?.cmd : data.command ?? data.cmd ?? data.code ?? data.input ?? input?.command ?? input?.cmd ?? input?.code;
   if (writeTargetException(command, cwd)) return denial('Agent changes to ownership exception or protected trust records are blocked.');
+  if (['Bash', 'bash', 'shell', 'Shell', 'exec_command', 'shell_command'].includes(tool)) {
+    const feedback = dependencyFeedback(commandDependencies(command)); if (feedback) return feedback;
+  }
   const path = data.file_path ?? data.filePath ?? data.path ?? data.file;
   const patch = data.patch ?? data.input ?? input?.patch ?? (tool === 'apply_patch' ? data.code : undefined);
   if (tool === 'apply_patch') {
     const files = patchFiles(patch);
-    if (!files) return fallbackPatchDecision(patch, cwd) ?? { decision: 'allow' };
+    if (!files) return fallbackPatchDecision(patch, cwd) ?? (typeof patch === 'string' && [...patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm)].some((match) => isManifest(match[1])) ? manifestFailure('apply_patch') : { decision: 'allow' });
+    let feedback = null; const manifests = new Set();
+    for (const file of files) {
+      const [oldPath, newPath] = file.path.split('\n'); const target = newPath ?? oldPath;
+      if (!isManifest(target) || file.kind === 'Delete') continue;
+      manifests.add(file);
+      let current = ''; let created = false; let post = null;
+      try { current = readFile(resolve(cwd, oldPath), 'utf8'); post = reconstructPatch(current, file); }
+      catch (error) { if (error?.code === 'ENOENT') { created = !newPath; post = reconstructPatch(current, file); } }
+      const result = manifestFeedback(target, current, post, created, cwd);
+      if (result?.hookSpecificOutput.permissionDecision === 'deny') return result;
+      if (result) feedback = feedback ? advice(`${feedback.hookSpecificOutput.additionalContext}\n${result.hookSpecificOutput.additionalContext}`) : result;
+    }
     for (const file of files) {
       const [oldPath, newPath] = file.path.split('\n');
       if (isProtectedPath(oldPath, cwd) || (newPath && isProtectedPath(newPath, cwd))) return denial('Agent changes to ownership exception or protected trust records are blocked.');
+      if (manifests.has(file)) continue;
       const absolute = resolve(cwd, oldPath); let current = '';
       try { current = readFile(absolute, 'utf8'); } catch (error) { if (error?.code !== 'ENOENT') return { decision: 'allow' }; }
       const post = reconstructPatch(current, file);
@@ -210,14 +471,18 @@ export function ownershipWriteDecision(input, { readFile = readFileSync, cwd = i
         return fingerprintDecision(match, `Post-edit content adds RightKit source fingerprint ${match.id} (${match.package}).`);
       }
     }
-    return { decision: 'allow' };
+    return feedback ?? { decision: 'allow' };
   }
   if (!['Write', 'Edit', 'MultiEdit'].includes(tool) || typeof path !== 'string') return { decision: 'allow' };
   if (isProtectedPath(path, cwd)) return denial('Agent changes to ownership exception or protected trust records are blocked.');
   const absolute = isAbsolute(path) ? path : resolve(cwd, path);
-  let current = '';
-  try { current = readFile(absolute, 'utf8'); } catch (error) { if (error?.code !== 'ENOENT') return { decision: 'allow' }; }
+  let current = ''; let created = false;
+  try { current = readFile(absolute, 'utf8'); } catch (error) {
+    if (error?.code !== 'ENOENT') return isManifest(path) ? manifestFailure(path) : { decision: 'allow' };
+    created = true;
+  }
   const post = reconstructClaude(input, current);
+  if (isManifest(path)) return manifestFeedback(path, current, post, created, cwd) ?? { decision: 'allow' };
   if (post === null) return { decision: 'allow' };
   const match = hasFingerprintIncrease(path, current, post, cwd);
   return match ? fingerprintDecision(match, `Post-edit content adds RightKit source fingerprint ${match.id} (${match.package}).`) : { decision: 'allow' };

@@ -28,7 +28,7 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
     return 0;
   }
   if (args.includes("--staged")) return stagedMain(args, { print });
-  if (["enroll", "approve-key", "revoke-key"].includes(args[0])) {
+  if (["enroll", "approve-key", "revoke-key", "trust-sync"].includes(args[0])) {
     const { main: keyMain } = await import("./ownership-key-command.mjs");
     return keyMain(args, { runner: gitRunner, print });
   }

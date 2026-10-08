@@ -364,7 +364,8 @@ export async function main(args, deps = {}) {
       if (verb === "enroll") return await enroll(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
       if (verb === "approve-key") return await approve(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
       if (verb === "revoke-key") return await revoke(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
-      throw new Error("expected enroll, approve-key, or revoke-key");
+      if (verb === "trust-sync") return await trustSync(args, { ...deps, run, print, root, helper, headSnapshot, transport, authority, hook });
+      throw new Error("expected enroll, approve-key, revoke-key, or trust-sync");
     } finally {
       closeSync(lockFd);
       rmSync(lockPath, { force: true });
@@ -477,6 +478,21 @@ async function resumeRootEnrollment(log, d) {
   await installCheckpoint(log, pin, baseline, d);
   postVerify(root, log, d);
   print(`Ownership root enrollment recovery completed: ${pin}; active keys: ${state.keys.length}`);
+  return 0;
+}
+/** Advance this host's protected checkpoint to the committed key log (after another host approved or revoked a key). */
+async function trustSync(_args, d) {
+  const log = readLog(d.root);
+  const pin = log.events[0]?.payload?.rootFingerprint;
+  const state = verifyKeyLog(log, { rootFingerprint: pin });
+  if (!state.ok) throw new Error(`committed key log is invalid: ${state.problems.join("; ")}`);
+  const trust = (d.trustLoader ?? trustState)();
+  if (!trust?.trust?.rootFingerprint) throw new Error("protected root trust is not enrolled on this host; run ownership enroll");
+  if (trust.trust.rootFingerprint !== pin) throw new Error("committed key log root does not match this host's protected trust");
+  const baseline = d.baseline ?? parse(readFileSync(path.join(here, "ownership-default-policy.json"), "utf8"), "ownership default policy");
+  await installCheckpoint(log, pin, baseline, d);
+  postVerify(d.root, log, d);
+  d.print(`Ownership trust synced to key-log sequence ${log.events.length - 1}; active keys: ${state.keys.length}`);
   return 0;
 }
 async function installCheckpoint(log, rootFingerprint, baseline, d) {
