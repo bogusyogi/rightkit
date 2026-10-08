@@ -1,4 +1,4 @@
-//! Opt-in file-set streams. Legacy constructors keep their 0.2 behavior.
+//! Opt-in file-set & directory streams. Legacy constructors keep their defaults.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -67,7 +67,7 @@ pub struct WatchEventRecord {
     pub raw_kind: Option<EventKind>,
 }
 
-/// File-set stream policy. Existing APIs & their defaults remain unchanged.
+/// File-set & directory stream policy. Existing APIs & their defaults remain unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchOptions {
     pub filter: EventFilter,
@@ -223,8 +223,9 @@ impl DebounceWindow {
     }
 }
 
-struct Delivery<G> {
+pub(crate) struct Delivery<G> {
     display: BTreeMap<PathBuf, PathBuf>,
+    directory: Option<(PathBuf, bool)>,
     options: WatchOptions,
     grants: G,
     known_exists: Option<HashMap<PathBuf, bool>>,
@@ -244,6 +245,7 @@ impl<G: GrantCheck> Delivery<G> {
         });
         Self {
             display,
+            directory: None,
             options,
             grants,
             known_exists,
@@ -253,9 +255,32 @@ impl<G: GrantCheck> Delivery<G> {
         }
     }
 
+    pub(crate) fn directory(
+        root: PathBuf,
+        recursive: bool,
+        options: WatchOptions,
+        grants: G,
+    ) -> notify::Result<Self> {
+        let known_exists = if options.reconcile {
+            Some(directory_snapshot(&root, recursive)?)
+        } else {
+            None
+        };
+        let mut state = Self::new(BTreeMap::new(), options, grants);
+        state.directory = Some((root, recursive));
+        state.known_exists = known_exists;
+        Ok(state)
+    }
+
     fn project(&self, record: WatchEventRecord) -> Vec<WatchEventRecord> {
         let raw_kind = record.raw_kind;
         let shown = |path: &PathBuf| {
+            if let Some((root, recursive)) = &self.directory {
+                return (path == root
+                    || (*recursive && path.starts_with(root))
+                    || path.parent() == Some(root.as_path()))
+                .then(|| path.clone());
+            }
             self.display
                 .get(path)
                 .filter(|_| self.grants.is_granted(path))
@@ -268,6 +293,7 @@ impl<G: GrantCheck> Delivery<G> {
             WatchEvent::Rename { from, to } => match (shown(&from), shown(&to)) {
                 (Some(from), Some(to)) => Some(WatchEvent::Rename { from, to }),
                 (Some(from), None) => Some(WatchEvent::Delete(from)),
+                (None, Some(to)) if self.directory.is_some() => Some(WatchEvent::Create(to)),
                 (None, Some(to)) => Some(WatchEvent::Modify(to)),
                 (None, None) => None,
             },
@@ -317,6 +343,34 @@ impl<G: GrantCheck> Delivery<G> {
                 _ => Vec::new(),
             })
             .collect();
+        if let Some((root, recursive)) = &self.directory {
+            let current = match directory_snapshot(root, *recursive) {
+                Ok(current) => current,
+                Err(error) => {
+                    records.push(WatchEventRecord {
+                        event: WatchEvent::Error(error.into()),
+                        raw_kind: None,
+                    });
+                    return;
+                }
+            };
+            let paths: BTreeSet<_> = known.keys().chain(current.keys()).cloned().collect();
+            for path in paths {
+                let exists = current.contains_key(&path);
+                if known.contains_key(&path) != exists && !reported.contains(&path) {
+                    records.push(WatchEventRecord {
+                        event: if exists {
+                            WatchEvent::Create(path)
+                        } else {
+                            WatchEvent::Delete(path)
+                        },
+                        raw_kind: self.reconcile_kind,
+                    });
+                }
+            }
+            *known = current;
+            return;
+        }
         for path in self.display.keys() {
             let exists = path.symlink_metadata().is_ok();
             let previous = known.insert(path.clone(), exists).unwrap_or(exists);
@@ -382,6 +436,40 @@ impl<G: GrantCheck> Delivery<G> {
     }
 }
 
+// Do not follow directory symlinks: recursion must stay inside the watched tree.
+fn directory_snapshot(root: &Path, recursive: bool) -> notify::Result<HashMap<PathBuf, bool>> {
+    fn visit(
+        path: &Path,
+        recursive: bool,
+        paths: &mut HashMap<PathBuf, bool>,
+    ) -> notify::Result<()> {
+        let metadata = match path.symlink_metadata() {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(notify::Error::io(error).add_path(path.to_path_buf())),
+        };
+        paths.insert(path.to_path_buf(), true);
+        if !metadata.is_dir() {
+            return Ok(());
+        }
+        let entries = std::fs::read_dir(path)
+            .map_err(|error| notify::Error::io(error).add_path(path.to_path_buf()))?;
+        for entry in entries {
+            let entry = entry.map_err(notify::Error::io)?;
+            let child = entry.path();
+            if recursive {
+                visit(&child, true, paths)?;
+            } else {
+                paths.insert(child, true);
+            }
+        }
+        Ok(())
+    }
+    let mut paths = HashMap::new();
+    visit(root, recursive, &mut paths)?;
+    Ok(paths)
+}
+
 fn raw_records(result: notify::Result<Event>) -> Vec<WatchEventRecord> {
     let event = match result {
         Ok(event) => event,
@@ -434,6 +522,22 @@ const STOP_POLL: Duration = Duration::from_millis(50);
 fn run<G: GrantCheck>(
     rx: mpsc::Receiver<notify::Result<Event>>,
     tx: mpsc::Sender<Vec<WatchEventRecord>>,
+    delivery: Delivery<G>,
+    stop: &AtomicBool,
+    alive: &AtomicBool,
+) {
+    run_callback(
+        rx,
+        |records| tx.send(records).is_ok(),
+        delivery,
+        stop,
+        alive,
+    );
+}
+
+pub(crate) fn run_callback<G: GrantCheck>(
+    rx: mpsc::Receiver<notify::Result<Event>>,
+    mut emit: impl FnMut(Vec<WatchEventRecord>) -> bool,
     mut delivery: Delivery<G>,
     stop: &AtomicBool,
     alive: &AtomicBool,
@@ -441,11 +545,11 @@ fn run<G: GrantCheck>(
     let mut translator = Translator::default();
     let mut window = DebounceWindow::default();
     let discard = delivery.options.discard_on_disconnect;
-    let send = |records: Vec<WatchEventRecord>| -> bool {
+    let mut send = |records: Vec<WatchEventRecord>| -> bool {
         if records.is_empty() {
             return true;
         }
-        if tx.send(records).is_ok() {
+        if emit(records) {
             return true;
         }
         if !discard {
@@ -528,8 +632,14 @@ fn run<G: GrantCheck>(
             let mut reconciled = Vec::new();
             delivery.reconcile(&mut reconciled);
             for record in reconciled {
-                delivery.push(record);
-                window.observe(now);
+                if matches!(record.event, WatchEvent::Error(_) | WatchEvent::Overflow) {
+                    if !send(delivery.project(record)) {
+                        return;
+                    }
+                } else {
+                    delivery.push(record);
+                    window.observe(now);
+                }
             }
         }
         if received && !delivery.options.coalesce && delivery.options.reconcile {
@@ -597,6 +707,303 @@ mod tests {
             &AtomicBool::new(true),
         );
         rx.into_iter().flatten().collect()
+    }
+
+    fn collect_directory(
+        state: Delivery<fn(&Path) -> bool>,
+        events: Vec<notify::Result<Event>>,
+        stopped: bool,
+    ) -> Vec<WatchEventRecord> {
+        let (tx, rx) = mpsc::channel();
+        for event in events {
+            tx.send(event).unwrap();
+        }
+        drop(tx);
+        let mut output = Vec::new();
+        run_callback(
+            rx,
+            |records| {
+                output.extend(records);
+                true
+            },
+            state,
+            &AtomicBool::new(stopped),
+            &AtomicBool::new(true),
+        );
+        output
+    }
+
+    fn directory(
+        root: &Path,
+        recursive: bool,
+        options: WatchOptions,
+    ) -> Delivery<fn(&Path) -> bool> {
+        Delivery::directory(
+            root.to_path_buf(),
+            recursive,
+            options,
+            allow as fn(&Path) -> bool,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn directory_raw_delivery_is_immediate_and_preserves_duplicate_kinds_and_gaps() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let path = root.join("target");
+        let kind = EventKind::Modify(ModifyKind::Data(DataChange::Content));
+        let hint = Event::new(kind).add_path(path.clone());
+        let state = directory(
+            &root,
+            false,
+            WatchOptions {
+                quiet: Duration::from_secs(60),
+                max_wait: None,
+                coalesce: false,
+                reconcile: false,
+                filter: EventFilter::new([WatchEventKind::Modify]),
+                ..WatchOptions::default()
+            },
+        );
+        let output = collect_directory(
+            state,
+            vec![
+                Ok(Event::new(EventKind::Create(CreateKind::File)).add_path(path.clone())),
+                Ok(hint.clone()),
+                Ok(hint),
+                Err(notify::Error::generic("gap")),
+                Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan)),
+            ],
+            false,
+        );
+        assert_eq!(output.len(), 4);
+        assert_eq!(
+            output[0],
+            WatchEventRecord {
+                event: WatchEvent::Modify(path),
+                raw_kind: Some(kind)
+            }
+        );
+        assert_eq!(output[0], output[1]);
+        assert!(matches!(output[2].event, WatchEvent::Error(_)));
+        assert_eq!(output[3].event, WatchEvent::Overflow);
+    }
+
+    #[test]
+    fn directory_coalescing_filters_final_categories() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let path = root.join("target");
+        std::fs::write(&path, "exists").unwrap();
+        let state = directory(
+            &root,
+            false,
+            WatchOptions {
+                reconcile: false,
+                filter: EventFilter::new([WatchEventKind::Create]),
+                ..WatchOptions::default()
+            },
+        );
+        let kind = EventKind::Modify(ModifyKind::Data(DataChange::Content));
+        let output = collect_directory(
+            state,
+            vec![
+                Ok(Event::new(EventKind::Create(CreateKind::File)).add_path(path.clone())),
+                Ok(Event::new(kind).add_path(path.clone())),
+                Ok(Event::new(kind).add_path(path.clone())),
+            ],
+            false,
+        );
+        assert_eq!(
+            output,
+            vec![WatchEventRecord {
+                event: WatchEvent::Create(path),
+                raw_kind: Some(kind)
+            }]
+        );
+    }
+
+    #[test]
+    fn directory_snapshot_reconciles_parent_hints_and_respects_recursion() {
+        for recursive in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().canonicalize().unwrap();
+            let child_dir = root.join("nested");
+            std::fs::create_dir(&child_dir).unwrap();
+            let gone = root.join("gone");
+            std::fs::write(&gone, "old").unwrap();
+            let state = directory(
+                &root,
+                recursive,
+                WatchOptions {
+                    coalesce: false,
+                    filter: EventFilter::new([WatchEventKind::Create, WatchEventKind::Delete]),
+                    ..WatchOptions::default()
+                },
+            );
+            std::fs::remove_file(&gone).unwrap();
+            let created = root.join("created");
+            let descendant = child_dir.join("created");
+            std::fs::write(&created, "new").unwrap();
+            std::fs::write(&descendant, "new").unwrap();
+            let kind = EventKind::Modify(ModifyKind::Any);
+            let output = collect_directory(state, vec![Ok(Event::new(kind).add_path(root))], false);
+            assert!(output
+                .iter()
+                .any(|r| r.event == WatchEvent::Delete(gone.clone())));
+            assert!(output
+                .iter()
+                .any(|r| r.event == WatchEvent::Create(created.clone())));
+            assert_eq!(
+                output
+                    .iter()
+                    .any(|r| r.event == WatchEvent::Create(descendant.clone())),
+                recursive
+            );
+            assert!(output.iter().all(|r| r.raw_kind == Some(kind)));
+        }
+    }
+
+    #[test]
+    fn directory_reconcile_off_skips_snapshots_and_gap_rescans() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let state = directory(
+            &root,
+            true,
+            WatchOptions {
+                reconcile: false,
+                coalesce: false,
+                filter: EventFilter::new([]),
+                ..WatchOptions::default()
+            },
+        );
+        assert!(state.known_exists.is_none());
+        std::fs::write(root.join("new"), "payload").unwrap();
+        let output = collect_directory(
+            state,
+            vec![Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan))],
+            false,
+        );
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].event, WatchEvent::Overflow);
+    }
+
+    #[test]
+    fn directory_gap_rescan_finds_unreported_changes_with_coalescing_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let state = directory(&root, false, WatchOptions::default());
+        let path = root.join("new");
+        std::fs::write(&path, "payload").unwrap();
+        let output = collect_directory(
+            state,
+            vec![Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan))],
+            false,
+        );
+        assert_eq!(output[0].event, WatchEvent::Overflow);
+        assert!(output
+            .iter()
+            .any(|r| r.event == WatchEvent::Create(path.clone())));
+    }
+
+    #[test]
+    fn directory_disconnect_and_explicit_stop_obey_discard_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let path = root.join("target");
+        std::fs::write(&path, "payload").unwrap();
+        for discard in [false, true] {
+            for stopped in [false, true] {
+                let mut state = directory(
+                    &root,
+                    false,
+                    WatchOptions {
+                        discard_on_disconnect: discard,
+                        reconcile: false,
+                        max_wait: None,
+                        ..WatchOptions::default()
+                    },
+                );
+                state.push(WatchEventRecord {
+                    event: WatchEvent::Modify(path.clone()),
+                    raw_kind: None,
+                });
+                let output = collect_directory(state, vec![], stopped);
+                assert_eq!(output.is_empty(), discard);
+            }
+        }
+    }
+
+    #[test]
+    fn directory_projection_excludes_other_roots_and_nested_nonrecursive_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        for recursive in [false, true] {
+            let state = directory(
+                &root,
+                recursive,
+                WatchOptions {
+                    reconcile: false,
+                    ..WatchOptions::default()
+                },
+            );
+            for (path, accepted) in [
+                (root.join("child"), true),
+                (root.join("sub/child"), recursive),
+                (root.with_extension("outside"), false),
+            ] {
+                let records = state.project(WatchEventRecord {
+                    event: WatchEvent::Modify(path),
+                    raw_kind: None,
+                });
+                assert_eq!(!records.is_empty(), accepted);
+            }
+        }
+    }
+
+    #[test]
+    fn directory_quiet_only_and_explicit_cap_use_caller_deadlines() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let start = Instant::now();
+        for max_wait in [None, Some(Duration::from_millis(175))] {
+            let state = directory(
+                &root,
+                false,
+                WatchOptions {
+                    quiet: Duration::from_millis(100),
+                    max_wait,
+                    reconcile: false,
+                    ..WatchOptions::default()
+                },
+            );
+            let mut window = DebounceWindow::default();
+            for offset in 0..30 {
+                let now = start + Duration::from_millis(offset * 50);
+                window.observe(now);
+                let expected = match max_wait {
+                    Some(cap) => (now + state.options.quiet).min(start + cap),
+                    None => now + state.options.quiet,
+                };
+                assert_eq!(window.deadline(&state.options), Some(expected));
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_directory_snapshot_does_not_follow_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(other.path().join("outside"), "payload").unwrap();
+        std::os::unix::fs::symlink(other.path(), root.join("link")).unwrap();
+        let snapshot = directory_snapshot(&root, true).unwrap();
+        assert!(snapshot.contains_key(&root.join("link")));
+        assert!(!snapshot.contains_key(&root.join("link/outside")));
+        assert_eq!(snapshot.len(), 2);
     }
 
     #[test]

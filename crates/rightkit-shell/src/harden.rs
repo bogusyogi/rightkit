@@ -2,13 +2,26 @@
 //! history keys blocked, drag-drop cannot navigate, external links leave for the system browser.
 //!
 //! Three layers, because no single one covers every engine:
-//! 1. an initialisation script (every webview, every frame) that cancels the DOM events;
+//! 1. an initialisation script (all frames by default) that cancels the DOM events;
 //! 2. native webview settings (WKWebView preferences, WebView2 settings) for what JavaScript
 //!    cannot cancel (Cmd+Opt+I inspector, WebView2 accelerator keys, pinch zoom, swipe);
 //! 3. the Rust navigation hook (`NavPolicy`) that catches whatever navigates anyway.
 
 use serde::Serialize;
 use tauri::{Runtime, Webview};
+
+/// Frame scope for the full shell plugin's DOM hardening script.
+/// Native webview settings & Rust navigation policy are configured separately.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum HardeningScript {
+    /// Inject into every frame, including document iframes (legacy default).
+    #[default]
+    AllFrames,
+    /// Inject into the top frame of each webview only.
+    TopFrameOnly,
+    /// Do not inject the DOM hardening script.
+    Off,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Devtools {

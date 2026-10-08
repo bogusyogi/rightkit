@@ -6,6 +6,52 @@ The `engine` feature enables engine sidecar wiring. The `devtools` feature enabl
 
 Publish through the RightKit release workflow.
 
+## Also (0.1.3)
+
+### Single-instance arbitration only
+
+```rust
+tauri::Builder::default()
+    .plugin(rightkit_shell::Shell::builder("viewright")
+        .build()
+        .single_instance_plugin(|app, argv, cwd| {
+            // Handle forwarded files & focus using your app's own policy.
+        }));
+```
+
+Add this plugin first. It uses only `app_id` from the builder & always enables
+arbitration. It retains the primary service guard until exit, forwards argv/cwd
+to the primary callback & exits a successful secondary launch. Unavailable
+arbitration reports its reason to stderr & allows startup, as `instance::arbitrate`
+does. The callback owns all second-launch behavior, including URL delivery & focus.
+
+This entry point installs no hardening script, native hardening, navigation
+policy, window-state restoration, presence loop or `ShellState`. Use your own
+invoke handler; `rightkit_shell::handler!` requires the full plugin. Choose one
+plugin entry point per app. The lower-level `instance::arbitrate` remains public.
+
+### Full-plugin script scope
+
+```rust
+use rightkit_shell::{HardeningScript, Shell};
+
+let plugin = Shell::builder("viewright")
+    .hardening_script(HardeningScript::TopFrameOnly)
+    .build()
+    .plugin();
+```
+
+`ShellBuilder::hardening_script` accepts `AllFrames` (unchanged default),
+`TopFrameOnly` or `Off`. Top-frame mode requests native main-frame injection &
+guards the script body with `window.top !== window.self`, so document iframes
+remain untouched even on WebView2, which injects scripts into subframes.
+`Off` registers no DOM hardening script. Native webview hardening, navigation
+policy & remaining full-shell behavior still apply in both modes.
+
+Tests inspect generated plugin scripts for all three scopes & the isolated
+plugin, plus real service arbitration from a separate secondary process,
+argv/cwd forwarding & guard release.
+
 ## Also (0.1.1)
 
 ### Windows notifications
