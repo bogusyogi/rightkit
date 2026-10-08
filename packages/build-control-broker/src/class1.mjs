@@ -11,11 +11,16 @@
 //
 // Closure decision: `.git` is never part of the class-1 input closure. Inputs are
 // the git-listed files only, so repository metadata cannot alter a build.
-import { spawn as nodeSpawn } from 'node:child_process';
-import { constants as fsConstants } from 'node:fs';
-import { copyFile, chmod, lstat, mkdir, readlink, realpath, rm, stat, symlink } from 'node:fs/promises';
+import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
+import { chmod, lstat, mkdir, readlink, realpath, rm, stat, symlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { digestInputClosure, normalizeClosurePath } from './input-closure.mjs';
+import { promisify } from 'node:util';
+import { digestInputClosure, INPUTS_MUTATED, INPUTS_VERIFIED, normalizeClosurePath, recordInputClosure } from './input-closure.mjs';
+
+const execFile = promisify(nodeExecFile);
+export const CLASS1_CLONE_UNSUPPORTED = 'RK_CLASS1_CLONE_UNSUPPORTED';
+export const CLASS1_HELPER_UNTRUSTED = 'RK_CLASS1_HELPER_UNTRUSTED';
+export const CLASS1_PROTECTION = Object.freeze({ mechanism: 'apfs-clonefile+seatbelt', clone: 'clonefile-nofollow', fallbackCopy: false });
 
 export const CLASS1_UNSUPPORTED = 'RK_CLASS1_UNSUPPORTED_ON_HOST';
 export const CLASS1_MESSAGE = 'class1-unsupported-on-this-host';
@@ -74,14 +79,18 @@ export function seatbeltProfile({ buildRoot, writableRoots = [], temporaryRoots 
   ].join('\n');
 }
 
-/** Clone-then-hash. Refuses cross-volume roots (clonefile needs one APFS volume) and fails closed when cloning is unsupported. */
+/**
+ * Clone-then-hash. `fs.cloneFile(from, to)` is the only clone primitive: it must create a copy-on-write clone or throw.
+ * Refuses cross-volume roots (clonefile needs one APFS volume) and fails closed when no clone primitive is configured.
+ */
 export async function createCloneRoot({ sourceRoot, files, buildRootParent, id, fs = {} }) {
-  const ops = { stat, mkdir, copyFile, chmod, symlink, lstat, rm, realpath, ...fs };
+  const ops = { stat, mkdir, chmod, symlink, lstat, rm, realpath, ...fs };
   if (!/^[A-Za-z0-9._-]{1,128}$/.test(id ?? '')) throw classError('RK_CLASS1_INVALID_ID', 'build root id is malformed');
   const normalized = await validateClosure({ sourceRoot, files, lstatFn: ops.lstat, realpathFn: ops.realpath });
   const sourceReal = await ops.realpath(sourceRoot);
   const [sourceStat, parentStat] = await Promise.all([ops.stat(sourceReal), ops.stat(buildRootParent)]);
   if (sourceStat.dev !== parentStat.dev) throw classError('RK_CLASS1_CROSS_VOLUME', 'build root parent must be on the same volume as the source root (clonefile)');
+  if (typeof ops.cloneFile !== 'function') throw classError('RK_CLASS1_CLONE_UNSUPPORTED', 'no clone helper is configured; class-1 clones fail closed');
   const before = await digestInputClosure(sourceReal, normalized);
   const root = join(buildRootParent, id);
   await ops.mkdir(root, { mode: 0o700 });
@@ -98,7 +107,7 @@ export async function createCloneRoot({ sourceRoot, files, buildRootParent, id, 
         // Re-point the link inside the clone; the target was already proven to lie inside sourceRoot.
         await ops.symlink(relative(dirname(to), join(root, relative(sourceReal, targetReal))), to);
       } else {
-        await ops.copyFile(from, to, fsConstants.COPYFILE_FICLONE_FORCE);
+        await ops.cloneFile(from, to);
         await ops.chmod(to, 0o444);
       }
     }
@@ -120,21 +129,95 @@ export async function revalidateClone(clone, { digest = digestInputClosure } = {
   return true;
 }
 
-export function createMacosClass1Platform({ spawn = nodeSpawn, sandboxExec = SANDBOX_EXEC, exists = (path) => stat(path).then(() => true, () => false), digest = digestInputClosure, fs = {} } = {}) {
+/**
+ * Shared child preparation: validates the request, re-digests the clone (defence in depth) and returns the
+ * Seatbelt invocation. Callers spawn the returned command; they never run `command` directly.
+ */
+async function protectedInvocation({ sandboxExec, exists, digest, buildRoot, clone, command, args = [], cwd = buildRoot, writableRoots = [], temporaryRoots = [] }) {
+  if (!isAbsolute(command)) throw classError('RK_CLASS1_COMMAND_INVALID', 'protected child command must be absolute');
+  if (!isInside(buildRoot, cwd)) throw classError('RK_CLASS1_CWD_OUTSIDE', 'protected child cwd must lie inside the build root');
+  if (!(await exists(sandboxExec))) throw classError('RK_CLASS1_SANDBOX_MISSING', `${sandboxExec} is required for class-1 children`);
+  if (clone) await revalidateClone(clone, { digest });
+  const profile = seatbeltProfile({ buildRoot, writableRoots, temporaryRoots });
+  return Object.freeze({ command: sandboxExec, args: ['-p', profile, '--', command, ...args], cwd });
+}
+
+export function createMacosClass1Platform({ spawn = nodeSpawn, sandboxExec = SANDBOX_EXEC, exists = (path) => stat(path).then(() => true, () => false), digest = digestInputClosure, fs = {}, helper = null } = {}) {
+  const sandbox = { sandboxExec, exists, digest };
   return Object.freeze({
     platform: 'darwin',
+    protection: Object.freeze({ ...CLASS1_PROTECTION, sandbox: sandboxExec, helper }),
     async createProtectedBuildRoot({ sourceRoot, files, buildRootParent, id }) {
       return createCloneRoot({ sourceRoot, files, buildRootParent, id, fs });
     },
-    async spawnProtectedChild({ buildRoot, clone, command, args = [], cwd = buildRoot, env = {}, writableRoots = [], temporaryRoots = [], stdio = ['ignore', 'pipe', 'pipe'] }) {
-      if (!isAbsolute(command)) throw classError('RK_CLASS1_COMMAND_INVALID', 'protected child command must be absolute');
-      if (!isInside(buildRoot, cwd)) throw classError('RK_CLASS1_CWD_OUTSIDE', 'protected child cwd must lie inside the build root');
-      if (!(await exists(sandboxExec))) throw classError('RK_CLASS1_SANDBOX_MISSING', `${sandboxExec} is required for class-1 children`);
-      if (clone) await revalidateClone(clone, { digest });
-      const profile = seatbeltProfile({ buildRoot, writableRoots, temporaryRoots });
-      return spawn(sandboxExec, ['-p', profile, '--', command, ...args], { cwd, env, stdio, windowsHide: true });
+    /** Returns { command, args, cwd } for spawning a child inside the protected clone. Never spawns. */
+    async protectedInvocation(input) {
+      return protectedInvocation({ ...sandbox, ...input });
+    },
+    async spawnProtectedChild({ env = {}, stdio = ['ignore', 'pipe', 'pipe'], ...input }) {
+      const invocation = await protectedInvocation({ ...sandbox, ...input });
+      return spawn(invocation.command, invocation.args, { cwd: invocation.cwd, env, stdio, windowsHide: true });
     },
   });
+}
+
+/**
+ * Clone primitive backed by the `rightkit-clonefile` helper. The helper only ever clones (CLONE_NOFOLLOW);
+ * its exit status maps to a typed class-1 code. Any other failure (including a missing binary) fails closed.
+ */
+export function cloneFileWithHelper(helper, { run = (file, argv) => execFile(file, argv, { maxBuffer: 1024 * 1024 }) } = {}) {
+  if (!isAbsolute(helper)) throw classError(CLASS1_CLONE_UNSUPPORTED, 'clone helper path must be absolute');
+  return async (from, to) => {
+    try {
+      await run(helper, [from, to]);
+    } catch (error) {
+      const detail = String(error?.stderr ?? '').trim().split('\n').at(-1) ?? '';
+      if (error?.code === 'ENOENT') throw classError(CLASS1_CLONE_UNSUPPORTED, `clone helper is missing: ${helper}`);
+      if (error?.code === 3) throw classError(CLASS1_CLONE_UNSUPPORTED, `clonefile unsupported for ${to}: ${detail}`);
+      if (error?.code === 4) throw classError('RK_CLASS1_CROSS_VOLUME', `clone crosses volumes: ${detail}`);
+      if (error?.code === 5) throw classError('RK_CLASS1_CLONE_SYMLINK_REFUSED', `clone source is a symlink: ${from}`);
+      if (error?.code === 6) throw classError('RK_CLASS1_UNSUPPORTED_INPUT', `clone source is not a regular file: ${from}`);
+      throw classError('RK_CLASS1_CLONE_FAILED', `clone helper failed (${error?.code ?? 'unknown'}): ${detail || error?.message}`);
+    }
+  };
+}
+
+/**
+ * The helper must live inside the installed protected runtime and be root-owned, with no group or other write bit on
+ * it or on any directory from it up to the runtime root. A user-writable or relocated binary is refused.
+ */
+export async function verifyCloneHelper({ helper, protectedRoot, stat: statFn = stat, realpath: realpathFn = realpath }) {
+  if (!isAbsolute(helper ?? '') || !isAbsolute(protectedRoot ?? '')) throw classError(CLASS1_CLONE_UNSUPPORTED, 'clone helper and protected runtime root must be absolute');
+  const rootReal = await realpathFn(protectedRoot).catch(() => null);
+  const helperReal = await realpathFn(helper).catch(() => null);
+  if (!helperReal) throw classError(CLASS1_CLONE_UNSUPPORTED, `clone helper is missing: ${helper}`);
+  if (!rootReal || helperReal === rootReal || !isInside(rootReal, helperReal)) throw classError(CLASS1_HELPER_UNTRUSTED, 'clone helper must lie inside the installed protected runtime');
+  const helperInfo = await statFn(helperReal);
+  if (!helperInfo.isFile()) throw classError(CLASS1_HELPER_UNTRUSTED, 'clone helper is not a regular file');
+  const dirs = [];
+  for (let dir = dirname(helperReal); ; dir = dirname(dir)) { dirs.push(dir); if (dir === rootReal || dir === dirname(dir)) break; }
+  for (const path of [helperReal, ...dirs]) {
+    const info = path === helperReal ? helperInfo : await statFn(path);
+    if (info.uid !== 0) throw classError(CLASS1_HELPER_UNTRUSTED, `protected runtime path is not root-owned: ${path}`);
+    if ((info.mode & 0o022) !== 0) throw classError(CLASS1_HELPER_UNTRUSTED, `protected runtime path is group- or world-writable: ${path}`);
+  }
+  if ((helperInfo.mode & 0o111) === 0) throw classError(CLASS1_HELPER_UNTRUSTED, 'clone helper is not executable');
+  return helperReal;
+}
+
+/**
+ * Builds the macOS platform from the broker config. Any missing or untrusted helper yields an unsupported platform
+ * that records the reason; admission then fails closed with that code instead of silently disabling class 1.
+ */
+export async function createMacosClass1PlatformFromConfig({ helper, protectedRoot, sandboxExec = SANDBOX_EXEC, stat: statFn, realpath: realpathFn, run, spawn, exists, digest } = {}) {
+  try {
+    if (!helper || !protectedRoot) throw classError(CLASS1_CLONE_UNSUPPORTED, 'class1.cloneHelper and class1.protectedRoot are required on darwin');
+    const verified = await verifyCloneHelper({ helper, protectedRoot, stat: statFn, realpath: realpathFn });
+    return createMacosClass1Platform({ spawn, sandboxExec, exists, digest, helper: verified, fs: { cloneFile: cloneFileWithHelper(verified, { run }) } });
+  } catch (error) {
+    const refuse = async () => { throw error; };
+    return Object.freeze({ platform: 'darwin', supported: false, failure: error.code ?? CLASS1_CLONE_UNSUPPORTED, createProtectedBuildRoot: refuse, protectedInvocation: refuse, spawnProtectedChild: refuse });
+  }
 }
 
 /** Platform dispatcher. Windows (and any unregistered platform) gets the typed unsupported default. */
@@ -142,19 +225,38 @@ export function createClass1Platform({ platform = process.platform, registry = n
   const implementations = { darwin: macos ?? (() => createMacosClass1Platform()), ...(registry ?? {}) };
   const impl = implementations[platform];
   const built = typeof impl === 'function' ? impl() : impl;
-  if (built && typeof built.createProtectedBuildRoot === 'function' && typeof built.spawnProtectedChild === 'function') return Object.freeze({ platform, supported: true, ...built });
+  if (built && typeof built.createProtectedBuildRoot === 'function' && typeof built.spawnProtectedChild === 'function' && typeof built.protectedInvocation === 'function') return Object.freeze({ platform, supported: true, ...built });
   const refuse = async () => { throw class1Unsupported(platform); };
-  return Object.freeze({ platform, supported: false, createProtectedBuildRoot: refuse, spawnProtectedChild: refuse });
+  return Object.freeze({ platform, supported: false, createProtectedBuildRoot: refuse, spawnProtectedChild: refuse, protectedInvocation: refuse });
 }
 
 /** Admission gate: class-1 work fails closed unless the host provides protection. */
 export async function admitClass1({ platform, input, evidenceClass = 'class2' }) {
   if (evidenceClass !== 'class1') return { admitted: false, evidenceClass, reason: 'not an evidence build' };
-  if (!platform?.supported) return { admitted: false, evidenceClass, code: CLASS1_UNSUPPORTED, reason: CLASS1_MESSAGE };
+  if (!platform?.supported) return { admitted: false, evidenceClass, code: platform?.failure ?? CLASS1_UNSUPPORTED, reason: platform?.failure ? `${CLASS1_MESSAGE}: ${platform.failure}` : CLASS1_MESSAGE };
   try {
     const clone = await platform.createProtectedBuildRoot(input);
     return { admitted: true, evidenceClass, clone };
   } catch (error) {
     return { admitted: false, evidenceClass, code: error.code ?? 'RK_CLASS1_FAILED', reason: error.message };
   }
+}
+
+/** Platform for the broker config: darwin uses the verified helper, every other host gets the typed unsupported default. */
+export async function class1PlatformFromConfig(class1Config, { platform = process.platform, ...deps } = {}) {
+  if (platform !== 'darwin') return createClass1Platform({ platform });
+  return createMacosClass1PlatformFromConfig({ helper: class1Config?.cloneHelper, protectedRoot: class1Config?.protectedRoot, ...deps });
+}
+
+/** Defence in depth: re-digest the clone after every child exits. A moved clone can never be evidence. */
+export async function verifyClone(clone, { digest = digestInputClosure } = {}) {
+  const after = await digest(clone.root, clone.files);
+  const status = after.digest === clone.digest ? INPUTS_VERIFIED : INPUTS_MUTATED;
+  return Object.freeze({ status, preDigest: clone.digest, postDigest: after.digest, changed: [], added: [], removed: [], extrasChanged: [] });
+}
+
+/** Adds the class-1 evidence fields to a receipt. A moved clone also marks the receipt inputs-mutated (never promotable). */
+export function recordClass1Evidence(receipt, { cloneDigest = null, protection = null, verdict = null } = {}) {
+  const evidenced = Object.freeze({ ...receipt, evidenceClass: 'class1', cloneDigest, protection });
+  return verdict?.status === INPUTS_MUTATED ? recordInputClosure(evidenced, verdict) : evidenced;
 }

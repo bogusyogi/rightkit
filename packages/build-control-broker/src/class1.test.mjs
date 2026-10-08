@@ -5,10 +5,11 @@ import { appendFile, chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { admitClass1, CLASS1_MESSAGE, CLASS1_UNSUPPORTED, createClass1Platform, createCloneRoot, createMacosClass1Platform, revalidateClone, seatbeltProfile, validateClosure } from './class1.mjs';
+import { admitClass1, CLASS1_CLONE_UNSUPPORTED, CLASS1_HELPER_UNTRUSTED, CLASS1_MESSAGE, CLASS1_UNSUPPORTED, cloneFileWithHelper, createClass1Platform, createCloneRoot, createMacosClass1Platform, createMacosClass1PlatformFromConfig, revalidateClone, seatbeltProfile, validateClosure, verifyCloneHelper } from './class1.mjs';
 import { digestInputClosure, normalizeClosurePath } from './input-closure.mjs';
 
 const isDarwin = process.platform === 'darwin';
+const helperBin = process.env.RK_CLONEFILE_BIN;
 async function dirs() {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'rk-class1-')));
   const source = join(base, 'source'); const parent = join(base, 'builds');
@@ -31,7 +32,7 @@ test('non-darwin hosts get the typed class1-unsupported default and fail closed'
 
 test('a Windows implementation registers through the same interface without changing the Mac path', async () => {
   const calls = [];
-  const windows = { createProtectedBuildRoot: async (input) => { calls.push(['root', input.id]); return { root: 'C:\\clone', digest: 'd', files: [], release: async () => {} }; }, spawnProtectedChild: async () => { calls.push(['spawn']); return new EventEmitter(); } };
+  const windows = { createProtectedBuildRoot: async (input) => { calls.push(['root', input.id]); return { root: 'C:\\clone', digest: 'd', files: [], release: async () => {} }; }, spawnProtectedChild: async () => { calls.push(['spawn']); return new EventEmitter(); }, protectedInvocation: async () => ({ command: 'x', args: [], cwd: 'C:\\clone' }) };
   const p = createClass1Platform({ platform: 'win32', registry: { win32: windows } });
   assert.equal(p.supported, true);
   await p.createProtectedBuildRoot({ id: 'w1' }); await p.spawnProtectedChild({});
@@ -85,7 +86,7 @@ test('clone refuses a build-root parent on another volume (clonefile needs one v
 test('clone fails closed when cloning is unsupported and leaves no partial root behind', async () => {
   const d = await dirs();
   try {
-    const fs = { copyFile: async () => { throw Object.assign(new Error('clonefile not supported'), { code: 'ENOTSUP' }); } };
+    const fs = { cloneFile: async () => { throw Object.assign(new Error('clonefile not supported'), { code: 'ENOTSUP' }); } };
     await assert.rejects(createCloneRoot({ sourceRoot: d.source, files: FILES, buildRootParent: d.parent, id: 'b2', fs }), codeOf('RK_CLASS1_CLONE_UNSUPPORTED'));
     await assert.rejects(stat(join(d.parent, 'b2')), (error) => error.code === 'ENOENT');
   } finally { await d.close(); }
@@ -94,7 +95,7 @@ test('clone fails closed when cloning is unsupported and leaves no partial root 
 test('a source that changes while cloning is refused (RK_CLASS1_INPUTS_MUTATED)', async () => {
   const d = await dirs();
   try {
-    const fs = { copyFile: async (from, to) => { await copyFile(from, to); await appendFile(join(d.source, 'Cargo.toml'), '# drift\n'); } };
+    const fs = { cloneFile: async (from, to) => { await copyFile(from, to); await appendFile(join(d.source, 'Cargo.toml'), '# drift\n'); } };
     await assert.rejects(createCloneRoot({ sourceRoot: d.source, files: FILES, buildRootParent: d.parent, id: 'b3', fs }), codeOf('RK_CLASS1_INPUTS_MUTATED'));
   } finally { await d.close(); }
 });
@@ -157,13 +158,13 @@ test('a clone whose bytes moved after admission is never built from (revalidated
 });
 
 async function createCloneRootFake(d) {
-  // Plain copy through the injected fs seam; the clone primitive itself is covered by the darwin test below.
-  return createCloneRoot({ sourceRoot: d.source, files: FILES, buildRootParent: d.parent, id: `fake-${Math.random().toString(36).slice(2)}`, fs: { copyFile: (from, to) => copyFile(from, to) } });
+  // Plain copy through the injected clone seam; the real clone primitive is covered by the helper test below.
+  return createCloneRoot({ sourceRoot: d.source, files: FILES, buildRootParent: d.parent, id: `fake-${Math.random().toString(36).slice(2)}`, fs: { cloneFile: (from, to) => copyFile(from, to) } });
 }
 
 // Contract on this host: COPYFILE_FICLONE_FORCE either clones (APFS, same volume) or fails closed with
 // RK_CLASS1_CLONE_UNSUPPORTED and leaves no residue. It must never fall back to a silent byte copy.
-test('real clone primitive: clones and verifies, or fails closed with no residue (never a silent copy)', { skip: !isDarwin && 'darwin only' }, async (t) => {
+test('real clone primitive: clones and verifies, or fails closed with no residue (never a silent copy)', { skip: (!isDarwin || !helperBin) && 'darwin only; set RK_CLONEFILE_BIN to the built rightkit-clonefile' }, async (t) => {
   const d = await dirs();
   try {
     await mkdir(join(d.source, 'deep', 'er'), { recursive: true });
@@ -171,7 +172,7 @@ test('real clone primitive: clones and verifies, or fails closed with no residue
     await symlink('src/lib.rs', join(d.source, 'alias.rs'));
     const files = ['Cargo.toml', 'src/lib.rs', 'deep/er/mod.rs', 'alias.rs'];
     const sourceDigest = (await digestInputClosure(d.source, files)).digest;
-    const attempt = await createMacosClass1Platform().createProtectedBuildRoot({ sourceRoot: d.source, files, buildRootParent: d.parent, id: 'real-1' }).then((value) => ({ value }), (error) => ({ error }));
+    const attempt = await createMacosClass1Platform({ fs: { cloneFile: cloneFileWithHelper(helperBin) } }).createProtectedBuildRoot({ sourceRoot: d.source, files, buildRootParent: d.parent, id: 'real-1' }).then((value) => ({ value }), (error) => ({ error }));
     if (attempt.error) {
       assert.equal(attempt.error.code, 'RK_CLASS1_CLONE_UNSUPPORTED', attempt.error.message);
       assert.deepEqual(await readdir(d.parent), [], 'a refused clone leaves no partial root');
@@ -210,4 +211,68 @@ test('kernel write denial: a Seatbelt child cannot write into the clone but can 
     assert.equal(await readFile(join(clone.root, 'Cargo.toml'), 'utf8'), '[package]\nname = "x"\n');
     await clone.release();
   } finally { await d.close(); }
+});
+
+test('clone seam: no clone primitive configured means no clone, no residue (fail closed, never a byte copy)', async () => {
+  const d = await dirs();
+  try {
+    await assert.rejects(createCloneRoot({ sourceRoot: d.source, files: FILES, buildRootParent: d.parent, id: 'nohelper' }), codeOf(CLASS1_CLONE_UNSUPPORTED));
+    await assert.rejects(stat(join(d.parent, 'nohelper')), (error) => error.code === 'ENOENT');
+  } finally { await d.close(); }
+});
+
+test('helper exit statuses map to typed class-1 codes; a missing binary fails closed as unsupported', async () => {
+  const cases = [
+    [3, CLASS1_CLONE_UNSUPPORTED], [4, 'RK_CLASS1_CROSS_VOLUME'], [5, 'RK_CLASS1_CLONE_SYMLINK_REFUSED'], [6, 'RK_CLASS1_UNSUPPORTED_INPUT'], [1, 'RK_CLASS1_CLONE_FAILED'],
+  ];
+  for (const [status, code] of cases) {
+    const run = async () => { throw Object.assign(new Error('exit'), { code: status, stderr: '{"ok":false,"code":"X"}\n' }); };
+    await assert.rejects(cloneFileWithHelper('/opt/rk/runtime/bin/rightkit-clonefile', { run })('/a', '/b'), codeOf(code));
+  }
+  const missing = cloneFileWithHelper('/opt/rk/runtime/bin/rightkit-clonefile', { run: async () => { throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }); } });
+  await assert.rejects(missing('/a', '/b'), codeOf(CLASS1_CLONE_UNSUPPORTED));
+  assert.throws(() => cloneFileWithHelper('rightkit-clonefile'), codeOf(CLASS1_CLONE_UNSUPPORTED), 'a relative helper path is refused');
+});
+
+test('the helper must sit inside the protected runtime and be root-owned and not writable by others', async () => {
+  const d = await dirs();
+  try {
+    const runtime = join(d.base, 'runtime'); const bin = join(runtime, 'bin'); await mkdir(bin, { recursive: true });
+    const helper = join(bin, 'rightkit-clonefile'); await writeFile(helper, '#!/bin/sh\n'); await chmod(helper, 0o755);
+    const realRoot = await realpath(runtime);
+    // Real stat (this test process is not root): ownership refusal is the proof the check runs.
+    await assert.rejects(verifyCloneHelper({ helper, protectedRoot: runtime }), codeOf(CLASS1_HELPER_UNTRUSTED));
+    // Injected owner view: root-owned everywhere is accepted.
+    const rootOwned = async (path) => { const info = await stat(path); return { isFile: () => info.isFile(), mode: info.mode, uid: 0 }; };
+    assert.equal(await verifyCloneHelper({ helper, protectedRoot: runtime, stat: rootOwned }), await realpath(helper));
+    // A helper outside the protected runtime is refused even when root-owned.
+    const outside = join(d.base, 'rightkit-clonefile'); await writeFile(outside, 'x'); await chmod(outside, 0o755);
+    await assert.rejects(verifyCloneHelper({ helper: outside, protectedRoot: runtime, stat: rootOwned }), codeOf(CLASS1_HELPER_UNTRUSTED));
+    // A group-writable helper is refused.
+    await chmod(helper, 0o775);
+    await assert.rejects(verifyCloneHelper({ helper, protectedRoot: runtime, stat: rootOwned }), codeOf(CLASS1_HELPER_UNTRUSTED));
+    await chmod(helper, 0o755);
+    assert.ok(realRoot);
+    // A missing helper is unsupported, never a fallback.
+    await assert.rejects(verifyCloneHelper({ helper: join(bin, 'absent'), protectedRoot: runtime, stat: rootOwned }), codeOf(CLASS1_CLONE_UNSUPPORTED));
+  } finally { await d.close(); }
+});
+
+test('config-built darwin platform records why it is unsupported and admission reports that code', async () => {
+  const missing = await createMacosClass1PlatformFromConfig({ helper: null, protectedRoot: null });
+  assert.equal(missing.supported, false);
+  const refused = await admitClass1({ platform: missing, evidenceClass: 'class1', input: {} });
+  assert.equal(refused.admitted, false); assert.equal(refused.code, CLASS1_CLONE_UNSUPPORTED);
+  const untrusted = await createMacosClass1PlatformFromConfig({ helper: '/tmp/no/rightkit-clonefile', protectedRoot: '/tmp/no' });
+  const refusedUntrusted = await admitClass1({ platform: untrusted, evidenceClass: 'class1', input: {} });
+  assert.equal(refusedUntrusted.admitted, false); assert.equal(refusedUntrusted.code, CLASS1_CLONE_UNSUPPORTED);
+});
+
+test('protected invocation is the Seatbelt argv for a clone-rooted command and never spawns on its own', async () => {
+  const { calls, spawn } = fakeSpawn();
+  const p = createMacosClass1Platform({ spawn, exists: async () => true });
+  const inv = await p.protectedInvocation({ buildRoot: '/var/x/b1', command: '/usr/bin/cargo', args: ['check'], cwd: '/var/x/b1/crate', writableRoots: ['/var/x/target'] });
+  assert.equal(inv.command, '/usr/bin/sandbox-exec'); assert.equal(inv.cwd, '/var/x/b1/crate'); assert.deepEqual(inv.args.slice(2), ['--', '/usr/bin/cargo', 'check']);
+  assert.equal(calls.length, 0, 'protectedInvocation must not spawn');
+  assert.equal(p.protection.mechanism, 'apfs-clonefile+seatbelt'); assert.equal(p.protection.fallbackCopy, false);
 });

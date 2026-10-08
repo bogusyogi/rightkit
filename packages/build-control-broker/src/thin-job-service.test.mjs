@@ -9,7 +9,8 @@ import { BUILD_CONTROL_PROTOCOL, SOURCE_RUNTIME_IDENTITY } from '@rightkit/build
 import { brokerEndpointForPlatform, CachedWorkspaceResolver, ThinJobService, createThinJobServer, resolveCargoWorkspace, resolveRepositoryRoot } from './thin-job-service.mjs';
 import { ThinState } from './thin-state.mjs';
 import { beginCutoverDrain, endCutoverDrain } from './cutover-shared.mjs';
-import { InputClosureGuard, assertPromotableReceipt } from './input-closure.mjs';
+import { InputClosureGuard, assertPromotableReceipt, digestInputClosure } from './input-closure.mjs';
+import { spawnSync } from 'node:child_process';
 
 const digest = 'a'.repeat(64);
 const canonicalTempDir = async (prefix) => realpath(await mkdtemp(join(tmpdir(), prefix)));
@@ -21,7 +22,7 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, indexRefreshRetry = undefined, coalesceIdenticalRequests = undefined, workspaceResolver = null, startChild = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }), inputClosure = undefined } = {}) {
+async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, indexRefreshRetry = undefined, coalesceIdenticalRequests = undefined, workspaceResolver = null, startChild = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }), inputClosure = undefined, class1 = undefined } = {}) {
   const root = await canonicalTempDir('rightkit-thin-job-'); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
@@ -33,9 +34,10 @@ async function fixture({ bounds = {}, externalCommands = [], cache = null, cache
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
   const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc', rustup: 'rustup' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
   Object.assign(config.bounds, bounds);
+  if (class1 !== undefined) config.class1 = { buildRootParent: join(root, 'builds') };
   if (indexRefreshRetry !== undefined) config.indexRefreshRetry = indexRefreshRetry;
   if (coalesceIdenticalRequests !== undefined) config.coalesceIdenticalRequests = coalesceIdenticalRequests;
-  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(inputClosure === undefined ? {} : { inputClosure }), ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: workspaceResolver ?? (async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd })), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; child.cwd = options.cwd; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); else if (startChild) await startChild(child); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
+  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(inputClosure === undefined ? {} : { inputClosure }), ...(class1 === undefined ? {} : { class1 }), ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: workspaceResolver ?? (async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd })), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; child.cwd = options.cwd; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); else if (startChild) await startChild(child); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -1418,4 +1420,88 @@ test('class 2: an unreadable closure is recorded unverified and is not promotabl
     assert.match(receipt.inputClosure.reason, /git unavailable/);
     assert.throws(() => assertPromotableReceipt(receipt), (error) => error.code === 'RK_INPUTS_UNVERIFIED');
   } finally { await item.close(); }
+});
+
+test('class 1: an unsupported host rejects the evidence build before any hashing, clone or spawn', async () => {
+  const item = await fixture();
+  try {
+    const submitted = streamCall(item.service, message(item.workspace, ['build', '--locked'], { evidenceClass: 'class1' }));
+    const result = await submitted.done;
+    assert.equal(result.receipt.status, 'REJECTED');
+    assert.equal(result.receipt.reason, 'RK_CLASS1_UNSUPPORTED_ON_HOST');
+    assert.equal(result.receipt.evidenceClass, 'class1');
+    assert.equal(result.receipt.cloneDigest, null);
+    assert.equal(item.children.length, 0, 'no child may run without protection');
+  } finally { await item.close(); }
+});
+
+test('class 1: an unknown evidence class is refused at admission, never treated as class 2', async () => {
+  const item = await fixture();
+  try {
+    const { events } = await call(item.service, command('SUBMIT', message(item.workspace, ['build'], { evidenceClass: 'class9' })));
+    const rejected = events.find((event) => event.type === 'RESULT');
+    assert.equal(rejected?.status, 'REJECTED');
+    assert.equal(rejected?.code, 'RK_EVIDENCE_CLASS_INVALID');
+    assert.equal(item.children.length, 0);
+  } finally { await item.close(); }
+});
+
+async function class1Fake() {
+  const base = await canonicalTempDir('rightkit-class1-clone-');
+  const cloneRoot = join(base, 'clone');
+  await mkdir(join(cloneRoot, 'workspace', '.cargo'), { recursive: true });
+  await writeFile(join(cloneRoot, 'Cargo.toml'), '[package]\nname = "closure"\n');
+  await writeFile(join(cloneRoot, 'workspace', '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
+  const calls = { release: 0, invocations: [] };
+  const protection = Object.freeze({ mechanism: 'fake-clone+seatbelt', clone: 'fake', fallbackCopy: false });
+  const platform = Object.freeze({
+    platform: 'darwin', supported: true, protection,
+    createProtectedBuildRoot: async ({ files }) => ({ root: cloneRoot, digest: (await digestInputClosure(cloneRoot, files)).digest, files, release: async () => { calls.release += 1; } }),
+    protectedInvocation: async ({ command, args, cwd, writableRoots }) => { calls.invocations.push({ command, cwd, writableRoots }); return { command: '/usr/bin/sandbox-exec', args: ['-p', 'PROFILE', '--', command, ...args], cwd }; },
+    spawnProtectedChild: async () => { throw new Error('unused'); },
+  });
+  return { base, cloneRoot, calls, platform, protection };
+}
+
+async function class1Run(item, fake, mutate = null) {
+  await rm(join(item.repository, '.git'), { recursive: true, force: true });
+  spawnSync('git', ['init', '-q', item.repository]);
+  await writeFile(join(item.repository, 'Cargo.toml'), '[package]\nname = "closure"\n');
+  const submitted = streamCall(item.service, message(item.workspace, ['build', '--locked'], { evidenceClass: 'class1' }));
+  const first = await submitted.submission;
+  await waitFor(item.service, first.id, ['RUNNING']);
+  if (mutate) await mutate(fake.cloneRoot);
+  const child = item.children.find((candidate) => candidate.payload.argv.includes('build'));
+  child.emit('close', 0, null);
+  const result = await submitted.done;
+  for (let attempt = 0; attempt < 100 && fake.calls.release === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  return { receipt: result.receipt, child };
+}
+
+test('class 1: the child runs from the clone under the protected invocation and the receipt records evidence', async () => {
+  const fake = await class1Fake();
+  const item = await fixture({ class1: fake.platform });
+  try {
+    const { receipt, child } = await class1Run(item, fake);
+    assert.equal(receipt.status, 'SUCCEEDED', receipt.error ?? receipt.reason);
+    assert.equal(receipt.evidenceClass, 'class1');
+    assert.equal(receipt.protection.mechanism, fake.protection.mechanism);
+    assert.match(receipt.cloneDigest, /^[0-9a-f]{64}$/);
+    assert.notEqual(receipt.inputClosure?.status, 'inputs-mutated', 'a clean clone is not marked mutated');
+    assert.equal(child.payload.command, '/usr/bin/sandbox-exec');
+    assert.equal(child.payload.argv[0], '-p');
+    assert.equal(child.cwd, join(fake.cloneRoot, 'workspace'), 'the cargo cwd lies inside the clone');
+    assert.equal(fake.calls.release, 1, 'the clone is released once, after the child exits');
+  } finally { await item.close(); await rm(fake.base, { recursive: true, force: true }); }
+});
+
+test('class 1: a clone that moves during the run is recorded inputs-mutated and can never be evidence', async () => {
+  const fake = await class1Fake();
+  const item = await fixture({ class1: fake.platform });
+  try {
+    const { receipt } = await class1Run(item, fake, (cloneRoot) => writeFile(join(cloneRoot, 'Cargo.toml'), '[package]\nname = "tampered"\n'));
+    assert.equal(receipt.inputClosure.status, 'inputs-mutated');
+    assert.equal(receipt.evidenceClass, 'class1');
+    assert.throws(() => assertPromotableReceipt(receipt), (error) => error.code === 'RK_INPUTS_MUTATED');
+  } finally { await item.close(); await rm(fake.base, { recursive: true, force: true }); }
 });

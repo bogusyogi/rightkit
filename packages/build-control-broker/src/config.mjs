@@ -2,7 +2,8 @@ import { HOST_DERIVED_BOUNDS } from './host-sizing.mjs';
 import { readFile as defaultReadFile } from 'node:fs/promises';
 import { isAbsolute, normalize, relative, win32 } from 'node:path';
 
-const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands', 'ownership', 'indexRefreshRetry', 'coalesceIdenticalRequests']);
+const topLevel = new Set(['schemaVersion', 'broker', 'unixSocket', 'windowsPipe', 'tools', 'shims', 'defaults', 'outputPolicy', 'bounds', 'sccache', 'externalCommands', 'ownership', 'indexRefreshRetry', 'coalesceIdenticalRequests', 'class1']);
+const class1Fields = new Set(['cloneHelper', 'protectedRoot', 'buildRootParent', 'writableRoots']);
 const brokerFields = new Set(['externalRoot', 'capacityBytes', 'stateFile', 'receiptsDir', 'activationFencePath', 'controlRoot']);
 const externalRootFields = new Set(['path', 'volumeId', 'mounted', 'writable', 'internal']);
 const toolFields = new Set(['id', 'path', 'root', 'sha256']);
@@ -157,11 +158,19 @@ function validateBounds(value, { capacity }) {
 }
 
 /** Reject malformed or ambiguous configuration before a process can bind a live endpoint. */
+/** Class-1 paths are absolute; the helper and protected runtime root must sit in the root-owned runtime (checked at startup). */
+function validateClass1Config(value) {
+  const section = object(value, 'class1'); only(section, class1Fields, 'class1');
+  for (const key of ['cloneHelper', 'protectedRoot', 'buildRootParent']) if (section[key] !== undefined && (typeof section[key] !== 'string' || !isAbsolute(section[key]))) throw new TypeError(`class1.${key} must be an absolute path`);
+  if (section.writableRoots !== undefined && (!Array.isArray(section.writableRoots) || section.writableRoots.some((path) => typeof path !== 'string' || !isAbsolute(path)))) throw new TypeError('class1.writableRoots must be absolute paths');
+}
+
 export function validateBrokerConfig(value) {
   // Legacy: the first control-plane migration wrote nodePath into broker config. The plist owns
   // the node path now; accept and drop it so configs written by that migration still load.
   const { nodePath: _legacyNodePath, ...current } = object(value, 'broker config');
   const config = current; only(config, topLevel, 'broker config');
+  if (config.class1 !== undefined) validateClass1Config(config.class1);
   const schemaVersion = config.schemaVersion ?? 2;
   if (schemaVersion !== 2) throw new TypeError('schemaVersion must be 2');
 

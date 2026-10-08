@@ -4,7 +4,8 @@ import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, statfs as nodeStatfs, writeFile } from 'node:fs/promises';
 import { sweepTemporary } from './temp-sweep.mjs';
 import { OwnershipAdmission } from './ownership-admission.mjs';
-import { InputClosureGuard, recordInputClosure } from './input-closure.mjs';
+import { gitListedClosure, InputClosureGuard, recordInputClosure } from './input-closure.mjs';
+import { admitClass1, class1PlatformFromConfig, createClass1Platform, recordClass1Evidence, verifyClone } from './class1.mjs';
 import net from 'node:net';
 import { cpus, freemem, homedir, totalmem } from 'node:os';
 import { safeResourceSnapshot, summarizeBuildResources } from './resource-telemetry.mjs';
@@ -110,6 +111,15 @@ const STALL_SAMPLE_MS = 10_000;
 const STALL_MIN_CPU_MS = 500;
 
 /** A registry token travels only as credentialStdin, and only to a capability that pipes it (cargo login). */
+/** Evidence class per request: class2 (default, ordinary dev builds) or class1 (release, seal, publish, protected acceptance). */
+export function normalizeEvidenceClass(value) {
+  if (value === undefined || value === null || value === 'class2') return 'class2';
+  if (value === 'class1') return 'class1';
+  throw Object.assign(new TypeError('evidenceClass must be class1 or class2'), { code: 'RK_EVIDENCE_CLASS_INVALID' });
+}
+
+function class1Error(code, message) { return Object.assign(new Error(message), { code }); }
+
 export function validateCredentialStdin(capability, credential) {
   if (capability?.credentialStdin) {
     if (typeof credential !== 'string' || !credential.trim() || credential.length > 8192 || /[\0\r\n]/.test(credential)) throw Object.assign(new TypeError('cargo login needs the registry token on stdin: run `rightkit cargo login` and paste it at the prompt, or pipe it in'), { code: 'RK_CREDENTIAL_REQUIRED' });
@@ -257,9 +267,9 @@ function hostResourceSnapshot() {
 }
 
 export class ThinJobService {
-  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #rustupHome; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #readResources; #readHostResources; #statfs; #now; #platform; #nativeOpenSsl; #admission; #inputClosure; #jobs = new Map(); #credentials = new WeakMap(); #admissions = new Map(); #stopping = false;
+  #config; #runtime; #state; #cache; #policy; #scheduler; #logger; #singleton; #registry; #toolchainLibraryPath; #rustupToolchain; #rustupHome; #compilerEnvironment; #compilerIdentity; #spawn; #workspaceResolver; #repositoryResolver; #identity; #ownership; #start; #terminate; #readResources; #readHostResources; #statfs; #now; #platform; #nativeOpenSsl; #admission; #inputClosure; #class1; #jobs = new Map(); #credentials = new WeakMap(); #admissions = new Map(); #stopping = false;
 
-  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, readResources = readManagedProcessResources, readHostResources = hostResourceSnapshot, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform, nativeOpenSsl = undefined, ownershipAdmission = undefined, inputClosure = undefined } = {}) {
+  static async create({ config, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, registry = null, scheduler = null, state = null, cache = null, logger = null, singleton = null, spawn = nodeSpawn, workspaceResolver = resolveCargoWorkspace, repositoryResolver = resolveRepositoryRoot, processIdentity = readManagedProcessIdentity, processOwnership = managedProcessOwnership, startProcess = startManagedProcess, terminateProcess = terminateProcessTree, readResources = readManagedProcessResources, readHostResources = hostResourceSnapshot, reapPersisted = reapPersistedProcessTree, statfs = nodeStatfs, now = Date.now, platform = process.platform, nativeOpenSsl = undefined, ownershipAdmission = undefined, inputClosure = undefined, class1 = undefined } = {}) {
     if (!config?.broker?.externalRoot?.path) throw new TypeError('validated broker config is required');
     const externalRoot = normalize(config.broker.externalRoot.path);
     const controlRoot = resolveManagedRoots({ platform, dataRoot: externalRoot, controlRoot: config.broker.controlRoot ?? externalRoot }).controlRoot;
@@ -317,7 +327,7 @@ export class ThinJobService {
         ? workspaceResolver
         : new CachedWorkspaceResolver({ resolver: workspaceResolver, ttlMs: integer(config.bounds?.workspaceDiscoveryTtlMs, 10 * 60_000, 0), timeoutMs: integer(config.bounds?.workspaceDiscoveryTimeoutMs, 30_000, 1), concurrency: integer(config.bounds?.controlConcurrency, 4, 1) });
       const rustupContext = registeredRustupContext(cargoTool.path);
-      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: rustupContext.toolchain, rustupHome: rustupContext.home, compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform, ownershipAdmission, inputClosure: inputClosure === undefined ? (config.inputClosure?.enabled === false ? null : new InputClosureGuard()) : inputClosure, nativeOpenSsl: nativeOpenSsl === undefined ? (platform === 'win32' ? new NativeOpenSslCache({ root: join(dirname(thinState.paths.temporary), 'n') }) : null) : nativeOpenSsl });
+      service = new ThinJobService({ config, runtimeIdentity, state: thinState, cache: thinCache, policy: new ThinCommandPolicy({ externalCommands: config.externalCommands }), scheduler: thinScheduler, logger: thinLogger, singleton: ownedSingleton, registry: toolRegistry, toolchainLibraryPath: join(dirname(cargoTool.path), '..', 'lib'), rustupToolchain: rustupContext.toolchain, rustupHome: rustupContext.home, compilerEnvironment: Object.freeze({ RUSTC: rustcTool.path, RUSTDOC: rustdocTool.path }), compilerIdentity: Object.freeze({ rustc: rustcTool, rustdoc: rustdocTool }), spawn, workspaceResolver: discoveryResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform, ownershipAdmission, inputClosure: inputClosure === undefined ? (config.inputClosure?.enabled === false ? null : new InputClosureGuard()) : inputClosure, class1: class1 === undefined ? await class1PlatformFromConfig(config.class1, { platform }) : class1, nativeOpenSsl: nativeOpenSsl === undefined ? (platform === 'win32' ? new NativeOpenSslCache({ root: join(dirname(thinState.paths.temporary), 'n') }) : null) : nativeOpenSsl });
       await thinState.recoverActive({ reap: (ownership) => reapPersisted(ownership, { graceMs: integer(config.bounds?.processGraceMs, 5_000, 1), platform }) });
       await thinCache.start?.();
       await service.#log({ type: 'BROKER_READY', runtime: service.#runtime });
@@ -334,11 +344,11 @@ export class ThinJobService {
     }
   }
 
-  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, rustupToolchain, rustupHome, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform = process.platform, nativeOpenSsl = null, ownershipAdmission = undefined, inputClosure = null }) {
+  constructor({ config, runtimeIdentity, state, cache, policy, scheduler, logger, singleton, registry, toolchainLibraryPath, rustupToolchain, rustupHome, compilerEnvironment, compilerIdentity, spawn, workspaceResolver, repositoryResolver, processIdentity, processOwnership, startProcess, terminateProcess, readResources, readHostResources, statfs, now, platform = process.platform, nativeOpenSsl = null, ownershipAdmission = undefined, inputClosure = null, class1 = null }) {
     this.#nativeOpenSsl = nativeOpenSsl;
     this.#config = config; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#state = state; this.#cache = cache; this.#policy = policy; this.#scheduler = scheduler; this.#logger = logger; this.#singleton = singleton; this.#registry = registry; this.#toolchainLibraryPath = toolchainLibraryPath; this.#rustupToolchain = rustupToolchain; this.#rustupHome = rustupHome; this.#compilerEnvironment = compilerEnvironment; this.#compilerIdentity = compilerIdentity; this.#spawn = spawn; this.#workspaceResolver = workspaceResolver; this.#repositoryResolver = repositoryResolver; this.#identity = processIdentity; this.#ownership = processOwnership; this.#start = startProcess; this.#terminate = terminateProcess; this.#readResources = readResources ?? readManagedProcessResources; this.#readHostResources = readHostResources ?? hostResourceSnapshot; this.#statfs = statfs; this.#now = now; this.#platform = platform;
     this.#admission = ownershipAdmission ?? new OwnershipAdmission({ mode: config.ownership?.mode ?? 'report', timeoutMs: config.ownership?.timeoutMs ?? 30_000, now });
-    this.#inputClosure = inputClosure;
+    this.#inputClosure = inputClosure; this.#class1 = class1 ?? createClass1Platform({ platform });
   }
 
   get runtimeIdentity() { return this.#runtime; }
@@ -537,6 +547,7 @@ export class ThinJobService {
     this.#assertRuntime(message.runtime);
     const request = normalizeManagedAgentRequest(message.request);
     validateManagedRustupInvocation(message.shim, request.argv);
+    const evidenceClass = normalizeEvidenceClass(message.evidenceClass);
     const parentId = message.execution?.mode === 'NESTED' ? message.execution.parentId : null;
     if (message.execution && !parentId) throw new TypeError('nested execution requires parentId');
     const parent = parentId ? this.#jobs.get(parentId) : null;
@@ -605,12 +616,12 @@ export class ThinJobService {
     const effectiveCapability = nestedCompiler ? Object.freeze({ ...capability, artifactWrite: false, nestedOverride: true, skipRootServices: true }) : capability;
     const requestEnvironment = nestedCompiler ? normalizeDelegatedCompilerEnvironment(request.environment) : normalizeRequestEnvironment(request.environment);
     // Keep submission argv stable: execution later injects broker-owned target paths.
-    const coalescible = this.#config.coalesceIdenticalRequests !== false && !parentId && cacheRoot && compileClass(effectiveCapability) && effectiveCapability.artifactWrite && !effectiveCapability.residentAfterBuild && !effectiveCapability.credentialStdin
+    const coalescible = this.#config.coalesceIdenticalRequests !== false && !parentId && evidenceClass === 'class2' && cacheRoot && compileClass(effectiveCapability) && effectiveCapability.artifactWrite && !effectiveCapability.residentAfterBuild && !effectiveCapability.credentialStdin
       && message.shim === 'cargo' && ['build', 'check', 'test', 'clippy', 'doc'].includes(effectiveCapability.command)
       && [message, message.request].every((value) => value.credentialStdin === undefined && value.stdin === undefined && value.stdinPayload === undefined);
     const environmentFingerprint = createHash('sha256').update(JSON.stringify(Object.keys(requestEnvironment).sort().map((key) => `${key}=${requestEnvironment[key]}`))).digest('hex');
     const coalescingKey = coalescible ? JSON.stringify([cacheRoot, roots.executionCwd, message.shim, toolId, argv, this.#config.defaults?.toolchain ?? 'default', environmentFingerprint]) : null;
-    return { id, parentId, rootToken, coalescingKey, coalescedClients: 0, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, workspaceDiscoveryCache: roots.workspaceDiscoveryCache ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: cacheRoot, cargoWorkspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], resourceChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, residentOutput: '', residentTransition: null, residentAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, cancelRequests: [], terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
+    return { id, parentId, rootToken, evidenceClass, coalescingKey, coalescedClients: 0, request: Object.freeze({ ...request, argv, workspace: roots.executionCwd, environment: requestEnvironment }), workspaceDiscoveryMs: roots.workspaceDiscoveryMs ?? null, workspaceDiscoveryCache: roots.workspaceDiscoveryCache ?? null, invokeArgv: argv, shim: message.shim, tool, capability: effectiveCapability, priority, targetTriple, workspaceRoot: cacheRoot, cargoWorkspaceRoot: roots.workspaceRoot, repositoryRoot, workspace, command: `${message.shim} ${argv.join(' ')}`.trim(), compilerChildren: [], resourceChildren: [], compilerRoundTrips: 0, compilerBrokerMs: 0, submittedAt: this.#now(), state: 'QUEUED', history: [], watchers: new Set(), outputBytes: 0, outputDigest: createHash('sha256'), outputHead: Buffer.alloc(0), outputTail: Buffer.alloc(0), outputLimit, lastOutputAt: null, residentOutput: '', residentTransition: null, residentAt: null, ticket: null, permit: null, child: null, ownership: null, termination: null, cancelReason: null, cancelRequests: [], terminal: null, cachePrepared: null, cacheResult: null, done, resolveDone };
   }
 
   async #execute(job) {
@@ -644,7 +655,7 @@ export class ThinJobService {
       if (job.ticket) job.queueBlockers = job.ticket.blockers?.().map((blocker) => Object.freeze({ ...blocker, command: this.#jobs.get(blocker.id)?.command ?? null })) ?? [];
       job.rootSetupStartedAt ??= this.#now();
       if (job.capability.compile && !job.capability.skipRootServices) await this.#admitStorage(job);
-      job.cachePrepared = (job.capability.compile && !job.capability.skipRootServices)
+      job.cachePrepared = (job.capability.compile && !job.capability.skipRootServices && job.evidenceClass !== 'class1')
         ? await this.#cache.prepare({ layout: job.workspace.layout, cargoBuildJobs: this.#config.defaults?.cargoBuildJobs ?? 4, repositoryRoot: job.repositoryRoot, workspaceRoot: job.workspaceRoot, jobId: job.id, profile: cacheBuildProfile(job.shim, job.invokeArgv) })
         : job.parentId
           ? { mode: 'sccache-inherited', status: 'OK', environment: { }, before: null }
@@ -713,7 +724,7 @@ export class ThinJobService {
     } catch (error) {
       job.teardownStartedAt ??= this.#now();
       if (!job.parentId && job.cachePrepared && !job.cacheResult) job.cacheResult = await this.#cache.finish(job.cachePrepared).catch(() => null);
-      if (error.code === 'RK_OWNERSHIP_VIOLATION' || error.code === 'RK_OWNERSHIP_UNVERIFIED') return await this.#finish(job, 'REJECTED', { exitCode: 125, reason: error.code, error: error.message });
+      if (error.code === 'RK_OWNERSHIP_VIOLATION' || error.code === 'RK_OWNERSHIP_UNVERIFIED' || String(error.code ?? '').startsWith('RK_CLASS1_')) return await this.#finish(job, 'REJECTED', { exitCode: 125, reason: error.code, error: error.message });
       if (error.code === 'RK_SCCACHE_UNAVAILABLE') {
         job.cachePrepared = error.cache;
         const cacheEvent = Object.freeze({ type: 'CACHE_ADMISSION_BLOCKED', id: job.id, command: job.command, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cache: error.cache, code: error.code, error: error.message });
@@ -728,17 +739,41 @@ export class ThinJobService {
       return await this.#finish(job, job.cancelReason === 'deadline' ? 'TIMED_OUT' : job.cancelReason || error.code === 'RK_QUEUE_CANCELLED' ? 'CANCELLED' : 'FAILED', { exitCode: 125, reason: job.cancelReason ?? error.code, error: error.message });
     } finally {
       if (job.sampleTimer) clearInterval(job.sampleTimer);
+      // Class-1 protection is released only here, after every child of this job has exited.
+      if (job.class1) await job.class1.release().catch(() => {});
       job.permit?.release();
     }
+  }
+
+  /** Class 1 admission: broker-owned clone of the git-listed closure, created before any hashing or spawn. */
+  async #admitClass1(job) {
+    const buildRootParent = this.#config.class1?.buildRootParent;
+    if (this.#class1.supported && (!job.repositoryRoot || !buildRootParent)) throw class1Error('RK_CLASS1_CLONE_UNSUPPORTED', 'class-1 builds need a repository root and class1.buildRootParent');
+    const files = this.#class1.supported ? await gitListedClosure(job.repositoryRoot) : [];
+    const admitted = await admitClass1({ platform: this.#class1, evidenceClass: 'class1', input: { sourceRoot: job.repositoryRoot, files, buildRootParent, id: job.id } });
+    if (!admitted.admitted) throw class1Error(admitted.code ?? 'RK_CLASS1_FAILED', admitted.reason);
+    job.class1 = admitted.clone;
+  }
+
+  /** Class 1 launch: the tool runs under the Seatbelt write denial, inside the clone, after a digest revalidation. */
+  async #class1Launch(job, { tool, argv }) {
+    const within = relative(job.repositoryRoot ?? '', job.request.workspace);
+    if (!job.repositoryRoot || isAbsolute(within) || within === '..' || within.startsWith(`..${sep}`)) throw class1Error('RK_CLASS1_WORKSPACE_OUTSIDE_REPO', 'class-1 workspace must lie inside the repository');
+    const target = job.workspace?.layout?.target;
+    if (!target) throw class1Error('RK_CLASS1_WORKSPACE_REQUIRED', 'class-1 builds need a managed workspace target');
+    return this.#class1.protectedInvocation({ buildRoot: job.class1.root, clone: job.class1, command: tool.path, args: argv, cwd: join(job.class1.root, within), writableRoots: [target, ...(this.#config.class1?.writableRoots ?? [])], temporaryRoots: [this.#state.paths.temporary] });
   }
 
   async #runJobProcess(job, { env, credential, tool = job.tool, argv = job.invokeArgv, onOutput = null }) {
     if (job.cancelReason) throw Object.assign(new Error('request cancelled'), { code: 'RK_QUEUE_CANCELLED' });
     job.termination = null;
     if (!onOutput) job.indexResolutionOutput = Buffer.alloc(0);
+    // Class 1: protection is acquired before any hashing or spawn; admission failure is a REJECTED receipt.
+    if (job.evidenceClass === 'class1' && job.class1 === undefined) await this.#admitClass1(job);
     // Class 2: snapshot the locked input closure once, before the first child spawns (root jobs only).
     if (this.#inputClosure && !job.parentId && job.inputSnapshot === undefined) job.inputSnapshot = job.repositoryRoot ? await this.#inputClosure.snapshot(job.repositoryRoot) : Object.freeze({ status: 'unverified', reason: 'no repository root' });
-    job.child = spawnManagedProcess(tool.path, argv, { cwd: job.request.workspace, env, stdio: [credential === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
+    const launch = job.evidenceClass === 'class1' ? await this.#class1Launch(job, { tool, argv }) : { command: tool.path, args: argv, cwd: job.request.workspace };
+    job.child = spawnManagedProcess(launch.command, launch.args, { cwd: launch.cwd, env, stdio: [credential === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
     if (credential !== undefined && job.child.stdin) { job.child.stdin.on('error', () => {}); job.child.stdin.end(`${credential}\n`); }
     job.exit = childExit(job.child, { onStdioHeld: () => void this.#logStdioHeld(job) });
     job.child.stdout?.on('data', (chunk) => onOutput ? onOutput(chunk) : this.#output(job, 'STDOUT', chunk));
@@ -814,6 +849,7 @@ export class ThinJobService {
     const terminalAt = this.#now();
     // Class 2 completion re-digest: a moved closure marks the receipt inputs-mutated (never evidence).
     const inputVerdict = this.#inputClosure && job.inputSnapshot !== undefined ? await this.#inputClosure.verify(job.inputSnapshot) : null;
+    const class1Verdict = job.class1 ? await verifyClone(job.class1) : null;
     this.#sampleResourceState(job);
     // Roll delegated compiler children up into their admitted root so the root
     // receipt carries one authoritative compiler process & round-trip count and
@@ -873,6 +909,7 @@ export class ThinJobService {
       output: { bytes: job.outputBytes, digest: job.outputDigest.digest('hex'), head: job.outputHead.toString('utf8'), tail: job.outputTail.toString('utf8') }
     });
     if (inputVerdict) receipt = recordInputClosure(receipt, inputVerdict);
+    if (job.evidenceClass === 'class1') receipt = recordClass1Evidence(receipt, { cloneDigest: job.class1?.digest ?? null, protection: this.#class1.protection ?? null, verdict: class1Verdict });
     if (job.capability.artifactWrite && !uncertainWriter) await this.#state.finish(job.workspaceRoot, job.id, receipt); else await this.#state.writeReceipt(job.id, receipt);
     // Attachments can arrive while receipt I/O yields; persist their final count before RESULT.
     while (receipt.coalescedClients !== job.coalescedClients) {
