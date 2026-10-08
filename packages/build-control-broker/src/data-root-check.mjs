@@ -22,7 +22,7 @@ try {
 }
 `;
 
-export function probeDataRoot(path, { timeoutMs = 3_000, spawn = nodeSpawn, nodePath = process.execPath } = {}) {
+export function probeDataRoot(path, { timeoutMs = 10_000, spawn = nodeSpawn, nodePath = process.execPath } = {}) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new TypeError('positive probe timeout is required');
   return new Promise((resolve) => {
     let child; let timer; let settled = false; let output = '';
@@ -46,12 +46,17 @@ export function probeDataRoot(path, { timeoutMs = 3_000, spawn = nodeSpawn, node
   });
 }
 
+// A probe that times out or misbehaves under heavy load is not proof the volume is gone
+// (handoff issue 10): only these errnos refuse immediately; anything else must repeat.
+export const HARD_PROBE_ERRNOS = new Set(['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'EROFS', 'EIO', 'ENXIO', 'ENODEV']);
+export const SOFT_PROBE_FAILURE_THRESHOLD = 3;
+
 /** Socket-facing gate stays available while data is denied or initializing. */
 export class DataRootService {
-  #path; #runtime; #probe; #create; #log; #service = null; #diagnostic; #checking = null; #timer; #stopping = false; #initializing = null;
-  constructor({ path, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, probe = probeDataRoot, createService, log = async () => {}, intervalMs = 30_000 }) {
+  #path; #runtime; #probe; #create; #log; #service = null; #diagnostic; #checking = null; #timer; #stopping = false; #initializing = null; #softFailures = 0; #threshold;
+  constructor({ path, runtimeIdentity = SOURCE_RUNTIME_IDENTITY, probe = probeDataRoot, createService, log = async () => {}, intervalMs = 30_000, softFailureThreshold = SOFT_PROBE_FAILURE_THRESHOLD }) {
     this.#path = path; this.#runtime = normalizeRuntimeIdentity(runtimeIdentity); this.#probe = probe;
-    this.#create = createService; this.#log = log;
+    this.#create = createService; this.#log = log; this.#threshold = softFailureThreshold;
     this.#diagnostic = { code: 'RK_DATA_ROOT_INITIALIZING', path, errno: 'pending' };
     this.#timer = setInterval(() => { void this.check().catch(() => {}); }, intervalMs); this.#timer.unref?.();
   }
@@ -68,11 +73,18 @@ export class DataRootService {
     catch (error) { result = { ok: false, diagnostic: diagnostic(this.#path, error.code ?? 'UNKNOWN') }; }
     if (this.#stopping) return;
     if (!result.ok) {
+      const errno = result.diagnostic?.errno;
+      // A serving broker keeps serving through isolated soft failures (timeouts under load).
+      if (this.#service && !HARD_PROBE_ERRNOS.has(errno) && ++this.#softFailures < this.#threshold) {
+        await this.#log({ type: 'DATA_ROOT_PROBE_SOFT_FAILURE', path: this.#path, errno, consecutive: this.#softFailures, threshold: this.#threshold });
+        return;
+      }
       const previous = this.#diagnostic;
       this.#diagnostic = result.diagnostic ?? diagnostic(this.#path, 'UNKNOWN');
       if (previous?.code !== this.#diagnostic.code || previous?.errno !== this.#diagnostic.errno) await this.#log({ type: 'DATA_ROOT_UNAVAILABLE', ...this.#diagnostic });
       return;
     }
+    this.#softFailures = 0;
     if (this.#diagnostic?.code === EXTERNAL_ROOT_UNREADABLE) await this.#log({ type: 'DATA_ROOT_RESTORED', path: this.#path });
     this.#diagnostic = this.#service ? null : { code: 'RK_DATA_ROOT_INITIALIZING', path: this.#path, errno: 'pending' };
     // Keep STATUS responsive even if subsequent tool verification/state recovery

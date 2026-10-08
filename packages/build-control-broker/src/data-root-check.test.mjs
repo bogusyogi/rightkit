@@ -108,3 +108,21 @@ test('broker entry binds from control storage & logs LISTENING before denied dat
   const lifecycle = (await readFile(join(control, 'logs', 'lifecycle.ndjson'), 'utf8')).trim().split('\n').map(JSON.parse);
   assert.deepEqual(lifecycle.map((event) => event.type), ['LISTENING', 'DATA_ROOT_UNAVAILABLE']);
 });
+
+test('a serving broker survives isolated probe timeouts and refuses only after the soft threshold or a hard errno', async () => {
+  const results = [];
+  const events = [];
+  const service = { dispatch: async (_m, emit) => emit({ type: 'RESULT', status: 'SUCCEEDED', exitCode: 0 }), shutdown: async () => {} };
+  const gate = new DataRootService({ path: '/data', probe: async () => results.shift(), createService: async () => service, log: async (e) => { events.push(e); }, intervalMs: 3_600_000 });
+  const soft = { ok: false, diagnostic: { code: 'EXTERNAL_ROOT_UNREADABLE', path: '/data', errno: 'timeout' } };
+  results.push({ ok: true }); await gate.ready(); assert.equal(gate.diagnostic, null);
+  results.push(soft); await gate.check(); assert.equal(gate.diagnostic, null, 'one timeout keeps serving');
+  results.push(soft); await gate.check(); assert.equal(gate.diagnostic, null, 'two timeouts keep serving');
+  results.push(soft); await gate.check(); assert.equal(gate.diagnostic?.errno, 'timeout', 'third consecutive timeout refuses');
+  results.push({ ok: true }); await gate.check(); assert.equal(gate.diagnostic, null, 'success restores and resets the count');
+  results.push(soft); await gate.check(); assert.equal(gate.diagnostic, null, 'count was reset');
+  results.push({ ok: false, diagnostic: { code: 'EXTERNAL_ROOT_UNREADABLE', path: '/data', errno: 'ENOENT' } }); await gate.check();
+  assert.equal(gate.diagnostic?.errno, 'ENOENT', 'hard errno refuses immediately');
+  assert.ok(events.some((e) => e.type === 'DATA_ROOT_PROBE_SOFT_FAILURE' && e.consecutive === 2));
+  await gate.shutdown();
+});
