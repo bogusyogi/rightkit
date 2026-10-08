@@ -381,7 +381,8 @@ export async function startSigningAgent({ paths = signingAgentPaths(), config, i
   server.on("error", () => { log({ event: "service.failed", code: "MAC_SIGNING_AGENT_SOCKET" }); });
   return server;
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   process.umask(0o077);
   startSigningAgent().then((server) => {
     const stop = () => { managedSigningLog(signingAgentPaths().log, { event: "service.stopping" }); server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 2000).unref(); };

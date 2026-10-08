@@ -127,7 +127,8 @@ export function requestSigningAgentSync(request, { runClient = spawnSync, home, 
   if (result.error || result.status !== 0) throw new SigningAgentError("MAC_SIGNING_AGENT_CONNECTION", "Signing agent client failed");
   return report;
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try {
     const { request, home, timeoutMs } = JSON.parse(fs.readFileSync(0, "utf8"));
     const report = await requestSigningAgent(request, { paths: signingAgentPaths(home), timeoutMs,

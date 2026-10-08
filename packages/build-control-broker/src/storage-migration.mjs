@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-import { constants } from 'node:fs';
+import { constants, realpathSync } from 'node:fs';
 import { copyFile, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { availableParallelism, totalmem } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { deriveHostSizing } from './host-sizing.mjs';
 import { discoverManagedVolume } from './volume-discovery.mjs';
 
-const isDirectMain = () => typeof process.argv[1] === 'string' && fileURLToPath(import.meta.url) === process.argv[1];
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return resolve(file); } };
+const isDirectMain = () => typeof process.argv[1] === 'string' && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url));
 
 export function parseArgs(argv) {
   const options = { apply: false, lead: false };

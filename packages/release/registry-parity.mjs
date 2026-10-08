@@ -1,10 +1,11 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from './background-process.mjs';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join, relative } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { basename, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const packageRoot = fileURLToPath(new URL('.', import.meta.url));
 
@@ -108,7 +109,8 @@ export async function verifyRegistryParity({ allowUnpublished = false, fetchImpl
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const flag = process.argv.indexOf('--package');
   const allowUnpublished = process.argv.includes('--allow-unpublished');
   (flag > 0 ? verifyRegistryParity({ allowUnpublished, packageName: process.argv[flag + 1] }) : verifyAllRegistryParity({ allowUnpublished }))

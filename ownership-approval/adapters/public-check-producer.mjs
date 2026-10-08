@@ -2,7 +2,7 @@
 // Run only from an externally managed, OS-protected runner. Repository
 // workflows have no path to this App key or protected configuration.
 import { createPrivateKey, sign as cryptoSign } from "node:crypto";
-import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -286,7 +286,8 @@ async function main(args) {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main(process.argv.slice(2));
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) main(process.argv.slice(2));
 
 export function runProtectedScanForTest(repoRoot, expectedCommit, scanRunner) { return runProtectedScan(repoRoot, expectedCommit, scanRunner); }
 

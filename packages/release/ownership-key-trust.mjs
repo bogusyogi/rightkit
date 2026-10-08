@@ -315,7 +315,8 @@ function readPinnedRequest(requestPath, expectedDigest) {
   } finally { closeSync(fd); }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try {
     if (process.argv.length !== 6 || process.argv[2] !== "--request" || process.argv[4] !== "--sha256") throw new Error("usage: ownership-key-trust.mjs --request <absolute-json> --sha256 <digest>");
     const request = readPinnedRequest(process.argv[3], process.argv[5]);

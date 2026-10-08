@@ -260,7 +260,8 @@ export function prepareMigrationDrafts({ outputDir = OUT, apps = APPS, now = new
   return manifestOut;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try {
     const result = prepareMigrationDrafts({ refresh: process.argv.includes("--refresh") });
     process.stdout.write(`${JSON.stringify({ draftCount: result.draftCount, scans: result.sourceEvidence.map((x) => ({ app: x.app, commit: x.sourceCommit, findings: x.findings.length, coverageGaps: x.scan.coverage.length })), manifest: path.join(OUT, "prepared-migration-manifest.json") }, null, 2)}\n`);

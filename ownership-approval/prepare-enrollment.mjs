@@ -46,7 +46,8 @@ function main(args) {
   process.stdout.write(`macOS public-key fingerprint: ${candidate.hosts.macos.keyId}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try { main(process.argv.slice(2)); }
   catch (error) { process.stderr.write(`Enrollment candidate rejected: ${error.message}\n`); process.exitCode = 1; }
 }

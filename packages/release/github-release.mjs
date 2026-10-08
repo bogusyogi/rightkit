@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { readVerifiedArtifact, assertArtifactUnchanged, digestBytes, verifyArtifactFile } from "./publication-artifacts.mjs";
@@ -370,7 +370,8 @@ function usage(code) {
   process.exit(code);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
   const options = { platform: process.platform === "win32" ? "win" : "mac", releaseId: "", addon: "", repo: "", dryRun: false };
   for (let index = 0; index < args.length; index += 1) {

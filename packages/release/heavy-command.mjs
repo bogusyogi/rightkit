@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "./background-process.mjs";
@@ -355,7 +355,8 @@ function spawnAttached(command, args, env, slot) {
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === SELF) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2);
   const task = args[0] === "--watch-owner-base64"
     ? watchOwnedProcessTree(JSON.parse(Buffer.from(args[1] || "", "base64url").toString("utf8"))).then(() => 0)

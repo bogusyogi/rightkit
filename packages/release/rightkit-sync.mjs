@@ -3,7 +3,7 @@
 // Every publishable crate under crates/ and package under packages/ is looked up; a newer
 // published version becomes the staged (latest) version and the one it replaces stays allowed
 // in legacyCargo / legacyNpm, so apps pinned to it keep validating until they adopt.
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -204,7 +204,8 @@ export function syncConsumerCopies(root = rightkitRoot) {
   return updated;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   const main = async () => {
     const args = process.argv.slice(2);
     if (args[0] === "stage") {

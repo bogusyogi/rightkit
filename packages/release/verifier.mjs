@@ -13,6 +13,9 @@
  * human nor a model can hand-edit its way to a grant.
  */
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const GRANTS = Object.freeze(["BUILD_AUTHORIZED", "SIGNING_AUTHORIZED", "RELEASE_AUTHORIZED"]);
 
@@ -136,7 +139,8 @@ function decision(grant, granted, issues, input) {
   return body;
 }
 
-const invokedDirectly = process.argv[1] && process.argv[1].endsWith("verifier.mjs");
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+const invokedDirectly = process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url));
 if (invokedDirectly) {
   const grant = process.argv[2];
   let input = {};

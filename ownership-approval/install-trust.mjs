@@ -2,7 +2,7 @@
 // Administrator-invoked source package. Production use requires an independently
 // reviewed copy plus runtime in the fixed protected installer directory.
 import { randomBytes } from "node:crypto";
-import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -188,7 +188,8 @@ function main(args) {
   process.stdout.write(`Installed protected ${paths.os} ownership trust at ${paths.trust}\nSHA-256: ${pinnedDigest}\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   try { main(process.argv.slice(2)); }
   catch (error) { process.stderr.write(`Protected trust install refused: ${error.message}\n`); process.exitCode = 1; }
 }

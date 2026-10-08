@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { verifyArtifactFile, readVerifiedArtifact, digestBytes } from "./publication-artifacts.mjs";
 import { uploadVerifiedR2File, uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
+import { realpathSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   RIGHT_SUITE_APP_KEYS,
@@ -291,7 +292,8 @@ function assertExactKeys(value, expected, label, optional = []) {
   for (const key of expected) if (!Object.hasOwn(value, key)) throw new Error(`${label}.${key} is required`);
 }
 
-if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   main().catch((error) => {
     console.error(`right-release model promote: ${error.code ? `[${error.code}] ` : ""}${error.message}`);
     process.exitCode = 1;
