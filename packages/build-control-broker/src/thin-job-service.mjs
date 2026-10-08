@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFile as nodeExecFile, spawn as nodeSpawn } from 'node:child_process';
-import { lstat, readFile, realpath, statfs as nodeStatfs } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, statfs as nodeStatfs, writeFile } from 'node:fs/promises';
 import { sweepTemporary } from './temp-sweep.mjs';
 import { OwnershipAdmission } from './ownership-admission.mjs';
 import net from 'node:net';
@@ -27,7 +27,7 @@ import { ThinCache } from './thin-cache.mjs';
 import { NativeOpenSslCache } from './native-openssl.mjs';
 import { cargoCohort } from './cache-telemetry.mjs';
 import { CargoFreshnessTracker, classifyColdStart, fingerprintCensus, fingerprintCensusStart, probeTargetAtStart, targetConsoleLine, wantsCargoJson } from './cargo-freshness.mjs';
-import { ThinCommandPolicy, compileClass } from './thin-command-policy.mjs';
+import { ThinCommandPolicy, cargoAllowsIndexRefresh, compileClass } from './thin-command-policy.mjs';
 import { ThinLogger } from './thin-logger.mjs';
 import { ThinScheduler, deriveCompileCosts } from './thin-scheduler.mjs';
 import { acquireThinBrokerSingleton } from './thin-singleton.mjs';
@@ -641,25 +641,21 @@ export class ThinJobService {
         this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type: 'STDERR', data: targetConsoleLine({ phase: 'start', target: job.targetAtStart }) } });
       }
       const credential = this.#credentials.get(job); this.#credentials.delete(job);
-      job.child = spawnManagedProcess(job.tool.path, job.invokeArgv, { cwd: job.request.workspace, env, stdio: [credential === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
-      if (credential !== undefined && job.child.stdin) { job.child.stdin.on('error', () => {}); job.child.stdin.end(`${credential}\n`); }
-      job.exit = childExit(job.child, { onStdioHeld: () => void this.#logStdioHeld(job) });
-      job.child.stdout?.on('data', (chunk) => this.#output(job, 'STDOUT', chunk));
-      job.child.stderr?.on('data', (chunk) => this.#output(job, 'STDERR', chunk));
-      const observed = await this.#identity(job.child.pid); if (observed.status !== 'OK') throw Object.assign(new Error(`process identity unavailable: ${observed.reason}`), { code: 'RK_PROCESS_IDENTITY_UNAVAILABLE' });
-      job.ownership = this.#ownership(job.child, { identity: observed, platform: this.#platform });
-      if (job.capability.artifactWrite) job.workspace = await this.#state.markRunning(job.workspaceRoot, { id: job.id, ownership: job.ownership, command: job.command });
-      job.state = 'RUNNING'; job.startedAt = this.#now(); job.cargoRunStartedAt ??= this.#now();
-      this.#sampleResourceState(job);
-      this.#maybeMakeResident(job);
-      await this.#log({ type: 'STARTED', id: job.id, pid: job.ownership.pid, pgid: job.ownership.processGroupId, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cacheMode: job.cachePrepared.mode, tempDir: job.cachePrepared.environment.TMPDIR ?? null });
-      await this.#start(job.child, { platform: this.#platform });
-      this.#startSampling(job);
-      if (job.cancelReason) this.#terminateJob(job);
-      const result = await job.exit;
-      await job.residentTransition;
+      let { result, reap } = await this.#runJobProcess(job, { env, credential });
+      const miss = result.code !== 0 && !job.cancelReason && !job.residentAt && reap.reaped === true
+        && job.shim === 'cargo' && this.#config.indexRefreshRetry !== false && !job.indexRefreshRetried
+        && cargoAllowsIndexRefresh(job.invokeArgv) && !/^(true|1)$/i.test(env.CARGO_NET_OFFLINE ?? '')
+        ? /failed to select a version for the requirement `(rightkit-[A-Za-z0-9_-]+) = "([^"\r\n]+)"`\s*candidate versions found which didn't match/.exec(stripAnsi(job.indexResolutionOutput?.toString('utf8') ?? ''))
+        : null;
+      if (miss) {
+        const refresh = await this.#refreshIndex(job, { crate: miss[1], req: miss[2], env });
+        if (refresh.reap?.reaped === false) reap = refresh.reap;
+        if (refresh.succeeded && !job.cancelReason) {
+          job.indexRefreshRetried = true;
+          ({ result, reap } = await this.#runJobProcess(job, { env }));
+        }
+      }
       job.teardownStartedAt ??= this.#now();
-      const reap = await (job.termination ?? this.#terminate(job.child, { graceMs: integer(this.#config.bounds?.processGraceMs, 5_000, 1), platform: this.#platform }).catch((error) => ({ reaped: false, reason: error.message })));
       job.cacheResult = job.parentId
         ? Object.freeze({ mode: 'sccache-inherited', status: 'OK', delta: null })
         : await this.#cache.finish(job.cachePrepared);
@@ -685,6 +681,68 @@ export class ThinJobService {
       if (job.sampleTimer) clearInterval(job.sampleTimer);
       job.permit?.release();
     }
+  }
+
+  async #runJobProcess(job, { env, credential, tool = job.tool, argv = job.invokeArgv, onOutput = null }) {
+    if (job.cancelReason) throw Object.assign(new Error('request cancelled'), { code: 'RK_QUEUE_CANCELLED' });
+    job.termination = null;
+    if (!onOutput) job.indexResolutionOutput = Buffer.alloc(0);
+    job.child = spawnManagedProcess(tool.path, argv, { cwd: job.request.workspace, env, stdio: [credential === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], platform: this.#platform }, this.#spawn);
+    if (credential !== undefined && job.child.stdin) { job.child.stdin.on('error', () => {}); job.child.stdin.end(`${credential}\n`); }
+    job.exit = childExit(job.child, { onStdioHeld: () => void this.#logStdioHeld(job) });
+    job.child.stdout?.on('data', (chunk) => onOutput ? onOutput(chunk) : this.#output(job, 'STDOUT', chunk));
+    job.child.stderr?.on('data', (chunk) => onOutput ? onOutput(chunk) : this.#output(job, 'STDERR', chunk));
+    const observed = await this.#identity(job.child.pid); if (observed.status !== 'OK') throw Object.assign(new Error(`process identity unavailable: ${observed.reason}`), { code: 'RK_PROCESS_IDENTITY_UNAVAILABLE' });
+    job.ownership = this.#ownership(job.child, { identity: observed, platform: this.#platform });
+    if (job.capability.artifactWrite) {
+      if (job.startedAt !== undefined) await this.#state.updateOwnership(job.workspaceRoot, job.id, job.ownership);
+      else job.workspace = await this.#state.markRunning(job.workspaceRoot, { id: job.id, ownership: job.ownership, command: job.command });
+    }
+    job.state = 'RUNNING'; job.startedAt ??= this.#now(); job.cargoRunStartedAt ??= this.#now();
+    this.#sampleResourceState(job);
+    if (!onOutput) this.#maybeMakeResident(job);
+    await this.#log({ type: 'STARTED', id: job.id, pid: job.ownership.pid, pgid: job.ownership.processGroupId, workspace: job.workspaceRoot, generation: job.workspace?.layout.generation ?? null, cacheMode: job.cachePrepared.mode, tempDir: job.cachePrepared.environment.TMPDIR ?? null });
+    await this.#start(job.child, { platform: this.#platform });
+    if (!job.sampleTimer) this.#startSampling(job);
+    if (job.cancelReason) this.#terminateJob(job);
+    const result = await job.exit;
+    await job.residentTransition;
+    if (!onOutput) job.teardownStartedAt = this.#now();
+    const reap = await (job.termination ?? this.#terminate(job.child, { graceMs: integer(this.#config.bounds?.processGraceMs, 5_000, 1), platform: this.#platform }).catch((error) => ({ reaped: false, reason: error.message })));
+    return { result, reap };
+  }
+
+  async #refreshIndex(job, { crate, req, env }) {
+    let project; let reap; let exitCode = null; let error = null; let output = Buffer.alloc(0); let succeeded = false;
+    const previousChild = job.child;
+    try {
+      await mkdir(this.#state.paths.temporary, { recursive: true });
+      project = await mkdtemp(join(this.#state.paths.temporary, 'index-refresh-'));
+      // A standalone manifest resolves even dependencies absent from the original lockfile.
+      // Keep cwd unchanged so Cargo still reads the workspace's .cargo configuration.
+      await writeFile(join(project, 'Cargo.toml'), `[package]\nname = "rightkit-index-refresh"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[lib]\npath = "lib.rs"\n[dependencies]\n${JSON.stringify(crate)} = ${JSON.stringify(req)}\n`);
+      await writeFile(join(project, 'lib.rs'), '');
+      const tool = await this.#registry.verify(this.#config.shims?.cargo);
+      const separator = job.invokeArgv.indexOf('--');
+      const toolchain = job.invokeArgv.slice(0, separator < 0 ? job.invokeArgv.length : separator).find((value) => value.startsWith('+'));
+      const argv = [...(toolchain ? [toolchain] : []), 'generate-lockfile', '--manifest-path', join(project, 'Cargo.toml')];
+      const run = await this.#runJobProcess(job, { tool, argv, env: { ...env, CARGO_NET_OFFLINE: 'false' }, onOutput: (chunk) => {
+        output = appendTail(output, Buffer.from(chunk), 16 * 1024);
+        job.lastOutputAt = this.#now(); this.#clearStall(job, 'output');
+      } });
+      reap = run.reap; exitCode = run.result.code;
+      succeeded = exitCode === 0 && reap.reaped === true && !job.cancelReason;
+      if (!succeeded) error = output.toString('utf8') || reap.reason || 'index refresh failed';
+    } catch (cause) {
+      error = cause.message;
+      if (job.child !== previousChild) reap = await (job.termination ?? this.#terminate(job.child, { graceMs: integer(this.#config.bounds?.processGraceMs, 5_000, 1), platform: this.#platform }).catch((failure) => ({ reaped: false, reason: failure.message })));
+    } finally {
+      if (project && reap?.reaped !== false) await rm(project, { recursive: true, force: true }).catch(() => {});
+    }
+    const event = Object.freeze({ type: 'INDEX_REFRESH', id: job.id, crate, req, outcome: succeeded ? 'SUCCEEDED' : 'FAILED', exitCode, ...(error ? { error } : {}) });
+    this.#publish(job, { type: 'JOB_EVENT', id: job.id, event });
+    await this.#log(event);
+    return { succeeded, reap };
   }
 
   async #finish(job, status, details) {
@@ -744,6 +802,7 @@ export class ThinJobService {
       buildPermitMs: job.startedAt ? (job.residentAt ?? terminalAt) - job.startedAt : null,
       residentMs: job.residentAt ? terminalAt - job.residentAt : null,
       exitCode: details.exitCode ?? 125, signal: details.signal ?? null, reason: details.reason ?? null, error: details.error ?? null,
+      indexRefreshRetried: job.indexRefreshRetried === true,
       // v2.7 §4.1: exact cancellation provenance (never inferred from SIGTERM alone)
       cancellation: job.cancelProvenance ? Object.freeze({ source: job.cancelProvenance, reason: job.cancelReason ?? null, requests: Object.freeze(job.cancelRequests.map((request) => Object.freeze({ ...request }))) }) : null,
       cache: job.cacheResult ?? (job.cachePrepared ? { mode: job.cachePrepared.mode, status: job.cachePrepared.status, healthStatus: job.cachePrepared.healthStatus ?? null, reason: job.cachePrepared.reason ?? null, delta: null } : { mode: 'direct', status: 'NOT_APPLICABLE', delta: null }),
@@ -916,6 +975,7 @@ export class ThinJobService {
     const headLimit = integer(this.#config.bounds?.outputHeadBytes, 16 * 1024); const tailLimit = integer(this.#config.bounds?.outputTailBytes, 16 * 1024);
     if (job.outputHead.length < headLimit) job.outputHead = Buffer.concat([job.outputHead, data.subarray(0, headLimit - job.outputHead.length)]);
     job.outputTail = appendTail(job.outputTail, data, tailLimit);
+    if (job.shim === 'cargo') job.indexResolutionOutput = appendTail(job.indexResolutionOutput ?? Buffer.alloc(0), data, 64 * 1024);
     this.#publish(job, { type: 'JOB_EVENT', id: job.id, event: { type, data: data.toString('utf8') } });
     if (type === 'STDERR' && job.capability.residentAfterBuild && !job.residentTransition) {
       job.residentOutput = `${job.residentOutput}${data.toString('utf8')}`.slice(-16 * 1024);
@@ -957,6 +1017,7 @@ export class ThinJobService {
       elapsedMs: Number.isSafeInteger(receipt?.totalMs) ? receipt.totalMs : typeof anchor === 'number' ? Math.max(0, now - anchor) : null,
       queueMs: Number.isSafeInteger(receipt?.queueMs) ? receipt.queueMs : job.startedAt ? Math.max(0, job.startedAt - job.submittedAt) : typeof job.submittedAt === 'number' ? Math.max(0, now - job.submittedAt) : null,
       outputBytes: job.outputBytes ?? 0,
+      indexRefreshRetried: job.indexRefreshRetried === true,
       lastOutputAt: job.lastOutputAt ? new Date(job.lastOutputAt).toISOString() : null,
       ...(job.state === 'RUNNING' ? { stalledAt: job.stalledAt == null ? null : new Date(job.stalledAt).toISOString(), quietMs: this.#quietMs(job, now) } : {}),
       attachedClients: job.watchers?.size ?? 0

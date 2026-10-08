@@ -23,6 +23,12 @@ test('config accepts exact thin settings & freezes result', () => {
   const config = validateBrokerConfig(fixture()); assert.equal(config.bounds.buildConcurrency, 1); assert.equal(Object.isFrozen(config), true); assert.equal(Object.isFrozen(config.broker), true);
 });
 
+test('index refresh retry defaults on & accepts only boolean overrides', () => {
+  assert.equal(validateBrokerConfig(fixture()).indexRefreshRetry, true);
+  for (const enabled of [true, false]) assert.equal(validateBrokerConfig({ ...fixture(), indexRefreshRetry: enabled }).indexRefreshRetry, enabled);
+  for (const invalid of [null, 0, 1, 'false', {}, []]) assert.throws(() => validateBrokerConfig({ ...fixture(), indexRefreshRetry: invalid }), /indexRefreshRetry/);
+});
+
 test('stall bounds default to 15/45 minutes & accept nonnegative safe integers including zero', () => {
   const defaults = validateBrokerConfig(fixture());
   assert.equal(defaults.bounds.stallQuietMs, 900_000); assert.equal(defaults.bounds.stallKillMs, 2_700_000);

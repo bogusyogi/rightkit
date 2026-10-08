@@ -94,6 +94,10 @@ function hasFlag(argv, flag) {
   return argv.slice(0, end < 0 ? argv.length : end).includes(flag);
 }
 
+export function cargoAllowsIndexRefresh(argv) {
+  return !hasFlag(argv, '--offline') && !hasFlag(argv, '--frozen');
+}
+
 const NO_ARGV_TOKEN = 'pass registry tokens only through `rightkit cargo login` (prompted or piped on stdin), never on the command line';
 const LOGIN_FLAGS_WITH_VALUE = new Set(['--registry', '--color', '--manifest-path', '--config', '-C', '-Z']);
 const LOGIN_FLAGS = new Set(['--quiet', '-q', '--verbose', '-v', '-vv', '--locked', '--frozen', '--offline']);

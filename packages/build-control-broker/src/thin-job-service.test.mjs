@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { OwnershipAdmission } from './ownership-admission.mjs';
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
@@ -19,7 +19,7 @@ class Child extends EventEmitter {
   constructor(pid, payload) { super(); this.pid = pid; this.payload = payload; this.stdout = new EventEmitter(); this.stderr = new EventEmitter(); this.connected = true; }
 }
 
-async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }) } = {}) {
+async function fixture({ bounds = {}, externalCommands = [], cache = null, cacheEnvironment = {}, targetTriples = null, gc = null, platform = 'linux', cargoPath = '/managed/cargo', readResources = null, readHostResources = null, now = null, nativeOpenSsl = null, indexRefreshRetry = undefined, startChild = null, ownershipAdmission = new OwnershipAdmission({ mode: 'off' }) } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-thin-job-')); const repository = join(root, 'repository'); const workspace = join(repository, 'workspace'); const other = join(root, 'other');
   await Promise.all([mkdir(join(repository, '.git'), { recursive: true }), mkdir(join(workspace, '.cargo'), { recursive: true }), mkdir(other)]);
   await writeFile(join(workspace, '.cargo', 'config.toml'), '[net]\ngit-fetch-with-cli = true\n');
@@ -31,12 +31,131 @@ async function fixture({ bounds = {}, externalCommands = [], cache = null, cache
   const selectedCache = cache ?? { prepare: async ({ layout }) => ({ mode: 'sccache', status: 'OK', environment: { CARGO_HOME: state.paths.cargoHome, CARGO_TARGET_DIR: layout.target, CARGO_BUILD_TARGET_DIR: layout.target, RUSTC_WRAPPER: '/managed/sccache', TMPDIR: layout.temp, TMP: layout.temp, TEMP: layout.temp, ...cacheEnvironment }, before: {} }), finish: async () => ({ mode: 'sccache', status: 'OK', delta: { compile_requests: 1 } }) };
   const config = { broker: { externalRoot: { path: root } }, unixSocket: join(root, 'broker.sock'), windowsPipe: '\\\\.\\pipe\\rightkit-test', shims: { cargo: 'cargo', rustc: 'rustc', rustdoc: 'rustdoc', rustup: 'rustup' }, tools: [], externalCommands, defaults: { targetTriple: 'aarch64-apple-darwin', ...(targetTriples ? { targetTriples } : {}), buildProfile: 'development', cargoBuildJobs: 4, toolchain: 'stable-aarch64-apple-darwin' }, sccache: { mode: 'managed', maxSizeBytes: 1024 }, bounds: { buildConcurrency: 1, controlConcurrency: 4, analysisConcurrency: 2, workspaceWriteConcurrency: 4, processGraceMs: 10, heartbeatIntervalMs: 100, outputBufferBytes: 64 * 1024, outputHeadBytes: 1024, outputTailBytes: 1024, freeFloorBytes: 0 } };
   Object.assign(config.bounds, bounds);
-  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
+  if (indexRefreshRetry !== undefined) config.indexRefreshRetry = indexRefreshRetry;
+  const service = await ThinJobService.create({ config, state, cache: selectedCache, registry, logger, singleton: { release: async () => true }, platform, ownershipAdmission, ...(nativeOpenSsl ? { nativeOpenSsl } : {}), workspaceResolver: async (cwd) => ({ executionCwd: cwd, workspaceRoot: cwd }), spawn: (_command, argv, options) => { const payload = JSON.parse(Buffer.from(argv[1], 'base64url').toString('utf8')); const child = new Child(++pid, payload); child.environment = options.env; child.cwd = options.cwd; children.push(child); return child; }, processIdentity: async (childPid) => ({ status: 'OK', identity: `identity-${childPid}` }), processOwnership: (child) => ({ pid: child.pid, processGroupId: child.pid, platform: 'posix', identity: `identity-${child.pid}` }), startProcess: async (child) => { if (child.payload.argv.includes('--version')) queueMicrotask(() => child.emit('close', 0, null)); else if (startChild) await startChild(child); return { pid: child.pid }; }, terminateProcess: async (child) => { if (!child.closed) { child.closed = true; queueMicrotask(() => child.emit('close', null, 'SIGTERM')); } return { reaped: true, reason: 'gone' }; }, statfs: async () => ({ bavail: 10_000, bsize: 4096 }), ...(readResources ? { readResources } : {}), ...(readHostResources ? { readHostResources } : {}), ...(now ? { now } : {}) });
   return { root, repository, workspace, other, state, service, children, logger, close: async () => { await service.shutdown(); await rm(root, { recursive: true, force: true }); } };
 }
 
 async function call(service, value) { const events = []; const result = await service.dispatch(value, (event) => { events.push(event); return true; }); return { result, events }; }
 async function waitFor(service, id, states) { let last; for (let attempt = 0; attempt < 100; attempt += 1) { const { result } = await call(service, command('STATUS', id)); last = result; if (states.includes(result.state)) return result; if (['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'].includes(result.state)) break; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error(`job ${id} did not reach ${states}: ${JSON.stringify(last)}`); }
+
+const resolutionMiss = (crate = 'rightkit-jobs', req = '^0.2.2') => `error: failed to select a version for the requirement \`${crate} = "${req}"\`\ncandidate versions found which didn't match: 0.2.1, 0.2.0, 0.1.0\nlocation searched: crates.io index\nrequired by package \`rightkit-shell v0.1.2\`\n`;
+
+async function indexRefreshFixture(attempts, options = {}) {
+  const executions = [];
+  const item = await fixture({ ...options, startChild: async (child) => {
+    const execution = { child, argv: [...child.payload.argv], env: child.environment, cwd: child.cwd };
+    const manifestIndex = execution.argv.indexOf('--manifest-path');
+    if (execution.argv.includes('generate-lockfile') && manifestIndex >= 0) {
+      execution.manifestPath = execution.argv[manifestIndex + 1];
+      execution.manifest = await readFile(execution.manifestPath, 'utf8');
+    }
+    const attempt = attempts[executions.length] ?? { exitCode: 99 };
+    executions.push(execution);
+    // Split diagnostics across writes to exercise output capture, not a single-chunk shortcut.
+    if (attempt.output) {
+      const bytes = Buffer.from(attempt.output); const split = Math.floor(bytes.length / 2);
+      child.stderr.emit('data', bytes.subarray(0, split)); child.stderr.emit('data', bytes.subarray(split));
+    }
+    child.closed = true;
+    child.emit('close', attempt.exitCode, null);
+  } });
+  return { ...item, executions };
+}
+
+test('rightkit resolution miss refreshes isolated manifest then retries original job once', async () => {
+  const item = await indexRefreshFixture([{ output: resolutionMiss(), exitCode: 101 }, { exitCode: 0 }, { exitCode: 0 }]);
+  try {
+    await writeFile(join(item.workspace, 'Cargo.lock'), '# original lockfile\n');
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['clippy', '--locked'])))).result;
+    const watched = await call(item.service, command('WATCH', submitted.id));
+    assert.equal(watched.result.status, 'SUCCEEDED');
+    assert.equal(watched.result.receipt.indexRefreshRetried, true);
+    assert.equal((await call(item.service, command('STATUS', submitted.id))).result.indexRefreshRetried, true);
+    assert.equal(item.executions.length, 3);
+    const [original, refresh, retry] = item.executions;
+    assert.equal(refresh.child.payload.command, '/managed/cargo');
+    assert.deepEqual(refresh.argv, ['generate-lockfile', '--manifest-path', refresh.manifestPath]);
+    assert.match(refresh.manifest, /\[workspace\]/);
+    assert.match(refresh.manifest, /"rightkit-jobs" = "\^0\.2\.2"/);
+    assert.equal(refresh.cwd, item.workspace);
+    assert.equal(refresh.env.CARGO_HOME, original.env.CARGO_HOME);
+    assert.equal(refresh.env.CARGO_NET_OFFLINE, 'false');
+    assert.deepEqual(retry.argv, original.argv);
+    assert.deepEqual(retry.env, original.env);
+    assert.equal(retry.cwd, original.cwd);
+    assert.equal(watched.result.receipt.ownership.pid, retry.child.pid);
+    assert.equal(await readFile(join(item.workspace, 'Cargo.lock'), 'utf8'), '# original lockfile\n');
+    await assert.rejects(stat(dirname(refresh.manifestPath)), { code: 'ENOENT' });
+    const events = watched.events.filter((event) => event.event?.type === 'INDEX_REFRESH').map((event) => event.event);
+    assert.equal(events.length, 1);
+    assert.deepEqual(events[0], { type: 'INDEX_REFRESH', id: submitted.id, crate: 'rightkit-jobs', req: '^0.2.2', outcome: 'SUCCEEDED', exitCode: 0 });
+    assert.deepEqual(item.logger.events.filter((event) => event.type === 'INDEX_REFRESH'), events);
+  } finally { await item.close(); }
+});
+
+test('resolution miss for a non-rightkit crate never refreshes or retries', async () => {
+  const item = await indexRefreshFixture([{ output: resolutionMiss('unpublished-typo'), exitCode: 101 }]);
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['clippy'])))).result;
+    const { result } = await call(item.service, command('WATCH', submitted.id));
+    assert.equal(result.status, 'FAILED'); assert.equal(result.exitCode, 101);
+    assert.equal(result.receipt.indexRefreshRetried, false);
+    assert.equal(item.executions.length, 1);
+    assert.equal(item.logger.events.some((event) => event.type === 'INDEX_REFRESH'), false);
+  } finally { await item.close(); }
+});
+
+test('failed index refresh surfaces original failure without retry', async () => {
+  const output = resolutionMiss();
+  const item = await indexRefreshFixture([{ output, exitCode: 101 }, { output: 'refresh network failure\n', exitCode: 17 }]);
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['clippy'])))).result;
+    const { result } = await call(item.service, command('WATCH', submitted.id));
+    assert.equal(result.status, 'FAILED'); assert.equal(result.exitCode, 101);
+    assert.equal(result.receipt.reason, 'tool-exit'); assert.equal(result.receipt.output.head, output);
+    assert.equal(result.receipt.output.bytes, Buffer.byteLength(output));
+    assert.equal(result.receipt.indexRefreshRetried, false);
+    assert.equal(item.executions.length, 2);
+    const events = item.logger.events.filter((event) => event.type === 'INDEX_REFRESH');
+    assert.equal(events.length, 1); assert.equal(events[0].outcome, 'FAILED'); assert.equal(events[0].exitCode, 17);
+    assert.match(events[0].error, /refresh network failure/);
+    await assert.rejects(stat(dirname(item.executions[1].manifestPath)), { code: 'ENOENT' });
+  } finally { await item.close(); }
+});
+
+test('offline, frozen, disabled retry & incomplete diagnostics never refresh', async () => {
+  for (const [argv, options, output] of [
+    [['clippy', '--offline'], {}, resolutionMiss()],
+    [['--frozen', 'clippy'], {}, resolutionMiss()],
+    [['clippy'], { indexRefreshRetry: false }, resolutionMiss()],
+    [['clippy'], { cacheEnvironment: { CARGO_NET_OFFLINE: 'true' } }, resolutionMiss()],
+    [['clippy'], {}, 'error: failed to select a version for the requirement `rightkit-jobs = "^0.2.2"`\n']
+  ]) {
+    const item = await indexRefreshFixture([{ output, exitCode: 101 }], options);
+    try {
+      const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, argv)))).result;
+      const { result } = await call(item.service, command('WATCH', submitted.id));
+      assert.equal(result.status, 'FAILED'); assert.equal(result.exitCode, 101);
+      assert.equal(result.receipt.indexRefreshRetried, false);
+      assert.equal(item.executions.length, 1);
+      assert.equal(item.logger.events.some((event) => event.type === 'INDEX_REFRESH'), false);
+    } finally { await item.close(); }
+  }
+});
+
+test('second resolution miss after index refresh fails without another refresh or retry', async () => {
+  const item = await indexRefreshFixture([{ output: resolutionMiss(), exitCode: 101 }, { exitCode: 0 }, { output: resolutionMiss('rightkit-shell', '^0.1.3'), exitCode: 102 }]);
+  try {
+    const submitted = (await call(item.service, command('SUBMIT', message(item.workspace, ['clippy'])))).result;
+    const { result } = await call(item.service, command('WATCH', submitted.id));
+    assert.equal(result.status, 'FAILED'); assert.equal(result.exitCode, 102);
+    assert.equal(result.receipt.indexRefreshRetried, true);
+    assert.match(result.receipt.output.tail, /rightkit-shell = "\^0\.1\.3"/);
+    assert.equal(item.executions.length, 3);
+    assert.equal(item.logger.events.filter((event) => event.type === 'INDEX_REFRESH').length, 1);
+  } finally { await item.close(); }
+});
 
 test('Cargo iteration cache mode follows profile flags before executable arguments', async () => {
   const prepared = [];

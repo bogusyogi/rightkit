@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ThinCommandPolicy } from './thin-command-policy.mjs';
+import { ThinCommandPolicy, cargoAllowsIndexRefresh } from './thin-command-policy.mjs';
 
 const digest = 'a'.repeat(64);
 const policy = new ThinCommandPolicy({ externalCommands: [
@@ -8,6 +8,13 @@ const policy = new ThinCommandPolicy({ externalCommands: [
   { shim: 'cargo', command: 'upgrade', toolId: 'cargo-edit', digest },
   { shim: 'cargo', command: 'nextest', toolId: 'cargo-nextest', digest }
 ] });
+
+test('index refresh respects Cargo offline & frozen flags before executable arguments', () => {
+  assert.equal(cargoAllowsIndexRefresh(['clippy', '--offline']), false);
+  assert.equal(cargoAllowsIndexRefresh(['--frozen', 'clippy']), false);
+  assert.equal(cargoAllowsIndexRefresh(['clippy', '--locked']), true);
+  assert.equal(cargoAllowsIndexRefresh(['test', '--', '--offline', '--frozen']), true);
+});
 
 test('classifies canonical resource classes from one policy', () => {
   assert.equal(policy.classify('cargo', ['--version']).lane, 'CONTROL');
