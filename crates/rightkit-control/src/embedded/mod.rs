@@ -21,6 +21,7 @@
 //!   drag{x1,y1,x2,y2,steps?,button?,modifiers?}
 //!   pointer{phase:"down"|"drag"|"up"|"move",x,y,button?,modifiers?}
 //!   wheel{x,y,dx,dy}  key{key:"cmd+k"}  type{text}  eval{js}  dom{selector}
+//!   set_viewport{width,height} -> {innerWidth,innerHeight} (CSS pixels; no activation)
 //!   ax  screenshot{mask?:[selector]} -> {path,bytes,masked} (PNG in `<service dir>/shots/`,
 //!   owner-only; password/one-time-code/data-rk-secret elements and `mask` selectors are
 //!   hidden during capture so secrets never reach the file)
@@ -98,6 +99,13 @@ mod native {
     pub fn screenshot<R: Runtime>(_: &WebviewWindow<R>) -> Result<Vec<u8>, String> {
         Err(NO.into())
     }
+    pub fn set_viewport<R: Runtime>(
+        _: &WebviewWindow<R>,
+        _: u32,
+        _: u32,
+    ) -> Result<(u32, u32), String> {
+        Err(NO.into())
+    }
 }
 /// Windows inserts characters with no virtual key through `Input.insertText`.
 #[cfg(windows)]
@@ -131,7 +139,7 @@ fn type_char<R: Runtime>(win: &WebviewWindow<R>, c: char) -> Result<(), String> 
     key(win, true, code, &s, fl)?;
     key(win, false, code, &s, fl)
 }
-use native::{eval, key, mouse, screenshot, wheel};
+use native::{eval, key, mouse, screenshot, set_viewport, wheel};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Mouse {
@@ -170,6 +178,7 @@ pub const METHODS: &[&str] = &[
     "dom",
     "ax",
     "screenshot",
+    "set_viewport",
     "command",
     "lease_acquire",
     "lease_release",
@@ -183,7 +192,7 @@ pub fn effect_kind(method: &str) -> Option<EffectKind> {
         "click" | "move" | "drag" | "pointer" | "wheel" | "key" | "type" => Some(EffectKind::Input),
         "eval" => Some(EffectKind::Script),
         "screenshot" => Some(EffectKind::Capture),
-        "command" => Some(EffectKind::Command),
+        "command" | "set_viewport" => Some(EffectKind::Command),
         _ => None,
     }
 }
@@ -356,6 +365,14 @@ impl<R: Runtime> Handler for ControlHandler<R> {
         }
         if let Some(r) = self.lease_method(method, params) {
             return r;
+        }
+        if method == "set_viewport" {
+            viewport_size(params).map_err(|e| ServiceError::new("bad_request", e))?;
+            #[cfg(not(any(target_os = "macos", windows)))]
+            return Err(ServiceError::new(
+                "unsupported",
+                "native viewport resizing unavailable on this platform",
+            ));
         }
         // Precondition (no side effect), kept retryable as before the gate.
         if self.app.get_webview_window(&self.label).is_none() {
@@ -582,6 +599,18 @@ fn pointer_phase(params: &Value) -> Result<Mouse, String> {
     }
 }
 
+fn viewport_size(params: &Value) -> Result<(u32, u32), String> {
+    let dimension = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_u64)
+            .filter(|n| (1..=16384).contains(n))
+            .map(|n| n as u32)
+            .ok_or_else(|| format!("'{key}' must be an integer in 1..=16384 CSS pixels"))
+    };
+    Ok((dimension("width")?, dimension("height")?))
+}
+
 fn route<R: Runtime>(
     method: &str,
     params: &Value,
@@ -596,6 +625,14 @@ fn route<R: Runtime>(
     let b = params;
     let n = |k: &str| num_field(b, k).ok_or_else(|| format!("missing number '{k}'"));
     match method {
+        "set_viewport" => {
+            let (width, height) = viewport_size(params)?;
+            let (inner_width, inner_height) = set_viewport(win, width, height)?;
+            Ok(Out::Json(
+                json!({"ok": true, "innerWidth": inner_width, "innerHeight": inner_height})
+                    .to_string(),
+            ))
+        }
         "move" => {
             mouse(
                 win,
@@ -804,6 +841,7 @@ mod tests {
     fn key_char_names() {
         assert_eq!(key_char("Enter"), "\r");
         assert!(METHODS.contains(&"screenshot"));
+        assert!(METHODS.contains(&"set_viewport"));
     }
     #[test]
     fn effectful_methods_are_classified() {
@@ -812,10 +850,30 @@ mod tests {
         }
         assert_eq!(effect_kind("eval"), Some(EffectKind::Script));
         assert_eq!(effect_kind("screenshot"), Some(EffectKind::Capture));
+        assert_eq!(effect_kind("set_viewport"), Some(EffectKind::Command));
         assert_eq!(effect_kind("command"), Some(EffectKind::Command));
         for m in ["health", "dom", "ax", "lease_status", "lease_acquire"] {
             assert_eq!(effect_kind(m), None, "{m}");
         }
+    }
+    #[test]
+    fn viewport_dimensions_are_bounded_integers() {
+        assert_eq!(
+            viewport_size(&json!({"width":1440,"height":1000})).unwrap(),
+            (1440, 1000)
+        );
+        for value in [
+            json!(0),
+            json!(-1),
+            json!(1.5),
+            json!(16385),
+            json!("1440"),
+            Value::Null,
+        ] {
+            assert!(viewport_size(&json!({"width":value,"height":1000})).is_err());
+            assert!(viewport_size(&json!({"width":1440,"height":value})).is_err());
+        }
+        assert!(viewport_size(&json!({"width":1440})).is_err());
     }
     #[test]
     fn pointer_fields_validate_before_dispatch() {
