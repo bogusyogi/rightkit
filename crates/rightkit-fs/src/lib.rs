@@ -6,8 +6,10 @@
 //! - [`state`]: [`StateDir`], a descriptor-pinned state directory (`O_NOFOLLOW`, fd-relative
 //!   `*at` operations) that a swapped or symlinked path cannot redirect.
 //! - [`identity`]: stable file identity across renames and atomic replacement.
+//! - [`clone`]: macOS `clonefile(2)` with `CLONE_NOFOLLOW`; never falls back to a byte copy.
 
 pub mod atomic;
+pub mod clone;
 pub mod error;
 pub mod identity;
 pub mod lock;
@@ -19,6 +21,7 @@ pub use atomic::{
     atomic_write, atomic_write_private, atomic_write_with, sweep_stale_temps, AtomicOptions,
     AtomicWriter,
 };
+pub use clone::{clone_file_nofollow, CloneError};
 pub use error::{FsError, Result};
 pub use identity::{FileKey, IdentityStore, Resolution, StableId, Tracked};
 pub use lock::{with_lock, FileLock, LockOptions, LockOwner};
