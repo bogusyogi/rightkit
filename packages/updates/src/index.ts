@@ -267,7 +267,6 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
       if (generation !== installGeneration) return { kind: 'idle' };
       let total = 0;
       let received = 0;
-      let readyStatus: AutoUpdateStatus | null = null;
       await update.downloadAndInstall((event) => {
         if (event.event === 'Started' && isStartedEvent(event)) {
           total = event.data.contentLength ?? 0;
@@ -276,13 +275,10 @@ export function createAutoUpdateClient(config: AutoUpdateClientConfig): AutoUpda
           received += event.data.chunkLength;
           const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((received / total) * 100))) : 0;
           emitForGeneration({ kind: 'downloading', version: update.version, tier, pct }, installGeneration);
-        } else if (event.event === 'Finished') {
-          readyStatus = emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
         }
       }, installHeaders ? { headers: installHeaders } : undefined);
 
-      return readyStatus
-        ?? emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
+      return emitForGeneration({ kind: 'ready', version: update.version, tier }, installGeneration);
     } catch (error) {
       const errorStatus: AutoUpdateStatus = { kind: 'error', message: String(error) };
       if (generation !== installGeneration) return errorStatus;

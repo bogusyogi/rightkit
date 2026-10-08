@@ -3,6 +3,7 @@ import {
   UPDATE_HOST_CONTRACT_VECTORS,
   createAutoUpdateClient,
   fetchReleaseStatus,
+  type AutoUpdateStatus,
   type RuntimeUpdate,
 } from './index.js';
 
@@ -21,10 +22,12 @@ function update(version = '1.2.3'): RuntimeUpdate {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe('shared host-adapter contract vectors', () => {
@@ -151,6 +154,104 @@ describe('createAutoUpdateClient', () => {
 
     await expect(client.checkOnce()).resolves.toMatchObject({ kind: 'ready', version: '1.2.3' });
     expect(statuses).toEqual(['checking', 'available', 'downloading', 'downloading', 'downloading', 'ready']);
+  });
+
+  it.each([false, true])('waits for installation before ready (auto-install: %s)', async (autoInstall) => {
+    const downloadFinished = deferred<void>();
+    const installation = deferred<void>();
+    const statuses: AutoUpdateStatus[] = [];
+    const client = createAutoUpdateClient({
+      check: async () => ({
+        ...update(),
+        async downloadAndInstall(onEvent) {
+          onEvent?.({ event: 'Started', data: { contentLength: 100 } });
+          onEvent?.({ event: 'Progress', data: { chunkLength: 100 } });
+          onEvent?.({ event: 'Finished' });
+          downloadFinished.resolve();
+          await installation.promise;
+        },
+      }),
+      shouldAutoInstall: () => autoInstall,
+      onStatus: (status) => statuses.push(status),
+    });
+
+    if (!autoInstall) await client.checkOnce();
+    const result = autoInstall ? client.checkOnce() : client.installAvailable();
+    await downloadFinished.promise;
+    expect(statuses.map((status) => status.kind)).toEqual([
+      'checking', 'available', 'downloading', 'downloading',
+    ]);
+    expect(statuses.at(-1)).toEqual({ kind: 'downloading', version: '1.2.3', tier: 'patch', pct: 100 });
+
+    installation.resolve();
+    await expect(result).resolves.toEqual({ kind: 'ready', version: '1.2.3', tier: 'patch' });
+    expect(statuses.filter((status) => status.kind === 'ready')).toHaveLength(1);
+  });
+
+  it.each([false, true])('emits error without ready when installation fails after Finished (auto-install: %s)', async (autoInstall) => {
+    const downloadFinished = deferred<void>();
+    const installation = deferred<void>();
+    const statuses: AutoUpdateStatus[] = [];
+    const onError = vi.fn();
+    const failure = new Error('installation failed');
+    const client = createAutoUpdateClient({
+      check: async () => ({
+        ...update(),
+        async downloadAndInstall(onEvent) {
+          onEvent?.({ event: 'Started', data: { contentLength: 100 } });
+          onEvent?.({ event: 'Progress', data: { chunkLength: 100 } });
+          onEvent?.({ event: 'Finished' });
+          downloadFinished.resolve();
+          await installation.promise;
+        },
+      }),
+      shouldAutoInstall: () => autoInstall,
+      onStatus: (status) => statuses.push(status),
+      onError,
+    });
+
+    if (!autoInstall) await client.checkOnce();
+    const result = autoInstall ? client.checkOnce() : client.installAvailable();
+    await downloadFinished.promise;
+    installation.reject(failure);
+    const errorStatus: AutoUpdateStatus = { kind: 'error', message: 'Error: installation failed' };
+    await expect(result).resolves.toEqual(errorStatus);
+    expect(statuses.map((status) => status.kind)).toEqual([
+      'checking', 'available', 'downloading', 'downloading', 'error',
+    ]);
+    expect(statuses.at(-1)).toEqual(errorStatus);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(failure);
+  });
+
+  it.each([false, true])('orders ready after download events and install completion (auto-install: %s)', async (autoInstall) => {
+    const order: string[] = [];
+    const client = createAutoUpdateClient({
+      check: async () => ({
+        ...update(),
+        async downloadAndInstall(onEvent) {
+          order.push('Started');
+          onEvent?.({ event: 'Started', data: { contentLength: 100 } });
+          order.push('Progress');
+          onEvent?.({ event: 'Progress', data: { chunkLength: 100 } });
+          order.push('Finished');
+          onEvent?.({ event: 'Finished' });
+          // Repeated download completion must not duplicate readiness.
+          onEvent?.({ event: 'Finished' });
+          await Promise.resolve();
+          order.push('installed');
+        },
+      }),
+      shouldAutoInstall: () => autoInstall,
+      onStatus: (status) => order.push(status.kind),
+    });
+
+    if (!autoInstall) await client.checkOnce();
+    await (autoInstall ? client.checkOnce() : client.installAvailable());
+    expect(order).toEqual([
+      'checking', 'available', 'Started', 'downloading', 'Progress', 'downloading',
+      'Finished', 'installed', 'ready',
+    ]);
   });
 
   it('does not install paid updates for ineligible users', async () => {

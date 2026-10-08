@@ -123,6 +123,7 @@ export function verifySealedRelease(sealedDir) {
   if (manifest.kind != null && typeof manifest.kind !== "string") throw new Error("sealed manifest kind must be a string when present");
   if (!manifest.checkpoints?.includes("sealed")) throw new Error("release is not sealed");
   for (const item of manifest.files ?? []) {
+    if (typeof item.name !== "string" || path.basename(item.name) !== item.name || item.name === "." || item.name === "..") throw new Error("unsafe sealed artifact name");
     const file = path.join(sealedDir, item.name);
     if (!existsSync(file)) throw new Error(`sealed file missing: ${item.name}`);
     const bytes = readFileSync(file);

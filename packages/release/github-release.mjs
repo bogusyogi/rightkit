@@ -280,7 +280,7 @@ function verifyAddonTrust(plan) {
   }
 }
 
-function verifyPlatformTrust(plan) {
+export function verifyPlatformTrust(plan) {
   if (plan.sealed.manifest.platform === "win") {
     runCommand(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "sign-windows.mjs"), "--verify-only", plan.installer]);
     return;

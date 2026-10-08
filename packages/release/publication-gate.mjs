@@ -10,6 +10,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { recordPublished } from "./rightkit-sync.mjs";
 import { fileURLToPath } from "node:url";
+import { digestBytes } from "./publication-artifacts.mjs";
 
 export const GATE_SCHEMA = 1;
 export const REQUIRED_HOSTS = Object.freeze(["darwin", "win32"]);
@@ -28,7 +29,7 @@ function defaultGit(args, cwd) {
 }
 
 // Returns { ok, missing[] }. Pure apart from the injected git/readFile.
-export function checkPublicationGate({ kind, name, version, packagePath, evidencePath, git = defaultGit, readFile = (p) => fs.readFileSync(p, "utf8") }) {
+export function checkPublicationGate({ kind, name, version, packagePath, evidencePath, artifactBytes, git = defaultGit, readFile = (p) => fs.readFileSync(p, "utf8") }) {
   const missing = [];
   const head = git(["rev-parse", "HEAD"], packagePath);
   if (!head || !SHA.test(head)) missing.push(`cannot read current commit SHA for ${packagePath}`);
@@ -64,7 +65,10 @@ export function checkPublicationGate({ kind, name, version, packagePath, evidenc
     }
     if (!/^[0-9a-f]{64}$/.test(String(evidence.artifactSha256 ?? ""))) missing.push("evidence artifactSha256 must be a 64-hex hash");
   }
-  return Object.freeze({ ok: missing.length === 0, missing });
+  if (artifactBytes !== undefined && evidence && digestBytes(artifactBytes) !== evidence.artifactSha256) missing.push("artifact sha256 does not match evidence artifactSha256");
+  const result = { ok: missing.length === 0, missing };
+  Object.defineProperty(result, "evidence", { value: evidence });
+  return Object.freeze(result);
 }
 
 // Enforce: throws on missing evidence unless dryRun (then reports and continues).

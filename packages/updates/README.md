@@ -20,6 +20,18 @@ that lane. This package runs inside apps and coordinates:
 The package has no direct Tauri dependency. Apps inject their updater `check`
 function, authorization loaders, eligibility policy, and safe-to-install predicate.
 
+## Install event order (0.2.5)
+
+Manual & automatic installs emit `checking` → `available` → `downloading`
+statuses → `ready` only after `downloadAndInstall` resolves successfully.
+`Finished` marks download completion; installation may still be pending, so it
+does not emit `ready`. Hosts may offer Restart when `ready` arrives.
+
+If installation rejects, clients emit & return `{ kind: 'error', message }`,
+call `onError`, & never emit `ready` for that install. Existing public types,
+method signatures & progress events remain source compatible; readiness timing
+changes from download completion to successful installation.
+
 ## Check and install authorization
 
 `getHeaders` is the manifest-check header loader. An app may separately provide
