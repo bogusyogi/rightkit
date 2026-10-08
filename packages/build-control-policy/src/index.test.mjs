@@ -4,6 +4,96 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { claudeHookDecision, clineHookDecision, githubActionsOnlyViolation, managedBuildViolation } from './index.mjs';
+
+async function setOrigin(root, url = 'https://github.com/Orthic-Labs/example.git') {
+  await mkdir(join(root, '.git'), { recursive: true });
+  await writeFile(join(root, '.git/config'), `[remote "origin"]\n url = ${url}\n`);
+}
+
+const commandCases = [
+  ['legion run --help', false],
+  ['legion run --help; cat docs/rules/release-signing.md', false],
+  ['sed -n 1,20p crates/legion-apple/src/build_analysis.rs', false],
+  ['grep build_analysis.rs crates/legion-apple/src/lib.rs', false],
+  ['echo cargo', false],
+  ['echo PATH=/tmp', false],
+  ['PATH=/tmp grep cargo log', false],
+  ['export PATH=/tmp; grep cargo log', false],
+  ['grep "Failed to list rustc sysroot" log', false],
+  ['grep cargo log', false],
+  ['python3 -c "import json; d = {}; print(d[\'stagedCargo\'])"', false],
+  ['python3 -c "print(\'cargo rustc PATH=/tmp\')"', false],
+  ['node -e "console.log(\'cargo rustc PATH=/tmp\')"', false],
+  ['node packages/release/rightkit-sync.mjs stage cargo rightkit-qa 0.2.9', false],
+  ['node scripts/inspect.mjs build cargo rustc --test', false],
+  ['python3 scripts/inspect.py build cargo rustc', false],
+  ['node cargo rustc', false],
+  ['node --check scripts/build.mjs', false],
+  ['python3 -m json.tool cargo', false],
+  ['bash -c "echo cargo; grep rustc log"', false],
+  ['rustup run stable echo cargo', false],
+  ['command -v cargo', false],
+  ['command -p -v cargo', false],
+  ['bash inspect.sh -c "cargo build"', false],
+  ['bash -C inspect.sh cargo', false],
+  ['echo "cmd: \'cargo build\'"', false],
+  ["python3 <<'PY'\nprint('cargo rustc PATH=/tmp build_analysis.rs')\nPY", false],
+  ['echo safe # cargo build; rustc x.rs', false],
+  ['echo safe\n# cargo build\nprintf "%s" rustdoc', false],
+  ['cat cargo; sed -n 1p rustc | grep rustdoc && ls build_analysis.rs', false],
+  ['head cargo; tail rustc; wc rustdoc; find . -name cargo; rg release-signing.md', false],
+  ['grep -c cargo log', false],
+  ['xargs -p echo cargo', false],
+  ['pnpm exec grep build_analysis.rs log', false],
+  ['npm exec -- node packages/release/rightkit-sync.mjs stage cargo rightkit-qa 0.2.9', false],
+  ['cat < cargo > rustc', false],
+  ['cargo build', true],
+  ['"cargo" build', true],
+  ['python3 -m build', true, false],
+  ['env X=1 cargo test', true],
+  ['cd x && cargo clippy', true],
+  ['bash -c "cargo build"', true],
+  ['/path/to/rustc x.rs', true],
+  ['xargs cargo build', true],
+  ['printf "%s" x | xargs -I{} cargo test {}', true],
+  ['(echo safe; cargo build)', true],
+  ['echo safe | rustdoc x.rs', true],
+  ['echo "$(cargo build)"', true],
+  ['echo `cargo build`', true],
+  ['rustup run stable cargo test', true],
+  ['cargo-clippy --workspace', true],
+  ['env -u X /path/to/rustdoc x.rs', true],
+  ['command -p cargo build', true],
+  ['command cargo -V', true],
+  ['rustup run stable bash -c "cargo build"', true],
+  ['xargs -p cargo test', true],
+  ['echo safe # <<EOF\ncargo build', true],
+  ['pnpm run build', true, false],
+  ['pnpm --dir app run test:unit', true, false],
+  ['pnpm -w exec cargo test', true, false],
+  ['npm run build', true, false],
+  ['npx tsc --noEmit', true, false],
+  ['pnpm exec vite build', true, false],
+  ['npm exec -- tauri build', true, false],
+  ['npx --yes tauri build', true, false],
+  ['(PATH=/tmp; echo cargo); pnpm run build', true, false],
+  ['(PATH=/tmp; pnpm run build)', true],
+  ['export PATH=/tmp; pnpm run build', true],
+];
+
+test('executable classification regression table (public hook)', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-hook-table-'));
+  try {
+    await setOrigin(root);
+    await writeFile(join(root, '.rightgit.json'), '{"compile":"github-actions-only"}');
+    for (const [command, blocked, managed = blocked] of commandCases) await t.test(command, () => {
+      const decision = claudeHookDecision({ cwd: root, environment: {}, tool_input: { command } });
+      assert.equal(decision.hookSpecificOutput?.permissionDecision === 'deny', blocked);
+      assert.equal(clineHookDecision({ cwd: root, environment: {}, command }).cancel, blocked);
+      assert.equal(Boolean(managedBuildViolation(command)), managed);
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 for (const command of ['cargo test', '/opt/rust/bin/rustc x.rs', 'env PATH=/x cargo build', 'FOO=1 cargo test && rustdoc x', 'zsh -lc "cargo build"', 'command rustdoc x', '$(cargo test)', 'rustup run stable cargo test']) test(`blocks ${command}`, () => assert.ok(managedBuildViolation(command)));
 test('allows exact rightkit only', () => { assert.equal(managedBuildViolation('rightkit cargo -- test'), null); assert.equal(claudeHookDecision({ environment: { GITHUB_ACTIONS: 'true' }, tool_input: { command: 'rightkit cargo -- test' } }).decision, 'allow'); });
 for (const command of ['rightkit cargo test --manifest-path /workspace/Cargo.toml', 'rightkit rustc --version', 'rightkit rustdoc --version', 'pnpm exec rightkit cargo fmt --check', 'rightkit cargo test 2>&1 | tail -20', 'cd /workspace && rightkit cargo check', 'rightkit cargo test > build.log', '(rightkit rustdoc --version) | tee result.log']) test(`allows sanctioned entrypoint ${command}`, () => assert.equal(managedBuildViolation(command), null));
@@ -17,6 +107,8 @@ test('Codex cmd field and composed functions.exec payload retain managed build p
   assert.equal(claudeHookDecision({ tool_name: 'exec_command', tool_input: { cmd: 'cargo test' } }).hookSpecificOutput.permissionDecision, 'deny');
   assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { code: "await tools.exec_command({cmd: 'cargo test'})" } }).hookSpecificOutput.permissionDecision, 'deny');
   assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { command: "await tools.exec_command({cmd: 'cargo test'})" } }).hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { code: 'await tools.exec_command({cmd: "echo cargo"})' } }).decision, 'allow');
+  assert.equal(claudeHookDecision({ tool_name: 'functions.exec', tool_input: { code: 'await tools.exec_command({cmd: "grep \\"Failed to list rustc sysroot\\" log"})' } }).decision, 'allow');
 });
 test('cline hook blocks direct cargo', () => { assert.equal(clineHookDecision({ preToolUse: { tool: 'execute_command', parameters: { command: 'cargo test' } } }).cancel, true); });
 test('cline hook permits rightkit', () => { assert.equal(clineHookDecision({ environment: { GITHUB_ACTIONS: 'true' }, preToolUse: { tool: 'execute_command', parameters: { command: 'rightkit cargo -- test' } } }).cancel, false); });
@@ -45,9 +137,8 @@ test('a bare tool word inside a quoted, non-executed string is not a violation',
   // like a token boundary to a single-pass scan.
   assert.equal(managedBuildViolation(`echo "the ${cargo} team"`), null);
   assert.equal(managedBuildViolation(`grep -rn "${cargo} team meeting notes" file.txt`), null);
-  // An unquoted bare word stays blocked — genuinely ambiguous with a real
-  // invocation, so the fix must not weaken this case.
-  assert.equal(managedBuildViolation(`grep -rn ${cargo} file.txt`), cargo);
+  // Unquoted arguments are data too; only executable position can block.
+  assert.equal(managedBuildViolation(`grep -rn ${cargo} file.txt`), null);
 });
 
 test('a quoted script handed to a nested shell is still scanned, not treated as inert data', () => {
@@ -78,6 +169,7 @@ test('github-actions-only public repositories deny every local dynamic lane', as
   const nested = join(root, 'apps', 'desktop');
   try {
     await mkdir(nested, { recursive: true });
+    await setOrigin(root);
     await writeFile(join(root, '.rightgit.json'), '{"compile":"github-actions-only"}\n');
     const commands = [
       'rightkit cargo -- test',
@@ -110,6 +202,7 @@ test('github-actions-only public repositories deny every local dynamic lane', as
 test('github-actions-only policy permits static local work, exact inert install & all GitHub Actions work', async () => {
   const root = await mkdtemp(join(tmpdir(), 'rightkit-hook-public-'));
   try {
+    await setOrigin(root);
     await writeFile(join(root, '.rightgit.json'), '{"compile":"github-actions-only"}\n');
     for (const command of ['pnpm install --frozen-lockfile --ignore-scripts', 'pnpm install --lockfile-only --ignore-scripts', 'pnpm run lint', 'node scripts/check-format.mjs', 'git diff --check', 'rg "build" src']) {
       assert.equal(githubActionsOnlyViolation(command, { cwd: root, environment: {} }), null, command);
@@ -134,6 +227,50 @@ test('Orthic public remotes fail dynamic work closed when policy is absent, wron
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('only owning repository origin determines public policy', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'rightkit-hook-origin-'));
+  try {
+    await setOrigin(root);
+    for (const [name, origin] of [
+      ['private', 'https://github.com/adrdsouza/private.git'],
+      ['public', 'git@github.com:Orthic-Labs/example.git'],
+      ['ssh-public', 'ssh://git@github.com/Orthic-Labs/example.git'],
+    ]) await t.test(name, async () => {
+      const nested = join(root, name); await mkdir(nested);
+      await setOrigin(nested, origin);
+      // Public upstream & public compile labels never turn a private origin public.
+      await writeFile(join(nested, '.git/config'), `[remote "origin"]\n url = ${origin}\n[remote "upstream"]\n url = https://github.com/Orthic-Labs/other.git\n`);
+      await writeFile(join(nested, '.rightgit.json'), '{"compile":"github-actions-only"}');
+      const options = { cwd: nested, environment: {} };
+      assert.equal(Boolean(githubActionsOnlyViolation('pnpm test', options)), name !== 'private');
+      assert.equal(githubActionsOnlyViolation('cat release-signing.md build_analysis.rs', options), null);
+    });
+    await t.test('origin absent stops ancestor lookup', async () => {
+      const nested = join(root, 'no-origin'); await mkdir(join(nested, '.git'), { recursive: true });
+      await writeFile(join(nested, '.git/config'), '[remote "upstream"]\n url = https://github.com/Orthic-Labs/other.git\n');
+      assert.equal(githubActionsOnlyViolation('pnpm test', { cwd: nested, environment: {} }), null);
+    });
+    await t.test('gitdir & commondir resolve origin for linked checkout', async () => {
+      const nested = join(root, 'linked'); const gitDir = join(root, 'metadata', 'worktrees', 'linked');
+      await mkdir(nested); await mkdir(gitDir, { recursive: true });
+      await writeFile(join(nested, '.git'), 'gitdir: ../metadata/worktrees/linked\n');
+      await writeFile(join(gitDir, 'commondir'), '../..\n');
+      await writeFile(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+      await mkdir(join(root, 'metadata/objects')); await mkdir(join(root, 'metadata/refs'));
+      await writeFile(join(root, 'metadata/config'), '[remote "origin"]\n url = git@github.com:Orthic-Labs/linked.git\n');
+      assert.ok(githubActionsOnlyViolation('pnpm test', { cwd: nested, environment: {} }));
+      await writeFile(join(root, 'metadata/config'), '[remote "origin"]\n url = git@github.com:adrdsouza/private.git\n');
+      assert.equal(githubActionsOnlyViolation('pnpm test', { cwd: nested, environment: {} }), null);
+    });
+    await t.test('origin included by owning repository config', async () => {
+      const nested = join(root, 'included'); await mkdir(nested); await mkdir(join(nested, '.git'));
+      await writeFile(join(nested, '.git/config'), '[include]\n path = origin.config\n');
+      await writeFile(join(nested, '.git/origin.config'), '[remote "origin"]\n url = https://github.com/Orthic-Labs/included.git\n');
+      assert.ok(githubActionsOnlyViolation('pnpm test', { cwd: nested, environment: {} }));
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('Membrane local declaration admits only its unsigned Windows installer entry', async () => {

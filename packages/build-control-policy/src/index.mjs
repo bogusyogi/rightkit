@@ -1,19 +1,13 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { dirname, join, parse, resolve } from 'node:path';
 import { localDevelopmentPolicy, localDevelopmentCargoAllowed } from '../../build-control-core/src/local-development.mjs';
 
 const tools = new Set(['cargo', 'rustc', 'rustdoc']);
 const githubActionsOnly = 'github-actions-only';
 const dynamicOperation = /(?:^|[:_-])(?:compile|test|build|package|pack|sign|qualif(?:y|ication)|smoke|release|candidate|finalize)(?:$|[:_-])/i;
-const shellScriptFlag = /(?:^|[\s;&|()`])(?:-c|-lc|\/c|-command|-encodedcommand)\s*$/i;
-const staticPnpmInstall = /^pnpm(?:\.cmd)?\s+install\s+(?:(?:--frozen-lockfile|--lockfile-only|--ignore-scripts)\s*){2}$/i;
 const basename = (value) => value.replace(/\\/g, '/').split('/').pop().replace(/\.(?:exe|cmd)$/i, '').toLowerCase();
 const trustedAgentPath = (value) => /(?:\.rightkit-managed|rightkitmanagedagent)[\\/]agent-bin/i.test(value);
-const packageManagerInvocation = (command) => {
-  if (!/^(?:env\s+(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)*)?(?:pnpm|npm)(?:\.cmd)?(?:\s|$)/i.test(command) || /[;&|$()`<>\n]/.test(command)) return false;
-  const pathAssignments = [...command.matchAll(/(?:^|\s)PATH=([^\s]+)/gi)];
-  return pathAssignments.every((match) => trustedAgentPath(match[1]));
-};
 
 function heredocOpeners(line) {
   const openers = [];
@@ -27,6 +21,7 @@ function heredocOpeners(line) {
     }
     if (character === '\\') { index += 1; continue; }
     if (character === '"' || character === "'") { quote = character; continue; }
+    if (character === '#' && (index === 0 || /[\s;&|()]/.test(line[index - 1]))) break;
     if (character !== '<' || line[index + 1] !== '<' || line[index + 2] === '<') continue;
     index += 2;
     const stripTabs = line[index] === '-'; if (stripTabs) index += 1;
@@ -62,6 +57,208 @@ function withoutHeredocBodies(command) {
   return retained.join('\n');
 }
 
+// Lex shell words without executing or expanding them. Only unquoted operators
+// split commands. Substitutions are separate commands; quoted arguments stay
+// intact, including shell -c scripts which are parsed only for shell executables.
+function shellCommands(command) {
+  const text = withoutHeredocBodies(command); const commands = [];
+  let index = 0;
+  function sequence(stop = null, segments = commands) {
+    let words = []; let redirect = false;
+    const flush = () => { if (words.length) segments.push(words); words = []; redirect = false; };
+    while (index < text.length) {
+      const character = text[index];
+      if (character === stop) { flush(); index += 1; return; }
+      if (character === '\\' && text[index + 1] === '\n') { index += 2; continue; }
+      if (/[ \t\r]/.test(character)) { index += 1; continue; }
+      if (character === '#') { while (index < text.length && text[index] !== '\n') index += 1; continue; }
+      if (/[\n;&|()]/.test(character) && !(character === '&' && text[index + 1] === '>')) {
+        flush(); index += 1;
+        if (character === '(') { const nested = []; sequence(')', nested); segments.push({ commands: nested }); }
+        continue;
+      }
+      // Redirect targets & file-descriptor numbers are arguments, never programs.
+      const operator = /^(?:\d+)?(?:&>|[<>])(?:[<>&|-])?/.exec(text.slice(index));
+      if (operator && !/^[<>]\(/.test(text.slice(index))) {
+        index += operator[0].length; redirect = true; continue;
+      }
+      let word = ''; let quote = null; let started = false;
+      while (index < text.length) {
+        const value = text[index];
+        if (!quote && (/[\s;&|()]/.test(value) || /[<>]/.test(value) && text[index + 1] !== '(')) break;
+        started = true;
+        if (value === '\\' && quote !== "'") {
+          const next = text[index + 1];
+          if (next === '\n') { index += 2; continue; }
+          if (next && (quote === '"' ? /["\\$`]/ : /[\s"'\\$`;&|()<>#]/).test(next)) { word += next; index += 2; continue; }
+        }
+        if (value === quote) { quote = null; index += 1; continue; }
+        if (!quote && (value === '"' || value === "'")) { quote = value; index += 1; continue; }
+        if (quote !== "'" && ((value === '$' || !quote && /[<>]/.test(value)) && text[index + 1] === '(')) {
+          index += 2; const nested = []; sequence(')', nested); segments.push({ commands: nested }); word += '__substitution__'; continue;
+        }
+        if (quote !== "'" && value === '`') {
+          index += 1; let script = '';
+          while (index < text.length && text[index] !== '`') script += text[index++];
+          if (text[index] === '`') index += 1;
+          segments.push({ commands: shellCommands(script) }); word += '__substitution__'; continue;
+        }
+        word += value; index += 1;
+      }
+      if (started && !redirect) words.push(word);
+      redirect = false;
+    }
+    flush();
+  }
+  sequence(); return commands;
+}
+
+const assignment = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const shellNames = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'cmd', 'powershell', 'pwsh']);
+const toolName = (word = '') => tools.has(basename(word)) || /^cargo-.+/.test(basename(word)) ? basename(word) : null;
+const rustupTool = (argv) => argv[1] === 'run' ? toolName(skipOptions(argv.slice(2), new Set())[1]) : null;
+const packageOptions = new Set(['--dir', '-C', '--prefix', '--filter', '-F', '--workspace', '-w', '--userconfig', '--cache', '--registry', '--package', '-p']);
+const launcherOptions = {
+  command: [], builtin: [], exec: ['-a'], nohup: [], time: ['-o', '--output', '-f', '--format'],
+  nice: ['-n', '--adjustment'], timeout: ['-k', '--kill-after'],
+  stdbuf: ['-i', '-o', '-e', '--input', '--output', '--error'],
+  sudo: ['-u', '-g', '-h', '-p', '-C', '-D', '-R', '--user', '--group', '--host', '--prompt', '--chdir', '--chroot'],
+  xargs: ['-I', '-L', '-n', '-P', '-s', '-E', '-a', '--replace', '--max-args', '--max-lines', '--max-procs', '--max-chars', '--eof', '--arg-file', '-d', '--delimiter'],
+};
+
+function skipOptions(argv, valued) {
+  let index = 0;
+  while (argv[index]?.startsWith('-') && argv[index] !== '-') {
+    const option = argv[index++];
+    if (option === '--') break;
+    if (valued.has(option)) index += 1;
+  }
+  return argv.slice(index);
+}
+
+// Resolve only known launchers. Never scan arbitrary arguments for tool words.
+function* executableInvocations(command, inheritedPathRedirect = false) {
+  yield* resolvedInvocations(shellCommands(command), inheritedPathRedirect);
+}
+
+function* resolvedInvocations(commands, inheritedPathRedirect) {
+  let persistentPathRedirect = inheritedPathRedirect;
+  for (const words of commands) {
+    if (words.commands) { yield* resolvedInvocations(words.commands, persistentPathRedirect); continue; }
+    let argv = [...words]; let pathRedirect = persistentPathRedirect;
+    const assignments = () => {
+      while (assignment.test(argv[0] ?? '')) {
+        const value = argv.shift();
+        if (/^PATH=/i.test(value)) pathRedirect = !trustedAgentPath(value.slice(5));
+      }
+    };
+    assignments();
+    if (!argv.length) { persistentPathRedirect = pathRedirect; continue; }
+    if (argv[0] === 'export') {
+      argv.shift(); assignments(); persistentPathRedirect = pathRedirect; continue;
+    }
+    // Shell control words introduce executable positions, not argument positions.
+    while (['!', '{', 'if', 'then', 'elif', 'else', 'do'].includes(argv[0])) argv.shift();
+    for (;;) {
+      const name = basename(argv[0] ?? '');
+      if (name === 'env') {
+        argv = skipOptions(argv.slice(1), new Set(['-u', '--unset', '-C', '--chdir'])); assignments(); continue;
+      }
+      if (Object.hasOwn(launcherOptions, name)) {
+        let lookup = false;
+        if (name === 'command') for (const arg of argv.slice(1)) {
+          if (!arg.startsWith('-') || arg === '--') break;
+          if (/^-[pvV]*[vV][pvV]*$/.test(arg)) lookup = true;
+        }
+        if (lookup) break;
+        argv = skipOptions(argv.slice(1), new Set(launcherOptions[name]));
+        if (name === 'timeout') argv.shift();
+        assignments(); continue;
+      }
+      if (name === 'rustup' && argv[1] === 'run' && !rustupTool(argv)) {
+        argv = skipOptions(argv.slice(2), new Set()).slice(1); continue;
+      }
+      if (shellNames.has(name)) {
+        let flag = -1;
+        for (let index = 1; index < argv.length; index += 1) {
+          const arg = argv[index];
+          if (name === 'cmd' ? /^\/c$/i.test(arg) : ['powershell', 'pwsh'].includes(name) ? /^-(?:c|command)$/i.test(arg) : /^-[a-z]*c[a-z]*$/.test(arg)) { flag = index; break; }
+          if (arg === '--' || !(name === 'cmd' ? arg.startsWith('/') : arg.startsWith('-'))) break;
+          if (['--rcfile', '--init-file', '-o', '-O'].includes(arg)) index += 1;
+        }
+        if (flag >= 0 && argv[flag + 1] !== undefined) {
+          yield* executableInvocations(name === 'cmd' ? argv.slice(flag + 1).join(' ') : argv[flag + 1], pathRedirect);
+        }
+        break;
+      }
+      yield { argv, pathRedirect }; break;
+    }
+  }
+}
+
+function packageOperation(argv) {
+  const options = basename(argv[0]) === 'pnpm' ? new Set([...packageOptions].filter((option) => option !== '-w')) : packageOptions;
+  const args = skipOptions(argv.slice(1), options);
+  const action = args[0]?.toLowerCase();
+  if (basename(argv[0]) === 'pnpm' && action === 'install' && args.length === 3
+    && args.includes('--ignore-scripts') && args.some((arg) => ['--frozen-lockfile', '--lockfile-only'].includes(arg))) return null;
+  if (['install', 'ci', 'add', 'update', 'upgrade'].includes(action)) return 'install';
+  if (['exec', 'dlx'].includes(action) || basename(argv[0]) === 'npx') {
+    const child = ['exec', 'dlx'].includes(action) ? skipOptions(args.slice(1), new Set(['--package', '-p', '-c', '--call'])) : args;
+    return dynamicInvocation(child);
+  }
+  const script = action === 'run' || action === 'run-script' ? skipOptions(args.slice(1), packageOptions)[0] : action;
+  return script && dynamicOperation.test(script) ? script : null;
+}
+
+function dynamicInvocation(argv) {
+  const name = basename(argv[0] ?? '');
+  if (toolName(name)) return name;
+  if (name === 'rustup') return rustupTool(argv) ? 'rustup' : null;
+  if (name === 'rightkit') {
+    const args = argv[1] === 'remote' ? argv.slice(3) : argv.slice(1);
+    return toolName(args[0]);
+  }
+  if (['pnpm', 'npm', 'npx', 'yarn'].includes(name)) return packageOperation(argv);
+  if (name === 'right-release') {
+    const operation = argv[1]?.toLowerCase();
+    if (operation === 'addon' && argv[2] === 'build') return 'addon-build';
+    if (operation === 'publish' && ['cargo', 'swift'].includes(argv[2])) return `publish-${argv[2]}`;
+    return operation && (dynamicOperation.test(operation) || ['release', 'sign-windows', 'sign-updater', 'create-mac-updater', 'cargo-target'].includes(operation)) ? operation : null;
+  }
+  if (['node', 'nodejs', 'python', 'python3'].includes(name)) {
+    let index = 1;
+    while (argv[index]?.startsWith('-')) {
+      const option = argv[index++];
+      if (option === '--check') return null;
+      if (option === '-m' && name.startsWith('python')) return dynamicOperation.test(argv[index] ?? '') ? argv[index] : null;
+      if (['-e', '--eval', '-p', '--print', '-c'].includes(option) || /^--(?:eval|print)=|^-[epc].+/.test(option)) return null;
+      if (option === '--test') return 'test';
+      if (option === '--') break;
+      if (['--require', '-r', '--import', '--loader'].includes(option)) index += 1;
+    }
+    const script = argv[index];
+    if (!script || !/\.(?:mjs|cjs|js|ts|py|sh|ps1|cmd|bat)$/i.test(script)) return null;
+    const scriptName = basename(script).replace(/\.[^.]+$/, '');
+    if (scriptName === 'right-release') return dynamicInvocation([scriptName, ...argv.slice(index + 1)]);
+    return dynamicOperation.test(scriptName) ? basename(script) : null;
+  }
+  // These CLIs take build/test operations as subcommands. Inspect that slot,
+  // never filenames or arbitrary arguments belonging to read-only programs.
+  if (['vite', 'tauri', 'next', 'webpack', 'rollup', 'playwright', 'cypress'].includes(name)
+    && dynamicOperation.test(argv[1] ?? '')) return argv[1];
+  if (dynamicOperation.test(name.replace(/\.(?:mjs|cjs|js|ts|sh|ps1|cmd|bat|exe)$/i, ''))) return name;
+  return ['make', 'cmake', 'ninja', 'msbuild', 'xcodebuild', 'swiftc', 'tsc'].includes(name) ? name : null;
+}
+
+function dynamicCommandOperation(command) {
+  for (const { argv } of executableInvocations(command)) {
+    const operation = dynamicInvocation(argv);
+    if (operation) return operation;
+  }
+  return null;
+}
+
 function directoryFrom(value) {
   const selected = resolve(value ?? process.cwd());
   try { return statSync(selected).isDirectory() ? selected : dirname(selected); }
@@ -73,13 +270,28 @@ function repositoryCompilePolicy(cwd) {
   const filesystemRoot = parse(cursor).root;
   for (;;) {
     const manifestPath = join(cursor, '.rightgit.json');
-    const gitConfigPath = join(cursor, '.git', 'config');
+    const gitEntry = join(cursor, '.git');
     let orthicPublic = false;
-    if (existsSync(gitConfigPath)) {
-      try { orthicPublic = /github\.com(?::|\/)Orthic-Labs\//i.test(readFileSync(gitConfigPath, 'utf8')); }
+    if (existsSync(gitEntry)) {
+      try {
+        let gitDir = gitEntry;
+        if (!statSync(gitEntry).isDirectory()) {
+          const pointer = /^gitdir:\s*(.+)$/m.exec(readFileSync(gitEntry, 'utf8'));
+          if (!pointer) throw new Error('invalid gitdir');
+          gitDir = resolve(cursor, pointer[1].trim());
+        }
+        if (existsSync(join(gitDir, 'commondir'))) gitDir = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim());
+        // Ask Git for exactly this repository's origin; filenames, other
+        // remotes, ancestor repositories & global config cannot make it public.
+        const origin = execFileSync('git', ['config', '--file', join(gitDir, 'config'), '--includes', '--get', 'remote.origin.url'], {
+          cwd: cursor, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2_000,
+        }).trim();
+        orthicPublic = /^(?:https?:\/\/github\.com\/|(?:ssh:\/\/)?git@github\.com[:/])Orthic-Labs\//i.test(origin);
+      }
       catch { orthicPublic = false; }
+      if (!orthicPublic) return Object.freeze({ root: null, compile: null, invalid: false, orthicPublic: false });
     }
-    if (existsSync(manifestPath)) {
+    if (orthicPublic && existsSync(manifestPath)) {
       try {
         const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
         return Object.freeze({ root: cursor, compile: manifest.compile ?? null, invalid: false, orthicPublic });
@@ -91,44 +303,6 @@ function repositoryCompilePolicy(cwd) {
     if (cursor === filesystemRoot) return Object.freeze({ root: null, compile: null, invalid: false, orthicPublic: false });
     cursor = dirname(cursor);
   }
-}
-
-function dynamicCommandOperation(command) {
-  const executableText = withoutHeredocBodies(command);
-  const trimmed = executableText.trim();
-  if (staticPnpmInstall.test(trimmed)
-    && (trimmed.includes('--frozen-lockfile') || trimmed.includes('--lockfile-only'))
-    && trimmed.includes('--ignore-scripts')) return null;
-  const withoutInertQuotedSpans = executableText.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (match, offset, full) => shellScriptFlag.test(full.slice(0, offset)) ? match : '');
-  const words = withoutInertQuotedSpans
-    .split(/[\s;&|()$`<>]+/)
-    .filter(Boolean)
-    .map((word) => word.replace(/^['"]|['"]$/g, ''));
-  for (let index = 0; index < words.length; index += 1) {
-    const name = basename(words[index]);
-    if (tools.has(name) || name === 'rustup') return name;
-    if (name === 'rightkit' && ['cargo', 'rustc', 'rustdoc'].includes(words[index + 1]?.toLowerCase())) return words[index + 1].toLowerCase();
-    if (name === 'right-release') {
-      const operation = words[index + 1]?.toLowerCase();
-      if (operation === 'addon' && words[index + 2]?.toLowerCase() === 'build') return 'addon-build';
-      if (operation === 'publish' && ['cargo', 'swift'].includes(words[index + 2]?.toLowerCase())) return `publish-${words[index + 2].toLowerCase()}`;
-      if (operation && (dynamicOperation.test(operation) || ['release', 'sign-windows', 'sign-updater', 'create-mac-updater', 'cargo-target'].includes(operation))) return operation;
-    }
-    if (['pnpm', 'npm', 'yarn'].includes(name)) {
-      let candidate = words[index + 1]?.toLowerCase();
-      if (['run', 'exec', 'dlx'].includes(candidate)) candidate = words[index + 2]?.toLowerCase();
-      if (tools.has(basename(candidate ?? '')) || candidate === 'rustup') return basename(candidate);
-      if (candidate === 'rightkit' && ['cargo', 'rustc', 'rustdoc'].includes(words[index + 3]?.toLowerCase())) return words[index + 3].toLowerCase();
-      if (['install', 'ci', 'add', 'update', 'upgrade'].includes(candidate)) return 'install';
-      if (candidate && dynamicOperation.test(candidate)) return candidate;
-      const later = words.slice(index + 1, index + 5).find((token) => dynamicOperation.test(token.toLowerCase()));
-      if (later) return later.toLowerCase();
-    }
-    if (name === 'node' && words.slice(index + 1, index + 4).some((token) => token === '--test' || dynamicOperation.test(basename(token)))) return 'test';
-    if (dynamicOperation.test(name.replace(/\.(?:mjs|cjs|js|ts|sh|ps1|cmd|bat|exe)$/i, ''))) return name;
-    if (['make', 'cmake', 'ninja', 'msbuild', 'xcodebuild', 'swiftc', 'tsc'].includes(name)) return name;
-  }
-  return null;
 }
 
 export function githubActionsOnlyViolation(command, { cwd = process.cwd(), environment = process.env, platform = process.platform } = {}) {
@@ -157,48 +331,25 @@ export function githubActionsOnlyViolation(command, { cwd = process.cwd(), envir
 
 export function managedBuildViolation(command) {
   if (typeof command !== 'string') throw new TypeError('command must be a string');
-  const executableText = withoutHeredocBodies(command);
-  const trimmed = executableText.trim();
-  // Sanctioned RightKit subcommands (including the documented Mac<->Windows lane
-  // `rightkit remote windows|mac cargo ...`) remain safe inside ordinary shell wrappers,
-  // pipes, redirects, & cwd setup. Remove only their managed-tool token, then
-  // scan every remaining executable token so appended bare Cargo still blocks.
-  const pathAssignments = [...executableText.matchAll(/(?:^|\s)PATH=([^\s;&|]+)/gi)];
-  const rightkitCanResolveSafely = pathAssignments.every((match) => trustedAgentPath(match[1]));
-  const withoutSanctionedRightkit = rightkitCanResolveSafely
-    ? executableText
-      .replace(/(^|[\s;&|()$`"'])rightkit(\s+(?:remote\s+(?:windows|mac|macos)\s+)?)(cargo|rustc|rustdoc)\b/gim, '$1rightkit$2__rightkit_managed_tool__')
-      // `right-release publish cargo` names a registry, not a tool; it routes Cargo through the
-      // managed client itself.
-      .replace(/(^|[\s;&|()$`"'])((?:node\s+\S*right-release(?:\.mjs)?|right-release)\s+publish\s+)cargo\b/gim, '$1$2__rightkit_publish_registry__')
-    : executableText;
-  // The managed shims are reached through PATH, so redirecting PATH shadows
-  // them and every later check. packageManagerInvocation already refused such a
-  // command, but refusing it only fell through to a scan that does not list the
-  // package managers, so the redirect was silently permitted.
-  if ([...trimmed.matchAll(/(?:^|\s)PATH=([^\s]+)/gi)].some((match) => !trustedAgentPath(match[1]))) return 'path-redirect';
-  // Package managers remain available. Their Cargo children inherit the
-  // managed Cargo shim from PATH; denying their command line would prevent
-  // that routing while also blocking non-Rust package-manager work.
-  if (packageManagerInvocation(trimmed)) return null;
-  if (/\brustup\s+run\b[^;&|()\n]*\b(cargo|rustc|rustdoc)\b/i.test(withoutSanctionedRightkit)) return 'rustup-run';
-  if (/\balias\s+[A-Za-z_][A-Za-z0-9_]*=.?[^\s;&|()]*\b(?:cargo|rustc|rustdoc)\b/i.test(withoutSanctionedRightkit)) return 'alias';
-  // A quote character is not a command boundary the way `;`/`|` is — it
-  // delimits a string argument, and text inside one is normally never
-  // executed. The previous tokenizer treated every quote as a delimiter,
-  // which tore open quoted text and re-scanned its contents; a single-word
-  // quote broke on the open quote, but a multi-word one still leaked,
-  // since ordinary spaces *inside* the quotes still looked like ordinary
-  // token boundaries. `echo "the cargo team"` blocked on the bare word
-  // "cargo" appearing inside a quoted, non-executed sentence.
-  //
-  // The one case where quoted text IS executed: a shell/interpreter flag
-  // (`-c`, `-lc`, `/c`, `-Command`, ...) that hands its quoted argument to
-  // a nested interpreter as a script, e.g. `zsh -lc "cargo build"`. Those
-  // spans are left untouched so the scan still reaches inside them; every
-  // other quoted span is stripped before the token scan ever sees it.
-  const withoutInertQuotedSpans = withoutSanctionedRightkit.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (match, offset, full) => shellScriptFlag.test(full.slice(0, offset)) ? match : '""');
-  for (const word of withoutInertQuotedSpans.matchAll(/(?:^|[\s;&|()$`"'])(\/?[^\s;&|()$`"']+)/g)) { const name = basename(word[1]); if (tools.has(name)) return name; }
+  for (const { argv, pathRedirect } of executableInvocations(command)) {
+    const name = basename(argv[0] ?? '');
+    if (toolName(name)) return name;
+    if (name === 'rustup' && rustupTool(argv)) return 'rustup-run';
+    if (name === 'alias' && argv.slice(1).some((arg) => toolName(arg.slice(arg.indexOf('=') + 1).split(/\s/)[0]))) return 'alias';
+    if (name === 'rightkit') {
+      const remote = argv[1] === 'remote';
+      const tool = toolName(argv[remote ? 3 : 1]);
+      if (tool && (pathRedirect || !/^rightkit(?:\.cmd)?$/i.test(argv[0]) || remote && !['windows', 'mac', 'macos'].includes(argv[2]))) return tool;
+      if (tool) continue;
+    }
+    // Package-manager Cargo children inherit managed shims. Only an actual
+    // build invocation with a shadowed PATH is denied, never PATH text in data.
+    if (pathRedirect && dynamicInvocation(argv)) return 'path-redirect';
+    if (name === 'npx') {
+      const child = skipOptions(argv.slice(1), new Set(['--package', '-p']));
+      if (toolName(child[0])) return toolName(child[0]);
+    }
+  }
   return null;
 }
 
@@ -211,13 +362,15 @@ function denialMessage(blocked) {
 
 export function claudeHookDecision(input) {
   // Codex exec_command uses `cmd`; functions.exec carries JavaScript which can
-  // compose an exec_command call. Treat that string conservatively as a shell
-  // command because it is still user supplied executable text.
+  // compose an exec_command call. Inspect its shell payload, not JavaScript
+  // source or similarly shaped text passed as an ordinary shell argument.
   const command = input?.tool_input?.command ?? input?.tool_input?.cmd ?? input?.tool_input?.code ?? input?.tool_input?.input ?? input?.command ?? input?.cmd ?? input?.code ?? input?.input?.command ?? input?.input?.cmd;
-  const composedCommands = typeof command === 'string'
-    ? [...command.matchAll(/\b(?:cmd|command)\s*:\s*(["'`])([\s\S]*?)\1/g)].map((match) => match[2]).join('\n')
+  const composed = /(?:^|\.)functions[._]exec$/.test(input?.tool_name ?? '') || input?.tool_input?.code !== undefined || input?.code !== undefined;
+  const composedCommands = composed && typeof command === 'string'
+    ? [...command.matchAll(/\b(?:cmd|command)\s*:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g)]
+      .map((match) => match[1].slice(1, -1).replace(/\\([\\'"`nrt])/g, (_, value) => ({ n: '\n', r: '\r', t: '\t' })[value] ?? value)).join('\n')
     : '';
-  const inspectedCommand = composedCommands ? `${command}\n${composedCommands}` : command;
+  const inspectedCommand = composed ? composedCommands : command;
   const blocked = githubActionsOnlyViolation(inspectedCommand ?? '', {
     cwd: input?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
     environment: input?.environment ?? process.env,
