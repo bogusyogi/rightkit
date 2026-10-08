@@ -23,7 +23,7 @@ mod retention;
 pub use archive::create_zip;
 pub use bundle::{build_support_bundle, BundleManifest, SupportBundleOptions};
 pub use hook::{install_panic_hook, record_report, CrashConfig};
-pub use native::NativeCapture;
+pub use native::{capture_native, set_dump_helper, NativeCapture, DEFAULT_DUMP_HELPER};
 pub use pending::{enqueue_pending, list_pending, EnqueueSummary, CRASH_EVENT_TYPE};
 pub use report::{CrashReport, CRASH_SCHEMA_VERSION};
 pub use retention::{prune, Retention};

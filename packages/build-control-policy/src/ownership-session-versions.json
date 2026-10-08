@@ -260,7 +260,7 @@
     "rightkit-cache": "0.1.0",
     "rightkit-contracts": "0.1.2",
     "rightkit-control": "0.1.9",
-    "rightkit-crash": "0.1.0",
+    "rightkit-crash": "0.2.0",
     "rightkit-db": "0.3.2",
     "rightkit-embed": "0.3.0",
     "rightkit-framed-sidecar": "0.1.0",
@@ -496,6 +496,9 @@
     "rightkit-speech-client": [
       "0.3.0",
       "0.3.1"
+    ],
+    "rightkit-crash": [
+      "0.1.0"
     ]
   }
 }
