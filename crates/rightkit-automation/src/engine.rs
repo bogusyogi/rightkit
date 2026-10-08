@@ -543,10 +543,11 @@ impl<P: Platform> Automation<P> {
     /// Fails closed: when a region must be masked and the capture cannot be
     /// rewritten, the file is deleted and an error is returned.
     pub fn screenshot_report(&self, target: &Target, path: &Path) -> Result<ShotReport> {
+        // Allowlist first: a refused target reports Blocked whatever the path.
+        let app = self.checked_app(target.pid)?;
         if !path.is_absolute() {
             return Err(Error::Invalid("screenshot path must be absolute (never cwd-relative)".into()));
         }
-        let app = self.checked_app(target.pid)?;
         let eff = self.effect(EffectKind::Capture, target.pid, &app.app_id, "screenshot", Tier::Semantic);
         self.admit_effect(&eff)?;
         // The same window a default snapshot reads (the app's main window), else the largest on-screen one.

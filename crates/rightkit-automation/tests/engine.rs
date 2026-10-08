@@ -229,7 +229,7 @@ fn allowlist_and_deny_list_gate_every_entry_point() {
     assert!(matches!(a.begin_session(OTHER_PID, "x"), Err(Error::Blocked(_))));
     assert!(matches!(a.focused(OTHER_PID), Err(Error::Blocked(_))));
     assert!(matches!(a.terminate(OTHER_PID), Err(Error::Blocked(_))));
-    assert!(matches!(a.screenshot(&Target::app(OTHER_PID), std::path::Path::new("/nonexistent/x.png")), Err(Error::Blocked(_))));
+    assert!(matches!(a.screenshot(&Target::app(OTHER_PID), &std::env::temp_dir().join("nonexistent").join("x.png")), Err(Error::Blocked(_))));
     // launching a non-allowlisted app is refused before launch
     let err = a.launch("com.test.stranger").unwrap_err();
     assert!(matches!(err, Error::Blocked(_)));
