@@ -69,7 +69,7 @@ test('migration refuses runtime links escaping copied tree before mutation', asy
 });
 
 
-test('migration copies legacy signing state without copying live socket', { skip: process.platform === 'win32' }, async (t) => {
+test('migration leaves internal signing state in place and never copies a live socket', { skip: process.platform === 'win32' }, async (t) => {
   const f = await fixture(t); await rm(join(f.oldRoot, 'signing-agent'), { recursive: true });
   const directory = join(f.home, 'Library', 'Application Support', 'Orthic Labs', 'shared', 'signing-agent');
   await mkdir(directory, { recursive: true }); await writeFile(join(directory, 'token'), 'fixture-state');
@@ -81,7 +81,7 @@ test('migration copies legacy signing state without copying live socket', { skip
   await (await import('node:fs/promises')).rename(shortSocket, socket);
   t.after(() => new Promise((resolve) => marker.close(resolve)));
   const plan = await migrateControlPlane({ ...f, apply: true });
-  assert.ok(plan.copies.some((copy) => copy.from === directory));
-  assert.equal(await readFile(join(f.controlRoot, 'signing-agent', 'token'), 'utf8'), 'fixture-state');
+  assert.ok(!plan.copies.some((copy) => copy.from === directory || copy.to.endsWith('signing-agent')));
+  assert.equal(await readFile(join(directory, 'token'), 'utf8'), 'fixture-state');
   assert.equal(await lstat(join(f.controlRoot, 'signing-agent', 'agent.sock')).catch((e) => e.code), 'ENOENT');
 });

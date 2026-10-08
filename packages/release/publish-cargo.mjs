@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import { enforcePublicationGate, defaultEvidencePath } from "./publication-gate.mjs";
+import { publishGatedCrate } from "./cargo-archive-upload.mjs";
 import { recordPublished } from "./rightkit-sync.mjs";
 
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.[^/]*)?|target(?:\/.*)?|node_modules(?:\/.*)?|[^/]+\.(?:p8|p12|pem|key))$/i;
@@ -50,7 +51,10 @@ export function buildCargoPublishPlan({ crate, crateDir, dryRun, allowDirty = fa
     { label: "package contents", command: "cargo", args: packageArgs, capture: true },
     { label: "registry dry-run", command: "cargo", args: dryRunArgs },
   ];
-  if (!dryRun) plan.push({ label: "registry publish", command: "cargo", args: ["publish", "-p", crate] });
+  if (!dryRun) plan.push(
+    { label: "package location", command: "cargo", args: ["metadata", "--format-version", "1", "--no-deps"], capture: true },
+    { label: "registry publish", internal: "upload-archive" },
+  );
   return plan;
 }
 
@@ -77,22 +81,33 @@ export function scanCrateForSecrets(crateDir) {
   return [...new Set(violations)].sort();
 }
 
-export function runCargoPublish(options, execute = spawnSync) {
+export async function runCargoPublish(options, execute = spawnSync, deps = {}) {
   const crateDir = path.join(options.workspaceRoot, "crates", options.crate);
   const manifest = path.join(crateDir, "Cargo.toml");
   if (!fs.existsSync(manifest)) throw new Error(`crate manifest not found: ${manifest}`);
   const cargoVersion = fs.readFileSync(manifest, "utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-  enforcePublicationGate({
+  const gateOptions = {
     kind: "cargo", name: options.crate, version: cargoVersion, packagePath: crateDir,
     evidencePath: path.resolve(options.evidence ?? defaultEvidencePath(options.workspaceRoot, "cargo", options.crate)),
-  }, { dryRun: options.dryRun });
+  };
+  const gate = (deps.enforceGate ?? enforcePublicationGate)(gateOptions, { dryRun: options.dryRun });
   const plan = buildCargoPublishPlan({ ...options, crateDir });
 
+  let targetDir;
+  let publication;
   for (const step of plan) {
     process.stdout.write(`[right-release] cargo ${step.label}\n`);
     if (step.internal === "secret-scan") {
       const violations = scanCrateForSecrets(crateDir);
       if (violations.length) throw new Error(`secret scan rejected: ${violations.join(", ")}`);
+      continue;
+    }
+    if (step.internal === "upload-archive") {
+      // Revalidate source/evidence after packaging; preserve that exact evidence object.
+      const current = (deps.enforceGate ?? enforcePublicationGate)(gateOptions);
+      if (current.evidence?.artifactSha256 !== gate.evidence?.artifactSha256) throw new Error("publication evidence changed during packaging");
+      publication = await (deps.publishCrate ?? publishGatedCrate)({ name: options.crate, version: cargoVersion,
+        crateFile: path.join(targetDir, "package", `${options.crate}-${cargoVersion}.crate`), evidence: current.evidence }, deps);
       continue;
     }
     const result = execute(step.command, step.args, {
@@ -106,7 +121,11 @@ export function runCargoPublish(options, execute = spawnSync) {
       if (step.capture && result.stderr) process.stderr.write(result.stderr);
       throw new Error(`${step.label} failed with exit code ${result.status}`);
     }
-    if (step.capture) {
+    if (step.label === "package location") {
+      const metadata = JSON.parse(result.stdout);
+      if (typeof metadata.target_directory !== "string" || !path.isAbsolute(metadata.target_directory)) throw new Error("invalid Cargo package target directory");
+      targetDir = metadata.target_directory;
+    } else if (step.capture) {
       if (result.stderr) process.stderr.write(result.stderr);
       const files = String(result.stdout ?? "").split(/\r?\n/).filter(Boolean);
       const violations = packageFileViolations(files);
@@ -114,6 +133,7 @@ export function runCargoPublish(options, execute = spawnSync) {
       process.stdout.write(`${files.join("\n")}\n`);
     }
   }
+  return publication ?? { name: options.crate, version: cargoVersion, dryRun: true };
 }
 
 function walkFiles(root) {
@@ -136,21 +156,18 @@ function valueAfter(argv, flag) {
   return index >= 0 ? argv[index + 1] : undefined;
 }
 
-function main() {
+async function main() {
   const options = parseCargoPublishArgs(process.argv.slice(2));
-  runCargoPublish(options);
+  const result = await runCargoPublish(options);
   process.stdout.write(`[right-release] ${options.dryRun ? "validated" : "published"} ${options.crate}\n`);
   if (!options.dryRun) {
-    const version = fs.readFileSync(path.join(options.workspaceRoot, "crates", options.crate, "Cargo.toml"), "utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-    if (version) recordPublished({ registry: "cargo", name: options.crate, version });
+    recordPublished({ registry: "cargo", name: result.name, version: result.version });
   }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
-  try {
-    main();
-  } catch (error) {
-    process.stderr.write(`right-release publish cargo: ${error instanceof Error ? error.message : String(error)}\n`);
+  main().catch((error) => {
+    process.stderr.write(`right-release publish cargo: ${error.code ? `[${error.code}] ` : ""}${error.message}\n`);
     process.exitCode = 1;
-  }
+  });
 }

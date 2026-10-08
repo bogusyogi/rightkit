@@ -167,6 +167,8 @@ Commands:
                                                       Incremental unsigned build & optional local install
   upload --release <id> --platform mac|win --tier patch|update
                                                       Upload one sealed release; never builds
+  publish-update --release <id> --platform mac|win --tier patch|update
+                                                      Upload sealed bytes to R2 & register RightApps
   release                                             Compatibility alias for build
   publish                                             Compatibility alias for upload
   publish npm --package @rightkit/<name> [--dry-run]  Gate preflight for npm publish

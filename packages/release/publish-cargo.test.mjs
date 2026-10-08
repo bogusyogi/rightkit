@@ -22,9 +22,11 @@ test("cargo publish plan always runs local safety gates before upload", () => {
     "clippy",
     "package contents",
     "registry dry-run",
+    "package location",
     "registry publish",
   ]);
-  assert.deepEqual(plan.at(-1)?.args, ["publish", "-p", "rightkit-license"]);
+  assert.equal(plan.at(-1)?.internal, "upload-archive");
+  assert.ok(!plan.some((step) => step.args?.[0] === "publish" && !step.args.includes("--dry-run")), "real Cargo publish must never repackage source");
   assert.deepEqual(plan.find((step) => step.label === "format").args, ["fmt", "-p", "rightkit-license", "--check"]);
   assert.deepEqual(plan.find((step) => step.label === "tests").args, ["test", "-p", "rightkit-license", "--", "--test-threads=1"]);
 });

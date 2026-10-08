@@ -214,7 +214,7 @@ test("refuses versioned updater object keys for gated feature updates", () => {
   assert.match(result.stderr, /current R2 object/);
 });
 
-test("requires the durable release credential before the first patch upload", () => {
+test("requires a seal before credentials or the first patch upload", () => {
   const config = fixture({ materialize: true });
   const env = {
     ...process.env,
@@ -229,6 +229,6 @@ test("requires the durable release credential before the first patch upload", ()
     env,
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /RIGHTAPPS_RELEASE_TOKEN/);
+  assert.match(result.stderr, /PUBLICATION_SEAL_REQUIRED/);
   assert.doesNotMatch(result.stdout, /UPLOAD /, "credential preflight must run before R2 mutation");
 });

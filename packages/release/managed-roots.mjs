@@ -13,7 +13,9 @@ export function resolveManagedRoots({ env = process.env, platform = process.plat
     configPath: paths.join(controlRoot, 'config.json'), socket: platform === 'win32' ? null : paths.join(controlRoot, 'broker.sock'),
     logs: paths.join(controlRoot, 'logs'), agentBin: paths.join(controlRoot, 'agent-bin'),
     agentPolicy: paths.join(controlRoot, 'agent-policy'), ownershipInstall: paths.join(controlRoot, 'ownership-install'),
-    signingAgent: paths.join(controlRoot, 'signing-agent') });
+    // The Mac signing agent already lives on the internal disk; moving it would force a re-provision.
+    signingAgent: platform === 'darwin' ? join(home, 'Library', 'Application Support', 'Orthic Labs', 'shared', 'signing-agent')
+      : paths.join(controlRoot, 'signing-agent') });
 }
 
 export function managedControlCandidates(options = {}) {
