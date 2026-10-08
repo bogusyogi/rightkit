@@ -211,9 +211,18 @@ impl<'a> Ctx<'a> {
             .evidence_dir
             .join(data_dir.file_name().unwrap_or_default());
         std::fs::create_dir_all(&log_dir)?;
+        // Templates passed through ui_command/ui_eval must never name managed storage.
+        let app_evidence_dir = ws
+            .home
+            .join("evidence")
+            .join(data_dir.file_name().unwrap_or_default());
+        std::fs::create_dir_all(&app_evidence_dir)?;
         let mut vars = BTreeMap::new();
         vars.insert("data_dir".into(), json!(data_dir.to_string_lossy()));
-        vars.insert("evidence_dir".into(), json!(log_dir.to_string_lossy()));
+        vars.insert(
+            "evidence_dir".into(),
+            json!(app_evidence_dir.to_string_lossy()),
+        );
         vars.insert("app_root".into(), json!(cfg.app_root.to_string_lossy()));
         vars.insert(
             "engine".into(),

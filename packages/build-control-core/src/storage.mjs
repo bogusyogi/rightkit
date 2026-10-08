@@ -94,6 +94,7 @@ export async function pruneManaged(options) {
       const marker = join(row.path, plan.kind === 'runs' ? '.rightkit-run.json' : '.rightkit-artifact.json');
       const meta = await json(marker);
       if (JSON.stringify(meta) !== JSON.stringify(row.meta) || ownerAlive(meta, options.now ?? Date.now(), options.alive ?? pidAlive)) throw new Error(`retention owner changed: ${row.path}`);
+      if (plan.kind === 'runs') await removeQaAppRoot(row.path, meta);
       const tomb = join(parent, `.pruning-${randomUUID()}`); await rename(row.path, tomb); await rm(tomb, { recursive: true }); applied.push(row.path);
     }
     return { ...plan, applied };
@@ -105,13 +106,77 @@ export async function startStorageRun({ managedRoot = managedStorageRoot(), app,
     // Same policy selection while holding creation/pruning lock.
     const plan = await retentionPlan({ managedRoot, app, now, ...retention });
     if (plan.overCapBytes > 0) throw new Error(`managed run budget blocked by protected or unknown data: ${plan.overCapBytes} bytes over cap`);
-    for (const row of plan.remove) { const tomb = join(plan.root, `.pruning-${randomUUID()}`); await rename(row.path, tomb); await rm(tomb, { recursive: true }); }
+    for (const row of plan.remove) { await removeQaAppRoot(row.path, row.meta); const tomb = join(plan.root, `.pruning-${randomUUID()}`); await rename(row.path, tomb); await rm(tomb, { recursive: true }); }
     const root = join(managedRoot, 'runs', app, runId); await mkdir(root);
     const marker = join(root, '.rightkit-run.json'); const meta = { schemaVersion: 1, app, runId, createdAt: now, ownerPid: process.pid, leaseUntil: 0 };
     await writeFile(marker, JSON.stringify(meta), { flag: 'wx' });
     for (const dir of ['scratch', 'captures', 'evidence', 'DerivedData']) await mkdir(join(root, dir));
     return { root, env: { RIGHTKIT_RUN_ROOT: root, RIGHTKIT_QA_RUN_ID: runId, RIGHTKIT_QA_EVIDENCE_DIR: join(root, 'evidence'), TMPDIR: join(root, 'scratch'), TMP: join(root, 'scratch'), TEMP: join(root, 'scratch') }, finish: async () => { await noSymlinkPath(root); const temporary = `${marker}.${randomUUID()}.tmp`; await writeFile(temporary, JSON.stringify({ ...meta, ownerPid: 0, leaseUntil: 0, completedAt: Date.now() }), { flag: 'wx' }); await rename(temporary, marker); } };
   });
+}
+
+async function removeQaAppRoot(runRoot, meta) {
+  if (meta.appRoot === undefined) return;
+  if (typeof meta.appRoot !== 'string') throw new Error('invalid QA app temp root');
+  const home = await noSymlinkPath(meta.appRoot);
+  const s = await lstat(home).catch(e => e.code === 'ENOENT' ? null : Promise.reject(e));
+  if (!s) return;
+  let temp = await realpath(tmpdir());
+  if (process.platform === 'darwin' && !inside(temp, '/private/tmp') && !inside(temp, '/private/var/folders')) temp = '/private/tmp';
+  const parent = dirname(home), candidateTemp = dirname(parent);
+  const allowedTemp = candidateTemp === temp || process.platform === 'darwin' && (candidateTemp === '/private/tmp' || inside(candidateTemp, '/private/var/folders') && basename(candidateTemp) === 'T');
+  if (basename(parent) !== 'rightkit-qa' || !allowedTemp || !s.isDirectory()) throw new Error('invalid QA app temp root');
+  const binding = await json(join(home, '.rightkit-app.json'));
+  if (binding.runRoot !== await realpath(runRoot) || binding.app !== meta.app || binding.runId !== meta.runId) throw new Error('QA app temp ownership mismatch');
+  await rm(home, { recursive: true });
+}
+
+export function isLegacyQaTempRoot(path, managedRoot) {
+  return dirname(resolve(path)) === join(resolve(managedRoot), 'tmp', 'rightkit-qa') && /^[A-Za-z0-9][A-Za-z0-9._-]*-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(basename(path));
+}
+
+// Pre-governance roots have no run marker. Inspect nested owners/services/locks
+// before moving an old root; unknown locks & symlinks fail closed.
+async function legacyQaOwner(path, alive, now) {
+  for (const entry of await entries(path)) {
+    const child = join(path, entry.name);
+    if (entry.isSymbolicLink()) return 'symlink-or-unknown-owner';
+    if (entry.isDirectory()) {
+      if (/lock$/i.test(entry.name) && !(await entries(child)).some(e => e.name === 'owner.json')) return 'unknown-lock-owner';
+      const reason = await legacyQaOwner(child, alive, now); if (reason) return reason;
+    } else if (/(?:owner|service|pid|lock)/i.test(entry.name) || entry.name === '.rightkit-run.json') {
+      const text = await readFile(child, 'utf8');
+      let owner; try { owner = JSON.parse(text); } catch { owner = /^\d+\s*$/.test(text) ? Number(text) : null; }
+      const pid = typeof owner === 'number' ? owner : owner?.ownerPid ?? owner?.pid ?? owner?.processId;
+      if (!Number.isSafeInteger(pid) || pid < 0) return 'unknown-lock-owner';
+      if (alive(pid) || owner?.leaseUntil > now) return 'live-owner-or-lock';
+    }
+  }
+  return null;
+}
+
+export async function pruneLegacyQaTemp({ managedRoot, apply = false, now = Date.now(), minAgeMs = STORAGE_DEFAULTS.runMinAgeMs, alive = pidAlive, move = moveToVolumeTrash } = {}) {
+  const parent = await noSymlinkPath(join(managedRoot, 'tmp', 'rightkit-qa'));
+  const result = { root: parent, remove: [], skipped: [], moves: [] };
+  for (const entry of await entries(parent)) {
+    const path = join(parent, entry.name);
+    if (!isLegacyQaTempRoot(path, managedRoot)) continue;
+    if (!entry.isDirectory() || entry.isSymbolicLink()) { result.skipped.push({ path, reason: 'symlink-or-not-directory' }); continue; }
+    await noSymlinkPath(path);
+    const check = async () => {
+      const s = await lstat(path);
+      if (!s.isDirectory() || s.isSymbolicLink()) return 'symlink-or-not-directory';
+      if (now - s.mtimeMs < minAgeMs) return 'younger-than-minimum';
+      if (process.getuid && s.uid !== process.getuid()) return 'different-owner';
+      return legacyQaOwner(path, alive, now);
+    };
+    let reason; try { reason = await check(); } catch { reason = 'unreadable-owner'; }
+    if (reason) { result.skipped.push({ path, reason }); continue; }
+    result.remove.push({ path, bytes: await measureTree(path), reason: 'legacy-qa-temp' });
+    if (apply && await check()) throw new Error(`legacy QA temp owner changed: ${path}`);
+    result.moves.push(await move(path, { apply, now }));
+  }
+  return result;
 }
 export async function volumeRoot(path) { let cursor = await realpath(path); const dev = (await stat(cursor)).dev; while (dirname(cursor) !== cursor && (await stat(dirname(cursor))).dev === dev) cursor = dirname(cursor); return cursor; }
 async function ensureVolumeTrash(actualVolume, uid, device) {

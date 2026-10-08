@@ -376,7 +376,10 @@ fn run_suite_at(
             if names.contains(n) {
                 continue;
             }
-            match bundle.add_artifact(n, path) {
+            match ws
+                .preserve_artifact(path)
+                .and_then(|kept| bundle.add_artifact(n, &kept))
+            {
                 Ok(_) => names.push(n.clone()),
                 Err(e) => artifact_errors.push(e.0),
             }
@@ -450,6 +453,7 @@ fn run_suite_at(
             &json!({"runId": run_id, "evidence": evidence_path.to_string_lossy(), "results": results_path.to_string_lossy()}),
         )?,
     );
+    ws.finish()?;
     if !opts.keep_data {
         let report = workspace::dispose(&ws, true, 5, 200);
         for (p, why) in report.retained {

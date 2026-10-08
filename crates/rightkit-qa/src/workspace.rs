@@ -13,7 +13,7 @@ pub struct QaWorkspace {
     pub run_id: String,
     /// Managed run root: `<managed>/runs/<app>/<run-id>`.
     pub root: PathBuf,
-    /// Run-local app home.
+    /// Owned app home on internal system temp storage.
     pub home: PathBuf,
     pub data_dir: PathBuf,
     pub evidence_dir: PathBuf,
@@ -50,33 +50,49 @@ fn create_impl(
     app_key: &str,
 ) -> Result<QaWorkspace> {
     let app_key = require_text(app_key, "app")?;
-    let managed = storage::create(cache_root, &app_key, run_id, Duration::from_secs(24 * 3600))?;
+    let mut managed =
+        storage::create(cache_root, &app_key, run_id, Duration::from_secs(24 * 3600))?;
+    let home = storage::create_app_root(&mut managed)?;
     let run_id = managed.marker.run_id.clone();
     let root = managed.root;
-    let home = root.clone();
-    let data_dir = root.join("data");
+    // Generic managed storage creates this directory; QA profiles belong only in home.
+    fs::remove_dir(root.join("data"))?;
+    let data_dir = home.join("data");
     let evidence_dir = root.join("evidence");
     let capture_dir = root.join("captures");
-    let tmp_dir = root.join("tmp");
+    let tmp_dir = home.join("tmp");
+    let cache_dir = home.join("cache");
     fs::create_dir_all(&data_dir)?;
     fs::create_dir_all(&evidence_dir)?;
     fs::create_dir_all(&capture_dir)?;
     fs::create_dir_all(&tmp_dir)?;
+    fs::create_dir_all(&cache_dir)?;
+    fs::create_dir_all(home.join("evidence"))?;
+    fs::create_dir_all(home.join("captures"))?;
     let mut env = BTreeMap::new();
     env.insert("RIGHTKIT_QA_NATIVE".into(), "1".into());
     env.insert("RIGHTKIT_QA_RUN_ID".into(), run_id.clone());
-    env.insert("RIGHTKIT_RUN_ROOT".into(), root.to_string_lossy().into());
+    env.insert("RIGHTKIT_RUN_ROOT".into(), home.to_string_lossy().into());
+    env.insert(
+        "RIGHTKIT_SUITE_ROOT".into(),
+        home.join("suite").to_string_lossy().into(),
+    );
+    env.insert("HOME".into(), home.to_string_lossy().into());
+    env.insert("USERPROFILE".into(), home.to_string_lossy().into());
+    env.insert("APPDATA".into(), data_dir.to_string_lossy().into());
+    env.insert("LOCALAPPDATA".into(), data_dir.to_string_lossy().into());
+    env.insert("XDG_CACHE_HOME".into(), cache_dir.to_string_lossy().into());
     env.insert(
         "RIGHTKIT_QA_DATA_DIR".into(),
         data_dir.to_string_lossy().into(),
     );
     env.insert(
         "RIGHTKIT_QA_EVIDENCE_DIR".into(),
-        evidence_dir.to_string_lossy().into(),
+        home.join("evidence").to_string_lossy().into(),
     );
     env.insert(
         "RIGHTKIT_QA_CAPTURE_DIR".into(),
-        capture_dir.to_string_lossy().into(),
+        home.join("captures").to_string_lossy().into(),
     );
     env.insert("TMPDIR".into(), tmp_dir.to_string_lossy().into());
     env.insert("TMP".into(), tmp_dir.to_string_lossy().into());
@@ -106,6 +122,38 @@ fn create_impl(
 }
 
 impl QaWorkspace {
+    /// Persist an app-produced artifact before hashing it into managed evidence.
+    pub(crate) fn preserve_artifact(&self, path: &Path) -> Result<PathBuf> {
+        let Ok(relative) = path.strip_prefix(&self.home) else {
+            return Ok(path.to_path_buf());
+        };
+        if relative
+            .components()
+            .any(|c| c == std::path::Component::ParentDir)
+        {
+            return crate::util::err("app artifact escapes QA app home");
+        }
+        let target = if let Ok(p) = relative.strip_prefix("captures") {
+            self.capture_dir.join(p)
+        } else {
+            self.evidence_dir
+                .join("app")
+                .join(relative.strip_prefix("evidence").unwrap_or(relative))
+        };
+        storage::copy_tree(path, &target)?;
+        Ok(target)
+    }
+
+    /// Preserve app-written outputs before marking this run complete.
+    pub fn finish(&self) -> Result<()> {
+        if let Some(marker) = storage::read_marker(&self.root.join(storage::RUN_MARKER)) {
+            storage::finish(&storage::ManagedRun {
+                root: self.root.clone(),
+                marker,
+            })?;
+        }
+        Ok(())
+    }
     /// A fresh per-scenario directory inside the isolated data dir.
     pub fn scenario_dir(&self, name: &str) -> Result<PathBuf> {
         let safe: String = name
@@ -133,15 +181,11 @@ pub fn dispose(
     retry_ms: u64,
 ) -> DisposeReport {
     let mut report = DisposeReport::default();
-    if let Ok(marker_bytes) = fs::read(ws.root.join(storage::RUN_MARKER)) {
-        if let Ok(marker) = serde_json::from_slice(&marker_bytes) {
-            let _ = storage::finish(&storage::ManagedRun {
-                root: ws.root.clone(),
-                marker,
-            });
-        }
+    if let Err(e) = ws.finish() {
+        report.retained.push((ws.root.clone(), e.to_string()));
+        return report;
     }
-    let mut targets = vec![ws.data_dir.clone()];
+    let mut targets = vec![ws.home.clone()];
     if !keep_evidence {
         targets.push(ws.root.clone());
     }
@@ -169,13 +213,21 @@ pub fn dispose(
             report.removed.push(target);
         } else {
             report.retained.push((
-                target,
+                target.clone(),
                 if last.is_empty() {
                     "still present".into()
                 } else {
                     last
                 },
             ));
+            if target == ws.home {
+                if !keep_evidence {
+                    report
+                        .retained
+                        .push((ws.root.clone(), "app temp cleanup pending".into()));
+                }
+                break;
+            }
         }
     }
     report
@@ -213,6 +265,42 @@ mod tests {
         let ws = create(&root, Some("run1"), "genright").unwrap();
         assert!(ws.env.contains_key("GENRIGHT_DATA_DIR"));
         assert!(ws.data_dir.exists());
+        assert!(!ws.root.join("data").exists());
+        assert!(ws
+            .home
+            .starts_with(storage::app_temp_dir().join("rightkit-qa")));
+        assert!(!ws.home.starts_with(&ws.root));
+        assert!(ws.evidence_dir.starts_with(&ws.root));
+        assert!(ws.capture_dir.starts_with(&ws.root));
+        for key in [
+            "RIGHTKIT_RUN_ROOT",
+            "RIGHTKIT_SUITE_ROOT",
+            "HOME",
+            "USERPROFILE",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "XDG_CACHE_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CONFIG_HOME",
+            "WEBVIEW2_USER_DATA_FOLDER",
+            "GENRIGHT_DATA_DIR",
+            "RIGHTKIT_QA_DATA_DIR",
+            "RIGHTKIT_QA_EVIDENCE_DIR",
+            "RIGHTKIT_QA_CAPTURE_DIR",
+            "TMPDIR",
+            "TMP",
+            "TEMP",
+        ] {
+            assert!(Path::new(&ws.env[key]).starts_with(&ws.home), "{key}");
+        }
+        fs::write(ws.home.join("app-launch.log"), "live log").unwrap();
+        fs::write(ws.home.join("evidence/from-app.json"), "app evidence").unwrap();
+        fs::write(ws.home.join("captures/frame.png"), "frame").unwrap();
+        fs::write(ws.data_dir.join("result.txt"), "result").unwrap();
+        let artifact = ws
+            .preserve_artifact(&ws.data_dir.join("result.txt"))
+            .unwrap();
+        assert_eq!(artifact, ws.evidence_dir.join("app/data/result.txt"));
         assert!(create(&root, Some("../x"), "a").is_err());
         let r = dispose(&ws, true, 2, 1);
         assert!(
@@ -221,9 +309,39 @@ mod tests {
                 && ws.root.exists()
                 && ws.evidence_dir.exists()
         );
+        assert!(!ws.home.exists());
+        assert_eq!(fs::read_to_string(artifact).unwrap(), "result");
+        assert_eq!(
+            fs::read_to_string(ws.evidence_dir.join("app-launch.log")).unwrap(),
+            "live log"
+        );
+        assert_eq!(
+            fs::read_to_string(ws.evidence_dir.join("app/from-app.json")).unwrap(),
+            "app evidence"
+        );
+        assert_eq!(
+            fs::read_to_string(ws.capture_dir.join("frame.png")).unwrap(),
+            "frame"
+        );
         let r = dispose(&ws, false, 2, 1);
         assert!(r.retained.is_empty() && !ws.root.exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn orphan_sweep_removes_registered_temp_home_but_spares_active_runs() {
+        let root = storage::app_temp_dir().join(format!("rkqa-orphan-{}", new_id()));
+        let ws = create(&root, Some("orphan"), "app").unwrap();
+        assert!(prune_abandoned(&root, Duration::ZERO, &[])
+            .removed
+            .is_empty());
+        assert!(ws.home.exists());
+        ws.finish().unwrap();
+        let report = prune_abandoned(&root, Duration::ZERO, &[]);
+        assert!(report.retained.is_empty());
+        assert_eq!(report.removed, vec![ws.root]);
+        assert!(!ws.home.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -16,6 +16,8 @@ export interface RunMarker {
   ownerPid: number;
   leaseUntil: number;
   completedAt?: number;
+  /** Owned internal-temp companion; validated against its binding before cleanup. */
+  appRoot?: string;
 }
 
 export interface ManagedRun {
@@ -111,6 +113,12 @@ export function finishManagedRun(run: ManagedRun | string): RunMarker | undefine
   const markerPath = path.join(path.resolve(root), RUN_MARKER);
   const marker = readMarker(markerPath);
   if (!marker) return undefined;
+  const home = ownedAppRoot(root, marker);
+  if (home) {
+    copyAppTree(path.join(home, 'evidence'), path.join(root, 'evidence', 'app'));
+    copyAppTree(path.join(home, 'captures'), path.join(root, 'captures'));
+    for (const name of fs.readdirSync(home)) if (name.endsWith('.log')) copyAppTree(path.join(home, name), path.join(root, 'evidence', name));
+  }
   const finished: RunMarker = { ...marker, ownerPid: 0, leaseUntil: 0, completedAt: Date.now() };
   writeMarker(root, finished);
   return finished;
@@ -176,6 +184,7 @@ function pruneUnlocked(appRoot: string, app: string, policy: RetentionPolicy, re
     if (total <= cap && countProtected.has(item.marker.runId)) continue;
     if (!safeDirectory(item.root)) continue;
     try {
+      removeManagedAppRoot(item.root, item.marker);
       fs.rmSync(item.root, { recursive: true, force: false });
       report.removed.push(item.root);
       removed.add(item.marker.runId);
@@ -233,6 +242,7 @@ function readMarker(file: string): RunMarker | undefined {
     const x = raw as Record<string, unknown>;
     if (x.schemaVersion !== 1 || typeof x.app !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(x.app) || typeof x.runId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(x.runId) || typeof x.createdAt !== 'number' || !Number.isFinite(x.createdAt) || x.createdAt <= 0 || typeof x.ownerPid !== 'number' || !Number.isInteger(x.ownerPid) || x.ownerPid < 0 || typeof x.leaseUntil !== 'number' || !Number.isFinite(x.leaseUntil) || x.leaseUntil < 0) return undefined;
     if (x.completedAt !== undefined && (typeof x.completedAt !== 'number' || !Number.isFinite(x.completedAt) || x.completedAt < 0)) return undefined;
+    if (x.appRoot !== undefined && typeof x.appRoot !== 'string') return undefined;
     return x as unknown as RunMarker;
   } catch { return undefined; }
 }
@@ -287,3 +297,48 @@ function describeError(error: unknown): string {
 
 function sleepSync(ms: number): void { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 function cryptoRandomId(): string { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`; }
+
+/** Short internal paths keep launchd files accessible & service sockets within sockaddr_un. */
+export function appTempDir(): string {
+  return process.platform === 'darwin' ? '/private/tmp' : fs.realpathSync(os.tmpdir());
+}
+
+export function createManagedAppRoot(run: ManagedRun): string {
+  const parent = path.join(appTempDir(), 'rightkit-qa');
+  ensureSafeDirectory(parent);
+  const home = fs.mkdtempSync(path.join(parent, `${run.app.slice(0, 16)}-`));
+  fs.writeFileSync(path.join(home, '.rightkit-app.json'), JSON.stringify({ runRoot: fs.realpathSync(run.root), app: run.app, runId: run.runId }), { flag: 'wx' });
+  run.marker.appRoot = home;
+  writeMarker(run.root, run.marker);
+  return home;
+}
+
+function ownedAppRoot(root: string, marker: RunMarker): string | undefined {
+  const home = marker.appRoot;
+  if (!home || !fs.existsSync(home)) return undefined;
+  const parent = path.dirname(home);
+  const temp = path.dirname(parent);
+  const allowedTemp = temp === appTempDir() || process.platform === 'darwin' && (temp === '/private/tmp' || isInside('/private/var/folders', temp) && path.basename(temp) === 'T');
+  if (path.basename(parent) !== 'rightkit-qa' || !allowedTemp || fs.realpathSync(home) !== home || !safeDirectory(home)) throw new Error('invalid QA app temp root');
+  const binding = JSON.parse(fs.readFileSync(path.join(home, '.rightkit-app.json'), 'utf8'));
+  if (binding.runRoot !== fs.realpathSync(root) || binding.app !== marker.app || binding.runId !== marker.runId) throw new Error('QA app temp ownership mismatch');
+  return home;
+}
+
+export function removeManagedAppRoot(root: string, marker: RunMarker): void {
+  const home = ownedAppRoot(root, marker);
+  if (home) fs.rmSync(home, { recursive: true, force: false });
+}
+
+function copyAppTree(source: string, target: string): void {
+  const meta = fs.lstatSync(source);
+  if (meta.isSymbolicLink()) throw new Error('symlink in QA app evidence');
+  if (fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) throw new Error('symlink in managed QA evidence');
+  if (meta.isDirectory()) {
+    ensureSafeDirectory(target);
+    for (const name of fs.readdirSync(source)) copyAppTree(path.join(source, name), path.join(target, name));
+  } else if (meta.isFile()) {
+    ensureSafeDirectory(path.dirname(target));
+    fs.copyFileSync(source, target);
+  } else throw new Error('unsupported QA app evidence file');
+}

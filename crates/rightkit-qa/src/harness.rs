@@ -165,7 +165,7 @@ impl Harness {
             lock: None,
             identity: Value::Null,
             prefix: "[qa]".into(),
-            scratch_root: run.as_ref().expect("managed run").root.join("scratch"),
+            scratch_root: run.as_ref().expect("managed run").home.join("scratch"),
             run: Arc::new(Mutex::new(run)),
             run_root,
             allow_external_evidence: managed_root.is_some(),

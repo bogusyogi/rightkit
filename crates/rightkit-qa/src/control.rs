@@ -317,9 +317,9 @@ impl FocusMonitor {
     }
 }
 
-/// Environment passed to the app must not put secrets in a process listing: on macOS
-/// `open --env K=V` exposes values in argv. Only `RIGHTKIT_*` keys travel that way, and
-/// no key that names a credential is accepted at all.
+/// Caller environment must not put secrets in a process listing: on macOS
+/// `open --env K=V` exposes values in argv. Callers may supply only `RIGHTKIT_*` keys;
+/// harness-owned HOME/temp/profile paths are added separately.
 fn check_env(env: &[(String, String)]) -> Result<()> {
     for (k, _) in env {
         let up = k.to_ascii_uppercase();
@@ -387,11 +387,8 @@ fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<
     let _ = fs::remove_file(&target);
     let abs = fs::canonicalize(binary)
         .map_err(|e| Error(format!("app binary not found: {}: {e}", binary.display())))?;
-    // The process must show the bundle path (not a resolved symlink) so the harness can
-    // find exactly the instance it started: hard link, else copy.
-    if fs::hard_link(&abs, &target).is_err() {
-        fs::copy(&abs, &target)?;
-    }
+    // Copy into internal storage; never launch a link back to the build volume.
+    fs::copy(&abs, &target)?;
     // Background fixtures must be non-activating before AppKit creates any window.
     let ui_element = if background {
         "<key>LSUIElement</key><true/>\n"
@@ -403,6 +400,132 @@ fn make_bundle(dir: &Path, binary: &Path, id: &str, background: bool) -> Result<
     );
     fs::write(app.join("Contents").join("Info.plist"), plist)?;
     Ok(app)
+}
+
+#[cfg(target_os = "macos")]
+fn stage_bundle(spec: &LaunchSpec, ws: &QaWorkspace, id: &str) -> Result<PathBuf> {
+    let dir = ws.home.join("apps").join(id);
+    fs::create_dir_all(&dir)?;
+    if spec.binary.extension().is_some_and(|e| e == "app") {
+        let source = fs::canonicalize(&spec.binary)?;
+        let bundle = dir.join(
+            source
+                .file_name()
+                .ok_or_else(|| Error("bundle has no file name".into()))?,
+        );
+        // Preserve bundle resources, framework links, permissions & signatures.
+        let status = Command::new("/usr/bin/ditto")
+            .arg(&source)
+            .arg(&bundle)
+            .status()?;
+        if !status.success() {
+            return err(format!("app bundle staging failed: {status}"));
+        }
+        check_bundle_links(&bundle, &bundle)?;
+        Ok(bundle)
+    } else {
+        make_bundle(&dir, &spec.binary, &id[..8], spec.mode != Mode::Visible)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn check_bundle_links(bundle: &Path, dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            if !fs::canonicalize(&path)?.starts_with(bundle) {
+                return err(format!(
+                    "staged app bundle link escapes internal bundle: {}",
+                    path.display()
+                ));
+            }
+        } else if kind.is_dir() {
+            check_bundle_links(bundle, &path)?;
+        }
+    }
+    Ok(())
+}
+
+fn launch_env(
+    spec: &LaunchSpec,
+    ws: &QaWorkspace,
+    suite: &Suite,
+    service: &str,
+) -> Result<Vec<(String, String)>> {
+    // Caller values retain the credential/argv restrictions. Workspace values are
+    // harness-owned paths, so HOME, TMPDIR & profile keys can safely travel via open.
+    check_env(&spec.env)?;
+    let mut env = ws.env.clone();
+    env.insert("RIGHTKIT_CONTROL_SERVICE".into(), service.into());
+    env.insert(
+        "RIGHTKIT_SUITE_ROOT".into(),
+        suite.root().to_string_lossy().into(),
+    );
+    env.insert(
+        "RIGHTKIT_QA_HIDDEN".into(),
+        if spec.mode == Mode::Hidden { "1" } else { "0" }.into(),
+    );
+    env.insert(
+        "RIGHTKIT_QA_BACKGROUND".into(),
+        if spec.mode != Mode::Visible { "1" } else { "0" }.into(),
+    );
+    for (key, value) in &spec.env {
+        let path = Path::new(value);
+        if path.is_absolute()
+            && (!path.starts_with(&ws.home)
+                || path
+                    .components()
+                    .any(|c| c == std::path::Component::ParentDir))
+        {
+            return err(format!(
+                "environment path {key} must be staged inside the QA app home"
+            ));
+        }
+        if let Some(owned) = env.get(key) {
+            let app_path = ws.env.contains_key(key)
+                && key != "RIGHTKIT_SUITE_ROOT"
+                && Path::new(owned).is_absolute();
+            let internal = Path::new(value).starts_with(&ws.home)
+                && !Path::new(value)
+                    .components()
+                    .any(|c| c == std::path::Component::ParentDir);
+            if value != owned && !(app_path && internal) {
+                return err(format!(
+                    "environment key {key} overrides a harness-owned launch value"
+                ));
+            }
+        }
+        env.insert(key.clone(), value.clone());
+    }
+    Ok(env.into_iter().collect())
+}
+
+#[cfg(target_os = "macos")]
+fn open_command(
+    spec: &LaunchSpec,
+    ws: &QaWorkspace,
+    env: &[(String, String)],
+    log_path: &Path,
+    bundle: &Path,
+) -> Command {
+    let mut cmd = Command::new("open");
+    cmd.current_dir(&ws.home);
+    match spec.mode {
+        Mode::Hidden => cmd.args(["-g", "-j", "-n"]),
+        Mode::Background => cmd.args(["-g", "-n"]),
+        Mode::Visible => cmd.args(["-n"]),
+    };
+    for (k, v) in env {
+        cmd.env(k, v).arg("--env").arg(format!("{k}={v}"));
+    }
+    cmd.arg("--stdout")
+        .arg(log_path)
+        .arg("--stderr")
+        .arg(log_path)
+        .arg(bundle);
+    cmd
 }
 
 #[cfg(target_os = "macos")]
@@ -450,33 +573,7 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     // -10810), so the live log goes to the system temp dir and is copied into the
     // evidence dir when the app stops.
     let raw_log = ws.home.join(format!("app-{}.log", &id[..8]));
-    // macOS launches go through `open --env`, which exposes values in argv, so only the
-    // workspace's RIGHTKIT_* keys travel; apps derive isolation from RIGHTKIT_QA_DATA_DIR
-    // there. The XDG_*/WEBVIEW2_*/<APP>_DATA_DIR keys serve direct-exec platforms.
-    // Caller-supplied `spec.env` is still checked strictly below.
-    let mut env: Vec<(String, String)> = ws
-        .env
-        .iter()
-        .filter(|(k, _)| cfg!(not(target_os = "macos")) || k.starts_with("RIGHTKIT_"))
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    env.push(("RIGHTKIT_CONTROL_SERVICE".into(), service.clone()));
-    env.push((
-        "RIGHTKIT_SUITE_ROOT".into(),
-        suite.root().to_string_lossy().into(),
-    ));
-    env.push((
-        "RIGHTKIT_QA_HIDDEN".into(),
-        if spec.mode == Mode::Hidden { "1" } else { "0" }.into(),
-    ));
-    // Hidden runs stay hidden until a test explicitly reveals a window; any such
-    // reveal still uses the background window policy and target-pid input.
-    env.push((
-        "RIGHTKIT_QA_BACKGROUND".into(),
-        if spec.mode != Mode::Visible { "1" } else { "0" }.into(),
-    ));
-    env.extend(spec.env.iter().cloned());
-    check_env(&env)?;
+    let env = launch_env(spec, ws, &suite, &service)?;
     let frontmost_before = frontmost();
     let focus = FocusMonitor::start(spec.mode != Mode::Visible);
     let deadline = Instant::now() + spec.startup_timeout;
@@ -561,11 +658,7 @@ fn start_process(
 ) -> Result<(u32, Option<OwnedChild>)> {
     #[cfg(target_os = "macos")]
     {
-        let bundle = if spec.binary.extension().map(|e| e == "app").unwrap_or(false) {
-            spec.binary.clone()
-        } else {
-            make_bundle(&ws.root, &spec.binary, &id[..8], spec.mode != Mode::Visible)?
-        };
+        let bundle = stage_bundle(spec, ws, id)?;
         let needle = format!("{}/Contents/MacOS/", bundle.display());
         // Register the REAL executable (CFBundleExecutable) before `open`. When it cannot be
         // resolved and validated, register nothing: the launch interval stays unverified and
@@ -573,23 +666,7 @@ fn start_process(
         if let Some(executable) = resolve_bundle_executable(&bundle) {
             focus.track_prefix(executable);
         }
-        let mut cmd = Command::new("open");
-        match spec.mode {
-            Mode::Hidden => cmd.args(["-g", "-j", "-n"]),
-            Mode::Background => cmd.args(["-g", "-n"]),
-            Mode::Visible => cmd.args(["-n"]),
-        };
-        // `open --env NAME=VALUE` is the only form that reaches the app on current macOS
-        // (bare `--env NAME` forwarding does not). The per-run secret is therefore briefly
-        // visible in `ps`; it is minted per launch, loopback-only, and dies with the app.
-        for (k, v) in env {
-            cmd.arg("--env").arg(format!("{k}={v}"));
-        }
-        cmd.arg("--stdout")
-            .arg(log_path)
-            .arg("--stderr")
-            .arg(log_path)
-            .arg(&bundle);
+        let mut cmd = open_command(spec, ws, env, log_path, &bundle);
         let st = cmd.status()?;
         if !st.success() {
             return err(format!("open exited {st}"));
@@ -613,7 +690,8 @@ fn start_process(
         let log = fs::File::create(log_path)?;
         let log2 = log.try_clone()?;
         let mut cmd = Command::new(&spec.binary);
-        cmd.stdin(Stdio::null())
+        cmd.current_dir(&ws.home)
+            .stdin(Stdio::null())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(log2));
         for (k, v) in env {
@@ -916,8 +994,9 @@ impl Control {
         while Instant::now() < deadline && (is_alive(self.pid) || endpoint_open(&self.endpoint)) {
             sleep_ms(50);
         }
-        let _ = fs::copy(&self.raw_log, &self.log_path);
-        let _ = fs::remove_file(&self.raw_log);
+        // Keep the live log until workspace finish/disposal; failed evidence copies
+        // must not destroy the only readable startup diagnostics.
+        let log_copy = fs::copy(&self.raw_log, &self.log_path);
         let after = frontmost();
         let (steady, states, owned_never_frontmost, owned_frontmost_pids) = self
             .focus
@@ -929,6 +1008,12 @@ impl Control {
         if process_gone {
             self.tracker.forget(self.pid);
         }
+        log_copy.map_err(|e| {
+            Error(format!(
+                "cannot preserve app log {}: {e}",
+                self.raw_log.display()
+            ))
+        })?;
         Ok(StopReport {
             pid: self.pid,
             endpoint_closed,
@@ -950,5 +1035,157 @@ impl Drop for Control {
         if !self.stopped {
             let _ = self.stop();
         }
+    }
+}
+
+#[cfg(test)]
+mod launch_path_tests {
+    use super::*;
+
+    fn fixture() -> (QaWorkspace, LaunchSpec) {
+        let root = crate::storage::app_temp_dir().join(format!("rkqa-launch-{}", new_id()));
+        let ws = crate::workspace::create(&root, None, "control-test-app").unwrap();
+        let binary = ws.root.join("control-test-app");
+        fs::write(&binary, "fixture binary").unwrap();
+        let spec = LaunchSpec {
+            binary,
+            mode: Mode::Hidden,
+            env: vec![],
+            startup_timeout: Duration::from_secs(90),
+            label: "fixture".into(),
+        };
+        (ws, spec)
+    }
+
+    fn cleanup(ws: &QaWorkspace) {
+        let root = ws
+            .root
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let report = crate::workspace::dispose(ws, false, 1, 0);
+        assert!(report.retained.is_empty(), "{report:?}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn launch_environment_keeps_all_owned_paths_internal_and_rejects_external_overrides() {
+        let (ws, mut spec) = fixture();
+        let suite = Suite::at(ws.home.join("suite-12345678")).unwrap();
+        let env: std::collections::BTreeMap<_, _> =
+            launch_env(&spec, &ws, &suite, "control-12345678")
+                .unwrap()
+                .into_iter()
+                .collect();
+        for (key, value) in &env {
+            if Path::new(value).is_absolute() {
+                assert!(Path::new(value).starts_with(&ws.home), "{key}={value}");
+                assert!(!Path::new(value).starts_with(&ws.root), "{key}={value}");
+            }
+        }
+        assert_eq!(env["HOME"], ws.home.to_string_lossy());
+        assert_eq!(env["TMPDIR"], ws.home.join("tmp").to_string_lossy());
+        assert_eq!(env["RIGHTKIT_SUITE_ROOT"], suite.root().to_string_lossy());
+        assert_eq!(env["RIGHTKIT_QA_HIDDEN"], "1");
+        assert_eq!(env["RIGHTKIT_QA_BACKGROUND"], "1");
+        // rightkit-service falls back to TMPDIR/rk-<suite-hash>-<service>.sock
+        // when its runtime socket exceeds 100 bytes. App TMPDIR must fit too.
+        #[cfg(target_os = "macos")]
+        assert!(
+            Path::new(&env["TMPDIR"])
+                .join("rk-12345678-control-12345678.sock")
+                .as_os_str()
+                .len()
+                <= 100
+        );
+        assert!(suite
+            .service_dir("control-12345678")
+            .join("service.json")
+            .starts_with(&ws.home));
+        for key in [
+            "RIGHTKIT_SUITE_ROOT",
+            "RIGHTKIT_QA_DATA_DIR",
+            "RIGHTKIT_RUN_ROOT",
+        ] {
+            spec.env = vec![(
+                key.into(),
+                ws.root.join("external").to_string_lossy().into(),
+            )];
+            assert!(
+                launch_env(&spec, &ws, &suite, "control-12345678").is_err(),
+                "{key}"
+            );
+        }
+        spec.env = vec![("RIGHTKIT_SECRET".into(), "redacted".into())];
+        assert!(launch_env(&spec, &ws, &suite, "control-12345678").is_err());
+        cleanup(&ws);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn raw_binary_and_supplied_bundle_are_staged_inside_app_home_before_open() {
+        let (ws, mut spec) = fixture();
+        let id = "1234567890abcdef";
+        let bundle = stage_bundle(&spec, &ws, id).unwrap();
+        assert!(bundle.starts_with(ws.home.join("apps")));
+        assert!(!bundle.starts_with(&ws.root));
+        assert_eq!(
+            fs::read(bundle.join("Contents/MacOS/control-test-app")).unwrap(),
+            b"fixture binary"
+        );
+        let plist = fs::read_to_string(bundle.join("Contents/Info.plist")).unwrap();
+        assert!(plist.contains("<key>LSUIElement</key><true/>"));
+        let suite = Suite::at(ws.home.join("suite-12345678")).unwrap();
+        let env = launch_env(&spec, &ws, &suite, "control-12345678").unwrap();
+        let log = ws.home.join("app-12345678.log");
+        let cmd = open_command(&spec, &ws, &env, &log, &bundle);
+        assert_eq!(cmd.get_current_dir(), Some(ws.home.as_path()));
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|v| v.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(&args[..3], &["-g", "-j", "-n"]);
+        for (key, value) in &env {
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair[0] == "--env" && pair[1] == format!("{key}={value}")),
+                "{key}"
+            );
+        }
+        for flag in ["--stdout", "--stderr"] {
+            assert!(args
+                .windows(2)
+                .any(|pair| pair[0] == flag && Path::new(&pair[1]) == log));
+        }
+        assert_eq!(args.last().unwrap(), &bundle.to_string_lossy());
+        // A provided .app must be copied too; it may live on the external build volume.
+        spec.binary = make_bundle(&ws.root, &spec.binary, "original", true).unwrap();
+        fs::create_dir_all(spec.binary.join("Contents/Resources")).unwrap();
+        fs::write(
+            spec.binary.join("Contents/Resources/fixture.txt"),
+            "resource",
+        )
+        .unwrap();
+        let supplied = stage_bundle(&spec, &ws, "fedcba0987654321").unwrap();
+        assert!(supplied.starts_with(&ws.home));
+        assert_ne!(supplied, spec.binary);
+        assert_eq!(
+            fs::read_to_string(supplied.join("Contents/Resources/fixture.txt")).unwrap(),
+            "resource"
+        );
+        std::os::unix::fs::symlink(
+            ws.root.join("control-test-app"),
+            spec.binary.join("Contents/Resources/external"),
+        )
+        .unwrap();
+        assert!(stage_bundle(&spec, &ws, "0123456789abcdef")
+            .unwrap_err()
+            .0
+            .contains("escapes internal bundle"));
+        cleanup(&ws);
     }
 }

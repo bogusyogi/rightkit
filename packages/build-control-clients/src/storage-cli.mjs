@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { managedStorageRoot, noSymlinkPath, inside, storageReport, pruneManaged, startStorageRun, moveToVolumeTrash } from '../../build-control-core/src/storage.mjs';
+import { managedStorageRoot, noSymlinkPath, inside, storageReport, pruneManaged, startStorageRun, moveToVolumeTrash, isLegacyQaTempRoot, pruneLegacyQaTemp } from '../../build-control-core/src/storage.mjs';
 import { xcodeManagedArgs, discoverDeviceVersions, connectedDeviceVersions, pruneDeviceSupport, recordDeviceUse } from '../../build-control-core/src/xcode-storage.mjs';
 
 const usage = 'rightkit storage report|doctor|prune --dry-run|--apply [--managed-root DIR] [--app NAME=DIR] [--external DIR] [--trash PATH] [--broker auto|skip] [--device-support DIR --devices-json FILE] | run --app NAME -- COMMAND [ARGS] | xcode-args --run-root DIR';
@@ -27,7 +27,7 @@ export function parseStorageArgs(argv) {
   return options;
 }
 async function appList(workspace) { const rows = []; for (const entry of await readdir(workspace, { withFileTypes: true })) if (entry.isDirectory() && /right$/i.test(entry.name)) rows.push({ app: entry.name, path: join(workspace, entry.name) }); return rows; }
-export async function storageMain(argv, { stdout = process.stdout, stderr = process.stderr, brokerGc } = {}) {
+export async function storageMain(argv, { stdout = process.stdout, stderr = process.stderr, brokerGc, move = moveToVolumeTrash } = {}) {
   const options = parseStorageArgs(argv); await noSymlinkPath(options.managedRoot);
   if (options.workspace) options.apps.push(...await appList(options.workspace));
   let result;
@@ -49,16 +49,19 @@ export async function storageMain(argv, { stdout = process.stdout, stderr = proc
     return code;
   } else {
     for (const path of options.trash) {
+      if (isLegacyQaTempRoot(path, options.managedRoot)) { await noSymlinkPath(path); continue; }
       if (inside(path, options.managedRoot) || inside(options.managedRoot, path)) throw new Error('managed storage cannot be selected for one-off Trash');
       if (!/(archive|trash|research)/i.test(basename(path)) && !/\.(dmg|pkg|msi|exe)$/i.test(path)) throw new Error('one-off Trash requires explicitly named archive/trash/research/installer');
       await noSymlinkPath(path);
     }
     result = { mode: options.apply ? 'apply' : 'dry-run', managed: [], trash: [] };
+    result.legacyQa = await pruneLegacyQaTemp({ managedRoot: options.managedRoot, apply: options.apply, move });
     for (const kind of ['runs', 'artifacts']) for (const app of await readdir(join(options.managedRoot, kind), { withFileTypes: true }).catch(e => e.code === 'ENOENT' ? [] : Promise.reject(e))) if (app.isDirectory() && !app.name.startsWith('.')) result.managed.push(await pruneManaged({ managedRoot: options.managedRoot, app: app.name, kind, apply: options.apply }));
     for (const path of options.trash) {
+      if (isLegacyQaTempRoot(path, options.managedRoot)) continue;
       if (inside(path, options.managedRoot) || inside(options.managedRoot, path)) throw new Error('managed storage cannot be selected for one-off Trash');
       if (!/(archive|trash|research)/i.test(basename(path)) && !/\.(dmg|pkg|msi|exe)$/i.test(path)) throw new Error('one-off Trash requires explicitly named archive/trash/research/installer');
-      result.trash.push(await moveToVolumeTrash(path, { apply: options.apply }));
+      result.trash.push(await move(path, { apply: options.apply }));
     }
     if (options.deviceSupport) { const versions = options.devicesJson ? connectedDeviceVersions(JSON.parse(await readFile(options.devicesJson, 'utf8'))) : await discoverDeviceVersions(); result.deviceSupport = await pruneDeviceSupport({ managedRoot: options.managedRoot, directory: options.deviceSupport, connectedVersions: versions, apply: options.apply }); }
     if (options.broker === 'skip') result.broker = { skipped: true };

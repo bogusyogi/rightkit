@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   createManagedRun,
+  createManagedAppRoot,
   finishManagedRun,
   pruneManagedRuns,
   resolveManagedRoot,
@@ -31,6 +32,8 @@ export interface QaWorkspace {
   appKey: string;
   managedRoot: string;
   root: string;
+  /** Owned app home on internal system temp storage. */
+  home: string;
   /** Isolated user-data directory; pass to the app so it takes its own lock. */
   dataDir: string;
   /** Somewhere for screenshots, logs, and other recorded evidence. */
@@ -61,30 +64,44 @@ export function createQaWorkspace(options: CreateQaWorkspaceOptions): QaWorkspac
   const managed = createManagedRun({ managedRoot: options.root ? requireText(options.root, 'root') : resolveManagedRoot(), app: appKey, runId: options.runId ?? crypto.randomUUID(), leaseMs: options.leaseMs, retention: options.retention });
   const runId = managed.runId;
   const root = managed.root;
-  const dataDir = path.join(root, 'data');
+  const home = createManagedAppRoot(managed);
+  const dataDir = path.join(home, 'data');
   const evidenceDir = path.join(root, 'evidence');
   const captureDir = path.join(root, 'captures');
-  const tmpDir = path.join(root, 'tmp');
+  const tmpDir = path.join(home, 'tmp');
+  const cacheDir = path.join(home, 'cache');
+  const appEvidenceDir = path.join(home, 'evidence');
+  const appCaptureDir = path.join(home, 'captures');
+  fs.mkdirSync(appEvidenceDir, { recursive: true });
+  fs.mkdirSync(appCaptureDir, { recursive: true });
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(evidenceDir, { recursive: true });
   fs.mkdirSync(captureDir, { recursive: true });
   fs.mkdirSync(tmpDir, { recursive: true });
+  fs.mkdirSync(cacheDir, { recursive: true });
 
   return {
     runId,
     appKey,
     managedRoot: path.resolve(options.root ? requireText(options.root, 'root') : resolveManagedRoot()),
     root,
+    home,
     dataDir,
     evidenceDir,
     captureDir,
     env: {
       RIGHTKIT_QA_NATIVE: '1',
       RIGHTKIT_QA_RUN_ID: runId,
-      RIGHTKIT_RUN_ROOT: root,
+      RIGHTKIT_RUN_ROOT: home,
+      RIGHTKIT_SUITE_ROOT: path.join(home, 'suite'),
+      HOME: home,
+      USERPROFILE: home,
+      APPDATA: dataDir,
+      LOCALAPPDATA: dataDir,
+      XDG_CACHE_HOME: cacheDir,
       RIGHTKIT_QA_DATA_DIR: dataDir,
-      RIGHTKIT_QA_EVIDENCE_DIR: evidenceDir,
-      RIGHTKIT_QA_CAPTURE_DIR: captureDir,
+      RIGHTKIT_QA_EVIDENCE_DIR: appEvidenceDir,
+      RIGHTKIT_QA_CAPTURE_DIR: appCaptureDir,
       TMPDIR: tmpDir,
       TMP: tmpDir,
       TEMP: tmpDir,
@@ -116,15 +133,18 @@ export function disposeQaWorkspace(workspace: QaWorkspace, options: DisposeOptio
   const attempts = Math.max(1, options.attempts ?? 5);
   const retryDelayMs = options.retryDelayMs ?? 200;
   const sleep = options.sleep ?? sleepSync;
-  const targets = options.keepEvidence ? [workspace.dataDir] : [workspace.root];
+  const targets = options.keepEvidence ? [workspace.home] : [workspace.home, workspace.root];
   const report: DisposeReport = { removed: [], retained: [] };
 
-  finishManagedRun(workspace.root);
+  try { finishManagedRun(workspace.root); } catch (error) {
+    report.retained.push({ path: workspace.root, reason: describeError(error) });
+    return report;
+  }
 
   for (const target of targets) {
-    // Only ever remove inside the workspace root we created.
+    // Only remove the managed run or its registered temp companion.
     const resolved = path.resolve(target);
-    if (resolved !== path.resolve(workspace.root) && !isInside(workspace.root, resolved)) {
+    if (resolved !== path.resolve(workspace.root) && resolved !== path.resolve(workspace.home)) {
       report.retained.push({ path: resolved, reason: 'outside the QA workspace root' });
       continue;
     }
@@ -145,7 +165,13 @@ export function disposeQaWorkspace(workspace: QaWorkspace, options: DisposeOptio
       }
     }
     if (lastError === undefined && !fs.existsSync(resolved)) report.removed.push(resolved);
-    else report.retained.push({ path: resolved, reason: describeError(lastError) });
+    else {
+      report.retained.push({ path: resolved, reason: describeError(lastError) });
+      if (resolved === path.resolve(workspace.home)) {
+        if (!options.keepEvidence) report.retained.push({ path: workspace.root, reason: 'app temp cleanup pending' });
+        break;
+      }
+    }
   }
   return report;
 }
@@ -175,11 +201,6 @@ export function pruneAbandonedWorkspaces(
     }
   }
   return report;
-}
-
-function isInside(root: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 function describeError(error: unknown): string {

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm, lstat, symlink, readdir, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, lstat, symlink, readdir, chmod, utimes, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { retentionPlan, pruneManaged, startStorageRun, withStorageLock, storageReport, moveToVolumeTrash, volumeRoot, noSymlinkPath, STORAGE_DEFAULTS } from './storage.mjs';
+import { retentionPlan, pruneManaged, startStorageRun, withStorageLock, storageReport, moveToVolumeTrash, volumeRoot, noSymlinkPath, STORAGE_DEFAULTS, pruneLegacyQaTemp } from './storage.mjs';
 import { ownershipStorageFindings } from './storage-ownership.mjs';
 import { deviceSupportPlan, connectedDeviceVersions, xcodeManagedArgs } from './xcode-storage.mjs';
 const now = 2_000_000_000_000, day = 86400_000;
@@ -50,3 +50,57 @@ test('ordinary dependency symlinks below size threshold do not fail ownership ga
 test('Xcode preparation records recent device use in managed temp storage', async t => { const root = await fixture(t); const { recordDeviceUse } = await import('./xcode-storage.mjs'); await recordDeviceUse({ managedRoot: root, versions: ['18.0'], now }); assert.equal(JSON.parse(await readFile(join(root, 'xcode/devices.json')))['18.0'], now); });
 test('DeviceSupport apply moves only unused versions into fixture Trash', async t => { const root = await fixture(t); const directory = join(root, 'support'), managed = join(root, 'managed'); await mkdir(directory); for (const version of ['18.0', '19.0', '20.0', '21.0']) { await mkdir(join(directory, version)); await writeFile(join(directory, version, 'symbols'), version); } const { pruneDeviceSupport } = await import('./xcode-storage.mjs'); const plan = await pruneDeviceSupport({ managedRoot: managed, directory, connectedVersions: ['18.0'], apply: true, now, move: (path, options) => moveToVolumeTrash(path, { ...options, locateVolume: async () => root }) }); assert.equal(plan.moves.length, 1); assert.equal(await readFile(join(plan.moves[0].destination, 'symbols'), 'utf8'), '19.0'); await lstat(join(directory, '18.0')); await assert.rejects(lstat(join(directory, '19.0')), { code: 'ENOENT' }); });
 test('malformed DeviceSupport usage history fails closed', async t => { const root = await fixture(t); const { deviceSupportPlan } = await import('./xcode-storage.mjs'); await assert.rejects(deviceSupportPlan({ directory: root, connectedVersions: [], recent: [] }), /invalid device/); });
+
+async function legacyRoot(root, name) {
+  const path = join(root, 'tmp', 'rightkit-qa', name);
+  await mkdir(path, { recursive: true });
+  await writeFile(join(path, 'app.log'), 'preserved log');
+  return path;
+}
+async function ageLegacy(path) { const old = new Date(Date.now() - 3 * day); await utimes(path, old, old); }
+test('legacy QA dry-run lists old unmarked roots; apply moves contents to volume Trash', async t => {
+  const root = await fixture(t);
+  const old = await legacyRoot(root, 'cutright-old'); await ageLegacy(old);
+  const young = await legacyRoot(root, 'cutright-young');
+  const live = await legacyRoot(root, 'cutright-live');
+  await mkdir(join(live, 'native.lock')); await writeFile(join(live, 'native.lock/owner.json'), JSON.stringify({ pid: process.pid })); await ageLegacy(live);
+  const dead = await legacyRoot(root, 'cutright-dead');
+  await writeFile(join(dead, 'owner.json'), JSON.stringify({ pid: 999999 })); await ageLegacy(dead);
+  const linked = join(root, 'tmp/rightkit-qa/cutright-link'); await symlink(old, linked);
+  const move = (path, options) => moveToVolumeTrash(path, { ...options, locateVolume: async () => root });
+  const options = { managedRoot: root, move, alive: pid => pid === process.pid };
+  const dry = await pruneLegacyQaTemp(options);
+  assert.deepEqual(dry.remove.map(r => r.path).sort(), [old, dead].sort());
+  assert.ok(dry.skipped.some(r => r.path === live && r.reason === 'live-owner-or-lock'));
+  assert.ok(dry.skipped.some(r => r.path === young && r.reason === 'younger-than-minimum'));
+  assert.ok(dry.skipped.some(r => r.path === linked));
+  await lstat(old);
+  const applied = await pruneLegacyQaTemp({ ...options, apply: true });
+  assert.equal(applied.moves.length, 2);
+  for (const receipt of applied.moves) assert.equal(await readFile(join(receipt.destination, 'app.log'), 'utf8'), 'preserved log');
+  await assert.rejects(lstat(old), { code: 'ENOENT' });
+  await lstat(live); await lstat(young);
+});
+test('legacy QA unknown locks & nested symlinks remain protected', async t => {
+  const root = await fixture(t);
+  const locked = await legacyRoot(root, 'app-locked'); await mkdir(join(locked, 'native.lock')); await ageLegacy(locked);
+  const linked = await legacyRoot(root, 'app-linked'); await symlink(root, join(linked, 'outside')); await ageLegacy(linked);
+  const plan = await pruneLegacyQaTemp({ managedRoot: root });
+  assert.equal(plan.remove.length, 0); assert.equal(plan.skipped.length, 2);
+});
+test('core retention cleans registered QA companions & preserves live owners', async t => {
+  const root = await fixture(t), runRoot = await row(root, 'app', 'orphan', now - 4 * day);
+  let temp = await realpath(tmpdir());
+  if (process.platform === 'darwin' && !temp.startsWith('/private/')) temp = '/private/tmp';
+  await mkdir(join(temp, 'rightkit-qa'), { recursive: true });
+  const home = await mkdtemp(join(temp, 'rightkit-qa/app-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, '.rightkit-app.json'), JSON.stringify({ runRoot: await realpath(runRoot), app: 'app', runId: 'orphan' }));
+  const marker = join(runRoot, '.rightkit-run.json'), meta = JSON.parse(await readFile(marker));
+  await writeFile(marker, JSON.stringify({ ...meta, ownerPid: process.pid, appRoot: home }));
+  assert.equal((await pruneManaged({ managedRoot: root, app: 'app', now, keep: 0, apply: true })).applied.length, 0);
+  await lstat(home);
+  await writeFile(marker, JSON.stringify({ ...meta, appRoot: home }));
+  await pruneManaged({ managedRoot: root, app: 'app', now, keep: 0, apply: true });
+  await assert.rejects(lstat(home), { code: 'ENOENT' });
+});

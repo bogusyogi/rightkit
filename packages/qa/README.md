@@ -6,6 +6,14 @@ Shared QA primitives for Right Suite desktop apps. The package owns run locking,
 
 This package is intentionally private until the Windows and macOS phase gate passes. App repositories must never consume it through a Git, path, `file:`, `link:`, or `workspace:` dependency; adoption happens only after a registry version is published.
 
+## Run storage
+
+Run roots, harness evidence, captures & summaries remain under `<managed>/runs/<app>/<run-id>`. App homes, profiles, service/port files, live logs & app-provided output paths use an owned internal system-temp companion recorded as `appRoot` in `.rightkit-run.json`. On macOS, companions always use `/private/tmp/rightkit-qa/<app-prefix>-<random>` with short names so launchd can open app files & control socket paths fit `sockaddr_un`.
+
+Finish copies app logs to managed `evidence/`, app-written evidence to `evidence/app/` & app captures to `captures/` before releasing ownership. Disposal removes temp companions; failed copies or cleanup preserve ownership metadata for recovery. Retention & orphan pruning validate companion bindings & protect live runs.
+
+Workspace env sets `RIGHTKIT_RUN_ROOT`, `HOME` & `USERPROFILE` to `home`; `RIGHTKIT_SUITE_ROOT` to `home/suite`; data/profile keys to `home/data`; `XDG_CACHE_HOME` to `home/cache`; `TMPDIR`, `TMP` & `TEMP` to `home/tmp`. `RIGHTKIT_QA_EVIDENCE_DIR` & `RIGHTKIT_QA_CAPTURE_DIR` use `home/evidence` & `home/captures`. The JS package supplies workspace env; native UI bundle staging & unique per-launch suite/service identity belong to Rust `control::launch`.
+
 ## Chrome for Testing (`@rightkit/qa/chrome`)
 
 Web/CDP harnesses launch Chrome for Testing, never regular Google Chrome: on macOS each regular Chrome instance clones its app bundle under `<DARWIN_USER_TEMP_DIR>/../X/com.google.Chrome.code_sign_clone/`, and a killed instance leaks that clone.

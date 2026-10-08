@@ -22,6 +22,8 @@ pub struct RunMarker {
     pub lease_until: u128,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<u128>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +144,7 @@ pub fn create(
             owner_pid: std::process::id(),
             lease_until: now.saturating_add(lease.as_millis().max(1)),
             completed_at: None,
+            app_root: None,
         };
         write_marker(&run, &marker)?;
         Ok(ManagedRun { root: run, marker })
@@ -151,11 +154,134 @@ pub fn create(
 pub fn finish(run: &ManagedRun) -> Result<RunMarker> {
     let mut marker = read_marker(&run.root.join(RUN_MARKER))
         .ok_or_else(|| crate::util::Error("QA run marker is missing or malformed".into()))?;
+    if let Some(home) = owned_app_root(&run.root, &marker)? {
+        for name in ["evidence", "captures"] {
+            let target = if name == "evidence" {
+                run.root.join("evidence/app")
+            } else {
+                run.root.join(name)
+            };
+            copy_tree(&home.join(name), &target)?;
+        }
+        for entry in fs::read_dir(home)? {
+            let entry = entry?;
+            if entry.file_name().to_string_lossy().ends_with(".log") {
+                copy_tree(
+                    &entry.path(),
+                    &run.root.join("evidence").join(entry.file_name()),
+                )?;
+            }
+        }
+    }
     marker.owner_pid = 0;
     marker.lease_until = 0;
     marker.completed_at = Some(now_ms());
     write_marker(&run.root, &marker)?;
     Ok(marker)
+}
+
+/// Use short internal temp paths on macOS: launchd needs internal storage &
+/// service fallback sockets must fit sockaddr_un even after app temp overrides.
+pub(crate) fn app_temp_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        PathBuf::from("/private/tmp")
+    }
+    #[cfg(not(target_os = "macos"))]
+    std::env::temp_dir()
+}
+
+pub(crate) fn create_app_root(run: &mut ManagedRun) -> Result<PathBuf> {
+    let parent = app_temp_dir().join("rightkit-qa");
+    ensure_dir(&parent)?;
+    let parent = fs::canonicalize(parent)?;
+    let label: String = run.marker.app.chars().take(16).collect();
+    let home = parent.join(format!("{}-{}", label, &new_id().replace('-', "")[..16]));
+    fs::create_dir(&home)?;
+    run.marker.app_root = Some(home.clone());
+    // Bind both sides; a forged path in a managed marker cannot delete arbitrary temp data.
+    fs::write(
+        home.join(".rightkit-app.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "runRoot": fs::canonicalize(&run.root)?, "app": run.marker.app,
+            "runId": run.marker.run_id,
+        }))?,
+    )?;
+    write_marker(&run.root, &run.marker)?;
+    Ok(home)
+}
+
+fn owned_app_root(root: &Path, marker: &RunMarker) -> Result<Option<PathBuf>> {
+    let Some(home) = &marker.app_root else {
+        return Ok(None);
+    };
+    if !home.exists() {
+        return Ok(None);
+    }
+    let parent = home
+        .parent()
+        .ok_or_else(|| crate::util::Error("invalid QA app temp root".into()))?;
+    let temp = parent
+        .parent()
+        .ok_or_else(|| crate::util::Error("invalid QA app temp root".into()))?;
+    let allowed_temp = temp == fs::canonicalize(app_temp_dir())?
+        || (cfg!(target_os = "macos")
+            && (temp == Path::new("/private/tmp")
+                || (temp.starts_with("/private/var/folders")
+                    && temp.file_name().is_some_and(|n| n == "T"))));
+    if parent.file_name().is_none_or(|n| n != "rightkit-qa")
+        || !allowed_temp
+        || fs::canonicalize(home)? != *home
+        || !safe_dir(home)
+    {
+        return err("invalid QA app temp root");
+    }
+    let binding: serde_json::Value =
+        serde_json::from_slice(&fs::read(home.join(".rightkit-app.json"))?)?;
+    if binding
+        != serde_json::json!({"runRoot": fs::canonicalize(root)?, "app": marker.app,
+        "runId": marker.run_id})
+    {
+        return err("QA app temp ownership mismatch");
+    }
+    Ok(Some(home.clone()))
+}
+
+pub(crate) fn remove_app_root(root: &Path, marker: &RunMarker) -> Result<()> {
+    if let Some(home) = owned_app_root(root, marker)? {
+        fs::remove_dir_all(home)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn copy_tree(source: &Path, target: &Path) -> Result<()> {
+    let meta = fs::symlink_metadata(source)?;
+    if meta.file_type().is_symlink() {
+        return err("symlink in QA app evidence");
+    }
+    if target
+        .symlink_metadata()
+        .is_ok_and(|m| m.file_type().is_symlink())
+    {
+        return err("symlink in managed QA evidence");
+    }
+    if meta.is_dir() {
+        ensure_dir(target)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            copy_tree(&entry.path(), &target.join(entry.file_name()))?;
+        }
+    } else if meta.is_file() {
+        ensure_dir(
+            target
+                .parent()
+                .ok_or_else(|| crate::util::Error("missing evidence parent".into()))?,
+        )?;
+        fs::copy(source, target)?;
+    } else {
+        return err("unsupported QA app evidence file");
+    }
+    Ok(())
 }
 
 pub fn prune(root: &Path, app: &str, max_bytes: Option<u64>) -> Result<RetentionReport> {
@@ -339,7 +465,9 @@ fn prune_unlocked(
         if !safe_dir(&item.0) {
             continue;
         }
-        match fs::remove_dir_all(&item.0) {
+        match remove_app_root(&item.0, &item.1)
+            .and_then(|()| fs::remove_dir_all(&item.0).map_err(Into::into))
+        {
             Ok(()) => {
                 report.removed.push(item.0.clone());
                 removed.insert(item.1.run_id.clone());

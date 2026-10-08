@@ -4,6 +4,12 @@ Rust QA harness for Right Suite applications. It provides declarative scenarios,
 
 The `browser` feature enables Chrome targets through `rightkit-browser`.
 
+## Run storage
+
+Run roots, harness evidence, captures & summaries remain under `<managed>/runs/<app>/<run-id>`. App homes, profiles, service/port files, live logs & app-provided output paths use an owned internal system-temp companion recorded as `appRoot` in `.rightkit-run.json`. On macOS, companions always use `/private/tmp/rightkit-qa/<app-prefix>-<random>` with short names so launchd can open app files & control socket paths fit `sockaddr_un`.
+
+Finish copies app logs to managed `evidence/`, app-written evidence to `evidence/app/` & app captures to `captures/` before releasing ownership. Disposal removes temp companions; failed copies or cleanup preserve ownership metadata for recovery. Retention & orphan pruning validate companion bindings & protect live runs.
+
 ## Rust integration tests
 
 `harness::Harness::scenario(name, tier, requires, |sc| ...)` wraps a `#[test]` body with tier gating, requires-skip, a per-scenario evidence directory (`<evidence root>/<slug>/evidence.json`, hashed artifacts), an orphan-process check and a `summary.jsonl` skip ledger. A skipped scenario prints `[qa] SKIP name: reason`, because libtest reports it as `ok`.
@@ -33,7 +39,9 @@ Scenarios that launch a real `.app` (`control::launch`) must run from the user's
 tools/rightkit/scripts/run-ui-tests.sh -p cutright-e2e --test ui -- --nocapture
 ```
 
-On macOS, `control::launch` passes only `RIGHTKIT_*` keys to the app, because `open --env` exposes values in argv. It drops the workspace's `XDG_*`, `WEBVIEW2_*` and `<APP>_DATA_DIR` keys, so the app must derive its isolated data dir from `RIGHTKIT_QA_DATA_DIR`. Caller-supplied `LaunchSpec::env` is still checked strictly. For an app-specific QA knob, use a `RIGHTKIT_<APP>_*` key (for example `RIGHTKIT_COCKPIT_QA_HOME`) and honour it only in debug QA builds.
+On macOS, `control::launch` stages raw binaries & supplied `.app` bundles under `<appRoot>/apps/<launch-id>/`, then passes every harness-owned home/temp/profile path through `open --env NAME=VALUE`. `HOME`/`USERPROFILE` point to `appRoot`; data/profile keys point to `appRoot/data`; `TMPDIR`/`TMP`/`TEMP` point to `appRoot/tmp`. `RIGHTKIT_SUITE_ROOT` points to `appRoot/suite-<launch-id-prefix>` (including `runtime/<service>/service.json`); live stdout/stderr use `appRoot/app-<launch-id-prefix>.log`. The launcher cwd & harness scratch directories also use `appRoot`.
+
+Caller-supplied `LaunchSpec::env` still rejects credential keys & allows only `RIGHTKIT_*` keys on macOS. Absolute caller paths must live inside `appRoot`; callers cannot replace suite/service identity or move isolation paths outside it. `${data_dir}` & `${evidence_dir}` scenario templates use internal companion paths; artifacts are copied into managed evidence before hashing so disposal cannot invalidate them. App-specific QA knobs should use `RIGHTKIT_<APP>_*` keys honoured only in debug QA builds.
 
 Hidden launches: the app must not take focus itself. When `RIGHTKIT_QA_HIDDEN=1`, skip any `set_focus()`/`show()` on startup, and build with `activate_ignoring_other_apps(false)` on macOS (see `rightkit-control/examples/control-test-app/src/main.rs`). Compare paths with `std::fs::canonicalize`: the QA data dir lives under `/var/folders`, which macOS resolves to `/private/var/folders`.
 
