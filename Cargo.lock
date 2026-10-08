@@ -5076,6 +5076,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-channel-memory"
+version = "0.1.0"
+dependencies = [
+ "jsonschema",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rightkit-compose"
 version = "0.0.0"
 dependencies = [
@@ -5239,7 +5248,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "futures-util",
  "getrandom 0.3.4",
@@ -5438,6 +5447,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-review"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rightkit-sandbox"
 version = "0.3.1"
 dependencies = [
@@ -5445,6 +5462,14 @@ dependencies = [
  "portable-pty",
  "rightkit-process",
  "windows 0.61.1",
+]
+
+[[package]]
+name = "rightkit-scenario"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
