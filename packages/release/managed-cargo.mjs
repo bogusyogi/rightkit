@@ -6,8 +6,9 @@ import { spawnSync } from "./background-process.mjs";
 
 export function managedRuntimeClient(env = process.env, platform = process.platform, exists = existsSync) {
   const roots = managedControlCandidates({ env, platform });
+  const paths = platform === 'win32' ? path.win32 : path.posix;
   for (const root of roots) {
-    const client = path.join(root, "runtime-current", "build-control-clients", "src", "rightkit.mjs");
+    const client = paths.join(root, "runtime-current", "build-control-clients", "src", "rightkit.mjs");
     if (exists(client)) return client;
   }
   return undefined;
