@@ -816,6 +816,7 @@ mod tests {
 
     #[test]
     fn raw_arguments_are_appended_verbatim() {
+        // windowless: unit test builds the argument list only; never spawned
         let mut command = Command::new("cmd.exe");
         command.arg("/c").raw_arg("echo first & echo second");
         let line = command_line(&command, &[1]).unwrap();
@@ -827,6 +828,7 @@ mod tests {
 
     #[test]
     fn embedded_nul_is_rejected_before_spawn() {
+        // windowless: unit test builds the argument list only; never spawned
         let mut command = Command::new("cmd.exe");
         command.arg("bad\0argument");
         assert_eq!(
@@ -837,6 +839,7 @@ mod tests {
 
     #[test]
     fn batch_arguments_reject_line_breaks_and_escape_expansions() {
+        // windowless: unit test builds the argument list only; never spawned
         let mut command = Command::new("script.cmd");
         command.arg("%PATH%");
         let line = batch_command_line(Path::new("C:\\script.cmd"), &command, &[]).unwrap();
