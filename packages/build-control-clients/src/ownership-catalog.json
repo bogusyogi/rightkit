@@ -1512,6 +1512,17 @@
       ]
     },
     {
+      "package": "rightkit-record",
+      "capability": "screen-recording",
+      "summary": "Platform-neutral recorder core: start/stop/status lifecycle with partial-bundle quarantine and stale-session recovery, immutable hashed session bundles (record-session v1 manifest, record-event v1 telemetry), per-field redaction before persistence, bundle verification, and the step-to-frame reader. OS capture is delegated to helpers behind the Backend trait.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the lifecycle, bundle writer, redaction and reader are not an ownership fingerprint.",
+        "No OS capture lives in this crate; the macOS and Windows helpers implement the Backend trait in later slices."
+      ]
+    },
+    {
       "package": "rightkit-review",
       "capability": "content-review",
       "summary": "Shared review capability: typed deterministic checks over a media or brief description, declared holds, a hard-capped repair loop, an advisory judge interface that cannot override deterministic failures, and versioned verdict records.",

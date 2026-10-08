@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 68 (33 with fingerprints, 35 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 69 (33 with fingerprints, 36 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -66,6 +66,7 @@ Capabilities: 68 (33 with fingerprints, 35 declaration-only). Internal owners th
 | release-tooling | `@rightkit/release` | none | declaration-only | 0 | @rightkit/release: published 0.2.135 (npm) |
 | safe-filesystem | `rightkit-fs` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-fs: published 0.2.0 (crates.io) |
 | scenario-runtime | `rightkit-scenario` | none | declaration-only | 0 | rightkit-scenario: none recorded |
+| screen-recording | `rightkit-record` | none | declaration-only | 0 | rightkit-record: none recorded |
 | script-alignment | `rightkit-align` | none | declaration-only | 0 | rightkit-align: none recorded |
 | search | `rightkit-search` | none | declaration-only | 0 | rightkit-search: published 0.1.0 (crates.io) |
 | settings-persistence | `rightkit-settings` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-settings: published 0.1.0 (crates.io) |

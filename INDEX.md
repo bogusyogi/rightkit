@@ -12,7 +12,7 @@ Flagged mismatches: 5.
 
 The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) is moving to RustRight, a separate product. Entries here are inventory only.
 
-## Rust crates (53)
+## Rust crates (54)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -54,6 +54,7 @@ The Rust build broker (`packages/build-control-*` and the `rightkit` CLI shims) 
 | `rightkit-qts` | crates.io | 0.2.1 | 0.2.1 | 0.2.1 | ok | text-to-speech | Qwen3 TTS inference (GGUF + GGML), vendored from yet-another-ai/qts v0.2.0 for RightKit |
 | `rightkit-qts-ggml` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | text-to-speech | Thin safe wrappers over rightkit-qts-ggml-sys for rightkit-qts, vendored from yet-another-ai/qts v0.2.0 |
 | `rightkit-qts-ggml-sys` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | text-to-speech | Low-level FFI bindings to ggml (CPU, Metal, Vulkan, BLAS) for rightkit-qts, vendored from yet-another-ai/qts v0.2.0 |
+| `rightkit-record` | private | 0.1.0 | none recorded |  | private | screen-recording | Platform-neutral core of the RightKit recorder (RK3): record lifecycle, quarantine and recovery, session bundle writer, per-field redaction, bundle verification and frame reader. OS capture lives in per-platform helpers behind the Backend trait. |
 | `rightkit-review` | private | 0.1.0 | none recorded |  | private | content-review | Shared review capability for the content pipeline: deterministic checks over a media or brief description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records. |
 | `rightkit-sandbox` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | os-sandbox | Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps. |
 | `rightkit-scenario` | private | 0.0.0 | none recorded |  | private | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
