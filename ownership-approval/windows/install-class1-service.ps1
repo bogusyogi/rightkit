@@ -7,6 +7,9 @@ param(
     [string]$ServiceExecutable,
     [string]$ServiceArguments = '',
     [string]$AgentUser = "$env:USERDOMAIN\$env:USERNAME",
+    # Published rightkit-sandbox-exec.exe and its expected SHA-256; installed into the service-owned bin.
+    [string]$SandboxExecSource,
+    [string]$SandboxExecSha256,
     [switch]$DryRunOutput
 )
 Set-StrictMode -Version Latest
@@ -20,10 +23,13 @@ $cargoHome = Join-Path $brokerRoot 'global\cargo-home'
 $gitDb = Join-Path $cargoHome 'git\db'
 $cache = Join-Path $brokerRoot 'global\compiler-cache'
 $buildRoots = Join-Path $brokerRoot 'build-roots'
+$binRoot = Join-Path $brokerRoot 'bin'
+$sandboxExec = Join-Path $binRoot 'rightkit-sandbox-exec.exe'
 $parents = @($dataRoot, $brokerRoot, (Join-Path $brokerRoot 'global'))
-$trees = @($cargoHome, $gitDb, $cache, $buildRoots)
+$trees = @($cargoHome, $gitDb, $cache, $buildRoots, $binRoot)
 if ([string]::IsNullOrWhiteSpace($AgentUser) -or $AgentUser -eq '\' -or $AgentUser -match '[\x00-\x1f]') { throw 'RK_CLASS1_AGENT_IDENTITY: explicit agent account required' }
 if ($ServiceArguments -match '[\x00-\x1f]') { throw 'RK_CLASS1_SERVICE_COMMAND: invalid service arguments' }
+if ($SandboxExecSource -and ($SandboxExecSource -notmatch '^[A-Za-z]:\\' -or $SandboxExecSha256 -notmatch '^[0-9a-fA-F]{64}$')) { throw 'RK_CLASS1_SANDBOX_SOURCE: absolute -SandboxExecSource and 64-hex -SandboxExecSha256 required' }
 
 # This path does not inspect live roots/service, require elevation, compile, or mutate.
 if ($DryRunOutput -or $WhatIfPreference) {
@@ -32,6 +38,7 @@ if ($DryRunOutput -or $WhatIfPreference) {
     Write-Output "PLAN legacy task: refuse running jobs; disable $legacyTask after migration"
     foreach ($root in $parents) { Write-Output "PLAN parent: $root; owner=$serviceAccount; inheritance=removed; service=FullControl; agent=$AgentUser ReadAndExecute" }
     foreach ($root in $trees) { Write-Output "PLAN tree: $root; reject reparse points; recursive owner=$serviceAccount; inheritance=removed; service=FullControl; agent=$AgentUser ReadAndExecute" }
+    Write-Output "PLAN sandbox launcher: $(if ($SandboxExecSource) { $SandboxExecSource } else { '<none; existing copy kept>' }) -> $sandboxExec; verify SHA-256 before and after copy; owner=$serviceAccount"
     Write-Output 'PLAN credentials: untouched'
     return
 }
@@ -212,6 +219,16 @@ foreach ($root in $trees) {
         }
     }
 }
+# Install the launcher only after bin is service-owned, then verify the installed bytes.
+if ($SandboxExecSource -and $PSCmdlet.ShouldProcess($sandboxExec, 'Install rightkit-sandbox-exec.exe')) {
+    Assert-NoReparse $SandboxExecSource
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $SandboxExecSource).Hash -ne $SandboxExecSha256.ToUpperInvariant()) { throw 'RK_CLASS1_SANDBOX_DIGEST: source does not match -SandboxExecSha256' }
+    Copy-Item -LiteralPath $SandboxExecSource -Destination $sandboxExec -Force
+    Protect-Item $sandboxExec
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $sandboxExec).Hash -ne $SandboxExecSha256.ToUpperInvariant()) { throw 'RK_CLASS1_SANDBOX_DIGEST: installed launcher readback mismatch' }
+    Write-Output "CHANGE installed $sandboxExec"
+}
 if ($null -ne $task -and $task.State -ne 'Disabled' -and $PSCmdlet.ShouldProcess($legacyTask, 'Disable legacy same-user scheduled broker')) { Disable-ScheduledTask -TaskName $legacyTask | Out-Null; Write-Output "CHANGE disabled $legacyTask" }
 Write-Output "CLASS1 service configured; SID=$($serviceSid.Value); agentSID=$($agentSid.Value); buildRoots=$buildRoots; service remains stopped; credentials untouched"
+Write-Output ('CLASS1 broker config: ' + (@{ protectedRoot = $brokerRoot; buildRootParent = $buildRoots; windowsSandboxExec = $sandboxExec; serviceSid = $serviceSid.Value; agentSid = $agentSid.Value } | ConvertTo-Json -Compress))
 } finally { foreach ($handle in $handles.Values) { $handle.Dispose() } }
