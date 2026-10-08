@@ -13,12 +13,17 @@
 //!   them, and resolves a usable token or a typed "needs sign-in" outcome.
 //!
 //! Token values never appear in `Debug` or `Display` output.
+//! Daemons opt into the `server` module/feature for public HTTPS callbacks.
 
 #[cfg(feature = "secrets")]
 pub mod credentials;
 mod device;
+#[cfg(feature = "server")]
+pub mod server;
 #[cfg(feature = "system-sources")]
 pub mod system;
+#[cfg(any(feature = "secrets", feature = "server"))]
+mod token_codec;
 
 pub use device::{
     Clock, DeviceAuthorization, DevicePoll, DeviceWait, SystemClock, DEFAULT_INTERVAL,
@@ -270,13 +275,14 @@ impl fmt::Debug for TokenSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TokenSet")
             .field("access_token", &self.access_token)
-            .field("token_type", &self.token_type)
+            // Provider-controlled metadata may echo credential bytes too.
+            .field("token_type", &"[redacted]")
             .field("expires_in", &self.expires_in)
             .field(
                 "refresh_token",
                 &self.refresh_token.as_ref().map(|_| "[redacted]"),
             )
-            .field("scope", &self.scope)
+            .field("scope", &self.scope.as_ref().map(|_| "[redacted]"))
             .field("obtained_at", &self.obtained_at)
             .finish()
     }

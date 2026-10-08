@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QaPage fixture</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; background: #edf3fa; }
+  main { padding: 20px; }
+  button, input, select { display: block; margin: 12px 0; }
+  #hover { width: 120px; height: 40px; background: #99caff; }
+  #hidden { display: none; }
+  #far { margin-top: 1100px; }
+</style>
+<main>
+  <h1>QaPage fixture</h1>
+  <p class="item">one</p><p class="item">two</p>
+  <button id="click">Click</button>
+  <input id="text" aria-label="Text">
+  <input id="next" aria-label="Next">
+  <div id="hover">Hover</div>
+  <select id="select"><option value="one">One</option><option value="two">Two</option></select>
+  <select id="multi" multiple><option value="one">One</option><option value="two">Two</option></select>
+  <div id="hidden">Hidden</div><div id="later" hidden>Later</div>
+  <button id="far">Far</button>
+</main>
+<iframe srcdoc="<script>window.childOnly = true;</script>"></iframe>
+<script>
+  window.initSeen = window.beforeScripts;
+  window.events = [];
+  for (const type of ['click', 'dblclick', 'contextmenu', 'input', 'change', 'keydown', 'keyup', 'focusin', 'mouseover']) {
+    document.addEventListener(type, event => {
+      window.events.push({ type, id: event.target.id, trusted: event.isTrusted, key: event.key });
+      if (type === 'contextmenu') event.preventDefault();
+    });
+  }
+  document.querySelector('#click').addEventListener('click', () => {
+    document.querySelector('#click').textContent = 'Clicked';
+  });
+  document.querySelector('#far').addEventListener('click', () => {
+    document.querySelector('#far').textContent = 'Far clicked';
+  });
+  document.querySelector('#hover').addEventListener('mouseover', () => {
+    document.querySelector('#hover').textContent = 'Hovered';
+  });
+  document.querySelector('#text').addEventListener('keydown', event => {
+    if (event.key === 'Escape') document.querySelector('#hidden').style.display = 'block';
+  });
+</script>

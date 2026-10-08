@@ -9,3 +9,4 @@ export * from './panes.js';
 export * from './process.js';
 export * from './workspace.js';
 export * from './storage.js';
+export * from './page.js';

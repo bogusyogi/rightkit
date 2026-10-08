@@ -7,11 +7,12 @@
 //! re-reads the store first, so two processes of the same app never spend one rotating
 //! refresh grant twice.
 
+use crate::token_codec::{decode, encode};
 use std::fmt;
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use rightkit_http::Secret;
 
@@ -41,55 +42,6 @@ impl fmt::Debug for SecretTokenStore {
 
 fn storage(e: impl fmt::Display) -> OAuthError {
     OAuthError::Storage(e.to_string())
-}
-
-fn unix(t: SystemTime) -> u64 {
-    t.duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-pub(crate) fn encode(tokens: &TokenSet) -> String {
-    serde_json::json!({
-        "v": 1,
-        "access": tokens.access_token.expose(),
-        "type": tokens.token_type,
-        "expires_in": tokens.expires_in.map(|d| d.as_secs()),
-        "renew": tokens.refresh_token.as_ref().map(|s| s.expose()),
-        "scope": tokens.scope,
-        "obtained_at": unix(tokens.obtained_at),
-    })
-    .to_string()
-}
-
-pub(crate) fn decode(text: &str) -> Result<TokenSet, OAuthError> {
-    let v: serde_json::Value =
-        serde_json::from_str(text).map_err(|_| storage("stored sign-in is unreadable"))?;
-    let access = v
-        .get("access")
-        .and_then(|x| x.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| storage("stored sign-in has no access value"))?;
-    Ok(TokenSet {
-        access_token: Secret::new(access),
-        token_type: v
-            .get("type")
-            .and_then(|x| x.as_str())
-            .unwrap_or("Bearer")
-            .to_string(),
-        expires_in: v
-            .get("expires_in")
-            .and_then(|x| x.as_u64())
-            .map(Duration::from_secs),
-        refresh_token: v
-            .get("renew")
-            .and_then(|x| x.as_str())
-            .filter(|s| !s.is_empty())
-            .map(Secret::new),
-        scope: v.get("scope").and_then(|x| x.as_str()).map(String::from),
-        obtained_at: UNIX_EPOCH
-            + Duration::from_secs(v.get("obtained_at").and_then(|x| x.as_u64()).unwrap_or(0)),
-    })
 }
 
 impl TokenStore for SecretTokenStore {
@@ -321,6 +273,7 @@ fn fnv1a(text: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::UNIX_EPOCH;
 
     #[test]
     fn stored_form_round_trips_without_losing_expiry() {
