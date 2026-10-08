@@ -6,14 +6,14 @@ Catalog capability: `content-contracts`. Not published (`publish = false`).
 
 ## What it owns
 
-| Contract | Schema file (in `tools/rightkit/contracts/`) |
-|---|---|
-| `content-brief` | `content-brief.v1.schema.json` |
-| `delivery-envelope` | `delivery-envelope.v1.schema.json` |
-| `record-session` | `record-session.v1.schema.json` |
-| `record-event` | `record-event.v1.schema.json` |
-| `demo-plan` | `demo-plan.v1.schema.json` |
-| `daemon-api` | `daemon-api.v1.schema.json` |
+| Contract | Schema file (in `tools/rightkit/contracts/`) | Supported version |
+|---|---|---|
+| `content-brief` | `content-brief.v1.schema.json` | 1.0.0 |
+| `delivery-envelope` | `delivery-envelope.v1.schema.json` | 1.0.0 |
+| `record-session` | `record-session.v1.schema.json` | 1.1.0 |
+| `record-event` | `record-event.v1.schema.json` | 1.1.0 |
+| `demo-plan` | `demo-plan.v1.schema.json` | 1.0.0 |
+| `daemon-api` | `daemon-api.v1.schema.json` | 1.0.0 |
 
 The schemas are embedded with `include_str!`, so every installed engine validates against the same bytes. The crate's own schema and fixture tests check that each embedded schema is Draft 2020-12, has its `$id` and declares a version.
 
@@ -69,3 +69,8 @@ Pure Rust. No platform-specific code.
 ## Version and changes
 
 Published version: not published. See [INDEX.md](../../INDEX.md). No CHANGELOG.md in this crate.
+
+Minor changes in this crate:
+
+- `record-event` 1.1.0 adds the event kinds `session_start`, `session_end` and `frame_dropped`, and the `frameDropped` object (`count`, `intervalMs`, `reason` one of `backpressure`, `encoder`, `capture_gap`, `unknown`), required for `frame_dropped`. 1.0.0 documents remain valid.
+- `record-session` 1.1.0 adds `on_screen_visible` to `capture.visibilityState`. 1.0.0 documents remain valid.

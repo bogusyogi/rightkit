@@ -125,6 +125,7 @@ pub enum CaptureScope {
 #[serde(rename_all = "snake_case")]
 pub enum VisibilityState {
     OffScreenVisible,
+    OnScreenVisible,
     AppHidden,
     Occluded,
     Minimized,

@@ -49,6 +49,8 @@ pub struct RecordEvent {
     #[serde(default)]
     pub frame: Option<Frame>,
     #[serde(default)]
+    pub frame_dropped: Option<FrameDropped>,
+    #[serde(default)]
     pub intruders: Vec<Intruder>,
     pub redaction_policy: PolicyRef,
 }
@@ -65,6 +67,9 @@ pub enum EventKind {
     Stall,
     RenderComplete,
     StageCheck,
+    SessionStart,
+    SessionEnd,
+    FrameDropped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -201,6 +206,25 @@ pub struct Postcondition {
 pub struct Frame {
     pub index: u64,
     pub sample_pts_ns: u64,
+}
+
+/// A frame the recorder could not keep. `intervalMs` is the gap between the
+/// presentation times the drop spans, so a gap of one frame reads as one frame.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct FrameDropped {
+    pub count: u32,
+    pub interval_ms: f64,
+    pub reason: DropReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DropReason {
+    Backpressure,
+    Encoder,
+    CaptureGap,
+    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

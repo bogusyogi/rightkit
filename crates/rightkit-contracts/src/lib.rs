@@ -76,7 +76,10 @@ impl Contract {
 
     /// The highest version of this contract that this build understands.
     pub fn supported_version(self) -> Version {
-        Version::new(1, 0, 0)
+        match self {
+            Contract::RecordSession | Contract::RecordEvent => Version::new(1, 1, 0),
+            _ => Version::new(1, 0, 0),
+        }
     }
 
     /// The `$id` declared inside the schema file.

@@ -3,7 +3,7 @@
   "$id": "urn:rightkit:contract:record-session:v1",
   "title": "RightKit record session bundle manifest (v1)",
   "description": "The manifest of an immutable session bundle written by rightkit-record. The document is the bundle's hashes.json: it hashes every other bundle file and never hashes itself. It embeds the clock anchors and capture geometry, which are also written as clock.json and capture.json, so bundle.verify can compare them. A bundle is complete only when status is complete; partial or invalid takes are quarantined and never reported as complete. Cursor assets and recipe or style dependencies are listed with versions and hashes so the director can re-run from the bundle on another OS without any donor directory. Seeded from ScreenRight session.v2 and the clock anchor model, with the v2 names kept where the fields still apply.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "object",
   "additionalProperties": false,
   "required": ["contract", "contractVersion", "bundleId", "createdAt", "status", "recorder", "scenario", "target", "capture", "geometryEpochs", "clock", "frames", "events", "files", "dependencies", "redaction"],
@@ -81,7 +81,7 @@
         "height": { "type": "integer", "minimum": 1 },
         "scope": { "enum": ["app_surfaces", "display"] },
         "displayOptIn": { "type": "boolean" },
-        "visibilityState": { "enum": ["off_screen_visible", "app_hidden", "occluded", "minimized"] }
+        "visibilityState": { "enum": ["off_screen_visible", "on_screen_visible", "app_hidden", "occluded", "minimized"] }
       },
       "allOf": [
         { "if": { "properties": { "scope": { "const": "display" } }, "required": ["scope"] }, "then": { "properties": { "displayOptIn": { "const": true } } } }

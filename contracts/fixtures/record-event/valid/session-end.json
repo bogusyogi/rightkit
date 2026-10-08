@@ -1,0 +1,15 @@
+{
+  "contract": "record-event",
+  "contractVersion": "1.1.0",
+  "sessionId": "bundle.export-flow-0001",
+  "seq": 41,
+  "kind": "session_end",
+  "stepIndex": 1,
+  "hostNs": 8171000000,
+  "geometryEpoch": 0,
+  "redactionPolicy": {
+    "policyId": "redaction.default",
+    "policyVersion": "1.0.0"
+  },
+  "stepId": "open-export"
+}
