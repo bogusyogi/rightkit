@@ -2,29 +2,25 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-audio",
-  "version": "0.1.0",
-  "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-  "artifactSha256": "924e904e1aeb79e123f923d83b408db415473db338d2905bb06a36bdbea5beec",
+  "version": "0.1.1",
+  "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
+  "artifactSha256": "ddc40583130a6af31ffdaf24f3d507ec423350953970657d6adbad18779e0ae7",
+  "artifactBasis": "git archive HEAD crates/rightkit-audio",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
   "runs": [
     {
       "host": {
-        "os": "win32"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-      "command": "rightkit cargo test -p rightkit-audio --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T01:27:47.557772Z",
-      "passed": 3,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "darwin"
-      },
-      "commit": "5d7dbc4bf18cf259994bfb5e8c9730bc5f9bb609",
-      "command": "rightkit cargo test -p rightkit-audio --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T01:26:50Z",
+      "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
+      "command": "right-release publish cargo --crate rightkit-audio --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-08T01:46:47Z",
       "passed": 3,
       "failed": 0
     }
