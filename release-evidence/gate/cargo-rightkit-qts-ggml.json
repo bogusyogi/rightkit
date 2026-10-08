@@ -2,10 +2,10 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-qts-ggml",
-  "version": "0.1.0",
-  "commit": "c573960af1236004c89de6cd5f266fb7555de1d1",
-  "artifactSha256": "25ef3496285c7a1c97e4e0da13672126d7d7e138c9e22abd4fe8c879fe9f42b7",
-  "artifactBasis": "git archive HEAD crates/rightkit-qts-ggml",
+  "version": "0.1.1",
+  "commit": "2b8a7cd4837efd994bf410b02193625cb9bab2a2",
+  "artifactSha256": "386aeb353f8193cab6a275f78904e3bfa9dbe4238f6fa3779614b44fcba140f3",
+  "artifactBasis": "cargo package rightkit-qts-ggml-0.1.1.crate",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
   "runs": [
@@ -14,13 +14,13 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "c573960af1236004c89de6cd5f266fb7555de1d1",
+      "commit": "2b8a7cd4837efd994bf410b02193625cb9bab2a2",
       "command": "right-release publish cargo --crate rightkit-qts-ggml --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-07T20:56:05Z",
+      "timestamp": "2026-10-08T21:51:54Z",
       "passed": 1,
       "failed": 0
     }

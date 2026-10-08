@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "kind": "npm",
+  "name": "@rightkit/tauri",
+  "version": "0.2.0",
+  "commit": "d4bdf8bd528a43c1498c86fba7d2ce238538dc26",
+  "artifactSha256": "6b1cebef42711e996c84cebfb8ac0acad2c5dde5cb2544b06c22b8347ba359c7",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: apps validate on macOS first, Windows later",
+  "runs": [
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64"
+      },
+      "commit": "d4bdf8bd528a43c1498c86fba7d2ce238538dc26",
+      "command": "pnpm --dir packages/$D test",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-08T22:04:05Z",
+      "passed": 14,
+      "failed": 0
+    }
+  ]
+}
