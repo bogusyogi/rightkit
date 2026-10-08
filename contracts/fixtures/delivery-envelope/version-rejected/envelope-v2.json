@@ -1,0 +1,1 @@
+{ "contract": "delivery-envelope", "envelopeId": "env.3", "briefId": "brief.text-12", "briefRevision": 1, "contentRevision": 2, "policyRevision": 1, "producer": { "engine": "postright", "engineVersion": "0.2.0" }, "platforms": ["x"], "contractVersion": "2.0.0", "payload": { "type": "text", "body": "Future shape" } }

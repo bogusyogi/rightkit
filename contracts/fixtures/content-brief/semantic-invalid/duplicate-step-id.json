@@ -1,0 +1,8 @@
+{
+  "contract": "content-brief", "contractVersion": "1.0.0", "briefId": "brief.demo-dup", "revision": 1,
+  "briefType": "product_demo", "channel": { "venture": "orthic", "channel": "c", "account": "main" },
+  "platforms": ["youtube_shorts"], "deliverables": ["video"],
+  "stages": [ { "id": "record", "requestId": "req.r", "inputHash": "blake3:3333333333333333333333333333333333333333333333333333333333333333", "dependsOn": [] } ],
+  "scenario": { "scenarioId": "s", "app": { "appId": "cutright" }, "runner": { "host": "mac_second_session" }, "fps": 60, "targets": [ { "targetId": "t", "role": "button", "label": "Go" } ],
+    "steps": [ { "stepId": "a", "label": "A", "action": { "kind": "click", "targetId": "t" }, "expect": { "postcondition": "one" } }, { "stepId": "a", "label": "A again", "action": { "kind": "click", "targetId": "t" }, "expect": { "postcondition": "two" } } ] }
+}

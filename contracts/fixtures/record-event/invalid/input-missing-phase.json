@@ -1,0 +1,57 @@
+{
+  "contract": "record-event",
+  "contractVersion": "1.0.0",
+  "sessionId": "bundle.export-flow-0001",
+  "seq": 7,
+  "kind": "input",
+  "inputKind": "click",
+  "effectId": "effect.0004",
+  "subEventId": "effect.0004.1",
+  "stepIndex": 1,
+  "stepId": "open-export",
+  "hostNs": 8125000000,
+  "timing": {
+    "admissionNs": 8124900000,
+    "dispatchNs": 8125000000,
+    "completionNs": 8125100000
+  },
+  "geometryEpoch": 0,
+  "dispatch": {
+    "space": "window_points",
+    "windowBoundsPt": {
+      "x": 0,
+      "y": 0,
+      "width": 1440,
+      "height": 900
+    },
+    "scale": 2
+  },
+  "pointer": {
+    "xPt": 1210,
+    "yPt": 42
+  },
+  "target": {
+    "targetId": "export-button",
+    "identity": {
+      "mode": "hash",
+      "digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "saltId": "salt.run-1"
+    },
+    "role": "button",
+    "label": {
+      "mode": "full",
+      "value": "Export"
+    },
+    "rectPt": {
+      "x": 1180,
+      "y": 28,
+      "width": 64,
+      "height": 28
+    }
+  },
+  "admitted": true,
+  "redactionPolicy": {
+    "policyId": "redaction.default",
+    "policyVersion": "1.0.0"
+  }
+}

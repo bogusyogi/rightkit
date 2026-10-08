@@ -1,0 +1,4 @@
+{ "contract": "delivery-envelope", "contractVersion": "1.0.0", "envelopeId": "env.2", "briefId": "brief.carousel-07", "briefRevision": 1, "contentRevision": 1, "policyRevision": 1, "producer": { "engine": "genright", "engineVersion": "0.9.0" }, "platforms": ["instagram_carousel"], "payload": { "type": "carousel", "slides": [
+  { "index": 1, "still": { "hash": "blake3:2222222222222222222222222222222222222222222222222222222222222222", "mimeType": "image/png", "width": 1080, "height": 1350, "alt": "First" } },
+  { "index": 3, "still": { "hash": "blake3:5555555555555555555555555555555555555555555555555555555555555555", "mimeType": "image/png", "width": 1080, "height": 1350, "alt": "Third" } }
+] } }

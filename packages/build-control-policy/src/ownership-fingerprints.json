@@ -25,6 +25,17 @@
       ]
     },
     {
+      "package": "rightkit-align",
+      "capability": "script-alignment",
+      "summary": "Local script-to-ASR word alignment for Right Suite narration: pronunciation normalisation, edit-distance alignment with per-token lexical and timing confidence, rejection of mismatched and ambiguous anchors, and control-name coverage floors",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the alignment algorithm is not an ownership fingerprint.",
+        "Consumes rightkit-transcript words; holds no audio, models or I/O."
+      ]
+    },
+    {
       "package": "rightkit-asr",
       "capability": "speech-recognition",
       "summary": "Internal reconciled Parakeet ONNX + Whisper (CoreML / whisper.cpp) decoding runtime for Right Suite applications",
@@ -349,6 +360,17 @@
       ]
     },
     {
+      "package": "rightkit-compose",
+      "capability": "composition-model",
+      "summary": "Evaluated composition model for Right Suite video: layered video, stills, cursor sprites with hotspots, procedural backgrounds, rounded clipping, shadows, motion blur, canvas-space overlays and an independently timed webcam, with keyframed transforms, crops and opacity; pure per-frame evaluation shared by preview and export",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the composition contract and evaluation are not an ownership fingerprint.",
+        "No renderer, codec or I/O lives in this crate; CutRight and the typed FFmpeg export consume its FrameDescription."
+      ]
+    },
+    {
       "package": "rightkit-computer",
       "capability": "computer-control",
       "summary": "Shared computer-control layer: observe and act on any app window in the background (macOS prototype).; declaration-only detection (no precise implementation fingerprint)",
@@ -356,6 +378,17 @@
       "detection": "declaration-only",
       "policyNotes": [
         "Deprecated; use rightkit-automation for new adoption.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-contracts",
+      "capability": "content-contracts",
+      "summary": "Versioned content-pipeline contracts (content brief, delivery envelope, record session and event, demo plan, daemon API) with embedded JSON Schema, serde types, semantic checks, and major-version negotiation.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
         "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },

@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-align",
+  "capabilities": [
+    {
+      "capability": "script-alignment",
+      "summary": "Local script-to-ASR word alignment for Right Suite narration: pronunciation normalisation, edit-distance alignment with per-token lexical and timing confidence, rejection of mismatched and ambiguous anchors, and control-name coverage floors",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the alignment algorithm is not an ownership fingerprint.",
+        "Consumes rightkit-transcript words; holds no audio, models or I/O."
+      ]
+    }
+  ]
+}

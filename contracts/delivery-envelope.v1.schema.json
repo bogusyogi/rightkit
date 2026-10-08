@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rightkit:contract:delivery-envelope:v1",
+  "title": "RightKit delivery envelope (v1)",
+  "description": "Media-neutral hand-off from a producer (CutRight for edited video, GenRight for stills and carousels, PostRight for text) to the daemon. The daemon consumes only this envelope. The payload is discriminated by type: video, stills, carousel or text. Every media item is addressed by its blake3 hash, so the daemon can verify the upload it holds. contentRevision and policyRevision bind the envelope to the approved revision and the platform rule revision it was approved under.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "envelopeId", "briefId", "briefRevision", "contentRevision", "policyRevision", "producer", "platforms", "payload"],
+  "properties": {
+    "contract": { "const": "delivery-envelope" },
+    "contractVersion": { "$ref": "#/$defs/contractVersion" },
+    "envelopeId": { "$ref": "#/$defs/id" },
+    "briefId": { "$ref": "#/$defs/id" },
+    "briefRevision": { "type": "integer", "minimum": 1 },
+    "contentRevision": { "type": "integer", "minimum": 1 },
+    "policyRevision": { "type": "integer", "minimum": 1 },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine", "engineVersion"],
+      "properties": {
+        "engine": { "enum": ["cutright", "genright", "postright"] },
+        "engineVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$" }
+      }
+    },
+    "platforms": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+    "copy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "caption": { "type": "string", "maxLength": 5000 },
+        "hashtags": { "type": "array", "maxItems": 30, "uniqueItems": true, "items": { "type": "string", "pattern": "^[^\\s#]+$" } },
+        "linkPlacement": { "enum": ["caption", "comment", "bio", "none"] }
+      }
+    },
+    "payload": {
+      "oneOf": [
+        { "$ref": "#/$defs/videoPayload" },
+        { "$ref": "#/$defs/stillsPayload" },
+        { "$ref": "#/$defs/carouselPayload" },
+        { "$ref": "#/$defs/textPayload" }
+      ]
+    }
+  },
+  "$defs": {
+    "contractVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "blake3": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "aspect": { "enum": ["16:9", "9:16", "1:1", "4:5"] },
+    "alt": { "type": "string", "minLength": 1, "maxLength": 1500 },
+    "videoPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "media"],
+      "properties": {
+        "type": { "const": "video" },
+        "media": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hash", "container", "codec", "width", "height", "fps", "durationMs", "aspect"],
+          "properties": {
+            "hash": { "$ref": "#/$defs/blake3" },
+            "container": { "enum": ["mp4", "mov"] },
+            "codec": { "enum": ["h264", "hevc", "prores"] },
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 },
+            "fps": { "enum": [24, 25, 30, 50, 60] },
+            "durationMs": { "type": "integer", "minimum": 1 },
+            "aspect": { "$ref": "#/$defs/aspect" },
+            "audio": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["codec", "channels", "sampleRate"],
+              "properties": {
+                "codec": { "enum": ["aac", "pcm_s16le", "pcm_s24le"] },
+                "channels": { "type": "integer", "minimum": 1, "maximum": 8 },
+                "sampleRate": { "type": "integer", "minimum": 8000 },
+                "loudnessLufs": { "type": "number", "minimum": -70, "maximum": 0 }
+              }
+            }
+          }
+        },
+        "captions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "hash"],
+          "properties": {
+            "format": { "enum": ["srt", "vtt"] },
+            "hash": { "$ref": "#/$defs/blake3" }
+          }
+        },
+        "thumbnail": { "$ref": "#/$defs/still" }
+      }
+    },
+    "still": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hash", "mimeType", "width", "height", "alt"],
+      "properties": {
+        "hash": { "$ref": "#/$defs/blake3" },
+        "mimeType": { "enum": ["image/png", "image/jpeg", "image/webp"] },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "alt": { "$ref": "#/$defs/alt" }
+      }
+    },
+    "stillsPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "stills"],
+      "properties": {
+        "type": { "const": "stills" },
+        "stills": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/still" } }
+      }
+    },
+    "carouselPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "slides"],
+      "properties": {
+        "type": { "const": "carousel" },
+        "slides": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["index", "still"],
+            "properties": {
+              "index": { "type": "integer", "minimum": 1 },
+              "still": { "$ref": "#/$defs/still" },
+              "slideCopy": { "type": "string", "maxLength": 300 },
+              "stepIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" } }
+            }
+          }
+        }
+      }
+    },
+    "textPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "body"],
+      "properties": {
+        "type": { "const": "text" },
+        "body": { "type": "string", "minLength": 1, "maxLength": 20000 },
+        "locale": { "type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$" }
+      }
+    }
+  },
+  "examples": [
+    {
+      "contract": "delivery-envelope",
+      "contractVersion": "1.0.0",
+      "envelopeId": "env.export-2026-10-08-a",
+      "briefId": "brief.demo-export-2026-10",
+      "briefRevision": 2,
+      "contentRevision": 5,
+      "policyRevision": 3,
+      "producer": { "engine": "cutright", "engineVersion": "1.4.0" },
+      "platforms": ["youtube_shorts"],
+      "copy": { "caption": "Export a finished cut in two clicks.", "hashtags": ["cutright"], "linkPlacement": "comment" },
+      "payload": {
+        "type": "video",
+        "media": { "hash": "blake3:2222222222222222222222222222222222222222222222222222222222222222", "container": "mp4", "codec": "h264", "width": 1080, "height": 1920, "fps": 60, "durationMs": 42000, "aspect": "9:16", "audio": { "codec": "aac", "channels": 2, "sampleRate": 48000, "loudnessLufs": -14 } },
+        "captions": { "format": "srt", "hash": "blake3:3333333333333333333333333333333333333333333333333333333333333333" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rightkit:contract:demo-plan:v1",
+  "title": "RightKit demo plan (v1)",
+  "description": "The director's output for one recording bundle: timeline actions on general CutRight primitives (keyframed transform, crop, opacity, transition, retime, reverse, hold) plus overlays for cursor, badge, caption, sound and webcam. It is an editable plan, not a render plan. Anchors are explicit step_id, word_id or target_id references, never label text. The narration time map is an ordered list of play segments (source span to output span) and hold segments (one source frame held over an output span, with no source span). Re-directing or re-voicing resolves this plan into CutRight revision-bound edit plans and never mutates a timeline directly; locked and manually edited actions are preserved by provenance.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "planId", "briefId", "briefRevision", "bundleId", "bundleBlake3", "aspects", "narration", "timeline"],
+  "properties": {
+    "contract": { "const": "demo-plan" },
+    "contractVersion": { "$ref": "#/$defs/contractVersion" },
+    "planId": { "$ref": "#/$defs/id" },
+    "briefId": { "$ref": "#/$defs/id" },
+    "briefRevision": { "type": "integer", "minimum": 1 },
+    "bundleId": { "$ref": "#/$defs/id" },
+    "bundleBlake3": { "$ref": "#/$defs/blake3" },
+    "aspects": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/aspect" } },
+    "narration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["durationMs", "scriptHash", "words", "timeMap"],
+      "properties": {
+        "voiceId": { "$ref": "#/$defs/id" },
+        "scriptHash": { "$ref": "#/$defs/blake3" },
+        "durationMs": { "type": "integer", "minimum": 1 },
+        "words": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["wordId", "stepId", "text", "startMs", "endMs", "lexicalConfidence", "timingConfidence"],
+            "properties": {
+              "wordId": { "$ref": "#/$defs/id" },
+              "stepId": { "$ref": "#/$defs/stepId" },
+              "text": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "startMs": { "type": "integer", "minimum": 0 },
+              "endMs": { "type": "integer", "minimum": 0 },
+              "lexicalConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "timingConfidence": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        },
+        "timeMap": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/segment" } }
+      }
+    },
+    "timeline": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/action" }
+    }
+  },
+  "$defs": {
+    "contractVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "stepId": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" },
+    "blake3": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "aspect": { "enum": ["16:9", "9:16", "1:1", "4:5"] },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "stepId": { "$ref": "#/$defs/stepId" },
+        "wordId": { "$ref": "#/$defs/id" },
+        "targetId": { "$ref": "#/$defs/stepId" }
+      }
+    },
+    "timeRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["anchor", "offsetMs"],
+          "properties": {
+            "anchor": { "$ref": "#/$defs/anchor" },
+            "offsetMs": { "type": "integer" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["absoluteMs"],
+          "properties": {
+            "absoluteMs": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "segment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sourceStartMs", "sourceEndMs", "outputStartMs", "outputEndMs", "speed"],
+          "properties": {
+            "kind": { "const": "play" },
+            "sourceStartMs": { "type": "integer", "minimum": 0 },
+            "sourceEndMs": { "type": "integer", "minimum": 1 },
+            "outputStartMs": { "type": "integer", "minimum": 0 },
+            "outputEndMs": { "type": "integer", "minimum": 1 },
+            "speed": { "type": "number", "exclusiveMinimum": 0, "maximum": 8 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sourceAtMs", "outputStartMs", "outputEndMs"],
+          "properties": {
+            "kind": { "const": "hold" },
+            "sourceAtMs": { "type": "integer", "minimum": 0 },
+            "outputStartMs": { "type": "integer", "minimum": 0 },
+            "outputEndMs": { "type": "integer", "minimum": 1 },
+            "stepId": { "$ref": "#/$defs/stepId" }
+          }
+        }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "primitive", "start", "provenance"],
+      "properties": {
+        "actionId": { "$ref": "#/$defs/id" },
+        "primitive": {
+          "enum": ["transform", "crop", "opacity", "transition", "retime", "reverse", "hold", "overlay_cursor", "overlay_badge", "overlay_caption", "audio_cue", "webcam_bubble"]
+        },
+        "start": { "$ref": "#/$defs/timeRef" },
+        "end": { "$ref": "#/$defs/timeRef" },
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["offsetMs", "value"],
+            "properties": {
+              "offsetMs": { "type": "integer", "minimum": 0 },
+              "value": { "type": "object" }
+            }
+          }
+        },
+        "params": { "type": "object" },
+        "safeRegion": { "enum": ["clear", "caption_band", "webcam_bubble"] },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "locked"],
+          "properties": {
+            "source": { "enum": ["director", "manual"] },
+            "locked": { "type": "boolean" },
+            "generatorRevision": { "$ref": "#/$defs/id" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "primitive": { "enum": ["transform", "opacity", "crop"] } }, "required": ["primitive"] },
+          "then": { "required": ["end", "keyframes"] }
+        },
+        {
+          "if": { "properties": { "primitive": { "const": "hold" } }, "required": ["primitive"] },
+          "then": { "required": ["end"] }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "contract": "demo-plan",
+      "contractVersion": "1.0.0",
+      "planId": "plan.export-flow-r2",
+      "briefId": "brief.demo-export-2026-10",
+      "briefRevision": 2,
+      "bundleId": "bundle.export-flow-0001",
+      "bundleBlake3": "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "aspects": ["16:9", "9:16"],
+      "narration": {
+        "voiceId": "voice.default",
+        "scriptHash": "blake3:1212121212121212121212121212121212121212121212121212121212121212",
+        "durationMs": 9000,
+        "words": [
+          { "wordId": "w.open.1", "stepId": "open-export", "text": "Open", "startMs": 1200, "endMs": 1450, "lexicalConfidence": 1, "timingConfidence": 0.97 },
+          { "wordId": "w.open.2", "stepId": "open-export", "text": "export", "startMs": 1460, "endMs": 1800, "lexicalConfidence": 1, "timingConfidence": 0.95 }
+        ],
+        "timeMap": [
+          { "kind": "play", "sourceStartMs": 0, "sourceEndMs": 1000, "outputStartMs": 0, "outputEndMs": 1000, "speed": 1 },
+          { "kind": "hold", "sourceAtMs": 1000, "outputStartMs": 1000, "outputEndMs": 2000, "stepId": "open-export" },
+          { "kind": "play", "sourceStartMs": 1000, "sourceEndMs": 8000, "outputStartMs": 2000, "outputEndMs": 9000, "speed": 1 }
+        ]
+      },
+      "timeline": [
+        {
+          "actionId": "zoom.export-button",
+          "primitive": "transform",
+          "start": { "anchor": { "wordId": "w.open.1" }, "offsetMs": -200 },
+          "end": { "anchor": { "stepId": "open-export" }, "offsetMs": 1200 },
+          "keyframes": [{ "offsetMs": 0, "value": { "scale": 1 } }, { "offsetMs": 800, "value": { "scale": 2.4, "x": 0.82, "y": 0.06 } }],
+          "safeRegion": "clear",
+          "provenance": { "source": "director", "locked": false, "generatorRevision": "director.v1" }
+        }
+      ]
+    }
+  ]
+}

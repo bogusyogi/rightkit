@@ -1,0 +1,163 @@
+{
+  "contract": "record-session",
+  "contractVersion": "1.0.0",
+  "bundleId": "bundle.export-flow-0001",
+  "createdAt": "2026-10-08T10:15:00Z",
+  "status": "complete",
+  "recorder": {
+    "engine": "rightkit-record",
+    "version": "0.1.0",
+    "os": "macos",
+    "osBuild": "27.0",
+    "helper": {
+      "identity": "rightkit-record-helper",
+      "signed": true
+    }
+  },
+  "scenario": {
+    "scenarioId": "export-flow",
+    "blake3": "blake3:4444444444444444444444444444444444444444444444444444444444444444",
+    "steps": 3
+  },
+  "target": {
+    "appId": "cutright",
+    "surfaces": [
+      {
+        "surfaceId": "main",
+        "kind": "main_window",
+        "nativeId": "win-101",
+        "supported": true
+      },
+      {
+        "surfaceId": "export-sheet",
+        "kind": "native_sheet",
+        "parentSurfaceId": "main",
+        "nativeId": "sheet-7",
+        "supported": true
+      }
+    ]
+  },
+  "capture": {
+    "fps": 60,
+    "scale": 2,
+    "codec": "h264",
+    "width": 2880,
+    "height": 1800,
+    "scope": "app_surfaces",
+    "displayOptIn": false,
+    "visibilityState": "off_screen_visible"
+  },
+  "geometryEpochs": [
+    {
+      "epoch": 0,
+      "startMs": 0,
+      "boundsPt": {
+        "x": 0,
+        "y": 0,
+        "width": 10,
+        "height": 10
+      },
+      "scale": 2
+    },
+    {
+      "epoch": 2,
+      "startMs": 500,
+      "boundsPt": {
+        "x": 0,
+        "y": 0,
+        "width": 20,
+        "height": 10
+      },
+      "scale": 2
+    }
+  ],
+  "clock": {
+    "hostClock": "mach_absolute_time",
+    "hostNsAtStart": 8123000000,
+    "firstAcceptedFrame": {
+      "frameIndex": 0,
+      "hostNs": 8123500000,
+      "samplePtsNs": 0
+    },
+    "mapping": {
+      "hostToSamplePtsOffsetNs": -8123500000,
+      "samplePtsToEncodedPtsOffsetNs": 0,
+      "timescale": 60000
+    }
+  },
+  "frames": {
+    "count": 1800,
+    "droppedCount": 0
+  },
+  "events": {
+    "count": 42,
+    "contract": "record-event",
+    "contractVersion": "1.0.0"
+  },
+  "files": {
+    "scenario.json": {
+      "blake3": "blake3:5555555555555555555555555555555555555555555555555555555555555555",
+      "bytes": 1200
+    },
+    "events.ndjson": {
+      "blake3": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+      "bytes": 9800
+    },
+    "clock.json": {
+      "blake3": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+      "bytes": 310
+    },
+    "capture.json": {
+      "blake3": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
+      "bytes": 290
+    },
+    "clean.mp4": {
+      "blake3": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
+      "bytes": 48200000
+    }
+  },
+  "tracks": [
+    {
+      "trackId": "app-audio",
+      "kind": "app_audio",
+      "file": "tracks/app-audio.m4a",
+      "blake3": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bytes": 1200000,
+      "offsetMs": 0
+    }
+  ],
+  "dependencies": [
+    {
+      "kind": "cursor_asset",
+      "id": "cursor.arrow",
+      "version": "1.0.0",
+      "blake3": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "bytes": 2048,
+      "hotspot": {
+        "x": 1,
+        "y": 1
+      }
+    },
+    {
+      "kind": "recipe",
+      "id": "demo-recipe.product",
+      "version": "1.2.0",
+      "blake3": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "kind": "style",
+      "id": "stage.default",
+      "version": "0.3.0",
+      "blake3": "blake3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "redaction": {
+    "policyId": "redaction.default",
+    "policyVersion": "1.0.0",
+    "pixelMasking": {
+      "mode": "declared_regions",
+      "regionCount": 0
+    }
+  },
+  "donorDirectoryRequired": false
+}

@@ -1,0 +1,6 @@
+{
+  "contract": "content-brief", "contractVersion": "1.0.0", "briefId": "brief.demo-x", "revision": 1,
+  "briefType": "product_demo", "channel": { "venture": "orthic", "channel": "c", "account": "main" },
+  "platforms": ["youtube_shorts"], "deliverables": ["video"],
+  "stages": [ { "id": "record", "requestId": "req.r", "inputHash": "blake3:3333333333333333333333333333333333333333333333333333333333333333", "dependsOn": [] } ]
+}

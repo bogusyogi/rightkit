@@ -1,0 +1,24 @@
+[package]
+name = "rightkit-contracts"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bogusyogi/claude"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "rightkit-contracts"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+# Draft 2020-12 validation. Default features are off: the schemas are embedded
+# and reference only themselves, so the crate never resolves a remote URI or
+# pulls the HTTP or TLS stack.
+jsonschema = { version = "0.58.6", default-features = false }

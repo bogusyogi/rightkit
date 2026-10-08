@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rightkit:contract:record-event:v1",
+  "title": "RightKit record event (v1)",
+  "description": "One line of a bundle's events.ndjson: the dispatch telemetry rightkit-record logs beneath every admission receipt (R2). One admitted input can produce many native events, so effectId names the admitted call and subEventId names each native event within it. Timestamps are on the host clock and bind to frames through clock.json, never through elapsed process time. Text-bearing fields are RedactedString values: mode full keeps the value, hash keeps a label-salted blake3 digest, and omit keeps nothing (bundle.verify rejects an omit field that still has a destination). Seeded from ScreenRight event.v2 (click, right_click, type, key, scroll, focus, wait, cursor-sample, stage-check, render-complete; rect, role, label, identifier, key, modifiers, deltas, intruders) and extended with rightkit-control admission and dispatch fields.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "sessionId", "seq", "kind", "hostNs", "stepIndex", "geometryEpoch", "redactionPolicy"],
+  "properties": {
+    "contract": { "const": "record-event" },
+    "contractVersion": { "$ref": "#/$defs/contractVersion" },
+    "sessionId": { "$ref": "#/$defs/id" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "kind": { "enum": ["admission", "input", "postcondition", "cursor", "frame_ready", "denied", "stall", "render_complete", "stage_check"] },
+    "inputKind": { "enum": ["click", "right_click", "type", "key", "scroll", "drag", "focus", "wait"] },
+    "phase": { "enum": ["down", "move", "up", "press", "release", "scroll", "text"] },
+    "effectId": { "$ref": "#/$defs/id" },
+    "subEventId": { "$ref": "#/$defs/id" },
+    "stepIndex": { "type": "integer", "minimum": 0 },
+    "stepId": { "$ref": "#/$defs/stepId" },
+    "hostNs": { "type": "integer", "minimum": 0 },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admissionNs": { "type": "integer", "minimum": 0 },
+        "dispatchNs": { "type": "integer", "minimum": 0 },
+        "completionNs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "geometryEpoch": { "type": "integer", "minimum": 0 },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["space", "windowBoundsPt", "scale"],
+      "properties": {
+        "space": { "enum": ["window_points", "screen_points"] },
+        "windowBoundsPt": { "$ref": "#/$defs/rect" },
+        "scale": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "pointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["xPt", "yPt"],
+      "properties": {
+        "xPt": { "type": "number" },
+        "yPt": { "type": "number" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "rectPt"],
+      "properties": {
+        "targetId": { "$ref": "#/$defs/stepId" },
+        "identity": { "$ref": "#/$defs/redacted" },
+        "role": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "label": { "$ref": "#/$defs/redacted" },
+        "rectPt": { "$ref": "#/$defs/rect" }
+      }
+    },
+    "text": { "$ref": "#/$defs/redacted" },
+    "key": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "modifiers": { "type": "array", "uniqueItems": true, "items": { "enum": ["cmd", "ctrl", "alt", "shift", "fn"] } },
+    "delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "admitted": { "type": "boolean" },
+    "denied": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": { "enum": ["permission_denied", "not_foreground_safe", "target_missing", "timed_out_then_executed", "cancelled", "helper_lost"] }
+      }
+    },
+    "postcondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed", "observedNs", "description"],
+      "properties": {
+        "observed": { "type": "boolean" },
+        "observedNs": { "type": "integer", "minimum": 0 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "samplePtsNs"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "samplePtsNs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "intruders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["owner", "bounds"],
+        "properties": {
+          "owner": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "title": { "type": "string", "maxLength": 200 },
+          "bounds": { "$ref": "#/$defs/rect" }
+        }
+      }
+    },
+    "redactionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyId", "policyVersion"],
+      "properties": {
+        "policyId": { "$ref": "#/$defs/id" },
+        "policyVersion": { "$ref": "#/$defs/semver" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "input" } }, "required": ["kind"] },
+      "then": { "required": ["inputKind", "phase", "effectId", "admitted"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "postcondition" } }, "required": ["kind"] },
+      "then": { "required": ["stepId", "postcondition"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "denied" } }, "required": ["kind"] },
+      "then": { "required": ["effectId", "denied"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "frame_ready" } }, "required": ["kind"] },
+      "then": { "required": ["frame"] }
+    }
+  ],
+  "$defs": {
+    "contractVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "semver": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "stepId": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" },
+    "blake3": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "redacted": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "value"],
+          "properties": {
+            "mode": { "const": "full" },
+            "value": { "type": "string", "maxLength": 2000 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "digest", "saltId"],
+          "properties": {
+            "mode": { "const": "hash" },
+            "digest": { "$ref": "#/$defs/blake3" },
+            "saltId": { "$ref": "#/$defs/id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": { "const": "omit" }
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "contract": "record-event",
+      "contractVersion": "1.0.0",
+      "sessionId": "bundle.export-flow-0001",
+      "seq": 7,
+      "kind": "input",
+      "inputKind": "click",
+      "phase": "down",
+      "effectId": "effect.0004",
+      "subEventId": "effect.0004.1",
+      "stepIndex": 1,
+      "stepId": "open-export",
+      "hostNs": 8125000000,
+      "timing": { "admissionNs": 8124900000, "dispatchNs": 8125000000, "completionNs": 8125100000 },
+      "geometryEpoch": 0,
+      "dispatch": { "space": "window_points", "windowBoundsPt": { "x": 0, "y": 0, "width": 1440, "height": 900 }, "scale": 2 },
+      "pointer": { "xPt": 1210, "yPt": 42 },
+      "target": { "targetId": "export-button", "identity": { "mode": "hash", "digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "saltId": "salt.run-1" }, "role": "button", "label": { "mode": "full", "value": "Export" }, "rectPt": { "x": 1180, "y": 28, "width": 64, "height": 28 } },
+      "admitted": true,
+      "redactionPolicy": { "policyId": "redaction.default", "policyVersion": "1.0.0" }
+    },
+    {
+      "contract": "record-event",
+      "contractVersion": "1.0.0",
+      "sessionId": "bundle.export-flow-0001",
+      "seq": 9,
+      "kind": "postcondition",
+      "stepId": "open-export",
+      "stepIndex": 1,
+      "hostNs": 8126400000,
+      "geometryEpoch": 0,
+      "postcondition": { "observed": true, "observedNs": 8126400000, "description": "export sheet visible" },
+      "frame": { "index": 760, "samplePtsNs": 12666666666 },
+      "redactionPolicy": { "policyId": "redaction.default", "policyVersion": "1.0.0" }
+    }
+  ]
+}

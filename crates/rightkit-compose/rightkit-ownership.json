@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-compose",
+  "capabilities": [
+    {
+      "capability": "composition-model",
+      "summary": "Evaluated composition model for Right Suite video: layered video, stills, cursor sprites with hotspots, procedural backgrounds, rounded clipping, shadows, motion blur, canvas-space overlays and an independently timed webcam, with keyframed transforms, crops and opacity; pure per-frame evaluation shared by preview and export",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the composition contract and evaluation are not an ownership fingerprint.",
+        "No renderer, codec or I/O lives in this crate; CutRight and the typed FFmpeg export consume its FrameDescription."
+      ]
+    }
+  ]
+}

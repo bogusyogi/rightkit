@@ -1,0 +1,18 @@
+[package]
+name = "rightkit-align"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+license = "MIT"
+description = "Product-neutral script-to-ASR word alignment: pronunciation normalisation, edit-distance alignment with lexical and timing confidence, ambiguity and mismatch rejection, and control-name coverage"
+repository = "https://github.com/adrdsouza/claude"
+include = ["src/**", "tests/**", "Cargo.toml"]
+
+[lib]
+name = "rightkit_align"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-transcript = { path = "../rightkit-transcript" }
+serde = { version = "1.0.228", features = ["derive"] }

@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rightkit:contract:daemon-api:v1",
+  "title": "RightKit daemon API description (v1)",
+  "description": "A machine-readable description of the daemon API that the desktop apps and the daemon both implement: authenticated HTTPS on rightkit-http, a resumable blake3 upload protocol, and compare-and-swap mutations. The document lists every route with exactly one of three authorisation classes. device_authenticated_mutation covers device-token requests (and enrolment with a single-use enrolment code); oauth_callback covers provider redirects that carry a one-time state and PKCE verifier and never a device token; signed_webhook covers provider deliveries authenticated by an HMAC signature and deduplicated durably. A route that mutates state must use the device class and declare compare-and-swap, and the rules are checked by schema and by rightkit-contracts. Errors and lifecycle event names are fixed here so clients can branch on them.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "apiId", "transport", "authClasses", "routes", "upload", "mutations", "errors", "lifecycleEvents"],
+  "properties": {
+    "contract": { "const": "daemon-api" },
+    "contractVersion": { "$ref": "#/$defs/contractVersion" },
+    "apiId": { "$ref": "#/$defs/id" },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "host", "tls"],
+      "properties": {
+        "scheme": { "const": "https" },
+        "host": { "enum": ["rightkit-http-listener"] },
+        "tls": { "const": "required" }
+      }
+    },
+    "authClasses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device_authenticated_mutation", "oauth_callback", "signed_webhook"],
+      "properties": {
+        "device_authenticated_mutation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["credentials", "mutationAllowed", "requiredHeaders", "summary"],
+          "properties": {
+            "credentials": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["device_token", "enrolment_code"] } },
+            "mutationAllowed": { "const": true },
+            "requiredHeaders": { "type": "array", "items": { "const": "Authorization" }, "minItems": 1, "maxItems": 1 },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 300 }
+          }
+        },
+        "oauth_callback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["credentials", "mutationAllowed", "requiredHeaders", "summary"],
+          "properties": {
+            "credentials": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "const": "oauth_state_pkce" } },
+            "mutationAllowed": { "const": false },
+            "requiredHeaders": { "type": "array", "maxItems": 0 },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 300 }
+          }
+        },
+        "signed_webhook": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["credentials", "mutationAllowed", "requiredHeaders", "summary"],
+          "properties": {
+            "credentials": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "const": "hmac_sha256" } },
+            "mutationAllowed": { "const": false },
+            "requiredHeaders": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+$" } },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 300 }
+          }
+        }
+      }
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/route" }
+    },
+    "upload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "digest", "chunkBytes", "maxObjectBytes", "sessionTtlSeconds", "durableAckRequired", "routes"],
+      "properties": {
+        "protocol": { "const": "resumable-blake3" },
+        "digest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["algorithm", "mode", "keyScope"],
+          "properties": {
+            "algorithm": { "const": "blake3" },
+            "mode": { "const": "keyed" },
+            "keyScope": { "const": "upload-session" }
+          }
+        },
+        "chunkBytes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "type": "integer", "minimum": 65536 },
+            "max": { "type": "integer", "maximum": 67108864 }
+          }
+        },
+        "maxObjectBytes": { "type": "integer", "minimum": 1 },
+        "sessionTtlSeconds": { "type": "integer", "minimum": 60 },
+        "durableAckRequired": { "const": true },
+        "routes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["init", "chunk", "status", "complete"],
+          "properties": {
+            "init": { "$ref": "#/$defs/id" },
+            "chunk": { "$ref": "#/$defs/id" },
+            "status": { "$ref": "#/$defs/id" },
+            "complete": { "$ref": "#/$defs/id" }
+          }
+        }
+      }
+    },
+    "mutations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "precondition", "conflict", "idempotency"],
+      "properties": {
+        "protocol": { "const": "compare-and-swap" },
+        "precondition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["header", "revisionType"],
+          "properties": {
+            "header": { "const": "If-Match" },
+            "revisionType": { "const": "integer" }
+          }
+        },
+        "conflict": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "returns"],
+          "properties": {
+            "status": { "const": 409 },
+            "returns": { "type": "array", "uniqueItems": true, "items": { "const": "currentRevision" }, "minItems": 1 }
+          }
+        },
+        "idempotency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["header", "ttlSeconds"],
+          "properties": {
+            "header": { "const": "Idempotency-Key" },
+            "ttlSeconds": { "type": "integer", "minimum": 60 }
+          }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "status", "retryable"],
+        "properties": {
+          "code": { "enum": ["unauthenticated", "forbidden", "revision_conflict", "upload_hash_mismatch", "upload_out_of_range", "webhook_signature_invalid", "webhook_replay", "oauth_state_invalid", "scope_mismatch", "rate_limited", "not_found"] },
+          "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+          "retryable": { "type": "boolean" }
+        }
+      }
+    },
+    "lifecycleEvents": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["daemon_started", "daemon_stopped", "device_enrolled", "device_revoked", "upload_started", "upload_completed", "job_queued", "job_published", "job_outcome_unknown", "token_refreshed", "webhook_rejected"] }
+    },
+    "exchanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["routeId", "request", "response"],
+        "properties": {
+          "routeId": { "$ref": "#/$defs/id" },
+          "request": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["headers"],
+            "properties": {
+              "headers": { "type": "object" },
+              "body": {}
+            }
+          },
+          "response": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status"],
+            "properties": {
+              "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+              "body": {}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "contractVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["routeId", "method", "path", "authClass", "mutation", "casRequired", "scopes", "responses"],
+      "properties": {
+        "routeId": { "$ref": "#/$defs/id" },
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+        "path": { "type": "string", "pattern": "^/v1/[A-Za-z0-9/_{}.-]+$" },
+        "authClass": { "enum": ["device_authenticated_mutation", "oauth_callback", "signed_webhook"] },
+        "mutation": { "type": "boolean" },
+        "casRequired": { "type": "boolean" },
+        "scopes": { "type": "array", "uniqueItems": true, "items": { "enum": ["venture", "channel", "account"] } },
+        "responses": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 200, "maximum": 599 } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mutation": { "const": true } }, "required": ["mutation"] },
+          "then": {
+            "properties": {
+              "authClass": { "const": "device_authenticated_mutation" },
+              "method": { "enum": ["POST", "PUT", "PATCH", "DELETE"] }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "method": { "enum": ["PATCH", "DELETE"] } }, "required": ["method"] },
+          "then": { "required": ["casRequired"], "properties": { "casRequired": { "const": true } } }
+        },
+        {
+          "if": { "properties": { "authClass": { "const": "oauth_callback" } }, "required": ["authClass"] },
+          "then": { "properties": { "method": { "const": "GET" }, "mutation": { "const": false }, "path": { "pattern": "/callback$" } } }
+        },
+        {
+          "if": { "properties": { "authClass": { "const": "signed_webhook" } }, "required": ["authClass"] },
+          "then": { "properties": { "method": { "const": "POST" }, "mutation": { "const": false }, "path": { "pattern": "^/v1/webhooks/" } } }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "contract": "daemon-api",
+      "contractVersion": "1.0.0",
+      "apiId": "postright-daemon-v1",
+      "transport": { "scheme": "https", "host": "rightkit-http-listener", "tls": "required" },
+      "authClasses": {
+        "device_authenticated_mutation": { "credentials": ["device_token", "enrolment_code"], "mutationAllowed": true, "requiredHeaders": ["Authorization"], "summary": "Device-token requests; enrolment uses a single-use code. Mutations carry If-Match and Idempotency-Key." },
+        "oauth_callback": { "credentials": ["oauth_state_pkce"], "mutationAllowed": false, "requiredHeaders": [], "summary": "Provider redirect with one-time state and PKCE verifier; never accepts a device token." },
+        "signed_webhook": { "credentials": ["hmac_sha256"], "mutationAllowed": false, "requiredHeaders": ["X-Provider-Signature", "X-Provider-Timestamp"], "summary": "Provider delivery verified by HMAC; deduplicated durably before any effect." }
+      },
+      "routes": [
+        { "routeId": "device.enrol", "method": "POST", "path": "/v1/devices", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture"], "responses": [201, 401, 409] },
+        { "routeId": "upload.init", "method": "POST", "path": "/v1/uploads", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [201, 401, 403] },
+        { "routeId": "upload.chunk", "method": "PUT", "path": "/v1/uploads/{uploadId}/chunks/{index}", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [204, 401, 409, 416] },
+        { "routeId": "upload.status", "method": "GET", "path": "/v1/uploads/{uploadId}", "authClass": "device_authenticated_mutation", "mutation": false, "casRequired": false, "scopes": ["venture", "channel"], "responses": [200, 401, 404] },
+        { "routeId": "upload.complete", "method": "POST", "path": "/v1/uploads/{uploadId}/complete", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": false, "scopes": ["venture", "channel"], "responses": [200, 400, 401] },
+        { "routeId": "job.update", "method": "PATCH", "path": "/v1/publish-jobs/{jobId}", "authClass": "device_authenticated_mutation", "mutation": true, "casRequired": true, "scopes": ["venture", "channel", "account"], "responses": [200, 401, 403, 409] },
+        { "routeId": "oauth.callback", "method": "GET", "path": "/v1/oauth/{provider}/callback", "authClass": "oauth_callback", "mutation": false, "casRequired": false, "scopes": ["account"], "responses": [302, 400] },
+        { "routeId": "webhook.inbound", "method": "POST", "path": "/v1/webhooks/{provider}", "authClass": "signed_webhook", "mutation": false, "casRequired": false, "scopes": ["account"], "responses": [202, 401, 409] }
+      ],
+      "upload": {
+        "protocol": "resumable-blake3",
+        "digest": { "algorithm": "blake3", "mode": "keyed", "keyScope": "upload-session" },
+        "chunkBytes": { "min": 1048576, "max": 16777216 },
+        "maxObjectBytes": 8589934592,
+        "sessionTtlSeconds": 86400,
+        "durableAckRequired": true,
+        "routes": { "init": "upload.init", "chunk": "upload.chunk", "status": "upload.status", "complete": "upload.complete" }
+      },
+      "mutations": {
+        "protocol": "compare-and-swap",
+        "precondition": { "header": "If-Match", "revisionType": "integer" },
+        "conflict": { "status": 409, "returns": ["currentRevision"] },
+        "idempotency": { "header": "Idempotency-Key", "ttlSeconds": 86400 }
+      },
+      "errors": [
+        { "code": "unauthenticated", "status": 401, "retryable": false },
+        { "code": "revision_conflict", "status": 409, "retryable": false },
+        { "code": "rate_limited", "status": 429, "retryable": true }
+      ],
+      "lifecycleEvents": ["daemon_started", "device_enrolled", "upload_completed", "job_published", "job_outcome_unknown"],
+      "exchanges": [
+        {
+          "routeId": "job.update",
+          "request": { "headers": { "If-Match": "7", "Idempotency-Key": "job-42-patch-1" }, "body": { "caption": "Export in two clicks." } },
+          "response": { "status": 409, "body": { "error": "revision_conflict", "currentRevision": 8 } }
+        }
+      ]
+    }
+  ]
+}

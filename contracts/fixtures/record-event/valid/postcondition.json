@@ -1,0 +1,24 @@
+{
+  "contract": "record-event",
+  "contractVersion": "1.0.0",
+  "sessionId": "bundle.export-flow-0001",
+  "seq": 9,
+  "kind": "postcondition",
+  "stepId": "open-export",
+  "stepIndex": 1,
+  "hostNs": 8126400000,
+  "geometryEpoch": 0,
+  "postcondition": {
+    "observed": true,
+    "observedNs": 8126400000,
+    "description": "export sheet visible"
+  },
+  "frame": {
+    "index": 760,
+    "samplePtsNs": 12666666666
+  },
+  "redactionPolicy": {
+    "policyId": "redaction.default",
+    "policyVersion": "1.0.0"
+  }
+}

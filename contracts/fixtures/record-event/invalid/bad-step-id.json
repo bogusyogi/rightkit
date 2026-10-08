@@ -1,0 +1,19 @@
+{
+  "contract": "record-event",
+  "contractVersion": "1.0.0",
+  "sessionId": "bundle.export-flow-0001",
+  "seq": 9,
+  "kind": "frame_ready",
+  "stepIndex": 1,
+  "hostNs": 8126400000,
+  "geometryEpoch": 0,
+  "frame": {
+    "index": 5,
+    "samplePtsNs": 100
+  },
+  "redactionPolicy": {
+    "policyId": "redaction.default",
+    "policyVersion": "1.0.0"
+  },
+  "stepId": "Bad Step!"
+}

@@ -1,0 +1,6 @@
+{
+  "contract": "content-brief", "contractVersion": "1.0.0", "briefId": "brief.hook-test-08", "revision": 1,
+  "briefType": "talking_head", "channel": { "venture": "orthic", "channel": "c", "account": "main" },
+  "platforms": ["youtube_shorts"], "deliverables": ["video"],
+  "stages": [ { "id": "render", "requestId": "req.r", "inputHash": "blake3:3333333333333333333333333333333333333333333333333333333333333333", "dependsOn": [] } ]
+}

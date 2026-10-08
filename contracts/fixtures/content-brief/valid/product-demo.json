@@ -1,0 +1,20 @@
+{
+  "contract": "content-brief", "contractVersion": "1.0.0", "briefId": "brief.demo-export-2026-10", "revision": 2, "supersedes": 1,
+  "createdAt": "2026-10-08T09:00:00Z", "briefType": "product_demo",
+  "channel": { "venture": "orthic", "channel": "cutright-how-to", "account": "main" },
+  "platforms": ["youtube_shorts", "instagram_reels"], "deliverables": ["video", "carousel"],
+  "hook": "Export a finished cut in two clicks.", "review": { "mode": "manual", "policyRevision": 3 },
+  "stages": [
+    { "id": "record", "requestId": "req.record.2", "inputHash": "blake3:0000000000000000000000000000000000000000000000000000000000000000", "dependsOn": [] },
+    { "id": "cut", "requestId": "req.cut.2", "inputHash": "blake3:1111111111111111111111111111111111111111111111111111111111111111", "dependsOn": ["record"] }
+  ],
+  "scenario": {
+    "scenarioId": "export-flow", "app": { "appId": "cutright", "bundleId": "com.orthic.cutright" },
+    "runner": { "host": "mac_second_session" }, "fps": 60,
+    "targets": [ { "targetId": "export-button", "role": "button", "label": "Export" }, { "targetId": "save-button", "role": "button", "label": "Save" } ],
+    "steps": [
+      { "stepId": "open-export", "label": "Open export sheet", "action": { "kind": "click", "targetId": "export-button" }, "expect": { "postcondition": "export sheet visible", "timeoutMs": 5000 }, "say": "Open the export sheet." },
+      { "stepId": "save-preset", "label": "Save preset", "action": { "kind": "click", "targetId": "save-button" }, "expect": { "postcondition": "preset saved toast visible" }, "say": "Save the preset." }
+    ]
+  }
+}

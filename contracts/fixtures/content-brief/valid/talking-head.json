@@ -1,0 +1,6 @@
+{
+  "contract": "content-brief", "contractVersion": "1.0.0", "briefId": "brief.hook-test-07", "revision": 1,
+  "briefType": "talking_head", "channel": { "venture": "orthic", "channel": "legion-notes", "account": "main" },
+  "platforms": ["youtube_shorts"], "deliverables": ["video"], "hook": "Stop re-explaining your repo.",
+  "stages": [ { "id": "script", "requestId": "req.script.1", "inputHash": "blake3:2222222222222222222222222222222222222222222222222222222222222222", "dependsOn": [] } ]
+}

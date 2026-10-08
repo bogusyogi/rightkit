@@ -1,0 +1,103 @@
+{
+  "contract": "demo-plan",
+  "contractVersion": "1.0.0",
+  "planId": "plan.export-flow-r2",
+  "briefId": "brief.demo-export-2026-10",
+  "briefRevision": 2,
+  "bundleId": "bundle.export-flow-0001",
+  "bundleBlake3": "blake3:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "aspects": [
+    "16:9",
+    "9:16"
+  ],
+  "narration": {
+    "voiceId": "voice.default",
+    "scriptHash": "blake3:1212121212121212121212121212121212121212121212121212121212121212",
+    "durationMs": 9000,
+    "words": [
+      {
+        "wordId": "w.open.1",
+        "stepId": "open-export",
+        "text": "Open",
+        "startMs": 1200,
+        "endMs": 1450,
+        "lexicalConfidence": 1,
+        "timingConfidence": 0.97
+      },
+      {
+        "wordId": "w.open.2",
+        "stepId": "open-export",
+        "text": "export",
+        "startMs": 1460,
+        "endMs": 1800,
+        "lexicalConfidence": 1,
+        "timingConfidence": 0.95
+      }
+    ],
+    "timeMap": [
+      {
+        "kind": "play",
+        "sourceStartMs": 0,
+        "sourceEndMs": 1000,
+        "outputStartMs": 0,
+        "outputEndMs": 1000,
+        "speed": 1
+      },
+      {
+        "kind": "hold",
+        "sourceAtMs": 1000,
+        "outputStartMs": 1000,
+        "outputEndMs": 2000,
+        "stepId": "open-export"
+      },
+      {
+        "kind": "play",
+        "sourceStartMs": 1000,
+        "sourceEndMs": 8000,
+        "outputStartMs": 2000,
+        "outputEndMs": 9000,
+        "speed": 1
+      }
+    ]
+  },
+  "timeline": [
+    {
+      "actionId": "zoom.export-button",
+      "primitive": "transform",
+      "start": {
+        "anchor": {
+          "wordId": "w.open.1"
+        },
+        "offsetMs": -200
+      },
+      "end": {
+        "anchor": {
+          "stepId": "open-export"
+        },
+        "offsetMs": 1200
+      },
+      "keyframes": [
+        {
+          "offsetMs": 0,
+          "value": {
+            "scale": 1
+          }
+        },
+        {
+          "offsetMs": 800,
+          "value": {
+            "scale": 2.4,
+            "x": 0.82,
+            "y": 0.06
+          }
+        }
+      ],
+      "safeRegion": "clear",
+      "provenance": {
+        "source": "director",
+        "locked": false,
+        "generatorRevision": "director.v1"
+      }
+    }
+  ]
+}

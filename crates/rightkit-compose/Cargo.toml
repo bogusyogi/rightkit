@@ -1,0 +1,21 @@
+[package]
+name = "rightkit-compose"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+license = "MIT"
+description = "Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export"
+repository = "https://github.com/adrdsouza/claude"
+include = ["src/**", "tests/**", "Cargo.toml"]
+
+[lib]
+name = "rightkit_compose"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1.0.150"

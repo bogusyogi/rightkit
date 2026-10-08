@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rightkit:contract:record-session:v1",
+  "title": "RightKit record session bundle manifest (v1)",
+  "description": "The manifest of an immutable session bundle written by rightkit-record. The document is the bundle's hashes.json: it hashes every other bundle file and never hashes itself. It embeds the clock anchors and capture geometry, which are also written as clock.json and capture.json, so bundle.verify can compare them. A bundle is complete only when status is complete; partial or invalid takes are quarantined and never reported as complete. Cursor assets and recipe or style dependencies are listed with versions and hashes so the director can re-run from the bundle on another OS without any donor directory. Seeded from ScreenRight session.v2 and the clock anchor model, with the v2 names kept where the fields still apply.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "contractVersion", "bundleId", "createdAt", "status", "recorder", "scenario", "target", "capture", "geometryEpochs", "clock", "frames", "events", "files", "dependencies", "redaction"],
+  "properties": {
+    "contract": { "const": "record-session" },
+    "contractVersion": { "$ref": "#/$defs/contractVersion" },
+    "bundleId": { "$ref": "#/$defs/id" },
+    "createdAt": { "$ref": "#/$defs/timestamp" },
+    "status": { "enum": ["complete", "partial_quarantined", "invalid"] },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "recorder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine", "version", "os", "osBuild", "helper"],
+      "properties": {
+        "engine": { "const": "rightkit-record" },
+        "version": { "$ref": "#/$defs/semver" },
+        "os": { "enum": ["macos", "windows"] },
+        "osBuild": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "helper": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["identity", "signed"],
+          "properties": {
+            "identity": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "signed": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenarioId", "blake3", "steps"],
+      "properties": {
+        "scenarioId": { "$ref": "#/$defs/id" },
+        "blake3": { "$ref": "#/$defs/blake3" },
+        "steps": { "type": "integer", "minimum": 1, "maximum": 200 }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appId", "surfaces"],
+      "properties": {
+        "appId": { "$ref": "#/$defs/id" },
+        "surfaces": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["surfaceId", "kind", "nativeId", "supported"],
+            "properties": {
+              "surfaceId": { "$ref": "#/$defs/id" },
+              "kind": { "enum": ["main_window", "native_sheet", "context_menu", "secondary_window", "drag_drop"] },
+              "parentSurfaceId": { "$ref": "#/$defs/id" },
+              "nativeId": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "supported": { "type": "boolean" },
+              "unsupportedReason": { "type": "string", "minLength": 1, "maxLength": 300 }
+            }
+          }
+        }
+      }
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fps", "scale", "codec", "width", "height", "scope", "displayOptIn", "visibilityState"],
+      "properties": {
+        "fps": { "enum": [30, 60] },
+        "scale": { "type": "number", "exclusiveMinimum": 0 },
+        "codec": { "enum": ["h264", "hevc"] },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "scope": { "enum": ["app_surfaces", "display"] },
+        "displayOptIn": { "type": "boolean" },
+        "visibilityState": { "enum": ["off_screen_visible", "app_hidden", "occluded", "minimized"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "scope": { "const": "display" } }, "required": ["scope"] }, "then": { "properties": { "displayOptIn": { "const": true } } } }
+      ]
+    },
+    "geometryEpochs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["epoch", "startMs", "boundsPt", "scale"],
+        "properties": {
+          "epoch": { "type": "integer", "minimum": 0 },
+          "startMs": { "type": "integer", "minimum": 0 },
+          "endMs": { "type": "integer", "minimum": 0 },
+          "boundsPt": { "$ref": "#/$defs/rect" },
+          "scale": { "type": "number", "exclusiveMinimum": 0 },
+          "dpi": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostClock", "hostNsAtStart", "firstAcceptedFrame", "mapping"],
+      "properties": {
+        "hostClock": { "enum": ["mach_absolute_time", "qpc"] },
+        "hostNsAtStart": { "type": "integer", "minimum": 0 },
+        "firstAcceptedFrame": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["frameIndex", "hostNs", "samplePtsNs"],
+          "properties": {
+            "frameIndex": { "type": "integer", "minimum": 0 },
+            "hostNs": { "type": "integer", "minimum": 0 },
+            "samplePtsNs": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "mapping": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hostToSamplePtsOffsetNs", "samplePtsToEncodedPtsOffsetNs", "timescale"],
+          "properties": {
+            "hostToSamplePtsOffsetNs": { "type": "integer" },
+            "samplePtsToEncodedPtsOffsetNs": { "type": "integer" },
+            "timescale": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "frames": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "droppedCount"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "droppedCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "contract", "contractVersion"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "contract": { "const": "record-event" },
+        "contractVersion": { "$ref": "#/$defs/contractVersion" }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario.json", "events.ndjson", "clock.json", "capture.json"],
+      "properties": {
+        "scenario.json": { "$ref": "#/$defs/fileEntry" },
+        "events.ndjson": { "$ref": "#/$defs/fileEntry" },
+        "clock.json": { "$ref": "#/$defs/fileEntry" },
+        "capture.json": { "$ref": "#/$defs/fileEntry" },
+        "clean.mp4": { "$ref": "#/$defs/fileEntry" },
+        "clean.mov": { "$ref": "#/$defs/fileEntry" }
+      },
+      "anyOf": [
+        { "required": ["clean.mp4"] },
+        { "required": ["clean.mov"] }
+      ],
+      "not": { "required": ["clean.mp4", "clean.mov"] }
+    },
+    "tracks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["trackId", "kind", "file", "blake3", "bytes", "offsetMs"],
+        "properties": {
+          "trackId": { "$ref": "#/$defs/id" },
+          "kind": { "enum": ["app_audio", "microphone", "webcam_video"] },
+          "file": { "type": "string", "pattern": "^tracks/[A-Za-z0-9_.-]{1,128}$" },
+          "blake3": { "$ref": "#/$defs/blake3" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "offsetMs": { "type": "integer" }
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id", "version", "blake3"],
+        "properties": {
+          "kind": { "enum": ["cursor_asset", "recipe", "style"] },
+          "id": { "$ref": "#/$defs/id" },
+          "version": { "$ref": "#/$defs/semver" },
+          "blake3": { "$ref": "#/$defs/blake3" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "hotspot": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["x", "y"],
+            "properties": {
+              "x": { "type": "number", "minimum": 0 },
+              "y": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        "allOf": [
+          { "if": { "properties": { "kind": { "const": "cursor_asset" } } }, "then": { "required": ["hotspot", "bytes"] }, "else": { "not": { "required": ["hotspot"] } } }
+        ]
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyId", "policyVersion", "pixelMasking"],
+      "properties": {
+        "policyId": { "$ref": "#/$defs/id" },
+        "policyVersion": { "$ref": "#/$defs/semver" },
+        "pixelMasking": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "regionCount"],
+          "properties": {
+            "mode": { "enum": ["declared_regions", "capture_safe_state"] },
+            "regionCount": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "donorDirectoryRequired": { "const": false }
+  },
+  "$defs": {
+    "contractVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "semver": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$" },
+    "blake3": { "type": "string", "pattern": "^blake3:[0-9a-f]{64}$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$" },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "fileEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blake3", "bytes"],
+      "properties": {
+        "blake3": { "$ref": "#/$defs/blake3" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "examples": [
+    {
+      "contract": "record-session",
+      "contractVersion": "1.0.0",
+      "bundleId": "bundle.export-flow-0001",
+      "createdAt": "2026-10-08T10:15:00Z",
+      "status": "complete",
+      "recorder": { "engine": "rightkit-record", "version": "0.1.0", "os": "macos", "osBuild": "27.0", "helper": { "identity": "rightkit-record-helper", "signed": true } },
+      "scenario": { "scenarioId": "export-flow", "blake3": "blake3:4444444444444444444444444444444444444444444444444444444444444444", "steps": 3 },
+      "target": { "appId": "cutright", "surfaces": [{ "surfaceId": "main", "kind": "main_window", "nativeId": "win-101", "supported": true }, { "surfaceId": "export-sheet", "kind": "native_sheet", "parentSurfaceId": "main", "nativeId": "sheet-7", "supported": true }] },
+      "capture": { "fps": 60, "scale": 2, "codec": "h264", "width": 2880, "height": 1800, "scope": "app_surfaces", "displayOptIn": false, "visibilityState": "off_screen_visible" },
+      "geometryEpochs": [{ "epoch": 0, "startMs": 0, "boundsPt": { "x": -2000, "y": 100, "width": 1440, "height": 900 }, "scale": 2, "dpi": 144 }],
+      "clock": { "hostClock": "mach_absolute_time", "hostNsAtStart": 8123000000, "firstAcceptedFrame": { "frameIndex": 0, "hostNs": 8123500000, "samplePtsNs": 0 }, "mapping": { "hostToSamplePtsOffsetNs": -8123500000, "samplePtsToEncodedPtsOffsetNs": 0, "timescale": 60000 } },
+      "frames": { "count": 1800, "droppedCount": 0 },
+      "events": { "count": 42, "contract": "record-event", "contractVersion": "1.0.0" },
+      "files": {
+        "scenario.json": { "blake3": "blake3:5555555555555555555555555555555555555555555555555555555555555555", "bytes": 1200 },
+        "events.ndjson": { "blake3": "blake3:6666666666666666666666666666666666666666666666666666666666666666", "bytes": 9800 },
+        "clock.json": { "blake3": "blake3:7777777777777777777777777777777777777777777777777777777777777777", "bytes": 310 },
+        "capture.json": { "blake3": "blake3:8888888888888888888888888888888888888888888888888888888888888888", "bytes": 290 },
+        "clean.mp4": { "blake3": "blake3:9999999999999999999999999999999999999999999999999999999999999999", "bytes": 48200000 }
+      },
+      "tracks": [{ "trackId": "app-audio", "kind": "app_audio", "file": "tracks/app-audio.m4a", "blake3": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bytes": 1200000, "offsetMs": 0 }],
+      "dependencies": [
+        { "kind": "cursor_asset", "id": "cursor.arrow", "version": "1.0.0", "blake3": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "bytes": 2048, "hotspot": { "x": 1, "y": 1 } },
+        { "kind": "recipe", "id": "demo-recipe.product", "version": "1.2.0", "blake3": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
+        { "kind": "style", "id": "stage.default", "version": "0.3.0", "blake3": "blake3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" }
+      ],
+      "redaction": { "policyId": "redaction.default", "policyVersion": "1.0.0", "pixelMasking": { "mode": "declared_regions", "regionCount": 0 } },
+      "donorDirectoryRequired": false
+    }
+  ]
+}
