@@ -1,0 +1,94 @@
+{
+  "kind": "admission",
+  "description": "Scan returns no report: MALFORMED_REPORT (classification of undefined).",
+  "scenario": {
+    "mode": "enforce",
+    "scannerRoot": "/fixture/scanner",
+    "steps": [
+      {
+        "repositoryRoot": "/fixture/repo",
+        "observed": {
+          "inputs": {
+            "contentDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "catalogDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "trustDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+            "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "scannerPolicyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+            "protectedFloors": {
+              "minimumScannerVersion": "2.0.0",
+              "minimumCatalogVersion": "1",
+              "minimumCatalogDigest": null
+            }
+          },
+          "trust": {
+            "schema": 1,
+            "revokedKeyIds": [],
+            "verifiedTrackingEvidence": [],
+            "minimumScannerVersion": "2.0.0",
+            "minimumCatalogVersion": "1",
+            "repositories": [
+              {
+                "repositoryIdentity": "https://github.com/test/repo",
+                "roots": [
+                  "."
+                ],
+                "visibility": "private"
+              }
+            ],
+            "hosts": {
+              "windows": {
+                "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+              },
+              "macos": {
+                "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+              }
+            }
+          },
+          "complete": true
+        },
+        "scanned": {
+          "inputs": {
+            "contentDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "catalogDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "trustDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+            "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "scannerPolicyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+            "protectedFloors": {
+              "minimumScannerVersion": "2.0.0",
+              "minimumCatalogVersion": "1",
+              "minimumCatalogDigest": null
+            }
+          },
+          "trust": {
+            "schema": 1,
+            "revokedKeyIds": [],
+            "verifiedTrackingEvidence": [],
+            "minimumScannerVersion": "2.0.0",
+            "minimumCatalogVersion": "1",
+            "repositories": [
+              {
+                "repositoryIdentity": "https://github.com/test/repo",
+                "roots": [
+                  "."
+                ],
+                "visibility": "private"
+              }
+            ],
+            "hosts": {
+              "windows": {
+                "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+              },
+              "macos": {
+                "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

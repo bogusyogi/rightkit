@@ -1,0 +1,902 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rightkit.dev/schemas/ownership/report.schema.json",
+  "title": "RightKit ownership scan report",
+  "description": "Contract for the report validated by ownershipVerdict (packages/release/ownership-verdict.mjs:10-34, validReport at :33). Closed objects mirror the Node `fields()` helper: unknown keys are rejected. Cross-field rules JSON Schema cannot express are listed under x-crossFieldRules. Top level validates a Report; the scan worker's stdout shapes are in $defs.workerOutput and $defs.inputsOutput.",
+  "$ref": "#/$defs/report",
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nullableText": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/text"
+        }
+      ]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "ordinal": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "strings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/text"
+      }
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+(?:\\.\\d+)*$"
+    },
+    "coverageEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/text"
+        },
+        "status": {
+          "$ref": "#/$defs/text"
+        },
+        "reason": {
+          "$ref": "#/$defs/text"
+        },
+        "detail": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "description": "status is free text; only the literal \"complete\" is non-blocking (ownership-verdict.mjs:57). Producers emit \"unscanned\"."
+    },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/coverageEntry"
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint",
+        "capability",
+        "package",
+        "file",
+        "line"
+      ],
+      "properties": {
+        "fingerprint": {
+          "$ref": "#/$defs/text"
+        },
+        "capability": {
+          "$ref": "#/$defs/text"
+        },
+        "package": {
+          "$ref": "#/$defs/text"
+        },
+        "file": {
+          "$ref": "#/$defs/text"
+        },
+        "line": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "kind": {
+          "enum": [
+            "source",
+            "dependency",
+            "transitive-dependency"
+          ]
+        },
+        "lineText": {
+          "type": "string"
+        },
+        "ordinal": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "text": {
+          "type": "string"
+        },
+        "occurrenceHash": {
+          "$ref": "#/$defs/digest"
+        },
+        "lockfile": {
+          "$ref": "#/$defs/text"
+        },
+        "dependencyPath": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "ecosystem": {
+          "$ref": "#/$defs/text"
+        },
+        "name": {
+          "$ref": "#/$defs/text"
+        },
+        "alias": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "section": {
+          "$ref": "#/$defs/text"
+        },
+        "requirement": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "features": {
+          "$ref": "#/$defs/strings"
+        },
+        "defaultFeatures": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "resolvedVersion": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "local": {
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "tier": {
+          "enum": [
+            "block",
+            "advise"
+          ]
+        },
+        "policy": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "transitive-dependency"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "name",
+          "resolvedVersion",
+          "source",
+          "dependencyPath",
+          "lockfile"
+        ],
+        "properties": {
+          "resolvedVersion": {
+            "$ref": "#/$defs/text"
+          },
+          "source": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      },
+      "x-crossFieldRules": [
+        "kind=transitive-dependency: dependencyPath last element === name and lockfile === file (ownership-verdict.mjs:21)",
+        "blocking = policy==\"banned\" || tier!==\"advise\"; a missing tier is blocking (ownership-verdict.mjs:37)"
+      ]
+    },
+    "coveredFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint",
+        "capability",
+        "package",
+        "file",
+        "line"
+      ],
+      "properties": {
+        "fingerprint": {
+          "$ref": "#/$defs/text"
+        },
+        "capability": {
+          "$ref": "#/$defs/text"
+        },
+        "package": {
+          "$ref": "#/$defs/text"
+        },
+        "file": {
+          "$ref": "#/$defs/text"
+        },
+        "line": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "kind": {
+          "enum": [
+            "source",
+            "dependency",
+            "transitive-dependency"
+          ]
+        },
+        "lineText": {
+          "type": "string"
+        },
+        "ordinal": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "text": {
+          "type": "string"
+        },
+        "occurrenceHash": {
+          "$ref": "#/$defs/digest"
+        },
+        "lockfile": {
+          "$ref": "#/$defs/text"
+        },
+        "dependencyPath": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "ecosystem": {
+          "$ref": "#/$defs/text"
+        },
+        "name": {
+          "$ref": "#/$defs/text"
+        },
+        "alias": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "section": {
+          "$ref": "#/$defs/text"
+        },
+        "requirement": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "features": {
+          "$ref": "#/$defs/strings"
+        },
+        "defaultFeatures": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "resolvedVersion": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "local": {
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "tier": {
+          "enum": [
+            "block",
+            "advise"
+          ]
+        },
+        "policy": {
+          "$ref": "#/$defs/text"
+        },
+        "exception": {
+          "type": "object"
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "transitive-dependency"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "name",
+          "resolvedVersion",
+          "source",
+          "dependencyPath",
+          "lockfile"
+        ],
+        "properties": {
+          "resolvedVersion": {
+            "$ref": "#/$defs/text"
+          },
+          "source": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      },
+      "x-crossFieldRules": [
+        "kind=transitive-dependency: dependencyPath last element === name and lockfile === file (ownership-verdict.mjs:21)",
+        "blocking = policy==\"banned\" || tier!==\"advise\"; a missing tier is blocking (ownership-verdict.mjs:37)"
+      ],
+      "description": "A finding plus the signed approval record that covers it (ownership-verdict.mjs:34 adds `exception: object` for covered entries only)."
+    },
+    "provenanceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "requestId",
+        "contentDigest"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "third-party",
+            "generated"
+          ]
+        },
+        "requestId": {
+          "$ref": "#/$defs/text"
+        },
+        "contentDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "paths": {
+          "$ref": "#/$defs/strings"
+        }
+      }
+    },
+    "contentDigestEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "digest"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/text"
+        },
+        "digest": {
+          "type": "string",
+          "oneOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "pattern": "^git:[a-f0-9]{40,64}$"
+            }
+          ]
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "requestId",
+            "contentDigest"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "third-party",
+                "generated"
+              ]
+            },
+            "requestId": {
+              "$ref": "#/$defs/text"
+            },
+            "contentDigest": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability",
+        "owner",
+        "uses",
+        "status",
+        "count"
+      ],
+      "properties": {
+        "capability": {
+          "$ref": "#/$defs/text"
+        },
+        "owner": {
+          "$ref": "#/$defs/text"
+        },
+        "uses": {
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/text"
+        },
+        "count": {
+          "$ref": "#/$defs/ordinal"
+        },
+        "root": {
+          "$ref": "#/$defs/text"
+        },
+        "owners": {
+          "$ref": "#/$defs/strings"
+        }
+      },
+      "description": "status values produced by capabilityTable (ownership.mjs:660): blocked | excepted | declared-dependency | unscanned | not-detected."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryIdentity",
+        "scannerVersion",
+        "catalogVersion",
+        "catalogDigest",
+        "coverage"
+      ],
+      "properties": {
+        "repositoryIdentity": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "scannerVersion": {
+          "$ref": "#/$defs/text"
+        },
+        "catalogVersion": {
+          "$ref": "#/$defs/text"
+        },
+        "catalogDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "coverage": {
+          "$ref": "#/$defs/coverage"
+        },
+        "commit": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "tree": {
+          "$ref": "#/$defs/text"
+        },
+        "host": {
+          "$ref": "#/$defs/text"
+        },
+        "scannedAt": {
+          "$ref": "#/$defs/text"
+        },
+        "contentDigests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contentDigestEntry"
+          }
+        },
+        "pathBase": {
+          "$ref": "#/$defs/text"
+        },
+        "pathPrefix": {
+          "type": "string"
+        },
+        "provenance": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/provenanceRecord"
+          }
+        },
+        "exceptionDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "source": {
+          "$ref": "#/$defs/text"
+        },
+        "keyLogDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "keyCheckpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sequence",
+            "head"
+          ],
+          "properties": {
+            "sequence": {
+              "$ref": "#/$defs/ordinal"
+            },
+            "head": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        "rootFingerprint": {
+          "$ref": "#/$defs/digest"
+        },
+        "keyAuthority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryIdentity",
+            "commit",
+            "tree"
+          ],
+          "properties": {
+            "repositoryIdentity": {
+              "$ref": "#/$defs/text"
+            },
+            "commit": {
+              "$ref": "#/$defs/text"
+            },
+            "tree": {
+              "$ref": "#/$defs/text"
+            }
+          }
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "root"
+            ],
+            "properties": {
+              "root": {
+                "$ref": "#/$defs/text"
+              },
+              "metadata": {
+                "$ref": "#/$defs/metadata"
+              }
+            }
+          }
+        }
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "enrollmentPending",
+        "violations",
+        "problems",
+        "coverage",
+        "metadata"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "enrollmentPending": {
+          "type": "boolean"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "problems": {
+          "$ref": "#/$defs/strings"
+        },
+        "coverage": {
+          "$ref": "#/$defs/coverage"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "covered": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coveredFinding"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/row"
+          }
+        },
+        "warnings": {
+          "$ref": "#/$defs/strings"
+        },
+        "warning": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "x-crossFieldRules": [
+        "metadata.roots (or the single root derived from metadata.pathPrefix) must exactly equal the registered roots (ownership-verdict.mjs:52-54)"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "schema",
+        "repositoryIdentity",
+        "source",
+        "commit",
+        "catalogDigest",
+        "catalogVersion",
+        "scannerVersion",
+        "approvalsDigest",
+        "trustEnrolled",
+        "floorOk",
+        "visibility",
+        "registrationDigest",
+        "registeredRoots",
+        "contentDigest",
+        "checkedAt"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "repositoryIdentity": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "source": {
+          "enum": [
+            "enrollment-pending-advisory",
+            "committed-git-tree",
+            "mutable-checkout-test-seam"
+          ]
+        },
+        "commit": {
+          "$ref": "#/$defs/text"
+        },
+        "tree": {
+          "$ref": "#/$defs/text"
+        },
+        "catalogDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "catalogVersion": {
+          "$ref": "#/$defs/text"
+        },
+        "scannerVersion": {
+          "$ref": "#/$defs/text"
+        },
+        "approvalsDigest": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/digest"
+            }
+          ]
+        },
+        "trustEnrolled": {
+          "type": "boolean"
+        },
+        "keyLogDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "keyCheckpoint": {
+          "type": "object"
+        },
+        "rootFingerprint": {
+          "$ref": "#/$defs/digest"
+        },
+        "keyAuthority": {
+          "type": "object"
+        },
+        "floorOk": {
+          "type": "boolean"
+        },
+        "visibility": {
+          "enum": [
+            "public",
+            "private",
+            null
+          ]
+        },
+        "registrationDigest": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/digest"
+            }
+          ]
+        },
+        "registeredRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "contentDigest": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/digest"
+            }
+          ]
+        },
+        "checkedAt": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "additionalProperties": false,
+      "description": "ownership-evidence.mjs:154-172. tree and contentDigest are absent/null while enrollment is pending."
+    },
+    "errorOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error",
+        "code"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/text"
+        },
+        "code": {
+          "enum": [
+            "RK_OWNERSHIP_INVALID_INPUTS",
+            "RK_OWNERSHIP_INPUTS_CHANGED",
+            "RK_OWNERSHIP_UNVERIFIED",
+            "RK_OWNERSHIP_INCOMPLETE_COVERAGE",
+            "RK_OWNERSHIP_INVALID_REGISTRATION"
+          ]
+        }
+      },
+      "description": "Worker error line (ownership-scan-worker.mjs:84,98). The CLI always exits 0 and prints exactly one JSON line. Codes other than RK_OWNERSHIP_* are coerced to RK_OWNERSHIP_UNVERIFIED by the worker; the broker does not coerce worker-reported codes (see CONTRACT.md)."
+    },
+    "cacheInputs": {
+      "$ref": "verdict.schema.json#/$defs/cacheInputs"
+    },
+    "workerOutputScan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputs",
+        "trust",
+        "report",
+        "verdict",
+        "evidence"
+      ],
+      "properties": {
+        "inputs": {
+          "$ref": "#/$defs/cacheInputs"
+        },
+        "trust": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "report": {
+          "$ref": "#/$defs/report"
+        },
+        "verdict": {
+          "$ref": "verdict.schema.json"
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        }
+      }
+    },
+    "workerOutputPreflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputs",
+        "trust",
+        "complete",
+        "enrollmentPending",
+        "metadata",
+        "report",
+        "verdict"
+      ],
+      "properties": {
+        "inputs": {
+          "$ref": "#/$defs/cacheInputs"
+        },
+        "trust": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "enrollmentPending": {
+          "type": "boolean"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "report": {
+          "$ref": "#/$defs/report"
+        },
+        "verdict": {
+          "$ref": "verdict.schema.json"
+        }
+      },
+      "description": "Returned when the preflight verdict refuses for any reason other than pending enrollment: no evidence scan ran (ownership-scan-worker.mjs:71). report.ok is forced false."
+    },
+    "workerOutput": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/workerOutputScan"
+        },
+        {
+          "$ref": "#/$defs/workerOutputPreflight"
+        },
+        {
+          "$ref": "#/$defs/errorOutput"
+        }
+      ],
+      "description": "stdout of `ownership-scan-worker.mjs <appRoot> <catalogPath>`."
+    },
+    "inputsOutput": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "inputs",
+            "trust",
+            "complete",
+            "enrollmentPending",
+            "metadata"
+          ],
+          "properties": {
+            "inputs": {
+              "$ref": "#/$defs/cacheInputs"
+            },
+            "trust": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "enrollmentPending": {
+              "type": "boolean"
+            },
+            "metadata": {
+              "$ref": "#/$defs/metadata"
+            }
+          }
+        },
+        {
+          "$ref": "#/$defs/errorOutput"
+        }
+      ],
+      "description": "stdout of `ownership-scan-worker.mjs <appRoot> <catalogPath> --inputs` (ownership-scan-worker.mjs:60-61,96)."
+    }
+  }
+}

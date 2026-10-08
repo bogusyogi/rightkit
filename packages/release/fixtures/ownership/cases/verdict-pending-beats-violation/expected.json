@@ -1,0 +1,9 @@
+{
+  "verdict": {
+    "admit": false,
+    "code": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+    "problems": [
+      "protected ownership approval enrollment is pending"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "verdict": {
+    "admit": false,
+    "code": "RK_OWNERSHIP_REPORT_FAILED",
+    "problems": [
+      "protected ownership scanner reported ok:false"
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "outcome": "unscanned",
+        "scanRoot": "/fixture/repo",
+        "error": "spawn failed",
+        "problems": [
+          "spawn failed"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "message": "RightKit ownership refuses this build: spawn failed"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 0
+  }
+}

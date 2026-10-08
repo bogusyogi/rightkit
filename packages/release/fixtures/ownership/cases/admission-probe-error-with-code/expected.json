@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_INVALID_INPUTS",
+        "outcome": "unscanned",
+        "scanRoot": "/fixture/repo",
+        "error": "trust unverified",
+        "problems": [
+          "trust unverified"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_INVALID_INPUTS",
+        "message": "RightKit ownership refuses this build: trust unverified"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 0
+  }
+}

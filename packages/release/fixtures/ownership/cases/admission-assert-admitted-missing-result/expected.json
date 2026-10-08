@@ -1,0 +1,78 @@
+{
+  "steps": [],
+  "assertOnly": [
+    {
+      "input": null,
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "message": "RightKit ownership refuses this build: ownership verdict is missing or malformed"
+      }
+    },
+    {
+      "input": {},
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "message": "RightKit ownership refuses this build: ownership verdict is missing or malformed"
+      }
+    },
+    {
+      "input": {
+        "admit": true,
+        "code": "RK_OWNERSHIP_ADVISORY",
+        "problems": [
+          "x"
+        ]
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_ADVISORY",
+        "message": "RightKit ownership refuses this build: x"
+      }
+    },
+    {
+      "input": {
+        "admit": true,
+        "code": "RK_OWNERSHIP_CLEAN"
+      },
+      "assertAdmitted": {
+        "admitted": true
+      }
+    },
+    {
+      "input": {
+        "admit": false,
+        "code": "RK_OWNERSHIP_VIOLATION",
+        "problems": [
+          "a",
+          "b",
+          "c",
+          "d",
+          "e",
+          "f"
+        ]
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_VIOLATION",
+        "message": "RightKit ownership refuses this build: a; b; c; d; e"
+      }
+    },
+    {
+      "input": {
+        "admit": false,
+        "error": "only an error"
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_UNVERIFIED",
+        "message": "RightKit ownership refuses this build: only an error"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 0,
+    "scan": 0
+  }
+}

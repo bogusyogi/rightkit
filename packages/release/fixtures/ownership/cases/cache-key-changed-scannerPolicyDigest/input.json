@@ -1,0 +1,17 @@
+{
+  "kind": "cache-key",
+  "description": "Changing scannerPolicyDigest changes the key.",
+  "expectCode": "OK",
+  "inputs": {
+    "contentDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "catalogDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "trustDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+    "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "scannerPolicyDigest": "9999999999999999999999999999999999999999999999999999999999999999",
+    "protectedFloors": {
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "minimumCatalogDigest": null
+    }
+  }
+}

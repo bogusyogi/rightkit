@@ -1,0 +1,56 @@
+{
+  "kind": "verdict",
+  "description": "status 'complete' entries do not block.",
+  "expectCode": "RK_OWNERSHIP_CLEAN",
+  "report": {
+    "ok": true,
+    "enrollmentPending": false,
+    "violations": [],
+    "problems": [],
+    "coverage": [
+      {
+        "path": "a",
+        "status": "complete",
+        "reason": "scanned"
+      }
+    ],
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "trust": {
+    "schema": 1,
+    "revokedKeyIds": [],
+    "verifiedTrackingEvidence": [],
+    "minimumScannerVersion": "2.0.0",
+    "minimumCatalogVersion": "1",
+    "repositories": [
+      {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "roots": [
+          "."
+        ],
+        "visibility": "private"
+      }
+    ],
+    "hosts": {
+      "windows": {
+        "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+      },
+      "macos": {
+        "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "kind": "cache-key",
+  "description": "protectedFloors is closed.",
+  "expectCode": "RK_OWNERSHIP_INVALID_INPUTS",
+  "inputs": {
+    "contentDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "catalogDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "trustDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+    "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "scannerPolicyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+    "protectedFloors": {
+      "minimumScannerVersion": null,
+      "minimumCatalogVersion": null,
+      "minimumCatalogDigest": null,
+      "extra": 1
+    }
+  }
+}

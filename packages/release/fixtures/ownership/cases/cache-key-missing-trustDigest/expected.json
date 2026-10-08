@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "RK_OWNERSHIP_INVALID_INPUTS",
+    "message": "ownership cache inputs have missing, unknown, or malformed digest/floor fields"
+  }
+}

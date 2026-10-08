@@ -1,0 +1,10 @@
+{
+  "verdict": {
+    "admit": false,
+    "code": "RK_OWNERSHIP_INCOMPLETE_COVERAGE",
+    "problems": [
+      "a: r",
+      "b: s"
+    ]
+  }
+}

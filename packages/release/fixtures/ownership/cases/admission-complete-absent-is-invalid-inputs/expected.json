@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_INVALID_INPUTS",
+        "outcome": "unscanned",
+        "scanRoot": "/fixture/repo",
+        "error": "source inventory completeness is missing or malformed",
+        "problems": [
+          "source inventory completeness is missing or malformed"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_INVALID_INPUTS",
+        "message": "RightKit ownership refuses this build: source inventory completeness is missing or malformed"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 0
+  }
+}

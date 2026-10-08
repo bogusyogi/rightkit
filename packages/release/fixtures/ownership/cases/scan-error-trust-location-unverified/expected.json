@@ -1,0 +1,11 @@
+{
+  "scan": {
+    "error": "protected ownership trust location was not verified",
+    "code": "RK_OWNERSHIP_INVALID_INPUTS"
+  },
+  "inputsMode": {
+    "error": "protected ownership trust location was not verified",
+    "code": "RK_OWNERSHIP_INVALID_INPUTS"
+  },
+  "cacheKey": null
+}

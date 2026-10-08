@@ -1,0 +1,14 @@
+{
+  "kind": "admission",
+  "description": "A throwing inputs runner is caught: UNVERIFIED with the message.",
+  "scenario": {
+    "mode": "enforce",
+    "scannerRoot": "/fixture/scanner",
+    "steps": [
+      {
+        "repositoryRoot": "/fixture/repo",
+        "observedThrows": "spawn failed"
+      }
+    ]
+  }
+}

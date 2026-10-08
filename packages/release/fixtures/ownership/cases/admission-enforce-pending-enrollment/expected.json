@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+        "problems": [
+          "protected ownership approval enrollment is pending"
+        ],
+        "outcome": "pending-enrollment",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+        "message": "RightKit ownership refuses this build: protected ownership approval enrollment is pending"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

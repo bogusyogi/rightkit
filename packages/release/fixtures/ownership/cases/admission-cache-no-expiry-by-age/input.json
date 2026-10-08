@@ -1,0 +1,163 @@
+{
+  "kind": "admission",
+  "description": "KNOWN DEFECT DEFECT-1 (see CONTRACT.md): Node has no TTL and no date in the key, so a cached verdict outlives the expiry of exceptions it relied on. Recorded as-is; the Rust crate must NOT match step 2 (it must rescan).",
+  "scenario": {
+    "mode": "enforce",
+    "scannerRoot": "/fixture/scanner",
+    "knownDefect": "DEFECT-1",
+    "rustRequired": {
+      "steps[1].result.cached": false,
+      "calls.scan": 2
+    },
+    "steps": [
+      {
+        "repositoryRoot": "/fixture/repo",
+        "observed": {
+          "inputs": {
+            "contentDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "catalogDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "trustDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+            "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "scannerPolicyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+            "protectedFloors": {
+              "minimumScannerVersion": "2.0.0",
+              "minimumCatalogVersion": "1",
+              "minimumCatalogDigest": null
+            }
+          },
+          "trust": {
+            "schema": 1,
+            "revokedKeyIds": [],
+            "verifiedTrackingEvidence": [],
+            "minimumScannerVersion": "2.0.0",
+            "minimumCatalogVersion": "1",
+            "repositories": [
+              {
+                "repositoryIdentity": "https://github.com/test/repo",
+                "roots": [
+                  "."
+                ],
+                "visibility": "private"
+              }
+            ],
+            "hosts": {
+              "windows": {
+                "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+              },
+              "macos": {
+                "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+              }
+            }
+          },
+          "complete": true
+        },
+        "scanned": {
+          "report": {
+            "ok": true,
+            "enrollmentPending": false,
+            "violations": [],
+            "problems": [],
+            "coverage": [],
+            "metadata": {
+              "repositoryIdentity": "https://github.com/test/repo",
+              "scannerVersion": "2.6.0",
+              "catalogVersion": "1",
+              "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "coverage": [],
+              "roots": [
+                {
+                  "root": "."
+                }
+              ]
+            }
+          },
+          "trust": {
+            "schema": 1,
+            "revokedKeyIds": [],
+            "verifiedTrackingEvidence": [],
+            "minimumScannerVersion": "2.0.0",
+            "minimumCatalogVersion": "1",
+            "repositories": [
+              {
+                "repositoryIdentity": "https://github.com/test/repo",
+                "roots": [
+                  "."
+                ],
+                "visibility": "private"
+              }
+            ],
+            "hosts": {
+              "windows": {
+                "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+              },
+              "macos": {
+                "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+              }
+            }
+          },
+          "inputs": {
+            "contentDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "catalogDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "trustDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+            "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "scannerPolicyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+            "protectedFloors": {
+              "minimumScannerVersion": "2.0.0",
+              "minimumCatalogVersion": "1",
+              "minimumCatalogDigest": null
+            }
+          }
+        }
+      },
+      {
+        "repositoryRoot": "/fixture/repo",
+        "observed": {
+          "inputs": {
+            "contentDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "catalogDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+            "trustDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+            "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "scannerPolicyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+            "protectedFloors": {
+              "minimumScannerVersion": "2.0.0",
+              "minimumCatalogVersion": "1",
+              "minimumCatalogDigest": null
+            }
+          },
+          "trust": {
+            "schema": 1,
+            "revokedKeyIds": [],
+            "verifiedTrackingEvidence": [],
+            "minimumScannerVersion": "2.0.0",
+            "minimumCatalogVersion": "1",
+            "repositories": [
+              {
+                "repositoryIdentity": "https://github.com/test/repo",
+                "roots": [
+                  "."
+                ],
+                "visibility": "private"
+              }
+            ],
+            "hosts": {
+              "windows": {
+                "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+              },
+              "macos": {
+                "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+                "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+              }
+            }
+          },
+          "complete": true
+        },
+        "advanceClockMs": 31536000000
+      }
+    ]
+  }
+}

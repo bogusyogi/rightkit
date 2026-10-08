@@ -1,0 +1,25 @@
+{
+  "kind": "verdict",
+  "description": "Pending enrollment is decided before trust is consulted, so trust may be null.",
+  "expectCode": "RK_OWNERSHIP_PENDING_ENROLLMENT",
+  "report": {
+    "ok": false,
+    "enrollmentPending": true,
+    "violations": [],
+    "problems": [],
+    "coverage": [],
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "trust": null
+}

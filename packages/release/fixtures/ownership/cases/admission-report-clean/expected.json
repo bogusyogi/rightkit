@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "report",
+        "admit": true,
+        "code": "RK_OWNERSHIP_CLEAN",
+        "problems": [],
+        "outcome": "clean",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": true
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

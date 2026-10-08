@@ -1,0 +1,13 @@
+{
+  "kind": "admission",
+  "description": "No scanner root: failure with outcome unscanned and code RK_OWNERSHIP_UNVERIFIED.",
+  "scenario": {
+    "mode": "enforce",
+    "scannerRoot": null,
+    "steps": [
+      {
+        "repositoryRoot": "/fixture/repo"
+      }
+    ]
+  }
+}

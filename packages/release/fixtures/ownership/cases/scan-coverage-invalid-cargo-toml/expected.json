@@ -1,0 +1,279 @@
+{
+  "scan": {
+    "inputs": {
+      "contentDigest": "cf33e2196258eca432f5f7cc6b3ad3a0a780098749e256edbc397a3f0a4acad4",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "report": {
+      "ok": false,
+      "findings": [],
+      "violations": [],
+      "problems": [],
+      "rows": [
+        {
+          "capability": "http-client",
+          "owner": "rightkit-http",
+          "uses": false,
+          "status": "unscanned",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "logging",
+          "owner": "rightkit-log",
+          "uses": false,
+          "status": "unscanned",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "sandbox-exec",
+          "owner": "rightkit-sandbox",
+          "uses": false,
+          "status": "unscanned",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "ui-shell",
+          "owner": "rightkit-ui",
+          "uses": false,
+          "status": "unscanned",
+          "count": 0,
+          "root": "."
+        }
+      ],
+      "covered": [],
+      "coverage": [
+        {
+          "path": "Cargo.toml",
+          "status": "unscanned",
+          "reason": "invalid-cargo-toml"
+        },
+        {
+          "path": "Cargo.toml",
+          "status": "unscanned",
+          "reason": "invalid-cargo-toml"
+        },
+        {
+          "path": "Cargo.lock",
+          "status": "unscanned",
+          "reason": "lockfile-parse-failed",
+          "detail": "Invalid TOML document: incomplete key-value: cannot find end of key\n\n1:  [package\n     ^\n2:  name =\n"
+        }
+      ],
+      "metadata": {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "commit": "88b91c663a967702ff4b7ce8fef0c16cc9807b51",
+        "tree": "a91fcd782bb1db9a332b04f9749fec02e4981b5d",
+        "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+        "contentDigests": [
+          {
+            "path": "Cargo.lock",
+            "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
+          },
+          {
+            "path": "Cargo.toml",
+            "digest": "git:d780efc036b6eae0ad36ca3040101e3c6ae1aa95"
+          },
+          {
+            "path": "src/main.rs",
+            "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+          }
+        ],
+        "coverage": [
+          {
+            "path": "Cargo.toml",
+            "status": "unscanned",
+            "reason": "invalid-cargo-toml"
+          },
+          {
+            "path": "Cargo.toml",
+            "status": "unscanned",
+            "reason": "invalid-cargo-toml"
+          },
+          {
+            "path": "Cargo.lock",
+            "status": "unscanned",
+            "reason": "lockfile-parse-failed",
+            "detail": "Invalid TOML document: incomplete key-value: cannot find end of key\n\n1:  [package\n     ^\n2:  name =\n"
+          }
+        ],
+        "pathBase": "repository",
+        "pathPrefix": "",
+        "roots": [
+          {
+            "root": ".",
+            "metadata": {
+              "repositoryIdentity": "https://github.com/test/repo",
+              "commit": "88b91c663a967702ff4b7ce8fef0c16cc9807b51",
+              "tree": "a91fcd782bb1db9a332b04f9749fec02e4981b5d",
+              "host": "fixture-host/fixture-os",
+              "scannedAt": "2026-10-09T00:00:00.000Z",
+              "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+              "catalogVersion": "1",
+              "scannerVersion": "2.6.0",
+              "contentDigests": [
+                {
+                  "path": "Cargo.lock",
+                  "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
+                },
+                {
+                  "path": "Cargo.toml",
+                  "digest": "git:d780efc036b6eae0ad36ca3040101e3c6ae1aa95"
+                },
+                {
+                  "path": "src/main.rs",
+                  "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+                }
+              ],
+              "coverage": [
+                {
+                  "path": "Cargo.toml",
+                  "status": "unscanned",
+                  "reason": "invalid-cargo-toml"
+                },
+                {
+                  "path": "Cargo.toml",
+                  "status": "unscanned",
+                  "reason": "invalid-cargo-toml"
+                },
+                {
+                  "path": "Cargo.lock",
+                  "status": "unscanned",
+                  "reason": "lockfile-parse-failed",
+                  "detail": "Invalid TOML document: incomplete key-value: cannot find end of key\n\n1:  [package\n     ^\n2:  name =\n"
+                }
+              ],
+              "pathBase": "repository",
+              "pathPrefix": "",
+              "provenance": [],
+              "exceptionDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "source": "committed-git-tree"
+            }
+          }
+        ],
+        "scannerVersion": "2.6.0",
+        "catalogVersion": "1"
+      },
+      "enrollmentPending": false
+    },
+    "verdict": {
+      "admit": false,
+      "code": "RK_OWNERSHIP_INCOMPLETE_COVERAGE",
+      "problems": [
+        "Cargo.toml: invalid-cargo-toml",
+        "Cargo.lock: lockfile-parse-failed"
+      ]
+    },
+    "evidence": {
+      "schema": 1,
+      "repositoryIdentity": "https://github.com/test/repo",
+      "source": "committed-git-tree",
+      "commit": "88b91c663a967702ff4b7ce8fef0c16cc9807b51",
+      "tree": "a91fcd782bb1db9a332b04f9749fec02e4981b5d",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "catalogVersion": "1",
+      "scannerVersion": "2.6.0",
+      "approvalsDigest": "c674d42e4ce7a3d8d8ea3a97f0ebd435e70c2268e1a7e47a2c33f8800fe2c5f3",
+      "trustEnrolled": true,
+      "floorOk": true,
+      "visibility": "private",
+      "registrationDigest": "8e3e6cefab60b0a511a116e246c05543ec35043e00e00247fe71af363b58702c",
+      "registeredRoots": [
+        "."
+      ],
+      "contentDigest": "be67064179c575a85494419f888da2329faa50e9d8073c6407f65b9e9bdcf29b",
+      "checkedAt": "2026-10-09T00:00:00.000Z"
+    }
+  },
+  "inputsMode": {
+    "inputs": {
+      "contentDigest": "cf33e2196258eca432f5f7cc6b3ad3a0a780098749e256edbc397a3f0a4acad4",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "complete": true,
+    "enrollmentPending": false,
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "cacheKey": "60d23c209cf794dd2cb836ee75e66239daadb02ed845b7edad4d5592e855de31"
+}

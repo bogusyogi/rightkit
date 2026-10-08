@@ -1,0 +1,9 @@
+{
+  "verdict": {
+    "admit": false,
+    "code": "RK_OWNERSHIP_VIOLATION",
+    "problems": [
+      "http-client (http.fetch-call in src/main.rs) is owned by rightkit-http"
+    ]
+  }
+}

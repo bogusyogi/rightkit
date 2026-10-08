@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rightkit.dev/schemas/ownership/verdict.schema.json",
+  "title": "RightKit ownership verdict",
+  "description": "Output of ownershipVerdict(report, trust) (packages/release/ownership-verdict.mjs:41-66). Top level validates a verdict; other contract shapes live in $defs.",
+  "oneOf": [
+    {
+      "type": "object", "additionalProperties": false, "required": ["admit", "code", "problems"],
+      "properties": { "admit": { "const": true }, "code": { "enum": ["RK_OWNERSHIP_CLEAN", "RK_OWNERSHIP_ADVISORY"] }, "problems": { "type": "array", "items": { "type": "string" } } },
+      "description": "CLEAN has problems:[]; ADVISORY lists `<capability> (<fingerprint> in <file>) is owned by <package> [advise]`."
+    },
+    {
+      "type": "object", "additionalProperties": false, "required": ["admit", "code", "problems"],
+      "properties": { "admit": { "const": false }, "code": { "$ref": "#/$defs/refusalCode" }, "problems": { "type": "array", "items": { "type": "string" } } }
+    }
+  ],
+  "$defs": {
+    "refusalCode": {
+      "enum": ["RK_OWNERSHIP_MALFORMED_REPORT", "RK_OWNERSHIP_PENDING_ENROLLMENT", "RK_OWNERSHIP_INVALID_REGISTRATION", "RK_OWNERSHIP_POLICY_DOWNGRADE", "RK_OWNERSHIP_INCOMPLETE_COVERAGE", "RK_OWNERSHIP_VIOLATION", "RK_OWNERSHIP_UNVERIFIED", "RK_OWNERSHIP_REPORT_FAILED"],
+      "description": "In evaluation order (ownership-verdict.mjs:42-62)."
+    },
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "version": { "type": "string", "pattern": "^\\d+(?:\\.\\d+)*$" },
+    "cacheInputs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contentDigest", "catalogDigest", "trustDigest", "approvalsDigest", "scannerPolicyDigest", "protectedFloors"],
+      "properties": {
+        "contentDigest": { "$ref": "#/$defs/digest" }, "catalogDigest": { "$ref": "#/$defs/digest" }, "trustDigest": { "$ref": "#/$defs/digest" }, "approvalsDigest": { "$ref": "#/$defs/digest" }, "scannerPolicyDigest": { "$ref": "#/$defs/digest" },
+        "protectedFloors": {
+          "type": "object", "additionalProperties": false, "required": ["minimumScannerVersion", "minimumCatalogVersion", "minimumCatalogDigest"],
+          "properties": { "minimumScannerVersion": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/version" }] }, "minimumCatalogVersion": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/version" }] }, "minimumCatalogDigest": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] } }
+        }
+      },
+      "description": "Argument of ownershipCacheKey (ownership-verdict.mjs:69-74). Key = sha256(canonicalJson(inputs)): keys sorted at every level, JSON.stringify scalars, no whitespace."
+    },
+    "cacheKeyResult": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["key"], "properties": { "key": { "$ref": "#/$defs/digest" } } },
+        { "type": "object", "additionalProperties": false, "required": ["error"], "properties": { "error": { "type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": { "code": { "const": "RK_OWNERSHIP_INVALID_INPUTS" }, "message": { "type": "string" } } } } }
+      ]
+    },
+    "trustRegistry": {
+      "type": "object",
+      "required": ["schema", "revokedKeyIds", "verifiedTrackingEvidence", "minimumScannerVersion", "minimumCatalogVersion", "repositories"],
+      "properties": {
+        "schema": { "const": 1 }, "revokedKeyIds": { "type": "array" }, "verifiedTrackingEvidence": { "type": "array", "items": { "$ref": "#/$defs/digest" } },
+        "minimumScannerVersion": { "$ref": "#/$defs/version" }, "minimumCatalogVersion": { "$ref": "#/$defs/version" }, "minimumCatalogDigest": { "$ref": "#/$defs/digest" },
+        "repositories": { "type": "array", "items": { "type": "object", "required": ["repositoryIdentity", "roots", "visibility"], "properties": { "repositoryIdentity": { "type": "string" }, "roots": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "visibility": { "enum": ["public", "private"] } } } },
+        "provenance": { "type": "array" }, "rootFingerprint": { "$ref": "#/$defs/digest" }, "keyCheckpoint": { "type": "object" }, "keyAuthority": { "type": "object" }, "hosts": { "type": "object" }
+      },
+      "description": "Subset of the protected trust registry consulted by the verdict (validateTrustRegistry, ownership-approval.mjs:168-200). Additional members (hosts, ownershipKeys, ...) are permitted."
+    },
+    "verdictInput": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "report", "trust"],
+      "properties": { "kind": { "const": "verdict" }, "description": { "type": "string" }, "expectCode": { "type": "string" }, "report": {}, "trust": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/trustRegistry" }, { "type": "object" }] } },
+      "description": "Fixture input for kind=verdict. `report` is deliberately unconstrained (malformed reports are test inputs)."
+    },
+    "admissionResult": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["off", "report", "enforce"] }, "outcome": { "enum": ["off", "clean", "violations", "pending-enrollment", "malformed-report", "incomplete-coverage", "invalid-registration", "policy-downgrade", "report-failed", "problems", "unscanned"] },
+        "admit": { "type": "boolean" }, "code": { "type": "string" }, "problems": { "type": "array", "items": { "type": "string" } },
+        "violations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["capability", "owner", "fingerprint", "file", "line"], "properties": { "capability": {}, "owner": {}, "fingerprint": {}, "file": {}, "line": {} } } },
+        "scanRoot": { "type": ["string", "null"] }, "scanMs": { "type": "number" }, "cached": { "type": "boolean" }, "error": { "type": "string" }
+      },
+      "description": "Result of OwnershipAdmission.evaluate (build-control-broker/src/ownership-admission.mjs:61-65,77-79,118). mode=off returns only {mode,outcome:'off'}. `code` on a failure is whatever code the worker reported (not sanitised on the probe/scan error paths, :89,:116)."
+    }
+  }
+}

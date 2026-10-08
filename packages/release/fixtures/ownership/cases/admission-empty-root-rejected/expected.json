@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
+        "outcome": "invalid-registration",
+        "scanRoot": null,
+        "error": "repository root is missing or malformed",
+        "problems": [
+          "repository root is missing or malformed"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
+        "message": "RightKit ownership refuses this build: repository root is missing or malformed"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 0,
+    "scan": 0
+  }
+}

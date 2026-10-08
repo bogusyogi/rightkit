@@ -1,0 +1,29 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_INPUTS_CHANGED",
+        "outcome": "unscanned",
+        "scanRoot": "/fixture/repo",
+        "error": "ownership inputs changed between admission & protected scan",
+        "problems": [
+          "ownership inputs changed between admission & protected scan"
+        ],
+        "violations": [],
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_INPUTS_CHANGED",
+        "message": "RightKit ownership refuses this build: ownership inputs changed between admission & protected scan"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

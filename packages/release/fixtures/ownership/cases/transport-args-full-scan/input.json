@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "Argument vector for a full scan: <worker> <scanRoot> <catalog>.",
+  "timeoutMs": 20000,
+  "inputsOnly": false,
+  "execPath": "node",
+  "workerSource": "process.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');"
+}

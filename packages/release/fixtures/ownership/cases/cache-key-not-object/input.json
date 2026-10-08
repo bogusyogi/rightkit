@@ -1,0 +1,6 @@
+{
+  "kind": "cache-key",
+  "description": "Inputs must be a plain object.",
+  "expectCode": "RK_OWNERSHIP_INVALID_INPUTS",
+  "inputs": null
+}

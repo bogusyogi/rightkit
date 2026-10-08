@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "enforce",
+        "admit": false,
+        "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
+        "problems": [
+          "repository is not registered in protected trust"
+        ],
+        "outcome": "invalid-registration",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": false,
+        "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
+        "message": "RightKit ownership refuses this build: repository is not registered in protected trust"
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

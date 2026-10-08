@@ -1,0 +1,11 @@
+{
+  "scan": {
+    "error": "protected key authority checkoutPath must be absolute",
+    "code": "RK_OWNERSHIP_INVALID_INPUTS"
+  },
+  "inputsMode": {
+    "error": "protected key authority checkoutPath must be absolute",
+    "code": "RK_OWNERSHIP_INVALID_INPUTS"
+  },
+  "cacheKey": null
+}

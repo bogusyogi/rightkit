@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "inputsOnly appends --inputs.",
+  "timeoutMs": 20000,
+  "inputsOnly": true,
+  "execPath": "node",
+  "workerSource": "process.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');"
+}

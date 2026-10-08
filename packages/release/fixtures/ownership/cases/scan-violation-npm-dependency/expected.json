@@ -1,0 +1,289 @@
+{
+  "scan": {
+    "inputs": {
+      "contentDigest": "53e65303de0f3e0ae8a168d5b192b76b5d16be594a35b2694c99349a726680fd",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "report": {
+      "ok": false,
+      "findings": [
+        {
+          "fingerprint": "http.axios",
+          "capability": "http-client",
+          "package": "rightkit-http",
+          "tier": "block",
+          "file": "package.json",
+          "line": 0,
+          "kind": "dependency",
+          "ecosystem": "npm",
+          "name": "axios",
+          "alias": null,
+          "section": "dependencies",
+          "requirement": "^1.7.0",
+          "features": [],
+          "defaultFeatures": null,
+          "local": false,
+          "source": "registry",
+          "resolvedVersion": "1.7.2",
+          "text": "npm dependency axios",
+          "provenance": "registry",
+          "occurrenceHash": "2b4ec17001eaa850cad4851080f8e3438b3da133f87101cc41944088abc26ca8"
+        }
+      ],
+      "violations": [
+        {
+          "fingerprint": "http.axios",
+          "capability": "http-client",
+          "package": "rightkit-http",
+          "tier": "block",
+          "file": "package.json",
+          "line": 0,
+          "kind": "dependency",
+          "ecosystem": "npm",
+          "name": "axios",
+          "alias": null,
+          "section": "dependencies",
+          "requirement": "^1.7.0",
+          "features": [],
+          "defaultFeatures": null,
+          "local": false,
+          "source": "registry",
+          "resolvedVersion": "1.7.2",
+          "text": "npm dependency axios",
+          "provenance": "registry",
+          "occurrenceHash": "2b4ec17001eaa850cad4851080f8e3438b3da133f87101cc41944088abc26ca8"
+        }
+      ],
+      "problems": [],
+      "rows": [
+        {
+          "capability": "http-client",
+          "owner": "rightkit-http",
+          "uses": false,
+          "status": "blocked",
+          "count": 1,
+          "root": "."
+        },
+        {
+          "capability": "logging",
+          "owner": "rightkit-log",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "sandbox-exec",
+          "owner": "rightkit-sandbox",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        },
+        {
+          "capability": "ui-shell",
+          "owner": "rightkit-ui",
+          "uses": false,
+          "status": "not-detected",
+          "count": 0,
+          "root": "."
+        }
+      ],
+      "covered": [],
+      "coverage": [],
+      "metadata": {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "commit": "45a1aef7d12299dc694a5db11664b6346451fbe8",
+        "tree": "1226aa91d3dd550c198f2f179c8414417a7b19f7",
+        "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+        "contentDigests": [
+          {
+            "path": "Cargo.lock",
+            "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
+          },
+          {
+            "path": "Cargo.toml",
+            "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
+          },
+          {
+            "path": "package-lock.json",
+            "digest": "62447e2b5d752255d4f25af486ef3f9ba647dc6bee030b33f5a7e6bc173b8f5c"
+          },
+          {
+            "path": "package.json",
+            "digest": "git:a9044dc5ad8bc5f5645e28b71e9caff2a0daea2f"
+          },
+          {
+            "path": "src/main.rs",
+            "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+          }
+        ],
+        "coverage": [],
+        "pathBase": "repository",
+        "pathPrefix": "",
+        "roots": [
+          {
+            "root": ".",
+            "metadata": {
+              "repositoryIdentity": "https://github.com/test/repo",
+              "commit": "45a1aef7d12299dc694a5db11664b6346451fbe8",
+              "tree": "1226aa91d3dd550c198f2f179c8414417a7b19f7",
+              "host": "fixture-host/fixture-os",
+              "scannedAt": "2026-10-09T00:00:00.000Z",
+              "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+              "catalogVersion": "1",
+              "scannerVersion": "2.6.0",
+              "contentDigests": [
+                {
+                  "path": "Cargo.lock",
+                  "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
+                },
+                {
+                  "path": "Cargo.toml",
+                  "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
+                },
+                {
+                  "path": "package-lock.json",
+                  "digest": "62447e2b5d752255d4f25af486ef3f9ba647dc6bee030b33f5a7e6bc173b8f5c"
+                },
+                {
+                  "path": "package.json",
+                  "digest": "git:a9044dc5ad8bc5f5645e28b71e9caff2a0daea2f"
+                },
+                {
+                  "path": "src/main.rs",
+                  "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
+                }
+              ],
+              "coverage": [],
+              "pathBase": "repository",
+              "pathPrefix": "",
+              "provenance": [],
+              "exceptionDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+              "source": "committed-git-tree"
+            }
+          }
+        ],
+        "scannerVersion": "2.6.0",
+        "catalogVersion": "1"
+      },
+      "enrollmentPending": false
+    },
+    "verdict": {
+      "admit": false,
+      "code": "RK_OWNERSHIP_VIOLATION",
+      "problems": [
+        "http-client (http.axios in package.json) is owned by rightkit-http"
+      ]
+    },
+    "evidence": {
+      "schema": 1,
+      "repositoryIdentity": "https://github.com/test/repo",
+      "source": "committed-git-tree",
+      "commit": "45a1aef7d12299dc694a5db11664b6346451fbe8",
+      "tree": "1226aa91d3dd550c198f2f179c8414417a7b19f7",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "catalogVersion": "1",
+      "scannerVersion": "2.6.0",
+      "approvalsDigest": "c674d42e4ce7a3d8d8ea3a97f0ebd435e70c2268e1a7e47a2c33f8800fe2c5f3",
+      "trustEnrolled": true,
+      "floorOk": true,
+      "visibility": "private",
+      "registrationDigest": "8e3e6cefab60b0a511a116e246c05543ec35043e00e00247fe71af363b58702c",
+      "registeredRoots": [
+        "."
+      ],
+      "contentDigest": "59678ed83198e369753c3cbf9d3cfc0ab91e1b427f6fd25b3122d57f08bd6c28",
+      "checkedAt": "2026-10-09T00:00:00.000Z"
+    }
+  },
+  "inputsMode": {
+    "inputs": {
+      "contentDigest": "53e65303de0f3e0ae8a168d5b192b76b5d16be594a35b2694c99349a726680fd",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
+      "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
+      "scannerPolicyDigest": "9045f79b26d56c67a77468b55a0edeeeeb0e406b283289bf568ff984fc4acf13",
+      "protectedFloors": {
+        "minimumScannerVersion": "2.0.0",
+        "minimumCatalogVersion": "1",
+        "minimumCatalogDigest": null
+      }
+    },
+    "trust": {
+      "schema": 1,
+      "revokedKeyIds": [],
+      "verifiedTrackingEvidence": [],
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "repositories": [
+        {
+          "repositoryIdentity": "https://github.com/test/repo",
+          "roots": [
+            "."
+          ],
+          "visibility": "private"
+        }
+      ],
+      "hosts": {
+        "windows": {
+          "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+        },
+        "macos": {
+          "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+          "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+        }
+      }
+    },
+    "complete": true,
+    "enrollmentPending": false,
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "coverage": [],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "cacheKey": "51be9d10c58e19eed8094e8d59ad000bfd6db9ad7a58aed7a3ead3314a27f9ea"
+}

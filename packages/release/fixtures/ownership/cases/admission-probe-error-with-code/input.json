@@ -1,0 +1,17 @@
+{
+  "kind": "admission",
+  "description": "inputs-run error code is preserved.",
+  "scenario": {
+    "mode": "enforce",
+    "scannerRoot": "/fixture/scanner",
+    "steps": [
+      {
+        "repositoryRoot": "/fixture/repo",
+        "observed": {
+          "error": "trust unverified",
+          "code": "RK_OWNERSHIP_INVALID_INPUTS"
+        }
+      }
+    ]
+  }
+}

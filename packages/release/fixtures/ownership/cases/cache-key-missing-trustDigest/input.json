@@ -1,0 +1,16 @@
+{
+  "kind": "cache-key",
+  "description": "Binding trustDigest is required.",
+  "expectCode": "RK_OWNERSHIP_INVALID_INPUTS",
+  "inputs": {
+    "contentDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "catalogDigest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "approvalsDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+    "scannerPolicyDigest": "5555555555555555555555555555555555555555555555555555555555555555",
+    "protectedFloors": {
+      "minimumScannerVersion": "2.0.0",
+      "minimumCatalogVersion": "1",
+      "minimumCatalogDigest": null
+    }
+  }
+}

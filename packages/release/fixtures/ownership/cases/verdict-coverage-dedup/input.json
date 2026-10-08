@@ -1,0 +1,68 @@
+{
+  "kind": "verdict",
+  "description": "Same path: reason in both lists is reported once; detail is not part of the message.",
+  "expectCode": "RK_OWNERSHIP_INCOMPLETE_COVERAGE",
+  "report": {
+    "ok": false,
+    "enrollmentPending": false,
+    "violations": [],
+    "problems": [],
+    "coverage": [
+      {
+        "path": "a",
+        "status": "unscanned",
+        "reason": "r"
+      }
+    ],
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/repo",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": [
+        {
+          "path": "a",
+          "status": "unscanned",
+          "reason": "r"
+        },
+        {
+          "path": "b",
+          "status": "unscanned",
+          "reason": "s",
+          "detail": "d"
+        }
+      ],
+      "roots": [
+        {
+          "root": "."
+        }
+      ]
+    }
+  },
+  "trust": {
+    "schema": 1,
+    "revokedKeyIds": [],
+    "verifiedTrackingEvidence": [],
+    "minimumScannerVersion": "2.0.0",
+    "minimumCatalogVersion": "1",
+    "repositories": [
+      {
+        "repositoryIdentity": "https://github.com/test/repo",
+        "roots": [
+          "."
+        ],
+        "visibility": "private"
+      }
+    ],
+    "hosts": {
+      "windows": {
+        "keyId": "win-1111111111111111111111111111111111111111111111111111111111111111",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-WINDOWS"
+      },
+      "macos": {
+        "keyId": "mac-2222222222222222222222222222222222222222222222222222222222222222",
+        "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
+      }
+    }
+  }
+}

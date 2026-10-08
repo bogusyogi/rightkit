@@ -1,0 +1,13 @@
+{
+  "kind": "admission",
+  "description": "Empty repositoryRoot string is rejected.",
+  "scenario": {
+    "mode": "enforce",
+    "scannerRoot": "/fixture/scanner",
+    "steps": [
+      {
+        "repositoryRoot": ""
+      }
+    ]
+  }
+}

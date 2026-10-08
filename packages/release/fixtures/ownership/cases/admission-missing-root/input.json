@@ -1,0 +1,11 @@
+{
+  "kind": "admission",
+  "description": "No repositoryRoot/workspaceRoot: INVALID_REGISTRATION failure.",
+  "scenario": {
+    "mode": "enforce",
+    "scannerRoot": "/fixture/scanner",
+    "steps": [
+      {}
+    ]
+  }
+}

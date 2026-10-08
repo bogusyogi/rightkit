@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "Non-zero exit with empty stderr reports `scanner exited <code>`.",
+  "timeoutMs": 20000,
+  "inputsOnly": false,
+  "execPath": "node",
+  "workerSource": "process.exit(7);"
+}

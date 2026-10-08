@@ -1,0 +1,5 @@
+{
+  "kind": "identity",
+  "description": "canonicalRepositoryIdentity(\"https://github.com/test/repo#readme\")",
+  "value": "https://github.com/test/repo#readme"
+}

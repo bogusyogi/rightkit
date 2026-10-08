@@ -1,0 +1,8 @@
+{
+  "kind": "transport",
+  "description": "stderr is truncated to its first 2000 characters.",
+  "timeoutMs": 20000,
+  "inputsOnly": false,
+  "execPath": "node",
+  "workerSource": "process.stderr.write('e'.repeat(2500)); process.exit(1);"
+}

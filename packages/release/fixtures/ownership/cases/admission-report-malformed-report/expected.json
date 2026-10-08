@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "result": {
+        "mode": "report",
+        "admit": false,
+        "code": "RK_OWNERSHIP_MALFORMED_REPORT",
+        "problems": [
+          "ownership report has missing, unknown, or wrong-typed fields"
+        ],
+        "outcome": "malformed-report",
+        "violations": [],
+        "scanRoot": "/fixture/repo",
+        "scanMs": 0,
+        "cached": false
+      },
+      "assertAdmitted": {
+        "admitted": true
+      }
+    }
+  ],
+  "calls": {
+    "inputs": 1,
+    "scan": 1
+  }
+}

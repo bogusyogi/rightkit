@@ -1,0 +1,5 @@
+{
+  "kind": "identity",
+  "description": "canonicalRepositoryIdentity(\"ssh://bücher.example/team/app\")",
+  "value": "ssh://bücher.example/team/app"
+}
