@@ -4953,7 +4953,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-http"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.3.4",
  "rightkit-http",
@@ -5044,10 +5044,7 @@ dependencies = [
 name = "rightkit-models"
 version = "0.2.2"
 dependencies = [
- "base64 0.22.1",
- "chrono",
  "dirs 7.0.0",
- "ed25519-dalek",
  "flate2",
  "getrandom 0.3.4",
  "rightkit-qa",
@@ -5057,29 +5054,20 @@ dependencies = [
  "tar",
  "tempfile",
  "ureq",
- "url",
  "zip",
 ]
 
 [[package]]
 name = "rightkit-oauth"
-version = "0.3.0"
+version = "0.2.1"
 dependencies = [
- "axum",
- "base64 0.22.1",
  "getrandom 0.3.4",
  "rightkit-http",
  "rightkit-process",
  "rightkit-secrets",
- "ring",
- "serde",
  "serde_json",
  "sha2 0.10.9",
- "subtle",
  "tempfile",
- "tokio",
- "url",
- "zeroize",
 ]
 
 [[package]]
@@ -7136,6 +7124,7 @@ checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
 dependencies = [
  "base64 0.23.1",
  "der 0.8.1",
+ "flate2",
  "log",
  "native-tls",
  "percent-encoding",
