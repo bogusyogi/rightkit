@@ -2,10 +2,10 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-audio",
-  "version": "0.1.1",
-  "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
-  "artifactSha256": "ddc40583130a6af31ffdaf24f3d507ec423350953970657d6adbad18779e0ae7",
-  "artifactBasis": "git archive HEAD crates/rightkit-audio",
+  "version": "0.2.0",
+  "commit": "2b8a7cd4837efd994bf410b02193625cb9bab2a2",
+  "artifactSha256": "04b8ccf1bf3f20ce3d0b00d9da2d303279424cb08033ff56b0f8780d8058ef2e",
+  "artifactBasis": "cargo package rightkit-audio-0.2.0.crate",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
   "runs": [
@@ -14,13 +14,13 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
+      "commit": "2b8a7cd4837efd994bf410b02193625cb9bab2a2",
       "command": "right-release publish cargo --crate rightkit-audio --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
       "features": [
         "default"
       ],
       "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
-      "timestamp": "2026-10-08T01:46:47Z",
+      "timestamp": "2026-10-08T21:48:25Z",
       "passed": 3,
       "failed": 0
     }
