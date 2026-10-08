@@ -34,7 +34,7 @@ function withClock(iso, fn) {
 }
 
 // ------------------------------------------------------------------ scan harness
-const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull, GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid", GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z" };
+const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : os.devNull, GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid", GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z" };
 const git = (root, ...args) => execFileSync("git", ["-C", root, "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", ...args], { env: gitEnv, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }).toString();
 function put(root, rel, text) { const file = path.join(root, ...rel.split("/")); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, text); }
 
@@ -48,6 +48,15 @@ function materialize(def, base) {
   for (const [rel, text] of Object.entries(def.repo.untracked)) put(root, rel, text);
   return root;
 }
+
+// Windows resolves the virtual /fixture roots onto a drive and joins with backslashes; expected files stay POSIX.
+function posixFixturePaths(s) {
+  return s.replace(/(?:[A-Za-z]:)?\\fixture((?:\\[^\\"\s]+)*)/g, (_, rest) => `/fixture${rest.replaceAll("\\", "/")}`)
+    .replace(/<SCANNER>((?:\\[^\\"\s]+)+)/g, (_, rest) => `<SCANNER>${rest.replaceAll("\\", "/")}`);
+}
+
+const posixPaths = (value) => typeof value === "string" ? posixFixturePaths(value) : Array.isArray(value) ? value.map(posixPaths)
+  : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, posixPaths(v)])) : value;
 
 function scrub(value, replacements) {
   if (typeof value === "string") { let s = value; for (const [from, to] of replacements) s = s.split(from).join(to); return s; }
@@ -149,7 +158,7 @@ async function buildAll() {
     if (process.env.FIXTURE_DEBUG === name) console.error(JSON.stringify(out, null, 1));
     if (def.expectCode !== undefined && actualCode(def, out) !== def.expectCode) problems.push(`${name}: expected ${def.expectCode}, implementation returned ${actualCode(def, out)}`);
     files.set(`${name}/input.json`, json(def));
-    files.set(`${name}/expected.json`, json(out));
+    files.set(`${name}/expected.json`, json(process.platform === "win32" ? posixPaths(out) : out));
   }
   return { files, problems };
 }
