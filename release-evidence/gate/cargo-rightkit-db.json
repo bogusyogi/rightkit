@@ -2,30 +2,26 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-db",
-  "version": "0.2.1",
-  "commit": "ca64bb26b892e68b37e8edcdcc7d8fb9021c91e1",
-  "artifactSha256": "a2fbcf652099f53fe254fbae6efb0d679f1656f92a852dba30466f30ca7ddc87",
+  "version": "0.3.0",
+  "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
+  "artifactSha256": "6d992342b38c7503c9083dab9d20c1d6b9686eb1dbc774e24564685c2659fa96",
+  "artifactBasis": "git archive HEAD crates/rightkit-db",
+  "hostPolicy": "darwin-only",
+  "hostPolicyReason": "Adrian 2026-10-07: publish crates from the Mac (crates.io auth here); Windows qualification follows",
   "runs": [
     {
       "host": {
-        "os": "win32"
+        "os": "darwin",
+        "arch": "arm64"
       },
-      "commit": "ca64bb26b892e68b37e8edcdcc7d8fb9021c91e1",
-      "command": "rightkit cargo test -p rightkit-db --no-fail-fast -- --test-threads=1 (tools/rightkit, win native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T10:18:04.090780Z",
-      "passed": 17,
-      "failed": 0
-    },
-    {
-      "host": {
-        "os": "darwin"
-      },
-      "commit": "ca64bb26b892e68b37e8edcdcc7d8fb9021c91e1",
-      "command": "rightkit cargo test -p rightkit-db --no-fail-fast -- --test-threads=1 (tools/rightkit, mac native)",
-      "operator": "claude-opus-5.5 (RightKit Windows qualification) for adrdsouza",
-      "timestamp": "2026-10-07T10:21:04.304160Z",
-      "passed": 17,
+      "commit": "25b724d88a1a58ee573fe3539b06ecad92133ec7",
+      "command": "right-release publish cargo --crate rightkit-db --dry-run (secret scan, fmt, tests, clippy, package, registry dry-run)",
+      "features": [
+        "default"
+      ],
+      "operator": "claude-opus-5.5 (RightKit lead) for adrdsouza",
+      "timestamp": "2026-10-08T01:42:04Z",
+      "passed": 28,
       "failed": 0
     }
   ]

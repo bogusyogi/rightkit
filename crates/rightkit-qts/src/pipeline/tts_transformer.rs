@@ -171,6 +171,44 @@ pub struct VocoderChunk {
     pub n_frames: usize,
 }
 
+/// Debug capture contains generated frames only, in frame/codebook order.
+struct CodecCodeDump {
+    path: Option<std::path::PathBuf>,
+    frames: Vec<Vec<i32>>,
+}
+
+impl CodecCodeDump {
+    fn from_env() -> Result<Self, Qwen3TtsError> {
+        Self::new(std::env::var_os("RIGHTKIT_QTS_DUMP_CODES").map(Into::into))
+    }
+
+    fn new(path: Option<std::path::PathBuf>) -> Result<Self, Qwen3TtsError> {
+        let dump = Self {
+            path,
+            frames: Vec::new(),
+        };
+        dump.write()?;
+        Ok(dump)
+    }
+
+    fn record(&mut self, codes: &[i32]) -> Result<(), Qwen3TtsError> {
+        if self.path.is_some() && self.frames.len() < 32 {
+            self.frames.push(codes.to_vec());
+            // Persist immediately so a later generation failure retains its prefix.
+            self.write()?;
+        }
+        Ok(())
+    }
+
+    fn write(&self) -> Result<(), Qwen3TtsError> {
+        if let Some(path) = &self.path {
+            // Vec<Vec<i32>> Debug syntax is a JSON array of integer arrays.
+            std::fs::write(path, format!("{:?}\n", self.frames))?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 struct StepForwardOutputs {
     hidden_state: Vec<f32>,
@@ -197,6 +235,26 @@ struct KvWritebackTensorDownloads {
 }
 
 impl TtsTransformer {
+    fn retain_projected_predictor_hidden(&self, hidden: *mut sys::ggml_tensor) {
+        #[cfg(test)]
+        if std::env::var_os("QTS_REPLAY_RECYCLE_HIDDEN").is_some() {
+            return;
+        }
+        if self.code_pred.projection.is_some() {
+            // The 1.7B predictor consumes this download after graph execution.
+            // A graph root alone does not prevent gallocr from recycling it
+            // after the codec head reads it. Preserve legacy 0.6B allocation.
+            unsafe { sys::ggml_set_output(hidden) };
+        }
+    }
+
+    fn mask_early_projected_eos(&self, logits: &mut [f32], generated_frames: usize) {
+        // Official generate uses min_new_tokens=2. Keep legacy Base sampling.
+        if self.code_pred.projection.is_some() && generated_frames < 2 {
+            logits[self.config.codec_eos_id as usize] = f32::NEG_INFINITY;
+        }
+    }
+
     fn recent_codebook0_tokens_from_frames(frames: &[SelectedCodecFrame]) -> Vec<i32> {
         frames.iter().map(|frame| frame.codebook_0_token).collect()
     }
@@ -477,6 +535,24 @@ impl TtsTransformer {
         conditioning: PrefillConditioning<'_>,
         thread_count: usize,
     ) -> Result<PreparedPrefillInputs, Qwen3TtsError> {
+        self.build_prefill_inputs_with_text_mode(conditioning, thread_count, false)
+    }
+
+    /// Match the official CustomVoice/VoiceDesign wrappers' non-streaming text mode.
+    pub(crate) fn build_non_streaming_prefill_inputs(
+        &self,
+        conditioning: PrefillConditioning<'_>,
+        thread_count: usize,
+    ) -> Result<PreparedPrefillInputs, Qwen3TtsError> {
+        self.build_prefill_inputs_with_text_mode(conditioning, thread_count, true)
+    }
+
+    fn build_prefill_inputs_with_text_mode(
+        &self,
+        conditioning: PrefillConditioning<'_>,
+        thread_count: usize,
+        non_streaming_mode: bool,
+    ) -> Result<PreparedPrefillInputs, Qwen3TtsError> {
         let text_tokens = conditioning.text_tokens;
         let speaker_embd = conditioning.speaker_embd;
         let ref_codebook_0 = conditioning.ref_codebook_0;
@@ -595,6 +671,40 @@ impl TtsTransformer {
         let first_text_embed = &text_proj[3 * hidden_size..4 * hidden_size];
         let codec_bos_embed = &codec_input_embedding
             [(codec_input_len - 1) * hidden_size..codec_input_len * hidden_size];
+        if non_streaming_mode {
+            if text_tokens.len() < 9 {
+                return Err(Qwen3TtsError::InvalidInput(
+                    "non-streaming text prompt must contain at least one text token".into(),
+                ));
+            }
+            // input_id[:, 3:-5] + TTS EOS, each overlaid on codec PAD;
+            // then TTS PAD + codec BOS. No text is injected into later frames.
+            let codec_pad_embed = &codec_tail_embed[..hidden_size];
+            let content = &text_proj[3 * hidden_size..(text_tokens.len() - 5) * hidden_size];
+            let mut prefill_embd = role_embed;
+            prefill_embd.extend_from_slice(&codec_plus_overlay);
+            for row in content
+                .chunks_exact(hidden_size)
+                .chain(std::iter::once(tts_eos_embed.as_slice()))
+            {
+                prefill_embd.extend(
+                    row.iter()
+                        .zip(codec_pad_embed)
+                        .map(|(text, codec)| text + codec),
+                );
+            }
+            prefill_embd.extend(
+                tts_pad_embed
+                    .iter()
+                    .zip(codec_bos_embed)
+                    .map(|(text, codec)| text + codec),
+            );
+            return Ok(PreparedPrefillInputs {
+                prefill_embd,
+                trailing_text_hidden: tts_pad_embed.clone(),
+                tts_pad_embed,
+            });
+        }
         let mut first_text_plus_codec_bos = vec![0.0f32; hidden_size];
         for h in 0..hidden_size {
             first_text_plus_codec_bos[h] = first_text_embed[h] + codec_bos_embed[h];
@@ -990,6 +1100,7 @@ impl TtsTransformer {
             )
         };
         hidden_states = unsafe { sys::ggml_cont(ctx.as_ptr(), hidden_states) };
+        self.retain_projected_predictor_hidden(hidden_states);
         let mut logits = unsafe {
             sys::ggml_mul_mat(ctx.as_ptr(), self.talker.codec_head.as_ptr(), hidden_states)
         };
@@ -1075,6 +1186,7 @@ impl TtsTransformer {
                 *logit = f32::NEG_INFINITY;
             }
         }
+        self.mask_early_projected_eos(&mut logits, recent_tokens.len());
         let codebook_0_token = select_token(
             &logits,
             repetition_penalty,
@@ -1199,6 +1311,18 @@ impl TtsTransformer {
                 thread_count,
                 cache,
             )?;
+            if generation_step == 5 && std::env::var_os("RIGHTKIT_QTS_TRACE_CB6").is_some() {
+                let mut ranked = (0..outputs.logits.len()).collect::<Vec<_>>();
+                ranked.sort_by(|&a, &b| outputs.logits[b].total_cmp(&outputs.logits[a]));
+                eprintln!(
+                    "cb6 top2={:?} margin={}",
+                    ranked[..2]
+                        .iter()
+                        .map(|&i| (i, outputs.logits[i]))
+                        .collect::<Vec<_>>(),
+                    outputs.logits[ranked[0]] - outputs.logits[ranked[1]],
+                );
+            }
             codebook_tokens.push(select_token(
                 &outputs.logits,
                 1.0,
@@ -1281,6 +1405,7 @@ impl TtsTransformer {
         top_k: i32,
         top_p: f32,
     ) -> Result<CodecRollout, Qwen3TtsError> {
+        let mut code_dump = CodecCodeDump::from_env()?;
         if max_frames == 0 {
             return Ok(CodecRollout {
                 frames: Vec::new(),
@@ -1339,6 +1464,7 @@ impl TtsTransformer {
                 logits: Vec::new(),
             })
             .collect::<Vec<_>>();
+        code_dump.record(&first.codebook_tokens)?;
         frames.push(first);
         let first_frame_elapsed = t_rollout_start.elapsed();
         let mut history_embd = prefill_embd.to_vec();
@@ -1397,6 +1523,7 @@ impl TtsTransformer {
                 break;
             }
             history_embd = next_history;
+            code_dump.record(&next_frame.codebook_tokens)?;
             frames.push(next_frame);
         }
 
@@ -1422,6 +1549,7 @@ impl TtsTransformer {
         top_k: i32,
         top_p: f32,
     ) -> Result<CodecRollout, Qwen3TtsError> {
+        let mut code_dump = CodecCodeDump::from_env()?;
         if max_frames == 0 {
             return Ok(CodecRollout {
                 frames: Vec::new(),
@@ -1478,6 +1606,7 @@ impl TtsTransformer {
             }
         }
         let prompt_recent_tokens = Self::recent_codebook0_tokens_from_prompt(prompt_frames);
+        self.mask_early_projected_eos(&mut logits, 0);
         let first_codebook_0 = select_token(
             &logits,
             repetition_penalty,
@@ -1528,6 +1657,7 @@ impl TtsTransformer {
                 logits: Vec::new(),
             })
             .collect::<Vec<_>>();
+        code_dump.record(&first_codes)?;
         frames.push(SelectedCodecFrame {
             codebook_0_token: first_codebook_0,
             codebook_tokens: first_codes,
@@ -1578,6 +1708,7 @@ impl TtsTransformer {
                     *logit = f32::NEG_INFINITY;
                 }
             }
+            self.mask_early_projected_eos(&mut logits, generated_frames);
             let codebook_0_token = select_token(
                 &logits,
                 repetition_penalty,
@@ -1601,6 +1732,7 @@ impl TtsTransformer {
             )?;
             code_pred_dur += t_cp.elapsed();
 
+            code_dump.record(&codebook_tokens)?;
             frames.push(SelectedCodecFrame {
                 codebook_0_token,
                 codebook_tokens,
@@ -1645,6 +1777,7 @@ impl TtsTransformer {
         chunk_size: usize,
         chunk_tx: &std::sync::mpsc::SyncSender<VocoderChunk>,
     ) -> Result<CodecRollout, Qwen3TtsError> {
+        let mut code_dump = CodecCodeDump::from_env()?;
         if max_frames == 0 {
             return Ok(CodecRollout {
                 frames: Vec::new(),
@@ -1701,6 +1834,7 @@ impl TtsTransformer {
             }
         }
         let prompt_recent_tokens = Self::recent_codebook0_tokens_from_prompt(prompt_frames);
+        self.mask_early_projected_eos(&mut logits, 0);
         let first_codebook_0 = select_token(
             &logits,
             repetition_penalty,
@@ -1751,6 +1885,7 @@ impl TtsTransformer {
                 logits: Vec::new(),
             })
             .collect::<Vec<_>>();
+        code_dump.record(&first_codes)?;
         frames.push(SelectedCodecFrame {
             codebook_0_token: first_codebook_0,
             codebook_tokens: first_codes,
@@ -1823,6 +1958,7 @@ impl TtsTransformer {
                     *logit = f32::NEG_INFINITY;
                 }
             }
+            self.mask_early_projected_eos(&mut logits, generated_frames);
             let codebook_0_token = select_token(
                 &logits,
                 repetition_penalty,
@@ -1846,6 +1982,7 @@ impl TtsTransformer {
             )?;
             code_pred_dur += t_cp.elapsed();
 
+            code_dump.record(&codebook_tokens)?;
             frames.push(SelectedCodecFrame {
                 codebook_0_token,
                 codebook_tokens,
@@ -3368,6 +3505,7 @@ impl TtsTransformer {
             )
         };
         let last_hidden = unsafe { sys::ggml_cont(ctx.as_ptr(), last_hidden) };
+        self.retain_projected_predictor_hidden(last_hidden);
         let mut logits = unsafe {
             sys::ggml_mul_mat(ctx.as_ptr(), self.talker.codec_head.as_ptr(), last_hidden)
         };
@@ -3771,6 +3909,7 @@ impl TtsTransformer {
         hidden_state =
             unsafe { sys::ggml_mul(ctx.as_ptr(), hidden_state, self.talker.output_norm.as_ptr()) };
         hidden_state = unsafe { sys::ggml_cont(ctx.as_ptr(), hidden_state) };
+        self.retain_projected_predictor_hidden(hidden_state);
         let mut logits = unsafe {
             sys::ggml_mul_mat(ctx.as_ptr(), self.talker.codec_head.as_ptr(), hidden_state)
         };
@@ -5383,6 +5522,259 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires QTS_REPLAY_TALKER, QTS_REPLAY_PREDICTOR, QTS_REPLAY_HIDDEN, QTS_REPLAY_CB0"]
+    fn replay_predictor_from_reference_hidden() {
+        let talker = GgufFile::open(std::env::var("QTS_REPLAY_TALKER").unwrap()).unwrap();
+        let predictor = GgufFile::open(std::env::var("QTS_REPLAY_PREDICTOR").unwrap()).unwrap();
+        let model = TtsTransformer::load_from_ggufs(&talker, &predictor).unwrap();
+        let raw = std::fs::read(std::env::var("QTS_REPLAY_HIDDEN").unwrap()).unwrap();
+        assert_eq!(raw.len(), model.config.hidden_size as usize * 4);
+        let hidden = raw
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|bytes| f32::from_le_bytes(*bytes))
+            .collect::<Vec<_>>();
+        let cb0 = std::env::var("QTS_REPLAY_CB0").unwrap().parse().unwrap();
+        let cache = CodePredKvCache::new(
+            &model.code_pred_config,
+            model.config.n_codebooks as usize,
+            model.code_pred._backends.clone(),
+        )
+        .unwrap();
+        let mut previous = Vec::new();
+        for step in 0..model.code_pred.heads.len() {
+            let cached = if step == 0 {
+                model
+                    .forward_code_pred_prefill_cached(&hidden, cb0, 1, &cache)
+                    .unwrap()
+                    .logits
+            } else {
+                model
+                    .forward_code_pred_step_cached(previous[step - 1], step + 1, step, 1, &cache)
+                    .unwrap()
+                    .logits
+            };
+            let recompute = model
+                .forward_code_pred_sequence_recompute(&hidden, cb0, &previous, 1)
+                .unwrap();
+            let mut top = (0..cached.len()).collect::<Vec<_>>();
+            top.sort_by(|&a, &b| cached[b].total_cmp(&cached[a]));
+            let top5 = top[..5.min(top.len())]
+                .iter()
+                .map(|&i| (i, cached[i]))
+                .collect::<Vec<_>>();
+            let max_error = cached
+                .iter()
+                .zip(&recompute)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            println!(
+                "step={step} top5={top5:?} top2_margin={} cached_recompute_max_error={max_error}",
+                cached[top[0]] - cached[top[1]],
+            );
+            assert!(
+                max_error.is_finite() && max_error < 0.1,
+                "step {step}: {max_error}"
+            );
+            previous.push(top[0] as i32);
+        }
+        println!(
+            "codes={:?}",
+            std::iter::once(cb0).chain(previous).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    #[ignore = "requires QTS_REPLAY_TALKER, QTS_REPLAY_PREDICTOR, QTS_REPLAY_PREFIX"]
+    fn replay_talker_from_reference_inputs() {
+        fn read_f32(path: String) -> Vec<f32> {
+            let bytes = std::fs::read(path).unwrap();
+            assert!(bytes.len().is_multiple_of(4));
+            bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
+                .collect()
+        }
+        let talker = GgufFile::open(std::env::var("QTS_REPLAY_TALKER").unwrap()).unwrap();
+        let predictor = GgufFile::open(std::env::var("QTS_REPLAY_PREDICTOR").unwrap()).unwrap();
+        let model = TtsTransformer::load_from_ggufs(&talker, &predictor).unwrap();
+        let prefix = std::env::var("QTS_REPLAY_PREFIX").unwrap();
+        let inputs = read_f32(format!("{prefix}-inputs.f32"));
+        let expected = read_f32(format!("{prefix}-logits.f32"));
+        let expected_hidden = read_f32(format!("{prefix}-hidden.f32"));
+        let hidden = model.config.hidden_size as usize;
+        let vocab = model.config.codec_vocab_size as usize;
+        assert!(inputs.len().is_multiple_of(hidden));
+        assert!(expected.len().is_multiple_of(vocab));
+        let steps = expected.len() / vocab;
+        assert!(steps > 0 && inputs.len() / hidden >= steps);
+        assert_eq!(expected_hidden.len(), steps * hidden);
+        let prefill_len = inputs.len() / hidden - steps + 1;
+        let cache = TalkerKvCache::new(
+            &model.config,
+            inputs.len() / hidden + 16,
+            model.talker._backends.clone(),
+            TalkerKvMode::F16,
+        )
+        .unwrap();
+        let mut logits_dump = Vec::new();
+        let mut hidden_dump = Vec::new();
+        for step in 0..steps {
+            let end = (prefill_len + step) * hidden;
+            let out = if step == 0 {
+                model
+                    .forward_prefill_cached(&inputs[..end], 4, &cache)
+                    .unwrap()
+            } else {
+                model
+                    .forward_step_cached(
+                        &inputs[end - hidden..end],
+                        prefill_len + step - 1,
+                        4,
+                        &cache,
+                    )
+                    .unwrap()
+            };
+            let reference = &expected[step * vocab..(step + 1) * vocab];
+            let rms = (out
+                .logits
+                .iter()
+                .zip(reference)
+                .map(|(a, b)| (a - b).powi(2))
+                .sum::<f32>()
+                / vocab as f32)
+                .sqrt();
+            let hidden_rms = (out
+                .hidden_state
+                .iter()
+                .zip(&expected_hidden[step * hidden..(step + 1) * hidden])
+                .map(|(a, b)| (a - b).powi(2))
+                .sum::<f32>()
+                / hidden as f32)
+                .sqrt();
+            let mut top = (0..vocab).collect::<Vec<_>>();
+            top.sort_by(|&a, &b| out.logits[b].total_cmp(&out.logits[a]));
+            println!("step={step} top2={:?} margin={} eos={} reference_eos={} reference_rms={rms} hidden_rms={hidden_rms}",
+                top[..2].iter().map(|&i| (i, out.logits[i])).collect::<Vec<_>>(),
+                out.logits[top[0]] - out.logits[top[1]],
+                out.logits[model.config.codec_eos_id as usize],
+                reference[model.config.codec_eos_id as usize],
+            );
+            if step < 2 {
+                let full = model.forward_prefill(&inputs[..end], 4).unwrap();
+                let recompute = &full.logits[full.logits.len() - vocab..];
+                let error = out
+                    .logits
+                    .iter()
+                    .zip(recompute)
+                    .map(|(a, b)| (a - b).abs())
+                    .fold(0.0f32, f32::max);
+                println!("step={step} cached_recompute_max_error={error}");
+            }
+            logits_dump.extend(out.logits);
+            hidden_dump.extend(out.hidden_state);
+        }
+        std::fs::write(
+            format!("{prefix}-ours-logits.f32"),
+            slice_as_bytes(&logits_dump),
+        )
+        .unwrap();
+        std::fs::write(
+            format!("{prefix}-ours-hidden.f32"),
+            slice_as_bytes(&hidden_dump),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn projected_talker_masks_eos_for_only_first_two_generated_tokens() {
+        for projection in [false, true] {
+            let fixture = tiny_model(if projection { 2 } else { 4 }, projection);
+            let file = GgufFile::open(&fixture.0).unwrap();
+            let mut model = TtsTransformer::load_from_gguf(&file).unwrap();
+            model.config.codec_eos_id = 5;
+            for generated in 0..4 {
+                let mut logits = [0.0f32; 6];
+                logits[5] = 10.0;
+                model.mask_early_projected_eos(&mut logits, generated);
+                assert_eq!(
+                    logits[5],
+                    if projection && generated < 2 {
+                        f32::NEG_INFINITY
+                    } else {
+                        10.0
+                    },
+                );
+                assert_eq!(&logits[..5], &[0.0; 5]);
+            }
+        }
+    }
+
+    #[test]
+    fn projected_talker_hidden_survives_codec_head_allocation() {
+        let fixture = tiny_model(2, true);
+        let file = GgufFile::open(&fixture.0).unwrap();
+        let mut model = TtsTransformer::load_from_gguf(&file).unwrap();
+        // A zero-weight layer exercises positions and KV writes without changing
+        // the residual. The hidden download must equal RMSNorm(input),
+        // independently of codec-head values and graph allocation reuse.
+        let zero = model.talker.text_proj_fc1;
+        unsafe {
+            sys::ggml_backend_tensor_set(zero.as_ptr(), [0.0f32; 16].as_ptr().cast(), 0, 64);
+        }
+        let norm = model.talker.output_norm;
+        model.config.n_layers = 1;
+        model.talker.layers.push(TalkerLayerWeights {
+            attn_norm: norm,
+            attn_q_norm: None,
+            attn_k_norm: None,
+            attn_q: zero,
+            attn_k: zero,
+            attn_v: zero,
+            attn_output: zero,
+            ffn_norm: norm,
+            ffn_gate: zero,
+            ffn_up: zero,
+            ffn_down: zero,
+            ffn_down_f32: None,
+        });
+        let input = [0.2f32, -0.3, 0.4, -0.5];
+        let scale = (input.iter().map(|x| x * x).sum::<f32>() / 4.0 + model.config.rms_norm_eps)
+            .sqrt()
+            .recip();
+        let expected = input.map(|x| x * scale);
+        let cache = TalkerKvCache::new(
+            &model.config,
+            16,
+            model.talker._backends.clone(),
+            TalkerKvMode::F16,
+        )
+        .unwrap();
+        let check = |actual: &[f32]| {
+            assert_eq!(actual.len(), expected.len());
+            for (a, b) in actual.iter().zip(expected) {
+                assert!((a - b).abs() < 1e-5, "hidden overwritten: {actual:?}");
+            }
+        };
+        check(&model.forward_prefill(&input, 1).unwrap().hidden_states);
+        check(
+            &model
+                .forward_prefill_cached(&input, 1, &cache)
+                .unwrap()
+                .hidden_state,
+        );
+        check(
+            &model
+                .forward_step_cached(&input, 1, 1, &cache)
+                .unwrap()
+                .hidden_state,
+        );
+    }
+
+    #[test]
     fn predictor_cached_and_recompute_match_with_split_or_equal_widths() {
         for (width, projection) in [(2, true), (4, false)] {
             let fixture = tiny_model(width, projection);
@@ -5516,6 +5908,101 @@ mod tests {
         assert_eq!(model.preset_language_id(PresetSpeaker::Ryan, -1), 3);
         assert_eq!(model.preset_language_id(PresetSpeaker::Ryan, 2), 3);
         assert_eq!(model.preset_language_id(PresetSpeaker::Ryan, 1), 1);
+    }
+
+    #[test]
+    fn codec_dump_keeps_first_32_complete_frames_and_survives_later_failure() {
+        let fixture = tiny_model(4, false);
+        let path = fixture.0.with_extension("codes.json");
+        std::fs::write(&path, "stale capture").unwrap();
+        let mut dump = CodecCodeDump::new(Some(path.clone())).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "[]\n");
+        for frame in 0..32 {
+            let codes = (0..16).map(|cb| frame * 100 + cb).collect::<Vec<i32>>();
+            dump.record(&codes).unwrap();
+        }
+        assert_eq!(dump.frames.len(), 32);
+        assert_eq!(dump.frames[0], (0..16).collect::<Vec<i32>>());
+        assert_eq!(dump.frames[31], (3100..3116).collect::<Vec<i32>>());
+        let captured = std::fs::read(&path).unwrap();
+        assert!(captured.starts_with(b"[[0, 1, 2, 3,"));
+        assert!(captured.ends_with(b"3114, 3115]]\n"));
+        dump.record(&[9999; 16]).unwrap();
+        drop(dump); // No finalization is needed to retain a failed rollout's prefix.
+        assert_eq!(std::fs::read(&path).unwrap(), captured);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn codec_dump_disabled_retains_nothing_and_invalid_path_reports_io_error() {
+        let mut dump = CodecCodeDump::new(None).unwrap();
+        dump.record(&[1, 2, 3]).unwrap();
+        assert!(dump.frames.is_empty());
+        let fixture = tiny_model(4, false);
+        // Existing file cannot serve as a parent directory.
+        assert!(matches!(
+            CodecCodeDump::new(Some(fixture.0.join("codes.json"))),
+            Err(Qwen3TtsError::Io(_))
+        ));
+    }
+
+    #[test]
+    fn non_streaming_prefill_contains_full_text_eos_and_padded_codec_bos() {
+        for (width, projection) in [(2, true), (4, false)] {
+            let fixture = tiny_model(width, projection);
+            let file = GgufFile::open(&fixture.0).unwrap();
+            let model = TtsTransformer::load_from_gguf(&file).unwrap();
+            // Distinct text rows detect missing, reordered, or duplicated content/EOS.
+            let text_table = (0..48).map(|i| i as f32 / 10.0).collect::<Vec<_>>();
+            unsafe {
+                sys::ggml_backend_tensor_set(
+                    model.talker.text_embd.as_ptr(),
+                    text_table.as_ptr().cast(),
+                    0,
+                    std::mem::size_of_val(text_table.as_slice()),
+                );
+            }
+            let text_tokens = [1, 3, 4, 5, 6, 7, 8, 9, 10, 2, 4];
+            let speaker = model
+                .preset_speaker_embedding(PresetSpeaker::Vivian, 1)
+                .unwrap();
+            for speaker_embd in [None, Some(speaker.as_slice())] {
+                let conditioning = PrefillConditioning {
+                    text_tokens: &text_tokens,
+                    speaker_embd,
+                    ref_codebook_0: &[],
+                    language_id: 1,
+                };
+                let incremental = model.build_prefill_inputs(conditioning, 1).unwrap();
+                let full = model
+                    .build_non_streaming_prefill_inputs(conditioning, 1)
+                    .unwrap();
+                let prefix_len = incremental.prefill_embd.len() - 4;
+                let codec_tail = model.lookup_codec_embedding_rows(&[0, 1], 1).unwrap();
+                // Explicit upstream layout: content tokens, TTS EOS, then TTS PAD + codec BOS.
+                let projected = model.project_text_tokens(&[5, 6, 7, 1, 2], 1).unwrap();
+                let mut expected = incremental.prefill_embd[..prefix_len].to_vec();
+                for row in projected[..16].as_chunks::<4>().0 {
+                    expected.extend(row.iter().zip(&codec_tail[..4]).map(|(a, b)| a + b));
+                }
+                expected.extend(
+                    projected[16..]
+                        .iter()
+                        .zip(&codec_tail[4..])
+                        .map(|(a, b)| a + b),
+                );
+                assert_eq!(full.prefill_embd, expected);
+                assert_eq!(full.trailing_text_hidden, full.tts_pad_embed);
+                assert_eq!(full.tts_pad_embed, incremental.tts_pad_embed);
+                assert_eq!(incremental.trailing_text_hidden, projected[4..16]);
+                let mut with_instruction = full.clone();
+                model
+                    .prepend_instruction(&mut with_instruction, &[1, 7, 4], 1)
+                    .unwrap();
+                assert_eq!(&with_instruction.prefill_embd[12..], full.prefill_embd);
+                assert_eq!(with_instruction.trailing_text_hidden, full.tts_pad_embed);
+            }
+        }
     }
 
     #[test]

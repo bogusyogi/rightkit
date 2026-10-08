@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1 — 2026-10-08
+
+- Fix 1.7B CustomVoice/VoiceDesign noise and runaway generation: mode synthesis
+  now prefills the full text (non-streaming, as the official runtime does); the
+  talker hidden state is marked as a graph output so GGML no longer reuses its
+  buffer before download; projected models suppress EOS for the first two frames.
+  0.6B Base output is unchanged (fingerprint 7701ed0f55fd8d71).
+- Add `RIGHTKIT_QTS_DUMP_CODES` (first 32 codec frames) and `RIGHTKIT_QTS_TRACE_CB6`
+  diagnostics; `mode_synth` example honours `QTS_GREEDY`.
+
 ## 0.2.0 — 2026-10-08
 
 - Add independent talker/predictor configuration & optional

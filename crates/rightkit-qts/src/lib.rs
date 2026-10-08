@@ -295,7 +295,7 @@ impl Qwen3TtsEngine {
         )?;
         let tokenize = start.elapsed();
         let start = Instant::now();
-        let mut prepared_inputs = self.transformer.build_prefill_inputs(
+        let mut prepared_inputs = self.transformer.build_non_streaming_prefill_inputs(
             PrefillConditioning {
                 text_tokens: &text_tokens,
                 speaker_embd: speaker.as_deref(),
